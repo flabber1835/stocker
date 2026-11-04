@@ -52,7 +52,11 @@ Generic required warnings must keep their fail-closed behavior. Both the pure
 model and observer decoder require the exact reconciliation key, amber status,
 required-current flag, original UTC timestamp and a later finite UTC expiry,
 with no recovery override. Missing/malformed evidence or reaching the expiry
-turns this fact red. This tag never grants financial or green display authority.
+turns this fact red. This tag never grants financial authority or green display authority by itself.
+The November4 human-health decision in dashboard-resilience-and-health.md combines
+it with separately dated current capabilities and exact completed intent before
+treating the historical audit as informational for human health. The raw amber
+financial verdict and every original expiry remain unchanged.
 
 Qualify successful completed-history projection, ordinary-mode refusal,
 wrong/current-failed/uncertain/stale account/authority/plan/publication cases,

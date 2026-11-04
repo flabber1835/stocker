@@ -237,7 +237,51 @@ def _scheduled_work_normal(panel) -> bool:
     return True
 
 
+def _completed_work_normal(panel) -> bool:
+    """Combine the authenticated completed-history fact with current capabilities.
+
+    The producer proves plan/generation/publication identity and clean durable
+    reconciliation. This projection never verifies or modifies the audit itself.
+    """
+    if (not panel.local_paper_mode or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)):
+        return False
+    history, recorded = panel.row('paper_reconciliation'), panel.row('trading_run')
+    if (history is None or history.paper_alignment != 'COMPLETED_WITH_HISTORY'
+            or history.effective_status(panel.now) != 'warn'
+            or not _aware(history.as_of) or history.recovery is not None
+            or recorded is None or not _current_health_fact(panel, 'trading_run')
+            or not recorded.can_show_trading_run(panel.now)):
+        return False
+    run = recorded.trading_run
+    if (run.state != 'SUCCEEDED' or not _aware(run.completed_at)
+            or not run.intent.execute_at <= run.completed_at <= panel.now
+            or run.updated_at != run.completed_at
+            or any(order.state != 'FILLED' for order in run.orders)
+            or any(leg.action == 'UNAVAILABLE' for leg in run.intent.legs)
+            or (not run.orders and any(leg.action != 'HOLD' for leg in run.intent.legs))):
+        return False
+    if (not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
+            or panel.row('automation').value != 'ENABLED · KILL RELEASED'
+            or not panel.row('alpaca_account').can_show_paper_account(panel.now)
+            or not _current_reconciliation_usable(panel)
+            or panel.row('feed').value != str(run.intent.decision_session)+' · 0 sessions behind'
+            or panel.row('shadow_verification').value != 'SHADOW VERIFIED THROUGH '+str(run.intent.decision_session)):
+        return False
+    for key in ('automation_cycle', 'automation_step_complete'):
+        row = panel.row(key)
+        if (not _current_health_fact(panel, key) or row.value != 'SUCCEEDED'
+                or not row.required_current or row.recovery is not None
+                or row.as_of != run.completed_at):
+            return False
+    notifications = panel.row('automation_alerts')
+    return (notifications is not None and notifications.effective_status(panel.now) in {'ok', 'warn'}
+            and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now))
+
+
 def _normal_warning(panel, row: Row) -> bool:
+    if row.key == 'paper_reconciliation' and _completed_work_normal(panel):
+        return True
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
             and _scheduled_work_normal(panel)):
         return True
@@ -296,6 +340,8 @@ def preparation_stage(panel) -> str | None:
     if _scheduled_work_normal(panel):
         return ('Checking paper account' if _paper_check_normal(panel, panel.row('paper_reconciliation'))
                 else 'Waiting for market open')
+    if _completed_work_normal(panel):
+        return 'Today’s trading complete'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
@@ -397,6 +443,10 @@ def dashboard_health(panel) -> dict:
         history = panel.row('paper_reconciliation')
         if history.freshness is not None and _aware(history.as_of):
             boundaries.append(history.as_of+history.freshness)
+    if _completed_work_normal(panel):
+        boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+        boundaries.append(_row_boundary(panel.row('trading_run')))
+        boundaries.append(_row_boundary(panel.row('paper_reconciliation')))
     boundaries = [value for value in boundaries if value is not None]
     work = visible_preparation(panel)
     if work is not None:
@@ -438,16 +488,19 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
                        'references and historical strategy certification.')
     scheduled_paper = key == 'paper_reconciliation' and row.value == (
         'PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING')
-    if key == 'paper_reconciliation' and row.paper_alignment == 'SCHEDULED_WITH_HISTORY':
+    if key == 'paper_reconciliation' and row.paper_alignment in {'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}:
         label = 'Historical paper audit'
+        completed = row.paper_alignment == 'COMPLETED_WITH_HISTORY'
         if status == 'warn':
-            value = 'Earlier-plan discrepancy retained · current plan scheduled'
+            value = ('Earlier-plan discrepancy retained · today’s trading complete' if completed
+                     else 'Earlier-plan discrepancy retained · current plan scheduled')
             explanation = ('An authenticated discrepancy on an earlier transported plan remains '
-                'recorded for audit. It does not by itself describe a current scheduling failure. '
-                'PAPER performance remains unverified; future execution still runs its fresh '
+                'recorded for audit. It does not by itself describe a current trading failure. '
+                'PAPER performance and post-close verification remain unverified; future execution still runs its fresh '
                 'account, restriction and reconciliation checks. '+row.detail)
         else:
-            value = 'Current scheduled proof cannot be confirmed'
+            value = ('Current completed-trade proof cannot be confirmed' if completed
+                     else 'Current scheduled proof cannot be confirmed')
             explanation = ('The historical record remains retained, but its current scheduling '
                 'proof is unavailable or expired. Current checks need attention. '+row.detail)
     if scheduled_paper:

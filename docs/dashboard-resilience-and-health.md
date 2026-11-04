@@ -460,3 +460,39 @@ neither green nor execution authority and cannot extend the original deadline.
 Historical mirror verification and the durable review interval retain their
 existing amber requirements. Existing false incidents stay in immutable history;
 they are not silently erased or automatically acknowledged by this repair.
+
+
+### Completed-day historical PAPER audits (November 4)
+
+The existing producer already authenticates COMPLETED_WITH_HISTORY only after
+proving the exact current day's clean completed plan, original sizing/fingerprint,
+publication, account binding, current authority/leader and zero unresolved outcomes.
+It retains the earlier informational mirror discrepancy and the current plan's
+pending post-close stamp. The verifier is completing these observations normally.
+Human health incorrectly recognizes the historical-audit scheduled state only
+before execution; a positive completion is then mistaken for a new material
+trading warning. Periodic owned checks hide that classification temporarily,
+causing repeated REVIEW/RECOVERED changes and unstable ACK eligibility.
+
+Extend only the human current-health projection for this existing typed completed
+state. Keep the financial row amber/NOT_VERIFIED, the historical discrepancy,
+original trial verdicts, immutable events and machine overall/operational status.
+The tag alone is insufficient. Require local PAPER, a unique row set, no source
+errors, fresh dated independent current capability rows, enabled/non-killed
+control, current leader, authority, complete broker/account proof and the same
+accepted closed-session feed/shadow context as the completed intent. Require the
+canonical current trading_run for today, SUCCEEDED, original completion time,
+all recorded commands FILLED (or no commands for a genuine no-change plan), and
+current SUCCEEDED cycle/completion-step rows dated at the exact same completion.
+An unfilled, UNKNOWN, cancelled, rejected, superseded, foreign-date or stale
+current fact never acquires this allowance. Do not substitute an older-generation
+completed_trading_run for a current cycle in this narrowly scoped repair.
+
+Label the human card today's trading complete and keep the historical audit
+visible in System details with explicit post-close verification caveats. It may
+become green only through the existing explicit exact-view acknowledgement and
+only while all current guards continue to pass. Bound human freshness by the
+minimum original historical-row, completed-run, account, source and leader clocks;
+never retime or extend any proof. Keep ordinary queued-check behavior and the
+canonical verifier/owner/scheduler unchanged. No broker/provider calls, manual
+verification, financial rewrite, automatic ACK or green override is introduced.
