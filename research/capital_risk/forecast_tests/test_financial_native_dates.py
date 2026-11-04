@@ -81,12 +81,21 @@ def test_original_query_cannot_silently_enable_inventory_without_version_change(
 
 
 @pytest.mark.parametrize('arm,days',[('P03',169),('P11',1111)])
-def test_current_scopes_use_exact_own_admitted_roots_and_actual_empty_positions(arm,days):
-    scope=f.WITNESS_SCOPES[arm];root=p.root_spec(arm)
+def test_inventory_scopes_use_exact_own_admitted_roots_and_actual_empty_positions(arm,days):
+    scope=f.NATIVE_INVENTORY_WITNESS_SCOPES[arm];root=p.root_spec(arm)
     assert root['measured_closes']==days and root['outer_sha256']==scope['parent_outer_sha256']
     assert root['selected_session']==scope['parent_cursor'] and scope['terms'][0]['parent_positions']==[]
     assert f.source_schema(scope)==f.SOURCE_WITNESS_DATE_QUERY_SCHEMA
     assert scope==f.registered_scope(f.digest(scope))
+
+
+@pytest.mark.parametrize('arm,day,native',[('P03','2018-09-25','2018-09-26'),('P11','2022-06-24','2022-06-27')])
+def test_resolved_scopes_keep_strict_pre_native_rows_and_known_hashes(arm,day,native):
+    scope=f.WITNESS_SCOPES[arm];term,=scope['terms'];root=p.root_spec(arm)
+    assert scope==f.RESOLVED_NATIVE_WITNESS_SCOPES[arm]==f.registered_scope(f.digest(scope))
+    assert scope['parent_outer_sha256']==root['outer_sha256'] and scope['parent_cursor']==root['selected_session']
+    assert term['session']==day<native==term['native_session'] and len(term['native_term_sha256'])==64
+    assert term['parent_positions']==[] and f.source_schema(scope)==f.SOURCE_WITNESS_SCHEMA
 
 
 def test_query_scope_guard_removal_accepts_an_undeclared_lookup():

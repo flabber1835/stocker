@@ -789,3 +789,11 @@ phase. Keep P05's own starting state and inherited future repairs. This supplies
 the missing MDCO85 and ARQL20 inputs through the existing canonical parser,
 zero-value adoption and actual cash checks; it does not reuse P07 financial
 state, results or continuation authority.
+
+The inventories resolved NLST's September 26 native and TVTY's June 27 native.
+Use exact resolved queries in the existing ordinary source protocol, retaining
+the inventory captures as evidence. NLST uses its September 25 row; TVTY uses
+June 24, the prior exchange session, so the existing strict pre-native identity
+rule remains intact. These captures bind the known native hashes to each own
+admitted parent and its actual empty position role. Independent source DATA and
+separately declared economic assumptions still precede financial adoption.
