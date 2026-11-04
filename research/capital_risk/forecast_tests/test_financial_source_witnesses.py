@@ -369,7 +369,7 @@ def test_p11_edr_query_uses_new169_root_and_one_actual_share():
 
 
 def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):
-    scope=f.WITNESS_SCOPES['P07'];root=m.root_spec('P07');term,=scope['terms']
+    scope=f.WITNESS_SCOPES['P07'];root=m.root_spec('P07','2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543');term,=scope['terms']
     assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P07'])
     assert root['measured_closes']==628 and root['selected_session']==scope['parent_cursor']=='2020-06-30'
     assert root['outer_sha256']==scope['parent_outer_sha256']

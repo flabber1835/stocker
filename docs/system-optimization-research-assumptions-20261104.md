@@ -286,3 +286,28 @@ and registry selection changed. Thirteen-term generationddfb2f16b73dae3b retains
 the exact twelve-term a312304df09aa19f and every older generation. P11 uses its
 own169 admission33320498ba5db684; the original V10 source and keep10 acceleration
 remain unchanged.
+
+P07's saved756/December31,2020 prefix passed independent DATA:128 new days,
+256 accounting snapshots,6 reports,168 Decimal metrics and128 new uncertainty
+certificates after174 previously admitted certificates. The original independent
+induction predicates remain unchanged;35 new-suffix/cash guard cases passed
+in10.98s. LM's actual49 shares produced2450USD under the already disclosed50USD
+July31 recognition model. Admit only this own756 checkpoint, preserving628 as
+history; the January4 certificate/tails and January5 enclosure refusal remain
+excluded. Full validation/scoring remain false.
+
+P05's corrected run saved211/October31,2018, adding190 committed days. Its earlier
+duplicate repair defect is past; it now refuses the incomplete KS native on
+November2. The unchanged FollowupFacts catalog already supplies KS35USD with
+November5 next-session recognition. First select the exact211 checkpoint for
+hosted reporting from its admitted21 seed:9 new reports. No November tail or
+diagnostic state is imported. After independent DATA/admission, select that
+existing original cash fact through the shared ordinary-input mechanism; no
+new settlement study or per-symbol wrapper is needed.
+
+Root/reporting qualification:222 cases passed with one historical628 fixture
+still selecting the current root; that fixture now explicitly selects its old
+admission. The corrected historical case, new actual302-certificate seed and
+new756 root case all passed together (3 passed in3.65s). The actual P05 public
+ZIP and independently admitted21 reporting seed passed metadata validation.
+No closed certificate induction or canonical financial runtime was re-executed.

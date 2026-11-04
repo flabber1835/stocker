@@ -26,6 +26,14 @@ def test_exact_qualified_503_root_and_original_branch_source_are_accepted():
     assert len(u.retained_contract(cp,spec))==6 and (cp,spec)==before
 
 
+def test_own756_root_registers_all302_certificates_and_preserves628_history():
+    spec=p.root_spec('P07')
+    cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],source_cursor=spec['selected_session'],base=deepcopy(spec['base']))
+    assert cp['completed']==756 and len(u.retained_contract(cp,spec))==6
+    assert u.RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]==dict(completed=756,source_cursor='2020-12-31',rows=302,new_rows=128,retained_rows=174)
+    assert p.root_spec('P07',spec['root_admission']['parent_root_admission_sha256'])['measured_closes']==628
+
+
 def test_new_543_admission_has_its_separately_registered_89_row_seed():
     spec=p.root_spec('P07','46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d')
     cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],
@@ -79,12 +87,21 @@ def test_actual_current565_admission_retains111_committed_rows_without_replaying
     assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
 
-def test_actual_current628_admission_retains174_committed_rows_without_old_replay():
+def test_actual_historical628_admission_retains174_committed_rows_without_old_replay():
     old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-042/capture-P07-13318715488-001/verified-output')
     if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
     old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
-    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543'))
     assert len(hashes)==6 and len(rows)==174 and rows[-1]['session']=='2020-06-30'
+    assert json.loads(raw)['historical_financial_sessions_advanced']==0
+
+
+def test_actual_current756_admission_retains_only302_committed_certificates():
+    old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-098/capture-P07-13335581618-001/verified-output')
+    if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
+    old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    assert len(hashes)==6 and len(rows)==302 and rows[-1]['session']=='2020-12-31'
     assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
 
