@@ -993,3 +993,13 @@ authority. Preserve version1 source behavior and closed payload identities.
 The next request selects only P00 source capture while P10's immutable fef630221
 financial run continues. ILG pending completion and stock/CIL qualification are
 separate later work through the existing shared future selector.
+
+The first P00 source attempt41806589877 stopped during parent admission before
+a worker started. Metadata-only reproduction identified an identity-boundary
+error: the fresh-target pin hashed the extended root spec, including its two
+separate authority fields, instead of the unchanged transport descriptor. Validate
+the exact root admission first, then strip only those two fields for the existing
+fresh transport pin. Keep every original archive/stop/command guard and refuse
+tampered root authority before normalization. Retry only this failed source job
+at a new immutable commit; the P00 DATA/root admission and P10 financial run stay
+unchanged. No closed source authentication or financial validation is repeated.

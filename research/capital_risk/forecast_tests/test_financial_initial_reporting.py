@@ -32,6 +32,32 @@ def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch)
         m.expected_request()
 
 
+def test_admitted_fresh_root_resolves_exact_original_transport_identity():
+    root=p.root_spec('P00')
+    assert p.digest(root)!=p.FRESH_TARGET_SHA
+    assert p.initial_reporting_seed(root)==p.initial_reporting_seed(target())
+    assert p.digest({k:v for k,v in root.items() if k not in ('root_admission','root_admission_sha256')})==p.FRESH_TARGET_SHA
+
+
+@pytest.mark.parametrize('change',['authority','transport'])
+def test_root_authority_and_transport_are_verified_before_fresh_normalization(change):
+    root=deepcopy(p.root_spec('P00'))
+    if change=='authority':root['root_admission']['performance_scoring_authorized']=True
+    else:root['outer_sha256']='0'*64
+    with pytest.raises(ValueError):p.initial_reporting_seed(root)
+
+
+def test_root_validation_before_normalization_guard_removal_falsifier():
+    root=deepcopy(p.root_spec('P00'));root['root_admission']['performance_scoring_authorized']=True
+    with pytest.raises(ValueError):p.initial_reporting_seed(root)
+    fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='initial_reporting_seed')
+    branch=next(n for n in fn.body if isinstance(n,ast.If));assert ast.unparse(branch.body[0])=='validate_root_spec(spec)'
+    branch.body.pop(0);ns=dict(vars(p))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
+        '<removed-root-validation-before-transport-normalization>','exec'),ns)
+    assert ns['initial_reporting_seed'](root)==p.initial_reporting_seed(target())
+
+
 @pytest.mark.parametrize('change', ['artifact', 'origin', 'tail', 'arm', 'authority', 'seed', 'old_request'])
 def test_other_origin_or_checkpoint_cannot_replace_fresh_target(change):
     spec = target()

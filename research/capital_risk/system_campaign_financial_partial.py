@@ -140,6 +140,9 @@ def reporting_seed(spec):
 
 def initial_reporting_seed(spec):
     """This grants only reporting review of the one genuine fresh export."""
+    if 'root_admission' in spec:
+        validate_root_spec(spec)
+        spec = {k: v for k, v in spec.items() if k not in ('root_admission', 'root_admission_sha256')}
     need(digest(spec) == FRESH_TARGET_SHA and spec['archive_format'] == FRESH_FORMAT
          and spec['arm'] == 'P00' and spec['measured_closes'] == 169
          and spec['financial_authority'] is spec['financial_predecessor_admitted'] is False,
