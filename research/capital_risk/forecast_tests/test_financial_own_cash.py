@@ -16,7 +16,8 @@ import system_campaign_financial_resume as m
 @pytest.mark.parametrize('arm,cursor,ticker,price,day,native',[
     ('P04','2022-06-30','SAFM',203.,'2022-07-22','2022-07-21'),
     ('P10','2022-07-29','ACC',65.47,'2022-08-10','2022-08-09'),
-    ('P10','2024-04-30','SWAV',335.,'2024-05-31','2024-05-30')])
+    ('P10','2024-04-30','SWAV',335.,'2024-05-31','2024-05-30'),
+    ('P00','2025-06-30','TGI',26.,'2025-07-25','2025-07-24')])
 def test_actual_new_cash_terms_keep_exact_independent_witness_and_own_phase(arm,cursor,ticker,price,day,native):
     codec,name,terms=f.selected(arm,cursor=cursor);t,=terms
     assert name==f.OWN_CASH_CATALOG and t['ticker']==ticker and t['added']['cash_per_share']==price
@@ -40,6 +41,17 @@ def test_actual_new_cash_terms_keep_exact_independent_witness_and_own_phase(arm,
         assert t['preopen_completion_confirmed'] is False and t['actual_completion_date']==native
         assert t['recognition_rule']=='RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY'
         assert t['parent_positions']==[]  # The later78-share holding is produced by the resumed path.
+    elif ticker=='TGI':
+        assert t['preopen_completion_confirmed'] is False and t['actual_completion_date']==native
+        assert t['recognition_rule']=='RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY'
+        assert t['parent_positions']==[dict(slot_id=2,ticker='TGI',quantity=234,entry_date='2025-04-04')]
+        assert t['retained_primary_catalog']['filename']=='system-campaign-tgi-cash-facts.json'
+        original,=json.loads((f.HERE/t['retained_primary_catalog']['filename']).read_bytes())['terms']
+        assert all(t[k]==v for k,v in original.items())
+        assert len(codec.catalog['terms'])==7
+        old,_,_=f.own_cash_selection('P04','2022-09-30')
+        assert old.catalog_sha=='c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101'
+        assert len(old.catalog['terms'])==6
     else:
         assert t['preopen_completion_confirmed'] is True and t['actual_completion_date']==day
         assert t['recognition_rule']=='CONFIRMED_PREOPEN_COMPLETION' and t['parent_positions']==[]
@@ -90,10 +102,10 @@ def test_historical_cash_phases_keep_original_full_catalog_generation():
 
 def test_reviewed_append_cannot_silently_edit_a_closed_generation(tmp_path,monkeypatch):
     original=f.HERE;changed_catalog(tmp_path,monkeypatch)
-    primary='system-campaign-unconsumed2024-cash-calendar-terminal-facts.json'
-    (tmp_path/primary).write_bytes((original/primary).read_bytes())
-    primary='system-campaign-factual-catalog.json'
-    (tmp_path/primary).write_bytes((original/primary).read_bytes())
+    for term in json.loads((original/f.OWN_CASH_CATALOG).read_bytes())['terms']:
+        if 'retained_primary_catalog' in term:
+            primary=term['retained_primary_catalog']['filename']
+            (tmp_path/primary).write_bytes((original/primary).read_bytes())
     monkeypatch.setattr(f,'OWN_CASH_SHA',f.sha((tmp_path/f.OWN_CASH_CATALOG).read_bytes()))
     with pytest.raises(ValueError,match='CLOSED_CATALOG_GENERATION_BYTES'):
         f.own_cash_selection('P10','2024-04-30')

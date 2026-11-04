@@ -34,7 +34,13 @@ def test_actual_resolved_cash_right_keeps_both_scope_commitments_and_original_va
 
 
 def literal_fixture(tmp_path,monkeypatch,change):
-    original=f.HERE;catalog=json.loads((original/f.OWN_CASH_CATALOG).read_bytes());t=catalog['terms'][-1]
+    # Exercise the query guard in its six-term generation, before the later
+    # TGI append closed that generation. Closed-byte guards have separate tests.
+    original=f.HERE;catalog=deepcopy(f.selected('P04',cursor='2022-09-30')[0].catalog)
+    t,=[t for t in catalog['terms'] if (t['arm'],t['parent_cursor'])==('P04','2022-09-30')]
+    phases={(t['arm'],t['parent_cursor']) for t in catalog['terms']}
+    monkeypatch.setattr(f,'OWN_CASH_PHASES',{k:v for k,v in f.OWN_CASH_PHASES.items() if k in phases})
+    monkeypatch.setattr(f,'CLOSED_CASH_GENERATIONS',{h:n for h,n in f.CLOSED_CASH_GENERATIONS.items() if n<6})
     if change=='native':t['native']['reference']='substituted native preimage'
     elif change=='self':t['source_capture']['query_scope_sha256']=t['source_capture']['scope_sha256']
     elif change=='known':t['source_capture']['query_scope_sha256']=f.ACTIVE_WITNESS_SCOPES['P07']

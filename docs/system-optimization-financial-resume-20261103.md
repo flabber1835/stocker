@@ -1517,3 +1517,30 @@ commit. The original October cash-calendar catalog already contains LHCG's
 separately validated literal and full witness; selection follows root admission.
 The1279 read-only request passed142 targeted resume/partial/retention/retained-proof
 tests in19.10s and authorizes zero financial workers.
+
+## Continue fresh P00 from1883 with its source-bound retained TGI literal
+
+Source41837453683/ecf08be29 artifact13327262198 stopped successfully with zero
+financial workers. Independent version1 DATA review verified the exact admitted
+1883 gzip, full July23 TGI row, July24 incomplete native and own234 shares in
+slot2,entered April4,2025. No later diagnostic state is adopted.
+
+Append a seventh shared own-parent catalog term, retaining the complete original
+system-campaign-tgi-cash-facts.json term unchanged and pinning its file/term bytes.
+Add only the qualified full identity witness, own1883 parent/source provenance and
+the existing retained-next-session recognition metadata: July24 legal completion
+and last trading/native day, July25 recognition,26USD mandatory ordinary cash.
+This does not assert preopen completion on July24. Reuse the unchanged generic
+cash-calendar validator and shared future selector/hydrator/qualifier; no new
+symbol-specific runtime, financial engine change or new timing convention.
+
+Preserve generations2–6 byte-exactly and select generation7 only for P00/June30.
+Launch only the273 remaining hosted financial closes after actual source/native,
+next-session, packet, canonical cash and immutable input-adoption qualification.
+P04's read-only1279 reporting continues on its immutable commit. Full P00 scoring
+and financial validation remain false until2156 closes and independent admission.
+The continuation request passed255 targeted own-cash/resume/future/source-witness/
+selected-stock/resolved-cash/retention tests in28.11s. Historical query falsifiers
+explicitly select their original six-term generation; all closed generation byte
+pins remain unchanged. The shared document compiler requires a timing source,
+so TGI explicitly retains the same original issuer8K as timing provenance.
