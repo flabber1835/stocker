@@ -607,3 +607,25 @@ A completed fresh run still needs full independent DATA and reporting admission.
 Use its own first measured close for Core normalization; preserve the common
 measurement range and disclose any input/model assumptions. This fresh P00 is a
 research comparator, not a claim about the live installed PAPER policy or return.
+
+
+## Publish P04's reviewed1132 root and admit P10's next recorded suffix
+
+P04's successful stopped/source-bound reporting run41776035604 and independent
+42-row/84-snapshot/2-report DATA review are closed and passed. Publish its exact
+1132-close June30 checkpoint as the next own continuation root, retaining the
+preceding1090 and817 admission entries unchanged. Replace the two-generation
+clock choice with an explicit source-pinned per-arm admission-hash map: every
+accepted current or historical hash names its original read-only run/head.
+Unknown hashes/arms and substituted current seeds refuse. No generic registry
+entry can grant authority, and immutable transport flags remain false.
+
+P10's authenticated stopped main checkpoint1152/July29 adds124 rows to its own
+admitted1028/January31 seed. Select only this new prefix for read-only canonical
+restore/source/journal/correlation identity and reproduction of its6 new monthly
+reports. Reuse its exact positively stopped hosted accounting review; no old
+692-to1028 accounting/reporting work is repeated. Independent DATA review must
+verify248 new accounting snapshots, every new factor/chain, the actual neutral
+VCRA input boundary and complete reporting/retry state before root publication.
+Fresh P00 continues at its immutable launch commit; do not refresh its request or
+launch another P00 because continuation metadata changed in the branch.

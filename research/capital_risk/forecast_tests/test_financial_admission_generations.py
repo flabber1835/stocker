@@ -21,10 +21,11 @@ def local_registered_catalog_path(monkeypatch):
 
 
 def test_both_generations_resolve_by_exact_own_admission_hash():
-    for arm,old,new in [('P04',817,1090),('P07',439,503),('P10',692,1028)]:
+    for arm,old,new in [('P04',817,1132),('P07',439,503),('P10',692,1028)]:
         latest=p.root_spec(arm);prior=p.root_spec(arm,p.PRIOR_ADMISSIONS[arm])
         assert (prior['measured_closes'],latest['measured_closes'])==(old,new)
-        assert latest['root_admission']['parent_root_admission_sha256']==prior['root_admission_sha256']
+        parent=p.root_spec(arm,latest['root_admission']['parent_root_admission_sha256'])
+        assert prior['measured_closes']<=parent['measured_closes']<latest['measured_closes']
         assert p.root_spec(arm,p.ADMISSIONS[arm])==latest
         p.validate_root_spec(prior);p.validate_root_spec(latest)
         assert latest['root_admission']['financial_continuation_authorized'] is True
@@ -194,3 +195,24 @@ def test_parent_bound_filename_guard_removal_falsifier():
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='hydration_name')
     fn.body.pop(1);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-parent-filename-guard>','exec'),ns)
     assert ns['hydration_name'](cp).endswith('A'*64+'.json')
+
+
+def test_every_pinned_generation_resolves_its_original_readonly_clock():
+    for arm,clocks in p.ADMISSION_CLOCKS.items():
+        for digest,(run,head) in clocks.items():
+            spec=p.root_spec(arm,digest)
+            assert spec['root_admission_sha256']==digest
+            assert (spec['root_admission']['readonly_run_id'],spec['root_admission']['readonly_head'])==(run,head)
+            p.validate_root_spec(spec)
+    assert {p.root_spec('P04',h)['measured_closes'] for h in p.ADMISSION_CLOCKS['P04']}=={817,1090,1132}
+
+
+def test_unreviewed_registry_data_cannot_create_authority_without_exact_digest_guard():
+    import ast
+    value=deepcopy(json.loads((p.HERE/p.ROOTS).read_bytes())['arms']['P04'])
+    value['admission']['completed']+=1;value['transport']['measured_closes']+=1
+    with pytest.raises(ValueError):p.authorized_spec(value,'P04')
+    fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='authorized_spec')
+    guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and n.value.func.id=='need')
+    fn.body.remove(guard);ns=dict(vars(p));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-reviewed-admission-digest>','exec'),ns)
+    assert ns['authorized_spec'](value,'P04')['measured_closes']==1133
