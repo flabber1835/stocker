@@ -178,6 +178,7 @@ class ObservationIdentityQuery(BaseModel):
     schema_id: Literal['research.frozen-observation-identity-query/1'] = Field(alias='schema')
     session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
     ticker: Annotated[str, Field(min_length=1)]
+    match_mode: Literal['EXACT', 'PREFIX'] = 'EXACT'
     maximum_rows: Literal[1]
     require_unheld_at_parent: Literal[True]
     financial_use_authorized: Literal[False]
@@ -368,15 +369,17 @@ EXTRA_WITNESS_SCOPES['P03', '2018-04-30'] = dict(
     additional_row_queries=[dict(schema='research.frozen-observation-identity-query/1',
                                  session='2018-06-01', ticker='CVIA', maximum_rows=1,
                                  require_unheld_at_parent=True, financial_use_authorized=False)])
+ROW_QUERY_WITNESS_SCOPES = {'P03_PREFIX': deepcopy(EXTRA_WITNESS_SCOPES['P03', '2018-04-30'])}
+ROW_QUERY_WITNESS_SCOPES['P03_PREFIX']['additional_row_queries'][0]['match_mode'] = 'PREFIX'
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
-    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES) for scope in scopes.values()}
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
                          'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in INITIAL_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES['P04'] = digest(EXTRA_WITNESS_SCOPES['P04', '2025-10-31'])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2018-08-31'])
-ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES['P03', '2018-04-30'])
+ACTIVE_WITNESS_SCOPES['P03'] = digest(ROW_QUERY_WITNESS_SCOPES['P03_PREFIX'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -479,7 +482,7 @@ def resolved_row_query_scope(scope, rows):
     need(type(query['maximum_rows']) is int and query['maximum_rows'] == 1
          and query['financial_use_authorized'] is False and query['require_unheld_at_parent'] is True
          and scope['parent_cursor'] < query['session'] == row['session']
-         and query['ticker'] == row['ticker']
+         and observation_query_matches(query, row)
          and type(row['security_id']) is str and bool(row['security_id'])
          and (row['session'], row['security_id']) not in {
              (t['session'], t['security_id']) for t in scope['terms']},
@@ -489,6 +492,13 @@ def resolved_row_query_scope(scope, rows):
     result['additional_rows'] = [dict(session=row['session'], security_id=row['security_id'],
         ticker=row['ticker'], source_observation_sha256=digest(row), parent_positions=[])]
     return result
+
+
+def observation_query_matches(query, row):
+    # Both callers validate each typed query before scanning any archive rows.
+    return row['session'] == query['session'] and (
+        row['ticker'] == query['ticker'] if query.get('match_mode', 'EXACT') == 'EXACT'
+        else row['ticker'].startswith(query['ticker']))
 
 
 def additional_source_rows(scope, rows, positions):
@@ -599,12 +609,19 @@ def capture_source_witnesses(cp, out, arm, scope):
     with zipfile.ZipFile('/frozen/archive/corpus.zip') as archive:
         for year in sorted({day[:4] for day, _ in keys | query_keys}):
             for row in inputs._archive_rows(archive, 'observations-' + year + '.csv.gz'):
-                if (row['session'], row['security_id']) in keys or (row['session'], row['ticker']) in query_keys:
+                if (row['session'], row['security_id']) in keys or any(observation_query_matches(q, row) for q in queries):
                     rows.append(row)
+    if queries:
+        candidates = [r for r in rows if any(observation_query_matches(q, r) for q in queries)]
+        save(out / 'source-witness-query-diagnostic.json', dict(
+            schema='research.source-observation-query-diagnostic/1', financial_authority=False,
+            query_scope_sha256=digest(scope), matched_rows=len(candidates),
+            candidates=[dict(session=r['session'], ticker=r['ticker'], security_id=r['security_id'],
+                             source_observation_sha256=digest(r)) for r in candidates[:10]]))
     payload = witness_payload(cp, arm, scope, natives,
         [r for r in rows if (r['session'], r['security_id']) in native_keys],
         [r for r in rows if (r['session'], r['security_id']) in additional_keys
-         or (r['session'], r['ticker']) in query_keys])
+         or any(observation_query_matches(q, r) for q in queries)])
     need(digest(cp) == before, 'SOURCE_WITNESS_PARENT_STATE_UNCHANGED')
     save(out / SOURCE_WITNESS_FILE, payload)
     return payload

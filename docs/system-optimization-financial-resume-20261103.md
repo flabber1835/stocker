@@ -1785,3 +1785,24 @@ the unheld proof distinctly and require exactly one actual canonical call for
 either case; this changes no terminal economics or treatment of held positions.
 The unheld-stock/selected-stock/original-delivery/future/launcher checks passed
 163 tests in16.67s, including actual-context delegation and mutation falsifiers.
+
+P03 source161 stopped without any financial worker because the exact CVIA query
+did not resolve exactly one row. Preserve that exact query in the registry.
+Permit an explicit PREFIX discovery match on the fixed June1 date for CVIA's
+provider ticker, still requiring exactly one complete raw row and an unheld
+parent. Capture the actual ticker without asserting an alias or upgrading its
+metadata. Bind the match mode in the original query; default EXACT behavior
+remains. Save bounded query counts and candidate identities before validation
+so a missing or ambiguous result is inspectable without speculative reruns.
+This source discovery still grants no consideration or financial authority.
+
+P07 run41885072067 passed the January5 proof refusal and preserved own775 through
+January29,2021. Its February26 next refusal is ACIA43443874000076334, already
+covered by the original FollowingFacts catalog. Select only the saved19-day
+January suffix for reporting from admitted756. Exclude February tails. Before
+continuation, independently verify these new point-return factors with builtin
+sum semantics and retain all302 previous certificate bytes. No new factual
+input was adopted in this suffix.
+The prefix query, retained proof, point growth, source capture and reporting
+launcher qualification passed282 tests in32.17s. All frozen financial sources
+and383 prior drivers remain exact.

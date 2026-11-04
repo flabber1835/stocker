@@ -108,11 +108,12 @@ def test_hosted_capture_scans_only_declared_year_and_rejects_duplicate_matches(t
     written=[];monkeypatch.setattr(f,'save',lambda path,value:written.append((path,value)))
     payload=f.capture_source_witnesses(cp,tmp_path,'P04',scope)
     assert calls==['observations-2022.csv.gz'] and payload['additional_rows'][0]['source_row']==extra[0]
-    assert len(written)==1 and written[0][0]==tmp_path/f.SOURCE_WITNESS_FILE
+    assert len(written)==2 and written[-1][0]==tmp_path/f.SOURCE_WITNESS_FILE
+    assert written[0][1]['matched_rows']==1
     observations.append(deepcopy(extra[0]));written.clear()
     with pytest.raises(ValueError,match='SINGLE_EXPLICIT_ROW'):
         f.capture_source_witnesses(cp,tmp_path,'P04',scope)
-    assert written==[]
+    assert len(written)==1 and written[0][1]['matched_rows']==2
 
 
 def test_actual_p03_query_uses_only_admitted_own82_and_explicit_cvia_session():
@@ -123,3 +124,17 @@ def test_actual_p03_query_uses_only_admitted_own82_and_explicit_cvia_session():
     assert scope['terms'][0]['parent_positions']==[]
     query,=scope['additional_row_queries']
     assert query['ticker']=='CVIA' and query['session']=='2018-06-01'
+    assert query['match_mode']=='PREFIX'
+
+
+def test_prefix_discovery_keeps_actual_ticker_and_exact_query_history():
+    cp,scope,natives,rows,extra=row_fixture();extra[0]['ticker']='CHILDQ'
+    with pytest.raises(ValueError):f.witness_payload(cp,'P04',scope,natives,rows,extra)
+    scope['additional_row_queries'][0]['match_mode']='PREFIX'
+    value=f.witness_payload(cp,'P04',scope,natives,rows,extra)
+    assert f.validate_witness_capture(value,spec(cp),scope)==value
+    assert value['additional_rows'][0]['identity_witness']['ticker']=='CHILDQ'
+    old=f.EXTRA_WITNESS_SCOPES['P03','2018-04-30']
+    assert f.registered_scope(f.digest(old))==old and 'match_mode' not in old['additional_row_queries'][0]
+    scope['additional_row_queries'][0]['match_mode']='UNBOUNDED'
+    with pytest.raises(ValueError):f.witness_payload(cp,'P04',scope,natives,rows,extra)
