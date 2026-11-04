@@ -119,3 +119,29 @@ cases passed together (20 passed in1.79s). Existing LM, mandatory cash, stock,
 closing-source and next-completion validators were verified AST-identical.
 All old catalog generations, including eight-term1baf3f3938fa8fa6, remain exact.
 The new eleven-term catalog isc2b3d070ba31bd94; original eligibility0 is retained.
+
+
+P05 passed the modeled AAAP event and then refused SCMP onFebruary13. The
+unchanged corrected-winter catalog already supplies SCMP18USD plus CUDA,JUNO,
+BIVV andCSRA. Extend the shared selector with an original-catalog source registry
+for P05/P06/P11. Reuse WinterCash's original literal validator and exact catalog
+bytes; select only native/effective terms strictly after the own cursor and refuse
+a consumed native whose later cash boundary is still pending. Never change the
+original WinterCash overlay guard or reapply past events to admitted history.
+
+At hosted hydration, append those selected ordinary cash facts to the model input
+and capture each identity row from the same immutable frozen corpus on the session
+before its native. Preserve eligibility and namespace metadata exactly. Bind the
+original catalog/validator hashes and original term hashes in the hydrated material
+and ordinary repair evidence. The canonical typed parser receives one disjoint
+combined terminal document, one neutral input adoption and the existing hosted
+packet/controller-notional qualification across every selected term. No parallel
+book, financial source edit, per-symbol wrapper family, new settlement study or
+restart of active P06/P11 is needed. Add the original catalog to the request's
+source closure; keep all383 frozen drivers unchanged. Select only P05 for this
+retry from its admitted21 checkpoint; February's uncommitted tail remains excluded.
+
+Original-catalog composition qualification:161 targeted cases passed in19.65s,
+including catalog-byte, consumed-pending-native, duplicate-event, frozen-date and
+identity guard-removal falsifiers. The new request closes401 sources; all383
+original drivers and the prior mandatory/stock/model validators remain unchanged.

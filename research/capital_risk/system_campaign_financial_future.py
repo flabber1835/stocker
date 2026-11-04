@@ -86,6 +86,12 @@ SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
 SOURCE_SCOPES = 'future-source-only-scopes.json'
+ORIGINAL_ORDINARY_SOURCES = {
+    arm: ('system_campaign_winter_facts', 'WinterCash',
+          'system-campaign-corrected-winter-facts.json',
+          '9784f96a4037fda8f4494d4d080b2a99e56bb4d4cd7640a52dd9cd9b99e23f4c')
+    for arm in ('P05', 'P06', 'P11')
+}
 
 
 class ResearchCashAssumption(BaseModel):
@@ -792,10 +798,74 @@ def compose(plans):
     return selection, 'EXPLICIT_ORDERED_CATALOG_COMPOSITION', terms
 
 
+def original_ordinary_selection(arm, cursor):
+    """Select future terms from an unchanged original ordinary cash validator."""
+    import importlib
+    plan = ORIGINAL_ORDINARY_SOURCES.get(arm)
+    if plan is None:
+        return None
+    module_name, class_name, catalog, expected_sha = plan
+    raw = (HERE / catalog).read_bytes()
+    need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_ORDINARY_CATALOG_BYTES')
+    module = importlib.import_module(module_name)
+    codec = getattr(module, class_name)(HERE / catalog)
+    need(not any(t['native_session'] <= cursor < t['added']['session'] for t in codec.catalog['terms']),
+         'FUTURE_ORIGINAL_ORDINARY_NO_CONSUMED_PENDING_NATIVE')
+    source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
+                  validator_file=Path(module.__file__).name, validator_sha256=codec.compiler_sha)
+    terms = []
+    for original in codec.catalog['terms']:
+        if original['native_session'] <= cursor or original['added']['session'] <= cursor:
+            continue
+        term = deepcopy(original)
+        term['original_ordinary_source'] = dict(source, term_sha256=digest(original))
+        term['timing_source'] = original['primary_source']
+        terms.append(term)
+    if not terms:
+        return None
+    codec.ordinary_source = source
+    return codec, catalog, terms
+
+
+def merge_selected_terms(primary, extra):
+    terms = deepcopy(primary) + deepcopy(extra)
+    need(len({t['security_id'] for t in terms}) == len(terms)
+         and len({(t['native_session'], t['security_id']) for t in terms}) == len(terms)
+         and len({(t['added']['session'], t['security_id']) for t in terms}) == len(terms),
+         'FUTURE_ORIGINAL_ORDINARY_DISJOINT_SELECTED_TERMS')
+    return terms
+
+
+def ordinary_term_dates(term, dates):
+    native, effective = term['native_session'], term['added']['session']
+    need(dates == sorted(set(dates)) and native in dates and effective in dates
+         and dates.index(native) > 0 and dates.index(effective) > 0,
+         'FUTURE_ORIGINAL_ORDINARY_EXACT_FROZEN_DATES')
+    term = deepcopy(term)
+    term['ordinary_identity_session'] = dates[dates.index(native) - 1]
+    term['last_trading_session'] = dates[dates.index(effective) - 1]
+    return term
+
+
+def ordinary_identity(term, row):
+    from datetime import date
+    need(row['security_id'] == term['security_id'] and row['ticker'] == term['ticker']
+         and row['session'] == term['ordinary_identity_session']
+         and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session'])
+         and row['security_type_eligible'] in ('0', '1') and type(row['issuer_id']) is str,
+         'FUTURE_ORIGINAL_ORDINARY_UNMODIFIED_FROZEN_IDENTITY')
+    witness = {k: row[k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
+                                  'listing_first_session', 'security_type_eligible')}
+    return dict(witness, source_observation_sha256=digest(row))
+
+
 def selected(arm, *, cursor=None):
     import importlib
     if (arm, cursor) in OWN_CASH_PHASES:
         return own_cash_selection(arm, cursor)
+    ordinary = original_ordinary_selection(arm, cursor)
+    if ordinary is not None:
+        return ordinary
     if arm == 'P07':
         need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES,
              'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
@@ -925,16 +995,25 @@ def hydrate(cp, arm, *, source_root=None):
                  for _, e in sorted(cp['run']['state']['wealth_core']['episodes'].items(), key=lambda item: int(item[0]))
                  if e['security_id'] == t['security_id']] for t in terms]
         need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
+    ordinary_components = []
+    ordinary = original_ordinary_selection(arm, cp['source_cursor'])
+    if ordinary is not None:
+        original_codec, original_catalog, original_terms = ordinary
+        if catalog != original_catalog:
+            terms = merge_selected_terms(terms, original_terms)
+        ordinary_components.append(deepcopy(original_codec.ordinary_source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER) for t in terms):
+    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:
             completion_session(t, dates)
             if t.get('recognition_rule') == SOURCE_CLOSE:
                 need(t['added']['session'] in dates, 'OWN_INPUT_CLOSING_SOURCE_DATE_ON_ACTUAL_AXIS')
+        terms = [ordinary_term_dates(t, dates) if 'original_ordinary_source' in t else t for t in terms]
     wanted = {}
+    ordinary_rows = {}
     for t in terms:
         native, = [v for v in actions.terminal.get(t['native_session'], ()) if v.security_id == t['security_id']]
         need(digest(asdict(native)) == t['native_term_sha256'] and not native.completeness(0)[0],
@@ -942,6 +1021,12 @@ def hydrate(cp, arm, *, source_root=None):
         other = [v for v in actions.terminal.get(t['added']['session'], ()) if v.security_id == t['security_id']]
         need(other == [native] if t['native_session'] == t['added']['session'] else not other,
              'FUTURE_NO_CONFLICTING_EFFECTIVE_TERM')
+        if 'original_ordinary_source' in t:
+            key = t['ordinary_identity_session'], t['security_id']
+            need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_WITNESS')
+            wanted[key] = None
+            ordinary_rows[key] = t
+            continue
         for w in (t['identity_witness'], *([t['delivered_identity_witness']] if 'delivered_identity_witness' in t else [])):
             key = w['session'], w['security_id']
             need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_WITNESS')
@@ -954,6 +1039,10 @@ def hydrate(cp, arm, *, source_root=None):
                 if key not in wanted:
                     continue
                 need(key not in seen, 'FUTURE_UNIQUE_ACTUAL_WITNESS')
+                if key in ordinary_rows:
+                    term = ordinary_rows[key]
+                    term['identity_witness'] = ordinary_identity(term, row)
+                    wanted[key] = term['identity_witness']
                 require_witness(row, wanted[key])
                 seen[key] = row
     need(set(seen) == set(wanted), 'FUTURE_ALL_SELECTED_NATIVE_AND_DELIVERY_WITNESSES')
@@ -976,6 +1065,8 @@ def hydrate(cp, arm, *, source_root=None):
         financial_source_changed=False, provider_metadata_upgraded=False)
     if hasattr(codec, 'composition'):
         material['composition'] = deepcopy(codec.composition)
+    if ordinary_components:
+        material['ordinary_components'] = ordinary_components
     if hasattr(codec, 'validator_description'):
         material['original_validator_description'] = codec.validator_description
     if aliases is not None:
@@ -1004,6 +1095,11 @@ def document(cp, material, hydrated_sha):
                 ('catalog', 'Unchanged literal ordinary completion catalog.', material['catalog_sha256']),
                 ('validator', material.get('original_validator_description',
                     'Original literal catalog validator; original compiler guard remains intact.'), material['original_validator_sha256']))]
+    for source in material.get('ordinary_components', []):
+        evidence.extend(dict(reference=REFERENCE + '/' + source[file], description=description, sha256=source[value])
+            for file, value, description in (
+                ('catalog_file', 'catalog_sha256', 'Unchanged original ordinary cash catalog.'),
+                ('validator_file', 'validator_sha256', 'Unchanged original ordinary cash validator.')))
     evidence.extend(dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
         for name, description, value in (
             ('selector', 'Own-parent future-only selected ordinary input.', material['selector_sha256']),
