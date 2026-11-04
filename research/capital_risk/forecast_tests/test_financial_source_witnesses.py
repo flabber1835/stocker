@@ -249,6 +249,7 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
 
 def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
     request=m.expected_request();selected=m.root_spec('P04')
     monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
     m.source_request_bindings(request,selected)
@@ -257,6 +258,7 @@ def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(mon
 @pytest.mark.parametrize('change',['schema','mode','scope','root','bundle','launcher','selector'])
 def test_changed_worker_request_binding_refuses(change,monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
     request=m.expected_request();selected=m.root_spec('P04')
     if change=='schema':request['schema']='UNKNOWN'
     elif change=='mode':request['financial_resume_authorized']=True
@@ -270,6 +272,7 @@ def test_changed_worker_request_binding_refuses(change,monkeypatch):
 
 def test_worker_source_binding_guard_removal_falsifier(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
     request=m.expected_request();selected=m.root_spec('P04')
     request['sources']['system_campaign_financial_resume.py']='0'*64
     with pytest.raises(ValueError):m.source_request_bindings(request,selected)

@@ -780,3 +780,26 @@ Use one explicit execution-mode constant to derive the three mutually exclusive
 request flags and worker limits. The next immutable request selects financial
 P04/P10 only. Closed source-capture jobs and the stopped P00/P07 runs are not
 relaunched by this request. Their separate new-prefix DATA/monthly work remains.
+
+
+## Admit P07's new January-February2020 suffix
+
+P07's stopped run41780743002 has a positively reviewed543-close February28
+checkpoint,40 closes and2 reports after its admitted503/December31 root.
+Select only this new target for hosted read-only canonical restore/journal/source
+identity and reproduction of the2 reports from the exact admitted503 stats seed.
+Reuse the already closed hosted accounting review; run no economic worker.
+The live P04/P10 jobs retain their immutable27786d79d source and per-arm leases.
+
+Independent DATA review must verify the one neutral future MDCO/ARQL adoption,
+40 financial rows/80 accountings, all new factors/chains and complete reporting
+state. Retain the49 previously admitted branch-certificate rows byte-for-byte
+against their authenticated old archive and bound prior DATA admission. Restore
+only their last interval-math/possible-state seed; review the40 new certificate
+rows and canonical hosted suffix oracle without repeating the closed2019 event
+proof, old qualification or prior branch partitions. The March30 tail remains
+unadmitted. Publish a new continuation root only after all new checks pass.
+
+Reporting request generation refuses an already admitted target or an older seed
+than the current selected own root. Historical target records remain intact for
+provenance; they cannot accidentally trigger a repeat of closed reporting work.

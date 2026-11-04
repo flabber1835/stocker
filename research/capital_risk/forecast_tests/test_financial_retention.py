@@ -19,9 +19,39 @@ import system_campaign_parallel_discovery_run as frozen
 
 def test_all_current_reporting_seeds_are_closest_admitted_own_checkpoints():
     specs=json.loads((CAP/m.PARTIALS).read_bytes())['arms']
-    assert {a:p.reporting_seed(specs[a])['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1090,P07=439,P10=1028)
-    assert {a:specs[a]['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1132,P07=503,P10=1152)
+    assert {a:p.reporting_seed(specs[a])['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1090,P07=503,P10=1028)
+    assert {a:specs[a]['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1132,P07=543,P10=1152)
     assert all(specs[a]['financial_authority'] is specs[a]['financial_predecessor_admitted'] is False for a in specs)
+
+
+@pytest.mark.parametrize('change',['already_admitted','older_seed'])
+def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(monkeypatch,change):
+    original=m.root_spec
+    def altered(arm,*args):
+        root=deepcopy(original(arm,*args))
+        if change=='already_admitted':root['measured_closes']=543
+        else:root['root_admission_sha256']='0'*64
+        return root
+    monkeypatch.setattr(m,'root_spec',altered)
+    with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
+
+
+def test_new_reporting_scope_guard_removal_falsifier(monkeypatch):
+    original=m.root_spec
+    monkeypatch.setattr(m,'root_spec',lambda arm:dict(original(arm),measured_closes=543))
+    with pytest.raises(ValueError):m.expected_request()
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='expected_request')
+    class Remove(ast.NodeTransformer):
+        count=0
+        def visit_Expr(self,node):
+            if isinstance(node.value,ast.Call) and any(isinstance(a,ast.Constant) and
+                a.value=='RESUME_ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED' for a in node.value.args):
+                self.count+=1;return ast.Pass()
+            return self.generic_visit(node)
+    remove=Remove();fn=remove.visit(fn);assert remove.count==1
+    ns=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
+        '<removed-new-reporting-scope-guard>','exec'),ns)
+    assert ns['expected_request']()['readonly_partial_review'] is True
 
 
 @pytest.mark.parametrize('change',['admission','source','count','cursor','arm'])

@@ -48,13 +48,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04', 'P10')
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/15'
-EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/16'
+EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -64,6 +64,11 @@ def expected_request():
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
     need(sum((financial, reporting, witnesses)) == 1, 'RESUME_ONE_EXPLICIT_REQUEST_EXECUTION_MODE')
+    if reporting:
+        targets = json.loads((HERE / PARTIALS).read_bytes())['arms']
+        need(all(targets[a]['measured_closes'] > root_spec(a)['measured_closes']
+             and targets[a]['monthly_seed_root_admission_sha256'] == root_spec(a)['root_admission_sha256']
+             for a in SELECTED_ARMS), 'RESUME_ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED')
     need(sha256_file(HERE / PRIOR) == PRIOR_SHA, 'RESUME_FROZEN_PRIOR_REQUEST')
     prior = json.loads((HERE / PRIOR).read_bytes())['sources']
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
