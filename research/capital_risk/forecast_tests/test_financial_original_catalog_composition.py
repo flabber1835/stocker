@@ -36,7 +36,8 @@ def test_actual_hydration_composition_keeps_both_kinds_and_one_source_component(
 
 
 def test_p03_own125_uses_original_midyear_cash_and_delivery_from_its_new_admitted_root():
-    root=p.root_spec('P03');assert (root['measured_closes'],root['selected_session'])==(125,'2018-06-29')
+    root=p.root_spec('P03','70ebc8c3f1378bf7b18a84326bdb172fc5bdd120c9e24b6feb8dbc9f01293002')
+    assert (root['measured_closes'],root['selected_session'])==(125,'2018-06-29')
     cash,name,terms=f.selected('P03',cursor=root['selected_session'])
     delivery,other,mixed=f.original_delivery_selection('P03',root['selected_session'])
     assert name==other=='system-campaign-midyear-terminal-facts.json'

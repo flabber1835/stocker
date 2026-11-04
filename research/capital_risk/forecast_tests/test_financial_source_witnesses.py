@@ -333,7 +333,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==21
+    assert len(f.WITNESS_SCOPE_REGISTRY)==23
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -372,8 +372,8 @@ def test_p11_edr_query_uses_new169_root_and_one_actual_share():
 
 
 def test_p11_tvty_query_binds_only_own1111_and_never_backdates_later134_shares():
-    scope=f.WITNESS_SCOPES['P11'];root=m.root_spec('P11');term,=scope['terms']
-    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P11'])
+    scope=f.EXTRA_WITNESS_SCOPES['P11','2022-05-31'];root=m.root_spec('P11');term,=scope['terms']
+    assert scope==f.registered_scope(f.digest(scope))
     assert root['measured_closes']==1111 and scope['parent_cursor']==root['selected_session']=='2022-05-31'
     assert scope['parent_outer_sha256']==root['outer_sha256']
     assert (term['ticker'],term['security_id'],term['session'],term['native_session'])==('TVTY','506048722516044547','2022-06-27','2022-06-28')

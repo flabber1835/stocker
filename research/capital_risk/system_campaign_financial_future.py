@@ -57,6 +57,7 @@ SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_DISCOVERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/3'
 SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4'
+SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 OWN_CASH_SHA = '5c987533c0fdf7ac1a781044bd50f0a4232db2d9cc43d5a403c39a9bfad3b749'
@@ -226,6 +227,16 @@ class NativePreimageQuery(BaseModel):
     schema_id: Literal['research.unconsumed-cash-native-preimage-query/1'] = Field(alias='schema')
     native_kind: Literal['CASH_MERGER']
     maximum_terms: Literal[1]
+    financial_use_authorized: Literal[False]
+
+
+class NativeDateQuery(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.bounded-native-terminal-date-query/1'] = Field(alias='schema')
+    security_id: Annotated[str, Field(min_length=1)]
+    session_from: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    session_to: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    maximum_records: Literal[16]
     financial_use_authorized: Literal[False]
 
 
@@ -448,8 +459,22 @@ EXTRA_WITNESS_SCOPES['P11', '2022-05-31'] = dict(
         maximum_terms=1, financial_use_authorized=False),
     terms=[dict(ticker='TVTY', security_id='506048722516044547', session='2022-06-27',
                 native_session='2022-06-28', native_term_sha256=None, parent_positions=[])])
+NATIVE_DATE_WITNESS_SCOPES = {
+    'P03': dict(parent_outer_sha256='46c576de5f3d5f9ecaabe460bf82ac5d5a184b42f2f4297583324f65dd5f2b54',
+        parent_cursor='2018-08-31', terms=[dict(ticker='NLST', security_id='92160119416751819',
+            session='2018-09-25', parent_positions=[])],
+        native_date_query=dict(schema='research.bounded-native-terminal-date-query/1',
+            security_id='92160119416751819', session_from='2018-09-26', session_to='2018-10-15',
+            maximum_records=16, financial_use_authorized=False)),
+    'P11': dict(parent_outer_sha256='8e43f75b8686d18f688b6cb35b6292634e525e8b9b979351d3765923e4a0af34',
+        parent_cursor='2022-05-31', terms=[dict(ticker='TVTY', security_id='506048722516044547',
+            session='2022-06-27', parent_positions=[])],
+        native_date_query=dict(schema='research.bounded-native-terminal-date-query/1',
+            security_id='506048722516044547', session_from='2022-06-28', session_to='2022-07-15',
+            maximum_records=16, financial_use_authorized=False)),
+}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
-    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES) for scope in scopes.values()}
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
                          'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
@@ -457,6 +482,7 @@ ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in INITIAL_WITNE
 ACTIVE_WITNESS_SCOPES['P04'] = digest(EXTRA_WITNESS_SCOPES['P04', '2025-10-31'])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2022-05-31'])
 ACTIVE_WITNESS_SCOPES['P03'] = digest(ROW_QUERY_WITNESS_SCOPES['P03_PREFIX'])
+ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_DATE_WITNESS_SCOPES.items()})
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -540,12 +566,78 @@ def source_terms(scope, natives, rows, positions, pending_contexts=None):
 
 
 def source_schema(scope):
+    if 'native_date_query' in scope:
+        return SOURCE_WITNESS_DATE_QUERY_SCHEMA
     if 'additional_row_queries' in scope:
         return SOURCE_WITNESS_ROW_QUERY_SCHEMA
     if 'native_preimage_query' in scope:
         return SOURCE_WITNESS_DISCOVERY_SCHEMA
     return (SOURCE_WITNESS_PENDING_SCHEMA if scope.get('additional_rows')
             or any('pending_at_parent' in t for t in scope['terms']) else SOURCE_WITNESS_SCHEMA)
+
+
+def native_date_query(scope):
+    from datetime import date
+    query = scope['native_date_query']
+    NativeDateQuery.model_validate(query)
+    need(set(scope) == {'parent_outer_sha256', 'parent_cursor', 'terms', 'native_date_query'}
+         and len(scope['terms']) == 1, 'SOURCE_NATIVE_DATE_ONE_DECLARED_SECURITY')
+    term, = scope['terms']
+    start, end = date.fromisoformat(query['session_from']), date.fromisoformat(query['session_to'])
+    need(set(term) == {'ticker', 'security_id', 'session', 'parent_positions'}
+         and query['security_id'] == term['security_id']
+         and scope['parent_cursor'] < term['session'] < query['session_from'] <= query['session_to']
+         and 0 <= (end-start).days <= 31 and type(query['maximum_records']) is int
+         and query['financial_use_authorized'] is False, 'SOURCE_NATIVE_DATE_EXACT_BOUNDED_QUERY')
+    return query, term
+
+
+def native_date_candidates(terminal, scope):
+    query, term = native_date_query(scope)
+    rows = []
+    for day in sorted(terminal):
+        if not query['session_from'] <= day <= query['session_to']:
+            continue
+        for item in terminal[day]:
+            row = asdict(item) if is_dataclass(item) else deepcopy(item)
+            if row['security_id'] == term['security_id']:
+                rows.append(row)
+    return rows
+
+
+def native_date_material(scope, natives, rows, positions):
+    from datetime import date
+    query, term = native_date_query(scope)
+    need(len(rows) == 1 and rows[0]['session'] == term['session']
+         and rows[0]['security_id'] == term['security_id'] and rows[0]['ticker'] == term['ticker']
+         and rows[0]['security_type_eligible'] in ('0', '1') and type(rows[0]['issuer_id']) is str
+         and date.fromisoformat(rows[0]['listing_first_session']) <= date.fromisoformat(term['session'])
+         and positions == term['parent_positions'], 'SOURCE_NATIVE_DATE_FULL_IDENTITY_AND_ACTUAL_ROLE')
+    fields = {'session', 'security_id', 'kind', 'reference', 'cash_per_share', 'delivered_security_id',
+              'delivered_ticker', 'delivered_issuer_id', 'exchange_ratio',
+              'cash_in_lieu_price_per_delivered_share', 'entitlement_aggregation'}
+    need(len(natives) <= query['maximum_records'] and len({digest(v) for v in natives}) == len(natives)
+         and all(set(v) == fields and v['security_id'] == term['security_id']
+                 and query['session_from'] <= v['session'] <= query['session_to']
+                 and type(v['kind']) is str and bool(v['kind']) for v in natives),
+         'SOURCE_NATIVE_DATE_ALL_CANDIDATES_WITHOUT_TRUNCATION')
+    candidates = sorted((dict(native_term=deepcopy(v), native_term_sha256=digest(v)) for v in natives),
+                        key=lambda v: (v['native_term']['session'], v['native_term_sha256']))
+    witness = {k: rows[0][k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
+                                      'listing_first_session', 'security_type_eligible')}
+    witness['source_observation_sha256'] = digest(rows[0])
+    return dict(native_candidates=candidates, match_status=('NO_NATIVE_IN_WINDOW' if not candidates
+        else 'UNIQUE_NATIVE_CAPTURED' if len(candidates) == 1 else 'MULTIPLE_NATIVES_IN_WINDOW'),
+        terms=[dict(source_row=deepcopy(rows[0]), identity_witness=witness, parent_positions=deepcopy(positions))])
+
+
+def native_date_payload(spec, scope, material):
+    return dict(schema=SOURCE_WITNESS_DATE_QUERY_SCHEMA, arm=spec['arm'],
+        parent_outer_sha256=scope['parent_outer_sha256'], parent_cursor=scope['parent_cursor'],
+        archive_sha256=spec['base']['archive_sha256'], bundle_sha256=spec['base']['bundle_sha256'],
+        scope=deepcopy(scope), scope_sha256=digest(scope), producer_sha256=sha(Path(__file__).read_bytes()),
+        **material, financial_sessions_advanced=0, financial_authority=False, input_adopted=False,
+        provider_metadata_upgraded=False, production_contacted=False)
 
 
 def resolved_row_query_scope(scope, rows):
@@ -604,6 +696,13 @@ def additional_source_rows(scope, rows, positions):
 def witness_payload(cp, arm, scope, natives, rows, additional_rows=()):
     need(cp['sha256'] == scope['parent_outer_sha256'] and cp['source_cursor'] == scope['parent_cursor'],
          'SOURCE_WITNESS_EXACT_OWN_PARENT')
+    if source_schema(scope) == SOURCE_WITNESS_DATE_QUERY_SCHEMA:
+        term, = scope['terms']
+        positions = [dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'], entry_date=e['entry_date'])
+                     for _, e in sorted(cp['run']['state']['wealth_core']['episodes'].items(), key=lambda item: int(item[0]))
+                     if e['security_id'] == term['security_id']]
+        material = native_date_material(scope, natives, rows, positions)
+        return native_date_payload(dict(arm=arm, base=cp['base']), scope, material)
     resolved = resolved_row_query_scope(resolved_query_scope(scope, natives), additional_rows)
     episodes = cp['run']['state']['wealth_core']['episodes']
     def positions(terms):
@@ -636,6 +735,17 @@ def witness_payload(cp, arm, scope, natives, rows, additional_rows=()):
 
 
 def validate_witness_capture(payload, spec, scope):
+    if source_schema(scope) == SOURCE_WITNESS_DATE_QUERY_SCHEMA:
+        material = native_date_material(scope, [v['native_term'] for v in payload['native_candidates']],
+            [v['source_row'] for v in payload['terms']], payload['terms'][0]['parent_positions'])
+        need(spec['outer_sha256'] == scope['parent_outer_sha256']
+             and spec['selected_session'] == scope['parent_cursor']
+             and type(payload['financial_sessions_advanced']) is int
+             and all(payload[k] is False for k in ('financial_authority', 'input_adopted',
+                                                   'provider_metadata_upgraded', 'production_contacted'))
+             and payload == native_date_payload(spec, scope, material),
+             'SOURCE_NATIVE_DATE_EXACT_SOURCE_ONLY_RECONSTRUCTION')
+        return payload
     resolved = resolved_row_query_scope(resolved_query_scope(scope, [v['native_term'] for v in payload['terms']]),
                                         [v['source_row'] for v in payload.get('additional_rows', [])])
     need(payload['schema'] == source_schema(scope) and payload['arm'] == spec['arm']
@@ -671,10 +781,13 @@ def capture_source_witnesses(cp, out, arm, scope):
     before = digest(cp)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     natives = []
-    for term in scope['terms']:
-        native, = [asdict(t) for t in actions.terminal.get(term['native_session'], ())
-                   if t.security_id == term['security_id']]
-        natives.append(native)
+    if source_schema(scope) == SOURCE_WITNESS_DATE_QUERY_SCHEMA:
+        natives = native_date_candidates(actions.terminal, scope)
+    else:
+        for term in scope['terms']:
+            native, = [asdict(t) for t in actions.terminal.get(term['native_session'], ())
+                       if t.security_id == term['security_id']]
+            natives.append(native)
     native_keys = {(t['session'], t['security_id']) for t in scope['terms']}
     additional_keys = {(t['session'], t['security_id']) for t in scope.get('additional_rows', [])}
     queries = scope.get('additional_row_queries', [])

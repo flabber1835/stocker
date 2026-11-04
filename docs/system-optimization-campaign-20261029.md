@@ -760,3 +760,15 @@ discovery protocol. Bind the exact own checkpoint and its empty TVTY position
 set. The later June 23 entry and 134 shares in the refusal diagnostic are not
 backdated into that parent. This capture grants no financial input authority;
 source review and an explicit economic model remain separate prerequisites.
+
+The June 28 TVTY lookup returned no native terminal. Replace guessed-date
+retries with a shared bounded native-date query, also usable for P03's NLST
+refusal. Pin one own parent, one security ID, one full identity observation and
+a future interval of at most 31 calendar days. Scan every retained terminal
+kind for that security in the interval. Capture every candidate without
+truncation, with a 16-record refusal bound, and distinguish zero, one and
+multiple matches explicitly. Do not select a candidate or change its date,
+kind or consideration. The new source-only payload keeps the full row, candidate
+hashes, actual parent position role, input archive/bundle identities and query
+hash. It grants no financial authority even when there is one match. Existing
+single-date source capture and financial input validators stay unchanged.
