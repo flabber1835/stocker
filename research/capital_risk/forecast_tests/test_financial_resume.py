@@ -40,9 +40,9 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P06','P11']
+    assert r['arms'] == ['P04']
     assert r['maximum_parallel_financial_workers'] == 0
-    assert r['maximum_parallel_readonly_workers'] == 2
+    assert r['maximum_parallel_readonly_workers'] == 1
     assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
     assert r['readonly_source_witnesses'] is False and r['source_witness_scopes']=={} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False

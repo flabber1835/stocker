@@ -74,14 +74,23 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
 
 
 def test_new_reporting_uses_admitted_initial_seed_without_financial_workers(monkeypatch):
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P06','P11'))
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P04',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
-    assert value['arms']==['P06','P11'] and value['maximum_parallel_financial_workers']==0
+    assert value['arms']==['P04'] and value['maximum_parallel_financial_workers']==0
     assert value['financial_resume_authorized'] is False and value['readonly_partial_review'] is True
-    assert set(value['admitted_checkpoints'])=={'P06','P11'} and value['initial_reporting_origins']=={}
+    assert set(value['admitted_checkpoints'])=={'P04'} and value['initial_reporting_origins']=={}
     monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
     with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
+
+
+@pytest.mark.parametrize('arm,days',[('P06',291),('P11',169)])
+def test_new_admitted_prefix_preserves_initial_seed_as_exact_history(arm,days):
+    old=initial_entry(arm);current=p.root_spec(arm)
+    assert current['measured_closes']==days
+    assert current['root_admission']['parent_root_admission_sha256']==old['admission_sha256']
+    assert p.root_spec(arm,old['admission_sha256'])['measured_closes']==21
+    assert current['root_admission']['performance_scoring_authorized'] is False
 
 
 def test_initial_reporting_does_not_repin_original_fresh_p00_origin():

@@ -193,3 +193,14 @@ Saved-prefix reporting request qualification:104 relevant resume/partial/initial
 prefix cases passed in16.70s. Both actual ZIP public transports passed metadata
 validation. The historical initial21 transports remain independently addressable;
 no financial worker is authorized by this reporting request.
+
+P06's291 and P11's169 saved checkpoints passed independent DATA:540/296 new
+accounting snapshots,13/7 monthly reports and364/196 independent Decimal metrics.
+Admit these exact own prefixes for continuation, preserving their initial21 roots
+in immutable history. Later failing March/September tails remain excluded.
+
+P04's final186 financial days completed successfully through July31,2026. Select
+its exact2156 checkpoint for the existing hosted reporting mechanism from the
+admitted1970 seed. No further financial replay is required. Completion/scoring
+admission follows the same independent financial DATA and exact reporting checks
+used for the other completed variants. No new settlement study is required.
