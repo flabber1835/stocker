@@ -26,6 +26,7 @@ from sentinel.panel.presentation import describe, dashboard_health
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
+from sentinel.panel.pwa import CURRENT_DOCUMENT_SCRIPT, MAX_DOCUMENT_AGE_SECONDS
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS,
@@ -34,7 +35,7 @@ from sentinel.panel.model import (
 #: Refresh cadence. Long enough not to hammer the database from a phone left on
 #: a desk, short enough that a stalled ingest is visible within a coffee.
 REFRESH_SECONDS = 30
-PRESENTATION_MAX_AGE_SECONDS = 45
+PRESENTATION_MAX_AGE_SECONDS = MAX_DOCUMENT_AGE_SECONDS
 
 _DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?", 'neutral': '○'}
 
@@ -564,6 +565,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 // only the server can earn it again by returning a new complete document.
 (function(){{
   var invalidated = false;
+  {CURRENT_DOCUMENT_SCRIPT}
   var badge = document.getElementById("operational-state");
   var heartbeat = document.getElementById("dashboard-heartbeat");
   var preparation = document.getElementById("preparation-stage");
@@ -621,15 +623,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}
       var html = await response.text();
       transportDelay = false;
-      var next = new DOMParser().parseFromString(html, "text/html");
-      var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
-      var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
-      if (!next.getElementById("operational-state") ||
-          next.body.dataset.refreshPending !== "false" ||
-          !Number.isFinite(nextAge) || !validBudget(nextBudget) || nextAge < -5000 ||
-          nextAge > nextBudget){{
-        throw new Error("Dashboard response is incomplete");
-      }}
+      currentDocument(html);
       // Keep the foreground lifecycle and original clocks while the tab is hidden.
       if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearInterval(ageTimer);

@@ -74,15 +74,49 @@ def test_delete_and_reinsert_is_revalidated(conn):
     assert memo.read(conn,plan_id=raw['plan_id'])['tickers']['one']=='NEW'
 
 
-@pytest.mark.parametrize('advance',[60,61,-1])
-def test_ttl_and_clock_regression_require_full_validation(conn,monkeypatch,advance):
+def test_clock_regression_requires_full_validation(conn,monkeypatch):
     raw=value();insert(conn,raw);clock=[100.0];memo=display.IntentMemo(clock=lambda:clock[0])
     memo.read(conn,plan_id=raw['plan_id'])
     def refused(*_args,**_kwargs):
         raise RuntimeError('full validation required')
     monkeypatch.setattr(authority,'load_authority',refused)
-    clock[0]+=advance
+    clock[0]-=1
     with pytest.raises(RuntimeError,match='full validation'):
+        memo.read(conn,plan_id=raw['plan_id'])
+
+
+@pytest.mark.parametrize('idle_seconds', [60, 61, 3600, 86400])
+def test_idle_unchanged_physical_row_keeps_its_validated_projection(conn, monkeypatch, idle_seconds):
+    raw=value();insert(conn,raw);clock=[100.0];calls=[];original=authority.load_authority
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(authority, 'load_authority', counted)
+    memo=display.IntentMemo(clock=lambda:clock[0]);first=memo.read(conn,plan_id=raw['plan_id'])
+    clock[0]+=idle_seconds
+    assert memo.read(conn,plan_id=raw['plan_id'])==first
+    assert len(calls)==1, 'idle time cannot force validation of an unchanged immutable row'
+    assert first['broker_observation']['observed_at']=='2031-04-21T20:00:00+00:00'
+
+
+def test_long_idle_never_hides_changed_bytes_retaining_a_claimed_digest(conn):
+    raw=value();insert(conn,raw);clock=[100.0];memo=display.IntentMemo(clock=lambda:clock[0])
+    memo.read(conn,plan_id=raw['plan_id']);clock[0]+=86400
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{tickers,one}','\"FORGED\"')")
+    conn.commit()
+    with pytest.raises(authority.DualPlanAuthorityRefused, match='digest'):
+        memo.read(conn,plan_id=raw['plan_id'])
+
+
+@pytest.mark.parametrize('name', ['SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST',
+                                 'SENTINEL_STATE_DIR'])
+def test_configuration_change_still_requires_canonical_validation(conn, monkeypatch, name):
+    raw=value();insert(conn,raw);memo=display.IntentMemo();memo.read(conn,plan_id=raw['plan_id'])
+    monkeypatch.setenv(name, 'changed-fixture')
+    def refused(*_args, **_kwargs):
+        raise RuntimeError('full validation required')
+    monkeypatch.setattr(authority, 'load_authority', refused)
+    with pytest.raises(RuntimeError, match='full validation'):
         memo.read(conn,plan_id=raw['plan_id'])
 
 

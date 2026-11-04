@@ -134,8 +134,9 @@ validated intent projection, never executable sizing authority or a complete
 operational result. Every use must re-read the exact row identity/version, plan,
 binding and current mutable facts. Bind the memo to database/physical incarnation,
 relation identity, full transaction epoch plus tuple xmin/ctid, cursor/session and
-stored digest; clear it on configuration change and clock regression and expire
-it after a short fixed interval. A changed/deleted/reinserted/restored row forces
+stored digest; clear it on configuration change and clock regression. The
+November 4 launch decision below replaces the original one-minute eviction with
+reuse only while that exact physical row version still matches. A changed/deleted/reinserted/restored row forces
 full validation; a changed row with an unchanged claimed digest must refuse.
 Do not re-date any returned observation, plan or expiry. Execution and standalone
 callers retain the original uncached loader.
@@ -367,3 +368,57 @@ acceptance record. A historical snapshot may qualify the comparison but cannot
 pass the outer current-tick age check. The exact-view acknowledgement still
 requires independent fresh readiness, an unchanged review subject/head and exact
 notification set, a newly issued token, and the existing server transaction.
+
+## Home-screen launch and foreground return
+
+November 4 owner report: a home-screen launch can remain black for 7–10 seconds,
+and foreground return can show refreshing for 4–5 seconds on both Wi-Fi and
+mobile data. Current paired local/public reads took 1.1–1.5 seconds before HTML
+headers, while static PWA resources took 3–21 milliseconds. The worker currently
+awaits the complete network navigation response, so no document can paint while
+status collection or connection establishment is pending. Existing resume tests
+exercise an already loaded document; they do not cover that missing first paint.
+
+Make an ordinary root document navigation return a small static, neutral launch
+document before any database, worker or review read. The existing installed
+worker also returns that same static document directly for same-origin GET root
+navigations. Keep the manifest ID/start URL, all other routes and push behavior.
+The launch document fetches the existing root HTML as a non-navigation request,
+then installs it only after the same complete-document, original-clock and
+finite-age checks used by ordinary refresh. Share that parser with refresh.
+There is one request in flight and a finite abort bound; offline/failure stays
+neutral with an explicit retry. Hidden/late responses cannot install current
+authority. Neither the worker nor the launch document stores HTML, review tokens,
+financial values or successful health in Cache Storage/local storage. The static
+launch response is CONNECTING, not CURRENT; offline launch can return that static
+200 document and subsequently show an offline notice. A no-JavaScript link uses
+the explicit read-only `?document=1` server-rendered path.
+
+A separate read-only miss/hit profile reproduced an unnecessary foreground cost:
+with imports warm, unchanged canonical intent validation took 1.36 seconds and
+the request took 2.52 seconds; its already validated display projection needed
+0.035 seconds and the request took 1.09 seconds. The old memo discards that
+immutable projection after every minute even if the physical row is unchanged.
+Retain the small bounded LRU projection for that exact physical row version
+instead. Every hit still reads database/system/postmaster/relation/tuple/full-XID
+epoch/session/digest identity; configuration changes and monotonic-clock rollback
+clear it. Changed, deleted, reinserted or restored rows force canonical validation,
+including changes retaining a claimed digest. The entry/byte bounds remain.
+Current generation, account, plan selection, opening intents, observations and
+execution time are read afresh outside this memo. Their original timestamps and
+all financial/evidence expiries stay unchanged. Execution/notification loaders
+remain uncached. This removes repeated validation of unchanged immutable bytes;
+it does not cache a complete operational result or extend authority.
+
+Qualify held-network launch before the first document, foreground freshness,
+offline/no fabricated green, single-flight/abort/hidden-response/parser guards,
+the real worker and WebKit document path, plus idle reuse and every physical-row
+invalidation with removed-guard falsifiers. A physical iPhone is not available
+to this test harness; report that limit and measured browser results explicitly.
+
+The owner explicitly authorizes a local panel-only overlay of pwa, app, render
+and intent_memo after qualification, preserving the already installed DELL
+preview and the signed base identity separately. Save exact original bytes and
+metadata, restart only that panel, compare unchanged financial/other-role
+witnesses, and refuse rollback over unknown concurrent bytes. A planned restart
+retains the existing review/acknowledgement contract.
