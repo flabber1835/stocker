@@ -1293,3 +1293,25 @@ kernel d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739
 has the checked env/published callsite; no canonical module was executed locally.
 The72 retained_sources,retained_proof and admission_generations compatibility
 tests passed in6.04s, including explicit parent propagation to the event observer.
+
+## Review P07's new63 April–June2020 closes without financial replay
+
+Financial41821755315/e4c3f0a60 stopped with628 committed closes through June30
+and a later unadmitted July tail. Artifact13318715488 is authenticated and its
+original accounting/certificate prefix review passed. The July31 refusal is in
+financial accounting: unresolved or blocked Wealth Core equity cannot feed
+verified Core+BIL performance. It is not evidence that the June checkpoint is
+independently admitted, and the July tail is not a new resume seed.
+
+Select only the exact628 gzip/outer hash for read-only reporting, seeded from
+P07's admitted565/March31 root30552e338938b213. Reuse the exact closed prefix
+review and qualify the63 new daily rows and three monthly reports. Advance no
+financial sessions, reapply no old action and rerun no old branch induction or
+qualification. Independent DATA must verify the126 accounting snapshots,84
+Decimal monthly metrics, financial/watch/branch chains and neutral adoption of
+the eight unchanged future inputs before a628 root may be admitted. P00 and
+P04 keep their immutable running commits.
+
+The628 read-only request passed141 resume/partial/retention/retained-proof tests
+in18.18s. It permits zero financial workers and one read-only worker, keeps the
+565 admission unchanged, and preserves the original383 drivers and branch source.
