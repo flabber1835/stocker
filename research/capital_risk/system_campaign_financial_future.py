@@ -232,12 +232,13 @@ class NativePreimageQuery(BaseModel):
 
 class NativeDateQuery(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
-    schema_id: Literal['research.bounded-native-terminal-date-query/1'] = Field(alias='schema')
+    schema_id: Literal['research.bounded-native-terminal-date-query/1', 'research.bounded-native-terminal-date-query/2'] = Field(alias='schema')
     security_id: Annotated[str, Field(min_length=1)]
     session_from: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
     session_to: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
     maximum_records: Literal[16]
     financial_use_authorized: Literal[False]
+    include_outside_window: Literal[True] | None = None
 
 
 class ObservationIdentityQuery(BaseModel):
@@ -473,8 +474,11 @@ NATIVE_DATE_WITNESS_SCOPES = {
             security_id='506048722516044547', session_from='2022-06-28', session_to='2022-07-15',
             maximum_records=16, financial_use_authorized=False)),
 }
+NATIVE_INVENTORY_WITNESS_SCOPES = deepcopy(NATIVE_DATE_WITNESS_SCOPES)
+for _scope in NATIVE_INVENTORY_WITNESS_SCOPES.values():
+    _scope['native_date_query'].update(schema='research.bounded-native-terminal-date-query/2', include_outside_window=True)
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
-    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES) for scope in scopes.values()}
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES, NATIVE_INVENTORY_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
                          'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
@@ -483,6 +487,7 @@ ACTIVE_WITNESS_SCOPES['P04'] = digest(EXTRA_WITNESS_SCOPES['P04', '2025-10-31'])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2022-05-31'])
 ACTIVE_WITNESS_SCOPES['P03'] = digest(ROW_QUERY_WITNESS_SCOPES['P03_PREFIX'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_DATE_WITNESS_SCOPES.items()})
+ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_INVENTORY_WITNESS_SCOPES.items()})
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -588,6 +593,8 @@ def native_date_query(scope):
          and query['security_id'] == term['security_id']
          and scope['parent_cursor'] < term['session'] < query['session_from'] <= query['session_to']
          and 0 <= (end-start).days <= 31 and type(query['maximum_records']) is int
+         and ((query['schema'].endswith('/1') and 'include_outside_window' not in query)
+              or (query['schema'].endswith('/2') and query.get('include_outside_window') is True))
          and query['financial_use_authorized'] is False, 'SOURCE_NATIVE_DATE_EXACT_BOUNDED_QUERY')
     return query, term
 
@@ -596,7 +603,7 @@ def native_date_candidates(terminal, scope):
     query, term = native_date_query(scope)
     rows = []
     for day in sorted(terminal):
-        if not query['session_from'] <= day <= query['session_to']:
+        if not query.get('include_outside_window') and not query['session_from'] <= day <= query['session_to']:
             continue
         for item in terminal[day]:
             row = asdict(item) if is_dataclass(item) else deepcopy(item)
@@ -618,16 +625,22 @@ def native_date_material(scope, natives, rows, positions):
               'cash_in_lieu_price_per_delivered_share', 'entitlement_aggregation'}
     need(len(natives) <= query['maximum_records'] and len({digest(v) for v in natives}) == len(natives)
          and all(set(v) == fields and v['security_id'] == term['security_id']
-                 and query['session_from'] <= v['session'] <= query['session_to']
-                 and type(v['kind']) is str and bool(v['kind']) for v in natives),
+                 and (query.get('include_outside_window') is True or query['session_from'] <= v['session'] <= query['session_to'])
+                 and isinstance(v['kind'], str) and bool(v['kind']) for v in natives),
          'SOURCE_NATIVE_DATE_ALL_CANDIDATES_WITHOUT_TRUNCATION')
     candidates = sorted((dict(native_term=deepcopy(v), native_term_sha256=digest(v)) for v in natives),
                         key=lambda v: (v['native_term']['session'], v['native_term_sha256']))
+    if query.get('include_outside_window'):
+        for candidate in candidates:
+            day = candidate['native_term']['session']
+            candidate['window_relation'] = ('BEFORE_WINDOW' if day < query['session_from'] else
+                'AFTER_WINDOW' if day > query['session_to'] else 'IN_WINDOW')
     witness = {k: rows[0][k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
                                       'listing_first_session', 'security_type_eligible')}
     witness['source_observation_sha256'] = digest(rows[0])
-    return dict(native_candidates=candidates, match_status=('NO_NATIVE_IN_WINDOW' if not candidates
-        else 'UNIQUE_NATIVE_CAPTURED' if len(candidates) == 1 else 'MULTIPLE_NATIVES_IN_WINDOW'),
+    suffix = 'FROZEN_INDEX' if query.get('include_outside_window') else 'WINDOW'
+    return dict(native_candidates=candidates, match_status=('NO_NATIVE_IN_'+suffix if not candidates
+        else 'UNIQUE_NATIVE_CAPTURED' if len(candidates) == 1 else 'MULTIPLE_NATIVES_IN_'+suffix),
         terms=[dict(source_row=deepcopy(rows[0]), identity_witness=witness, parent_positions=deepcopy(positions))])
 
 
@@ -783,6 +796,10 @@ def capture_source_witnesses(cp, out, arm, scope):
     natives = []
     if source_schema(scope) == SOURCE_WITNESS_DATE_QUERY_SCHEMA:
         natives = native_date_candidates(actions.terminal, scope)
+        save(out / 'native-date-query-diagnostic.json', dict(schema='research.native-date-query-diagnostic/1',
+            scope_sha256=digest(scope), candidate_count=len(natives), native_records=natives,
+            native_kind_types=[type(v['kind']).__name__ for v in natives], financial_authority=False,
+            financial_sessions_advanced=0))
     else:
         for term in scope['terms']:
             native, = [asdict(t) for t in actions.terminal.get(term['native_session'], ())

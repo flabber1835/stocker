@@ -772,3 +772,13 @@ kind or consideration. The new source-only payload keeps the full row, candidate
 hashes, actual parent position role, input archive/bundle identities and query
 hash. It grants no financial authority even when there is one match. Existing
 single-date source capture and financial input validators stay unchanged.
+
+If that expected window is empty, a version-2 source query may additionally
+inventory the same security across the finite, versioned frozen terminal index,
+still refusing more than 16 records without truncation. Preserve the expected
+window and label each returned record before, inside or after it. An empty
+inventory is an explicit missing-input observation, not an inferred payment.
+Preserve raw candidate diagnostics before validation so a source-shape refusal
+is inspectable. Canonical string-enum terminal kinds retain their exact string
+value; they are not rejected merely because their Python type subclasses str.
+The original version-1 query and every financial authority flag remain intact.

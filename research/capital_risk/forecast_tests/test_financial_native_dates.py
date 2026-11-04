@@ -1,5 +1,6 @@
 """Bounded native discovery is DATA-only and never chooses economic authority."""
 from copy import deepcopy
+from enum import Enum
 from pathlib import Path
 import sys
 
@@ -45,6 +46,38 @@ def test_actual_candidate_selection_covers_all_kinds_and_does_not_modify_source(
     outside=deepcopy(native);outside['session']='2022-07-18'
     source={'2022-06-29':[native,ignored],'2022-07-01':[other],'2022-07-18':[outside]};before=deepcopy(source)
     assert f.native_date_candidates(source,scope)==[native,other] and source==before
+
+
+def test_string_enum_kind_retains_the_canonical_source_value():
+    class Kind(str,Enum):
+        CASH='CASH_MERGER'
+    scope,cp,rows,native=fixture();native['kind']=Kind.CASH
+    payload=f.witness_payload(cp,'P11',scope,[native],rows)
+    assert payload['native_candidates'][0]['native_term']['kind']=='CASH_MERGER'
+    assert payload['native_candidates'][0]['native_term_sha256']==f.digest(dict(native,kind='CASH_MERGER'))
+
+
+@pytest.mark.parametrize('count',[0,1,2])
+def test_explicit_inventory_retains_outside_window_dates_and_no_financial_authority(count):
+    scope,cp,rows,native=fixture();scope=deepcopy(f.NATIVE_INVENTORY_WITNESS_SCOPES['P11'])
+    records=[]
+    for i,day in enumerate(('2022-06-01','2022-08-01')[:count]):
+        records.append(dict(native,session=day,reference=str(i)))
+    terminal={v['session']:[v] for v in records}
+    selected=f.native_date_candidates(terminal,scope)
+    assert selected==records
+    payload=f.witness_payload(cp,'P11',scope,selected,rows)
+    assert payload['match_status']==['NO_NATIVE_IN_FROZEN_INDEX','UNIQUE_NATIVE_CAPTURED','MULTIPLE_NATIVES_IN_FROZEN_INDEX'][count]
+    assert [c['window_relation'] for c in payload['native_candidates']]==['BEFORE_WINDOW','AFTER_WINDOW'][:count]
+    assert payload['financial_authority']is payload['input_adopted']is False
+    spec=dict(arm='P11',outer_sha256=cp['sha256'],selected_session=cp['source_cursor'],base=cp['base'])
+    assert f.validate_witness_capture(payload,spec,scope)==payload
+
+
+def test_original_query_cannot_silently_enable_inventory_without_version_change():
+    scope,_,_,_=fixture();scope['native_date_query']['include_outside_window']=True
+    with pytest.raises(ValueError,match='EXACT_BOUNDED_QUERY'):f.native_date_query(scope)
+    assert removed_guard('native_date_query','SOURCE_NATIVE_DATE_EXACT_BOUNDED_QUERY')(scope)
 
 
 @pytest.mark.parametrize('arm,days',[('P03',169),('P11',1111)])
