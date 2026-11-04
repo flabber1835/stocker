@@ -1645,3 +1645,6 @@ no archived P00 holdings or returns are used and no financial replay is needed.
 The complete P00 target passed150 resume/partial/initial-reporting/complete-reporting
 tests in32.21s. The historical169-repeat refusal explicitly selects the unchanged
 169 fixture; the current2156 target is a legitimate new suffix from1883.
+The final read-only P00 request passed88 resume/complete-reporting checks in15.39s
+and authorizes no financial workers. P07's economic run keeps its own bb84258ee
+commit; P05/P06/P11's21-row hosted reporting has already reproduced exactly.
