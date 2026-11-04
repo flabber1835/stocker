@@ -2,11 +2,16 @@
 const {test,expect}=require('@playwright/test');
 const http=require('node:http');
 
-async function fixture(request,{workerOnly=false}={}) {
-  const source=await (await request.get('/service-worker.js')).text();
+async function fixture(request,{workerOnly=false,legacyWorker=false}={}) {
+  let source=await (await request.get('/service-worker.js')).text();
   const match=source.match(/^const LAUNCH_DOCUMENT = (.+);$/m);
   expect(match,'shipped worker must expose only its static launch document').not.toBeNull();
   const launch=JSON.parse(match[1]);
+  if(legacyWorker) {
+    const current=source;
+    source=source.replace(/  var url = new URL\(event.request.url\);[\s\S]*?\n    return;\n  }\n/,'');
+    expect(source).not.toBe(current);
+  }
   const template=await (await request.get('/?document=1')).text();
   const pending=new Set(),sockets=new Set(),requests=[];
   let held=true;
@@ -29,7 +34,8 @@ async function fixture(request,{workerOnly=false}={}) {
       res.end('<!doctype html><title>Private worker installation</title><script>navigator.serviceWorker.register("/service-worker.js",{scope:"/",updateViaCache:"none"});</script>');return;
     }
     if(path==='/') {
-      const navigation=req.headers['sec-fetch-mode']==='navigate';
+      const navigation=req.headers['sec-fetch-mode']==='navigate'||
+        req.headers['sec-fetch-dest']==='document'||(req.headers.accept||'').includes('text/html');
       requests.push({navigation,at:Date.now()});
       if(navigation && !workerOnly) {
         res.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store',
@@ -62,13 +68,27 @@ test.describe('First document before current evidence',()=>{
       await testInfo.attach('launch-before-status',{body:await page.screenshot(),contentType:'image/png'});
       f.release();await expect(page.locator('#operational-state')).toBeVisible();
       await expect(page.locator('[data-panel-launch]')).toHaveCount(0);
-    } finally {await page.goto('about:blank');await f.close();}
+    } finally {f.release();await page.goto('about:blank',{waitUntil:'commit',timeout:3000}).catch(()=>{});await f.close();}
   });
 });
 
 test.describe('Installed worker launch',()=>{
   test.skip(({browserName})=>browserName!=='chromium');
   test.use({serviceWorkers:'allow'});
+  test('a previous network-first worker also receives the fast server launch document',async({page,request})=>{
+    const f=await fixture(request,{legacyWorker:true});
+    try {
+      await page.goto(f.url+'install');await page.evaluate(()=>navigator.serviceWorker.ready);
+      await expect.poll(()=>page.evaluate(()=>Boolean(navigator.serviceWorker.controller))).toBe(true);
+      const started=Date.now();await page.goto(f.url,{waitUntil:'domcontentloaded'});
+      await expect(page.locator('#launch-status')).toBeVisible();
+      expect(Date.now()-started).toBeLessThan(2000);
+      await expect.poll(()=>f.requests.filter(x=>!x.navigation).length).toBe(1);
+      expect(f.requests.filter(x=>x.navigation)).toHaveLength(1);
+      await expect(page.locator('#operational-state')).toHaveCount(0);
+      f.release();await expect(page.locator('#operational-state')).toBeVisible();
+    } finally {f.release();await page.goto('about:blank',{waitUntil:'commit',timeout:3000}).catch(()=>{});await f.close();}
+  });
   test('closed page reopens immediately through the real worker with no cached health',async({context,page,request},testInfo)=>{
     const f=await fixture(request,{workerOnly:true});
     let reopened;

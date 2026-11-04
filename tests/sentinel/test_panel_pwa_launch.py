@@ -61,14 +61,19 @@ def test_broken_launch_guards_are_detected(mutation,kind):
     assert result.returncode!=0
 
 
-def test_neutral_static_navigation_never_reads_operational_sources(monkeypatch):
+@pytest.mark.parametrize('headers', [
+    {'Sec-Fetch-Mode':'navigate'},
+    {'Sec-Fetch-Mode':'same-origin','Sec-Fetch-Dest':'document'},
+    {'Accept':'text/html,application/xhtml+xml,*/*;q=0.8'},
+])
+def test_neutral_static_navigation_never_reads_operational_sources(monkeypatch, headers):
     from fastapi.testclient import TestClient
     app=importlib.import_module('sentinel.panel.app')
     def forbidden():
         raise AssertionError('first paint queried operational state')
     monkeypatch.setattr(app,'_read_panel',forbidden)
     with TestClient(app.app) as client:
-        response=client.get('/',headers={'Sec-Fetch-Mode':'navigate'})
+        response=client.get('/',headers=headers)
     assert response.status_code==200
     assert response.headers['X-Sentinel-Panel-Status']=='CONNECTING'
     assert response.headers['Cache-Control']=='no-store'
@@ -78,7 +83,11 @@ def test_neutral_static_navigation_never_reads_operational_sources(monkeypatch):
     assert '?document=1' in response.text
 
 
-def test_no_javascript_document_path_retains_normal_server_read(monkeypatch):
+@pytest.mark.parametrize('path,headers', [
+    ('/?document=1', {'Sec-Fetch-Mode':'navigate','Accept':'text/html'}),
+    ('/', {'Sec-Fetch-Mode':'cors','Sec-Fetch-Dest':'empty','Accept':'*/*'}),
+])
+def test_full_document_paths_retain_normal_server_read(monkeypatch, path, headers):
     from fastapi.testclient import TestClient
     app=importlib.import_module('sentinel.panel.app')
     calls=[]
@@ -87,7 +96,7 @@ def test_no_javascript_document_path_retains_normal_server_read(monkeypatch):
         return model.Panel(rows=[],now=datetime.now(timezone.utc))
     monkeypatch.setattr(app,'_read_panel',current)
     with TestClient(app.app) as client:
-        response=client.get('/?document=1',headers={'Sec-Fetch-Mode':'navigate'})
+        response=client.get(path,headers=headers)
     assert response.status_code==200 and calls==[1]
     assert response.headers['X-Sentinel-Panel-Status']=='CURRENT'
     assert 'data-panel-launch="true"' not in response.text

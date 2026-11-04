@@ -272,8 +272,10 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
 @app.get("/", response_class=HTMLResponse)
 @_one_panel_build
 def panel(request: Request = None) -> HTMLResponse:
-    if (request is not None and request.headers.get('sec-fetch-mode') == 'navigate'
-            and request.query_params.get('document') != '1'):
+    if (request is not None and request.query_params.get('document') != '1'
+            and (request.headers.get('sec-fetch-mode') == 'navigate'
+                 or request.headers.get('sec-fetch-dest') == 'document'
+                 or 'text/html' in request.headers.get('accept', '').lower())):
         return HTMLResponse(LAUNCH_HTML, headers={'Cache-Control': 'no-store',
                             'X-Sentinel-Panel-Status': 'CONNECTING'})
     state_dir, dsn = _config()

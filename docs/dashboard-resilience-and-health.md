@@ -422,3 +422,11 @@ preview and the signed base identity separately. Save exact original bytes and
 metadata, restart only that panel, compare unchanged financial/other-role
 witnesses, and refuse rollback over unknown concurrent bytes. A planned restart
 retains the existing review/acknowledgement contract.
+
+The old-worker migration regression additionally reproduced a stripped Fetch
+Metadata path: its forwarded navigation retained `Accept: text/html` but omitted
+Sec-Fetch-Mode/Dest. Recognize document destination, navigation mode, or an HTML
+Accept request at the root. Bootstrap/ordinary current-document fetches keep
+their normal `*/*` Accept and receive the full current response. The explicit
+`?document=1` path always bypasses launch selection. This covers existing
+installed workers before their update as well as older WebKit metadata support.
