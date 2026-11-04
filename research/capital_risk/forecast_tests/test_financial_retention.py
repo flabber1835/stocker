@@ -26,6 +26,7 @@ def test_all_current_reporting_seeds_are_closest_admitted_own_checkpoints():
 
 @pytest.mark.parametrize('change',['already_admitted','older_seed'])
 def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(monkeypatch,change):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
     original=m.root_spec
     def altered(arm,*args):
         root=deepcopy(original(arm,*args))
@@ -37,6 +38,7 @@ def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(m
 
 
 def test_new_reporting_scope_guard_removal_falsifier(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
     original=m.root_spec
     monkeypatch.setattr(m,'root_spec',lambda arm:dict(original(arm),measured_closes=json.loads((CAP/m.PARTIALS).read_bytes())['arms'][arm]['measured_closes']))
     with pytest.raises(ValueError):m.expected_request()
@@ -71,7 +73,7 @@ def test_admitted_seed_guard_removal_falsifier(monkeypatch):
     monkeypatch.setattr(p,'root_spec',lambda *args:seed)
     with pytest.raises(ValueError):p.reporting_seed(spec)
     fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='reporting_seed')
-    branch=next(n for n in fn.body if isinstance(n,ast.If));branch.body.pop(1);ns=dict(vars(p))
+    branch=next(n for n in fn.body if isinstance(n,ast.If) and any(isinstance(v,ast.Constant) and v.value=='monthly_seed_root_admission_sha256' for v in ast.walk(n.test)));branch.body.pop(1);ns=dict(vars(p))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-admitted-seed-guard>','exec'),ns)
     with pytest.raises(AssertionError):
         try:ns['reporting_seed'](spec)

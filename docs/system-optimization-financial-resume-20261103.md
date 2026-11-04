@@ -838,3 +838,33 @@ new reports from the admitted1152/July2022 seed for the existing read-only
 reporting path, followed by independent DATA admission. Its May30 tail and
 May31 volatility causal-axis refusal remain unadmitted. This request starts no
 economic worker and repeats no closed source or prior financial review.
+
+## Bootstrap reporting admission for the genuine fresh P00 prefix
+
+Extend the same archive reader, retainer, launcher and reporting path for the
+six-member original candidate export. Pin its exact target descriptor, original
+candidate request, distinct historical fresh-origin request and empty-origin
+public proof. Preserve their separate protocol identities: staging uses the
+frozen stage protocol, while the candidate manifest uses the search protocol.
+Reuse the closed fresh-origin/configuration/hosted accounting qualification;
+verify exact bytes at use instead of rerunning it. Adapt only the existing
+archive inventory/review-file sites. Validate original candidate worker fences
+with the unchanged candidate inspector and supplied archived state, plus exact
+entrypoint/commands and positive non-OOM stops. Do not add a continuation wrapper.
+
+The first reporting seed is the exact own zero-measurement June30,2017 checkpoint
+inside this same authenticated export. It has no daily/monthly commitment and
+stats is null. Construct MonthlyStats.fresh with the pinned monthly implementation,
+the four declared and required series, pooled primary, measurement
+start January2,2018 and the own50000 capital baseline. Reproduce only169 recorded
+daily NAVs and8 reports, verifying the entire resulting stats and retry state.
+No financial transition is replayed. A null seed may be used only for this exact
+fresh descriptor; it cannot reset reporting for any existing continuation.
+
+P00 has no root admission yet. Give its initial read-only request a separate
+reporting-origin descriptor rather than an admitted-checkpoint claim. Financial
+mode must continue refusing P00 until independent initial formation/financial/
+reporting DATA review and a separate root admission are complete. The historical
+P00 result remains excluded. ILG source/timing/fractional-cash qualification and
+later financial continuation are separate work; this change grants none of that
+authority. P10's live reporting job keeps its immutable03aa7a123 commit.

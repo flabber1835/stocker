@@ -6,6 +6,7 @@ import gzip
 import json
 from pathlib import Path
 import re
+from types import SimpleNamespace
 import zipfile
 from contextlib import contextmanager, nullcontext
 
@@ -23,6 +24,10 @@ HERE = Path(__file__).parent
 ORIGINALS = 'system-campaign-parallel-discovery-parents.json'
 CRYPTO_SHA = '63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4'
 FORMAT = 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1'
+FRESH_FORMAT = 'FRESH_CANDIDATE_SIX_MEMBER_ZIP/1'
+FRESH_REQUEST = 'system-campaign-fresh-origin-request.json'
+FRESH_TARGET_SHA = '0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf2d1d'
+FRESH_REQUEST_SHA = '13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'
 ROOTS = 'system-campaign-financial-admitted-parents.json'
 ADMISSIONS = {
     'P04': '58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45',
@@ -108,6 +113,8 @@ def validate_root_spec(spec):
 
 def reporting_seed(spec):
     """Select an independently admitted own seed, never arbitrary newer state."""
+    if spec.get('archive_format') == FRESH_FORMAT:
+        return initial_reporting_seed(spec)
     if 'monthly_seed_root_admission_sha256' in spec:
         original = root_spec(spec['arm'], spec['monthly_seed_root_admission_sha256'])
         need(spec['monthly_seed_root_admission_sha256'] == original['root_admission_sha256'],
@@ -118,6 +125,20 @@ def reporting_seed(spec):
          and original['measured_closes'] < spec['measured_closes']
          and original['selected_session'] < spec['selected_session'], 'PARTIAL_OWN_EARLIER_MONTHLY_SOURCE_SEED')
     return original
+
+
+def initial_reporting_seed(spec):
+    """This grants only reporting review of the one genuine fresh export."""
+    need(digest(spec) == FRESH_TARGET_SHA and spec['archive_format'] == FRESH_FORMAT
+         and spec['arm'] == 'P00' and spec['measured_closes'] == 169
+         and spec['financial_authority'] is spec['financial_predecessor_admitted'] is False,
+         'PARTIAL_EXACT_FRESH_INITIAL_REPORTING_TARGET')
+    return dict(deepcopy(spec['initial_monthly_seed']), base=deepcopy(spec['base']))
+
+
+def review_name(spec):
+    need(spec['archive_format'] in (FORMAT, FRESH_FORMAT), 'PARTIAL_DECLARED_ARCHIVE_FORMAT')
+    return 'core-review.json' if spec['archive_format'] == FRESH_FORMAT else 'stopped-review/core-review.json'
 
 
 def retained_models(root, parent, spec):
@@ -185,6 +206,8 @@ def financial_inputs(root, parent, output, spec):
 
 def public_names(spec, archive):
     """This runs before GCM in the unchanged reader; public bytes are pinned."""
+    if spec['archive_format'] == FRESH_FORMAT:
+        return fresh_public_names(spec, archive)
     names = archive.namelist()
     public = spec['public_members']
     need(len(names) == len(set(names)) == 5 and len(public) == 4
@@ -217,7 +240,62 @@ def public_names(spec, archive):
     return set(public) | {spec['encrypted_output']['name']}
 
 
-def admission_tree():
+def fresh_public_names(spec, archive):
+    initial_reporting_seed(spec)
+    names, public = archive.namelist(), spec['public_members']
+    need(len(names) == len(set(names)) == 6 and len(public) == 5
+         and set(public) == {spec['receipt_name'], 'full-core-staging.json',
+             'ephemeral-runner-capacity.json', 'fresh-origin-admission-P00.json',
+             'fresh-origin-export-qualification-P00.json'}
+         and set(names) == set(public) | {spec['encrypted_output']['name']},
+         'PARTIAL_EXACT_SIX_UNIQUE_FRESH_MEMBERS')
+    for name, expected in public.items():
+        need(archive.getinfo(name).file_size == expected['bytes'] < 2 * 1024**2,
+             'PARTIAL_PUBLIC_MEMBER_BOUND')
+        raw = archive.read(name)
+        need(dict(bytes=len(raw), sha256=sha(raw)) == expected, 'PARTIAL_EXACT_PUBLIC_BYTES')
+    raw = (HERE / FRESH_REQUEST).read_bytes()
+    need(sha(raw) == FRESH_REQUEST_SHA and dict(bytes=len(raw), sha256=sha(raw)) == spec['fresh_request_member'],
+         'PARTIAL_DISTINCT_CLOSED_FRESH_REQUEST_BYTES')
+    fresh = json.loads(raw)
+    import system_campaign_candidate_job as candidate
+    original = candidate.expected_request()
+    need(fresh['arm'] == 'P00' and fresh['index'] == 0 and fresh['fresh_origin'] is True
+         and fresh['parameters'] == original['initial_candidates'][0]['parameters']
+         and fresh['candidate_id'] == original['initial_candidates'][0]['id']
+         and fresh['original_candidate_request_sha256'] == spec['request_sha256']
+         and fresh['inherited_financial_rows'] == 0
+         and fresh['prior_checkpoint_imported'] is fresh['historical_result_reused'] is False,
+         'PARTIAL_ONLY_CLOSED_EMPTY_P00_ORIGIN')
+    proof = json.loads(archive.read('fresh-origin-admission-P00.json'))
+    need(proof == spec['fresh_origin_admission'] and proof['request_sha256'] == sha(raw)
+         and proof['previous_book_selected'] is proof['financial_runtime_executed'] is False
+         and proof['old_p00_performance_is_not_completion_authority'] is True,
+         'PARTIAL_REUSE_EXACT_CLOSED_FRESH_ORIGIN_PROOF')
+    receipt = json.loads(archive.read(spec['receipt_name']))
+    need(receipt['status'] == spec['receipt_status'] == 'PARTIAL_CANDIDATE_PREFIX_REVIEWED'
+         and receipt['candidate_id'] == fresh['candidate_id'] and receipt['performance_admitted'] is False
+         and {k: receipt[k] for k in spec['prior_stops']} == spec['prior_stops']
+         and all(receipt[k]['stopped'] is True and type(receipt[k]['exit_code']) is int
+                 and receipt[k]['oom_killed'] is False for k in ('worker', 'reviewer'))
+         and receipt['reviewer']['exit_code'] == 0,
+         'PARTIAL_ACTUAL_FRESH_STATUS_AND_STOPS')
+    need(json.loads(archive.read('fresh-origin-export-qualification-P00.json')) == dict(
+         status='REAL_SYNTHETIC_ENCRYPTED_EXPORT_ROUNDTRIP_PASSED', arm='P00',
+         financial_sessions_advanced=0, credentials_saved=False), 'PARTIAL_ACTUAL_FRESH_EXPORT_PROBE')
+    staging = json.loads(archive.read('full-core-staging.json'))
+    need(staging['status'] == 'STAGING_PASSED' and staging['run_id'] == str(spec['run_id'])
+         and staging['source_commit'] == spec['head'] and staging['protocol_sha256'] == PROTOCOL
+         and staging['runtime_image'] == IMAGE and staging['execution_image'] == EXECUTION_IMAGE
+         and staging['source_files_verified'] == 514 and staging['members_verified'] == 591
+         and staging['manifest_sha256'] == fresh['frozen_input_manifest_sha256']
+         and all(staging[k] is True for k in ('authenticated_before_parsing', 'offline_image_source_verified',
+                                             'runtime_index_config_layer_chain_verified'))
+         and staging['replay_started'] is False, 'PARTIAL_ACTUAL_FROZEN_FRESH_STAGING')
+    return set(names)
+
+
+def admission_tree(review_file='stopped-review/core-review.json'):
     """Adapt exactly two format sites; retain every original authentication guard."""
     raw = Path(crypto.__file__).read_bytes()
     need(sha(raw) == CRYPTO_SHA, 'PARTIAL_UNCHANGED_ORIGINAL_CRYPTO_SOURCE')
@@ -235,7 +313,8 @@ def admission_tree():
         def visit_BinOp(self, node):
             if ast.unparse(node) == "dest / 'core-review.json'":
                 self.review += 1
-                return ast.copy_location(ast.parse("dest / 'stopped-review/core-review.json'", mode='eval').body, node)
+                return ast.copy_location(ast.BinOp(left=ast.Name(id='dest', ctx=ast.Load()),
+                    op=ast.Div(), right=ast.Constant(review_file)), node)
             return self.generic_visit(node)
 
     adapter = Format()
@@ -245,26 +324,24 @@ def admission_tree():
 
 
 def admit(spec, root, key, inspector):
-    need(spec['archive_format'] == FORMAT and spec['financial_authority'] is False
+    need(spec['archive_format'] in (FORMAT, FRESH_FORMAT) and spec['financial_authority'] is False
          and spec['financial_predecessor_admitted'] is False
          and spec['manifest']['raw_member_bytes'] < 1024**3,
          'PARTIAL_READONLY_UNADMITTED_TARGET_SCOPE')
     namespace = dict(vars(crypto), public_names=public_names)
-    fn = admission_tree()
+    fn = admission_tree(review_name(spec))
     exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-format-adapter>', 'exec'), namespace)
     destination = namespace['admit'](spec, root, key, max_zip_bytes=512 * 1024**2)
     for name, expected in spec['inspections'].items():
         value = json.loads((destination / name).read_bytes())
         need(re.fullmatch(r'[1-9][0-9]*:[1-9][0-9]*', expected['user']) is not None,
              'PARTIAL_POSITIVE_ORIGINAL_UID_GID')
-        inspector(expected['name'].removeprefix('/'), expected['id'], value=value,
-            run_id=str(spec['run_id']), user=expected['user'],
-            correlation_prefix=expected['correlation_prefix_mounted'])
+        archived_inspection(spec, expected, value, inspector)
         state = value['State']
         need(state['Running'] is False and state['OOMKilled'] is False
              and type(state['ExitCode']) is int and state['ExitCode'] == expected['exit_code'],
              'PARTIAL_ACTUAL_ARCHIVED_POSITIVE_STOP')
-    review = json.loads((destination / 'stopped-review/core-review.json').read_bytes())
+    review = json.loads((destination / review_name(spec)).read_bytes())
     need(review['all_prefixes_verified'] is True and review['all_daily_factors_and_chains_verified'] is True
          and review['checkpoint_sha256'] == spec['outer_sha256']
          and review['counts'] == dict(formation=126, daily=spec['measured_closes']),
@@ -275,9 +352,40 @@ def admit(spec, root, key, inspector):
     from ephemeral_runner_capacity import validate_prepared_receipt
     with zipfile.ZipFile(destination.parent / 'predecessor.zip') as archive:
         capacity = json.loads(archive.read('ephemeral-runner-capacity.json'))
+    capacity_sources = (json.loads((HERE / FRESH_REQUEST).read_bytes()) if spec['archive_format'] == FRESH_FORMAT
+                        else json.loads(raw))['sources']
     validate_prepared_receipt(capacity, head=spec['head'], run_id=str(spec['run_id']),
-        source_sha256=json.loads(raw)['sources']['ephemeral_runner_capacity.py'])
+        source_sha256=capacity_sources['ephemeral_runner_capacity.py'])
     return destination
+
+
+def archived_inspection(spec, expected, value, inspector):
+    if spec['archive_format'] == FORMAT:
+        return inspector(expected['name'].removeprefix('/'), expected['id'], value=value,
+            run_id=str(spec['run_id']), user=expected['user'],
+            correlation_prefix=expected['correlation_prefix_mounted'])
+    initial_reporting_seed(spec)
+    import system_campaign_candidate_job as candidate
+    raw = Path(candidate.__file__).read_bytes()
+    fresh = json.loads((HERE / FRESH_REQUEST).read_bytes())
+    need(sha(raw) == fresh['sources']['system_campaign_candidate_job.py'], 'PARTIAL_ORIGINAL_CANDIDATE_INSPECTOR')
+    fn, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'inspect']
+    assignment, = [n for n in fn.body if isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == 'v' for t in n.targets)]
+    assignment.value = ast.Name(id='supplied', ctx=ast.Load())
+    uid, gid = map(int, expected['user'].split(':'))
+    ns = dict(vars(candidate), supplied=value, os=SimpleNamespace(getuid=lambda: uid, getgid=lambda: gid))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                 '<unchanged-candidate-inspector-archived-state>', 'exec'), ns)
+    ns['inspect'](expected['name'].removeprefix('/'), expected['id'])
+    phase = expected['phase']
+    command = ['-B', '-u', '/driver/system_campaign_candidate.py', '--mode', phase]
+    if phase == 'review':
+        command += ['--evidence-root', '/evidence']
+    need(phase in ('economic', 'review') and value['Config']['Entrypoint'] == ['python']
+         and value['Config']['Cmd'] == command and value['Config']['User'] == expected['user'],
+         'PARTIAL_EXACT_ORIGINAL_CANDIDATE_ENTRYPOINT')
+    return value
 
 
 def reproduce_reports(stats, parent, current, daily, reports, following):
@@ -300,6 +408,23 @@ def reproduce_reports(stats, parent, current, daily, reports, following):
                 all_new_monthly_reports_exact=True, all_monthly_checkpoint_state_exact=True)
 
 
+def reporting_stats(cls, parent, current, spec):
+    if parent['stats'] is not None:
+        return cls.from_dict(parent['stats'])
+    initial_reporting_seed(spec)
+    required = ('pooled', 'owned55_previous', 'compact_previous', 'spy')
+    need(parent['completed'] == 0 and parent['stats'] is None
+         and all(parent['journals'][n]['bytes'] == 0 for n in ('daily', 'monthly'))
+         and current['base']['start'] == '2018-01-02' and current['base']['capital'] == '50000'
+         and current['stats']['primary'] == 'pooled'
+         and current['stats']['required_series'] == list(required)
+         and set(current['stats']['series']) == set(required)
+         and all(v['initial_nav'] == '50000' for v in current['stats']['series'].values()),
+         'PARTIAL_ONLY_EXACT_ZERO_MEASUREMENT_REPORTING_BOOTSTRAP')
+    return cls.fresh('2018-01-02', {n: '50000' for n in required},
+                     primary='pooled', required_series=required)
+
+
 def monthly_reproduction(evidence, out, spec, current):
     hosted()
     from research.pooled_vacancy_funding.monthly import MonthlyStats
@@ -307,7 +432,8 @@ def monthly_reproduction(evidence, out, spec, current):
     need(sha256_file(HERE / ORIGINALS) == spec['original_parent_index_sha256'],
          'PARTIAL_EXACT_RETAINED_ORIGINAL_INDEX')
     original = reporting_seed(spec)
-    path = evidence / 'book/predecessor-checkpoints' / (original['outer_sha256'] + '.json.gz')
+    path = (evidence / original['selected_checkpoint'] if spec['archive_format'] == FRESH_FORMAT
+            else evidence / 'book/predecessor-checkpoints' / (original['outer_sha256'] + '.json.gz'))
     raw = path.read_bytes()
     need(dict(bytes=len(raw), sha256=sha(raw)) == original['selected_file'],
          'PARTIAL_EXACT_ORIGINAL_MONTHLY_SEED_GZIP')
@@ -328,12 +454,13 @@ def monthly_reproduction(evidence, out, spec, current):
          and measured[parent['completed']:current['completed']] == [r['session'] for r in daily],
          'PARTIAL_EXACT_FROZEN_NEW_REPORTING_AXIS')
     following = measured[current['completed']] if current['completed'] < 2156 else '2026-08-03'
-    with localcontext() as context:
-        context.prec = 50
-        proof = reproduce_reports(MonthlyStats.from_dict(parent['stats']), parent, current, daily, reports, following)
     source = Path('/variant/research/pooled_vacancy_funding/monthly.py')
     need(sha256_file(source) == current['base']['sources']['research/pooled_vacancy_funding/monthly.py'],
          'PARTIAL_ACTUAL_MONTHLY_IMPLEMENTATION_SOURCE')
+    with localcontext() as context:
+        context.prec = 50
+        proof = reproduce_reports(reporting_stats(MonthlyStats, parent, current, spec),
+                                  parent, current, daily, reports, following)
     proof.update(schema='research.partial-exact-linux-monthly-reproduction/1', passed=True,
         arm=spec['arm'], parent_sha256=parent['sha256'], checkpoint_sha256=current['sha256'],
         completed=current['completed'], source_cursor=current['source_cursor'], next_session=following,

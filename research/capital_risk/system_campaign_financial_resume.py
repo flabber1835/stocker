@@ -40,6 +40,7 @@ import system_campaign_factual_admit as crypto
 from system_campaign_financial_partial import (
     admit as admit_partial, monthly_reproduction, ROOTS, root_spec, validate_root_spec,
     financial_inputs,
+    ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name,
 )
 
 HERE = Path(__file__).parent
@@ -47,13 +48,13 @@ REQUEST = 'system-campaign-factual-request.json'
 PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
-ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P10',)
+ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
+SELECTED_ARMS = ('P00',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/18'
+SCHEMA = 'research.system-campaign-accurate-resume-request/19'
 EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -64,11 +65,18 @@ def expected_request():
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
     need(sum((financial, reporting, witnesses)) == 1, 'RESUME_ONE_EXPLICIT_REQUEST_EXECUTION_MODE')
+    origins = {}
     if reporting:
         targets = json.loads((HERE / PARTIALS).read_bytes())['arms']
-        need(all(targets[a]['measured_closes'] > root_spec(a)['measured_closes']
-             and targets[a]['monthly_seed_root_admission_sha256'] == root_spec(a)['root_admission_sha256']
-             for a in SELECTED_ARMS), 'RESUME_ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED')
+        for arm in SELECTED_ARMS:
+            target = targets[arm]
+            if arm == 'P00' and arm not in ADMISSIONS:
+                origins[arm] = initial_reporting_seed(target)
+            else:
+                seed = root_spec(arm)
+                need(target['measured_closes'] > seed['measured_closes']
+                     and target['monthly_seed_root_admission_sha256'] == seed['root_admission_sha256'],
+                     'RESUME_ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED')
     need(sha256_file(HERE / PRIOR) == PRIOR_SHA, 'RESUME_FROZEN_PRIOR_REQUEST')
     prior = json.loads((HERE / PRIOR).read_bytes())['sources']
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
@@ -79,7 +87,7 @@ def expected_request():
              'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
              'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py',
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
-             'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG)
+             'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST)
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode=EXECUTION_MODE, new_origin=False,
                 financial_resume_authorized=financial, readonly_partial_review=reporting,
@@ -92,7 +100,8 @@ def expected_request():
                 predecessors_sha256=sha256_file(HERE / PARENTS),
                 selected_partials_sha256=sha256_file(HERE / PARTIALS),
                 admitted_financial_parents_sha256=sha256_file(HERE / ROOTS),
-                admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS},
+                admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS if a not in origins},
+                initial_reporting_origins=origins,
                 selected_research_models={'P07': dict(input_schema='research.leadership-branch-uncertainty-input/1',
                     contract_sha256=sha256_file(HERE / 'system-campaign-financial-branch-contract.json'),
                     every_reachable_canonical_decision_must_match=True, original_strict_guard_unchanged=True)},
@@ -450,16 +459,16 @@ def preflight(old, out, spec):
             need(spec['reuse_closed_hosted_prefix_review'] is True, 'RESUME_EXACT_CLOSED_PREFIX_REUSE_DECLARATION')
         if 'root_admission' in spec or spec.get('reuse_closed_hosted_prefix_review') is True:
             # Reuse this exact positively stopped accounting review; root authority is separate.
-            need(sha256_file(old / 'stopped-review/core-review.json') == spec['review_sha256'],
+            need(sha256_file(old / review_name(spec)) == spec['review_sha256'],
                  'RESUME_CLOSED_ROOT_ACCOUNTING_REVIEW_BYTES')
-            shutil.copyfile(old / 'stopped-review/core-review.json', out / 'old-prefix-canonical-review.json')
+            shutil.copyfile(old / review_name(spec), out / 'old-prefix-canonical-review.json')
         else:
             readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
     proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
          and proof['checkpoint_sha256'] == cp['sha256']
          and proof['counts'] == dict(formation=126, daily=cp['completed']), 'RESUME_PARENT_ACCOUNTING_REVIEW_REQUIRED')
-    if spec.get('archive_format') == 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1' and 'root_admission' not in spec:
+    if spec.get('archive_format') in ('FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1', FRESH_FORMAT) and 'root_admission' not in spec:
         monthly_reproduction(old, out, spec, cp)
     save(out / 'strict-parent-preflight.json', dict(passed=True, arm=spec['arm'],
          outer_sha256=cp['sha256'], selected_file=spec['selected_file'], next_session=following,
