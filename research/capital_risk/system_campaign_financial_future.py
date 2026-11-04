@@ -496,6 +496,14 @@ RESOLVED_NATIVE_WITNESS_SCOPES = {
             session='2022-06-24', native_session='2022-06-27', parent_positions=[],
             native_term_sha256='aca7bf92b9c5faea11cf82b77b7e081e728242a3775f9ba2f435da3015236e95')]),
 }
+EXTRA_WITNESS_SCOPES['P05', '2020-01-31'] = dict(
+    parent_outer_sha256='8c3f8d3c53b380317fd624e7a55714960cf82ba44f1aaca204f58fbdaed28b38',
+    parent_cursor='2020-01-31', terms=[dict(ticker='WLH', security_id='355892456681242666',
+        session='2020-02-04', native_session='2020-02-05', parent_positions=[],
+        native_term_sha256='431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181')],
+    additional_row_queries=[dict(schema='research.frozen-observation-identity-query/1',
+        session='2020-02-06', ticker='TMHC', maximum_rows=1,
+        require_unheld_at_parent=True, financial_use_authorized=False)])
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES, NATIVE_INVENTORY_WITNESS_SCOPES, RESOLVED_NATIVE_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
@@ -508,6 +516,7 @@ ACTIVE_WITNESS_SCOPES['P03'] = digest(ROW_QUERY_WITNESS_SCOPES['P03_PREFIX'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_DATE_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_INVENTORY_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in RESOLVED_NATIVE_WITNESS_SCOPES.items()})
+ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2020-01-31'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 

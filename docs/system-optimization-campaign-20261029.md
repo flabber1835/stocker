@@ -843,3 +843,12 @@ a positive finite raw open and exact equality with the inherited proxy. Preserve
 all other economic comparisons,document/predecessor hashes,one-event uniqueness,
 dates and original repair bytes. Missing or different quotes must refuse. Do
 not ignore the proxy field or adopt the inherited value as its own evidence.
+
+From admitted P05 own524, capture WLH's February4 identity and known February5
+native preimage431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181.
+Use the existing exact one-row query for TMHC on February6,2020, retaining all
+raw identity,eligibility and quote fields. Bind the own January31 parent and
+actual empty source and target positions; this source capture grants no mixed
+consideration,settlement or financial-adoption authority. The original P01
+factual registry provides the existing2.50USD plus0.8000share consideration and
+its strict fractional policy; its book state and returns are not reused.
