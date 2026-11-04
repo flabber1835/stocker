@@ -62,15 +62,18 @@ def test_literal_fact_digest_guard_removal_falsifier(tmp_path,monkeypatch):
     original=f.HERE;value=json.loads((original/f.OWN_CASH_CATALOG).read_bytes())
     value['terms'][-1]['source_capture']['payload_sha256']='0'*64
     (tmp_path/f.OWN_CASH_CATALOG).write_bytes((json.dumps(value,sort_keys=True,indent=2)+'\n').encode())
-    primary=value['terms'][-1]['retained_primary_catalog']['filename']
-    (tmp_path/primary).write_bytes((original/primary).read_bytes());monkeypatch.setattr(f,'HERE',tmp_path)
-    with pytest.raises(ValueError):f.own_cash_selection('P10','2024-04-30')
+    for t in value['terms']:
+        if 'retained_primary_catalog' in t:
+            primary=t['retained_primary_catalog']['filename']
+            (tmp_path/primary).write_bytes((original/primary).read_bytes())
+    monkeypatch.setattr(f,'HERE',tmp_path)
+    with pytest.raises(ValueError):f.own_cash_selection('P00','2018-08-31')
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='own_cash_selection')
     guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
                any(isinstance(a,ast.Constant) and a.value=='OWN_CASH_EXACT_REVIEWED_LITERAL_CATALOG' for a in n.value.args))
     fn.body.remove(guard);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
         '<removed-literal-cash-fact-guard>','exec'),ns)
-    assert ns['own_cash_selection']('P10','2024-04-30')[2][0]['source_capture']['payload_sha256']=='0'*64
+    assert ns['own_cash_selection']('P00','2018-08-31')[2][0]['source_capture']['payload_sha256']=='0'*64
 
 
 def test_historical_cash_phases_keep_original_full_catalog_generation():
@@ -80,13 +83,15 @@ def test_historical_cash_phases_keep_original_full_catalog_generation():
         assert codec.catalog_sha==old and len(codec.catalog['terms'])==2
         assert f.sha((json.dumps(codec.catalog,sort_keys=True,indent=2)+'\n').encode())==old
     codec,_,terms=f.own_cash_selection('P10','2024-04-30')
-    assert len(codec.catalog['terms'])==3 and codec.catalog_sha==f.OWN_CASH_SHA
+    assert len(codec.catalog['terms'])==3 and codec.catalog_sha=='d2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3'
     assert terms[0]['source_capture']['run_id']==41799737694
 
 
 def test_reviewed_append_cannot_silently_edit_a_closed_generation(tmp_path,monkeypatch):
     original=f.HERE;changed_catalog(tmp_path,monkeypatch)
     primary='system-campaign-unconsumed2024-cash-calendar-terminal-facts.json'
+    (tmp_path/primary).write_bytes((original/primary).read_bytes())
+    primary='system-campaign-factual-catalog.json'
     (tmp_path/primary).write_bytes((original/primary).read_bytes())
     monkeypatch.setattr(f,'OWN_CASH_SHA',f.sha((tmp_path/f.OWN_CASH_CATALOG).read_bytes()))
     with pytest.raises(ValueError,match='CLOSED_CATALOG_GENERATION_BYTES'):
@@ -178,6 +183,7 @@ def test_one_actual_cash_context_guard_removal_falsifier():
     ('READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION',(False,True,False)),
     ('READONLY_FROZEN_SOURCE_WITNESSES',(False,False,True))])
 def test_explicit_mode_derives_all_authority_flags_and_worker_limits(monkeypatch,mode,flags):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})
     monkeypatch.setattr(m,'EXECUTION_MODE',mode)
     arms=('P10',) if flags[1] else (('P00',) if flags[2] else ('P04','P10'))
     if flags[1]:

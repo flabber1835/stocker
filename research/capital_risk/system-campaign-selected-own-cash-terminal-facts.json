@@ -2,7 +2,7 @@
   "canonical_financial_source_changed": false,
   "production_contacted": false,
   "provider_metadata_upgraded": false,
-  "schema": "research.selected-own-parent-cash-completions/1",
+  "schema": "research.selected-own-parent-completions/2",
   "terms": [
     {
       "actual_completion_date": "2022-07-22",
@@ -187,6 +187,95 @@
       },
       "ticker": "SWAV",
       "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255"
+    },
+    {
+      "actual_completion_date": "2018-09-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 14.75,
+        "delivered_issuer_id": "SEC_CIK:1524358",
+        "delivered_security_id": "851672149700415133",
+        "delivered_ticker": "VAC",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": ".165",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1434620/000119312518266809/d608858d8k.htm | Fractional cash uses retained first effective-session raw open proxy; actual exchange-agent net sale rate unobserved.",
+        "security_id": "278081346388915134",
+        "session": "2018-09-04"
+      },
+      "arm": "P00",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1524358",
+        "listing_first_session": "2011-11-08",
+        "security_id": "851672149700415133",
+        "security_type_eligible": "1",
+        "session": "2018-09-04",
+        "source_observation_sha256": "e76a958ab2504c0372cbe44096c1d3e4d4b156723574705b93df34c3afebf595",
+        "ticker": "VAC"
+      },
+      "description": "Fractional cash uses retained first effective-session raw open proxy; actual exchange-agent net sale rate unobserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1434620",
+        "listing_first_session": "2008-08-12",
+        "security_id": "278081346388915134",
+        "security_type_eligible": "1",
+        "session": "2018-08-30",
+        "source_observation_sha256": "536abd9bcdc354bf15ff894e95ee72404fed8ff07a296705f589365e59d188f3",
+        "ticker": "ILG"
+      },
+      "last_trading_session": "2018-08-31",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4246.3",
+        "security_id": "278081346388915134",
+        "session": "2018-08-31"
+      },
+      "native_session": "2018-08-31",
+      "native_term_sha256": "9aa688a1c3a76f03ed5f2ca463b75a19d20b10937333e51946ab3d74cdce1703",
+      "parent_cursor": "2018-08-31",
+      "parent_outer_sha256": "ad12b8a58f00560f1393cccdc0d9718b59d172265fc89f4bc36cb1ec7a4b37d2",
+      "parent_positions": [
+        {
+          "entry_date": "2017-07-05",
+          "quantity": 90,
+          "slot_id": 1,
+          "ticker": "ILG"
+        }
+      ],
+      "parent_root_admission_sha256": "c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1434620/000119312518266809/d608858d8k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "session": "2018-09-04",
+        "source_observation_sha256": "e76a958ab2504c0372cbe44096c1d3e4d4b156723574705b93df34c3afebf595",
+        "ticker": "VAC"
+      },
+      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_NONTRADING_DAY_COMPLETION",
+      "retained_primary_catalog": {
+        "filename": "system-campaign-factual-catalog.json",
+        "sha256": "b5c36c6f2ceab45a0bfb699ea1b5309b459df305b383b17b9a273bbaf65be050",
+        "term_sha256": "0d2804ee9ef2ce476a18f34bf183e688456aea4f329e04359f6696614d5e795d"
+      },
+      "security_id": "278081346388915134",
+      "source_capture": {
+        "artifact_id": 13311490065,
+        "head": "4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd",
+        "independent_data_review_sha256": "a2d2223b0cb6d27d5088893d3a7eee58198b79eb6e09919600983993bbb46ec8",
+        "payload_sha256": "27fd51137497a97c56153506e6afc1631d6865ee207a44b18709146779075bec",
+        "run_id": 41807854617,
+        "scope_sha256": "eccfbaf50a3a8cccba9c3929941a693c1dac77de32963db027968c544dc588f6"
+      },
+      "ticker": "ILG",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2018-144"
     }
   ]
 }

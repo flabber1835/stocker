@@ -40,7 +40,7 @@ import system_campaign_factual_admit as crypto
 from system_campaign_financial_partial import (
     admit as admit_partial, monthly_reproduction, ROOTS, root_spec, validate_root_spec,
     financial_inputs,
-    ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name, full_target,
+    ADMISSIONS, COMPLETED_ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name, full_target,
 )
 
 HERE = Path(__file__).parent
@@ -49,13 +49,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P10',)
+SELECTED_ARMS = ('P00',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/25'
-EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/26'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -65,6 +65,7 @@ def expected_request():
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
     need(sum((financial, reporting, witnesses)) == 1, 'RESUME_ONE_EXPLICIT_REQUEST_EXECUTION_MODE')
+    need(not any(a in COMPLETED_ADMISSIONS for a in SELECTED_ARMS), 'RESUME_CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED')
     if witnesses:
         need(all(a in WITNESS_SCOPES for a in SELECTED_ARMS), 'RESUME_ONLY_DECLARED_ACTIVE_SOURCE_QUERIES')
     origins = {}

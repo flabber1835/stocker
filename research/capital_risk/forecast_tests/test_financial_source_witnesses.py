@@ -310,6 +310,7 @@ def test_actual_worker_request_byte_guard_removal_falsifier(tmp_path,monkeypatch
 
 
 def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkeypatch):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})
     monkeypatch.setattr(f,'WITNESS_SCOPES',{'P10':deepcopy(f.NEXT_WITNESS_SCOPES['P10'])})
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
@@ -334,7 +335,8 @@ def test_active_query_is_only_own_fresh_p00_pending_and_delivery_source():
     for t in terms:
         retained=f.registered_scope(t['source_capture']['scope_sha256'])
         assert retained['parent_outer_sha256']==t['parent_outer_sha256']
-        assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[t]
+        expected=f.selected_stock_term(t) if t['added']['kind']=='CASH_PLUS_STOCK' else t
+        assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[expected]
 
 
 @pytest.mark.parametrize('change',['unknown','mutated'])

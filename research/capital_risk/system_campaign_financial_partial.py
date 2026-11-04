@@ -35,6 +35,7 @@ ADMISSIONS = {
     'P07': '46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d',
     'P10': '3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9',
 }
+COMPLETED_ADMISSIONS = {'P10': '6e20b57099843380d9436d7a60c25c313abe53785f9db40049f59b411c9e8105'}
 PRIOR_ADMISSIONS = {
     'P04': '11c64d8c83d26c8e381ddc4e306829e896f3996c423c394d50c5b2d2d0307492',
     'P07': '760e41a64a8e2fdf497c96919a5aef9eaa34a9faddee26bc9b5cee843b2ab8fa',
@@ -113,6 +114,42 @@ def root_spec(arm, admission_sha256=None):
     entry = bundle['arms'][arm] if selected == ADMISSIONS[arm] else bundle['historical_roots'][selected]
     need(entry['admission_sha256'] == selected, 'FINANCIAL_EXACT_SELECTED_ROOT_HASH')
     return authorized_spec(entry, arm)
+
+
+def completed_result(arm):
+    """Read exact completed research scoring authority, never continuation authority."""
+    entry = json.loads((HERE / ROOTS).read_bytes())['completed_financial_roots'][arm]
+    return authorized_completion(entry, arm)
+
+
+def authorized_completion(entry, arm):
+    a, t = entry['admission'], entry['transport']
+    raw = (json.dumps(a, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
+    need(arm in COMPLETED_ADMISSIONS and sha(raw) == entry['admission_sha256'] == COMPLETED_ADMISSIONS[arm],
+         'FINANCIAL_EXACT_COMPLETED_RESEARCH_ADMISSION_BYTES')
+    need(a['schema'] == 'research.root-completed-financial-result-admission/1'
+         and a['status'] == 'ADMITTED_COMPLETE_FINANCIAL_RESEARCH_RESULT' and a['arm'] == t['arm'] == arm
+         and a['full_financial_validation_completed'] is a['performance_scoring_authorized'] is True
+         and a['financial_continuation_authorized'] is False and full_target(t)
+         and a['completed'] == t['measured_closes'] == 2156
+         and a['source_cursor'] == t['selected_session'] == '2026-07-31'
+         and a['parent_root_admission_sha256'] == t['monthly_seed_root_admission_sha256'] == ADMISSIONS[arm]
+         and (a['readonly_run_id'], a['readonly_head'], a['readonly_artifact_id']) ==
+             (41813568077, '9689c5fecc5462a5d65370fc5564fe447a8a92f8', 13313801504)
+         and all(a[k] is True for k in ('all_new_cash_shares_receivables_and_raw_marks_verified',
+             'all_new_funded_factors_and_financial_chains_verified', 'all_new_monthly_and_retry_state_verified',
+             'financial_source_epoch_unchanged', 'input_adoptions_fully_state_neutral', 'empty_uncommitted_tails_verified'))
+         and a['production_contacted'] is a['local_canonical_runtime_executed'] is False
+         and (a['new_daily_records'], a['independent_accounting_snapshots'], a['new_monthly_reports'], a['total_monthly_reports'])
+             == (564, 1128, 27, 103), 'FINANCIAL_COMPLETE_RESEARCH_SCORING_ONLY_SCOPE')
+    for key in ('base', 'journals', 'repairs', 'selected_checkpoint', 'selected_file', 'outer_sha256',
+                'inner_sha256', 'state_sha256', 'input_sha256', 'source_binding_sha256'):
+        need(a[key] == t[key], 'FINANCIAL_COMPLETED_EXACT_OWN_' + key.upper())
+    need(a['financial_artifact_id'] == t['artifact_id'] and a['financial_run_id'] == t['run_id']
+         and a['financial_head'] == t['head'] and a['financial_zip_sha256'] == t['zip_sha256']
+         and a['financial_cipher_sha256'] == t['encrypted_output']['sha256'],
+         'FINANCIAL_COMPLETED_EXACT_TRANSPORT_PROVENANCE')
+    return deepcopy(a)
 
 
 def validate_root_spec(spec):

@@ -1029,3 +1029,75 @@ complete_reporting,resume,partial,retention,own_cash. The complete-target guard
 removal admits a failed economic stop, and economic-entry guard removal crosses
 the forbidden state-read boundary, confirming those falsifiers exercise actual
 production statements. No local canonical financial runtime was executed.
+
+## Continue fresh P00 through its own pending cash-and-stock completion
+
+The genuine169-close P00 root and source-only41807854617/4bd9083c2 DATA review
+are closed. Bind the unchanged original ILG literal fact to that root and the
+authenticated ILG/VAC rows through the existing selected-own-input catalog and
+shared future selector. Append a schema2 catalog generation for mixed cash/stock
+inputs, while reconstructing both closed cash-only generations with their original
+schema1 bytes. Do not create another per-symbol wrapper or enter the original
+whole-catalog2017 compiler at the2018 parent.
+
+Preserve the original14.75USD plus raw ratio string.165, September1 completion,
+September4 first-session recognition and disclosed raw-open fractional-cash proxy.
+The selector may convert the literal ratio to its typed float representation only
+after proving Fraction(str(value)) equals the original rational value exactly.
+No quantity, guard, settlement value or provider metadata is changed. Hydration
+resolves the declared VAC raw open inside the hosted worker; it remains a research
+proxy, not an observed exchange-agent settlement rate.
+
+Permit a consumed native only for the exact own root,90 ILG in slot1, native hash,
+zero pending/stale age, no unresolved terminal and empty VAC position proved by
+the source capture. Leave the consumed August31 packet unchanged and add only the
+future September4 complete term. Retain the MNTA-specific pending predicate as it
+stands. Existing canonical parser, packet, delivery identity, controller-notional,
+incomplete-term and neutral-adoption checks qualify the new input before replay.
+Observe the actual canonical stock-terminal call and its applied result inside
+the session; independent accounting DATA review remains required afterward.
+Any canonical arithmetic or quantity refusal remains a blocker, with no rounding,
+rewind, diagnostic adoption or guard relaxation. Resume the financial job from
+this admitted own root in the existing launcher while P10's immutable final
+read-only review runs independently.
+
+## Admit a completed result separately from continuation authority
+
+P10 final reporting41813568077/9689c5fec and independent DATA review passed:
+564 new closes,1128 accounting snapshots,756 independently checked Decimal
+metrics,27 new reports and exact full reporting/retry memory. The endpoint is
+2156/July31,2026 with all103 reports and empty daily/formation/monthly/watch tails.
+The15 new pure-DATA endpoint falsifiers passed, including removal of the actual
+complete-endpoint guard. Closed prefix admissions remain unchanged.
+
+Add the exact completed transport and a separately pinned completed-result
+admission to `completed_financial_roots` in the existing root registry. Preserve
+the1592 continuation root and every historical root. Completion admits only this
+research result for scoring; it explicitly forbids another financial continuation
+and grants no production, broker or release authority. The shared launcher must
+refuse selecting an already completed arm for another financial/reporting request.
+The complete reader verifies provenance, endpoint, prior root, independent
+accounting/reporting predicates and immutable false transport-authority flags.
+Compute CAGR from the admitted daily Core close-equity and funded strategy-NAV
+series using the existing pure-DATA decimal summary; add P10 only after that
+result references this completed admission. Preserve each run's disclosed input
+assumptions; a common updated factual basis and causal ranking remain unproved.
+
+Admitted full-window CAGR comparison (2018-01-02 through2026-07-31,2156
+measured closes; calendar annualization365.2425 days):
+
+| Variant | Core CAGR | Core+Sentinel CAGR |
+| --- | ---: | ---: |
+| P01 |15.49%|15.21%|
+| P02 |16.27%|14.90%|
+| P08 |18.89%|17.60%|
+| P10 |20.65%|16.33%|
+
+Fresh P00 remains excluded. P10 completed admission6e20b57099843380 references
+independent full DATA and exact Linux reporting; its completed daily summary
+references that admission. Each result retains its recorded input assumptions.
+
+Final targeted qualification:363 passed in38.60s across selected_stock,
+completed_admission,complete_reporting,resume,partial,retention,future,own_cash,
+initial_reporting,pending_source,source_witnesses. The15 new independent final
+endpoint DATA falsifiers also passed. No full suite or local canonical replay.

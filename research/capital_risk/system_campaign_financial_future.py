@@ -1,6 +1,7 @@
 """Selected future ordinary facts, with read-only actual cash/risk postconditions."""
 from copy import deepcopy
 from dataclasses import asdict
+from fractions import Fraction
 import inspect
 import json
 import math
@@ -39,13 +40,15 @@ SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = 'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3'
+OWN_CASH_SHA = '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2'
 OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
-                   ('P10', '2024-04-30'): 'SWAV'}
-CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2}
+                   ('P10', '2024-04-30'): 'SWAV', ('P00', '2018-08-31'): 'ILG'}
+CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
+    'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3}
 CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
-                           ('P10', '2024-04-30'): 3}
+                           ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4}
 OWN_CASH_SOURCE_CLOCKS = {
+    ('P00', '2018-08-31'): (41807854617, '4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd', 13311490065),
     ('P04', '2022-06-30'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299799904),
     ('P10', '2022-07-29'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299684770),
     ('P10', '2024-04-30'): (41799737694, '3ea65d6eefefc66d593858dc0ee6a4b476769c2a', 13307052219),
@@ -253,18 +256,23 @@ def own_cash_selection(arm, cursor):
     raw = (HERE / OWN_CASH_CATALOG).read_bytes()
     need(sha(raw) == OWN_CASH_SHA, 'OWN_CASH_EXACT_REVIEWED_LITERAL_CATALOG')
     catalog = json.loads(raw)
-    need(catalog['schema'] == 'research.selected-own-parent-cash-completions/1'
+    need(catalog['schema'] == 'research.selected-own-parent-completions/2'
          and all(catalog[k] is False for k in ('canonical_financial_source_changed',
                                               'provider_metadata_upgraded', 'production_contacted'))
          and len(catalog['terms']) == len(OWN_CASH_PHASES), 'OWN_CASH_EXACT_NEW_CATALOG_SCOPE')
     def generation(count):
         value = dict(deepcopy(catalog), terms=deepcopy(catalog['terms'][:count]))
+        if count in (2, 3):
+            value['schema'] = 'research.selected-own-parent-cash-completions/1'
         encoded = (json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
         return value, sha(encoded)
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        validate_term(term)
+        if term['added']['kind'] == 'CASH_MERGER':
+            validate_term(term)
+        else:
+            selected_stock_term(term)
         phase = term['arm'], term['parent_cursor']
         source = term['source_capture']
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
@@ -295,7 +303,41 @@ def own_cash_selection(arm, cursor):
         compiler_sha=sha(Path(calendar.__file__).read_bytes()),
         parent_outer_sha256=chosen['parent_outer_sha256'], parent_positions=chosen['parent_positions'],
         validator_description='Unchanged cash-calendar term validator; new own-source catalog validated by the shared selector.')
+    if chosen['added']['kind'] != 'CASH_MERGER':
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Source-bound selected stock term; raw ratio preserved in catalog and exactly normalized for the canonical typed parser.'
+        return codec, OWN_CASH_CATALOG, [selected_stock_term(chosen)]
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def selected_stock_term(term):
+    """Normalize only a literal ratio, preserving its exact rational value."""
+    from datetime import date
+    a, w, dw = term['added'], term['identity_witness'], term['delivered_identity_witness']
+    ratio = a['exchange_ratio']
+    value = float(ratio)
+    need(a['kind'] == 'CASH_PLUS_STOCK' and type(ratio) is str
+         and math.isfinite(value) and value > 0 and Fraction(str(value)) == Fraction(ratio)
+         and type(a['cash_per_share']) is float and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and a['entitlement_aggregation'] == 'HOLDER' and a['cash_in_lieu_price_per_delivered_share'] is None
+         and a['reference'] == term['primary_source'] + ' | ' + term['description']
+         and (a['delivered_security_id'], a['delivered_ticker'], a['delivered_issuer_id'])
+             == (dw['security_id'], dw['ticker'], dw['issuer_id'])
+         and w['session'] < term['last_trading_session'] == term['native_session']
+         and term['native_session'] < term['actual_completion_date'] < a['session']
+         and date.fromisoformat(term['actual_completion_date']).weekday() >= 5
+         and term['recognition_rule'] == 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_NONTRADING_DAY_COMPLETION'
+         and term['mandatory_common_share_completion_confirmed'] is True
+         and dw['session'] == term['proxy']['session'] == a['session']
+         and dw['source_observation_sha256'] == term['proxy']['source_observation_sha256']
+         and dw['ticker'] == term['proxy']['ticker']
+         and term['proxy']['convention'] == 'RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY'
+         and term['proxy']['actual_settlement_rate_observed'] is False,
+         'OWN_INPUT_EXACT_RETAINED_STOCK_RIGHT_AND_RATIO_NORMALIZATION')
+    result = deepcopy(term)
+    result['added']['exchange_ratio'] = value
+    return result
 
 
 def retained_primary(term):
@@ -303,11 +345,13 @@ def retained_primary(term):
     if source is None:
         return
     raw = (HERE / source['filename']).read_bytes()
-    original, = [t for t in json.loads(raw)['terms'] if t['security_id'] == term['security_id']]
+    original, = [t for t in json.loads(raw)['terms']
+                 if t.get('security_id', t['added']['security_id']) == term['security_id']]
     identity = ('security_id', 'ticker', 'issuer_id', 'listing_first_session', 'security_type_eligible')
     need(sha(raw) == source['sha256'] and digest(original) == source['term_sha256']
          and all(term[k] == v for k, v in original.items() if k != 'identity_witness')
-         and all(term['identity_witness'][k] == original['identity_witness'][k] for k in identity),
+         and ('identity_witness' not in original or
+              all(term['identity_witness'][k] == original['identity_witness'][k] for k in identity)),
          'OWN_CASH_UNCHANGED_RETAINED_PRIMARY_TERM_AND_SOURCE_METADATA')
 
 
@@ -370,7 +414,9 @@ def selected(arm, *, cursor=None):
 
 
 def pending_completion(cp, term):
-    """Only MNTA's exact admitted pending native can be completed after consumption."""
+    """Only separately source-bound pending natives may be completed after consumption."""
+    if term.get('arm') == 'P00' and term['added']['kind'] == 'CASH_PLUS_STOCK':
+        return pending_source_completion(cp, term)
     sid = term['security_id']
     w = cp['run']['state']['wealth_core']
     held = [(k, e) for k, e in w['episodes'].items() if e['security_id'] == sid]
@@ -387,6 +433,30 @@ def pending_completion(cp, term):
              grace_prints=[dict(price=52.48, session='2020-09-30')], grace_split_multiplier=1.,
              grace_splits=[], last_trustworthy_print_session='2020-09-29', shares_at_carry=101),
          'FUTURE_EXACT_ADMITTED_HELD_MNTA_PENDING_NATIVE')
+
+
+def pending_source_completion(cp, term):
+    source = term['source_capture']
+    scope = registered_scope(source['scope_sha256'])
+    declared, = scope['terms']
+    sid = term['security_id']; w = cp['run']['state']['wealth_core']
+    held = [dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'], entry_date=e['entry_date'])
+            for _, e in sorted(w['episodes'].items(), key=lambda item: int(item[0])) if e['security_id'] == sid]
+    pending = w.get('terminal_pending_terms', {}).get(sid, {})
+    need((term['arm'], term['parent_cursor']) == ('P00', '2018-08-31')
+         and cp['sha256'] == term['parent_outer_sha256'] == scope['parent_outer_sha256']
+         and cp['source_cursor'] == scope['parent_cursor'] == term['native_session']
+         and (source['run_id'], source['head'], source['artifact_id']) == OWN_CASH_SOURCE_CLOCKS['P00', '2018-08-31']
+         and held == term['parent_positions'] == declared['parent_positions'] and held
+         and w['terminal_pending_sessions'].get(sid) == declared['pending_at_parent']['pending_sessions'] == 0
+         and pending.get('stale_at_event') == declared['pending_at_parent']['stale_at_event'] == 0
+         and digest(pending.get('terms')) == term['native_term_sha256'] == declared['native_term_sha256']
+         and sid not in w.get('unresolved_terminals', {})
+         and all(w['slots'][str(e['slot_id'])]['occupied_by'] == sid and e['exit_pending'] is False
+                 for e in w['episodes'].values() if e['security_id'] == sid)
+         and not any(e['security_id'] == term['added']['delivered_security_id'] for e in w['episodes'].values())
+         and term['added']['session'] > cp['source_cursor'],
+         'FUTURE_EXACT_SOURCE_BOUND_OWN_PENDING_STOCK_COMPLETION')
 
 
 def suppressions(cp, terms):
@@ -668,6 +738,16 @@ def actual_cash_phase(record, result, arm, selected):
             cash_before_v(record, result, term['security_id'], proof['quantity'], proof['nominal_cash'])
 
 
+def actual_stock_phase(record, selected):
+    for term in selected:
+        if term['session'] != record['session'] or term['kind'] != 'CASH_PLUS_STOCK':
+            continue
+        actual = [v for v in record['stock'] if v['security_id'] == term['security_id']
+                  and v['actual_context_call'] is True]
+        need(len(actual) == 1 and actual[0]['applied'] is True,
+             'FUTURE_ONE_SELECTED_APPLIED_STOCK_CALL_IN_ACTUAL_CANONICAL_STEP')
+
+
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
     def __init__(self, out, arm):
@@ -701,13 +781,26 @@ class ActualEvents:
 
     def terminal(self, state, terms, **kwargs):
         key = terms.session, terms.security_id
-        if self.current is None or key not in self.terms or terms.kind != 'CASH_MERGER':
+        if self.current is None or key not in self.terms or terms.kind not in ('CASH_MERGER', 'CASH_PLUS_STOCK'):
             return self.terminal_original(state, terms, **kwargs)
         before, ledger = deepcopy(state.to_dict()), deepcopy(kwargs['ledger'].to_dict())
         caller = inspect.currentframe().f_back
         actual = actual_terminal_call(caller, self.step_code, state, kwargs['ledger'], terms.session)
         need(asdict(terms) == self.terms[key], 'FUTURE_ACTUAL_TERMS_EXACT_SELECTED_CONTRACT')
         result = self.terminal_original(state, terms, **kwargs)
+        if terms.kind == 'CASH_PLUS_STOCK':
+            after, ledger_after = state.to_dict(), kwargs['ledger'].to_dict()
+            need(kwargs.get('phase', 'OPEN') == 'OPEN' and result.get('applied') is True
+                 and ledger_after['events'][:len(ledger['events'])] == ledger['events']
+                 and not any(e['security_id'] == terms.security_id for e in after['episodes'].values())
+                 and terms.security_id not in after.get('terminal_pending_terms', {})
+                 and terms.security_id not in after.get('terminal_pending_sessions', {}),
+                 'FUTURE_ACTUAL_SELECTED_STOCK_APPLIED_SOURCE_CLEARED')
+            self.current['stock'].append(dict(session=terms.session, security_id=terms.security_id,
+                actual_context_call=actual, applied=True, result=deepcopy(result),
+                before_state_sha256=digest(before), after_state_sha256=digest(after),
+                before_ledger_sha256=digest(ledger), after_ledger_sha256=digest(ledger_after)))
+            return result
         proof = cash_postcondition(before, state.to_dict(), ledger, kwargs['ledger'].to_dict(), asdict(terms), result)
         need(kwargs.get('phase', 'OPEN') == 'OPEN', 'FUTURE_ACTUAL_CASH_OPEN_PHASE')
         self.current['cash'].append(dict(session=terms.session, security_id=terms.security_id,
@@ -746,10 +839,11 @@ class ActualEvents:
 
     def advance(self, run, publication):
         need(self.current is None, 'FUTURE_SINGLE_ACTUAL_ADVANCE')
-        record = self.current = dict(session=publication.session, cash=[], risk=[], order=[], engine_calls=0)
+        record = self.current = dict(session=publication.session, cash=[], stock=[], risk=[], order=[], engine_calls=0)
         try:
             result = self.advance_original(run, publication)
             actual_cash_phase(record, result, self.arm, self.terms.values())
+            actual_stock_phase(record, self.terms.values())
             if self.arm == 'P10':
                 if publication.session == '2020-10-01':
                     cash_before_v(record, result, '510659411298086546', 101, 5302.5)

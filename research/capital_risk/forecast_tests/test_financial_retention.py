@@ -26,6 +26,7 @@ def test_all_current_reporting_seeds_are_closest_admitted_own_checkpoints():
 
 @pytest.mark.parametrize('change',['already_admitted','older_seed'])
 def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(monkeypatch,change):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})
     monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     original=m.root_spec
@@ -39,6 +40,7 @@ def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(m
 
 
 def test_new_reporting_scope_guard_removal_falsifier(monkeypatch):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})
     monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     original=m.root_spec

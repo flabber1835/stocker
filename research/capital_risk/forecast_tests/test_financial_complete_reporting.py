@@ -37,7 +37,10 @@ def mutated_function(module, name, label):
     return ns[name]
 
 
-def test_exact_complete_target_uses_own_current_seed_and_reporting_boundary():
+def test_exact_complete_target_uses_own_current_seed_and_reporting_boundary(monkeypatch):
+    monkeypatch.setattr(m, 'EXECUTION_MODE', 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
+    monkeypatch.setattr(m, 'SELECTED_ARMS', ('P10',))
+    monkeypatch.setattr(m, 'COMPLETED_ADMISSIONS', {})
     spec = target(); cp = checkpoint(spec)
     assert p.full_target(spec) is True
     assert p.reporting_seed(spec)['root_admission_sha256'] == p.ADMISSIONS['P10']
