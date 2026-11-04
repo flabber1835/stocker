@@ -1943,3 +1943,12 @@ The exact November30 parent has no holding or pending order for ARII. Register
 the new scope while preserving every older scope. Reuse the unchanged schema1
 known-native source capture and DATA gates; this request grants no financial
 transitions or completion/settlement input authority.
+
+P07 saved838/April30 passed independent DATA:21 new closes,42 raw accountings,
+one report,28 Decimal metrics and21 new branch certificates extending363 closed
+rows. The original cumulative projection gate and fourteen literal terms were
+reconstructed; five April cash events were unheld zero-value operations. Eighty
+targeted DATA tests passed,including73 refusal cases and11 guard-removal cases.
+Admit only838 and preserve817 in history. Register its384-row retained-proof
+seed with21 new and363 retained rows; original branch and financial sources
+remain unchanged. The May tail and PPLI distribution remain outside admission.

@@ -1,0 +1,69 @@
+{
+  "schema": "research.selected-compound-source-scopes/1",
+  "scopes": {
+    "P06": {
+      "additional_rows": [
+        {
+          "parent_positions": [
+            {
+              "entry_date": "2018-12-28",
+              "quantity": 34,
+              "slot_id": 12,
+              "ticker": "TFCF"
+            }
+          ],
+          "security_id": "291579668231200993",
+          "session": "2019-03-20",
+          "source_observation_sha256": "337126a99ee6e11d3c7e57bb391a1bd14d2fd02293a8eb9f53aafadf822e1ee3",
+          "ticker": "TFCF"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "337088787093800753",
+          "session": "2019-03-20",
+          "source_observation_sha256": "4baa90fafc14e04b97d2eddd551071cb9b3e4595cdeec2346bf11e9417c1ea7b",
+          "ticker": "FOX"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "52833112837415755",
+          "session": "2019-03-20",
+          "source_observation_sha256": "fb04b36ffacd59045ceb9350689f6b112efedd79662aff7a04dab1368c559d58",
+          "ticker": "DIS"
+        }
+      ],
+      "native_distribution_queries": [
+        {
+          "financial_use_authorized": false,
+          "maximum_records": 1,
+          "native_term_sha256": "89989da3d1e823d02b9c1cf577e41f24260412474956815940b1cca4a76f5289",
+          "parent_security_id": "291579668231200993",
+          "parent_ticker": "TFCF",
+          "raw_source_row_sha256": "325d54c7d0daaadf462a9bc18a39da68c32a3b795d32511c14f1d6ea9fbc6e94",
+          "schema": "research.exact-native-distribution-query/1",
+          "session": "2019-03-21",
+          "source_row_id": "8e905bc5a17a8d7dd4ebc764ce1cf161b22be0a38b485a3139331e6aa3904ac0"
+        }
+      ],
+      "parent_cursor": "2019-02-28",
+      "parent_outer_sha256": "8516fc7143e78715be608b0a5cdd3b4c93f6f8f617ed4f84bc55e3e4c0c17c34",
+      "terms": [
+        {
+          "native_session": "2019-03-20",
+          "native_term_sha256": "7cbd34126ef38375f52b7ccbabe008bc31a0e0d6e253b3ab423d196677656668",
+          "parent_positions": [
+            {
+              "entry_date": "2018-12-28",
+              "quantity": 34,
+              "slot_id": 12,
+              "ticker": "TFCF"
+            }
+          ],
+          "security_id": "291579668231200993",
+          "session": "2019-03-19",
+          "ticker": "TFCF"
+        }
+      ]
+    }
+  }
+}

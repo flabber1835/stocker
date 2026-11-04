@@ -37,3 +37,21 @@ validation still require the existing independent DATA and reporting workflow.
 Source discovery and the proposed scope are preserved separately in
 `.codex-tmp/p06-spinoff-audit-20261104/compound-input-proposal.json`; they carry no
 financial authority. This choice extends generic research input modeling only.
+
+The source-only lane uses version6 of the existing witness framework. It binds
+one incomplete terminal and one unresolved distribution to the same exact own
+parent, with the March19 parent identity plus complete March20 parent,FOX,DIS
+rows. Enumerate every same-parent distribution on the requested native date and
+require exactly one before comparing its raw and typed preimages. Reuse the
+unchanged frozen distribution parser and terminal loader. Preserve all existing
+witness schemas behind explicit version6 routing. The payload reconstructs the
+source scope,archive,bundle,producer and actual parent positions exactly,with
+zero financial transitions,adoption or authority. This stage cannot seed the
+compound financial input until independent source DATA passes.
+
+The source-only integration,P07 root/retained-proof metadata,and existing source,
+future,retention and launcher checks passed265 targeted tests in51.67s. New
+source guard-removal cases cover raw/typed preimages,full rows,zero authority,
+consumed scope and an extra same-parent native. Exact launcher probing passes
+without financial execution. The request closes411 sources while all383 original
+drivers and the frozen branch implementation remain byte-identical.
