@@ -743,3 +743,40 @@ refuses. This corrects an unnecessary eligible1 assumption in a DATA-only scan.
 Fresh P00's authenticated new169-close August31 prefix and P07's543-close
 February28 prefix require independent DATA/reporting admission before any new
 root. Neither their later tails nor historical P00 state may supply authority.
+
+
+## Resume SAFM and ACC through one source-bound cash catalog
+
+Corrected source run41783795694 and independent DATA review passed both exact
+rows/native preimages and own-root roles. Keep this qualification closed.
+Use one new selected-cash catalog through the existing shared future selector,
+with a distinct schema and explicit own parent/arm/cursor and source-capture
+run/head/artifact/payload/review digest bindings. Reuse the unchanged cash-calendar
+term validator for mandatory common-share cash and timing semantics; the new
+selector validates the new catalog's source/parent scope. This catalog does not
+claim membership in the sealed historical ordinary-input registry or change it.
+The current selector and original term-validator hashes remain explicit evidence.
+
+P04 starts only from1132/June30: preserve July21 native trading and recognize
+SAFM203USD/share at July22 open, supported by OCC50763 actual preopen completion.
+Its own admitted parent holds29 SAFM shares. P10 starts only from1152/July29:
+preserve August9 native history and recognize ACC65.47USD/share August10 using
+the explicit retained next-session convention after actual August9 completion
+proved by SEC8-K/A. OCC50844 supports August10 adjustment but its July9 typo
+never supplies the completion date. ACC is absent at this admitted root; its
+later held quantity must be produced by the resumed canonical path.
+
+Hydrate and recheck the exact full source witnesses/native terms against frozen
+inputs at use, build one ordinary future-only repair document per own parent,
+run the existing parser/packet/notional falsifiers, and require a neutral input
+adoption. No old native is consumed at either selected parent. The actual cash
+observer must see exactly one selected cash application in the real canonical
+step context. For a held P10 event, use its actual canonical quantity/proceeds
+to prove settlement precedes the original V21 loop and the source SID cannot
+survive into that loop; never transplant78 shares from the unadmitted tail.
+Keep the earlier exact MNTA/VCRA assertions and all original guards unchanged.
+
+Use one explicit execution-mode constant to derive the three mutually exclusive
+request flags and worker limits. The next immutable request selects financial
+P04/P10 only. Closed source-capture jobs and the stopped P00/P07 runs are not
+relaunched by this request. Their separate new-prefix DATA/monthly work remains.

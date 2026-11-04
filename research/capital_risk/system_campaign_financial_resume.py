@@ -53,12 +53,17 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/14'
+SCHEMA = 'research.system-campaign-accurate-resume-request/15'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
 def expected_request():
-    from system_campaign_financial_future import WITNESS_SCOPES
+    from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG
+    financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
+    reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+    witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
+    need(sum((financial, reporting, witnesses)) == 1, 'RESUME_ONE_EXPLICIT_REQUEST_EXECUTION_MODE')
     need(sha256_file(HERE / PRIOR) == PRIOR_SHA, 'RESUME_FROZEN_PRIOR_REQUEST')
     prior = json.loads((HERE / PRIOR).read_bytes())['sources']
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
@@ -69,14 +74,14 @@ def expected_request():
              'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
              'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py',
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
-             'system-campaign-financial-branch-contract.json')
+             'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG)
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
-                execution_mode='READONLY_FROZEN_SOURCE_WITNESSES', new_origin=False,
-                financial_resume_authorized=False, readonly_partial_review=False,
-                readonly_source_witnesses=True,
-                source_witness_scopes={a: deepcopy(WITNESS_SCOPES[a]) for a in SELECTED_ARMS},
+                execution_mode=EXECUTION_MODE, new_origin=False,
+                financial_resume_authorized=financial, readonly_partial_review=reporting,
+                readonly_source_witnesses=witnesses,
+                source_witness_scopes={a: deepcopy(WITNESS_SCOPES[a]) for a in SELECTED_ARMS} if witnesses else {},
                 diagnostic_state_adopted=False,
-                arm_inputs={a: dict(new_factual_overlay=False, restored_correlation=False) for a in SELECTED_ARMS},
+                arm_inputs={a: dict(new_factual_overlay=financial, restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -91,7 +96,8 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=len(SELECTED_ARMS),
+                maximum_parallel_financial_workers=len(SELECTED_ARMS) if financial else 0,
+                maximum_parallel_readonly_workers=0 if financial else len(SELECTED_ARMS),
                 production_contacted=False)
 
 

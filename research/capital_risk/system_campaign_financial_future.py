@@ -37,6 +37,9 @@ COMBINED_PHASES = {
 }
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
+OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
+OWN_CASH_SHA = '7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9'
+OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC'}
 WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -138,6 +141,51 @@ def capture_source_witnesses(cp, out, arm, scope):
     return payload
 
 
+def own_cash_selection(arm, cursor):
+    from system_campaign_cash_calendar import validate_term
+    import system_campaign_cash_calendar as calendar
+    from system_campaign_financial_partial import root_spec
+    raw = (HERE / OWN_CASH_CATALOG).read_bytes()
+    need(sha(raw) == OWN_CASH_SHA, 'OWN_CASH_EXACT_REVIEWED_LITERAL_CATALOG')
+    catalog = json.loads(raw)
+    need(catalog['schema'] == 'research.selected-own-parent-cash-completions/1'
+         and all(catalog[k] is False for k in ('canonical_financial_source_changed',
+                                              'provider_metadata_upgraded', 'production_contacted'))
+         and len(catalog['terms']) == len(OWN_CASH_PHASES), 'OWN_CASH_EXACT_NEW_CATALOG_SCOPE')
+    for term in catalog['terms']:
+        validate_term(term)
+        phase = term['arm'], term['parent_cursor']
+        source = term['source_capture']
+        parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
+        scope = WITNESS_SCOPES[term['arm']]
+        declared, = scope['terms']
+        need(OWN_CASH_PHASES.get(phase) == term['ticker']
+             and term['parent_outer_sha256'] == scope['parent_outer_sha256']
+             and term['parent_outer_sha256'] == parent['outer_sha256']
+             and term['parent_cursor'] == parent['selected_session']
+             and term['parent_positions'] == declared['parent_positions']
+             and term['identity_witness']['session'] == declared['session']
+             and term['native_session'] == declared['native_session']
+             and term['native_term_sha256'] == declared['native_term_sha256']
+             and term['security_id'] == declared['security_id']
+             and source['run_id'] == 41783795694
+             and source['head'] == 'cddd0dfb84433998b52c46b5e53e836a84fc5d58'
+             and source['artifact_id'] == {'P04': 13299799904, 'P10': 13299684770}[term['arm']]
+             and source['scope_sha256'] == digest(scope)
+             and all(type(source[k]) is str and len(source[k]) == 64
+                     and all(c in '0123456789abcdef' for c in source[k])
+                     for k in ('payload_sha256', 'independent_data_review_sha256')),
+             'OWN_CASH_EXACT_CLOSED_SOURCE_CAPTURE_AND_PARENT_SCOPE')
+    chosen, = [t for t in catalog['terms'] if (t['arm'], t['parent_cursor']) == (arm, cursor)]
+    need(len({(t['arm'], t['parent_cursor']) for t in catalog['terms']}) == len(catalog['terms']),
+         'OWN_CASH_UNIQUE_DECLARED_PHASES')
+    codec = SimpleNamespace(catalog=catalog, catalog_sha=sha(raw),
+        compiler_sha=sha(Path(calendar.__file__).read_bytes()),
+        parent_outer_sha256=chosen['parent_outer_sha256'], parent_positions=chosen['parent_positions'],
+        validator_description='Unchanged cash-calendar term validator; new own-source catalog validated by the shared selector.')
+    return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
 def catalog_terms(codec, tickers):
     terms = [deepcopy(t) for t in codec.catalog['terms'] if t['ticker'] in tickers]
     need(tuple(t['ticker'] for t in terms) == tickers, 'FUTURE_EXACT_DECLARED_CATALOG_SUBSET')
@@ -176,6 +224,8 @@ def compose(plans):
 
 def selected(arm, *, cursor=None):
     import importlib
+    if (arm, cursor) in OWN_CASH_PHASES:
+        return own_cash_selection(arm, cursor)
     if arm == 'P07':
         need(cursor == '2019-12-31', 'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
     if (arm, cursor) in COMBINED_PHASES:
@@ -231,6 +281,12 @@ def hydrate(cp, arm):
     from research.pooled_input_support import inputs
     from system_campaign_2021_completions_facts import require_witness, CIL
     codec, catalog, terms = selected(arm, cursor=cp['source_cursor'])
+    if hasattr(codec, 'parent_outer_sha256'):
+        need(cp['sha256'] == codec.parent_outer_sha256, 'OWN_CASH_EXACT_CURRENT_PARENT_OUTER')
+        held = [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'], entry_date=e['entry_date'])
+                 for _, e in sorted(cp['run']['state']['wealth_core']['episodes'].items(), key=lambda item: int(item[0]))
+                 if e['security_id'] == t['security_id']] for t in terms]
+        need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     wanted = {}
@@ -274,6 +330,8 @@ def hydrate(cp, arm):
         financial_source_changed=False, provider_metadata_upgraded=False)
     if hasattr(codec, 'composition'):
         material['composition'] = deepcopy(codec.composition)
+    if hasattr(codec, 'validator_description'):
+        material['original_validator_description'] = codec.validator_description
     return material, delivered, actions
 
 
@@ -295,7 +353,8 @@ def document(cp, material, hydrated_sha):
         evidence = [dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
             for name, description, value in (
                 ('catalog', 'Unchanged literal ordinary completion catalog.', material['catalog_sha256']),
-                ('validator', 'Original literal catalog validator; original compiler guard remains intact.', material['original_validator_sha256']))]
+                ('validator', material.get('original_validator_description',
+                    'Original literal catalog validator; original compiler guard remains intact.'), material['original_validator_sha256']))]
     evidence.extend(dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
         for name, description, value in (
             ('selector', 'Own-parent future-only selected ordinary input.', material['selector_sha256']),
@@ -303,6 +362,11 @@ def document(cp, material, hydrated_sha):
     for t in material['terms']:
         evidence.extend((dict(reference=t['primary_source'], description=t['description'], sha256=None),
             dict(reference=t['timing_source'], description='Actual mandatory completion; preserve native trading history.', sha256=None)))
+        if 'source_capture' in t:
+            evidence.extend(dict(reference=REFERENCE + '/source-capture/' + t['arm'] + '/' + name,
+                description=description, sha256=t['source_capture'][key]) for name, key, description in (
+                    ('payload', 'payload_sha256', 'Authenticated frozen source/native payload from the exact own admitted parent.'),
+                    ('independent-data-review', 'independent_data_review_sha256', 'Separate DATA review of the complete row/native and admitted parent role.')))
     return dict(schema='terminal-repair/1', predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'],
         source_evidence=evidence, suppress=suppressions(cp, material['terms']),
         add=[deepcopy(t['added']) for t in material['terms']])
@@ -467,6 +531,18 @@ def cash_before_v(record, result, sid, quantity, nominal_cash):
          'FUTURE_EXACT_CASH_REMOVAL_BEFORE_UNCHANGED_V_LOOP')
 
 
+def actual_cash_phase(record, result, arm, selected):
+    for term in selected:
+        if term['session'] != record['session'] or term['kind'] != 'CASH_MERGER':
+            continue
+        actual = [v for v in record['cash'] if v['security_id'] == term['security_id']
+                  and v['actual_context_call'] is True]
+        need(len(actual) == 1, 'FUTURE_ONE_SELECTED_CASH_CALL_IN_ACTUAL_CANONICAL_STEP')
+        proof = actual[0]['postcondition']
+        if arm == 'P10' and proof['actual_held']:
+            cash_before_v(record, result, term['security_id'], proof['quantity'], proof['nominal_cash'])
+
+
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
     def __init__(self, out, arm):
@@ -548,6 +624,7 @@ class ActualEvents:
         record = self.current = dict(session=publication.session, cash=[], risk=[], order=[], engine_calls=0)
         try:
             result = self.advance_original(run, publication)
+            actual_cash_phase(record, result, self.arm, self.terms.values())
             if self.arm == 'P10':
                 if publication.session == '2020-10-01':
                     cash_before_v(record, result, '510659411298086546', 101, 5302.5)

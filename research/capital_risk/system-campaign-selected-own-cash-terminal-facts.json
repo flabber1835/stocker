@@ -1,0 +1,113 @@
+{
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.selected-own-parent-cash-completions/1",
+  "terms": [
+    {
+      "actual_completion_date": "2022-07-22",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 203.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=50763 | Completed before July22open; each ordinary SAFM common share mandatorily converts to203USD cash. Preserve July21 trading; qualify exact own-held source scope.",
+        "security_id": "962454383671746307",
+        "session": "2022-07-22"
+      },
+      "arm": "P04",
+      "description": "Completed before July22open; each ordinary SAFM common share mandatorily converts to203USD cash. Preserve July21 trading; qualify exact own-held source scope.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:812128",
+        "listing_first_session": "1997-12-31",
+        "security_id": "962454383671746307",
+        "security_type_eligible": "1",
+        "session": "2022-07-20",
+        "source_observation_sha256": "0711d6691f32e412aa5fbb8dca584dbee1351d1cc4e22523b53506dbc8692db5",
+        "ticker": "SAFM"
+      },
+      "last_trading_session": "2022-07-21",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-07-21",
+      "native_term_sha256": "d00cf559bcc50db02d1e30e69194f3f92949e1085b4bd23b53c4f134aba86d09",
+      "parent_cursor": "2022-06-30",
+      "parent_outer_sha256": "0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe",
+      "parent_positions": [
+        {
+          "entry_date": "2022-06-30",
+          "quantity": 29,
+          "slot_id": 6,
+          "ticker": "SAFM"
+        }
+      ],
+      "parent_root_admission_sha256": "7177334f71ec924d37810189a9c8f94e6f00073f5808a3aa1ec4647801a51986",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=50763",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "962454383671746307",
+      "source_capture": {
+        "artifact_id": 13299799904,
+        "head": "cddd0dfb84433998b52c46b5e53e836a84fc5d58",
+        "independent_data_review_sha256": "5a96b9ff255327d28dc2fe70f11afd27a4ca470da8a6c740b63810ee0fc4b9a3",
+        "payload_sha256": "55e0d4bd41506966e359a781cf536e6d9e3faf6c556598c2543d294e3b3ee483",
+        "run_id": 41783795694,
+        "scope_sha256": "654fd36873ccfb568741ad17be2b44e1105d28385f4622854c2846c12a67454b"
+      },
+      "ticker": "SAFM",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50763"
+    },
+    {
+      "actual_completion_date": "2022-08-09",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 65.47,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522219782/d269739d8ka.htm | SEC8KA proves actual August9completion and automatic65.47USD cash per ordinary common share. Preserve August9history; retain explicit August10next-session recognition. OCC50844 July9consummation wording is inconsistent and is not completion-date authority.",
+        "security_id": "209530306982231273",
+        "session": "2022-08-10"
+      },
+      "arm": "P10",
+      "description": "SEC8KA proves actual August9completion and automatic65.47USD cash per ordinary common share. Preserve August9history; retain explicit August10next-session recognition. OCC50844 July9consummation wording is inconsistent and is not completion-date authority.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1283630",
+        "listing_first_session": "2004-08-16",
+        "security_id": "209530306982231273",
+        "security_type_eligible": "1",
+        "session": "2022-08-08",
+        "source_observation_sha256": "2fd3533e995b74c14502c28c5eb0c6dd8b512296a7b4ccd5533dd6f2c74a3bcc",
+        "ticker": "ACC"
+      },
+      "last_trading_session": "2022-08-09",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-08-09",
+      "native_term_sha256": "dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7",
+      "parent_cursor": "2022-07-29",
+      "parent_outer_sha256": "e1c1c823374d10e0cbf62752b0465e39c23165ec80a61e3f357bea13217462e4",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "4560175cf063336c5e192a4ffed31c90914e354b30c1d8c806b8dbee47c0ade7",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522219782/d269739d8ka.htm",
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "209530306982231273",
+      "source_capture": {
+        "artifact_id": 13299684770,
+        "head": "cddd0dfb84433998b52c46b5e53e836a84fc5d58",
+        "independent_data_review_sha256": "3552ef52b5cc0573e4cacdab59c4b3143b4293863671d2a29ba88420be5f889d",
+        "payload_sha256": "2fec8d7e1d1999bb4c3fd8056501a28186a077eb4207bcb1eaf96fe986f30f83",
+        "run_id": 41783795694,
+        "scope_sha256": "60543ae036fcdc6b1e2a6a275987e6991b18d030292d2fb8bfb5ebbcfda4d9db"
+      },
+      "ticker": "ACC",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50844"
+    }
+  ]
+}
