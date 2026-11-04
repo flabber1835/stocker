@@ -73,22 +73,24 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
     assert without_guard('PARTIAL_ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED')(value)['measured_closes']==1
 
 
-def test_new_reporting_uses_admitted_initial_seed_without_financial_workers(monkeypatch):
-    original=p.root_spec
-    monkeypatch.setattr(m,'root_spec',lambda arm:original(arm,initial_entry(arm)['admission_sha256']) if arm=='P05' else original(arm))
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
+def test_new_reporting_uses_current_admitted_seed_without_financial_workers(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
-    assert value['arms']==['P05'] and value['maximum_parallel_financial_workers']==0
+    assert value['arms']==['P03'] and value['maximum_parallel_financial_workers']==0
     assert value['financial_resume_authorized'] is False and value['readonly_partial_review'] is True
-    assert set(value['admitted_checkpoints'])=={'P05'} and value['initial_reporting_origins']=={}
+    assert set(value['admitted_checkpoints'])=={'P03'} and value['initial_reporting_origins']=={}
     monkeypatch.setattr(m,'SELECTED_ARMS',('P06',))
     with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
 
 
 @pytest.mark.parametrize('arm,days',[('P05',211),('P06',291),('P11',169)])
-def test_new_admitted_prefix_preserves_initial_seed_as_exact_history(arm,days):
-    old=initial_entry(arm);current=p.root_spec(arm)
+def test_first_admitted_suffix_preserves_initial_seed_as_exact_history(arm,days):
+    old=initial_entry(arm)
+    bundle=json.loads((p.HERE/p.ROOTS).read_bytes())
+    entry=next(e for e in [*bundle['arms'].values(),*bundle['historical_roots'].values()]
+        if e['transport']['arm']==arm and e['admission']['completed']==days)
+    current=p.root_spec(arm,entry['admission_sha256'])
     assert current['measured_closes']==days
     assert current['root_admission']['parent_root_admission_sha256']==old['admission_sha256']
     assert p.root_spec(arm,old['admission_sha256'])['measured_closes']==21
@@ -104,14 +106,14 @@ def test_p04_complete_target_is_explicit_readonly_evidence_from_own1970_seed():
 
 
 def test_exact_p03_saved82_prefix_reports_only_from_its_own_zero_seed():
-    value=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']['P03']
+    value=target('P03')
     seed=p.reporting_seed(value)
     assert (value['measured_closes'],value['selected_session'])==(82,'2018-04-30')
     assert p.digest(value)==p.INITIAL_PREFIX_TARGETS['P03']
     assert (seed['measured_closes'],seed['selected_session'])==(0,'2017-06-30')
     assert seed['outer_sha256']=='fa1f7daca5e345490b4938fd786995755701664bdc265876d6d3545ce6fca6e0'
     assert seed['base']==value['base'] and seed['journals']['daily']['bytes']==seed['journals']['monthly']['bytes']==0
-    spec=p.root_spec('P03')
+    spec=p.root_spec('P03',initial_entry('P03')['admission_sha256'])
     assert spec['outer_sha256']==value['outer_sha256'] and spec['measured_closes']==82
     assert spec['root_admission']['independent_accounting_snapshots']==416
     assert spec['root_admission']['new_monthly_reports']==4
@@ -119,7 +121,7 @@ def test_exact_p03_saved82_prefix_reports_only_from_its_own_zero_seed():
 
 
 def test_p03_axis_guard_removal_admits_the_other_arms_counter(monkeypatch):
-    value=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']['P03']
+    value=target('P03')
     value['measured_closes']=21;value['selected_session']='2018-01-31'
     monkeypatch.setattr(p,'INITIAL_PREFIX_TARGETS',dict(p.INITIAL_PREFIX_TARGETS,P03=p.digest(value)))
     with pytest.raises(ValueError,match='ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED'):p.initial_prefix_seed(value)
