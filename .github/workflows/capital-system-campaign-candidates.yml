@@ -1,50 +1,73 @@
-name: System-wide campaign initial canonical Core candidates
+name: System campaign fresh canonical baseline
 on:
   push:
     branches: [codex/capital-risk-research]
-    paths: ['research/capital_risk/system-campaign-candidate-request.json']
+    paths: ['research/capital_risk/system-campaign-fresh-origin-request.json']
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: system-optimization-002-initial-candidates
-  cancel-in-progress: false
 jobs:
   candidate:
     if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
+    concurrency:
+      group: system-optimization-002-financial-${{ matrix.arm }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 1
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        include:
+          - index: 0
+            arm: P00
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        timeout-minutes: 3
         with:
           persist-credentials: false
-          sparse-checkout: research/capital_risk
+          sparse-checkout: |
+            research/capital_risk
+            .github/workflows
           fetch-depth: 1
+      - name: Prepare dedicated ephemeral research capacity
+        timeout-minutes: 3
+        run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
       - name: Install locked transfer dependencies
+        timeout-minutes: 4
         run: |
           python3 -m venv "$RUNNER_TEMP/transfer-python"
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Probe exact fresh P00 parameters source and empty origin
+        timeout-minutes: 2
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_fresh_origin.py --probe --request research/capital_risk/system-campaign-fresh-origin-request.json'
+      - name: Admit fresh origin and prove encrypted export before financial start
+        timeout-minutes: 2
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_fresh_origin.py --request research/capital_risk/system-campaign-fresh-origin-request.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/fresh-origin-admission-P00.json'
       - name: Authenticate existing frozen inputs and offline runtime
         timeout-minutes: 8
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Admit actual configured canonical cases and run own bounded book
+      - name: Run original generic candidate from new warmup formation and financial origin
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_candidate_job.py --request research/capital_risk/system-campaign-candidate-request.json --staging artifacts/capital-risk/full-core-staging.json --index ${{ matrix.index }} --output artifacts/capital-risk/campaign-candidate-${{ matrix.index }}.json'
       - name: Preserve encrypted proven stopped candidate evidence
+        timeout-minutes: 5
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: system-campaign-candidate-${{ matrix.index }}-${{ github.sha }}
           path: |
+            artifacts/capital-risk/ephemeral-runner-capacity.json
+            artifacts/capital-risk/fresh-origin-admission-P00.json
+            artifacts/capital-risk/fresh-origin-export-qualification-P00.json
             artifacts/capital-risk/full-core-staging.json
             artifacts/capital-risk/campaign-candidate-${{ matrix.index }}.json
             artifacts/capital-risk/campaign-*.tar.crseal

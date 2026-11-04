@@ -568,3 +568,42 @@ incomplete native;29shares are held. P01's retained SAFM input explicitly has
 SOURCE_UNHELD scope. Any future P04 fix must separately qualify held settlement
 terms and timing; the previous unheld scope alone supplies no such authority.
 P07 and P10 financial workers remain at their already pinned commits.
+
+
+## Owner-requested fresh P00 path, November3
+
+The owner explicitly rejected using the reused historical P00 record as the
+current comparison baseline because the system is path dependent. Run P00 again
+from a fresh canonical origin, including the same frozen campaign feature
+warmup and126-session formation before all2156 measured sessions. Until the new
+run and independent DATA/reporting review pass, label its historical21.48/19.96
+figures reused historical evidence and exclude them from the fresh comparison.
+This authorizes the necessary fresh financial computation; prior closed archive
+and source audits remain closed. It does not establish current PAPER equivalence.
+
+Use the original generic candidate-origin launcher and worker at index0, whose
+parameters must equal the frozen campaign DEFAULT. Preserve all383 driver files,
+the514-file staged source origin and the existing Core source compiler. The
+original worker creates its own exclusive empty output/book and feature warmup;
+it never mounts/imports a previous financial book, journal, PAPER state, checkpoint
+or result. Existing immutable input history and qualified fact definitions remain
+versioned inputs. Any new blocking event must be resolved on this new own path;
+do not splice in a completed historical P00 suffix or promote diagnostics.
+
+Add a distinct fresh-origin request and a nonfinancial admission/export probe to
+the existing generic initial-candidate workflow, selected only for P00. Pin the
+complete current shared driver closure, original candidate request, DEFAULT and
+workflow. Reuse the current dedicated capacity preparation, locked dependencies,
+actual encrypted synthetic export roundtrip and per-arm concurrency. The original
+candidate launcher retains its offline8GB/2CPU/nonroot/no-credential fences,
+positive-stop/UNKNOWN handling, one-GiB archive bound and separate hosted reviewer.
+Keep the new fresh-origin proof public alongside the authenticated staging,
+capacity, export marker and original candidate receipt/cipher. No new per-symbol
+financial engine or continuation-wrapper family is introduced. Targeted tests
+must prove the empty-origin/index0/source/request/workflow bindings and refuse
+any changed basis or inherited-origin declaration before staging/finance.
+
+A completed fresh run still needs full independent DATA and reporting admission.
+Use its own first measured close for Core normalization; preserve the common
+measurement range and disclose any input/model assumptions. This fresh P00 is a
+research comparator, not a claim about the live installed PAPER policy or return.
