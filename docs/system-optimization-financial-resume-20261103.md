@@ -1199,3 +1199,45 @@ Read-only565 qualification:140 targeted resume/partial/retention/retained-proof
 tests passed in18.88s. Financial worker limit0; only the new own reporting
 suffix is selected. Original383 driver bytes and branch implementation remain
 unchanged; the stopped April tail is preserved and unadmitted.
+
+## Admit P07's22 reviewed March closes and continue with existing spring cash inputs
+
+Read-only41819198754/b190e5f67 and independent DATA review passed for565 through
+March31,2020:22 daily rows,44 accounting snapshots,one report,28 Decimal metrics,
+full retry/report memory and22 new branch rows after89 retained rows. The27 new
+DATA falsifiers passed. Bind the previous543 root to its committed899e2ff1 closed
+adapter, while keeping the separate original2e4711f9 induction-source check; do
+not confuse these two source identities. Publish565 with all111 committed proof
+rows as continuation-only authority. The April tail and CY refusal remain unadmitted.
+
+Register only this exact newly admitted565/111 proof seed alongside closed503/49
+and543/89 seeds. Select the unchanged spring2020 cash catalog's CY/MLNX/WBC
+terms through the existing shared future selector, all strictly after March31.
+The already committed Sprint overlay remains in force; never reapply its consumed
+native suppression as a new input. Preserve the original alias archive/proof from
+the admitted parent by exact bytes, without another download, as well as the old
+unresolved-event archive and controller qualification. Qualify the new ordinary
+input and neutral adoption before the next financial worker. Only the new suffix
+will be financially and independently reviewed.
+
+For this March31 continuation, compose the three spring terms with the five
+unchanged autumn2020/MYOK/VRTU cash terms through the existing composition
+registry. All eight native/effective dates are still future to this parent and
+their source catalogs are disjoint. This admits no new consideration or timing
+assumption: preserve each original validated literal and hydrate all eight frozen
+witnesses. It avoids separate resumptions for already-known later cash inputs.
+
+P04's October3 convention attempt41817821029/db3c822cf is CLOSED with zero new
+committed closes. It processed an unadmitted tail through September29 then refused
+September30 with `unresolved recent-leadership return` for CTXS, before the chosen
+cash date. Preserve that exact refusal and the source/timing evidence. Do not
+admit the neutral-only August checkpoint as new progress or adopt the September
+tail. The canonical missing-return guard stays unchanged. A later attempt needs
+separate factual timing proof or a qualified source-only treatment with actual
+unowned/unordered guards; no earlier portfolio cash is implied by this failure.
+
+The565/111 continuation and eight-term composition passed264 targeted tests in
+27.40s across retained_sources,retained_proof,resume,future,retention,
+admission_generations,source_witnesses. The27 new independent March DATA
+falsifiers passed in3.11s. All financial source hashes and the original branch
+implementation remain unchanged; financial source/execution code was not edited.

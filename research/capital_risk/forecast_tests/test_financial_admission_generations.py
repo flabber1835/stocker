@@ -21,7 +21,7 @@ def local_registered_catalog_path(monkeypatch):
 
 
 def test_both_generations_resolve_by_exact_own_admission_hash():
-    for arm,old,new in [('P04',817,1175),('P07',439,543),('P10',692,1592)]:
+    for arm,old,new in [('P04',817,1175),('P07',439,565),('P10',692,1592)]:
         latest=p.root_spec(arm);prior=p.root_spec(arm,p.PRIOR_ADMISSIONS[arm])
         assert (prior['measured_closes'],latest['measured_closes'])==(old,new)
         parent=p.root_spec(arm,latest['root_admission']['parent_root_admission_sha256'])
@@ -162,7 +162,7 @@ def test_successive_hydration_documents_never_overwrite_retained_prior_generatio
     old=b'{"retained_prior_generation":true}\n';(tmp_path/f.HYDRATED).write_bytes(old)
     # Reproduce the exact old fixed-name failure under the unchanged exclusive saver.
     with pytest.raises(FileExistsError):f.save(tmp_path/f.HYDRATED,material)
-    monkeypatch.setattr(f,'hydrate',lambda parent,arm:(deepcopy(material),{},object()))
+    monkeypatch.setattr(f,'hydrate',lambda parent,arm,**kwargs:(deepcopy(material),{},object()))
     calls=[]
     module=ModuleType('research.pooled_vacancy_funding.repair')
     def load(path,**kwargs):calls.append((path,kwargs));return SimpleNamespace(qualified=True)

@@ -17,6 +17,8 @@ MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
 RETAINED_PROOF_SEEDS = {
+    '30552e338938b213e0dcfe5ef06ca6defcca8d0627126cf39cfd63b2982c9e03':
+        dict(completed=565, source_cursor='2020-03-31', rows=111, new_rows=22, retained_rows=89),
     'c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c':
         dict(completed=503, source_cursor='2019-12-31', rows=49, new_rows=49, retained_rows=0),
     '46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d':

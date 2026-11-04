@@ -38,6 +38,9 @@ COMBINED_PHASES = {
 }
 SINGLE_PHASES = {('P07', '2020-02-28'):
     ('system_campaign_sprint_facts', 'SprintFacts', 'system-campaign-sprint-terminal-facts.json', ('S2',))}
+FOLLOWING_PHASES = {('P07', '2020-03-31'):
+    ('system_campaign_spring2020_cash_facts', 'CashCompletionFacts', 'system-campaign-spring2020-cash-terminal-facts.json', ('CY', 'MLNX', 'WBC'))}
+COMBINED_PHASES['P07', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
@@ -448,10 +451,11 @@ def selected(arm, *, cursor=None):
     if (arm, cursor) in OWN_CASH_PHASES:
         return own_cash_selection(arm, cursor)
     if arm == 'P07':
-        need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES, 'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
+        need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES,
+             'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
     if (arm, cursor) in COMBINED_PHASES:
         return compose(COMBINED_PHASES[arm, cursor])
-    module, cls, catalog, tickers = SINGLE_PHASES.get((arm, cursor), PLANS[arm])
+    module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES}.get((arm, cursor), PLANS[arm])
     if (arm, cursor) in CASH_PHASES:
         from system_campaign_cash_calendar import CashCalendar
         catalog, tickers = CASH_PHASES[arm, cursor]
@@ -467,7 +471,8 @@ def selected(arm, *, cursor=None):
 
 def stage_selected_sources(spec, old, out):
     """Host-only bounded fetch of one pinned source; workers remain offline."""
-    if (spec['arm'], spec['selected_session']) not in SINGLE_PHASES:
+    phase = spec['arm'], spec['selected_session']
+    if phase not in SINGLE_PHASES and phase not in FOLLOWING_PHASES:
         return
     import os
     from urllib.request import urlopen
@@ -478,6 +483,7 @@ def stage_selected_sources(spec, old, out):
     folder.mkdir()
     target = folder / 'SHARADAR_ACTIONS.zip'
     retained = old / 'provider-source/SHARADAR_ACTIONS.zip'
+    need(phase not in FOLLOWING_PHASES or retained.is_file(), 'FUTURE_CONSUMED_ALIAS_SOURCE_MUST_BE_RETAINED_NOT_REFETCHED')
     if retained.is_file():
         raw = retained.read_bytes()
         mode = 'EXACT_RETAINED_ORIGINAL'
@@ -489,11 +495,10 @@ def stage_selected_sources(spec, old, out):
         mode = 'EXACT_FROZEN_PUBLIC_OBJECT_FETCHED_ONCE'
     need(len(raw) == ALIAS_BYTES and sha(raw) == ALIAS_SHA, 'FUTURE_ORIGINAL_PROVIDER_BYTES_BEFORE_PARSE')
     target.write_bytes(raw)
-    _, _, terms = selected(spec['arm'], cursor=spec['selected_session'])
-    catalog = json.loads((HERE / SINGLE_PHASES[spec['arm'], spec['selected_session']][2]).read_bytes())
+    catalog = json.loads((HERE / SINGLE_PHASES['P07', '2020-02-28'][2]).read_bytes())
     rows = alias_rows(target, catalog['provider_alias_source']['selected_row_sha256'])
     save(out / 'provider-alias-proof.json', dict(source_sha256=ALIAS_SHA, source_bytes=len(raw),
-        selected_rows=rows, selected_security_ids=[t['security_id'] for t in terms], acquisition=mode,
+        selected_rows=rows, selected_security_ids=[catalog['added']['security_id']], acquisition=mode,
         descriptive_fields_used_only_for_action_identity=True, strategy_metadata_upgraded=False))
 
 
@@ -561,11 +566,13 @@ def hydrate(cp, arm, *, source_root=None):
     from system_campaign_2021_completions_facts import require_witness, CIL
     codec, catalog, terms = selected(arm, cursor=cp['source_cursor'])
     aliases = None
-    if (arm, cp['source_cursor']) in SINGLE_PHASES:
+    alias_catalog = None
+    if (arm, cp['source_cursor']) in SINGLE_PHASES or (arm, cp['source_cursor']) in FOLLOWING_PHASES:
         from system_campaign_sprint_facts import alias_rows
         need(source_root is not None, 'FUTURE_EXPLICIT_OWN_PROVIDER_SOURCE_ROOT')
+        alias_catalog = json.loads((HERE / SINGLE_PHASES['P07', '2020-02-28'][2]).read_bytes())
         aliases = alias_rows(Path(source_root) / 'provider-source/SHARADAR_ACTIONS.zip',
-                            codec.catalog['provider_alias_source']['selected_row_sha256'])
+                            alias_catalog['provider_alias_source']['selected_row_sha256'])
     if hasattr(codec, 'parent_outer_sha256'):
         need(cp['sha256'] == codec.parent_outer_sha256, 'OWN_CASH_EXACT_CURRENT_PARENT_OUTER')
         held = [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'], entry_date=e['entry_date'])
@@ -624,7 +631,7 @@ def hydrate(cp, arm, *, source_root=None):
     if hasattr(codec, 'validator_description'):
         material['original_validator_description'] = codec.validator_description
     if aliases is not None:
-        material['original_alias_source'] = deepcopy(codec.catalog['provider_alias_source'])
+        material['original_alias_source'] = deepcopy(alias_catalog['provider_alias_source'])
         material['verified_alias_rows_sha256'] = digest(aliases)
     return material, delivered, actions
 

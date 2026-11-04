@@ -27,7 +27,7 @@ def test_exact_qualified_503_root_and_original_branch_source_are_accepted():
 
 
 def test_new_543_admission_has_its_separately_registered_89_row_seed():
-    spec=p.root_spec('P07')
+    spec=p.root_spec('P07','46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d')
     cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],
             source_cursor=spec['selected_session'],base=deepcopy(spec['base']))
     assert cp['completed']==543
@@ -65,8 +65,17 @@ def test_actual_new_admitted_seed_keeps_all89_rows_and_closed_original_qualifica
     old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-019/capture-P07-13299422018-001/verified-output')
     if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
     old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
-    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d'))
     assert len(hashes)==6 and len(rows)==89 and rows[-1]['session']=='2020-02-28'
+    assert json.loads(raw)['historical_financial_sessions_advanced']==0
+
+
+def test_actual_current565_admission_retains111_committed_rows_without_replaying_old_transitions():
+    old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-035/capture-P07-13315213171-001/verified-output')
+    if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
+    old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    assert len(hashes)==6 and len(rows)==111 and rows[-1]['session']=='2020-03-31'
     assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
 

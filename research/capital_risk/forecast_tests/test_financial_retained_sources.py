@@ -29,6 +29,19 @@ def test_sprint_phase_keeps_exact_literal_terms_metadata_and_witnesses():
         session='2020-03-31',security_id=sprint.SID,term_sha256=original['native_term_sha256'])]
 
 
+def test_following_phase_composes_all_eight_original_future_cash_literals_without_reapplying_sprint():
+    codec, name, terms=f.selected('P07',cursor='2020-03-31')
+    assert [t['ticker'] for t in terms]==['CY','MLNX','WBC','MNTA','AIMT','IMMU','MYOK','VRTU']
+    assert len(codec.composition['sources'])==2
+    for source in codec.composition['sources']:
+        original=json.loads((f.HERE/source['catalog_file']).read_bytes())
+        selected=[t for t in terms if t['ticker'] in source['selected_tickers']]
+        assert selected==original['terms']
+    suppress=f.suppressions(dict(source_cursor='2020-03-31'),terms)
+    assert len(suppress)==8 and all(t['session']>'2020-03-31' for t in suppress)
+    assert sprint.SID not in {t['security_id'] for t in suppress}
+
+
 def fixture(tmp_path,monkeypatch,*,retained=False,bad=None):
     monkeypatch.setenv('GITHUB_ACTIONS','true');monkeypatch.setenv('RUNNER_ENVIRONMENT','github-hosted')
     monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
@@ -89,6 +102,29 @@ def test_unselected_source_phase_performs_no_io(tmp_path,monkeypatch):
     spec['arm']='P00'
     f.stage_selected_sources(spec,old,out)
     assert calls==parses==[] and list(out.iterdir())==[]
+
+
+def test_consumed_source_is_retained_for_following_phase_without_network(tmp_path,monkeypatch):
+    spec,old,out,calls,parses,raw=fixture(tmp_path,monkeypatch,retained=True)
+    spec['selected_session']='2020-03-31'
+    f.stage_selected_sources(spec,old,out)
+    assert calls==[] and parses==[raw]
+    assert json.loads((out/'provider-alias-proof.json').read_bytes())['selected_security_ids']==[sprint.SID]
+
+
+def test_missing_consumed_alias_is_refused_instead_of_refetched_and_guard_removal_falsifier(tmp_path,monkeypatch):
+    spec,old,out,calls,parses,raw=fixture(tmp_path,monkeypatch)
+    spec['selected_session']='2020-03-31'
+    with pytest.raises(ValueError):f.stage_selected_sources(spec,old,out)
+    assert calls==parses==[]
+    other=tmp_path/'other';other.mkdir()
+    fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='stage_selected_sources')
+    guard,=[n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call)
+            and any(isinstance(a,ast.Constant) and a.value=='FUTURE_CONSUMED_ALIAS_SOURCE_MUST_BE_RETAINED_NOT_REFETCHED' for a in n.value.args)]
+    fn.body.remove(guard);ns=dict(vars(f))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-consumed-alias-retention-guard>','exec'),ns)
+    ns['stage_selected_sources'](spec,old,other)
+    assert calls==[(sprint.ALIAS_URL,60)] and parses==[raw]
 
 
 def test_removed_preparse_hash_guard_exposes_corrupt_bytes_to_parser(tmp_path,monkeypatch):
