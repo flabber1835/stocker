@@ -14,7 +14,9 @@ import system_campaign_financial_partial as p
 
 
 def raw_term():
-    return deepcopy(json.loads((f.HERE / f.OWN_CASH_CATALOG).read_bytes())['terms'][-1])
+    term, = [t for t in json.loads((f.HERE / f.OWN_CASH_CATALOG).read_bytes())['terms']
+             if t['added']['kind'] == 'CASH_PLUS_STOCK']
+    return deepcopy(term)
 
 
 def pending():

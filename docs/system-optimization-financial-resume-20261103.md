@@ -1139,3 +1139,39 @@ Actual DATA-only use checks accepted both49-row/503 and89-row/543 admitted
 seeds; the original branch source hash remains b19a93be7b6887c1. Source tests
 prove bounded single fetch/copy, pre-parse hash refusal, unchanged alias metadata
 and staging only after successful preflight, before finance.
+
+## Recognize P04's confirmed CTXS completion on the following session
+
+The exact1175/August31,2022 own root and41798315426/c750169a source capture are
+closed. SEC8-K0001193125-22-256805 confirms September30 legal completion and
+mandatory104USD per ordinary common share, with treasury/parent/appraisal
+exceptions. It does not establish a pre-open completion minute. The existing
+P01 unheld-only treatment grants no authority for P04's later own holding.
+
+Choose an explicit daily-boundary convention: recognize the confirmed completion
+on the first frozen session strictly after September30, namely October3. This
+is a research timing convention, not evidence of September30 pre-open completion
+or of the actual cash-payment timestamp. Preserve September29 trading and source
+history. Canonical carrying/marking rules handle the intervening session; any
+refusal remains a blocker. Do not insert104USD at an unproved earlier opening.
+
+Append one source-bound cash term to the existing own-input catalog, preserving
+closed2/3 cash generations and the closed4-term mixed generation byte-for-byte.
+Keep the original cash-calendar validator unchanged. The shared selector accepts
+this separately tagged next-completion-session convention only with the confirmed
+completion date, false pre-open flag, positive mandatory cash-only right and exact
+own source/parent binding. Hosted hydration must prove the effective date is the
+next member of the actual frozen axis after completion. Reuse the ordinary
+parser/packet/notional/neutral-adoption and actual cash postconditions. Select
+P04 alone for the next financial request while P00 and P07 keep their immutable
+running commits. No hypothetical quantities or diagnostic tails are imported.
+
+Primary: https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm
+September30 completion is in the introductory note;104USD common-share
+cancellation is in Item2.01. The document supplies no claimed pre-open time.
+
+P04 next-session qualification:262 targeted tests passed in29.11s across
+completion_session,resume,own_cash,selected_stock,future,retention,source_witnesses.
+Actual guard-removal falsifiers admit an unproved same-day opening or a false
+pre-open assertion when their corresponding new guards are removed. All three
+closed catalog generations still reproduce their exact original digests.

@@ -42,14 +42,18 @@ SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2'
+OWN_CASH_SHA = '3611cd9a337bb084a335832f9cdebb720ad36164472b3b55297c94598842262e'
 OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
-                   ('P10', '2024-04-30'): 'SWAV', ('P00', '2018-08-31'): 'ILG'}
+                   ('P10', '2024-04-30'): 'SWAV', ('P00', '2018-08-31'): 'ILG',
+                   ('P04', '2022-08-31'): 'CTXS'}
 CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
-    'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3}
+    'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3,
+    '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4}
 CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
-                           ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4}
+                           ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4, ('P04', '2022-08-31'): 5}
+NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 OWN_CASH_SOURCE_CLOCKS = {
+    ('P04', '2022-08-31'): (41798315426, 'c750169a3cadb1d18fc58cdb6e5ec3cc807c6dd7', 13307310013),
     ('P00', '2018-08-31'): (41807854617, '4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd', 13311490065),
     ('P04', '2022-06-30'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299799904),
     ('P10', '2022-07-29'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299684770),
@@ -271,7 +275,9 @@ def own_cash_selection(arm, cursor):
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        if term['added']['kind'] == 'CASH_MERGER':
+        if term['recognition_rule'] == NEXT_COMPLETION:
+            completion_cash_term(term)
+        elif term['added']['kind'] == 'CASH_MERGER':
             validate_term(term)
         else:
             selected_stock_term(term)
@@ -309,7 +315,41 @@ def own_cash_selection(arm, cursor):
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Source-bound selected stock term; raw ratio preserved in catalog and exactly normalized for the canonical typed parser.'
         return codec, OWN_CASH_CATALOG, [selected_stock_term(chosen)]
+    if chosen['recognition_rule'] == NEXT_COMPLETION:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.'
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def completion_cash_term(term):
+    a, w = term['added'], term['identity_witness']
+    primary = term['primary_extraction']
+    need(term['recognition_rule'] == NEXT_COMPLETION and term['preopen_completion_confirmed'] is False
+         and term['mandatory_common_share_completion_confirmed'] is True
+         and a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and w['session'] < term['last_trading_session'] == term['native_session']
+             <= term['actual_completion_date'] < a['session']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and a['reference'] == term['primary_source'] + ' | ' + term['description']
+         and primary['actual_completion_date'] == term['actual_completion_date']
+         and Fraction(primary['cash_per_ordinary_common_share']) == Fraction(str(a['cash_per_share']))
+         and primary['mandatory_conversion'] is True and primary['preopen_time_established'] is False
+         and primary['recognition_convention'] == 'FIRST_FROZEN_SESSION_STRICTLY_AFTER_CONFIRMED_COMPLETION',
+         'OWN_INPUT_EXACT_CONFIRMED_CASH_RIGHT_AND_LATER_SESSION_CONVENTION')
+
+
+def completion_session(term, dates):
+    if term.get('recognition_rule') != NEXT_COMPLETION:
+        return
+    completed = term['actual_completion_date']
+    need(dates == sorted(set(dates)) and completed in dates
+         and dates.index(completed) + 1 < len(dates)
+         and dates[dates.index(completed) + 1] == term['added']['session'],
+         'OWN_INPUT_ACTUAL_FROZEN_FIRST_SESSION_AFTER_COMPLETION')
 
 
 def selected_stock_term(term):
@@ -534,6 +574,11 @@ def hydrate(cp, arm, *, source_root=None):
         need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
+    if any(t.get('recognition_rule') == NEXT_COMPLETION for t in terms):
+        from research.pooled_input_support.bundle import axis
+        dates = axis()
+        for t in terms:
+            completion_session(t, dates)
     wanted = {}
     for t in terms:
         native, = [v for v in actions.terminal.get(t['native_session'], ()) if v.security_id == t['security_id']]

@@ -276,6 +276,66 @@
       },
       "ticker": "ILG",
       "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2018-144"
+    },
+    {
+      "actual_completion_date": "2022-09-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 104.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm | Confirmed September30,2022 mandatory104USD common-share cancellation. October3 is the explicit first-frozen-session-after-completion recognition convention; no September30 preopen or actual-payment-time claim. Preserve September29 trading and frozen source metadata.",
+        "security_id": "554480052825212855",
+        "session": "2022-10-03"
+      },
+      "arm": "P04",
+      "description": "Confirmed September30,2022 mandatory104USD common-share cancellation. October3 is the explicit first-frozen-session-after-completion recognition convention; no September30 preopen or actual-payment-time claim. Preserve September29 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:877890",
+        "listing_first_session": "1997-12-31",
+        "security_id": "554480052825212855",
+        "security_type_eligible": "1",
+        "session": "2022-09-28",
+        "source_observation_sha256": "a10ee109aa5e0e9603767eeb8d2615cab4dc1a54c84e3795864e2419b51cb15f",
+        "ticker": "CTXS"
+      },
+      "last_trading_session": "2022-09-29",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-09-29",
+      "native_term_sha256": "6c306190c326bc01b52d3fb9fda5f2cd2cdf09fdc447cb5a41064136c6c4329a",
+      "parent_cursor": "2022-08-31",
+      "parent_outer_sha256": "5ff96b14f5e463494d22816ee6a61464411498324cd8298ec48461e12a5f90ac",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2022-09-30",
+        "cash_per_ordinary_common_share": "104.00",
+        "excluded_categories": [
+          "TREASURY_OR_PARENT_OR_MERGER_SUB",
+          "PERFECTED_STATUTORY_APPRAISAL"
+        ],
+        "mandatory_conversion": true,
+        "preopen_time_established": false,
+        "recognition_convention": "FIRST_FROZEN_SESSION_STRICTLY_AFTER_CONFIRMED_COMPLETION"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm",
+      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE",
+      "security_id": "554480052825212855",
+      "source_capture": {
+        "artifact_id": 13307310013,
+        "head": "c750169a3cadb1d18fc58cdb6e5ec3cc807c6dd7",
+        "independent_data_review_sha256": "6e89ae54eef90ca64c92ab5161f1ae855e10cd23fa243aa9bacc783a73472b12",
+        "payload_sha256": "8f91d1178c998355da4767ba152d2eac13add1618e1459ba6419b263fef095d7",
+        "run_id": 41798315426,
+        "scope_sha256": "ae8b8a99fbb85bbe7b3abd88d20b1909a8e94b08ff41f842aee2a362267af0d0"
+      },
+      "ticker": "CTXS",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm"
     }
   ]
 }

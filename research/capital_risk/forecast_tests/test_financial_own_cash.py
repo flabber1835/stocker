@@ -67,13 +67,13 @@ def test_literal_fact_digest_guard_removal_falsifier(tmp_path,monkeypatch):
             primary=t['retained_primary_catalog']['filename']
             (tmp_path/primary).write_bytes((original/primary).read_bytes())
     monkeypatch.setattr(f,'HERE',tmp_path)
-    with pytest.raises(ValueError):f.own_cash_selection('P00','2018-08-31')
+    with pytest.raises(ValueError):f.own_cash_selection('P04','2022-08-31')
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='own_cash_selection')
     guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
                any(isinstance(a,ast.Constant) and a.value=='OWN_CASH_EXACT_REVIEWED_LITERAL_CATALOG' for a in n.value.args))
     fn.body.remove(guard);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
         '<removed-literal-cash-fact-guard>','exec'),ns)
-    assert ns['own_cash_selection']('P00','2018-08-31')[2][0]['source_capture']['payload_sha256']=='0'*64
+    assert ns['own_cash_selection']('P04','2022-08-31')[2][0]['source_capture']['payload_sha256']=='0'*64
 
 
 def test_historical_cash_phases_keep_original_full_catalog_generation():
