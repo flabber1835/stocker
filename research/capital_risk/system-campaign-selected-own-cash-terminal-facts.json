@@ -893,6 +893,83 @@
       "source_valuation_phase": "CLOSE",
       "ticker": "LNWO",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/750004/000095015725000949/form8-k.htm"
+    },
+    {
+      "actual_completion_date": "2018-09-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 41.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.greystar.com/business/about-greystar/newsroom/greystar-announces-completion-of-edr-acquisition | Published mandatory41.50USD cash right on September20,2018 completion. Research assumes opening cash availability on that date; actual payment-agent settlement and fees are not observed. Preserve the September19 trading/native boundary and original eligibility0.",
+        "security_id": "371238123781729047",
+        "session": "2018-09-20"
+      },
+      "arm": "P11",
+      "description": "Published mandatory41.50USD cash right on September20,2018 completion. Research assumes opening cash availability on that date; actual payment-agent settlement and fees are not observed. Preserve the September19 trading/native boundary and original eligibility0.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:371238123781729047",
+        "listing_first_session": "2005-01-26",
+        "security_id": "371238123781729047",
+        "security_type_eligible": "0",
+        "session": "2018-09-18",
+        "source_observation_sha256": "4eab289a5ea9ee908d4b668a545d7d0b263582e2f1475b2ce9553ce10861eeb4",
+        "ticker": "EDR1"
+      },
+      "last_trading_session": "2018-09-19",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3344.3",
+        "security_id": "371238123781729047",
+        "session": "2018-09-19"
+      },
+      "native_session": "2018-09-19",
+      "native_term_sha256": "8e02d5bedff161467045415a77cffeb603a79fee9156dc51926ccba5123a715f",
+      "parent_cursor": "2018-08-31",
+      "parent_outer_sha256": "6674bb20eeac387f06ff53eba3a58046a63e1183b75e01e6c642c99e5c853b1a",
+      "parent_positions": [
+        {
+          "entry_date": "2018-08-31",
+          "quantity": 1,
+          "slot_id": 4,
+          "ticker": "EDR1"
+        }
+      ],
+      "parent_root_admission_sha256": "33320498ba5db684738471b48b0ed3e66ebf78fe5b2b9dc24a34be047cdbf3ed",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.greystar.com/business/about-greystar/newsroom/greystar-announces-completion-of-edr-acquisition",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "41.50",
+        "recognition_session": "2018-09-20",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "371238123781729047",
+      "source_capture": {
+        "artifact_id": 13345399053,
+        "head": "23ff8feb61239406896bafe24a80bfc9cb95be89",
+        "independent_data_review_sha256": "f76324d1c4689f66b60bc9eb32e0a2187b42cfe984a9df2b98156b0ffa4fc5b5",
+        "payload_sha256": "421677394c6fa04a82f2e7a05eb13ee1622c93a8010a3b8b3a5f176aad9fe723",
+        "run_id": 41874947218,
+        "scope_sha256": "ab4aad613ce182c49ecd54b466e99beecc5e17c30be2678ac4849ea0eeee3a83"
+      },
+      "ticker": "EDR1",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1351345/000114036118038813/form8k.htm"
     }
   ]
 }

@@ -32,6 +32,24 @@ def test_lm_published_consideration_is_an_explicit_research_timing_assumption():
     assert len(old.catalog['terms'])==7 and len(codec.catalog['terms'])==8
 
 
+def test_edr_uses_same_daily_cash_model_from_own169_without_identity_upgrade():
+    codec,_,terms=f.selected('P11',cursor='2018-08-31');t,=terms
+    assert codec.catalog_sha=='ddfb2f16b73dae3b1d4586e11ba3d8ec84365de260fcbc7e9cb9cf21b9481852'
+    assert len(codec.catalog['terms'])==13
+    assert t['parent_root_admission_sha256']=='33320498ba5db684738471b48b0ed3e66ebf78fe5b2b9dc24a34be047cdbf3ed'
+    assert t['ticker']=='EDR1' and t['identity_witness']['security_type_eligible']=='0'
+    assert t['parent_positions']==[dict(slot_id=4,ticker='EDR1',quantity=1,entry_date='2018-08-31')]
+    assert t['source_capture']['artifact_id']==13345399053
+    assert t['added']['cash_per_share']==41.5 and t['added']['session']==t['actual_completion_date']=='2018-09-20'
+    assert t['native_session']==t['last_trading_session']=='2018-09-19'
+    assert t['research_assumption']['opening_availability_assumed'] is True
+    assert t['research_assumption']['actual_settlement_claimed'] is t['preopen_completion_confirmed'] is False
+    f.research_cash_term(t);f.completion_session(t,['2018-09-18','2018-09-19','2018-09-20','2018-09-21'])
+    assert f.suppressions(dict(source_cursor='2018-08-31'),terms)==[dict(session='2018-09-19',security_id=t['security_id'],term_sha256=t['native_term_sha256'])]
+    previous,_,_=f.selected('P04',cursor='2025-10-31')
+    assert previous.catalog_sha=='a312304df09aa19feabce82cce92adc1798a49e104333fc4d7d5cb7ce94af77f'
+
+
 @pytest.mark.parametrize('change',['cash','publication','date','preopen','mandatory','stock','claim','extra'])
 def test_research_approximation_cannot_change_published_cash_or_claim_settlement(change):
     t=deepcopy(term())

@@ -45,7 +45,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Capture P11 EDR1 source row and pending native from own169 checkpoint
+      - name: Continue P11 from own169 with published EDR cash and original V10 guard
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
