@@ -782,3 +782,10 @@ Preserve raw candidate diagnostics before validation so a source-shape refusal
 is inspectable. Canonical string-enum terminal kinds retain their exact string
 value; they are not rejected merely because their Python type subclasses str.
 The original version-1 query and every financial authority flag remain intact.
+
+After P05's own 503-close checkpoint is independently admitted, select the same
+original MDCO/ARQL cash composition already qualified for P07's December 2019
+phase. Keep P05's own starting state and inherited future repairs. This supplies
+the missing MDCO85 and ARQL20 inputs through the existing canonical parser,
+zero-value adoption and actual cash checks; it does not reuse P07 financial
+state, results or continuation authority.

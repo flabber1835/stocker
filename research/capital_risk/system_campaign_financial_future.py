@@ -42,6 +42,7 @@ COMBINED_PHASES = {
         ('system_campaign_arqule_facts', 'ArQuleFacts', 'system-campaign-arqule-terminal-facts.json', ('ARQL',)),
     ),
 }
+COMBINED_PHASES['P05', '2019-12-31'] = COMBINED_PHASES['P07', '2019-12-31']
 SINGLE_PHASES = {('P07', '2020-02-28'):
     ('system_campaign_sprint_facts', 'SprintFacts', 'system-campaign-sprint-terminal-facts.json', ('S2',))}
 FOLLOWING_PHASES = {('P07', '2020-03-31'):

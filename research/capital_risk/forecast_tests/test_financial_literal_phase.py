@@ -58,3 +58,15 @@ def test_cash_calendar_phase_for_p11_does_not_need_a_default_arm_plan(monkeypatc
     term,=terms
     assert term['ticker']=='VCRA' and term['native_session']=='2022-02-22'
     assert term['added']['session']=='2022-02-23' and term['added']['cash_per_share']==79.25
+
+
+def test_p05_own503_reuses_only_original_mdco_and_arql_terms_without_other_book_state():
+    root=p.root_spec('P05');assert (root['measured_closes'],root['selected_session'])==(503,'2019-12-31')
+    codec,name,terms=f.selected('P05',cursor=root['selected_session'])
+    other,other_name,original=f.selected('P07',cursor='2019-12-31')
+    assert name==other_name=='EXPLICIT_ORDERED_CATALOG_COMPOSITION' and terms==original
+    assert codec.catalog_sha==other.catalog_sha and codec.composition==other.composition
+    assert [(t['ticker'],t['added']['cash_per_share'],t['added']['session'])for t in terms]==[
+        ('MDCO',85.,'2020-01-06'),('ARQL',20.,'2020-01-16')]
+    assert root['root_admission']['financial_continuation_authorized']is True
+    assert root['root_admission']['performance_scoring_authorized']is False

@@ -10,7 +10,7 @@ import system_campaign_financial_partial as p
 
 
 def test_own232_and_original_late_terms_preserve_exact_source_bytes():
-    root=p.root_spec('P05');assert root['measured_closes']==232
+    root=p.root_spec('P05','b4294c0c98f8fbf0668ba3235a264a56a30ead83a4c97b89035e7d2bec6384f5');assert root['measured_closes']==232
     cash,name,terms=f.original_ordinary_selection('P05','2018-11-30')
     delivery,other,mixed=f.original_delivery_selection('P05','2018-11-30')
     assert name==other=='system-campaign-late-terminal-facts.json'
