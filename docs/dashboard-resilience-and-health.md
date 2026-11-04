@@ -613,3 +613,12 @@ model grammar/typed fields. Unknown reasons retain an explicit unclassified code
 Record recovered evidence for the previous condition keys as well. This repairs
 the post-mortem evidence gap without changing colors, expiry, review subject,
 acknowledgement, financial authority or the meaning of a historic event.
+
+The new callback-connection tests must belong to the dedicated automation
+coverage lane. Its explicit module inventory previously assigned them to an
+ordinary general shard, so all 691 automation cases passed while the independent
+100% branch gate missed the newly added final cleanup refusal. Add this module
+to the existing automation owner set, which also excludes it from general
+shards. Keep the coverage threshold and workflow unchanged. Verify exact,
+disjoint ownership and run the complete selected automation lane with branch
+coverage, including the connection cleanup falsifier.
