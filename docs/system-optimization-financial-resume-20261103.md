@@ -868,3 +868,25 @@ reporting DATA review and a separate root admission are complete. The historical
 P00 result remains excluded. ILG source/timing/fractional-cash qualification and
 later financial continuation are separate work; this change grants none of that
 authority. P10's live reporting job keeps its immutable03aa7a123 commit.
+
+## Preserve historical witness scopes while querying P04's next source
+
+P10's03aa7a123 read-only run41795159693 and independent DATA review passed440
+new closes,880 accountings and21 reports through April30,2024. Publish only its
+exact1592-close checkpoint, retaining1152 and earlier roots unchanged. Its May30
+tail and May31 volatility causal-axis refusal are not financial authority.
+
+Fresh P00's3035b8c9b reporting run41796544434 also passed169 recorded closes and
+8 exact reports from its own zero-measurement seed. Keep its initial independent
+DATA/root admission pending. Neither completed reporting job needs a repeat.
+
+Use one versioned source-scope registry keyed by complete scope digest. Preserve
+the closed SAFM/ACC scope bodies byte-for-byte; cash facts resolve their original
+source-capture digest in that registry. Derive a separate active query view,
+selecting only P04's admitted1175/August31 root and the CTXS September28 row plus
+its incomplete September29 native preimage. CTXS is absent from that own root;
+the capture retains the source row and metadata verbatim and grants no cash,
+held-role, clock, adoption or financial authority. Retire closed ACC from the
+active query view when P10's root advances. No per-symbol wrapper is introduced.
+The next immutable request selects only this useful P04 source capture while
+P00's initial independent DATA work continues locally without canonical execution.

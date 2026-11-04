@@ -40,7 +40,7 @@ SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 OWN_CASH_SHA = '7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9'
 OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC'}
-WITNESS_SCOPES = {
+HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
             session='2022-07-20', native_session='2022-07-21',
@@ -52,6 +52,23 @@ WITNESS_SCOPES = {
             native_term_sha256='dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7',
             parent_positions=[])]),
 }
+NEXT_WITNESS_SCOPES = {
+    'P04': dict(parent_outer_sha256='5ff96b14f5e463494d22816ee6a61464411498324cd8298ec48461e12a5f90ac',
+        parent_cursor='2022-08-31', terms=[dict(ticker='CTXS', security_id='554480052825212855',
+            session='2022-09-28', native_session='2022-09-29',
+            native_term_sha256='6c306190c326bc01b52d3fb9fda5f2cd2cdf09fdc447cb5a41064136c6c4329a',
+            parent_positions=[])]),
+}
+WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES) for scope in scopes.values()}
+ACTIVE_WITNESS_SCOPES = {arm: digest(scope) for arm, scope in NEXT_WITNESS_SCOPES.items()}
+WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
+
+
+def registered_scope(key):
+    scope = WITNESS_SCOPE_REGISTRY.get(key)
+    need(scope is not None and digest(scope) == key, 'SOURCE_WITNESS_EXACT_REGISTERED_SCOPE_DIGEST')
+    return deepcopy(scope)
 
 
 def source_terms(scope, natives, rows, positions):
@@ -157,7 +174,7 @@ def own_cash_selection(arm, cursor):
         phase = term['arm'], term['parent_cursor']
         source = term['source_capture']
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
-        scope = WITNESS_SCOPES[term['arm']]
+        scope = registered_scope(source['scope_sha256'])
         declared, = scope['terms']
         need(OWN_CASH_PHASES.get(phase) == term['ticker']
              and term['parent_outer_sha256'] == scope['parent_outer_sha256']

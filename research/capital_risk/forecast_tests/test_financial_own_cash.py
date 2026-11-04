@@ -23,7 +23,7 @@ def test_actual_new_cash_terms_keep_exact_independent_witness_and_own_phase(arm,
     assert t['identity_witness']['security_type_eligible']=='1'
     assert t['source_capture']['run_id']==41783795694
     assert t['parent_outer_sha256']==m.root_spec(arm,t['parent_root_admission_sha256'])['outer_sha256']
-    assert t['parent_positions']==f.WITNESS_SCOPES[arm]['terms'][0]['parent_positions']
+    assert t['parent_positions']==f.registered_scope(t['source_capture']['scope_sha256'])['terms'][0]['parent_positions']
     cp=dict(source_cursor=cursor,run=dict(checkpoint_sha256='a'*64))
     material=dict(terms=terms,catalog_sha256=codec.catalog_sha,original_validator_sha256=codec.compiler_sha,
         selector_sha256='b'*64,original_validator_description=codec.validator_description)
@@ -124,12 +124,12 @@ def test_one_actual_cash_context_guard_removal_falsifier():
     ('READONLY_FROZEN_SOURCE_WITNESSES',(False,False,True))])
 def test_explicit_mode_derives_all_authority_flags_and_worker_limits(monkeypatch,mode,flags):
     monkeypatch.setattr(m,'EXECUTION_MODE',mode)
-    arms=('P10',) if flags[1] else ('P04','P10')
+    arms=('P00',) if flags[1] else (('P04',) if flags[2] else ('P04','P10'))
     monkeypatch.setattr(m,'SELECTED_ARMS',arms);r=m.expected_request()
     assert tuple(r[k] for k in ('financial_resume_authorized','readonly_partial_review','readonly_source_witnesses'))==flags
     assert r['maximum_parallel_financial_workers']==(len(arms) if flags[0] else 0)
     assert r['maximum_parallel_readonly_workers']==(0 if flags[0] else len(arms))
-    assert set(r['source_witness_scopes'])==({'P04','P10'} if flags[2] else set())
+    assert set(r['source_witness_scopes'])==({'P04'} if flags[2] else set())
     assert m.request_authority(r)
 
 

@@ -16,7 +16,9 @@ def target():
     return json.loads((p.HERE / m.PARTIALS).read_bytes())['arms']['P00']
 
 
-def test_one_fresh_target_has_no_continuation_or_performance_authority():
+def test_one_fresh_target_has_no_continuation_or_performance_authority(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
+    monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     spec = target(); seed = p.initial_reporting_seed(spec)
     assert seed['measured_closes'] == 0 and seed['selected_session'] == '2017-06-30'
     assert spec['measured_closes'] == 169 and spec['selected_session'] == '2018-08-31'
@@ -56,6 +58,7 @@ def test_initial_target_digest_guard_removal_falsifier():
 @pytest.mark.parametrize('mode', ['OWN_ADMITTED_FINANCIAL_CONTINUATION', 'READONLY_FROZEN_SOURCE_WITNESSES'])
 def test_p00_initial_review_cannot_request_finance_or_source_capture(monkeypatch, mode):
     monkeypatch.setattr(m, 'EXECUTION_MODE', mode)
+    monkeypatch.setattr(m, 'SELECTED_ARMS', ('P00',))
     with pytest.raises((ValueError, KeyError)): m.expected_request()
 
 
