@@ -1923,3 +1923,15 @@ review. Preserve its original817 root until independent DATA and one-report
 reproduction pass. The May24 tail is excluded. The May25 next refusal is an
 unresolved PPLI distribution; its actual role and native source must be examined
 separately. Select the saved21-day prefix for reporting without financial replay.
+
+P09's strict692/September2020 predecessor is preserved. Its actual October29 tail
+holds43TDOC and66LVGO; the complete LVGO conversion delivers39TDOC into a second
+episode. The observed exact-float refusal is a quantity-representation boundary,
+not a missing merger term. The diagnostic33-share target corroborates required
+per-episode residuals1419/82 and1287/82. Their factor41 denominator cannot persist
+through the frozen terminating-decimal float codec. Nine independent stdlib
+tests qualify this impossibility and the exact-representation guard. The target
+is diagnostic corroboration, not newly admitted financial state. Do not round,
+change allocation, adopt the diagnostic book or claim an unchanged-source fix.
+A rational quantity source successor requires separate design/certification;
+continue the other unfinished variants without weakening this refusal.
