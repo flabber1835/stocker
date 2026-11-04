@@ -1409,3 +1409,41 @@ byte verifier caught the private admission's Windows text-newline encoding befor
 publication; its identical semantic object now has canonical LF hashdfcd3aee60ebd3ea.
 The noncanonical private file is preserved and is not registered as authority.
 No financial data, source epoch, transition or journal was changed by this fix.
+
+## Continue P04 from1196 using GBT's confirmed pre-open cash completion
+
+Source-only41830900595/6022c8685 artifact13321284554 is authenticated and its
+independent version3 DATA review passed. The exact October3 row retains issuer
+SEC_CIK1629137,eligible1,listing2015-08-12 and full-row hashbfb31ccd11f75e95.
+The actual October4 incomplete native is24ecdb67869b1147. Its original query
+3c36ac4ab179ce18 and resolved ordinary scope469efdb18edd50af are separately
+committed;21 independent query DATA falsifiers passed. No financial sessions ran.
+
+Append one ordinary cash term to the shared own-input catalog, retaining closed
+generations2/3/4/5 exactly. Use68.50USD per ordinary common share on October5,2022:
+the completed-merger8-K confirms the mandatory common-share right and Nasdaq
+ECA2022-272 explicitly confirms closing before market open, preserving October4
+trading. No new daily timing convention or assumed tender is needed. Ordinary
+treasury/parent/subsidiary/appraisal exceptions are not a general shareholder
+election. Preserve every frozen identity field and the source preimage verbatim.
+
+Register the independently resolved scope without replacing the immutable query
+scope. Bind the new term to both: reconstruct the resolved scope from the exact
+registered version3 query and captured native, and require equality with the
+registered ordinary scope. Keep the source clock, payload and independent review
+hashes explicit. Reuse the unchanged cash-calendar literal validator, ordinary
+parser/packet/notional qualification, state-neutral adoption and actual canonical
+cash postconditions. Resume only1196, never the October tail; later checkpoints
+still require independent financial DATA/reporting and root admission.
+
+Sources: https://www.sec.gov/Archives/edgar/data/1629137/000095015722001085/form8-k.htm
+(Introductory Note and Item2.01) and
+https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-272 (actual pre-open
+completion, October4 last trade and68.50USD per share).
+
+Qualification:286 resolved_cash/native_preimage/own_cash/selected_stock/future/
+resume/retention/source_witnesses tests passed in26.04s. Removing the new
+query-to-resolved-native guard admits a substituted preimage in its falsifier.
+Closed five-term catalog bytes remain5a917388cfa61ed8; the new six-term catalog
+isc3530a81ce5a9ae4. Independent source DATA retains all25 authenticated members
+(414395 logical bytes), zero financial workers and21 passing DATA falsifiers.

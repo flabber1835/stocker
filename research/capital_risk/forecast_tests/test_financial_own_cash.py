@@ -61,19 +61,20 @@ def test_any_changed_literal_cash_catalog_refuses_before_use(tmp_path,monkeypatc
 def test_literal_fact_digest_guard_removal_falsifier(tmp_path,monkeypatch):
     original=f.HERE;value=json.loads((original/f.OWN_CASH_CATALOG).read_bytes())
     value['terms'][-1]['source_capture']['payload_sha256']='0'*64
+    phase=value['terms'][-1]['arm'],value['terms'][-1]['parent_cursor']
     (tmp_path/f.OWN_CASH_CATALOG).write_bytes((json.dumps(value,sort_keys=True,indent=2)+'\n').encode())
     for t in value['terms']:
         if 'retained_primary_catalog' in t:
             primary=t['retained_primary_catalog']['filename']
             (tmp_path/primary).write_bytes((original/primary).read_bytes())
     monkeypatch.setattr(f,'HERE',tmp_path)
-    with pytest.raises(ValueError):f.own_cash_selection('P04','2022-08-31')
+    with pytest.raises(ValueError):f.own_cash_selection(*phase)
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='own_cash_selection')
     guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
                any(isinstance(a,ast.Constant) and a.value=='OWN_CASH_EXACT_REVIEWED_LITERAL_CATALOG' for a in n.value.args))
     fn.body.remove(guard);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
         '<removed-literal-cash-fact-guard>','exec'),ns)
-    assert ns['own_cash_selection']('P04','2022-08-31')[2][0]['source_capture']['payload_sha256']=='0'*64
+    assert ns['own_cash_selection'](*phase)[2][0]['source_capture']['payload_sha256']=='0'*64
 
 
 def test_historical_cash_phases_keep_original_full_catalog_generation():

@@ -105,7 +105,7 @@ def test_actual_gbt_query_uses_the_new1196_root_and_closes_old_five_term_catalog
     assert root['measured_closes']==1196 and root['selected_session']==scope['parent_cursor']=='2022-09-30'
     assert root['outer_sha256']==scope['parent_outer_sha256'] and term['native_term_sha256'] is None
     assert term['ticker']=='GBT' and term['native_session']=='2022-10-04' and term['parent_positions']==[]
-    assert f.CLOSED_CASH_GENERATIONS[f.OWN_CASH_SHA]==5
+    assert f.CLOSED_CASH_GENERATIONS['5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7']==5
 
 
 def without_guard(name,label):

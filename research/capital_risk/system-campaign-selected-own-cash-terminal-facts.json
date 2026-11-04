@@ -343,6 +343,80 @@
       "source_valuation_phase": "CLOSE",
       "ticker": "CTXS",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-10-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 68.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1629137/000095015722001085/form8-k.htm | Confirmed October5,2022 preopen merger completion converts ordinary common shares to68.50USD cash. Preserve October4 trading and the exact frozen identity/native. Treasury, parent/subsidiary and perfected statutory-appraisal exceptions are excluded. This ordinary cash input is bound to the own1196 parent and independently resolved native query.",
+        "security_id": "827416728546053456",
+        "session": "2022-10-05"
+      },
+      "arm": "P04",
+      "description": "Confirmed October5,2022 preopen merger completion converts ordinary common shares to68.50USD cash. Preserve October4 trading and the exact frozen identity/native. Treasury, parent/subsidiary and perfected statutory-appraisal exceptions are excluded. This ordinary cash input is bound to the own1196 parent and independently resolved native query.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1629137",
+        "listing_first_session": "2015-08-12",
+        "security_id": "827416728546053456",
+        "security_type_eligible": "1",
+        "session": "2022-10-03",
+        "source_observation_sha256": "bfb31ccd11f75e95ec3b8c6c3c26198ad0c382934e1ca1adba878a76d0576aac",
+        "ticker": "GBT"
+      },
+      "last_trading_session": "2022-10-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4620.6",
+        "security_id": "827416728546053456",
+        "session": "2022-10-04"
+      },
+      "native_session": "2022-10-04",
+      "native_term_sha256": "24ecdb67869b11470699c0bf1a02ca59f46d671bd9008d196f4a80cd05c46500",
+      "parent_cursor": "2022-09-30",
+      "parent_outer_sha256": "65216f19c6aac8b0c31db34fa40fa4cc63c5875406b0ed2f1aae457181554433",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "dfcd3aee60ebd3ea7fdc073454af662170a14960f9b034cae6177431ea6c8e2c",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2022-10-05",
+        "cash_per_ordinary_common_share": "68.50",
+        "excluded_categories": [
+          "TREASURY_PARENT_OR_SUBSIDIARY",
+          "PERFECTED_STATUTORY_APPRAISAL"
+        ],
+        "last_trading_session": "2022-10-04",
+        "mandatory_conversion": true,
+        "preopen_time_established": true
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1629137/000095015722001085/form8-k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "827416728546053456",
+      "source_capture": {
+        "artifact_id": 13321284554,
+        "head": "6022c86853d71a575df8e562a0d1ada63f787dd2",
+        "independent_data_review_sha256": "fa12368ed28bdd3f0519b9584cdc0f48741ecf677667d9c4c836063c25ea8cfb",
+        "payload_sha256": "e1c7fe652146d90230f656fbb63b064213b25170c8508f16c2dec97e4fbb61b3",
+        "query_scope_sha256": "3c36ac4ab179ce18a09eeb70fe74f83cb5a9d6c0b8eec332f7b31dc280023700",
+        "run_id": 41830900595,
+        "scope_sha256": "469efdb18edd50af335c2a293f3058e135d3c9816d0c6737758e788a5356a140"
+      },
+      "ticker": "GBT",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-272"
     }
   ]
 }

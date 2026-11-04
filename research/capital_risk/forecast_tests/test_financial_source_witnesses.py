@@ -324,7 +324,7 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
 
 def test_active_queries_preserve_fresh_p00_and_add_own_p07_lm_source():
     assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07','P04'}
-    assert len(f.WITNESS_SCOPE_REGISTRY)==7
+    assert len(f.WITNESS_SCOPE_REGISTRY)==8
     scope=f.WITNESS_SCOPES['P00'];root=m.root_spec('P00');term,=scope['terms']
     assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P00'])
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -339,13 +339,15 @@ def test_active_queries_preserve_fresh_p00_and_add_own_p07_lm_source():
         assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[expected]
 
 
-def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding():
+def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):
     scope=f.WITNESS_SCOPES['P07'];root=m.root_spec('P07');term,=scope['terms']
     assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P07'])
     assert root['measured_closes']==628 and root['selected_session']==scope['parent_cursor']=='2020-06-30'
     assert root['outer_sha256']==scope['parent_outer_sha256']
     assert term['ticker']=='LM' and term['session']=='2020-07-29' and term['native_session']=='2020-07-30'
     assert term['parent_positions']==[dict(slot_id=20,ticker='LM',quantity=49,entry_date='2020-06-24')]
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
+    monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     assert m.expected_request()['financial_resume_authorized'] is False
 
 
