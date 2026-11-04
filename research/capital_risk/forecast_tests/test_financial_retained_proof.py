@@ -228,7 +228,9 @@ def test_mdco_phase_guard_removal_falsifier():
     assert ns['selected']('P07',cursor='2020-01-03')[2][0]['ticker']=='MDCO'
 
 
-def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,monkeypatch):
+@pytest.mark.parametrize('unchanged',[False,True])
+def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,monkeypatch,unchanged):
+    from contextlib import nullcontext
     from types import ModuleType
     import system_campaign_alder_date_v2 as alder_module
     import system_campaign_p02_retained_run as dispatch
@@ -239,7 +241,9 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
     qualification=b'{"closed_qualification":true}\n'
     (old/'hydrated-alder-unresolved-date.json').write_bytes(b'{"unchanged_native":true}\n')
     (old/'hydrated-uncertainty-event.json').write_bytes(b'{"unchanged_event":true}\n')
-    cp=dict(sha256='c'*64);spec=object();calls=[];active=[]
+    cp=dict(sha256='c'*64,completed=756,source_cursor='2020-12-31',repairs=[],run=dict(input_sha256='e'*64))
+    spec=dict(root_admission_sha256=next(iter(u.POINT_RETURN_SEEDS))) if unchanged else object()
+    calls=[];active=[]
     class Context:
         def __init__(self,name):self.name=name
         def __enter__(self):active.append(self.name);calls.append('enter:'+self.name);return self
@@ -254,24 +258,31 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
             calls.append('entire-49-row-seed');super().__init__('certificate')
     class Gate(Context):
         def __init__(self,parent,book,destination,sha,earliest):
+            assert not unchanged
             assert parent is cp and book==out/'book' and destination==out/'input-adoption'
             assert sha=='d'*64 and earliest=='2020-01-03';calls.append('one-future-adoption');super().__init__('gate')
-    path=out/'future-financial-overlay.json';path.write_bytes(b'{}')
+    path=out/'future-financial-overlay.json'
+    if not unchanged:path.write_bytes(b'{}')
     def main(args):
-        assert args==['synthetic-original','--repair-overlay',str(path)]
-        assert active==['alder','dispatch','gate','certificate','observer','execution','events']
+        assert args==(['synthetic-original'] if unchanged else ['synthetic-original','--repair-overlay',str(path)])
+        assert active==(['proof','alder','dispatch','certificate','observer','execution'] if unchanged else ['alder','dispatch','gate','certificate','observer','execution','events'])
         calls.append('delegated-original-main');return 0
     module=ModuleType('research.pooled_vacancy_funding');module.backtest=SimpleNamespace(main=main)
     monkeypatch.setitem(sys.modules,module.__name__,module)
     monkeypatch.setattr(u,'hosted',lambda:None)
     monkeypatch.setattr(u,'retained_seed',lambda *args:(hashes,seed,qualification))
     monkeypatch.setattr(u,'active_codec',lambda *args:codec)
+    monkeypatch.setattr(u,'proof_scope',lambda *args:Context('proof') if unchanged else nullcontext())
     monkeypatch.setattr(alder_module,'AlderDateV2',Alder)
     monkeypatch.setattr(dispatch,'idempotent_dispatch',lambda alder:Context('dispatch'))
     monkeypatch.setattr(archive,'preserve',lambda *args:calls.append('preserved-original-event-gzip'))
     monkeypatch.setattr(b,'Certificate',Certificate)
-    monkeypatch.setattr(f,'prepare',lambda *args:(path,SimpleNamespace(sha256='d'*64,earliest_affected_session='2020-01-03')))
+    def prepare(*args):
+        assert not unchanged
+        return path,SimpleNamespace(sha256='d'*64,earliest_affected_session='2020-01-03')
+    monkeypatch.setattr(f,'prepare',prepare)
     def events(destination,arm,*,cp:object):
+        assert not unchanged
         assert destination==out and arm=='P07' and cp is parent_for_events
         return Context('events')
     parent_for_events=cp
@@ -279,8 +290,13 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
     monkeypatch.setattr(launcher,'AdoptionGate',Gate)
     monkeypatch.setattr(u,'boundary',lambda *args:calls.append('verified-exact-new-neutral-boundary'))
     assert u.run_retained(cp,out,['synthetic-original'],Context('observer'),Context('execution'),spec,old)==0
-    assert calls.count('one-future-adoption')==calls.count('entire-49-row-seed')==1
-    assert calls[-1]=='verified-exact-new-neutral-boundary' and active==[]
+    assert calls.count('one-future-adoption')==(0 if unchanged else 1)
+    assert calls.count('entire-49-row-seed')==1 and active==[]
+    if unchanged:
+        assert calls[-1]=='exit:proof'
+        assert json.loads((out/u.UNCHANGED_INPUT).read_bytes())['new_factual_overlay'] is False
+        assert not path.exists() and not (out/u.MODEL_ADOPTION).exists()
+    else:assert calls[-1]=='verified-exact-new-neutral-boundary'
     assert (out/'branch-controller-qualification.json').read_bytes()==qualification
     proof=json.loads((out/'retained-proof-admission/seed.json').read_bytes())
     assert proof['rows']==49 and proof['prior_qualification_reexecuted'] is False

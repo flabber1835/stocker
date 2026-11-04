@@ -1682,3 +1682,40 @@ uncertainty proof, not a settlement-input refusal. Canonical stopped-prefix revi
 succeeded. Select only that own756 checkpoint for hosted reporting from its
 separately admitted628 seed; do not adopt its January tail or suppress the numeric
 guard. P04 run41842266568 remains active from its own1279-close checkpoint.
+
+## Continue the admitted P07 proof with the original Python sum semantics
+
+P07's own756/December31,2020 root is independently admitted as f7f86bf917f7d271
+and contains302 committed certificate rows. Its frozen median5.py source hashes
+to177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1.
+That witness computes an ordered Python3.12 builtin sum of rounded stock returns.
+The old proof primitive instead adds the values left to right. Four of the128
+newly admitted point-return days demonstrate different final growth factors.
+This is a proof arithmetic defect; do not change financial calculations or relax
+ACTUAL_NAV_WITHIN_BOUNDS to accommodate it.
+
+For future rows from this exact admitted root, compose one shared proof-only
+point-return growth primitive into the existing certificate and suffix reviewer.
+Require CPython3.12, finite point intervals, and the existing positive normal
+range. Use the same ordered builtin sum, division, and addition as the immutable
+witness. Reject a nonpoint input. Division and subtraction already match the
+original rounded operations; the identical positive factor and monotone rounded
+multiplication preserve the carried absolute enclosure. Retain RollingWitnessBounds,
+all period and decision guards, and all302 prior certificate bytes unchanged.
+Check the actual frozen witness source hash before installing the scoped primitive,
+and restore the prior proof functions on every exit. No canonical function changes.
+Qualify using pure arithmetic, source checks, synthetic composition, and guard
+falsifiers; execute financial transitions only on hosted workers. Independent DATA
+must use the same declared semantics and separately reconstruct each new factor.
+
+There is no new factual input in this phase. Continue with the exact inherited
+repairs and input hash; do not fall back to the already consumed MDCO catalog.
+Skip ordinary overlay preparation, input adoption, and cash-event observation
+only for this exact registered root. Emit a source-bound unchanged-input receipt,
+and require its bytes plus unchanged checkpoint repairs/input identity in review.
+The request and outcome must declare new_factual_overlay=false. Earlier phases
+retain their existing adoption paths. This adds no settlement research or new
+economic assumption and preserves every383 frozen driver and financial source.
+The point-growth, retained-proof and launcher qualification passed129 targeted
+tests in19.72s, including the four real counterexamples, interpreter/source/input
+falsifiers and both unchanged-input and existing-adoption composition paths.

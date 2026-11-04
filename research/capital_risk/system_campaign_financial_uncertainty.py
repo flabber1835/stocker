@@ -1,5 +1,6 @@
 """Own-book neutral input boundaries and the existing certified sensor gateway."""
 from copy import deepcopy
+from contextlib import nullcontext
 import ast
 import gzip
 import json
@@ -16,6 +17,9 @@ DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
+POINT_RETURN_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
+POINT_WITNESS_SHA = '177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
+UNCHANGED_INPUT = 'retained-proof-admission/unchanged-input.json'
 RETAINED_PROOF_SEEDS = {
     'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776': dict(completed=756, source_cursor='2020-12-31', rows=302, new_rows=128, retained_rows=174),
     '2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543':
@@ -27,6 +31,41 @@ RETAINED_PROOF_SEEDS = {
     '46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d':
         dict(completed=543, source_cursor='2020-02-28', rows=89, new_rows=40, retained_rows=49),
 }
+
+
+def point_return_phase(spec):
+    return isinstance(spec, dict) and spec.get('root_admission_sha256') in POINT_RETURN_SEEDS
+
+
+def proof_scope(cp, spec):
+    if not point_return_phase(spec):
+        return nullcontext()
+    from system_campaign_point_growth import point_growth_scope
+    name = 'sentinel/controller/median5.py'
+    need(cp['base']['sources'].get(name) == POINT_WITNESS_SHA,
+         'FINANCIAL_POINT_PROOF_SAME_FROZEN_WITNESS')
+    return point_growth_scope((Path('/variant') / name).read_bytes(), POINT_WITNESS_SHA)
+
+
+def unchanged_input_receipt(cp, spec):
+    need(point_return_phase(spec), 'FINANCIAL_NO_NEW_INPUT_EXACT_REGISTERED_PHASE')
+    return dict(schema='research.unchanged-retained-financial-input/1',
+        parent_outer_sha256=cp['sha256'], root_admission_sha256=spec['root_admission_sha256'],
+        completed=cp['completed'], source_cursor=cp['source_cursor'],
+        input_sha256=cp['run']['input_sha256'], repairs=deepcopy(cp['repairs']),
+        witness_sha256=POINT_WITNESS_SHA, proof_growth='CPYTHON312_BUILTIN_SUM_POINT_RETURNS',
+        new_factual_overlay=False, financial_source_changed=False)
+
+
+def review_unchanged_input(parent, current, evidence_root, spec):
+    expected = unchanged_input_receipt(parent, spec)
+    raw = (evidence_root / UNCHANGED_INPUT).read_bytes()
+    need(raw == (json.dumps(expected, sort_keys=True, indent=2) + '\n').encode()
+         and current['base'] == parent['base'] and current['repairs'] == parent['repairs']
+         and current['run']['input_sha256'] == parent['run']['input_sha256']
+         and not (evidence_root / MODEL_ADOPTION).exists()
+         and not (evidence_root / 'future-financial-overlay.json').exists(),
+         'FINANCIAL_RETAINED_PROOF_EXACT_UNCHANGED_INPUT')
 
 
 def source_contract(cp):
@@ -225,16 +264,24 @@ def run_retained(cp, out, args, observer, execution, spec, old):
     need(target.read_bytes() == (old / 'hydrated-alder-unresolved-date.json').read_bytes(),
          'FINANCIAL_RETAINED_PROOF_SAME_UNRESOLVED_NATIVE')
     source = json.loads((old / 'hydrated-uncertainty-event.json').read_bytes())
-    path, loaded = prepare(cp, out, 'P07')
-    gate = AdoptionGate(cp, out / 'book', out / MODEL_ADOPTION, loaded.sha256, loaded.earliest_affected_session)
+    unchanged = point_return_phase(spec)
+    if unchanged:
+        save(out / UNCHANGED_INPUT, unchanged_input_receipt(cp, spec))
+        path, loaded, gate, events = None, None, nullcontext(), nullcontext()
+    else:
+        path, loaded = prepare(cp, out, 'P07')
+        gate = AdoptionGate(cp, out / 'book', out / MODEL_ADOPTION, loaded.sha256, loaded.earliest_affected_session)
+        events = ActualEvents(out, 'P07', cp=cp)
     certificate = Certificate(out, codec, alder.native, hashes, seed=rows, event_source=source)
     save(directory / 'seed.json', dict(parent_sha256=cp['sha256'], rows=len(rows),
         chain_sha256=rows[-1]['chain_sha256'], possible_after=rows[-1]['possible_after'],
         prior_qualification_reexecuted=False, prior_proof_rows_reexecuted=0,
         financial_source_changed=False, new_date_or_model_adoption=False))
-    with alder, idempotent_dispatch(alder), gate, certificate, observer, execution, ActualEvents(out, 'P07', cp=cp):
-        code = backtest.main(args + ['--repair-overlay', str(path)])
-    boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
+    extra = [] if unchanged else ['--repair-overlay', str(path)]
+    with proof_scope(cp, spec), alder, idempotent_dispatch(alder), gate, certificate, observer, execution, events:
+        code = backtest.main(args + extra)
+    if not unchanged:
+        boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
     return code
 
 
@@ -283,12 +330,15 @@ def review_retained(parent, evidence_root, out, spec, old):
     actual, _ = resolve(evidence_root)
     need(actual.name == original.name and actual.read_bytes() == original.read_bytes(),
          'FINANCIAL_RETAINED_PROOF_EVENT_GZIP_NAME_AND_BYTES_PRESERVED')
-    earliest = review_input(parent, evidence_root, 'P07')
-    adopted = boundary(evidence_root, MODEL_ADOPTION, parent, OVERLAY, earliest)
     cp = journal.read_checkpoint(evidence_root / 'book/checkpoint.json.gz')
-    need(cp['base'] == parent['base'] and cp['repairs'] == adopted['repairs']
-         and cp['run']['input_sha256'] == adopted['run']['input_sha256'],
-         'FINANCIAL_RETAINED_PROOF_ONLY_NEUTRAL_ORDINARY_SUCCESSOR')
+    if point_return_phase(spec):
+        review_unchanged_input(parent, cp, evidence_root, spec)
+    else:
+        earliest = review_input(parent, evidence_root, 'P07')
+        adopted = boundary(evidence_root, MODEL_ADOPTION, parent, OVERLAY, earliest)
+        need(cp['base'] == parent['base'] and cp['repairs'] == adopted['repairs']
+             and cp['run']['input_sha256'] == adopted['run']['input_sha256'],
+             'FINANCIAL_RETAINED_PROOF_ONLY_NEUTRAL_ORDINARY_SUCCESSOR')
     validate_input(evidence_root, cp)
     current = seed(evidence_root, cp)
     need(len(current) >= len(retained) and b''.join(encoded(r) + b'\n' for r in current[:len(retained)])
@@ -296,8 +346,9 @@ def review_retained(parent, evidence_root, out, spec, old):
     from system_campaign_uncertainty_review import committed_rows
     financial = {r['session']: r for r in committed_rows(evidence_root / 'book', cp, 'daily')
                  if r['session'] > parent['source_cursor']}
-    result = review_new_rows(parent, cp, retained, current[len(retained):], financial,
-                             median5=median5, champion_config=champion_config)
+    with proof_scope(parent, spec):
+        result = review_new_rows(parent, cp, retained, current[len(retained):], financial,
+                                 median5=median5, champion_config=champion_config)
     save(out / 'uncertainty-certificate-review.json', dict(result,
         schema='research.retained-leadership-branch-suffix-review/1', passed=True,
         checkpoint_sha256=cp['sha256'], parent_sha256=parent['sha256'], retained_rows=len(retained),
