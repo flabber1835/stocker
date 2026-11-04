@@ -235,7 +235,8 @@ def retained_seed(old, cp, spec):
 
 def active_codec(backtest, old, cp):
     from system_campaign_financial_branches import Codec, INPUT, evidence
-    codec = getattr(backtest.load_repair, '__self__', None)
+    from system_campaign_financial_projection import branch_loader_owner
+    codec = branch_loader_owner(backtest.load_repair)
     need(isinstance(codec, Codec) and codec.evidence == evidence(old),
          'FINANCIAL_RETAINED_PROOF_SAME_ACTIVE_INPUT_CODEC')
     descriptors = [d for d in cp['repairs']
@@ -285,8 +286,11 @@ def run_retained(cp, out, args, observer, execution, spec, old):
         prior_qualification_reexecuted=False, prior_proof_rows_reexecuted=0,
         financial_source_changed=False, new_date_or_model_adoption=False))
     extra = [] if unchanged else ['--repair-overlay', str(path)]
-    with proof_scope(cp, spec), alder, idempotent_dispatch(alder), gate, certificate, observer, execution, events:
-        code = backtest.main(args + extra)
+    from system_campaign_financial_projection import initial_context, qualify_initial
+    with initial_context(cp, out, 'P07') as projection:
+        qualify_initial(projection, out, cp)
+        with proof_scope(cp, spec), alder, idempotent_dispatch(alder), gate, certificate, observer, execution, events:
+            code = backtest.main(args + extra)
     if not unchanged:
         boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
     return code

@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from types import SimpleNamespace
 import zipfile
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, ExitStack
 
 from full_system_benchmark import need, save
 from full_system_core import hosted
@@ -255,11 +255,16 @@ def retained_models(root, parent, spec):
     return True
 
 
+@contextmanager
 def model_context(root, parent, spec):
-    if spec.get('retained_uncertainty_model') is None:
-        return nullcontext()
-    from system_campaign_financial_branches import Codec, evidence
-    return Codec(evidence(Path(root)))
+    with ExitStack() as stack:
+        if spec.get('retained_uncertainty_model') is not None:
+            from system_campaign_financial_branches import Codec, evidence
+            stack.enter_context(Codec(evidence(Path(root))))
+        if spec.get('arm') == 'P07':
+            from system_campaign_financial_projection import retained_context
+            stack.enter_context(retained_context(root, parent))
+        yield
 
 
 def retention_tree():
@@ -298,6 +303,8 @@ def financial_inputs(root, parent, output, spec):
         with original.retained_inputs(root, parent, output):
             yield
         return
+    from system_campaign_financial_projection import preserve
+    preserve(root, parent, output)
     fn = retention_tree()
     namespace = dict(vars(original), retained_models=retained_models, model_context=model_context, selected_spec=spec)
     exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-input-retainer>', 'exec'), namespace)

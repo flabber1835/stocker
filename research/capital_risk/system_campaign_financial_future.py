@@ -1917,7 +1917,8 @@ def prepare(cp, out, arm):
     hydrated = out / hydration_name(cp)
     save(hydrated, material)
     path = out / OVERLAY
-    save(path, document(cp, material, sha(hydrated.read_bytes())))
+    from system_campaign_financial_projection import prepare_overlay
+    save(path, prepare_overlay(cp, out, arm, document(cp, material, sha(hydrated.read_bytes()))))
     scopes = source_scopes(cp, material, sha(path.read_bytes()), sha(hydrated.read_bytes()))
     if scopes:
         save(out / SOURCE_SCOPES, scopes)
@@ -1930,8 +1931,10 @@ def prepare(cp, out, arm):
 def review_input(cp, evidence, arm):
     material, _, _ = hydrate(cp, arm, source_root=evidence)
     hydrated = evidence / hydration_name(cp)
+    from system_campaign_financial_projection import review_overlay
     need(json.loads(hydrated.read_bytes()) == material
-         and json.loads((evidence / OVERLAY).read_bytes()) == document(cp, material, sha(hydrated.read_bytes())),
+         and json.loads((evidence / OVERLAY).read_bytes()) == review_overlay(
+             cp, evidence, arm, document(cp, material, sha(hydrated.read_bytes()))),
          'FUTURE_INDEPENDENT_RECONSTRUCTION_OF_COMPLETE_SELECTED_INPUT')
     scopes = source_scopes(cp, material, sha((evidence / OVERLAY).read_bytes()), sha(hydrated.read_bytes()))
     if scopes:

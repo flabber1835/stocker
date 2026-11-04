@@ -898,3 +898,48 @@ never-held source exit and the exact preserved COL input and delivered quote.
 Exclude December tails; the next December4 refusal is an unresolved cash source
 435766160247494711. Resolve it against the retained original catalogs before
 selecting further inputs; do not infer its consideration from the refusal.
+
+P07's future APHA projection is a separately bound research input policy. Its
+only initial authority is admitted own817,outer996fe19c,innerad7dfe3c and input
+99bbee1e through March31,2021. The input-adopted817 checkpoint in failed run197
+is not the seed. The new public binding pins both original repair byte hashes,
+both complete document digests,the retired suppression/addition hashes and the
+earlier zero-fractional-payment addition. All archived documents remain intact.
+
+Reuse the unchanged original future-amendment conflict/projection functions and
+loader/apply/context methods by extracting their exact ASTs into an isolated
+namespace bound to this explicit policy. Verify the complete original adapter
+and qualification source hashes before extraction; never alter their files or
+module globals. Retain the original four non-APHA future events and every guard,
+including original loaded-object identity,activation and consumed-date guards.
+The canonical ordinary loader and apply function remain the only parsing and
+packet arithmetic path. Add a separately hashed payload and explicit activation
+references to the same new ordinary overlay that introduces the future facts.
+Adoption remains a zero-session canonical input transition.
+
+Before financial advance,run the unchanged original cumulative qualification
+under the new binding: the unprojected composition must refuse,both APHA boundary
+packets must preserve the earlier exact0.8381/zero-CIL term,the canonical stock
+notional must agree,all other target operations must match,and wrong predecessor,
+consumption,term and activation falsifiers must refuse. Rehydrate the original
+eight-cash catalog and pinned TLRY full row for this qualification; retain all
+new-fact qualification already performed by the shared selector.
+
+After adoption,retain the payload,derived view and original activation document
+with every descendant. Validate their references against the current repair
+descriptors before entering the projection context on restore or continuation.
+Compose that context outside the existing branch-input codec and unwrap only
+this exact qualified adapter when locating that codec. Later inputs must not
+reactivate or rewrite the original boundary. Reporting and independent DATA
+must reconstruct the same activation and preserved history before any new root
+is admitted. The controller,branch model,financial sources and past decisions
+are unchanged; LIVE,PAPER and broker authority remain excluded.
+
+The original cash collision preflight recognizes the older uncertainty schema,
+whereas P07 retains the separately qualified branch-input schema. Supply a
+data-only ordinary-document view to that unchanged preflight: verify every raw
+repair hash,validate the exact one retained branch input with its existing
+validator,and exclude only that typed descriptor from the ordinary scan.
+Preserve the full checkpoint and all descriptors elsewhere. Extract the original
+cash hydration method without edits and bind only its preflight name to this
+adapter; retain every original ordinary collision,date,native and witness guard.
