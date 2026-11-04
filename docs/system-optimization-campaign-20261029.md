@@ -753,3 +753,10 @@ existing original-delivery identity, frozen raw-open fractional proxy and actual
 conversion/no-op checks. Keep all interleaved year-end and late terms selected
 together; do not introduce another company-specific compiler or change settlement
 assumptions.
+
+For P11's admitted May 31, 2022 checkpoint, capture only TVTY's June 27 full
+identity row and June 28 native terminal preimage using the existing one-term
+discovery protocol. Bind the exact own checkpoint and its empty TVTY position
+set. The later June 23 entry and 134 shares in the refusal diagnostic are not
+backdated into that parent. This capture grants no financial input authority;
+source review and an explicit economic model remain separate prerequisites.

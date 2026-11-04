@@ -1,6 +1,7 @@
 """Bounded raw identity discovery and capture reconstruction; DATA/synthetic only."""
 import ast
 from copy import deepcopy
+import json
 from dataclasses import make_dataclass
 from pathlib import Path
 import sys
@@ -117,7 +118,8 @@ def test_hosted_capture_scans_only_declared_year_and_rejects_duplicate_matches(t
 
 
 def test_actual_p03_query_uses_only_admitted_own82_and_explicit_cvia_session():
-    root=p.root_spec('P03');scope=f.WITNESS_SCOPES['P03']
+    original=next(t for t in json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms'] if t['ticker']=='FMSA')
+    root=p.root_spec('P03',original['parent_root_admission_sha256']);scope=f.WITNESS_SCOPES['P03']
     assert root['measured_closes']==82 and root['outer_sha256']==scope['parent_outer_sha256']
     assert root['selected_session']==scope['parent_cursor']=='2018-04-30'
     assert scope['terms'][0]['ticker']=='FMSA' and scope['terms'][0]['native_session']=='2018-05-31'
