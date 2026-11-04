@@ -932,3 +932,64 @@ canonical335USD application and prove cash removal before the original V21
 loop with the quantity produced by this own run; the unadmitted25-share tail is
 never imported. No previously closed source, qualification or report is repeated.
 Fresh P00's independent initial DATA review proceeds while this worker runs.
+
+## Independently reconstruct fresh P00's initial reporting memory
+
+Verify the new origin's full126 formation and169 measured rows against the frozen
+axis, committed prefixes, complete ledger/raw marks, funded factors and financial
+chain. Start that chain from the own base digest and verify the one PNRA input
+successor against the own zero-measurement seed, literal repair and input hashes.
+Reuse the closed hosted canonical restore/accounting qualification; local review
+may parse JSON/gzip and compute independent arithmetic, but never import or run
+the canonical financial engine or serialize a replacement book.
+
+For initial reporting arithmetic, construct the declared four-series50000
+mathematical baseline independently. Reconstruct formation retry memory from the
+own empty seed with the unchanged mature independent retry block, substituting
+only its two MEASURED phase literals with FORMATION. Reuse its entire reporting
+arithmetic with exactly two initial-date adaptations: a null previous session
+uses the first date for month/year comparison, and the strict-date guard permits
+that one null predecessor. A separate guard requires the exact January2,2018
+first date and all four day-zero NAVs50000. All later strict dates, metrics,
+rounding qualifications and complete final stats/retry comparisons stay intact.
+Test both adaptations against their original ASTs and add first-date/baseline,
+counter-domain, mismatch and guard-removal falsifiers before root admission.
+
+The exact empty seed has source cursor June30,2017 but an uninitialized null
+strategy last-processed cursor. Preserve the mature nonempty checkpoint reader
+unchanged. For this one pinned gzip/outer identity only, adapt its single cursor
+comparison to allow the null strategy cursor with zero completed/formation/daily/
+monthly/retry transitions and null stats. All outer/state/runtime/input hashes
+remain checked. Every later checkpoint uses the original strict comparison.
+
+## Admit fresh P00 and capture its own pending/source and delivery rows
+
+The initial independent DATA review passed126 formation and169 measured rows,
+590 accountings,224 exact Decimal report metrics,8 reports and complete initial
+retry memory. Forty new DATA checks passed, including exact AST preservation,
+day-zero/date/counter/final-memory falsifiers and the pinned null-cursor boundary.
+Publish only this exact169-close August31,2018 continuation root, with the
+read-only41796544434/3035b8c9b clock, genuine empty-origin proof and independent
+reader/test hashes. Immutable transport flags remain false; full validation and
+performance scoring remain forbidden. There is no earlier admitted P00 book.
+
+The existing factual catalog already records the ILG14.75USD+.165VAC right and
+the explicitly disclosed first-effective-session raw-open fractional-cash proxy.
+Keep that fact/source audit closed. Capture its full own source rows before
+qualifying a new held continuation: ILG August30/nativeAugust31 and VAC September4
+SID851672149700415133, with the original delivered-row digest. The own root holds
+90 ILG in slot1 and no VAC. Do not import quantities from another run or upgrade
+source issuer/eligibility metadata.
+
+Extend the shared source-only capability with an explicit version2 payload for
+an exact native already pending at the parent cursor and optional additional
+identity rows. A pending native is allowed only when its date equals that cursor,
+its hash matches frozen input and the own parent has the declared nonempty role,
+pending-session count0, stale-at-event0 and no unresolved-terminal entry. Future
+native scopes retain their original strict date rule. Additional rows require
+exact declared session/SID/ticker/digest and own parent positions. They grant no
+conversion, settlement, fractional-cash valuation, input-adoption or financial
+authority. Preserve version1 source behavior and closed payload identities.
+The next request selects only P00 source capture while P10's immutable fef630221
+financial run continues. ILG pending completion and stock/CIL qualification are
+separate later work through the existing shared future selector.

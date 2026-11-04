@@ -36,6 +36,7 @@ COMBINED_PHASES = {
     ),
 }
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
+SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 OWN_CASH_SHA = 'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3'
@@ -62,6 +63,16 @@ HISTORICAL_WITNESS_SCOPES = {
             parent_positions=[])]),
 }
 NEXT_WITNESS_SCOPES = {
+    'P00': dict(parent_outer_sha256='ad12b8a58f00560f1393cccdc0d9718b59d172265fc89f4bc36cb1ec7a4b37d2',
+        parent_cursor='2018-08-31', terms=[dict(ticker='ILG', security_id='278081346388915134',
+            session='2018-08-30', native_session='2018-08-31',
+            native_term_sha256='9aa688a1c3a76f03ed5f2ca463b75a19d20b10937333e51946ab3d74cdce1703',
+            parent_positions=[dict(slot_id=1, ticker='ILG', quantity=90, entry_date='2017-07-05')],
+            pending_at_parent=dict(pending_sessions=0, stale_at_event=0, unresolved=False,
+                native_term_sha256='9aa688a1c3a76f03ed5f2ca463b75a19d20b10937333e51946ab3d74cdce1703'))],
+        additional_rows=[dict(ticker='VAC', security_id='851672149700415133', session='2018-09-04',
+            source_observation_sha256='e76a958ab2504c0372cbe44096c1d3e4d4b156723574705b93df34c3afebf595',
+            parent_positions=[])]),
     'P04': dict(parent_outer_sha256='5ff96b14f5e463494d22816ee6a61464411498324cd8298ec48461e12a5f90ac',
         parent_cursor='2022-08-31', terms=[dict(ticker='CTXS', security_id='554480052825212855',
             session='2022-09-28', native_session='2022-09-29',
@@ -75,7 +86,7 @@ NEXT_WITNESS_SCOPES = {
 }
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES) for scope in scopes.values()}
-ACTIVE_WITNESS_SCOPES = {'P10': digest(NEXT_WITNESS_SCOPES['P10'])}
+ACTIVE_WITNESS_SCOPES = {'P00': digest(NEXT_WITNESS_SCOPES['P00'])}
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -85,20 +96,31 @@ def registered_scope(key):
     return deepcopy(scope)
 
 
-def source_terms(scope, natives, rows, positions):
+def source_terms(scope, natives, rows, positions, pending_contexts=None):
     """Validate only declared source preimages and parent-role observations."""
     from datetime import date
     declared = scope['terms']
+    pending_contexts = [None] * len(declared) if pending_contexts is None else pending_contexts
     keys = {(t['session'], t['security_id']) for t in declared}
-    need(declared and len(keys) == len(declared) == len(rows) == len(positions) == len(natives),
+    need(declared and len(keys) == len(declared) == len(rows) == len(positions) == len(natives) == len(pending_contexts),
          'SOURCE_WITNESS_EXACT_UNIQUE_DECLARED_COUNTS')
     need({(r['session'], r['security_id']) for r in rows} == keys,
          'SOURCE_WITNESS_NO_MISSING_DUPLICATE_OR_EXTRA_ROWS')
     result = []
-    for term, native, held in zip(declared, natives, positions):
+    for term, native, held, pending in zip(declared, natives, positions, pending_contexts):
         sid = term['security_id']
         row, = [r for r in rows if (r['session'], r['security_id']) == (term['session'], sid)]
-        need(scope['parent_cursor'] < term['native_session'] and term['session'] < term['native_session']
+        future = scope['parent_cursor'] < term['native_session']
+        if future:
+            need(pending is None and 'pending_at_parent' not in term, 'SOURCE_WITNESS_FUTURE_NATIVE_UNCONSUMED_SCOPE')
+        else:
+            need(term['native_session'] == scope['parent_cursor'] and held
+                 and pending == term.get('pending_at_parent') and pending is not None
+                 and type(pending['pending_sessions']) is int and pending['pending_sessions'] == 0
+                 and type(pending['stale_at_event']) is int and pending['stale_at_event'] == 0
+                 and pending['unresolved'] is False and pending['native_term_sha256'] == term['native_term_sha256'],
+                 'SOURCE_WITNESS_ONLY_EXACT_OWN_PENDING_NATIVE_AT_PARENT')
+        need(term['session'] < term['native_session']
              and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session'])
              and row['ticker'] == term['ticker'] and row['security_type_eligible'] in ('0', '1')
              and type(row['issuer_id']) is str, 'SOURCE_WITNESS_EXACT_UNMODIFIED_IDENTITY')
@@ -111,27 +133,69 @@ def source_terms(scope, natives, rows, positions):
         witness['source_observation_sha256'] = digest(row)
         result.append(dict(source_row=deepcopy(row), identity_witness=witness,
                            native_term=deepcopy(native), parent_positions=deepcopy(held)))
+        if pending is not None:
+            result[-1]['pending_context'] = deepcopy(pending)
     return result
 
 
-def witness_payload(cp, arm, scope, natives, rows):
+def source_schema(scope):
+    return (SOURCE_WITNESS_PENDING_SCHEMA if scope.get('additional_rows')
+            or any('pending_at_parent' in t for t in scope['terms']) else SOURCE_WITNESS_SCHEMA)
+
+
+def additional_source_rows(scope, rows, positions):
+    from datetime import date
+    declared = scope.get('additional_rows', [])
+    keys = {(t['session'], t['security_id']) for t in declared}
+    native_keys = {(t['session'], t['security_id']) for t in scope['terms']}
+    need(len(keys) == len(declared) == len(rows) == len(positions) and not keys & native_keys
+         and {(r['session'], r['security_id']) for r in rows} == keys,
+         'SOURCE_WITNESS_EXACT_ADDITIONAL_IDENTITY_ROWS')
+    result = []
+    for term, held in zip(declared, positions):
+        row, = [r for r in rows if (r['session'], r['security_id']) == (term['session'], term['security_id'])]
+        need(scope['parent_cursor'] < row['session'] and row['ticker'] == term['ticker']
+             and row['security_type_eligible'] in ('0', '1') and type(row['issuer_id']) is str
+             and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session'])
+             and digest(row) == term['source_observation_sha256'] and held == term['parent_positions'],
+             'SOURCE_WITNESS_UNMODIFIED_ADDITIONAL_ROW_AND_PARENT_ROLE')
+        witness = {k: row[k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
+                                       'listing_first_session', 'security_type_eligible')}
+        witness['source_observation_sha256'] = digest(row)
+        result.append(dict(source_row=deepcopy(row), identity_witness=witness, parent_positions=deepcopy(held)))
+    return result
+
+
+def witness_payload(cp, arm, scope, natives, rows, additional_rows=()):
     need(cp['sha256'] == scope['parent_outer_sha256'] and cp['source_cursor'] == scope['parent_cursor'],
          'SOURCE_WITNESS_EXACT_OWN_PARENT')
     episodes = cp['run']['state']['wealth_core']['episodes']
-    positions = [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'],
+    def positions(terms):
+        return [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'],
                        entry_date=e['entry_date'])
                   for _, e in sorted(episodes.items(), key=lambda item: int(item[0]))
-                  if e['security_id'] == t['security_id']] for t in scope['terms']]
-    return dict(schema=SOURCE_WITNESS_SCHEMA, arm=arm, parent_outer_sha256=cp['sha256'],
+                  if e['security_id'] == t['security_id']] for t in terms]
+    w = cp['run']['state']['wealth_core']
+    pending = []
+    for term in scope['terms']:
+        sid = term['security_id']
+        recorded = w.get('terminal_pending_terms', {}).get(sid, {})
+        pending.append(dict(pending_sessions=w.get('terminal_pending_sessions', {}).get(sid),
+            stale_at_event=recorded.get('stale_at_event'), native_term_sha256=digest(recorded.get('terms')),
+            unresolved=sid in w.get('unresolved_terminals', {})) if 'pending_at_parent' in term else None)
+    payload = dict(schema=source_schema(scope), arm=arm, parent_outer_sha256=cp['sha256'],
         parent_cursor=cp['source_cursor'], archive_sha256=cp['base']['archive_sha256'],
         bundle_sha256=cp['base']['bundle_sha256'], scope=deepcopy(scope), scope_sha256=digest(scope),
-        producer_sha256=sha(Path(__file__).read_bytes()), terms=source_terms(scope, natives, rows, positions),
+        producer_sha256=sha(Path(__file__).read_bytes()), terms=source_terms(scope, natives, rows, positions(scope['terms']), pending),
         financial_sessions_advanced=0, financial_authority=False, input_adopted=False,
         provider_metadata_upgraded=False, production_contacted=False)
+    if source_schema(scope) == SOURCE_WITNESS_PENDING_SCHEMA:
+        payload['additional_rows'] = additional_source_rows(scope, additional_rows, positions(scope.get('additional_rows', [])))
+    return payload
 
 
 def validate_witness_capture(payload, spec, scope):
-    need(payload['schema'] == SOURCE_WITNESS_SCHEMA and payload['arm'] == spec['arm']
+    need(payload['schema'] == source_schema(scope) and payload['arm'] == spec['arm']
          and payload['parent_outer_sha256'] == spec['outer_sha256'] == scope['parent_outer_sha256']
          and payload['parent_cursor'] == spec['selected_session'] == scope['parent_cursor']
          and payload['archive_sha256'] == spec['base']['archive_sha256']
@@ -144,8 +208,14 @@ def validate_witness_capture(payload, spec, scope):
          'SOURCE_WITNESS_EXACT_SOURCE_ONLY_CAPTURE')
     terms = payload['terms']
     need(terms == source_terms(scope, [v['native_term'] for v in terms],
-          [v['source_row'] for v in terms], [v['parent_positions'] for v in terms]),
+          [v['source_row'] for v in terms], [v['parent_positions'] for v in terms],
+          [v.get('pending_context') for v in terms]),
           'SOURCE_WITNESS_FULL_PAYLOAD_RECONSTRUCTION')
+    if source_schema(scope) == SOURCE_WITNESS_PENDING_SCHEMA:
+        rows = payload['additional_rows']
+        need(rows == additional_source_rows(scope, [v['source_row'] for v in rows],
+                                           [v['parent_positions'] for v in rows]),
+             'SOURCE_WITNESS_COMPLETE_ADDITIONAL_ROW_RECONSTRUCTION')
     return payload
 
 
@@ -159,14 +229,18 @@ def capture_source_witnesses(cp, out, arm, scope):
         native, = [asdict(t) for t in actions.terminal.get(term['native_session'], ())
                    if t.security_id == term['security_id']]
         natives.append(native)
-    keys = {(t['session'], t['security_id']) for t in scope['terms']}
+    native_keys = {(t['session'], t['security_id']) for t in scope['terms']}
+    additional_keys = {(t['session'], t['security_id']) for t in scope.get('additional_rows', [])}
+    keys = native_keys | additional_keys
     rows = []
     with zipfile.ZipFile('/frozen/archive/corpus.zip') as archive:
         for year in sorted({day[:4] for day, _ in keys}):
             for row in inputs._archive_rows(archive, 'observations-' + year + '.csv.gz'):
                 if (row['session'], row['security_id']) in keys:
                     rows.append(row)
-    payload = witness_payload(cp, arm, scope, natives, rows)
+    payload = witness_payload(cp, arm, scope, natives,
+        [r for r in rows if (r['session'], r['security_id']) in native_keys],
+        [r for r in rows if (r['session'], r['security_id']) in additional_keys])
     need(digest(cp) == before, 'SOURCE_WITNESS_PARENT_STATE_UNCHANGED')
     save(out / SOURCE_WITNESS_FILE, payload)
     return payload

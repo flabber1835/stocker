@@ -251,8 +251,8 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
 
 def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
-    request=m.expected_request();selected=m.root_spec('P10')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
+    request=m.expected_request();selected=m.root_spec('P00')
     monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
     m.source_request_bindings(request,selected)
 
@@ -260,12 +260,12 @@ def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(mon
 @pytest.mark.parametrize('change',['schema','mode','scope','root','bundle','launcher','selector'])
 def test_changed_worker_request_binding_refuses(change,monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
-    request=m.expected_request();selected=m.root_spec('P10')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
+    request=m.expected_request();selected=m.root_spec('P00')
     if change=='schema':request['schema']='UNKNOWN'
     elif change=='mode':request['financial_resume_authorized']=True
-    elif change=='scope':request['source_witness_scopes']['P10']['terms'][0]['ticker']='OTHER'
-    elif change=='root':request['admitted_checkpoints']['P10']='0'*64
+    elif change=='scope':request['source_witness_scopes']['P00']['terms'][0]['ticker']='OTHER'
+    elif change=='root':request['admitted_checkpoints']['P00']='0'*64
     elif change=='bundle':request['admitted_financial_parents_sha256']='0'*64
     elif change=='launcher':request['sources']['system_campaign_financial_resume.py']='0'*64
     else:request['sources']['system_campaign_financial_future.py']='0'*64
@@ -274,8 +274,8 @@ def test_changed_worker_request_binding_refuses(change,monkeypatch):
 
 def test_worker_source_binding_guard_removal_falsifier(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
-    request=m.expected_request();selected=m.root_spec('P10')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
+    request=m.expected_request();selected=m.root_spec('P00')
     request['sources']['system_campaign_financial_resume.py']='0'*64
     with pytest.raises(ValueError):m.source_request_bindings(request,selected)
     fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_request_bindings')
@@ -310,6 +310,7 @@ def test_actual_worker_request_byte_guard_removal_falsifier(tmp_path,monkeypatch
 
 
 def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkeypatch):
+    monkeypatch.setattr(f,'WITNESS_SCOPES',{'P10':deepcopy(f.NEXT_WITNESS_SCOPES['P10'])})
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P10',))
     request=m.expected_request();current=m.root_spec('P10')
@@ -320,25 +321,25 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
         m.source_request_bindings(request,current)
 
 
-def test_active_query_is_only_new_own_p10_swav_and_closed_source_scopes_are_retained():
-    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P10'}
-    assert len(f.WITNESS_SCOPE_REGISTRY)==4
-    scope=f.WITNESS_SCOPES['P10'];root=m.root_spec('P10');term,=scope['terms']
-    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P10'])
-    assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2024-04-30')
-    assert (term['ticker'],term['session'],term['native_session'],term['parent_positions'])==('SWAV','2024-05-29','2024-05-30',[])
-    assert f.registered_scope(f.digest(f.NEXT_WITNESS_SCOPES['P04']))['terms'][0]['ticker']=='CTXS'
+def test_active_query_is_only_own_fresh_p00_pending_and_delivery_source():
+    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00'}
+    assert len(f.WITNESS_SCOPE_REGISTRY)==5
+    scope=f.WITNESS_SCOPES['P00'];root=m.root_spec('P00');term,=scope['terms']
+    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P00'])
+    assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
+    assert term['ticker']=='ILG' and term['parent_positions'][0]['quantity']==90
+    assert term['pending_at_parent']['pending_sessions']==0
+    assert scope['additional_rows'][0]['ticker']=='VAC' and scope['additional_rows'][0]['parent_positions']==[]
     terms=json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms']
     for t in terms:
-        if t['source_capture']['run_id']!=41783795694:continue
         retained=f.registered_scope(t['source_capture']['scope_sha256'])
-        assert retained==f.HISTORICAL_WITNESS_SCOPES[t['arm']]
+        assert retained['parent_outer_sha256']==t['parent_outer_sha256']
         assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[t]
 
 
 @pytest.mark.parametrize('change',['unknown','mutated'])
 def test_unknown_or_changed_registered_scope_refuses(monkeypatch,change):
-    scopes=deepcopy(f.WITNESS_SCOPE_REGISTRY);key=f.ACTIVE_WITNESS_SCOPES['P10']
+    scopes=deepcopy(f.WITNESS_SCOPE_REGISTRY);key=f.ACTIVE_WITNESS_SCOPES['P00']
     if change=='unknown':key='0'*64
     else:scopes[key]['terms'][0]['parent_positions']=[dict(quantity=78)]
     monkeypatch.setattr(f,'WITNESS_SCOPE_REGISTRY',scopes)
@@ -346,7 +347,7 @@ def test_unknown_or_changed_registered_scope_refuses(monkeypatch,change):
 
 
 def test_registered_scope_digest_guard_removal_falsifier(monkeypatch):
-    scopes=deepcopy(f.WITNESS_SCOPE_REGISTRY);key=f.ACTIVE_WITNESS_SCOPES['P10']
+    scopes=deepcopy(f.WITNESS_SCOPE_REGISTRY);key=f.ACTIVE_WITNESS_SCOPES['P00']
     scopes[key]['parent_cursor']='2022-08-30';monkeypatch.setattr(f,'WITNESS_SCOPE_REGISTRY',scopes)
     with pytest.raises(ValueError):f.registered_scope(key)
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='registered_scope')

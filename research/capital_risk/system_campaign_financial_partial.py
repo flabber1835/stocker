@@ -30,6 +30,7 @@ FRESH_TARGET_SHA = '0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf
 FRESH_REQUEST_SHA = '13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'
 ROOTS = 'system-campaign-financial-admitted-parents.json'
 ADMISSIONS = {
+    'P00': 'c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694',
     'P04': '58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45',
     'P07': '46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d',
     'P10': '3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9',
@@ -40,6 +41,7 @@ PRIOR_ADMISSIONS = {
     'P10': 'c3e9784fdaee742284dc4f7d90aaecbcb541cb50f699dabbb17e8c250f68815c',
 }
 ADMISSION_CLOCKS = {
+    'P00': {'c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694': (41796544434, '3035b8c9b70af4174fc0e83b9a85f6853a754795')},
     'P04': {
         '58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45': (41789942448, '1a4773b535f6aa2e9ab6e49adcfb247f062d4e52'),
         '11c64d8c83d26c8e381ddc4e306829e896f3996c423c394d50c5b2d2d0307492': (41754595229, 'cec7f49da4edf5ca4dd760e3b593451624c1d063'),
@@ -79,9 +81,17 @@ def authorized_spec(entry, arm):
          and a['financial_source_epoch_unchanged'] is a['input_adoptions_fully_state_neutral'] is True
          and a['production_contacted'] is a['local_canonical_runtime_executed'] is False
          and a['readonly_run_id'] == readonly_run and a['readonly_head'] == readonly_head
-         and t['archive_format'] == FORMAT
+         and t['archive_format'] in (FORMAT, FRESH_FORMAT)
          and t['financial_authority'] is t['financial_predecessor_admitted'] is False,
          'FINANCIAL_ONLY_SEPARATE_ROOT_CONTINUATION_AUTHORITY')
+    if t['archive_format'] == FRESH_FORMAT:
+        initial_reporting_seed(t)
+        need(arm == 'P00' and a['initial_empty_origin_verified'] is True
+             and a['historical_p00_state_or_returns_reused'] is False
+             and a['initial_formation_records'] == 126 and a['new_daily_records'] == 169
+             and a['parent_root_admission_sha256'] is None
+             and a['fresh_empty_origin_proof_sha256'] == t['public_members']['fresh-origin-admission-P00.json']['sha256'],
+             'FINANCIAL_ONLY_EXACT_NEW_FRESH_P00_ORIGIN_ADMISSION')
     for key in ('base', 'journals', 'repairs', 'selected_checkpoint', 'selected_file',
                 'outer_sha256', 'inner_sha256', 'state_sha256', 'input_sha256', 'source_binding_sha256'):
         need(a[key] == t[key], 'FINANCIAL_EXACT_ADMITTED_OWN_' + key.upper())

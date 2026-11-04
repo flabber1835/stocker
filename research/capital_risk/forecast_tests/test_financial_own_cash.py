@@ -179,12 +179,18 @@ def test_one_actual_cash_context_guard_removal_falsifier():
     ('READONLY_FROZEN_SOURCE_WITNESSES',(False,False,True))])
 def test_explicit_mode_derives_all_authority_flags_and_worker_limits(monkeypatch,mode,flags):
     monkeypatch.setattr(m,'EXECUTION_MODE',mode)
-    arms=('P00',) if flags[1] else (('P10',) if flags[2] else ('P04','P10'))
+    arms=('P10',) if flags[1] else (('P00',) if flags[2] else ('P04','P10'))
+    if flags[1]:
+        # Exercise mode derivation against its exact historical reporting seed.
+        # Live closed-target refusal is independently covered in retention tests.
+        selected=json.loads((m.HERE/m.PARTIALS).read_bytes())['arms']['P10']
+        original=m.root_spec
+        monkeypatch.setattr(m,'root_spec',lambda arm:original(arm,selected['monthly_seed_root_admission_sha256']))
     monkeypatch.setattr(m,'SELECTED_ARMS',arms);r=m.expected_request()
     assert tuple(r[k] for k in ('financial_resume_authorized','readonly_partial_review','readonly_source_witnesses'))==flags
     assert r['maximum_parallel_financial_workers']==(len(arms) if flags[0] else 0)
     assert r['maximum_parallel_readonly_workers']==(0 if flags[0] else len(arms))
-    assert set(r['source_witness_scopes'])==({'P10'} if flags[2] else set())
+    assert set(r['source_witness_scopes'])==({'P00'} if flags[2] else set())
     assert m.request_authority(r)
 
 
