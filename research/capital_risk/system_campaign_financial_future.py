@@ -906,6 +906,43 @@ def merge_selected_terms(primary, extra):
     return terms
 
 
+def remaining_ordinary_terms(cp, terms, root):
+    """Preserve source-bound forward repairs instead of suppressing them twice."""
+    documents = []
+    for entry in cp['repairs']:
+        name = entry['filename']
+        need(name == entry['sha256'] + '.json' and Path(name).name == name,
+             'FUTURE_INHERITED_ORDINARY_SAFE_REPAIR_NAME')
+        raw = (Path(root) / 'book/repairs' / name).read_bytes()
+        need(sha(raw) == entry['sha256'], 'FUTURE_INHERITED_ORDINARY_EXACT_REPAIR_BYTES')
+        doc = json.loads(raw)
+        need(doc['schema'] == 'terminal-repair/1'
+             and doc['predecessor_checkpoint_sha256'] == entry['predecessor_checkpoint_sha256'],
+             'FUTURE_INHERITED_ORDINARY_EXACT_REPAIR_PREDECESSOR')
+        documents.append((entry, doc))
+    remaining, inherited = [], []
+    for term in terms:
+        sid = term['security_id']
+        suppress = [(e, v) for e, d in documents for v in d['suppress'] if v['security_id'] == sid]
+        added = [(e, v) for e, d in documents for v in d['add'] if v['security_id'] == sid]
+        if not suppress and not added:
+            remaining.append(deepcopy(term))
+            continue
+        expected = dict(session=term['native_session'], security_id=sid, term_sha256=term['native_term_sha256'])
+        economic = lambda v: {k: x for k, x in v.items() if k not in ('session', 'reference')}
+        need(len(suppress) == len(added) == 1 and suppress[0][1] == expected
+             and suppress[0][0] == added[0][0]
+             and economic(added[0][1]) == economic(term['added'])
+             and added[0][1]['session'] > cp['source_cursor']
+             and added[0][1]['session'] >= term['native_session'],
+             'FUTURE_INHERITED_ORDINARY_ONE_EQUIVALENT_FORWARD_EVENT')
+        inherited.append(dict(security_id=sid, ticker=term['ticker'], repair=deepcopy(added[0][0]),
+            suppressed_native=deepcopy(suppress[0][1]), inherited_addition=deepcopy(added[0][1]),
+            selected_catalog_addition=deepcopy(term['added']), original_ordinary_source=deepcopy(term['original_ordinary_source']),
+            inherited_date_and_reference_preserved=True))
+    return remaining, inherited
+
+
 def ordinary_term_dates(term, dates):
     native, effective = term['native_session'], term['added']['session']
     need(dates == sorted(set(dates)) and native in dates and effective in dates
@@ -1066,11 +1103,16 @@ def hydrate(cp, arm, *, source_root=None):
                  if e['security_id'] == t['security_id']] for t in terms]
         need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
     ordinary_components = []
+    inherited_ordinary = []
     ordinary = original_ordinary_selection(arm, cp['source_cursor'])
     if ordinary is not None:
         original_codec, original_catalog, original_terms = ordinary
+        need(source_root is not None, 'FUTURE_ORIGINAL_ORDINARY_EXPLICIT_REPAIR_ROOT')
+        original_terms, inherited_ordinary = remaining_ordinary_terms(cp, original_terms, source_root)
         if catalog != original_catalog:
             terms = merge_selected_terms(terms, original_terms)
+        else:
+            terms = original_terms
         ordinary_components.append(deepcopy(original_codec.ordinary_source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
@@ -1141,6 +1183,7 @@ def hydrate(cp, arm, *, source_root=None):
         material['composition'] = deepcopy(codec.composition)
     if ordinary_components:
         material['ordinary_components'] = ordinary_components
+        material['inherited_ordinary_terms'] = inherited_ordinary
     if hasattr(codec, 'validator_description'):
         material['original_validator_description'] = codec.validator_description
     if aliases is not None:

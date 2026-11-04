@@ -66,3 +66,56 @@ def test_tender_and_ordinary_material_form_one_disjoint_future_document():
     assert {x['reference'] for x in doc['source_evidence']} >= {
         f.REFERENCE+'/'+name,f.REFERENCE+'/system_campaign_winter_facts.py'}
     assert next(t for t in doc['add'] if t['security_id']=='950273523314609853')['cash_per_share']==18.
+
+
+def inherited_fixture(tmp_path):
+    terms=selection()[2];selected=[deepcopy(t) for t in terms[:3]]
+    selected[1]['added'].update(session='2018-03-07',reference='Retained original daily convention')
+    doc=dict(schema='terminal-repair/1',predecessor_checkpoint_sha256='c'*64,source_evidence=[],
+        suppress=[dict(session=t['native_session'],security_id=t['security_id'],term_sha256=t['native_term_sha256']) for t in selected],
+        add=[t['added'] for t in selected])
+    raw=(json.dumps(doc,sort_keys=True,indent=2)+'\n').encode();h=f.sha(raw)
+    folder=tmp_path/'book/repairs';folder.mkdir(parents=True);(folder/(h+'.json')).write_bytes(raw)
+    cp=dict(source_cursor='2018-01-31',repairs=[dict(filename=h+'.json',sha256=h,
+        predecessor_checkpoint_sha256='c'*64,resume_session='2018-01-31')])
+    return cp,terms,doc
+
+
+def replace_inherited(tmp_path,cp,doc):
+    raw=(json.dumps(doc,sort_keys=True,indent=2)+'\n').encode();h=f.sha(raw)
+    cp['repairs'][0].update(filename=h+'.json',sha256=h);(tmp_path/'book/repairs'/(h+'.json')).write_bytes(raw)
+
+
+def test_inherited_three_events_remain_unchanged_and_only_missing_two_are_selected(tmp_path):
+    cp,terms,doc=inherited_fixture(tmp_path);before=deepcopy((cp,terms,doc))
+    new,old=f.remaining_ordinary_terms(cp,terms,tmp_path)
+    assert [t['ticker'] for t in new]==['SCMP','CSRA']
+    assert [t['ticker'] for t in old]==['CUDA','JUNO','BIVV']
+    assert old[1]['inherited_addition']['session']=='2018-03-07'
+    assert old[1]['selected_catalog_addition']['session']=='2018-03-06'
+    assert old[1]['inherited_date_and_reference_preserved'] is True
+    assert (cp,terms,doc)==before
+
+
+def test_inherited_repair_bytes_guard_removal_accepts_unbound_json(tmp_path):
+    cp,terms,doc=inherited_fixture(tmp_path);p=tmp_path/'book/repairs'/cp['repairs'][0]['filename']
+    p.write_bytes(p.read_bytes()+b' ')
+    with pytest.raises(ValueError,match='EXACT_REPAIR_BYTES'):f.remaining_ordinary_terms(cp,terms,tmp_path)
+    assert len(removed_guard('remaining_ordinary_terms','FUTURE_INHERITED_ORDINARY_EXACT_REPAIR_BYTES')(cp,terms,tmp_path)[0])==2
+
+
+@pytest.mark.parametrize('change',['cash','duplicate','preimage','past_date'])
+def test_inherited_event_guard_removal_accepts_conflicting_or_incomplete_repair(tmp_path,change):
+    cp,terms,doc=inherited_fixture(tmp_path)
+    if change=='cash':doc['add'][0]['cash_per_share']=1.
+    elif change=='duplicate':doc['add'].append(deepcopy(doc['add'][0]))
+    elif change=='preimage':doc['suppress'][0]['term_sha256']='0'*64
+    else:doc['add'][0]['session']='2018-01-30'
+    replace_inherited(tmp_path,cp,doc)
+    with pytest.raises(ValueError,match='ONE_EQUIVALENT_FORWARD_EVENT'):f.remaining_ordinary_terms(cp,terms,tmp_path)
+    assert len(removed_guard('remaining_ordinary_terms','FUTURE_INHERITED_ORDINARY_ONE_EQUIVALENT_FORWARD_EVENT')(cp,terms,tmp_path)[0])==2
+
+
+def test_inherited_addition_without_native_half_refuses(tmp_path):
+    cp,terms,doc=inherited_fixture(tmp_path);doc['suppress'].pop(0);replace_inherited(tmp_path,cp,doc)
+    with pytest.raises(ValueError,match='ONE_EQUIVALENT_FORWARD_EVENT'):f.remaining_ordinary_terms(cp,terms,tmp_path)

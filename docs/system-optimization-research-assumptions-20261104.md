@@ -204,3 +204,32 @@ its exact2156 checkpoint for the existing hosted reporting mechanism from the
 admitted1970 seed. No further financial replay is required. Completion/scoring
 admission follows the same independent financial DATA and exact reporting checks
 used for the other completed variants. No new settlement study is required.
+
+P05's retry identified an input-composition defect, not a settlement question:
+its admitted21 parent already retains CUDA/JUNO/BIVV forward repairs. Repeating
+their native suppressions causes the canonical parser to refuse onFebruary9.
+Before merging original ordinary terms, read each inherited repair by the exact
+checkpoint filename/hash/predecessor and exclude an already represented event
+only when there is exactly one matching native suppression and one economically
+equivalent future cash addition. Refuse conflicting amounts, missing halves or
+duplicates. Keep the inherited addition and its original reference/date unchanged;
+JUNO therefore remains March7 on this existing path rather than being silently
+replaced by the corrected catalog's March6 convention. Disclose this retained
+input convention; no common-updated-basis causal ranking is authorized. Bind the
+complete inherited additions and checkpoint repair descriptors in the hydrated
+material, and use the same reconstruction in the hosted reviewer. New input adds
+only AAAP's authorized tender model and missing SCMP/CSRA cash facts. Keep the
+original catalog/validator and canonical repair guard unchanged. Test both the
+actual inherited three-event composition as pure JSON and guard-removal cases
+before retrying from P05's own admitted21 checkpoint.
+
+Inherited-repair composition qualification:139 targeted cases passed in14.18s.
+Pure JSON inspection of the actual admitted P05 repairs selects only SCMP/CSRA
+and preserves CUDA/JUNO/BIVV, including JUNO's inherited March7 date. Hash,
+duplicate, cash, preimage and date guard-removal falsifiers passed.
+
+P04's first final-reporting request omitted the existing explicit complete-target
+marker and refused before any review worker. Add that marker and verify the
+actual five-member public financial ZIP against the unchanged complete-transport
+validator before retrying reporting. The completed financial run remains intact;
+no financial replay is needed.
