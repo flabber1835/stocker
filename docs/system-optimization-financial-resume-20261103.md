@@ -803,3 +803,22 @@ unadmitted. Publish a new continuation root only after all new checks pass.
 Reporting request generation refuses an already admitted target or an older seed
 than the current selected own root. Historical target records remain intact for
 provenance; they cannot accidentally trigger a repeat of closed reporting work.
+
+
+## Publish P07's reviewed543 root and review P04's next43 closes
+
+P07's read-only run41787444086 and independent40-row/80-snapshot/2-report DATA
+review passed. Its49 closed branch rows remained byte-identical; the40 new
+proof rows passed unchanged independent interval/coverage/state predicates and
+the exact hosted suffix oracle. Publish the February28,2020 checkpoint543 as
+continuation-only authority, retain503 and439 records unchanged, and pin the
+new read-only clock plus the new DATA/suffix-reader hashes. Record89 committed
+certificate rows explicitly; no old event proof or qualification was repeated.
+The earlier503 continuation qualification remains bound to that historical
+root; this admission does not silently expand its implementation contract.
+
+P04's stopped27786d79d run passed SAFM cash handling and its hosted review,
+then preserved main1175/August31 plus an unadmitted later tail. Select only the
+43 new daily rows/86 accountings/2 reports from its current1132/June30 seed for
+read-only reporting and independent DATA admission. P10 keeps running at its
+immutable27786d79d commit. No duplicate P04/P10 financial job is dispatched.

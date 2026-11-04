@@ -17,13 +17,21 @@ from system_campaign_uncertainty_math import Interval,RollingWitnessBounds,growt
 
 
 def parent_spec():
-    spec=p.root_spec('P07')
+    spec=p.root_spec('P07','c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c')
     return dict(sha256=spec['outer_sha256'],completed=503,source_cursor='2019-12-31',base=deepcopy(spec['base'])),spec
 
 
-def test_exact_current_root_and_original_branch_source_are_accepted():
+def test_exact_qualified_503_root_and_original_branch_source_are_accepted():
     cp,spec=parent_spec();before=deepcopy((cp,spec))
     assert len(u.retained_contract(cp,spec))==6 and (cp,spec)==before
+
+
+def test_new_543_admission_does_not_silently_expand_old_503_continuation_qualification():
+    spec=p.root_spec('P07')
+    cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],
+            source_cursor=spec['selected_session'],base=deepcopy(spec['base']))
+    assert cp['completed']==543
+    with pytest.raises(ValueError):u.retained_contract(cp,spec)
 
 
 @pytest.mark.parametrize('key,value',[('completed',504),('source_cursor','2020-01-02'),('sha256','0'*64)])
@@ -45,7 +53,7 @@ def test_actual_admitted_seed_identity_can_resume_without_reexecuting_old_proofs
     old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261103-013/capture-P07-13293585860-001/verified-output')
     if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
     old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
-    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c'))
     assert len(hashes)==6 and len(rows)==49 and rows[-1]['session']=='2019-12-31'
     assert json.loads(raw)['actual_divergent_decisions_refused'] is True
 

@@ -19,8 +19,8 @@ import system_campaign_parallel_discovery_run as frozen
 
 def test_all_current_reporting_seeds_are_closest_admitted_own_checkpoints():
     specs=json.loads((CAP/m.PARTIALS).read_bytes())['arms']
-    assert {a:p.reporting_seed(specs[a])['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1090,P07=503,P10=1028)
-    assert {a:specs[a]['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1132,P07=543,P10=1152)
+    assert {a:p.reporting_seed(specs[a])['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1132,P07=503,P10=1028)
+    assert {a:specs[a]['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1175,P07=543,P10=1152)
     assert all(specs[a]['financial_authority'] is specs[a]['financial_predecessor_admitted'] is False for a in specs)
 
 
@@ -29,7 +29,7 @@ def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(m
     original=m.root_spec
     def altered(arm,*args):
         root=deepcopy(original(arm,*args))
-        if change=='already_admitted':root['measured_closes']=543
+        if change=='already_admitted':root['measured_closes']=json.loads((CAP/m.PARTIALS).read_bytes())['arms'][arm]['measured_closes']
         else:root['root_admission_sha256']='0'*64
         return root
     monkeypatch.setattr(m,'root_spec',altered)
@@ -38,7 +38,7 @@ def test_request_refuses_repeating_closed_reporting_or_substituting_older_seed(m
 
 def test_new_reporting_scope_guard_removal_falsifier(monkeypatch):
     original=m.root_spec
-    monkeypatch.setattr(m,'root_spec',lambda arm:dict(original(arm),measured_closes=543))
+    monkeypatch.setattr(m,'root_spec',lambda arm:dict(original(arm),measured_closes=json.loads((CAP/m.PARTIALS).read_bytes())['arms'][arm]['measured_closes']))
     with pytest.raises(ValueError):m.expected_request()
     fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='expected_request')
     class Remove(ast.NodeTransformer):
