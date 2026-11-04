@@ -1447,3 +1447,29 @@ query-to-resolved-native guard admits a substituted preimage in its falsifier.
 Closed five-term catalog bytes remain5a917388cfa61ed8; the new six-term catalog
 isc3530a81ce5a9ae4. Independent source DATA retains all25 authenticated members
 (414395 logical bytes), zero financial workers and21 passing DATA falsifiers.
+
+## Review fresh P00's new1714 closes without repeating its financial path
+
+Financial41815531742/d630beb3d stopped with1883 committed closes through
+June30,2025. Artifact13322369994 is authenticated, its original prefix reviewer
+passed, and its new1714 closes descend only from the genuine169/August31,2018
+fresh rootc08cec7a. The later July tail is excluded. Financial accounting refused
+July25 because TGI's incomplete July24 native leaves the held position unresolved;
+the admitted June30 book holds234 TGI shares in slot2,entered April4,2025.
+
+Select only the exact1883 gzip/outer hash for read-only reporting, seeded from
+the independently admitted169 fresh root. Reuse the closed hosted prefix review
+and recompute only the1714 new reporting inputs and82 September2018–June2025
+monthly reports. No financial transitions, initial formation, old financial rows
+or original qualification are rerun. Independent DATA must verify3428 accounting
+snapshots,2296 Decimal report metrics,neutral ILG input adoption and complete
+financial/watch chains. Preserve the original fresh-origin proof and source epoch;
+do not import archived P00 state or returns. Full validation/scoring remain false
+until all2156 closes and final independent admission are complete.
+
+The original TGI catalog already supplies26USD on July25, with exact incomplete
+native hashd64927eb0e80aa8e. Its own-source qualification and future selection
+come after the1883 checkpoint is admitted; no July diagnostic state is adopted.
+P04's GBT continuation keeps its immutable running commit.
+The1883 read-only request passed142 resume/partial/retention/retained-proof tests
+in19.50s and permits zero financial workers.
