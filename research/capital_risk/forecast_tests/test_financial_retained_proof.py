@@ -74,8 +74,17 @@ def test_actual_current565_admission_retains111_committed_rows_without_replaying
     old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-035/capture-P07-13315213171-001/verified-output')
     if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
     old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
-    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','30552e338938b213e0dcfe5ef06ca6defcca8d0627126cf39cfd63b2982c9e03'))
     assert len(hashes)==6 and len(rows)==111 and rows[-1]['session']=='2020-03-31'
+    assert json.loads(raw)['historical_financial_sessions_advanced']==0
+
+
+def test_actual_current628_admission_retains174_committed_rows_without_old_replay():
+    old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-042/capture-P07-13318715488-001/verified-output')
+    if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
+    old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    assert len(hashes)==6 and len(rows)==174 and rows[-1]['session']=='2020-06-30'
     assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
 

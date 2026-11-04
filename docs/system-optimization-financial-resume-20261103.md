@@ -1315,3 +1315,43 @@ P04 keep their immutable running commits.
 The628 read-only request passed141 resume/partial/retention/retained-proof tests
 in18.18s. It permits zero financial workers and one read-only worker, keeps the
 565 admission unchanged, and preserves the original383 drivers and branch source.
+
+## Admit P07's628 checkpoint and capture the next LM source witness
+
+Read-only41825451226/0f026df6b and independent DATA passed for63 new closes,
+126 accounting snapshots,three reports,84 Decimal metrics and63 branch rows
+after111 retained rows. All27 new DATA falsifiers passed in3.95s. Publish only
+the exact628/June30 checkpoint as continuation authority, retain the565 root
+unchanged in history, and register its174 committed proof rows as a new seed.
+Full validation and scoring remain false; the July tail remains excluded.
+
+The July30 diagnostic tail identifies an incomplete LM cash native, not a
+controller divergence. Own June30 state holds49 LM shares in slot20, entered
+June24, with no pending LM order. Capture only the actual frozen July29 LM row
+and July30 incomplete native against this admitted root, using the existing
+shared digest-addressed witness registry. The diagnostic native supplies a
+declaration to check against the frozen source; it supplies no admitted state.
+The source worker advances no financial sessions and grants no cash treatment.
+
+Franklin's completion8-K confirms mandatory50USD/common-share consideration on
+July31. Legg Mason's contemporaneous10-Q says closing takes effect at the end of
+that day. Do not infer a pre-open payment or apply the unheld CTXS source-only
+treatment to an actually held LM position. Source DATA and a separately qualified
+timing/valuation treatment are required before any financial continuation.
+Sources: https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm
+and https://www.sec.gov/Archives/edgar/data/704051/000070405120000085/lm10q6302020.htm .
+
+The628/174 admission and LM source request passed266 targeted tests in29.19s
+across retained_sources,retained_proof,resume,future,retention,
+admission_generations and source_witnesses. New admission2293655ea9e4c520
+retains565/30552e33 unchanged. The27 independent DATA falsifiers passed in3.95s.
+
+P04 financial41824920958/cb4caa322 output13318339618 is authenticated and CLOSED
+as a stopped capture, with1196 committed closes through September30,21 beyond
+its admitted1175 root. The actual CTXS no-op and original source-return delegation
+passed with true actual context, absent source ownership/orders and zero cash.
+Its later unadmitted October3 row is excluded. October4 refuses a different
+incomplete leadership cash terminal827416728546053456. The21 new closes still
+need separate financial DATA/reporting and root admission;1196 is not yet a
+financial predecessor or performance authority. Do not repeat the CTXS source
+audit or alter the canonical missing-term guard.

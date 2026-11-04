@@ -119,9 +119,20 @@ NEXT_WITNESS_SCOPES = {
             native_term_sha256='011cbd286ef8f6e57519452164b18187177190814dfe5742ce4ac52d70f02a0c',
             parent_positions=[])]),
 }
+NEXT_WITNESS_SCOPES['P07'] = {'parent_outer_sha256': 'b4dfd007ce0e9ea454b8a174f7796b3be416620173d85715b24abdbfdb56d9a3',
+ 'parent_cursor': '2020-06-30',
+ 'terms': [{'ticker': 'LM',
+            'security_id': '986298677409235360',
+            'session': '2020-07-29',
+            'native_session': '2020-07-30',
+            'native_term_sha256': '6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d',
+            'parent_positions': [{'slot_id': 20,
+                                  'ticker': 'LM',
+                                  'quantity': 49,
+                                  'entry_date': '2020-06-24'}]}]}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES) for scope in scopes.values()}
-ACTIVE_WITNESS_SCOPES = {'P00': digest(NEXT_WITNESS_SCOPES['P00'])}
+ACTIVE_WITNESS_SCOPES = {arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')}
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
