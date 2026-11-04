@@ -13,7 +13,11 @@ import system_campaign_financial_resume as m
 
 
 def target():
-    return json.loads((p.HERE / m.PARTIALS).read_bytes())['arms']['P00']
+    return json.loads((p.HERE / p.ROOTS).read_bytes())['historical_roots']['c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694']['transport']
+
+
+def fresh_root():
+    return p.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694')
 
 
 def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch):
@@ -23,7 +27,7 @@ def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch)
     assert seed['measured_closes'] == 0 and seed['selected_session'] == '2017-06-30'
     assert spec['measured_closes'] == 169 and spec['selected_session'] == '2018-08-31'
     assert p.reporting_seed(spec) == seed
-    root=p.root_spec('P00')
+    root=fresh_root()
     assert root['measured_closes']==169 and root['root_admission']['initial_empty_origin_verified'] is True
     assert root['root_admission']['historical_p00_state_or_returns_reused'] is False
     assert root['root_admission']['performance_scoring_authorized'] is False
@@ -33,7 +37,7 @@ def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch)
 
 
 def test_admitted_fresh_root_resolves_exact_original_transport_identity():
-    root=p.root_spec('P00')
+    root=fresh_root()
     assert p.digest(root)!=p.FRESH_TARGET_SHA
     assert p.initial_reporting_seed(root)==p.initial_reporting_seed(target())
     assert p.digest({k:v for k,v in root.items() if k not in ('root_admission','root_admission_sha256')})==p.FRESH_TARGET_SHA
@@ -41,14 +45,14 @@ def test_admitted_fresh_root_resolves_exact_original_transport_identity():
 
 @pytest.mark.parametrize('change',['authority','transport'])
 def test_root_authority_and_transport_are_verified_before_fresh_normalization(change):
-    root=deepcopy(p.root_spec('P00'))
+    root=deepcopy(fresh_root())
     if change=='authority':root['root_admission']['performance_scoring_authorized']=True
     else:root['outer_sha256']='0'*64
     with pytest.raises(ValueError):p.initial_reporting_seed(root)
 
 
 def test_root_validation_before_normalization_guard_removal_falsifier():
-    root=deepcopy(p.root_spec('P00'));root['root_admission']['performance_scoring_authorized']=True
+    root=deepcopy(fresh_root());root['root_admission']['performance_scoring_authorized']=True
     with pytest.raises(ValueError):p.initial_reporting_seed(root)
     fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='initial_reporting_seed')
     branch=next(n for n in fn.body if isinstance(n,ast.If));assert ast.unparse(branch.body[0])=='validate_root_spec(spec)'

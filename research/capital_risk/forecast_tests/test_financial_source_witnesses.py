@@ -322,11 +322,11 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
         m.source_request_bindings(request,current)
 
 
-def test_active_queries_preserve_fresh_p00_and_add_own_p07_lm_source():
+def test_registry_preserves_original_fresh_p00_and_current_own_queries():
     assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07','P04'}
-    assert len(f.WITNESS_SCOPE_REGISTRY)==8
-    scope=f.WITNESS_SCOPES['P00'];root=m.root_spec('P00');term,=scope['terms']
-    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P00'])
+    assert len(f.WITNESS_SCOPE_REGISTRY)==9
+    scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
+    assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
     assert term['ticker']=='ILG' and term['parent_positions'][0]['quantity']==90
     assert term['pending_at_parent']['pending_sessions']==0
@@ -337,6 +337,16 @@ def test_active_queries_preserve_fresh_p00_and_add_own_p07_lm_source():
         assert retained['parent_outer_sha256']==t['parent_outer_sha256']
         expected=f.selected_stock_term(t) if t['added']['kind']=='CASH_PLUS_STOCK' else t
         assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[expected]
+
+
+def test_current_fresh_p00_tgi_query_uses_only_own1883_root_and_actual234_shares():
+    scope=f.WITNESS_SCOPES['P00'];root=m.root_spec('P00');term,=scope['terms']
+    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P00'])
+    assert root['measured_closes']==1883 and root['selected_session']==scope['parent_cursor']=='2025-06-30'
+    assert root['outer_sha256']==scope['parent_outer_sha256']
+    assert term['ticker']=='TGI' and term['session']=='2025-07-23' and term['native_session']=='2025-07-24'
+    assert term['parent_positions']==[dict(slot_id=2,ticker='TGI',quantity=234,entry_date='2025-04-04')]
+    assert root['root_admission']['initial_fresh_origin_root_admission_sha256']=='c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694'
 
 
 def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):

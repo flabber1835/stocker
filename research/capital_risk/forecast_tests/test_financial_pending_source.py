@@ -127,7 +127,7 @@ def test_hosted_pending_capture_scans_one_year_once_for_both_rows(tmp_path, monk
 
 
 def test_fresh_root_has_only_own_origin_continuation_authority():
-    root = p.root_spec('P00'); a = root['root_admission']
+    root = p.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694'); a = root['root_admission']
     assert root['archive_format'] == p.FRESH_FORMAT and root['measured_closes'] == 169
     assert a['initial_empty_origin_verified'] is True and a['initial_formation_records'] == 126
     assert a['parent_root_admission_sha256'] is None and a['historical_p00_state_or_returns_reused'] is False

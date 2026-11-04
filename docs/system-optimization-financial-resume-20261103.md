@@ -1473,3 +1473,28 @@ come after the1883 checkpoint is admitted; no July diagnostic state is adopted.
 P04's GBT continuation keeps its immutable running commit.
 The1883 read-only request passed142 resume/partial/retention/retained-proof tests
 in19.50s and permits zero financial workers.
+
+## Admit fresh P00's1883 checkpoint and capture its held TGI source
+
+Read-only41834686720/eb872aebb artifact13325321187 and independent DATA passed
+all1714 new closes,3428 accounting snapshots,82 reports and2296 Decimal metrics.
+The ILG input retains its exact33/200 ratio,14.75USD cash and disclosed first
+effective-session VAC raw-open fractional-cash proxy; actual issuer settlement
+remains unobserved. Nineteen new DATA falsifiers passed, including each new
+stock/source/quantity/accounting guard's removal. Preserve the genuine169 fresh
+origin admission unchanged in history and inherit its empty-start/formation proof.
+Publish only the1883/June30 own checkpoint as continuation authority, never the
+July tail or archived P00 book. Full validation and scoring remain false.
+
+Capture TGI498918945550351909's July23,2025 source row and July24 incomplete
+native through the existing version1 read-only witness contract. Its native hash
+d64927eb0e80aa8e is already fixed by the original literal TGI catalog and matches
+the diagnostic native; no preimage-discovery exception is needed. Bind the scope
+to P00's admitted1883 root and its actual234 shares in slot2,entered April4.
+Preserve the earlier ILG/VAC scope in the digest registry. This capture advances
+no financial sessions and supplies no new cash assumption; a separate qualified
+future input will reuse the unchanged original26USD TGI literal after DATA review.
+The1883 admission/source request passed293 targeted resume/source-witness/
+initial-reporting/pending-source/selected-stock/retention/future tests in35.62s.
+Fresh169 archive-format fixtures now explicitly select the unchanged historical
+c08cec7a root; current1883 authority retains that original empty-origin chain.
