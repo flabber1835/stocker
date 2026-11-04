@@ -333,6 +333,7 @@ RESOLVED_TENDER_WITNESS_SCOPES = {'P05': {'parent_cursor': '2018-01-31',
                     'security_id': '554122275008038119',
                     'session': '2018-01-31',
                     'ticker': 'AAAP1'}]}}
+EXTRA_WITNESS_SCOPES['P11', '2018-08-31'] = {'parent_outer_sha256': '6674bb20eeac387f06ff53eba3a58046a63e1183b75e01e6c642c99e5c853b1a', 'parent_cursor': '2018-08-31', 'terms': [{'ticker': 'EDR1', 'security_id': '371238123781729047', 'session': '2018-09-18', 'native_session': '2018-09-19', 'native_term_sha256': '8e02d5bedff161467045415a77cffeb603a79fee9156dc51926ccba5123a715f', 'parent_positions': [{'slot_id': 4, 'ticker': 'EDR1', 'quantity': 1, 'entry_date': '2018-08-31'}]}]}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
@@ -340,6 +341,7 @@ ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in INITIAL_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES['P04'] = digest(EXTRA_WITNESS_SCOPES['P04', '2025-10-31'])
+ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2018-08-31'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 

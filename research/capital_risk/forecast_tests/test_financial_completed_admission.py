@@ -16,7 +16,7 @@ def entry():
     return deepcopy(json.loads((p.HERE/p.ROOTS).read_bytes())['completed_financial_roots']['P10'])
 
 
-@pytest.mark.parametrize('arm,prior_count', [('P00',1883),('P10',1592)])
+@pytest.mark.parametrize('arm,prior_count', [('P00',1883),('P04',1970),('P10',1592)])
 def test_completed_result_is_scoring_only_and_old_continuation_root_is_preserved(arm,prior_count):
     value = p.completed_result(arm)
     assert value['full_financial_validation_completed'] is value['performance_scoring_authorized'] is True
@@ -30,7 +30,7 @@ def test_completed_result_is_scoring_only_and_old_continuation_root_is_preserved
         assert value['initial_formation_records'] == 126
 
 
-@pytest.mark.parametrize('arm', ['P00','P10'])
+@pytest.mark.parametrize('arm', ['P00','P04','P10'])
 @pytest.mark.parametrize('field', ['readonly_run_id','new_daily_records'])
 def test_each_completed_result_requires_its_own_clock_and_suffix_counts(monkeypatch,arm,field):
     value=deepcopy(json.loads((p.HERE/p.ROOTS).read_bytes())['completed_financial_roots'][arm])
@@ -71,7 +71,7 @@ def test_actual_scoring_scope_guard_removal_accepts_forbidden_continuation(monke
 
 
 @pytest.mark.parametrize('mode', ['OWN_ADMITTED_FINANCIAL_CONTINUATION', 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION', 'READONLY_FROZEN_SOURCE_WITNESSES'])
-@pytest.mark.parametrize('arm',['P00','P10'])
+@pytest.mark.parametrize('arm',['P00','P04','P10'])
 def test_completed_arm_cannot_launch_again_in_any_mode(monkeypatch, mode,arm):
     monkeypatch.setattr(m, 'SELECTED_ARMS', (arm,)); monkeypatch.setattr(m, 'EXECUTION_MODE', mode)
     with pytest.raises(ValueError, match='CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED'): m.expected_request()

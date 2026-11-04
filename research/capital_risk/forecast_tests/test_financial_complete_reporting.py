@@ -16,7 +16,7 @@ def target():
     return deepcopy(json.loads((m.HERE / m.PARTIALS).read_bytes())['arms']['P10'])
 
 
-@pytest.mark.parametrize('arm',['P00','P10'])
+@pytest.mark.parametrize('arm',['P00','P04','P10'])
 def test_each_actual_completed_transport_explicitly_selects_complete_reporting(arm):
     spec=json.loads((m.HERE/m.PARTIALS).read_bytes())['arms'][arm]
     assert spec['readonly_full_financial_target'] is True

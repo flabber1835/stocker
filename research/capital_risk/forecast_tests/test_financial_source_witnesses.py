@@ -325,13 +325,15 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
 def test_registry_preserves_original_fresh_p00_and_current_own_queries():
     assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07','P04','P05','P06','P11'}
     for arm,quantity in [('P05',25),('P06',17),('P11',35)]:
-        scope=f.WITNESS_SCOPES[arm]
-        assert scope['parent_outer_sha256']==m.root_spec(arm)['outer_sha256']
+        scope=f.RESOLVED_TENDER_WITNESS_SCOPES[arm]
+        assert scope==f.registered_scope(f.digest(scope))
+        from research.capital_risk.forecast_tests.test_financial_initial_prefix import initial_entry
+        assert scope['parent_outer_sha256']==m.root_spec(arm,initial_entry(arm)['admission_sha256'])['outer_sha256']
         term,=scope['terms']
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==16
+    assert len(f.WITNESS_SCOPE_REGISTRY)==17
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -354,6 +356,16 @@ def test_current_fresh_p00_tgi_query_uses_only_own1883_root_and_actual234_shares
     assert term['ticker']=='TGI' and term['session']=='2025-07-23' and term['native_session']=='2025-07-24'
     assert term['parent_positions']==[dict(slot_id=2,ticker='TGI',quantity=234,entry_date='2025-04-04')]
     assert root['root_admission']['initial_fresh_origin_root_admission_sha256']=='c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694'
+
+
+def test_p11_edr_query_uses_new169_root_and_one_actual_share():
+    scope=f.WITNESS_SCOPES['P11'];root=m.root_spec('P11');term,=scope['terms']
+    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P11'])
+    assert root['measured_closes']==169 and scope['parent_cursor']==root['selected_session']=='2018-08-31'
+    assert scope['parent_outer_sha256']==root['outer_sha256']
+    assert (term['ticker'],term['security_id'])==('EDR1','371238123781729047')
+    assert term['parent_positions']==[dict(slot_id=4,ticker='EDR1',quantity=1,entry_date='2018-08-31')]
+    assert term['session']=='2018-09-18' and term['native_session']=='2018-09-19'
 
 
 def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):

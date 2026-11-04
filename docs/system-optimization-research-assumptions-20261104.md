@@ -233,3 +233,34 @@ marker and refused before any review worker. Add that marker and verify the
 actual five-member public financial ZIP against the unchanged complete-transport
 validator before retrying reporting. The completed financial run remains intact;
 no financial replay is needed.
+
+P04 completed independently:2156 measured closes,103 total reports and empty
+uncommitted tails. Its final186 days passed372 accounting checks,9 exact reports
+and252 independent Decimal metrics. All23 new endpoint/source-context tests passed
+in3.63s. Root-admit the complete research result; scoring may summarize its exact
+recorded daily series. Preserve the independently admitted1970 continuation root
+as lineage. CAGR over the common daily-close axis is8.170709% Core and6.456823%
+Core+Sentinel. The unheld LNWO source-only model remains disclosed.
+
+P11's actual September19 diagnostic close contains a held EDR1 share and a newly
+pending incomplete cash-merger native for permanentSID371238123781729047. The
+September20 refusal may therefore involve an uncompleted terminal entitlement,
+rather than a shorter volatility horizon. Preserve the V10 causal guard. Capture
+the frozen September18 identity row and September19 native once through the
+existing read-only source-witness mechanism from the admitted169/August31 root,
+binding its actual slot4 one-share holding. Do not import the diagnostic tail.
+The acquirer's September20 completion release states41.50USD cash per share and
+that trading ceased before that day's open:
+https://www.greystar.com/business/about-greystar/newsroom/greystar-announces-completion-of-edr-acquisition
+The issuer completion filing is
+https://www.sec.gov/Archives/edgar/data/1351345/000114036118038813/form8k.htm
+Use these published terms with an explicit daily recognition assumption after
+the native/identity payload is bound; no payment-agent settlement study is needed.
+This step selects only the source query and authorizes zero financial transitions.
+
+Completion/source-query qualification:205 relevant resume, source-witness,
+initial-prefix, complete-reporting and completed-admission cases passed in29.07s.
+P04 is closed against re-execution in every mode. P11's old initial21 AAAP scope
+remains independently addressable; its new169 EDR query adds one registered scope.
+All383 original drivers, branch proof and canonical financial source remain
+unchanged. The source query cannot launch a financial worker.
