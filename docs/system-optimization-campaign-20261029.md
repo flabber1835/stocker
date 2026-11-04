@@ -943,3 +943,11 @@ validator,and exclude only that typed descriptor from the ordinary scan.
 Preserve the full checkpoint and all descriptors elsewhere. Extract the original
 cash hydration method without edits and bind only its preflight name to this
 adapter; retain every original ordinary collision,date,native and witness guard.
+
+P11 run41925564552 passed ACC and saved1298 closes through February28,2023,
+146 beyond admitted1152,and passed hosted prefix review. Select only these
+August-February closes for reporting and independent DATA,retaining1152 as
+authority until admission. Verify the retained-source ACC cash application and
+all own accounting and report fields. Exclude the March tail; the next March24
+stop is the original volatility causal-axis refusal,whose captured episode must
+guide the next source investigation. V10 and the original guard stay intact.
