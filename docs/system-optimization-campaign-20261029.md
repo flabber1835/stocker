@@ -852,3 +852,10 @@ actual empty source and target positions; this source capture grants no mixed
 consideration,settlement or financial-adoption authority. The original P01
 factual registry provides the existing2.50USD plus0.8000share consideration and
 its strict fractional policy; its book state and returns are not reused.
+
+P11 run41921032712 saved1152 closes through July29,2022,41 beyond admitted1111,
+and passed the hosted prefix review. Select only these June/July closes for
+hosted report reproduction and independent DATA, preserving1111 as authority
+until admission. Verify the source217-bound TVTY research cash event under the
+existing model and both raw accounting snapshots per close; exclude August
+tails and preserve the original V10 source and causal-axis guard.
