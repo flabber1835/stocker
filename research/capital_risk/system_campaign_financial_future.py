@@ -234,12 +234,14 @@ INITIAL_WITNESS_SCOPES = {'P05': {'parent_outer_sha256': '201001331f78634a46ce80
                                           'ticker': 'AAAP1',
                                           'quantity': 35,
                                           'entry_date': '2017-11-30'}]}]}}
+EXTRA_WITNESS_SCOPES['P04', '2025-10-31'] = {'parent_outer_sha256': 'f5562177949d371147920b4cbd05bd149559c2840bd2c742ff826ea245b938a8', 'parent_cursor': '2025-10-31', 'terms': [{'ticker': 'LNWO', 'security_id': '467726443352731838', 'session': '2025-11-13', 'native_session': '2025-11-14', 'native_term_sha256': '6cc2c176c4e2289531450e4bbfc11a0434114506766daed1310363a9ad6aff8d', 'parent_positions': []}]}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
                          'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in INITIAL_WITNESS_SCOPES.items()})
+ACTIVE_WITNESS_SCOPES['P04'] = digest(EXTRA_WITNESS_SCOPES['P04', '2025-10-31'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 

@@ -75,3 +75,20 @@ Source-query qualification covered179 targeted cases:178 passed in28.26s; the
 registry inventory assertion was updated from nine to twelve exact scopes and
 that corrected case passed in1.36s. Historical source scopes and closed catalog
 generations remain intact. The request probe launches zero financial workers.
+
+
+P04 independent DATA now passed its new691 days,1382 accounting snapshots,
+33 reports and924 Decimal metrics. Six original-calendar use falsifiers passed;
+all eleven newly selected cash contexts were actually unheld zero-value noops.
+Admit only its1970/October31,2025 own checkpoint, preserve1279 as a historical
+root, and exclude the November tail. The next native belongs to frozen source
+LNWO (permanent467726443352731838), handled in P01's IAC namespace work; do not
+confuse this source ticker with the repository's historical helper names. Query
+its November13 row/November14 native using the existing shared source-witness
+mechanism and actual empty parent positions. Reuse the already qualified P01
+unheld-source-exit treatment only after own source/role verification; no statutory
+cash right or portfolio settlement will be inferred from that treatment.
+
+P04 completed-prefix continuation admissionc43253a987d6e930 retains1970 closes.
+Its six private DATA falsifiers passed in0.74s and152 targeted resume/source/partial
+tests passed in23.32s. The new source request performs no financial advances.
