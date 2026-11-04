@@ -245,7 +245,11 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
     monkeypatch.setattr(archive,'preserve',lambda *args:calls.append('preserved-original-event-gzip'))
     monkeypatch.setattr(b,'Certificate',Certificate)
     monkeypatch.setattr(f,'prepare',lambda *args:(path,SimpleNamespace(sha256='d'*64,earliest_affected_session='2020-01-03')))
-    monkeypatch.setattr(f,'ActualEvents',lambda *args:Context('events'))
+    def events(destination,arm,*,cp:object):
+        assert destination==out and arm=='P07' and cp is parent_for_events
+        return Context('events')
+    parent_for_events=cp
+    monkeypatch.setattr(f,'ActualEvents',events)
     monkeypatch.setattr(launcher,'AdoptionGate',Gate)
     monkeypatch.setattr(u,'boundary',lambda *args:calls.append('verified-exact-new-neutral-boundary'))
     assert u.run_retained(cp,out,['synthetic-original'],Context('observer'),Context('execution'),spec,old)==0

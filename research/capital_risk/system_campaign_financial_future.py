@@ -7,7 +7,10 @@ import json
 import math
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Annotated, Literal
 import zipfile
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from full_system_benchmark import need, save
 from full_system_core import hosted
@@ -45,7 +48,7 @@ SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '3611cd9a337bb084a335832f9cdebb720ad36164472b3b55297c94598842262e'
+OWN_CASH_SHA = '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7'
 OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
                    ('P10', '2024-04-30'): 'SWAV', ('P00', '2018-08-31'): 'ILG',
                    ('P04', '2022-08-31'): 'CTXS'}
@@ -55,6 +58,26 @@ CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba2
 CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
                            ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4, ('P04', '2022-08-31'): 5}
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
+SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
+SOURCE_SCOPES = 'future-source-only-scopes.json'
+
+
+class SourceOnlyScope(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.unowned-closing-source-scope/1'] = Field(alias='schema')
+    arm: str
+    parent_outer_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    parent_root_admission_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    hydrated_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    overlay_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    terminal_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    security_id: str
+    source_valuation_phase: Literal['CLOSE']
+    portfolio_completion_authorized: Literal[False]
+    require_unowned_and_unordered: Literal[True]
+
+
 OWN_CASH_SOURCE_CLOCKS = {
     ('P04', '2022-08-31'): (41798315426, 'c750169a3cadb1d18fc58cdb6e5ec3cc807c6dd7', 13307310013),
     ('P00', '2018-08-31'): (41807854617, '4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd', 13311490065),
@@ -278,7 +301,9 @@ def own_cash_selection(arm, cursor):
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        if term['recognition_rule'] == NEXT_COMPLETION:
+        if term['recognition_rule'] == SOURCE_CLOSE:
+            source_cash_term(term)
+        elif term['recognition_rule'] == NEXT_COMPLETION:
             completion_cash_term(term)
         elif term['added']['kind'] == 'CASH_MERGER':
             validate_term(term)
@@ -321,7 +346,36 @@ def own_cash_selection(arm, cursor):
     if chosen['recognition_rule'] == NEXT_COMPLETION:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.'
+    elif chosen['recognition_rule'] == SOURCE_CLOSE:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Shared closing source valuation; actual unowned/unordered and canonical no-op proofs are mandatory, with no portfolio completion authority.'
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def source_cash_term(term):
+    a, w, primary = term['added'], term['identity_witness'], term['primary_extraction']
+    need(term['recognition_rule'] == SOURCE_CLOSE
+         and term['source_valuation_phase'] == 'CLOSE'
+         and term['portfolio_completion_authorized'] is False
+         and term['require_unowned_and_unordered'] is True
+         and term['parent_positions'] == []
+         and term['preopen_completion_confirmed'] is False
+         and term['mandatory_common_share_completion_confirmed'] is True
+         and a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and term['parent_cursor'] < w['session'] < term['last_trading_session'] == term['native_session']
+             < term['actual_completion_date'] == a['session']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and a['reference'] == term['primary_source'] + ' | ' + term['description']
+         and primary['actual_completion_date'] == term['actual_completion_date']
+         and Fraction(primary['cash_per_ordinary_common_share']) == Fraction(str(a['cash_per_share']))
+         and primary['mandatory_conversion'] is True and primary['preopen_time_established'] is False
+         and primary['completion_confirmed_by_close'] is True
+         and primary['recognition_convention'] == SOURCE_CLOSE,
+         'OWN_INPUT_CLOSING_SOURCE_ONLY_NO_PORTFOLIO_COMPLETION_AUTHORITY')
 
 
 def completion_cash_term(term):
@@ -581,11 +635,13 @@ def hydrate(cp, arm, *, source_root=None):
         need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if any(t.get('recognition_rule') == NEXT_COMPLETION for t in terms):
+    if any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:
             completion_session(t, dates)
+            if t.get('recognition_rule') == SOURCE_CLOSE:
+                need(t['added']['session'] in dates, 'OWN_INPUT_CLOSING_SOURCE_DATE_ON_ACTUAL_AXIS')
     wanted = {}
     for t in terms:
         native, = [v for v in actions.terminal.get(t['native_session'], ()) if v.security_id == t['security_id']]
@@ -766,6 +822,9 @@ def prepare(cp, out, arm):
     save(hydrated, material)
     path = out / OVERLAY
     save(path, document(cp, material, sha(hydrated.read_bytes())))
+    scopes = source_scopes(cp, material, sha(path.read_bytes()), sha(hydrated.read_bytes()))
+    if scopes:
+        save(out / SOURCE_SCOPES, scopes)
     from research.pooled_vacancy_funding.repair import load_repair
     loaded = load_repair(path, resume_session=cp['source_cursor'], predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
     qualify(cp, material, delivered, actions, loaded, path, out)
@@ -778,6 +837,10 @@ def review_input(cp, evidence, arm):
     need(json.loads(hydrated.read_bytes()) == material
          and json.loads((evidence / OVERLAY).read_bytes()) == document(cp, material, sha(hydrated.read_bytes())),
          'FUTURE_INDEPENDENT_RECONSTRUCTION_OF_COMPLETE_SELECTED_INPUT')
+    scopes = source_scopes(cp, material, sha((evidence / OVERLAY).read_bytes()), sha(hydrated.read_bytes()))
+    if scopes:
+        need(digest(json.loads((evidence / SOURCE_SCOPES).read_bytes())) == digest(scopes),
+             'FUTURE_INDEPENDENT_EXACT_SOURCE_ONLY_SCOPE')
     return min(r['session'] for field in ('suppress', 'add') for r in json.loads((evidence / OVERLAY).read_bytes())[field])
 
 
@@ -786,6 +849,62 @@ def hydration_name(cp):
     need(type(value) is str and len(value) == 64 and all(c in '0123456789abcdef' for c in value),
          'FUTURE_HYDRATION_EXACT_PARENT_HASH')
     return HYDRATED.removesuffix('.json') + '-' + value + '.json'
+
+
+def source_scopes(cp, material, overlay_sha, hydrated_sha):
+    from system_campaign_financial_partial import root_spec
+    expected = [t for t in selected(material['arm'], cursor=cp['source_cursor'])[2]
+                if t.get('recognition_rule') == SOURCE_CLOSE]
+    actual = [t for t in material['terms'] if t.get('recognition_rule') == SOURCE_CLOSE]
+    need(digest(actual) == digest(expected), 'FUTURE_SOURCE_ONLY_SCOPE_CANNOT_BE_OMITTED_OR_RECLASSIFIED')
+    result = []
+    for term in actual:
+        source_cash_term(term)
+        parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
+        need(cp['sha256'] == term['parent_outer_sha256'] == parent['outer_sha256']
+             and material['parent_outer_sha256'] == cp['sha256']
+             and material['arm'] == term['arm'] and cp['source_cursor'] == term['parent_cursor']
+             and digest(term) == digest(selected(term['arm'], cursor=term['parent_cursor'])[2][0]),
+             'FUTURE_SOURCE_ONLY_EXACT_OWN_ADMITTED_PARENT_AND_LITERAL')
+        scope = SourceOnlyScope.model_validate(dict(schema='research.unowned-closing-source-scope/1',
+            arm=term['arm'], parent_outer_sha256=cp['sha256'],
+            parent_root_admission_sha256=term['parent_root_admission_sha256'],
+            hydrated_sha256=hydrated_sha, overlay_sha256=overlay_sha,
+            terminal_sha256=digest(term['added']), session=term['added']['session'],
+            security_id=term['security_id'], source_valuation_phase='CLOSE',
+            portfolio_completion_authorized=False, require_unowned_and_unordered=True))
+        result.append(scope.model_dump(by_alias=True))
+    return result
+
+
+def require_source_absent(wealth, pending, ledger, sid):
+    need(not any(e['security_id'] == sid for e in wealth['episodes'].values())
+         and not any(s.get('occupied_by') == sid or s.get('reserved_for') == sid
+                     for s in wealth['slots'].values())
+         and not any((p['security_id'] if isinstance(p, dict) else p.security_id) == sid for p in pending)
+         and not any(sid in wealth.get(key, {}) for key in
+                     ('terminal_pending_terms', 'terminal_pending_sessions', 'unresolved_terminals', 'terminal_carry_audit'))
+         and not any(r['security_id'] == sid for r in ledger['receivables']),
+         'FUTURE_SOURCE_ONLY_ACTUAL_UNOWNED_UNORDERED_NO_CLAIMS')
+
+
+def actual_source_call(frame, kernel_code, prior, published):
+    return (frame.f_code is kernel_code and frame.f_locals.get('env') is prior
+            and frame.f_locals.get('published') is published)
+
+
+def actual_source_phase(record, result, scopes):
+    for scope in scopes:
+        if scope['session'] != record['session']:
+            continue
+        sid = scope['security_id']
+        cash = [v for v in record['cash'] if v['security_id'] == sid and v['actual_context_call'] is True]
+        source = [v for v in record['source'] if v['security_id'] == sid and v['actual_context_call'] is True]
+        need(record['source_prior_absent'] is True and len(cash) == len(source) == 1
+             and cash[0]['source_only_noop'] is True
+             and cash[0]['postcondition'] == dict(actual_held=False, quantity=0, nominal_cash=0.),
+             'FUTURE_SOURCE_ONLY_ONE_ACTUAL_NOOP_AND_SOURCE_DELEGATION')
+        require_source_absent(result.state.wealth_core, result.state.pending, result.state.ledger, sid)
 
 
 def cash_postcondition(before, after, ledger_before, ledger_after, terms, result):
@@ -856,9 +975,23 @@ def actual_stock_phase(record, selected):
 
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
-    def __init__(self, out, arm):
+    def __init__(self, out, arm, *, cp=None):
         self.out, self.arm = out, arm
         self.terms = {(t['session'], t['security_id']): t for t in json.loads((out / OVERLAY).read_bytes())['add']}
+        self.scopes = []
+        if cp is not None:
+            material_path = out / hydration_name(cp)
+            material = json.loads(material_path.read_bytes())
+            need(material['arm'] == arm, 'FUTURE_ACTUAL_OWN_MATERIAL_ARM')
+            self.scopes = source_scopes(cp, material, sha((out / OVERLAY).read_bytes()), sha(material_path.read_bytes()))
+            if self.scopes:
+                need(digest(json.loads((out / SOURCE_SCOPES).read_bytes())) == digest(self.scopes)
+                     and all(self.terms.get((s['session'], s['security_id'])) is not None
+                             and digest(self.terms[s['session'], s['security_id']]) == s['terminal_sha256']
+                             for s in self.scopes), 'FUTURE_ACTUAL_EXACT_BOUND_SOURCE_ONLY_SCOPE')
+        else:
+            # Empty synthetic observers need no canonical parent. Any real input does.
+            need(not self.terms, 'FUTURE_ACTUAL_INPUT_REQUIRES_EXPLICIT_OWN_PARENT')
         self.saved, self.current = [], None
 
     def patch(self, owner, name, replacement):
@@ -875,6 +1008,11 @@ class ActualEvents:
         self.step_code = adapter.step_session.__code__
         self.advance_original = self.patch(runtime, 'advance', self.advance)
         self.terminal_original = self.patch(terminal, 'apply_terminal', self.terminal)
+        if self.scopes:
+            from sentinel.core import kernel
+            from sentinel.controller import terminal_returns
+            self.kernel_code = kernel.advance_session.__code__
+            self.source_original = self.patch(terminal_returns, 'values', self.source_values)
         if self.arm == 'P10':
             from stock_strategy_shared.wealth_core import capital_risk
             self.decide_original = self.patch(adapter, 'decide', self.decide)
@@ -893,6 +1031,11 @@ class ActualEvents:
         caller = inspect.currentframe().f_back
         actual = actual_terminal_call(caller, self.step_code, state, kwargs['ledger'], terms.session)
         need(asdict(terms) == self.terms[key], 'FUTURE_ACTUAL_TERMS_EXACT_SELECTED_CONTRACT')
+        scoped = any((s['session'], s['security_id']) == key for s in self.scopes)
+        if scoped:
+            need(actual and self.current['source_prior_absent'] is True,
+                 'FUTURE_SOURCE_ONLY_ACTUAL_ADAPTER_CALL_REQUIRED')
+            require_source_absent(before, caller.f_locals['pending'], ledger, terms.security_id)
         result = self.terminal_original(state, terms, **kwargs)
         if terms.kind == 'CASH_PLUS_STOCK':
             after, ledger_after = state.to_dict(), kwargs['ledger'].to_dict()
@@ -909,10 +1052,37 @@ class ActualEvents:
             return result
         proof = cash_postcondition(before, state.to_dict(), ledger, kwargs['ledger'].to_dict(), asdict(terms), result)
         need(kwargs.get('phase', 'OPEN') == 'OPEN', 'FUTURE_ACTUAL_CASH_OPEN_PHASE')
+        if scoped:
+            need(result.get('applied') is False and result.get('reason') == 'NOT_HELD'
+                 and before == state.to_dict() and ledger == kwargs['ledger'].to_dict(),
+                 'FUTURE_SOURCE_ONLY_CANONICAL_TERMINAL_EXACT_NOOP')
         self.current['cash'].append(dict(session=terms.session, security_id=terms.security_id,
-            actual_context_call=actual, postcondition=proof))
+            actual_context_call=actual, postcondition=proof, source_only_noop=scoped))
         if actual:
             self.current['order'].append('CASH:' + terms.security_id)
+        return result
+
+    def source_values(self, *, prior, published):
+        scopes = [s for s in self.scopes if s['session'] == published.session]
+        if not scopes:
+            return self.source_original(prior=prior, published=published)
+        need(self.current is not None and self.current['session'] == published.session
+             and self.current['source_prior_absent'] is True
+             and actual_source_call(inspect.currentframe().f_back, self.kernel_code, prior, published),
+             'FUTURE_SOURCE_ONLY_ACTUAL_KERNEL_CALL_REQUIRED')
+        before = deepcopy((prior.wealth_core, prior.pending, prior.ledger))
+        for scope in scopes:
+            require_source_absent(*before, scope['security_id'])
+        result = self.source_original(prior=prior, published=published)
+        need(before == (prior.wealth_core, prior.pending, prior.ledger),
+             'FUTURE_SOURCE_ONLY_ORIGINAL_RETURN_FUNCTION_READONLY')
+        for scope in scopes:
+            sid = scope['security_id']
+            need(sid not in prior.median5['selected'] or sid in result,
+                 'FUTURE_SOURCE_ONLY_SELECTED_RETURN_SUPPLIED_BY_ORIGINAL')
+            self.current['source'].append(dict(security_id=sid, actual_context_call=True,
+                original_function_delegated=True, source_value_returned=sid in result,
+                portfolio_completion_authorized=False, scope_sha256=digest(scope)))
         return result
 
     def decide(self, **kwargs):
@@ -945,11 +1115,17 @@ class ActualEvents:
 
     def advance(self, run, publication):
         need(self.current is None, 'FUTURE_SINGLE_ACTUAL_ADVANCE')
-        record = self.current = dict(session=publication.session, cash=[], stock=[], risk=[], order=[], engine_calls=0)
+        record = self.current = dict(session=publication.session, cash=[], stock=[], risk=[], order=[], engine_calls=0,
+                                     source=[], source_prior_absent=False)
         try:
+            for scope in self.scopes:
+                if scope['session'] == publication.session:
+                    require_source_absent(run.state.wealth_core, run.state.pending, run.state.ledger, scope['security_id'])
+                    record['source_prior_absent'] = True
             result = self.advance_original(run, publication)
             actual_cash_phase(record, result, self.arm, self.terms.values())
             actual_stock_phase(record, self.terms.values())
+            actual_source_phase(record, result, self.scopes)
             if self.arm == 'P10':
                 if publication.session == '2020-10-01':
                     cash_before_v(record, result, '510659411298086546', 101, 5302.5)

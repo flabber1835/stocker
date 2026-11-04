@@ -1241,3 +1241,55 @@ The565/111 continuation and eight-term composition passed264 targeted tests in
 admission_generations,source_witnesses. The27 new independent March DATA
 falsifiers passed in3.11s. All financial source hashes and the original branch
 implementation remain unchanged; financial source/execution code was not edited.
+
+## Qualify a closing source value for P04's unowned CTXS leadership observation
+
+The October3 attempt is closed with zero new committed closes. Choose a distinct
+source-only contract for the confirmed September30 closing consideration104USD.
+The issuer's September30 completion release was published at09:30EDT; neither
+that release nor the8-K establishes strictly pre-open completion. This contract
+therefore authorizes a closing leadership valuation only, never opening portfolio
+cash or an assumed payment time. Replace only the unadmitted fifth catalog term;
+preserve closed generations2/3/4 and the failed attempt's evidence.
+
+Bind a strict typed scope to the1175/August31 own root/admission and exact selected
+hydrated material, ordinary overlay and terminal hashes before replay. Carry the
+scope through the existing shared launcher and retainer, without another symbol
+wrapper. Independently reconstruct it during input review. Suppress only the
+exact incomplete September29 native and supply the complete ordinary terminal on
+the confirmed September30 closing date. The canonical functions stay unchanged.
+
+Before the actual completion-day advance, require the source absent from the
+prior episodes, occupied/reserved slots, pending orders, terminal pending state
+and outstanding receivables. Check the actual adapter state/pending/ledger again
+before delegating its terminal call. Require NOT_HELD, appliedFalse and exact
+state/ledger equality afterwards. Before delegating terminal_returns.values,
+check the actual kernel frame/code and env/published identities and the unchanged
+prior source absence. Delegate the original function without replacement return
+math. Require exactly one actual terminal no-op and one actual source-return call
+and recheck the returned envelope for source holdings/orders/claims before the
+financial journal can commit. Probes cannot satisfy these actual-call proofs;
+an owned/ordered source or missing proof refuses. Record checks in the existing
+actual-future-event evidence, authenticated with the full retained output.
+
+Resume only from the admitted1175 root; never restore the failed September tail.
+Local qualification uses DATA, AST guard-removal falsifiers and synthetic calls
+only. Canonical packet/notional qualification, financial replay, accounting and
+serialization run only on the hosted worker. A successful new checkpoint still
+requires independent financial DATA/reporting review and root admission.
+
+Sources: https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm
+and https://www.businesswire.com/news/home/20220929005993/en/ . The timestamped
+issuer-release reprint is retained in the private source proposal; it bounds
+completion by the closing observation without proving a pre-open minute.
+
+Qualification:306 targeted DATA/synthetic tests passed in27.11s across
+source_close,completion_session,resume,own_cash,selected_stock,future,retention
+and source_witnesses. Guard-removal falsifiers demonstrate refusal coverage for
+held-source use, portfolio-authority escalation, auxiliary kernel probes and
+missing actual event proofs. Runtime scope metadata cannot be omitted,
+reclassified or changed from booleanFalse to numeric0. The exact frozen P04
+kernel d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739
+has the checked env/published callsite; no canonical module was executed locally.
+The72 retained_sources,retained_proof and admission_generations compatibility
+tests passed in6.04s, including explicit parent propagation to the event observer.

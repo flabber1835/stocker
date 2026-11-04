@@ -157,7 +157,7 @@ def test_original_risk_exception_identity_propagates_with_failed_sid_observation
 def test_successive_hydration_documents_never_overwrite_retained_prior_generation(tmp_path,monkeypatch):
     _,catalog,terms=f.selected('P04',cursor='2022-04-29')
     cp=dict(sha256='a'*64,source_cursor='2022-04-29',run=dict(checkpoint_sha256='c'*64))
-    material=dict(catalog=catalog,catalog_sha256='d'*64,original_validator_sha256='e'*64,
+    material=dict(arm='P04',catalog=catalog,catalog_sha256='d'*64,original_validator_sha256='e'*64,
                   selector_sha256='f'*64,terms=terms)
     old=b'{"retained_prior_generation":true}\n';(tmp_path/f.HYDRATED).write_bytes(old)
     # Reproduce the exact old fixed-name failure under the unchanged exclusive saver.

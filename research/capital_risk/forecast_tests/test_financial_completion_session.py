@@ -13,7 +13,12 @@ import system_campaign_financial_future as f
 
 def term():
     _, _, terms = f.selected('P04', cursor='2022-08-31')
-    return deepcopy(terms[0])
+    # Preserve the refused Oct3 convention's guards as a separate synthetic input.
+    t = deepcopy(terms[0])
+    t['recognition_rule'] = f.NEXT_COMPLETION
+    t['primary_extraction']['recognition_convention'] = 'FIRST_FROZEN_SESSION_STRICTLY_AFTER_CONFIRMED_COMPLETION'
+    t['added']['session'] = '2022-10-03'
+    return t
 
 
 def test_confirmed_ctrix_cash_right_has_explicit_later_session_not_preopen_assertion():

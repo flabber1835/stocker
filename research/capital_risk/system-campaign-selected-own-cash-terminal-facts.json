@@ -288,12 +288,12 @@
         "entitlement_aggregation": "HOLDER",
         "exchange_ratio": null,
         "kind": "CASH_MERGER",
-        "reference": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm | Confirmed September30,2022 mandatory104USD common-share cancellation. October3 is the explicit first-frozen-session-after-completion recognition convention; no September30 preopen or actual-payment-time claim. Preserve September29 trading and frozen source metadata.",
+        "reference": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm | Confirmed September30 mandatory104USD common-share consideration, valued solely at that closing leadership observation. Actual source must be unowned and unordered; canonical terminal must be NOT_HELD with exact unchanged portfolio and ledger. No preopen completion or portfolio cash-payment authority. Preserve September29 trading and frozen source metadata.",
         "security_id": "554480052825212855",
-        "session": "2022-10-03"
+        "session": "2022-09-30"
       },
       "arm": "P04",
-      "description": "Confirmed September30,2022 mandatory104USD common-share cancellation. October3 is the explicit first-frozen-session-after-completion recognition convention; no September30 preopen or actual-payment-time claim. Preserve September29 trading and frozen source metadata.",
+      "description": "Confirmed September30 mandatory104USD common-share consideration, valued solely at that closing leadership observation. Actual source must be unowned and unordered; canonical terminal must be NOT_HELD with exact unchanged portfolio and ledger. No preopen completion or portfolio cash-payment authority. Preserve September29 trading and frozen source metadata.",
       "identity_witness": {
         "issuer_id": "SEC_CIK:877890",
         "listing_first_session": "1997-12-31",
@@ -311,20 +311,26 @@
       "parent_outer_sha256": "5ff96b14f5e463494d22816ee6a61464411498324cd8298ec48461e12a5f90ac",
       "parent_positions": [],
       "parent_root_admission_sha256": "58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45",
+      "portfolio_completion_authorized": false,
       "preopen_completion_confirmed": false,
       "primary_extraction": {
         "actual_completion_date": "2022-09-30",
         "cash_per_ordinary_common_share": "104.00",
+        "completion_confirmed_by_close": true,
         "excluded_categories": [
           "TREASURY_OR_PARENT_OR_MERGER_SUB",
           "PERFECTED_STATUTORY_APPRAISAL"
         ],
+        "issuer_release": "https://www.businesswire.com/news/home/20220929005993/en/",
+        "issuer_release_reprint": "https://markets.financialcontent.com/winslow/article/bizwire-2022-9-30-vista-equity-partners-and-evergreen-coast-capital-announce-the-completion-of-the-transaction-to-acquire-citrix-systems-and-combine-it-with-tibco-software",
         "mandatory_conversion": true,
         "preopen_time_established": false,
-        "recognition_convention": "FIRST_FROZEN_SESSION_STRICTLY_AFTER_CONFIRMED_COMPLETION"
+        "recognition_convention": "CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY",
+        "release_timestamp": "2022-09-30T09:30:00-04:00"
       },
       "primary_source": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm",
-      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE",
+      "recognition_rule": "CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY",
+      "require_unowned_and_unordered": true,
       "security_id": "554480052825212855",
       "source_capture": {
         "artifact_id": 13307310013,
@@ -334,6 +340,7 @@
         "run_id": 41798315426,
         "scope_sha256": "ae8b8a99fbb85bbe7b3abd88d20b1909a8e94b08ff41f842aee2a362267af0d0"
       },
+      "source_valuation_phase": "CLOSE",
       "ticker": "CTXS",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/877890/000119312522256805/d393433d8k.htm"
     }

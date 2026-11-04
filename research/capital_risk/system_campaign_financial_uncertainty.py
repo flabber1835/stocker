@@ -229,7 +229,7 @@ def run_retained(cp, out, args, observer, execution, spec, old):
         chain_sha256=rows[-1]['chain_sha256'], possible_after=rows[-1]['possible_after'],
         prior_qualification_reexecuted=False, prior_proof_rows_reexecuted=0,
         financial_source_changed=False, new_date_or_model_adoption=False))
-    with alder, idempotent_dispatch(alder), gate, certificate, observer, execution, ActualEvents(out, 'P07'):
+    with alder, idempotent_dispatch(alder), gate, certificate, observer, execution, ActualEvents(out, 'P07', cp=cp):
         code = backtest.main(args + ['--repair-overlay', str(path)])
     boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
     return code
