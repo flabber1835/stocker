@@ -37,6 +37,7 @@ from system_campaign_factual_run import (
 from system_campaign_readonly import reader, review as readonly_review
 from system_campaign_acceleration import Execution
 import system_campaign_factual_admit as crypto
+from system_campaign_financial_partial import admit as admit_partial, monthly_reproduction
 
 HERE = Path(__file__).parent
 REQUEST = 'system-campaign-factual-request.json'
@@ -44,11 +45,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07',)
+SELECTED_ARMS = ('P04', 'P07', 'P10')
+PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/2'
+SCHEMA = 'research.system-campaign-accurate-resume-request/3'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -60,20 +62,24 @@ def expected_request():
     names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py',
              'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX,
              'system_campaign_p10_ahl2_input.py', 'system_campaign_p10_ahl2_contract.py',
-             'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION)
+             'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
+             'system_campaign_financial_partial.py', PARTIALS)
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
-                execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
+                execution_mode='READONLY_PARTIAL_FINANCIAL_AND_MONTHLY_REVIEW', new_origin=False,
+                financial_resume_authorized=False, readonly_partial_review=True,
                 diagnostic_state_adopted=False,
-                arm_inputs=dict(P07=dict(new_factual_overlay='ARRAY_PLUS_REVIEWED_TABLEAU_BATCH', restored_correlation=False)),
+                arm_inputs={a: dict(new_factual_overlay=False, restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
+                selected_partials_sha256=sha256_file(HERE / PARTIALS),
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=1, production_contacted=False)
+                maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=3,
+                production_contacted=False)
 
 
 class SeedPaths:
@@ -134,7 +140,7 @@ def prepare_prefix(old, auxiliary, capsule):
 
 
 def seed_rows(old, cp, spec, capsule=Path('/correlation-prefix')):
-    if spec['arm'] != 'P04':
+    if spec['arm'] != 'P04' or spec.get('archive_format') == 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
         return correlation_seed(old, cp)
     descriptor = prefix_descriptor()
     need({p.name for p in capsule.iterdir()} == {'correlation-inputs.jsonl.gz', 'provenance.json'}
@@ -382,6 +388,8 @@ def preflight(old, out, spec):
     proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
          and proof['checkpoint_sha256'] == cp['sha256'], 'RESUME_PARENT_ACCOUNTING_REVIEW_REQUIRED')
+    if spec.get('archive_format') == 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
+        monthly_reproduction(old, out, spec, cp)
     save(out / 'strict-parent-preflight.json', dict(passed=True, arm=spec['arm'],
          outer_sha256=cp['sha256'], selected_file=spec['selected_file'], next_session=following,
          canonical_roundtrip=True, original_journal_commitments_verified=True,
@@ -535,18 +543,22 @@ def export_probe(root, request, arm, key):
                 financial_sessions_advanced=0, credentials_saved=False)
 
 
-def inspect(name, identity=None):
+def inspect(name, identity=None, *, value=None, run_id=None, user=None, correlation_prefix=None):
     match = re.fullmatch(r'capital-system-resume-(p[0-9]{2})-(preflight|worker|review)-([0-9]+)-1', name)
     need(match is not None and match[1].upper() in ARMS
-         and match[3] == os.environ['GITHUB_RUN_ID'], 'RESUME_EXACT_WORKER_NAME')
-    value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
-                                     check=True, timeout=20).stdout)[0]
+         and match[3] == (run_id if run_id is not None else os.environ['GITHUB_RUN_ID']), 'RESUME_EXACT_WORKER_NAME')
+    if value is None:
+        value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
+                                         check=True, timeout=20).stdout)[0]
     h, c = value['HostConfig'], value['Config']
     mode = 'economic' if match[2] == 'worker' else match[2]
     mounts = {v['Destination']: v for v in value['Mounts'] if v['Type'] == 'bind'}
     expected = {'/variant', '/frozen', '/driver', '/old', '/out'} | ({'/evidence'} if mode == 'review' else set())
-    if match[1] == 'p04':
+    use_prefix = correlation_prefix if correlation_prefix is not None else match[1] == 'p04'
+    if use_prefix:
         expected.add('/correlation-prefix')
+    expected_user = user if user is not None else f'{os.getuid()}:{os.getgid()}'
+    need(re.fullmatch(r'[1-9][0-9]*:[1-9][0-9]*', expected_user) is not None, 'RESUME_POSITIVE_UID_GID')
     need(value['Name'] == '/' + name and value['Image'] == EXECUTION_IMAGE
          and (identity is None or value['Id'] == identity), 'RESUME_WORKER_IDENTITY')
     need(h['NetworkMode'] == 'none' and h['Memory'] == h['MemorySwap'] == 8 * 1024**3
@@ -555,7 +567,7 @@ def inspect(name, identity=None):
          'RESUME_OFFLINE_NO_SWAP_FENCES')
     need(set(mounts) == expected and mounts['/out']['RW']
          and all(not v['RW'] for k, v in mounts.items() if k != '/out')
-         and c['WorkingDir'] == '/variant' and c['User'] == f'{os.getuid()}:{os.getgid()}'
+         and c['WorkingDir'] == '/variant' and c['User'] == expected_user
          and c['Labels']['research.study'] == 'full-system-search-20261029'
          and c['Labels']['research.role'] == ('review' if mode == 'review' else 'worker')
          and c['Entrypoint'] == ['python']
@@ -572,11 +584,14 @@ def launch(args):
     need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'RESUME_NO_BLIND_RERUN')
     request = json.loads(args.request.read_bytes())
     need(request == expected_request() and args.arm in SELECTED_ARMS, 'RESUME_EXACT_REQUEST_AND_SELECTED_ARM')
+    need((request['readonly_partial_review'] is True and request['financial_resume_authorized'] is False)
+         or (request['readonly_partial_review'] is False and request['financial_resume_authorized'] is True),
+         'RESUME_EXACT_FINANCIAL_OR_READONLY_AUTHORITY')
     stage_valid(json.loads(args.staging.read_bytes()))
     from ephemeral_runner_capacity import validate_prepared_receipt
     validate_prepared_receipt(json.loads(args.capacity.read_bytes()), head=os.environ['GITHUB_SHA'],
         run_id=os.environ['GITHUB_RUN_ID'], source_sha256=request['sources']['ephemeral_runner_capacity.py'])
-    spec = json.loads((HERE / PARENTS).read_bytes())['arms'][args.arm]
+    spec = json.loads((HERE / (PARTIALS if request['readonly_partial_review'] else PARENTS)).read_bytes())['arms'][args.arm]
     temp = Path(os.environ['RUNNER_TEMP'])
     key = base64.b64decode(os.environ.pop(SECRET, ''), validate=True)
     need(len(key) == 32, 'RESUME_SEPARATE_KEY')
@@ -585,6 +600,8 @@ def launch(args):
         run_id=os.environ['GITHUB_RUN_ID'], head=os.environ['GITHUB_SHA'],
         request_sha256=sha256_file(args.request), protocol_sha256=request['protocol_sha256'],
         predecessor_outer_sha256=spec['outer_sha256'], performance_admitted=False,
+        financial_resume_authorized=request['financial_resume_authorized'],
+        readonly_partial_review=request['readonly_partial_review'],
         production_contacted=False, status='EXPORT_PROBE_PENDING')
 
     def public():
@@ -603,9 +620,11 @@ def launch(args):
         receipt['status'] = 'EXPORT_PROBE_PASSED_PARENT_NOT_FETCHED'
         public()
         need(shutil.disk_usage(temp).free >= 12 * 1024**3, 'RESUME_INITIAL_DISK_RESERVE')
-        old = transport_admit(spec, temp / ('campaign-factual-transfer-financial-' + args.arm.lower()), key)
+        transfer = temp / ('campaign-factual-transfer-financial-' + args.arm.lower())
+        old = (admit_partial(spec, transfer, key, inspect) if request['readonly_partial_review']
+               else transport_admit(spec, transfer, key))
         capsule = None
-        if args.arm == 'P04':
+        if args.arm == 'P04' and not request['readonly_partial_review']:
             auxiliary = crypto.admit(prefix_descriptor()['transport'],
                 temp / 'campaign-factual-transfer-correlation-p04', key, max_zip_bytes=512 * 1024**2)
             capsule = prepare_prefix(old, auxiliary, temp / 'financial-correlation-prefix-P04')
@@ -640,7 +659,7 @@ def launch(args):
                                           '--mode', mode, '--spec', '/out/spec.json']
             return stopped_run(values, name, output,
                 deadline=request['financial_wait_seconds' if mode == 'economic' else mode + '_wait_seconds'],
-                inspector=inspect)
+                inspector=lambda n, identity=None: inspect(n, identity, correlation_prefix=capsule is not None))
 
         parent_review = temp / ('financial-resume-preflight-' + args.arm)
         parent_review.mkdir(mode=0o700)
@@ -654,25 +673,38 @@ def launch(args):
              'RESUME_PARENT_PREFLIGHT_REFUSED_NO_FINANCIAL_LAUNCH')
         for name in ('strict-parent-preflight.json', 'old-prefix-canonical-review.json'):
             shutil.copyfile(parent_review / name, out / name)
-        receipt['status'] = 'ACCURATE_FINANCIAL_RUNNING'
-        public()
-        stopped_snapshot = False
-        receipt['worker'] = worker('economic', out)
-        finance_stopped = stopped_snapshot = True
-        receipt['status'] = 'FINANCIAL_STOPPED_PENDING_REVIEW'
-        public()
-        audit = temp / ('financial-resume-review-' + args.arm)
-        audit.mkdir(mode=0o700)
-        save(audit / 'spec.json', spec)
-        receipt['reviewer'] = worker('review', audit, out)
-        shutil.copytree(audit, out / 'stopped-review')
-        proof_path = audit / 'core-review.json'
-        proof = json.loads(proof_path.read_bytes()) if proof_path.exists() else {}
-        passed = successful_stop(receipt['reviewer'])
-        complete = complete_review(receipt['worker'], receipt['reviewer'], proof)
-        receipt['status'] = ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if complete
-                             else 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if passed
-                             else 'FINANCIAL_REVIEW_REFUSED_PRESERVED')
+        if request['readonly_partial_review']:
+            need(request['financial_resume_authorized'] is False, 'RESUME_READONLY_CANNOT_ADVANCE_FINANCIAL_STATE')
+            monthly = json.loads((parent_review / 'monthly-reproduction.json').read_bytes())
+            need(monthly['passed'] is True and monthly['checkpoint_sha256'] == spec['outer_sha256']
+                 and monthly['completed'] == spec['measured_closes']
+                 and monthly['all_new_monthly_reports_exact'] is True
+                 and monthly['all_monthly_checkpoint_state_exact'] is True
+                 and monthly['financial_transitions_reexecuted'] == 0,
+                 'RESUME_COMPLETE_STOPPED_MONTHLY_REPRODUCTION_REQUIRED')
+            shutil.copyfile(parent_review / 'monthly-reproduction.json', out / 'monthly-reproduction.json')
+            receipt['status'] = 'READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT'
+        else:
+            need(request['financial_resume_authorized'] is True, 'RESUME_FINANCIAL_AUTHORITY_REQUIRED')
+            receipt['status'] = 'ACCURATE_FINANCIAL_RUNNING'
+            public()
+            stopped_snapshot = False
+            receipt['worker'] = worker('economic', out)
+            finance_stopped = stopped_snapshot = True
+            receipt['status'] = 'FINANCIAL_STOPPED_PENDING_REVIEW'
+            public()
+            audit = temp / ('financial-resume-review-' + args.arm)
+            audit.mkdir(mode=0o700)
+            save(audit / 'spec.json', spec)
+            receipt['reviewer'] = worker('review', audit, out)
+            shutil.copytree(audit, out / 'stopped-review')
+            proof_path = audit / 'core-review.json'
+            proof = json.loads(proof_path.read_bytes()) if proof_path.exists() else {}
+            passed = successful_stop(receipt['reviewer'])
+            complete = complete_review(receipt['worker'], receipt['reviewer'], proof)
+            receipt['status'] = ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if complete
+                                 else 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if passed
+                                 else 'FINANCIAL_REVIEW_REFUSED_PRESERVED')
     except StopUnknown:
         receipt['status'] = 'REVIEW_UNKNOWN_STOPPED_FINANCIAL_PRESERVED' if finance_stopped else 'WRITER_UNKNOWN_NO_MUTABLE_EXPORT'
     except Exception:
@@ -685,7 +717,8 @@ def launch(args):
     key = None
     public()
     print(json.dumps(receipt), flush=True)
-    return 0 if receipt['status'] == 'COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' else 2
+    return 0 if receipt['status'] in ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT',
+                                      'READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT') else 2
 
 
 if __name__ == '__main__':

@@ -40,10 +40,12 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P07']
-    assert r['maximum_parallel_financial_workers'] == 1
+    assert r['arms'] == ['P04', 'P07', 'P10']
+    assert r['maximum_parallel_financial_workers'] == 0
+    assert r['maximum_parallel_readonly_workers'] == 3
+    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == dict(P07=dict(new_factual_overlay='ARRAY_PLUS_REVIEWED_TABLEAU_BATCH', restored_correlation=False))
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ['P04','P07','P10']}
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
 
@@ -53,7 +55,7 @@ def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
     workflow = yaml.load((CAP.parent.parent / m.WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
     job = workflow['jobs']['suffix']
     assert job['strategy']['matrix']['arm'] == list(m.SELECTED_ARMS)
-    assert job['strategy']['max-parallel'] == '1'
+    assert job['strategy']['max-parallel'] == '3'
     assert 'concurrency' not in workflow
     assert job['concurrency'] == dict(group='system-optimization-002-financial-${{ matrix.arm }}', **{'cancel-in-progress':'false'})
     assert job['timeout-minutes'] == '285'
@@ -191,6 +193,8 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 def launch_fixture(tmp_path, monkeypatch, event):
     import ephemeral_runner_capacity as capacity
     request = dict(m.expected_request())
+    if not event.startswith('readonly'):
+        request.update(readonly_partial_review=False,financial_resume_authorized=True)
     request_path = tmp_path / 'request.json'
     request_path.write_text(json.dumps(request))
     stage_path, cap_path = tmp_path / 'stage.json', tmp_path / 'capacity.json'
@@ -209,6 +213,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
     monkeypatch.setattr(capacity, 'validate_prepared_receipt', lambda *a, **k: None)
     monkeypatch.setattr(m, 'export_probe', lambda *a: {'synthetic': True})
     monkeypatch.setattr(m, 'transport_admit', lambda *a: old)
+    monkeypatch.setattr(m, 'admit_partial', lambda *a: old)
     monkeypatch.setattr(m, 'memory_bytes', lambda: {'MemAvailable': 20 * 1024**3})
     monkeypatch.setattr(m.shutil, 'disk_usage', lambda p: SimpleNamespace(free=50 * 1024**3))
     def build(source, dest, parameters):
@@ -223,6 +228,11 @@ def launch_fixture(tmp_path, monkeypatch, event):
         if mode == 'preflight':
             for filename in ['strict-parent-preflight.json', 'old-prefix-canonical-review.json']:
                 (output / filename).write_text('{}')
+            spec=json.loads((output/'spec.json').read_bytes())
+            monthly=dict(passed=True,checkpoint_sha256=spec['outer_sha256'],completed=spec['measured_closes'],
+                         all_new_monthly_reports_exact=True,all_monthly_checkpoint_state_exact=True,financial_transitions_reexecuted=0)
+            if event=='readonly-bad-monthly':monthly['all_monthly_checkpoint_state_exact']=False
+            (output/'monthly-reproduction.json').write_text(json.dumps(monthly))
             if event == 'failed-preflight': return dict(stop(), exit_code=1)
         if mode == 'review': (output / 'core-review.json').write_text(json.dumps(proof()))
         return stop()
@@ -253,12 +263,15 @@ def test_removed_unknown_writer_fence_fails_the_no_export_assertion(tmp_path, mo
     tree = ast.parse((CAP / 'system_campaign_financial_resume.py').read_bytes())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'launch')
     region = next(n for n in fn.body if isinstance(n, ast.Try))
-    sites = [i for i, n in enumerate(region.body) if isinstance(n, ast.Assign)
+    sites = [n for n in ast.walk(region) if isinstance(n, ast.Assign)
              and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)
              and n.targets[0].id == 'stopped_snapshot' and isinstance(n.value, ast.Constant)
              and n.value.value is False]
     assert len(sites) == 1
-    region.body.pop(sites[0])
+    class Remove(ast.NodeTransformer):
+        def visit_Assign(self,node):
+            return None if node is sites[0] else self.generic_visit(node)
+    fn=Remove().visit(fn)
     namespace = dict(vars(m))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), '<removed-unknown-writer-fence>', 'exec'), namespace)
     assert namespace['launch'](args) == 2
@@ -270,6 +283,42 @@ def test_unknown_reviewer_preserves_only_positively_stopped_financial_output(tmp
     assert m.launch(args) == 2 and calls == ['preflight', 'economic', 'review']
     assert len(exports) == 1 and not (exports[0] / 'stopped-review').exists()
     assert json.loads(args.output.read_bytes())['status'] == 'REVIEW_UNKNOWN_STOPPED_FINANCIAL_PRESERVED'
+
+
+def test_readonly_success_exports_only_stopped_review_and_never_launches_finance(tmp_path,monkeypatch):
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'readonly')
+    assert m.launch(args)==0 and calls==['preflight'] and len(exports)==1
+    receipt=json.loads(args.output.read_bytes())
+    assert receipt['status']=='READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT'
+    assert receipt['financial_resume_authorized'] is False and receipt['readonly_partial_review'] is True
+    assert 'worker' not in receipt and 'reviewer' not in receipt
+
+
+def test_readonly_monthly_mismatch_cannot_report_success_or_launch_finance(tmp_path,monkeypatch):
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'readonly-bad-monthly')
+    assert m.launch(args)==2 and calls==['preflight'] and len(exports)==1
+    assert json.loads(args.output.read_bytes())['status']=='REFUSED_STOPPED_EVIDENCE_PRESERVED'
+
+
+def test_invalid_readonly_authority_refuses_before_any_worker(tmp_path,monkeypatch):
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'readonly')
+    request=json.loads(args.request.read_bytes());request['financial_resume_authorized']=True
+    args.request.write_text(json.dumps(request));monkeypatch.setattr(m,'expected_request',lambda:request)
+    with pytest.raises(ValueError,match='EXACT_FINANCIAL_OR_READONLY_AUTHORITY'):m.launch(args)
+    assert calls==exports==[]
+
+
+def test_readonly_authority_guard_removal_is_detected_by_preflight_order(tmp_path,monkeypatch):
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'readonly')
+    request=json.loads(args.request.read_bytes());request['financial_resume_authorized']=True
+    args.request.write_text(json.dumps(request));monkeypatch.setattr(m,'expected_request',lambda:request)
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='launch')
+    sites=[n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
+           any(isinstance(a,ast.Constant) and a.value=='RESUME_EXACT_FINANCIAL_OR_READONLY_AUTHORITY' for a in n.value.args)]
+    assert len(sites)==1;fn.body.remove(sites[0]);namespace=dict(vars(m))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-readonly-authority-order>','exec'),namespace)
+    namespace['launch'](args)
+    with pytest.raises(AssertionError):assert calls==exports==[]
 
 
 def test_preflight_guard_removal_falsifier(tmp_path, monkeypatch):

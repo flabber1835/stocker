@@ -183,3 +183,60 @@ to be actual transfer-agent net proceeds or exact statutory timestamps. No
 diagnostic convention is imported. A resulting full financial pass must disclose
 these existing modeling assumptions; common-assumption ranking stays unadmitted.
 Select P07 alone; the immutable P04/P10 jobs continue independently.
+
+## Independent admission of stopped P04/P07 progress
+
+P04 now has an actual 817-close checkpoint through March31,2021 and P07 an
+actual 439-close checkpoint through September30,2019. Their respective new
+suffixes contain 566 and 64 committed daily records. Both workers positively
+stopped, both independent hosted reviewers passed, and their new complete
+encrypted outputs were authenticated. P04 then refused incomplete APHA terms
+on April30; P07 refused incomplete ALDR terms on October21. Neither is a full
+financial completion or a new root-admitted predecessor yet.
+
+Before another financial continuation, select these exact stopped checkpoints
+for a read-only review batch in the SAME shared adapter/workflow. Its request
+explicitly sets financial_resume_authorized=false and financial source, input
+and state changes to false. Select P04/P07 concurrently. The launcher must run
+only its stopped parent preflight, export the review proofs, and never launch
+an economic worker. The new metadata-only partial index is not financial
+authority and does not replace the frozen original parent index.
+
+Reuse the original authenticated artifact reader through a narrowly counted,
+source-bound adapter for the current five-member ZIP and the retained
+stopped-review/core-review.json path. All original archive, complete cipher/GCM,
+manifest, member, stop, source, selected checkpoint and journal-prefix checks
+remain intact. Pin all four public member byte strings separately, reject
+duplicates/unknown ZIP names, and validate the prior capacity/staging/export
+receipts. Reuse the shared inspector on authenticated static inspection values
+with exact prior run, container ID, positive owner, entrypoint, bind set and
+credential/resource fences; do not require the old runner to remain alive.
+Keep the existing one-GiB plaintext bound and no mutable UNKNOWN export.
+
+The offline preflight independently restores/reviews the selected actual book,
+checks complete causal correlation records, and reproduces only the NEW monthly
+reporting suffix from its exact retained original 251/375-close statistics.
+Reuse the P01 monthly-reproduction algorithm with the selected own predecessor,
+the frozen next-session axis, Decimal precision50 and actual source-bound
+MonthlyStats implementation. All new stored reports (apart from the separately
+committed slot_retries field) and the ENTIRE selected statistics object must
+match exactly. Record the source hash, full monthly-journal hash, both checkpoint
+identities and record counts. This is reporting from recorded data; zero Core
+or controller transitions may be recomputed. Inputs/books remain read-only.
+
+After authenticating these new read-only proofs, independently review the new
+566/64 daily records, two raw accounting snapshots per day, inherited ledger,
+cash, shares, receivables, marks, funded factors, complete daily chains,
+input-adoption neutrality, exact reporting and all selected prefixes/tails.
+Only then root-admit the actual 817/439 checkpoints for further financial work.
+Do not rerun the original 251/375-close financial continuations or adopt their
+successful uncommitted tails.
+
+P10 has now also positively stopped and passed hosted review, with an actual
+692-close checkpoint through September30,2020 (420 new committed rows), followed
+by an October1 native volatility causal-axis refusal. Its complete new artifact,
+full GCM/member inventory, own AHL2 neutral-adoption checkpoint and actual stops
+were independently authenticated. Include P10 in this same read-only batch,
+using its own original 272-close monthly seed, exact V source and current four
+input descriptors. Select three concurrent read-only workers and zero financial
+workers; this extends the same review mechanism without changing financial rules.

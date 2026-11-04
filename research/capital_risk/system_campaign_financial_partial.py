@@ -1,0 +1,185 @@
+"""Authenticate stopped financial evidence and reproduce recorded reporting only."""
+import ast
+from copy import deepcopy
+from decimal import Decimal, localcontext
+import gzip
+import json
+from pathlib import Path
+import re
+import zipfile
+
+from full_system_benchmark import need, save
+from full_system_core import hosted
+from runtime_identity import EXECUTION_IMAGE
+from seal import sha256_file
+from stage import PROTOCOL, IMAGE
+from system_campaign_facts import digest, sha
+from system_campaign_discovery_context import require_strict_checkpoint
+from system_campaign_parallel_discovery import check_parent
+import system_campaign_factual_admit as crypto
+
+HERE = Path(__file__).parent
+ORIGINALS = 'system-campaign-parallel-discovery-parents.json'
+CRYPTO_SHA = '63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4'
+FORMAT = 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1'
+
+
+def public_names(spec, archive):
+    """This runs before GCM in the unchanged reader; public bytes are pinned."""
+    names = archive.namelist()
+    public = spec['public_members']
+    need(len(names) == len(set(names)) == 5 and len(public) == 4
+         and set(public) == {spec['receipt_name'], 'full-core-staging.json',
+             'ephemeral-runner-capacity.json', 'resume-export-qualification-' + spec['arm'] + '.json'}
+         and set(names) == set(public) | {spec['encrypted_output']['name']},
+         'PARTIAL_EXACT_FIVE_UNIQUE_ZIP_MEMBERS')
+    for name, expected in public.items():
+        need(archive.getinfo(name).file_size == expected['bytes'] < 2 * 1024**2,
+             'PARTIAL_PUBLIC_MEMBER_BOUND')
+        raw = archive.read(name)
+        need(dict(bytes=len(raw), sha256=sha(raw)) == expected, 'PARTIAL_EXACT_PUBLIC_BYTES')
+    receipt = json.loads(archive.read(spec['receipt_name']))
+    need(receipt['status'] == spec['receipt_status'] == 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT'
+         and receipt['performance_admitted'] is False
+         and {k: receipt[k] for k in spec['prior_stops']} == spec['prior_stops'],
+         'PARTIAL_ACTUAL_PRIOR_STATUS_AND_STOPS')
+    marker = json.loads(archive.read('resume-export-qualification-' + spec['arm'] + '.json'))
+    need(marker == dict(status='REAL_SYNTHETIC_ENCRYPTED_EXPORT_ROUNDTRIP_PASSED',
+         arm=spec['arm'], financial_sessions_advanced=0, credentials_saved=False),
+         'PARTIAL_ACTUAL_EXPORT_PROBE')
+    staging = json.loads(archive.read('full-core-staging.json'))
+    need(staging['status'] == 'STAGING_PASSED' and staging['run_id'] == str(spec['run_id'])
+         and staging['source_commit'] == spec['head'] and staging['protocol_sha256'] == PROTOCOL
+         and staging['runtime_image'] == IMAGE and staging['execution_image'] == EXECUTION_IMAGE
+         and staging['source_files_verified'] == 514 and staging['members_verified'] == 591
+         and staging['authenticated_before_parsing'] is True and staging['offline_image_source_verified'] is True
+         and staging['runtime_index_config_layer_chain_verified'] is True and staging['replay_started'] is False,
+         'PARTIAL_ACTUAL_FROZEN_STAGING')
+    return set(public) | {spec['encrypted_output']['name']}
+
+
+def admission_tree():
+    """Adapt exactly two format sites; retain every original authentication guard."""
+    raw = Path(crypto.__file__).read_bytes()
+    need(sha(raw) == CRYPTO_SHA, 'PARTIAL_UNCHANGED_ORIGINAL_CRYPTO_SOURCE')
+    fn, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'admit']
+
+    class Format(ast.NodeTransformer):
+        members = review = 0
+
+        def visit_Set(self, node):
+            if ast.unparse(node) == "{spec['receipt_name'], 'full-core-staging.json', asset['name']}":
+                self.members += 1
+                return ast.copy_location(ast.parse('public_names(spec, z)', mode='eval').body, node)
+            return self.generic_visit(node)
+
+        def visit_BinOp(self, node):
+            if ast.unparse(node) == "dest / 'core-review.json'":
+                self.review += 1
+                return ast.copy_location(ast.parse("dest / 'stopped-review/core-review.json'", mode='eval').body, node)
+            return self.generic_visit(node)
+
+    adapter = Format()
+    fn = adapter.visit(fn)
+    need(adapter.members == adapter.review == 1, 'PARTIAL_EXACTLY_TWO_FORMAT_SITES')
+    return ast.fix_missing_locations(fn)
+
+
+def admit(spec, root, key, inspector):
+    need(spec['archive_format'] == FORMAT and spec['financial_authority'] is False
+         and spec['financial_predecessor_admitted'] is False
+         and spec['manifest']['raw_member_bytes'] < 1024**3,
+         'PARTIAL_READONLY_UNADMITTED_TARGET_SCOPE')
+    namespace = dict(vars(crypto), public_names=public_names)
+    fn = admission_tree()
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-format-adapter>', 'exec'), namespace)
+    destination = namespace['admit'](spec, root, key, max_zip_bytes=512 * 1024**2)
+    for name, expected in spec['inspections'].items():
+        value = json.loads((destination / name).read_bytes())
+        need(re.fullmatch(r'[1-9][0-9]*:[1-9][0-9]*', expected['user']) is not None,
+             'PARTIAL_POSITIVE_ORIGINAL_UID_GID')
+        inspector(expected['name'].removeprefix('/'), expected['id'], value=value,
+            run_id=str(spec['run_id']), user=expected['user'],
+            correlation_prefix=expected['correlation_prefix_mounted'])
+        state = value['State']
+        need(state['Running'] is False and state['OOMKilled'] is False
+             and type(state['ExitCode']) is int and state['ExitCode'] == expected['exit_code'],
+             'PARTIAL_ACTUAL_ARCHIVED_POSITIVE_STOP')
+    review = json.loads((destination / 'stopped-review/core-review.json').read_bytes())
+    need(review['all_prefixes_verified'] is True and review['all_daily_factors_and_chains_verified'] is True
+         and review['checkpoint_sha256'] == spec['outer_sha256']
+         and review['counts'] == dict(formation=126, daily=spec['measured_closes']),
+         'PARTIAL_ORIGINAL_FULL_PREFIX_REVIEW')
+    raw = (destination / 'request.json').read_bytes()
+    need(dict(bytes=len(raw), sha256=sha(raw)) == spec['original_request_member']
+         and sha(raw) == spec['request_sha256'], 'PARTIAL_ORIGINAL_REQUEST_MEMBER')
+    from ephemeral_runner_capacity import validate_prepared_receipt
+    with zipfile.ZipFile(destination.parent / 'predecessor.zip') as archive:
+        capacity = json.loads(archive.read('ephemeral-runner-capacity.json'))
+    validate_prepared_receipt(capacity, head=spec['head'], run_id=str(spec['run_id']),
+        source_sha256=json.loads(raw)['sources']['ephemeral_runner_capacity.py'])
+    return destination
+
+
+def reproduce_reports(stats, parent, current, daily, reports, following):
+    """Only recorded NAV/report values are ingested; this is not a financial run."""
+    need(len(daily) == current['completed'] - parent['completed'] > 0
+         and following > current['source_cursor'] == daily[-1]['session'], 'PARTIAL_REPORTING_SUFFIX_AXIS')
+    dates = [r['session'] for r in daily] + [following]
+    actual = []
+    for index, row in enumerate(daily):
+        report = stats.advance(row['session'], {k: Decimal(v) for k, v in row['comparison_navs'].items()},
+            core_target=str(row['decision']['target_core_exposure']), month_end=dates[index + 1][:7] != row['session'][:7])
+        if report:
+            actual.append(report)
+    stored = deepcopy(reports)
+    for report in stored:
+        report.pop('slot_retries')
+    need(actual == stored and stats.to_dict() == current['stats'],
+         'PARTIAL_ALL_NEW_REPORTS_AND_ENTIRE_STATS_EXACT')
+    return dict(new_daily_records=len(daily), new_reports=len(reports),
+                all_new_monthly_reports_exact=True, all_monthly_checkpoint_state_exact=True)
+
+
+def monthly_reproduction(evidence, out, spec, current):
+    hosted()
+    from research.pooled_vacancy_funding.monthly import MonthlyStats
+    from research.pooled_input_support.bundle import axis
+    need(sha256_file(HERE / ORIGINALS) == spec['original_parent_index_sha256'],
+         'PARTIAL_EXACT_RETAINED_ORIGINAL_INDEX')
+    original = json.loads((HERE / ORIGINALS).read_bytes())['arms'][spec['arm']]
+    path = evidence / 'book/predecessor-checkpoints' / (original['outer_sha256'] + '.json.gz')
+    raw = path.read_bytes()
+    need(dict(bytes=len(raw), sha256=sha(raw)) == original['selected_file'],
+         'PARTIAL_EXACT_ORIGINAL_MONTHLY_SEED_GZIP')
+    parent = require_strict_checkpoint(json.loads(gzip.decompress(raw)))
+    check_parent(parent, original)
+    need(parent['base'] == current['base'], 'PARTIAL_SAME_MONTHLY_SOURCE_BASE')
+
+    def rows(name):
+        raw = (evidence / 'book' / (name + '.jsonl')).read_bytes()
+        before, after = parent['journals'][name], current['journals'][name]
+        need(after['bytes'] >= before['bytes'] and sha(raw[:before['bytes']]) == before['prefix_sha256']
+             and sha(raw[:after['bytes']]) == after['prefix_sha256'], 'PARTIAL_REPORTING_ORIGINAL_AND_CURRENT_PREFIXES')
+        return [json.loads(line) for line in raw[before['bytes']:after['bytes']].splitlines()]
+
+    daily, reports = rows('daily'), rows('monthly')
+    measured = [d for d in axis() if '2018-01-02' <= d <= '2026-07-31']
+    need(len(measured) == 2156 and measured == sorted(set(measured))
+         and measured[parent['completed']:current['completed']] == [r['session'] for r in daily],
+         'PARTIAL_EXACT_FROZEN_NEW_REPORTING_AXIS')
+    following = measured[current['completed']] if current['completed'] < 2156 else '2026-08-03'
+    with localcontext() as context:
+        context.prec = 50
+        proof = reproduce_reports(MonthlyStats.from_dict(parent['stats']), parent, current, daily, reports, following)
+    source = Path('/variant/research/pooled_vacancy_funding/monthly.py')
+    need(sha256_file(source) == current['base']['sources']['research/pooled_vacancy_funding/monthly.py'],
+         'PARTIAL_ACTUAL_MONTHLY_IMPLEMENTATION_SOURCE')
+    proof.update(schema='research.partial-exact-linux-monthly-reproduction/1', passed=True,
+        arm=spec['arm'], parent_sha256=parent['sha256'], checkpoint_sha256=current['sha256'],
+        completed=current['completed'], source_cursor=current['source_cursor'], next_session=following,
+        monthly_source_sha256=sha256_file(source), complete_stored_reports_sha256=digest(reports),
+        entire_monthly_journal_sha256=sha256_file(evidence / 'book/monthly.jsonl'),
+        financial_transitions_reexecuted=0, financial_authority=False)
+    save(out / 'monthly-reproduction.json', proof)
+    return proof
