@@ -65,6 +65,8 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
 
 
 def test_initial_report_request_can_never_start_financial_workers(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P05','P06','P11'))
+    monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
     assert value['arms']==['P05','P06','P11'] and value['maximum_parallel_financial_workers']==0
     assert value['financial_resume_authorized'] is False and value['readonly_partial_review'] is True

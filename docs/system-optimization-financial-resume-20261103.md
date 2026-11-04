@@ -1618,3 +1618,30 @@ The reporting bootstrap passed173 targeted initial-prefix/initial-reporting/
 partial/resume/retention tests in24.98s, including both new guard-removal
 falsifiers. The three original current stats objects each retain the same four
 required50000-initial-NAV series; no reporting seed or financial state is invented.
+
+## Owner clarification: progress with explicit daily research assumptions
+
+The November4 owner clarification supersedes the earlier demand for ultimate
+settlement precision as a prerequisite to research continuation. Apply the
+published-consideration models in
+[the research assumptions](system-optimization-research-assumptions-20261104.md).
+Start with LM's50USD on its actual July31 completion calendar date, explicitly
+modeling opening availability without asserting preopen completion. Reuse its
+closed own628 source proof, shared catalog/selector and unchanged financial
+engine. Later AAAP/FMSA inputs may use the separately disclosed assumptions;
+their earlier strict-evidence refusals remain historical records, not current
+requirements to obtain ultimate settlement accuracy.
+The LM continuation passed210 targeted research-cash/own-cash/resume/future/
+initial-prefix/completion-session/retained-proof tests in24.15s. Its typed
+assumption and two guard-removal falsifiers distinguish the modeled daily
+availability from a claim of actual settlement.
+
+Fresh P00 financial41840638797/c79c2b5ab artifact13332060825 succeeded with2156
+committed closes through July31,2026,273 beyond its admitted1883 root. All three
+actual workers stopped zero/non-OOM; no worker or reviewer error. Select that
+complete target for13 new monthly reports and independent final-suffix/full-period
+admission. Existing complete-endpoint/103-report/empty-tail predicates apply;
+no archived P00 holdings or returns are used and no financial replay is needed.
+The complete P00 target passed150 resume/partial/initial-reporting/complete-reporting
+tests in32.21s. The historical169-repeat refusal explicitly selects the unchanged
+169 fixture; the current2156 target is a legitimate new suffix from1883.

@@ -491,6 +491,83 @@
       },
       "ticker": "TGI",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm"
+    },
+    {
+      "actual_completion_date": "2020-07-31",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 50.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm | Published50USD common-share consideration is recognized on the July31,2020 completion calendar date at the research opening boundary. Opening availability is an explicit daily-model assumption; actual preopen completion, settlement timing and fees are not claimed. Preserve July30 native trading and the qualified own628 source and49-share holding.",
+        "security_id": "986298677409235360",
+        "session": "2020-07-31"
+      },
+      "arm": "P07",
+      "description": "Published50USD common-share consideration is recognized on the July31,2020 completion calendar date at the research opening boundary. Opening availability is an explicit daily-model assumption; actual preopen completion, settlement timing and fees are not claimed. Preserve July30 native trading and the qualified own628 source and49-share holding.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:704051",
+        "listing_first_session": "1997-12-31",
+        "security_id": "986298677409235360",
+        "security_type_eligible": "1",
+        "session": "2020-07-29",
+        "source_observation_sha256": "bd91c16eadfd29de9462216101e31368c3de17b6cd51161df9ef93f2bc6cd661",
+        "ticker": "LM"
+      },
+      "last_trading_session": "2020-07-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4446.5",
+        "security_id": "986298677409235360",
+        "session": "2020-07-30"
+      },
+      "native_session": "2020-07-30",
+      "native_term_sha256": "6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d",
+      "parent_cursor": "2020-06-30",
+      "parent_outer_sha256": "b4dfd007ce0e9ea454b8a174f7796b3be416620173d85715b24abdbfdb56d9a3",
+      "parent_positions": [
+        {
+          "entry_date": "2020-06-24",
+          "quantity": 49,
+          "slot_id": 20,
+          "ticker": "LM"
+        }
+      ],
+      "parent_root_admission_sha256": "2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "50.00",
+        "recognition_session": "2020-07-31",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "986298677409235360",
+      "source_capture": {
+        "artifact_id": 13320032317,
+        "head": "9f4dbf9ae615cbdfcee7b10ee3c2458855c90c4b",
+        "independent_data_review_sha256": "ef3b56742b9a804eb2e57d274781d3861fb07db03626c174dfcb70e8411e7b81",
+        "payload_sha256": "7068400db7b75efd27f290bf6b10b0963fc487590b49397f384bd2bd7c87f1e6",
+        "run_id": 41827156321,
+        "scope_sha256": "6ae861570534af9aa6c1e6b971ed2828e7583766725944f0cdd28c60cd8d83d5"
+      },
+      "ticker": "LM",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
     }
   ]
 }

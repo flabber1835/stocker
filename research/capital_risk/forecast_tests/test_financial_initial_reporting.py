@@ -20,7 +20,7 @@ def fresh_root():
     return p.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694')
 
 
-def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch):
+def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch,tmp_path):
     monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     spec = target(); seed = p.initial_reporting_seed(spec)
@@ -32,6 +32,10 @@ def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch)
     assert root['root_admission']['historical_p00_state_or_returns_reused'] is False
     assert root['root_admission']['performance_scoring_authorized'] is False
     assert spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
+    # Reject repeating the exact historical169 target; the current2156 target
+    # is a legitimate new reporting suffix from the separately admitted1883.
+    (tmp_path/m.PARTIALS).write_text(json.dumps(dict(arms=dict(P00=spec))))
+    monkeypatch.setattr(m,'HERE',tmp_path)
     with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):
         m.expected_request()
 
