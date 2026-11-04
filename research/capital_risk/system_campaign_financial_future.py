@@ -66,7 +66,7 @@ def source_terms(scope, natives, rows, positions):
         row, = [r for r in rows if (r['session'], r['security_id']) == (term['session'], sid)]
         need(scope['parent_cursor'] < term['native_session'] and term['session'] < term['native_session']
              and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session'])
-             and row['ticker'] == term['ticker'] and row['security_type_eligible'] == '1'
+             and row['ticker'] == term['ticker'] and row['security_type_eligible'] in ('0', '1')
              and type(row['issuer_id']) is str, 'SOURCE_WITNESS_EXACT_UNMODIFIED_IDENTITY')
         need(native['session'] == term['native_session'] and native['security_id'] == sid
              and native['kind'] == 'CASH_MERGER' and native['cash_per_share'] is None

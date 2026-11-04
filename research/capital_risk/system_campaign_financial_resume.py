@@ -53,7 +53,7 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/13'
+SCHEMA = 'research.system-campaign-accurate-resume-request/14'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -104,6 +104,22 @@ def request_authority(request):
         (False, False, True): 'READONLY_FROZEN_SOURCE_WITNESSES',
     }
     return all(type(v) is bool for v in flags) and flags in modes and request['execution_mode'] == modes[flags]
+
+
+def source_request_bindings(request, spec):
+    """Workflow bytes were verified by the host, outside this immutable mount."""
+    from system_campaign_financial_future import WITNESS_SCOPES
+    need(request_authority(request) and request['readonly_source_witnesses'] is True
+         and request['schema'] == SCHEMA and request['arms'] == list(SELECTED_ARMS)
+         and request['source_witness_scopes'] == {a: WITNESS_SCOPES[a] for a in SELECTED_ARMS}
+         and spec['arm'] in SELECTED_ARMS
+         and request['admitted_checkpoints'][spec['arm']] == spec['outer_sha256']
+             == WITNESS_SCOPES[spec['arm']]['parent_outer_sha256']
+         and request['admitted_financial_parents_sha256'] == sha256_file(HERE / ROOTS)
+         and request['sources']['system_campaign_financial_resume.py'] == sha256_file(Path(__file__))
+         and request['sources']['system_campaign_financial_future.py']
+             == sha256_file(HERE / 'system_campaign_financial_future.py'),
+         'RESUME_SOURCE_WITNESS_EXACT_WORKER_REQUEST_BINDINGS')
 
 
 class SeedPaths:
@@ -442,8 +458,8 @@ def preflight(old, out, spec):
          accounting_review_sha256=sha256_file(out / 'old-prefix-canonical-review.json')))
     request = json.loads((HERE / REQUEST).read_bytes())
     if request.get('readonly_source_witnesses') is True:
-        need(request_authority(request) and request == expected_request(),
-             'RESUME_SOURCE_WITNESS_EXACT_READONLY_REQUEST')
+        source_request_bindings(request, spec)
+        shutil.copyfile(HERE / REQUEST, out / 'source-witness-request.json')
         from system_campaign_financial_future import capture_source_witnesses
         capture_source_witnesses(cp, out, spec['arm'], request['source_witness_scopes'][spec['arm']])
 
@@ -742,6 +758,8 @@ def launch(args):
         if request.get('readonly_source_witnesses') is True:
             need(request['financial_resume_authorized'] is request['readonly_partial_review'] is False,
                  'RESUME_SOURCE_WITNESSES_CANNOT_LAUNCH_FINANCE_OR_REPORTING')
+            need((parent_review / 'source-witness-request.json').read_bytes() == args.request.read_bytes(),
+                 'RESUME_SOURCE_WITNESS_ACTUAL_WORKER_REQUEST_BYTES')
             from system_campaign_financial_future import SOURCE_WITNESS_FILE, validate_witness_capture
             payload = json.loads((parent_review / SOURCE_WITNESS_FILE).read_bytes())
             validate_witness_capture(payload, spec, request['source_witness_scopes'][args.arm])

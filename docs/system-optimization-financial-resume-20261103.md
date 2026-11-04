@@ -714,3 +714,32 @@ the next request selects only P04/P10 source capture. Closed historical/source
 audits and qualifications remain closed. Targeted synthetic tests must refuse
 wrong/duplicate/missing rows, native preimage changes, parent-role substitution,
 mixed authority, mutable/UNKNOWN export and source-mode financial launch.
+
+
+## Keep workflow verification on the orchestrator side of the container boundary
+
+Stopped source-capture run41782414676 authenticated both exports and launched no
+financial worker. Both read-only preflights failed because expected_request()
+tries to read the checkout's .github workflow through HERE.parent.parent, which
+is /.github inside the /driver container mount. This is a launcher validation
+placement error, not a market-data or network failure.
+
+Keep the complete source/workflow expected-request check on the orchestrator
+before staging and launch. Inside the immutable offline worker, validate the
+request's exact schema/mode/selected arms, current source scopes and admitted
+root bundle, own parent, and the executing launcher/selector file hashes. Copy
+the exact request bytes parsed there into the preflight output; the orchestrator
+must compare those bytes to its already fully verified request before accepting
+a source capture. Never require an unavailable workflow mount or broaden input
+mounts just to repeat the host check. Preserve the original positive-stop and
+UNKNOWN behavior. Retry only from the same independently admitted roots after
+this concrete error is fixed and tested.
+
+Source capture preserves an observed eligibility flag of either0 or1 verbatim;
+it does not decide portfolio eligibility or upgrade an unknown issuer. The
+row's complete digest and original metadata remain bound. Invalid flag syntax
+refuses. This corrects an unnecessary eligible1 assumption in a DATA-only scan.
+
+Fresh P00's authenticated new169-close August31 prefix and P07's543-close
+February28 prefix require independent DATA/reporting admission before any new
+root. Neither their later tails nor historical P00 state may supply authority.

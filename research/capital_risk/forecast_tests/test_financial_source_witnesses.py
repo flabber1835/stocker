@@ -43,6 +43,15 @@ def test_complete_row_native_and_actual_parent_scope_preserved_without_state_mut
     assert (cp,scope,natives,rows)==before
 
 
+def test_ineligible_unknown_source_metadata_is_captured_without_upgrade():
+    cp,scope,natives,rows=source_fixture()
+    rows[0].update(issuer_id='SEC_UNKNOWN:synthetic',security_type_eligible='0')
+    value=f.witness_payload(cp,'P04',scope,natives,rows)
+    assert value['terms'][0]['source_row']==rows[0]
+    assert value['terms'][0]['identity_witness']['security_type_eligible']=='0'
+    assert value['provider_metadata_upgraded'] is False
+
+
 @pytest.mark.parametrize('change', ['missing','duplicate','ticker','sid','eligible','listing','native','native_day',
                                    'quantity','entry_date','parent_hash','parent_cursor','future_consumed'])
 def test_wrong_source_or_own_parent_scope_refuses(change):
@@ -51,7 +60,7 @@ def test_wrong_source_or_own_parent_scope_refuses(change):
     elif change=='duplicate':rows.append(deepcopy(rows[0]))
     elif change=='ticker':rows[0]['ticker']='OTHER'
     elif change=='sid':rows[0]['security_id']='OTHER'
-    elif change=='eligible':rows[0]['security_type_eligible']='0'
+    elif change=='eligible':rows[0]['security_type_eligible']='2'
     elif change=='listing':rows[0]['listing_first_session']='2023-01-01'
     elif change=='native':natives[0]['cash_per_share']=203.
     elif change=='native_day':natives[0]['session']='2022-07-22'
@@ -226,10 +235,67 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
     selected['root_admission']={};monkeypatch.setattr(m,'validate_root_spec',lambda spec:None)
     request=dict(financial_resume_authorized=False,readonly_partial_review=False,readonly_source_witnesses=True,
                  execution_mode='READONLY_FROZEN_SOURCE_WITNESSES',source_witness_scopes={'P04':{'synthetic':True}})
-    Path(m.REQUEST).write_text(json.dumps(request));monkeypatch.setattr(m,'expected_request',lambda:request)
+    Path(m.REQUEST).write_text(json.dumps(request))
+    monkeypatch.setattr(m,'source_request_bindings',lambda actual,spec: None if actual==request and spec is selected else (_ for _ in ()).throw(AssertionError('wrong request/root')))
+    monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('workflow lookup inside worker')))
     captures=[]
     monkeypatch.setattr(f,'capture_source_witnesses',lambda cp,target,arm,scope:captures.append(
         (cp['sha256'],target,arm,scope)))
     m.preflight(old,out,selected)
     assert calls==[] and captures==[('a'*64,out,'P04',{'synthetic':True})]
     assert json.loads((out/'strict-parent-preflight.json').read_bytes())['financial_sessions_advanced']==0
+    assert (out/'source-witness-request.json').read_bytes()==Path(m.REQUEST).read_bytes()
+
+
+def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
+    request=m.expected_request();selected=m.root_spec('P04')
+    monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
+    m.source_request_bindings(request,selected)
+
+
+@pytest.mark.parametrize('change',['schema','mode','scope','root','bundle','launcher','selector'])
+def test_changed_worker_request_binding_refuses(change):
+    request=m.expected_request();selected=m.root_spec('P04')
+    if change=='schema':request['schema']='UNKNOWN'
+    elif change=='mode':request['financial_resume_authorized']=True
+    elif change=='scope':request['source_witness_scopes']['P04']['terms'][0]['ticker']='OTHER'
+    elif change=='root':request['admitted_checkpoints']['P04']='0'*64
+    elif change=='bundle':request['admitted_financial_parents_sha256']='0'*64
+    elif change=='launcher':request['sources']['system_campaign_financial_resume.py']='0'*64
+    else:request['sources']['system_campaign_financial_future.py']='0'*64
+    with pytest.raises(ValueError):m.source_request_bindings(request,selected)
+
+
+def test_worker_source_binding_guard_removal_falsifier():
+    request=m.expected_request();selected=m.root_spec('P04')
+    request['sources']['system_campaign_financial_resume.py']='0'*64
+    with pytest.raises(ValueError):m.source_request_bindings(request,selected)
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_request_bindings')
+    fn.body=[n for n in fn.body if not(isinstance(n,ast.Expr) and isinstance(n.value,ast.Call))]
+    ns=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
+        '<removed-worker-source-request-guard>','exec'),ns)
+    assert ns['source_request_bindings'](request,selected) is None
+
+
+def test_different_actual_worker_request_cannot_be_accepted(tmp_path,monkeypatch):
+    from research.capital_risk.forecast_tests.test_financial_resume import launch_fixture
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'witness-wrong-request')
+    assert m.launch(args)==2 and calls==['preflight'] and len(exports)==1
+    assert json.loads(args.output.read_bytes())['status']=='REFUSED_STOPPED_EVIDENCE_PRESERVED'
+
+
+def test_actual_worker_request_byte_guard_removal_falsifier(tmp_path,monkeypatch):
+    from research.capital_risk.forecast_tests.test_financial_resume import launch_fixture
+    args,calls,exports=launch_fixture(tmp_path,monkeypatch,'witness-wrong-request')
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='launch')
+    class Remove(ast.NodeTransformer):
+        count=0
+        def visit_Expr(self,node):
+            if isinstance(node.value,ast.Call) and any(isinstance(a,ast.Constant) and
+               a.value=='RESUME_SOURCE_WITNESS_ACTUAL_WORKER_REQUEST_BYTES' for a in node.value.args):
+                self.count+=1;return None
+            return self.generic_visit(node)
+    remove=Remove();fn=remove.visit(fn);assert remove.count==1
+    ns=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
+        '<removed-actual-worker-request-byte-guard>','exec'),ns)
+    assert ns['launch'](args)==0 and calls==['preflight']

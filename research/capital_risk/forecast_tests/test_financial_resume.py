@@ -252,6 +252,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
                 payload=future.witness_payload(cp,'P07',scope,natives,rows)
                 if event=='witness-bad-payload':payload['terms'][0]['source_row']['raw_close']='WRONG'
                 (output/future.SOURCE_WITNESS_FILE).write_text(json.dumps(payload))
+                (output/'source-witness-request.json').write_bytes(b'changed' if event=='witness-wrong-request' else request_path.read_bytes())
                 if event=='witness-unknown-preflight':raise m.StopUnknown('synthetic source stop unknown')
             if event == 'failed-preflight': return dict(stop(), exit_code=1)
         if mode == 'review': (output / 'core-review.json').write_text(json.dumps(proof()))
