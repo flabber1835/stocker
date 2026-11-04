@@ -527,3 +527,36 @@ passed 297 cases, including removed-guard falsifiers. The private source snapsho
 retained all 479 tracked files byte for byte before and after execution; all 442
 Python files matched the reviewed record. An earlier Windows bind-mounted run
 reached its 900-second limit and is not counted as passing evidence.
+
+### Pending PAPER alignment during closing-data preparation (November 4)
+
+Starting the next closing-data cycle replaces the completed-day PAPER context
+with an ordinary, still-unverified pending result. The owned verifier already
+projects its bounded check as expected work, but completing that check can
+reintroduce a generic pending warning while no next plan exists. This creates
+false REVIEW/RECOVERED changes during normal preparation.
+
+Keep this repair in human presentation. Admit only the model's plain pending
+PAPER result, with a finite original observation boundary and no alignment or
+recovery override, or the existing bounded queued check. The current cycle must
+have an active typed closing-data wait or bounded REFRESHING_DATA/PREPARING work.
+When data is already ready, require its exact latest closed-session feed and
+strategy verdict instead of borrowing a historical wait. PLAN_READY and its open
+step additionally require the exact visible future plan for that session. All
+these allowances end at the original next exchange opening at the latest.
+Require positive independent source evidence, live strategy worker and leader,
+enabled PAPER control, complete current account/broker evidence, current backup,
+delivery and runtime facts. Each strategy/source fact must be current OK or an
+independently typed bounded closing-data wait. A generic transient retry, absent
+proof, integrity failure, UNKNOWN, expired evidence, killed control or incomplete
+broker evidence retains warning/failure. Do not interpret exception prose.
+
+This changes neither verifier receipts nor their raw WARN/NOT_VERIFIED status,
+execution readiness, plans, financial authority, source deadlines or retry policy.
+Bound human freshness by the minimum original PAPER, source, worker and leader
+clocks. Existing incident/review history stays immutable and still requires
+explicit healthy acknowledgement. Test the pending/check transition, raw JSON
+and HTML preservation, every missing/current capability, expiry, genuine retry
+and integrity failures, and an executed removed-source-proof falsifier. Deploy
+only the qualified presentation module to the existing panel; retain the signed
+base and all other role identities and source bytes.

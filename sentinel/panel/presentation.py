@@ -279,7 +279,99 @@ def _completed_work_normal(panel) -> bool:
             and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now))
 
 
+def _preparation_inputs_current(panel) -> bool:
+    from sentinel.feed import calendar
+    session = calendar.latest_closed_session(panel.now)
+    return (all(_current_health_fact(panel, key) for key in (
+                'feed', 'shadow_verification', 'book', 'exposure', 'terminals'))
+            and panel.row('feed').value == session+' · 0 sessions behind'
+            and panel.row('shadow_verification').value == 'SHADOW VERIFIED THROUGH '+session
+            and panel.row('book').can_show_shadow_book(panel.now)
+            and panel.row('book').shadow_book.session == session)
+
+
+def _preparing_work_normal(panel) -> bool:
+    """Ordinary pending PAPER work can accompany proven next-close preparation.
+
+    No financial verdict is promoted: the independently observed raw pending
+    row, current capabilities and original preparation clocks remain separate.
+    """
+    if (not panel.local_paper_mode or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)):
+        return False
+    if not _closing_source_proof(panel) and not _preparation_inputs_current(panel):
+        return False
+    from sentinel.feed import calendar
+    session = calendar.latest_closed_session(panel.now)
+    following = calendar.next_session(session)
+    opened = calendar.session_window(following)[0]
+    closed = calendar.session_window(session)[1]
+    if not closed <= panel.now < opened:
+        return False
+    paper, plan, cycle = (panel.row(key) for key in (
+        'paper_reconciliation', 'paper_plan', 'automation_cycle'))
+    pending = (paper is not None and paper.status == 'warn'
+        and paper.value == 'PAPER NOT VERIFIED · PENDING'
+        and paper.paper_alignment is None and paper.recovery is None
+        and _aware(paper.as_of) and not paper.is_future(panel.now)
+        and (paper.valid_until is None or _aware(paper.valid_until))
+        and _row_boundary(paper) is not None and panel.now < _row_boundary(paper)
+        and paper.effective_status(panel.now) == 'warn')
+    if not (pending or _paper_check_normal(panel, paper)) or plan is None:
+        return False
+    if (cycle is None or cycle.effective_status(panel.now) != 'warn' or not cycle.required_current
+            or not _aware(cycle.as_of) or cycle.as_of < closed or cycle.is_future(panel.now)
+            or cycle.recovery is None or cycle.recovery.phase not in {
+                'AUTOMATION_CLOSING_DATA', 'AUTOMATION_SHADOW_ATTESTATION',
+                'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING', 'AUTOMATION_PLAN_READY'}
+            or not cycle.recovery.automatic or cycle.recovery.operator_required
+            or not cycle.recovery.active(panel.now) or not _aware(cycle.recovery.deadline)
+            or not _fresh_worker(panel, 'automation_leader')
+            or not _fresh_worker(panel, 'shadow_worker')):
+        return False
+    if (cycle.recovery.phase in {'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING'}
+            and cycle.recovery.deadline != opened):
+        return False
+    if cycle.recovery.phase == 'AUTOMATION_PREPARING' and not _preparation_inputs_current(panel):
+        return False
+    if cycle.recovery.phase == 'AUTOMATION_PLAN_READY':
+        if (not _preparation_inputs_current(panel) or not plan.can_show_paper_plan(panel.now)
+                or str(plan.paper_plan.decision_session) != session
+                or str(plan.paper_plan.effective_session) != following):
+            return False
+    elif plan.status != 'pending' or plan.paper_plan is not None:
+        return False
+    for key in _HISTORY_CURRENT_FACTS:
+        row = panel.row(key)
+        if _current_health_fact(panel, key):
+            continue
+        if (row is None or not is_closing_data_preparation(row, row.effective_status(panel.now))
+                or not row.recovery.active(panel.now) or row.is_future(panel.now)
+                or row.is_stale(panel.now)):
+            return False
+    notifications = panel.row('automation_alerts')
+    return (panel.row('automation').value == 'ENABLED · KILL RELEASED'
+            and panel.row('alpaca_account').can_show_paper_account(panel.now)
+            and _current_reconciliation_usable(panel)
+            and notifications is not None and notifications.effective_status(panel.now) in {'ok', 'warn'}
+            and not notifications.is_future(panel.now) and not notifications.is_stale(panel.now))
+
+
 def _normal_warning(panel, row: Row) -> bool:
+    if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_data',
+                    'automation_step_prepare', 'automation_step_open'}
+            and _preparing_work_normal(panel)):
+        if row.key == 'paper_reconciliation':
+            return True
+        cycle = panel.row('automation_cycle')
+        phases = {cycle.recovery.phase}
+        if cycle.recovery.phase == 'AUTOMATION_PLAN_READY':
+            phases.add('AUTOMATION_OPEN')
+        if (row.effective_status(panel.now) == 'warn' and row.required_current
+                and _aware(row.as_of) and not row.is_future(panel.now)
+                and row.recovery is not None and row.recovery.phase in phases
+                and row.recovery.active(panel.now)):
+            return True
     if row.key == 'paper_reconciliation' and _completed_work_normal(panel):
         return True
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
@@ -447,6 +539,12 @@ def dashboard_health(panel) -> dict:
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
         boundaries.append(_row_boundary(panel.row('trading_run')))
         boundaries.append(_row_boundary(panel.row('paper_reconciliation')))
+    if _preparing_work_normal(panel):
+        boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+        boundaries.append(_row_boundary(panel.row('paper_reconciliation')))
+        from sentinel.feed import calendar
+        boundaries.append(calendar.session_window(calendar.next_session(
+            calendar.latest_closed_session(panel.now)))[0])
     boundaries = [value for value in boundaries if value is not None]
     work = visible_preparation(panel)
     if work is not None:
