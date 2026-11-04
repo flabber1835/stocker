@@ -6,19 +6,19 @@ on:
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: system-optimization-002-common-factual-suffixes
-  cancel-in-progress: false
 jobs:
   suffix:
     if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
+    concurrency:
+      group: system-optimization-002-financial-${{ matrix.arm }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
-        arm: [P03, P04, P05, P06, P07, P09, P10, P11]
+        arm: [P07, P04]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3

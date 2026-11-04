@@ -10,12 +10,14 @@ import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
+from types import MethodType
 
 import pytest
 
 CAP = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CAP))
 import system_campaign_financial_resume as m
+from system_campaign_facts import digest
 
 
 def parent():
@@ -38,19 +40,23 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11']
-    assert r['maximum_parallel_financial_workers'] == 1
-    assert r['new_origin'] is r['diagnostic_state_adopted'] is r['new_factual_overlay'] is False
+    assert r['arms'] == ['P07', 'P04']
+    assert r['maximum_parallel_financial_workers'] == 2
+    assert r['new_origin'] is r['diagnostic_state_adopted'] is False
+    assert r['arm_inputs'] == dict(P07=dict(new_factual_overlay='ARRAY_MANDATORY_48USD', restored_correlation=False),
+                                  P04=dict(new_factual_overlay=False, restored_correlation=True))
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
 
 
-def test_existing_workflow_selects_exactly_the_serial_financial_batch():
+def test_existing_workflow_selects_two_qualified_jobs_without_overlapping_own_arm():
     import yaml
     workflow = yaml.load((CAP.parent.parent / m.WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
     job = workflow['jobs']['suffix']
-    assert job['strategy']['matrix']['arm'] == list(m.ARMS)
-    assert job['strategy']['max-parallel'] == '1'
+    assert job['strategy']['matrix']['arm'] == list(m.SELECTED_ARMS)
+    assert job['strategy']['max-parallel'] == '2'
+    assert 'concurrency' not in workflow
+    assert job['concurrency'] == dict(group='system-optimization-002-financial-${{ matrix.arm }}', **{'cancel-in-progress':'false'})
     assert job['timeout-minutes'] == '285'
     assert workflow['permissions'] == {'contents': 'read', 'actions': 'read'}
     assert workflow['on']['push']['paths'] == ['research/capital_risk/' + m.REQUEST]
@@ -226,7 +232,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
         exports.append(root); return {'synthetic_cipher': True}
     monkeypatch.setattr(m, 'seal', seal)
     args = SimpleNamespace(request=request_path, staging=stage_path, capacity=cap_path,
-                           arm='P03', output=tmp_path / 'artifacts/receipt.json')
+                           arm='P07', output=tmp_path / 'artifacts/receipt.json')
     return args, calls, exports
 
 
@@ -292,17 +298,18 @@ def test_oom_guard_removal_is_caught_by_same_completion_assertion():
 
 
 @pytest.mark.parametrize('bad', [None, 'network', 'swap', 'credentials', 'entrypoint', 'command', 'writable_input'])
-def test_actual_inspector_fences_and_entrypoint(tmp_path, monkeypatch, bad):
+@pytest.mark.parametrize('arm', ['p03', 'p04'])
+def test_actual_inspector_fences_and_entrypoint(tmp_path, monkeypatch, bad, arm):
     monkeypatch.setenv('GITHUB_RUN_ID', '123')
     monkeypatch.setattr(m.os, 'getuid', lambda: 1000, raising=False)
     monkeypatch.setattr(m.os, 'getgid', lambda: 1000, raising=False)
-    name = 'capital-system-resume-p03-worker-123-1'
+    name = 'capital-system-resume-' + arm + '-worker-123-1'
     value = dict(Name='/' + name, Image=m.EXECUTION_IMAGE, Id='a' * 64,
         HostConfig=dict(NetworkMode='none', Memory=8*1024**3, MemorySwap=8*1024**3,
             NanoCpus=2000000000, PidsLimit=64, ReadonlyRootfs=True, CapDrop=['ALL'],
             SecurityOpt=['no-new-privileges']),
         Mounts=[dict(Type='bind', Destination=p, RW=p=='/out')
-                for p in ['/variant', '/frozen', '/driver', '/old', '/out']],
+                for p in ['/variant', '/frozen', '/driver', '/old', '/out'] + (['/correlation-prefix'] if arm=='p04' else [])],
         Config=dict(WorkingDir='/variant', User='1000:1000', Entrypoint=['python'], Env=[],
             Labels={'research.study':'full-system-search-20261029', 'research.role':'worker'},
             Cmd=['-B','-u','/driver/system_campaign_financial_resume.py','--mode','economic','--spec','/out/spec.json']))
@@ -316,3 +323,114 @@ def test_actual_inspector_fences_and_entrypoint(tmp_path, monkeypatch, bad):
     if bad is None: assert m.inspect(name)['Id'] == 'a' * 64
     else:
         with pytest.raises(ValueError): m.inspect(name)
+
+
+def prefix_fixture(tmp_path, monkeypatch):
+    old, aux = tmp_path / 'old', tmp_path / 'aux'
+    (old / 'book').mkdir(parents=True); aux.mkdir()
+    binding = b'{"parameters":{"inert":true}}\n'
+    for root in (old, aux): (root / 'source-bindings.json').write_bytes(binding)
+    cp = dict(sha256='f'*64, completed=1, source_cursor='2018-12-31', base={'inert':True},
+              journals={}, run={'state_sha256':'b'*64})
+    chain = digest('system-optimization-002/raw-correlation/1'); rows = []
+    for stream, day, state in [('formation','2017-12-29','a'*64), ('daily','2018-12-31','b'*64)]:
+        raw = (json.dumps(dict(session=day,state_sha256=state))+'\n').encode()
+        (old / 'book' / (stream+'.jsonl')).write_bytes(raw)
+        cp['journals'][stream] = dict(bytes=len(raw), prefix_sha256=m.sha(raw))
+        row = dict(session=day,next_state_sha256=state)
+        chain = digest(dict(previous=chain,record=row))
+        rows.append((json.dumps(dict(row,chain_sha256=chain))+'\n').encode())
+    (old / 'book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(cp).encode()))
+    # Auxiliary future rows must be filtered before they enter the offline capsule.
+    capture = gzip.compress(b''.join(rows)+b'{"session":"2021-03-31"}\n')
+    (aux / 'correlation-inputs.jsonl.gz').write_bytes(capture)
+    descriptor = dict(financial_parent_outer_sha256=cp['sha256'],financial_parent_completed=1,
+        financial_parent_cursor=cp['source_cursor'],transport=dict(base=cp['base'],
+            source_binding_sha256=m.sha(binding),artifact_id=123),
+        observation_member=dict(name='correlation-inputs.jsonl.gz',bytes=len(capture),sha256=m.sha(capture)),
+        prefix=dict(rows=2,raw_sha256=m.sha(b''.join(rows)),through=cp['source_cursor']))
+    monkeypatch.setattr(m, 'prefix_descriptor', lambda: descriptor)
+    return old, aux, cp, descriptor, rows
+
+
+def test_auxiliary_history_restores_only_exact_parent_observations(tmp_path, monkeypatch):
+    old, aux, cp, descriptor, rows = prefix_fixture(tmp_path, monkeypatch)
+    capsule = m.prepare_prefix(old, aux, tmp_path / 'capsule')
+    assert m.seed_rows(old, cp, {'arm':'P04'}, capsule) == rows
+    assert set(p.name for p in capsule.iterdir()) == {'provenance.json','correlation-inputs.jsonl.gz'}
+    assert gzip.decompress((capsule/'correlation-inputs.jsonl.gz').read_bytes()) == b''.join(rows)
+    assert json.loads((capsule/'provenance.json').read_bytes())['auxiliary_financial_state_adopted'] is False
+    assert not any('checkpoint' in p.name for p in capsule.iterdir())
+
+
+@pytest.mark.parametrize('change',['source','state','chain','missing','wrong_parent','prefix_hash'])
+def test_auxiliary_prefix_mismatch_refuses_before_capsule_creation(tmp_path, monkeypatch, change):
+    old, aux, cp, descriptor, rows = prefix_fixture(tmp_path, monkeypatch)
+    if change == 'source': (aux/'source-bindings.json').write_bytes(b'changed')
+    elif change == 'state':
+        raw = (old/'book/daily.jsonl').read_bytes().replace(b'b'*64,b'c'*64)
+        (old/'book/daily.jsonl').write_bytes(raw)
+    elif change == 'wrong_parent': descriptor['financial_parent_outer_sha256'] = '0'*64
+    elif change == 'prefix_hash': descriptor['prefix']['raw_sha256'] = '0'*64
+    else:
+        raw = b''.join(rows).replace(b'chain_sha256',b'wrong_chain') if change == 'chain' else rows[0]
+        capture = gzip.compress(raw)
+        (aux/'correlation-inputs.jsonl.gz').write_bytes(capture)
+        descriptor['observation_member'].update(bytes=len(capture),sha256=m.sha(capture))
+    with pytest.raises((ValueError,KeyError)):
+        m.prepare_prefix(old, aux, tmp_path/'capsule')
+    assert not (tmp_path/'capsule').exists()
+
+
+def test_future_capsule_guard_and_its_removal_falsifier(tmp_path, monkeypatch):
+    old, aux, cp, descriptor, rows = prefix_fixture(tmp_path, monkeypatch)
+    capsule = m.prepare_prefix(old,aux,tmp_path/'capsule')
+    (capsule/'correlation-inputs.jsonl.gz').write_bytes(gzip.compress(b''.join(rows)+b'{"session":"2021-03-31"}\n'))
+    with pytest.raises(ValueError,match='NO_FUTURE_OBSERVATIONS'): m.seed_rows(old,cp,{'arm':'P04'},capsule)
+    node = next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='seed_rows')
+    node.body.pop(-2)  # actual no-future-observation guard
+    namespace = dict(vars(m))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-future-row-guard>','exec'),namespace)
+    assert namespace['seed_rows'](old,cp,{'arm':'P04'},capsule) == rows
+
+
+def test_forged_capsule_provenance_refuses(tmp_path, monkeypatch):
+    old,aux,cp,_,_ = prefix_fixture(tmp_path,monkeypatch)
+    capsule = m.prepare_prefix(old,aux,tmp_path/'capsule')
+    value=json.loads((capsule/'provenance.json').read_bytes());value['auxiliary_financial_state_adopted']=True
+    (capsule/'provenance.json').write_text(json.dumps(value))
+    with pytest.raises(ValueError,match='CAPSULE_PROVENANCE'): m.seed_rows(old,cp,{'arm':'P04'},capsule)
+
+
+def test_neutral_adoption_gate_blocks_advance_and_preserves_actual_written_gzip(tmp_path):
+    from research.capital_risk.forecast_tests.test_pxd_pause import pair, OVERLAY
+    before,after,_=pair()
+    book=tmp_path/'book';book.mkdir()
+    gate=m.AdoptionGate(before,book,tmp_path/'adoption',OVERLAY,'2024-05-02')
+    writes=[];advances=[]
+    def write(path,value):
+        writes.append(deepcopy(value));Path(path).write_bytes(gzip.compress(json.dumps(value).encode()))
+    gate.original_write=write;gate.original_advance=lambda *a:advances.append(a)
+    with pytest.raises(ValueError,match='ADOPTION_REQUIRED'):gate.advance('inert')
+    assert writes==advances==[]
+    gate.write(book/'checkpoint.json.gz',before)
+    with pytest.raises(ValueError,match='ADOPTION_REQUIRED'):gate.advance('inert')
+    bad=deepcopy(after);bad['economics']['nav']='124'
+    with pytest.raises(ValueError):gate.write(book/'checkpoint.json.gz',bad)
+    assert len(writes)==1
+    gate.write(book/'checkpoint.json.gz',after)
+    assert (tmp_path/'adoption/checkpoint.json.gz').read_bytes()==(book/'checkpoint.json.gz').read_bytes()
+    assert json.loads((tmp_path/'adoption/proof.json').read_bytes())['financial_state_unchanged'] is True
+    gate.advance('inert');assert advances==[('inert',)]
+
+
+def test_adoption_guard_removal_falsifier(tmp_path):
+    from research.capital_risk.forecast_tests.test_pxd_pause import pair, OVERLAY
+    before,_,_=pair();gate=m.AdoptionGate(before,tmp_path,tmp_path/'adoption',OVERLAY,'2024-05-02')
+    advances=[];gate.original_advance=lambda *a:advances.append(a)
+    with pytest.raises(ValueError,match='ADOPTION_REQUIRED'):gate.advance('inert')
+    cls=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.ClassDef) and n.name=='AdoptionGate')
+    fn=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='advance');fn.body.pop(0)
+    namespace=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-adoption-guard>','exec'),namespace)
+    MethodType(namespace['advance'],gate)('inert')
+    assert advances==[('inert',)]

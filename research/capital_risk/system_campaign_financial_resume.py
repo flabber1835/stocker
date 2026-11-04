@@ -1,6 +1,8 @@
 """Shared own-checkpoint financial resume using the existing hosted engine."""
 import argparse
 import base64
+from contextlib import nullcontext
+from copy import deepcopy
 import gzip
 import io
 import json
@@ -22,6 +24,7 @@ from stage import SECRET
 from runtime_identity import EXECUTION_IMAGE
 from seal import sha256_file
 from system_campaign_facts import sha
+from system_campaign_pxd_pause import adoption
 from system_campaign_discovery_context import require_strict_checkpoint
 from system_campaign_parallel_discovery import check_parent
 from system_campaign_parallel_discovery_parent import admit as transport_admit
@@ -41,7 +44,9 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SCHEMA = 'research.system-campaign-accurate-resume-request/1'
+SELECTED_ARMS = ('P07', 'P04')
+PREFIX = 'system-campaign-financial-correlation-prefix.json'
+SCHEMA = 'research.system-campaign-accurate-resume-request/2'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -51,10 +56,12 @@ def expected_request():
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
          'RESUME_ALL383_OLD_DRIVER_BYTES_UNCHANGED')
     names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py',
-             'transfer-requirements.lock', 'wwe-transfer-requirements.lock')
-    return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(ARMS),
+             'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX)
+    return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
-                diagnostic_state_adopted=False, new_factual_overlay=False,
+                diagnostic_state_adopted=False,
+                arm_inputs=dict(P07=dict(new_factual_overlay='ARRAY_MANDATORY_48USD', restored_correlation=False),
+                                P04=dict(new_factual_overlay=False, restored_correlation=True)),
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -63,7 +70,152 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=1, production_contacted=False)
+                maximum_parallel_financial_workers=2, production_contacted=False)
+
+
+class SeedPaths:
+    """Change only the observation lookup; financial journals stay with the parent."""
+    def __init__(self, old, capture):
+        self.old, self.capture = old, capture
+
+    def __truediv__(self, name):
+        return self.capture if name == 'correlation-inputs.jsonl.gz' else self.old / name
+
+
+def prefix_descriptor():
+    value = json.loads((HERE / PREFIX).read_bytes())
+    need(value['schema'] == 'research.system-campaign-correlation-prefix-source/1'
+         and value['arm'] == 'P04' and value['auxiliary_observations_only'] is True
+         and value['auxiliary_financial_state_adopted'] is False,
+         'RESUME_AUXILIARY_OBSERVATIONS_ONLY')
+    return value
+
+
+def prefix_rows(old, cp, capture, descriptor):
+    need(cp['sha256'] == descriptor['financial_parent_outer_sha256']
+         and cp['completed'] == descriptor['financial_parent_completed']
+         and cp['source_cursor'] == descriptor['financial_parent_cursor']
+         and cp['base'] == descriptor['transport']['base']
+         and sha256_file(old / 'source-bindings.json') == descriptor['transport']['source_binding_sha256'],
+         'RESUME_PREFIX_EXACT_CURRENT_FINANCIAL_PARENT_AND_SOURCE')
+    rows = correlation_seed(SeedPaths(old, capture), cp)
+    expected = descriptor['prefix']
+    need(len(rows) == expected['rows'] and sha(b''.join(rows)) == expected['raw_sha256']
+         and json.loads(rows[-1])['session'] == expected['through'] == cp['source_cursor'],
+         'RESUME_EXACT_COMMITTED_OBSERVATION_PREFIX')
+    return rows
+
+
+def prefix_provenance(descriptor):
+    return dict(schema='research.restored-correlation-observations/1',
+        source_descriptor_sha256=sha256_file(HERE / PREFIX),
+        financial_parent_outer_sha256=descriptor['financial_parent_outer_sha256'],
+        auxiliary_artifact_id=descriptor['transport']['artifact_id'],
+        prefix=descriptor['prefix'], auxiliary_financial_state_adopted=False,
+        future_observations_included=False, financial_sessions_advanced=0)
+
+
+def prepare_prefix(old, auxiliary, capsule):
+    descriptor = prefix_descriptor()
+    cp = json.loads(gzip.decompress((old / 'book/checkpoint.json.gz').read_bytes()))
+    member = descriptor['observation_member']
+    capture = auxiliary / member['name']
+    need(capture.stat().st_size == member['bytes'] and sha256_file(capture) == member['sha256']
+         and (auxiliary / 'source-bindings.json').read_bytes() == (old / 'source-bindings.json').read_bytes(),
+         'RESUME_AUTHENTICATED_OWN_AUXILIARY_OBSERVATION_MEMBER')
+    rows = prefix_rows(old, cp, capture, descriptor)
+    capsule.mkdir(mode=0o700)
+    (capsule / 'correlation-inputs.jsonl.gz').write_bytes(gzip.compress(b''.join(rows), mtime=0))
+    save(capsule / 'provenance.json', prefix_provenance(descriptor))
+    return capsule
+
+
+def seed_rows(old, cp, spec, capsule=Path('/correlation-prefix')):
+    if spec['arm'] != 'P04':
+        return correlation_seed(old, cp)
+    descriptor = prefix_descriptor()
+    need({p.name for p in capsule.iterdir()} == {'correlation-inputs.jsonl.gz', 'provenance.json'}
+         and json.loads((capsule / 'provenance.json').read_bytes()) == prefix_provenance(descriptor),
+         'RESUME_EXACT_OBSERVATION_CAPSULE_PROVENANCE')
+    capture = capsule / 'correlation-inputs.jsonl.gz'
+    rows = prefix_rows(old, cp, capture, descriptor)
+    need(gzip.decompress(capture.read_bytes()) == b''.join(rows), 'RESUME_NO_FUTURE_OBSERVATIONS_IN_CAPSULE')
+    return rows
+
+
+class AdoptionGate:
+    """Observe the actual neutral input boundary before permitting an advance."""
+    def __init__(self, cp, book, out, overlay_sha256, earliest):
+        self.original = deepcopy(cp)
+        self.path, self.out = (book / 'checkpoint.json.gz').resolve(), out
+        self.overlay_sha256, self.earliest = overlay_sha256, earliest
+        self.accepted = False
+
+    def write(self, path, saved):
+        if not self.accepted:
+            need(Path(path).resolve() == self.path, 'RESUME_ADOPTION_ONLY_CURRENT_CHECKPOINT')
+            if saved == self.original:
+                return self.original_write(path, saved)
+            event = adoption(saved, self.original, self.overlay_sha256, self.earliest)
+            self.original_write(path, saved)
+            raw = Path(path).read_bytes()
+            need(json.loads(gzip.decompress(raw)) == saved, 'RESUME_ACTUAL_ADOPTION_GZIP')
+            self.out.mkdir()
+            (self.out / 'checkpoint.json.gz').write_bytes(raw)
+            save(self.out / 'proof.json', dict(event=event, actual_checkpoint_gzip_sha256=sha(raw),
+                original_outer_sha256=self.original['sha256'], financial_state_unchanged=True,
+                financial_sessions_advanced=0))
+            self.accepted = True
+            return
+        return self.original_write(path, saved)
+
+    def advance(self, *args, **kwargs):
+        need(self.accepted, 'RESUME_NEUTRAL_ADOPTION_REQUIRED_BEFORE_ADVANCE')
+        return self.original_advance(*args, **kwargs)
+
+    def __enter__(self):
+        hosted()
+        from research.pooled_vacancy_funding import backtest, runtime
+        self.backtest, self.runtime = backtest, runtime
+        self.original_write, self.original_advance = backtest.write_checkpoint, runtime.advance
+        backtest.write_checkpoint, runtime.advance = self.write, self.advance
+        return self
+
+    def __exit__(self, *args):
+        self.backtest.write_checkpoint, self.runtime.advance = self.original_write, self.original_advance
+
+
+def qualified_overlay(cp, out, spec):
+    if spec['arm'] != 'P07':
+        return [], nullcontext()
+    from system_campaign_array_facts import ArrayFacts
+    from research.pooled_vacancy_funding.repair import load_repair
+    facts = ArrayFacts('/driver/system-campaign-array-terminal-facts.json')
+    facts.hydrate(out / 'hydrated-array-terminal-catalog.json')
+    overlay = out / 'array-terminal-overlay.json'
+    loaded = facts.overlay(cp, overlay)
+    for cursor, predecessor in ((cp['source_cursor'], '0' * 64),
+                                ('2019-07-30', cp['run']['checkpoint_sha256'])):
+        try:
+            load_repair(overlay, resume_session=cursor, predecessor_checkpoint_sha256=predecessor)
+        except ValueError:
+            pass
+        else:
+            raise ValueError('REFUSED_RESUME_ARRAY_PARSER_FALSIFIER')
+    facts.qualify(loaded, out / 'array-input-qualification.json')
+    return ['--repair-overlay', str(overlay)], AdoptionGate(cp, out / 'book',
+        out / 'input-adoption', loaded.sha256, '2019-07-30')
+
+
+def review_adoption(evidence, cp):
+    root = evidence / 'input-adoption'
+    raw = (root / 'checkpoint.json.gz').read_bytes()
+    saved = json.loads(gzip.decompress(raw))
+    event = adoption(saved, cp, sha256_file(evidence / 'array-terminal-overlay.json'), '2019-07-30')
+    need(json.loads((root / 'proof.json').read_bytes()) == dict(event=event,
+         actual_checkpoint_gzip_sha256=sha(raw), original_outer_sha256=cp['sha256'],
+         financial_state_unchanged=True, financial_sessions_advanced=0),
+         'RESUME_INDEPENDENT_NEUTRAL_ADOPTION_REVIEW')
 
 
 def strict_parent(value, spec):
@@ -111,6 +263,7 @@ def preflight(old, out, spec):
     with retained_inputs(old, strict_parent(json.loads(gzip.decompress(
             (old / spec['selected_checkpoint']).read_bytes())), spec), out):
         cp, following = actual_parent(old, spec)
+        seed_rows(old, cp, spec)
         readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
     proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
@@ -198,11 +351,15 @@ def economic(old, out, spec):
         keep = params['v_horizon'] if family == 'V' else 21 if family == 'C' else 1
         args = arguments(book, True)
         args[args.index('--policy') + 1] = cp['base']['policy']
-        observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', correlation_seed(old, cp))
+        rows = seed_rows(old, cp, spec)
+        if spec['arm'] == 'P04':
+            shutil.copytree('/correlation-prefix', out / 'restored-correlation-prefix')
+        extra, gate = qualified_overlay(cp, out, spec)
+        observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', rows)
         execution = Execution('FAST', signal_closes=keep)
         try:
-            with observation, execution:
-                code = backtest.main(args)
+            with gate, observation, execution:
+                code = backtest.main(args + extra)
         finally:
             if hasattr(execution, 'scope'):
                 save(out / 'acceleration-proof.json', execution.proof())
@@ -213,16 +370,23 @@ def economic(old, out, spec):
         save(out / 'accurate-outcome.json', dict(arm=spec['arm'], complete=complete,
             completed=current['completed'], session=current['source_cursor'],
             new_transitions=current['completed'] - cp['completed'], diagnostic_state_adopted=False,
-            financial_source_changed=False, new_factual_overlay=False, production_contacted=False))
+            financial_source_changed=False, new_factual_overlay=spec['arm'] == 'P07', production_contacted=False))
         need(complete, 'RESUME_INCOMPLETE_FINANCIAL_PREFIX_PRESERVED')
 
 
 def review(evidence, out, spec):
     hosted()
+    old = Path('/old')
+    cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
+    if spec['arm'] == 'P04':
+        need(seed_rows(old, cp, spec) == seed_rows(old, cp, spec, evidence / 'restored-correlation-prefix'),
+             'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
+    if spec['arm'] == 'P07':
+        review_adoption(evidence, cp)
     readonly_review(evidence / 'book', out / 'core-review.json')
     verify_correlation(evidence)
     preserve_tails(evidence / 'book', json.loads((evidence / 'resume-tail-preflight.json').read_bytes()))
-    verify_originals(Path('/old'), evidence)
+    verify_originals(old, evidence)
     need(sha256_file(evidence / 'book/predecessor-checkpoints' / (spec['outer_sha256'] + '.json.gz'))
          == spec['selected_file']['sha256'], 'RESUME_SELECTED_ORIGINAL_GZIP')
 
@@ -267,6 +431,8 @@ def inspect(name, identity=None):
     mode = 'economic' if match[2] == 'worker' else match[2]
     mounts = {v['Destination']: v for v in value['Mounts'] if v['Type'] == 'bind'}
     expected = {'/variant', '/frozen', '/driver', '/old', '/out'} | ({'/evidence'} if mode == 'review' else set())
+    if match[1] == 'p04':
+        expected.add('/correlation-prefix')
     need(value['Name'] == '/' + name and value['Image'] == EXECUTION_IMAGE
          and (identity is None or value['Id'] == identity), 'RESUME_WORKER_IDENTITY')
     need(h['NetworkMode'] == 'none' and h['Memory'] == h['MemorySwap'] == 8 * 1024**3
@@ -291,7 +457,7 @@ def launch(args):
     check_context(os.environ)
     need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'RESUME_NO_BLIND_RERUN')
     request = json.loads(args.request.read_bytes())
-    need(request == expected_request() and args.arm in ARMS, 'RESUME_EXACT_REQUEST_AND_SELECTED_ARM')
+    need(request == expected_request() and args.arm in SELECTED_ARMS, 'RESUME_EXACT_REQUEST_AND_SELECTED_ARM')
     stage_valid(json.loads(args.staging.read_bytes()))
     from ephemeral_runner_capacity import validate_prepared_receipt
     validate_prepared_receipt(json.loads(args.capacity.read_bytes()), head=os.environ['GITHUB_SHA'],
@@ -324,13 +490,18 @@ def launch(args):
         public()
         need(shutil.disk_usage(temp).free >= 12 * 1024**3, 'RESUME_INITIAL_DISK_RESERVE')
         old = transport_admit(spec, temp / ('campaign-factual-transfer-financial-' + args.arm.lower()), key)
+        capsule = None
+        if args.arm == 'P04':
+            auxiliary = crypto.admit(prefix_descriptor()['transport'],
+                temp / 'campaign-factual-transfer-correlation-p04', key, max_zip_bytes=512 * 1024**2)
+            capsule = prepare_prefix(old, auxiliary, temp / 'financial-correlation-prefix-P04')
         os.environ.pop('GH_TOKEN', None)
         frozen = temp / 'capital-risk-stage-001/inputs'
         source = temp / ('financial-resume-source-' + args.arm)
         binding = json.loads((old / 'source-bindings.json').read_bytes())
         need(build(frozen / 'source-fixed', source, binding['parameters']) == binding,
              'RESUME_WHOLE_ORIGINAL_FINANCIAL_SOURCE_IDENTICAL')
-        for directory in (source, old):
+        for directory in (source, old, *((capsule,) if capsule is not None else ())):
             for path in directory.rglob('*'):
                 os.chmod(path, 0o555 if path.is_dir() else 0o444)
             os.chmod(directory, 0o555)
@@ -346,6 +517,8 @@ def launch(args):
             values = command(name, source, frozen, output, 'review' if mode == 'review' else 'economic')
             i = values.index('--entrypoint')
             mounts = ['--mount', f'type=bind,source={old},target=/old,readonly']
+            if capsule is not None:
+                mounts += ['--mount', f'type=bind,source={capsule},target=/correlation-prefix,readonly']
             if evidence is not None:
                 mounts += ['--mount', f'type=bind,source={evidence},target=/evidence,readonly']
             values[i:i] = mounts

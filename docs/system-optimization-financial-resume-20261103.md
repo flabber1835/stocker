@@ -76,3 +76,49 @@ installation, before input/runtime staging. A fresh source-bound batch may then
 resume the same untouched financial parents. Local isolation tests must reproduce
 the missing-Pydantic failure with only transfer packages and pass after adding
 only the declared schema packages; no canonical runtime executes in that check.
+
+## Qualified P04 and P07 continuations after run41734069678
+
+All eight workers positively stopped. Their authenticated outputs expose specific
+input or representation refusals; repeating the unchanged batch cannot resolve
+them. Keep the other six arms stopped while their individual blockers are
+qualified. The owner's instruction to keep runners busy selects P04 and P07 as
+the next useful concurrent jobs, with a maximum of two financial workers on
+separate dedicated runners. Move concurrency to the matrix job's arm identity,
+with cancellation disabled, so two writers for one arm cannot overlap. This is
+explicit batch execution, not a scheduler or an optimization pass.
+
+P07 resumes its same selected 375-close financial checkpoint. Reuse the existing
+qualified ArrayFacts compiler and literal catalog for the mandatory July30,2019
+ARRY1 merger at48USD per eligible remaining share. No P02 financial state or
+certificate is imported. Bind the ordinary terminal-repair document to P07's own
+inner predecessor, reject a wrong predecessor and an already-consumed date, and
+qualify the actual frozen native packet before any financial transition. Observe
+the actual canonical input-adoption checkpoint and apply the existing complete
+state-neutral adoption validator before allowing runtime.advance. Preserve that
+actual gzip and its boundary proof. All prior input descriptors remain intact;
+only the future ordinary factual input changes. Later unsupported events still
+stop the financial path.
+
+P04's refusal is missing correlation-observation history, not a financial-state
+failure. Retained authenticated artifact12950433525, run40991050898 at
+e0ae2a5ffb774d4a63cff190082211f13d67ee42, contains its own matching history.
+Its later817-close checkpoint is only an auxiliary transport identity and is
+never adopted as financial state. Its base and source-binding bytes match the
+currently selected251-close P04 parent. The unchanged correlation_seed reader,
+using the CURRENT parent's committed journals, validates all377 raw rows
+(126formation+251daily), every state hash, the original chain and the final
+selected state. Their concatenated raw SHA256 is
+7a5ff5ae94211bb520c83059943c91d994291f9bd7ed16872129ec1123a91473.
+
+Bind the old auxiliary artifact, receipt, cipher, manifest, review, checkpoint
+and observation member through a public metadata descriptor. Authenticate that
+artifact on the hosted runner with the existing reader. Export a separate
+read-only observation capsule containing ONLY those377 already committed raw
+rows through2018-12-31; exclude all future observations and every auxiliary
+financial state. The offline parent preflight, financial worker and reviewer
+independently check capsule hashes and the unchanged correlation reader against
+the selected original P04 journal commitments. Copy the capsule and provenance
+into encrypted output. P04's source, inputs, model, selected financial state and
+controller remain unchanged. A missing, altered, future-bearing or mismatched
+capsule refuses before financial launch.
