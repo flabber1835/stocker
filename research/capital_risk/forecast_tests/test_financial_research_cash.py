@@ -23,7 +23,7 @@ def test_lm_published_consideration_is_an_explicit_research_timing_assumption():
     assert t['research_assumption']['opening_availability_assumed'] is True
     assert t['research_assumption']['actual_settlement_claimed'] is False
     assert t['parent_positions']==[dict(slot_id=20,ticker='LM',quantity=49,entry_date='2020-06-24')]
-    assert t['source_capture']['run_id']==41827156321 and codec.catalog_sha==f.OWN_CASH_SHA
+    assert t['source_capture']['run_id']==41827156321 and codec.catalog_sha=='1baf3f3938fa8fa6e31ddd1ca7c264f79f8eae8de8396c2828fdf831c2436915'
     f.research_cash_term(t);f.completion_session(t,['2020-07-29','2020-07-30','2020-07-31','2020-08-03'])
     assert f.suppressions(dict(source_cursor='2020-06-30'),terms)==[dict(session='2020-07-30',
         security_id=t['security_id'],term_sha256=t['native_term_sha256'])]

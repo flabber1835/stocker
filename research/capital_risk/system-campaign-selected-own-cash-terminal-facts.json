@@ -568,6 +568,249 @@
       },
       "ticker": "LM",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
+    },
+    {
+      "actual_mandatory_exchange_session": "2018-07-13",
+      "actual_mandatory_net_cash_per_ads": "81.95",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 82.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf | Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+        "security_id": "554122275008038119",
+        "session": "2018-02-01"
+      },
+      "arm": "P05",
+      "description": "Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:554122275008038119",
+        "listing_first_session": "2015-11-11",
+        "security_id": "554122275008038119",
+        "security_type_eligible": "0",
+        "session": "2018-01-31",
+        "source_observation_sha256": "61101d16e8c6e41c07f14f40d45c4364fb6c3fb0bb8bc7c45d88082a5ad6f9e6",
+        "ticker": "AAAP1"
+      },
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3605.3",
+        "security_id": "554122275008038119",
+        "session": "2018-02-09"
+      },
+      "native_session": "2018-02-09",
+      "native_term_sha256": "4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9",
+      "parent_cursor": "2018-01-31",
+      "parent_outer_sha256": "201001331f78634a46ce80509992c04c927ae6304dda28a3f248f3a4393c718b",
+      "parent_positions": [
+        {
+          "entry_date": "2018-01-08",
+          "quantity": 25,
+          "slot_id": 7,
+          "ticker": "AAAP1"
+        }
+      ],
+      "parent_root_admission_sha256": "b5135e817ef9359ce83922fbe9200cfc32033628d2ff98fec1673e8d9ebd2197",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf",
+      "recognition_rule": "RESEARCH_ASSUMED_TENDER_PARTICIPATION",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "offer_deadline_session": "2018-01-31",
+        "opening_availability_assumed": true,
+        "published_cash_per_source_unit": "82.00",
+        "recognition_session": "2018-02-01",
+        "schema": "research.assumed-tender-cash-recognition/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH",
+        "source_unit": "LISTED_DEPOSITARY_SHARE",
+        "tender_participation_assumed": true
+      },
+      "security_id": "554122275008038119",
+      "source_capture": {
+        "artifact_id": 13338596091,
+        "head": "b68cab1f7989e35af90630f6fbfc82e11c0c18ea",
+        "independent_data_review_sha256": "a47081a9422e2605033c393c40b804f94c8e1a77ab4d65a6fc342e12bfd5bc30",
+        "payload_sha256": "9b49114cc80760cd1d3b6f4b3bf0b2df00157e31dc0d6cad455aa9804fb4ff5b",
+        "query_scope_sha256": "bf74aa5689f368f97229a78cb4f8b395b12ec1af2ac9b5ad4eda79d60a5d0970",
+        "run_id": 41856244317,
+        "scope_sha256": "3416515b557a0f421a31eafa6e70d2630e96e9e93aa5706666b3f3b4f945967b"
+      },
+      "ticker": "AAAP1",
+      "timing_source": "docs/system-optimization-research-assumptions-20261104.md"
+    },
+    {
+      "actual_mandatory_exchange_session": "2018-07-13",
+      "actual_mandatory_net_cash_per_ads": "81.95",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 82.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf | Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+        "security_id": "554122275008038119",
+        "session": "2018-02-01"
+      },
+      "arm": "P06",
+      "description": "Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:554122275008038119",
+        "listing_first_session": "2015-11-11",
+        "security_id": "554122275008038119",
+        "security_type_eligible": "0",
+        "session": "2018-01-31",
+        "source_observation_sha256": "61101d16e8c6e41c07f14f40d45c4364fb6c3fb0bb8bc7c45d88082a5ad6f9e6",
+        "ticker": "AAAP1"
+      },
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3605.3",
+        "security_id": "554122275008038119",
+        "session": "2018-02-09"
+      },
+      "native_session": "2018-02-09",
+      "native_term_sha256": "4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9",
+      "parent_cursor": "2018-01-31",
+      "parent_outer_sha256": "55d61959194c0572a9a686a1ace6202255296ec1cae81127a170a7785a5bcb2a",
+      "parent_positions": [
+        {
+          "entry_date": "2017-12-20",
+          "quantity": 17,
+          "slot_id": 29,
+          "ticker": "AAAP1"
+        }
+      ],
+      "parent_root_admission_sha256": "f7421f89b0f7af3abac7cec3c475eb19a18b0c3cfe7094929e55248121125e18",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf",
+      "recognition_rule": "RESEARCH_ASSUMED_TENDER_PARTICIPATION",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "offer_deadline_session": "2018-01-31",
+        "opening_availability_assumed": true,
+        "published_cash_per_source_unit": "82.00",
+        "recognition_session": "2018-02-01",
+        "schema": "research.assumed-tender-cash-recognition/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH",
+        "source_unit": "LISTED_DEPOSITARY_SHARE",
+        "tender_participation_assumed": true
+      },
+      "security_id": "554122275008038119",
+      "source_capture": {
+        "artifact_id": 13337926516,
+        "head": "b68cab1f7989e35af90630f6fbfc82e11c0c18ea",
+        "independent_data_review_sha256": "cc059078ebac4fdf928afd8a2aa602080a804a0bdb4a6106b7212d8d9facb4d1",
+        "payload_sha256": "37e49415cd733306842ae91de3e4560dedfe88ea0e99aff1324660d872f7bbee",
+        "query_scope_sha256": "a65802c0ffca0e9c4e5cc775118ec2c0b92e2a222e702b0d6ae1638ae2630b72",
+        "run_id": 41856244317,
+        "scope_sha256": "df25253bd7b5062488c802e952f9d2bff0668d92f68d2a6e24855d55a6f27f3f"
+      },
+      "ticker": "AAAP1",
+      "timing_source": "docs/system-optimization-research-assumptions-20261104.md"
+    },
+    {
+      "actual_mandatory_exchange_session": "2018-07-13",
+      "actual_mandatory_net_cash_per_ads": "81.95",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 82.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf | Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+        "security_id": "554122275008038119",
+        "session": "2018-02-01"
+      },
+      "arm": "P11",
+      "description": "Research assumption: tender all held ADS at the final2018-01-31 deadline; recognize published82USD gross per ADS on2018-02-01 opening. Tender participation and opening availability are modeled; ignore0.05USD depositary fee. Actual later mandatory81.95USD net exchange effective2018-07-13 is not modeled settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:554122275008038119",
+        "listing_first_session": "2015-11-11",
+        "security_id": "554122275008038119",
+        "security_type_eligible": "0",
+        "session": "2018-01-31",
+        "source_observation_sha256": "61101d16e8c6e41c07f14f40d45c4364fb6c3fb0bb8bc7c45d88082a5ad6f9e6",
+        "ticker": "AAAP1"
+      },
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3605.3",
+        "security_id": "554122275008038119",
+        "session": "2018-02-09"
+      },
+      "native_session": "2018-02-09",
+      "native_term_sha256": "4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9",
+      "parent_cursor": "2018-01-31",
+      "parent_outer_sha256": "527b7d4fcb92d4136195cc0eacf0459b73c368edfb0cdf3e9121f15ed8335e57",
+      "parent_positions": [
+        {
+          "entry_date": "2017-11-30",
+          "quantity": 35,
+          "slot_id": 11,
+          "ticker": "AAAP1"
+        }
+      ],
+      "parent_root_admission_sha256": "6d6cb4beb530ba6f26323cc4c988984631639f4439728144e4e6f11c5787128c",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.adrbny.com/content/dam/adr/documents/corporate-actions-dr/files/ad644125.pdf",
+      "recognition_rule": "RESEARCH_ASSUMED_TENDER_PARTICIPATION",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "offer_deadline_session": "2018-01-31",
+        "opening_availability_assumed": true,
+        "published_cash_per_source_unit": "82.00",
+        "recognition_session": "2018-02-01",
+        "schema": "research.assumed-tender-cash-recognition/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH",
+        "source_unit": "LISTED_DEPOSITARY_SHARE",
+        "tender_participation_assumed": true
+      },
+      "security_id": "554122275008038119",
+      "source_capture": {
+        "artifact_id": 13337507034,
+        "head": "b68cab1f7989e35af90630f6fbfc82e11c0c18ea",
+        "independent_data_review_sha256": "ec7d07cf3b774354a055c3d841fe0ea643e2f02296077456cd77d31ad8f2fae6",
+        "payload_sha256": "bf39eb247fffd93aaf9cedc21d7819a9ca49ed6eb88c902d597fe00f2b540d59",
+        "query_scope_sha256": "80ac6c68a8c704d48eb9bc831d3a62db9aef6cb5b8b7a0a79042f233e16affe7",
+        "run_id": 41856244317,
+        "scope_sha256": "be2700e09216793dac27e03f30317dce170ab1d9f5dc4167fdeadd791963ee6c"
+      },
+      "ticker": "AAAP1",
+      "timing_source": "docs/system-optimization-research-assumptions-20261104.md"
     }
   ]
 }

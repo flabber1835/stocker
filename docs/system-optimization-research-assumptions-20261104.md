@@ -92,3 +92,30 @@ cash right or portfolio settlement will be inferred from that treatment.
 P04 completed-prefix continuation admissionc43253a987d6e930 retains1970 closes.
 Its six private DATA falsifiers passed in0.74s and152 targeted resume/source/partial
 tests passed in23.32s. The new source request performs no financial advances.
+
+
+Implement AAAP through one generic typed assumed-tender cash rule in the shared
+selected-input pipeline. Keep the existing mandatory cash and LM completion-date
+validators unchanged. The new model records listed ADS units, published82USD,
+finalJanuary31 deadline, assumed participation/opening availability onFebruary1,
+ignored fees and no actual-settlement claim. It requires the exact own parent and
+January31 source witness, February9 unconsumed incomplete native, cash-only
+consideration and the first frozen session after the declared deadline. Suppress
+only that qualified February9 native and add the modeled February1 cash term.
+Retain source eligibility0 and actual laterJuly13 net81.95 disclosure unchanged.
+Append three own-parent records to one catalog generation; every older generation
+must reproduce its original bytes. The existing hosted synthetic qualification,
+actual cash/ledger postconditions and original canonical financial guards apply.
+Launch P05/P06/P11 financial continuations from their own admitted21 checkpoints.
+
+The hosted synthetic controller-notional check uses the tender deadline source
+observation as its prior anchor for the new model. This does not label that date
+as the market last-trading date; ordinary completion qualification keeps its
+existing last-trading anchor. The original incomplete-native falsifier remains.
+
+Tender qualification:228 cases passed in34.73s; one historical P04 counter
+assertion was updated from1279 to1970. The corrected case and all19 new tender
+cases passed together (20 passed in1.79s). Existing LM, mandatory cash, stock,
+closing-source and next-completion validators were verified AST-identical.
+All old catalog generations, including eight-term1baf3f3938fa8fa6, remain exact.
+The new eleven-term catalog isc2b3d070ba31bd94; original eligibility0 is retained.

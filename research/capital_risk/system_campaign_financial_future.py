@@ -51,21 +51,40 @@ SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_DISCOVERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/3'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '1baf3f3938fa8fa6e31ddd1ca7c264f79f8eae8de8396c2828fdf831c2436915'
-OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
-                   ('P10', '2024-04-30'): 'SWAV', ('P00', '2018-08-31'): 'ILG',
-                   ('P04', '2022-08-31'): 'CTXS', ('P04', '2022-09-30'): 'GBT', ('P00', '2025-06-30'): 'TGI', ('P07', '2020-06-30'): 'LM'}
+OWN_CASH_SHA = 'c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2'
+OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM',
+ ('P10', '2022-07-29'): 'ACC',
+ ('P10', '2024-04-30'): 'SWAV',
+ ('P00', '2018-08-31'): 'ILG',
+ ('P04', '2022-08-31'): 'CTXS',
+ ('P04', '2022-09-30'): 'GBT',
+ ('P00', '2025-06-30'): 'TGI',
+ ('P07', '2020-06-30'): 'LM',
+ ('P05', '2018-01-31'): 'AAAP1',
+ ('P06', '2018-01-31'): 'AAAP1',
+ ('P11', '2018-01-31'): 'AAAP1'}
 CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
-    'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3,
-    '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4,
-    '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7': 5,
-    'c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101': 6,
-    '4467104fa7d591af78c7665895b453757c04431492c4a805fa6027ae24f27d84': 7}
-CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
-                           ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4, ('P04', '2022-08-31'): 5, ('P04', '2022-09-30'): 6, ('P00', '2025-06-30'): 7, ('P07', '2020-06-30'): 8}
+ 'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3,
+ '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4,
+ '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7': 5,
+ 'c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101': 6,
+ '4467104fa7d591af78c7665895b453757c04431492c4a805fa6027ae24f27d84': 7,
+ '1baf3f3938fa8fa6e31ddd1ca7c264f79f8eae8de8396c2828fdf831c2436915': 8}
+CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2,
+ ('P10', '2022-07-29'): 2,
+ ('P10', '2024-04-30'): 3,
+ ('P00', '2018-08-31'): 4,
+ ('P04', '2022-08-31'): 5,
+ ('P04', '2022-09-30'): 6,
+ ('P00', '2025-06-30'): 7,
+ ('P07', '2020-06-30'): 8,
+ ('P05', '2018-01-31'): 11,
+ ('P06', '2018-01-31'): 11,
+ ('P11', '2018-01-31'): 11}
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
+RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
 SOURCE_SCOPES = 'future-source-only-scopes.json'
 
 
@@ -74,6 +93,19 @@ class ResearchCashAssumption(BaseModel):
     schema_id: Literal['research.daily-economic-cash-assumption/1'] = Field(alias='schema')
     published_cash_per_share: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
     recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    opening_availability_assumed: Literal[True]
+    actual_settlement_claimed: Literal[False]
+    settlement_fees: Literal['IGNORED_FOR_RESEARCH']
+
+
+class ResearchTenderAssumption(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.assumed-tender-cash-recognition/1'] = Field(alias='schema')
+    published_cash_per_source_unit: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    source_unit: Literal['LISTED_DEPOSITARY_SHARE']
+    offer_deadline_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    tender_participation_assumed: Literal[True]
     opening_availability_assumed: Literal[True]
     actual_settlement_claimed: Literal[False]
     settlement_fees: Literal['IGNORED_FOR_RESEARCH']
@@ -103,16 +135,17 @@ class NativePreimageQuery(BaseModel):
     financial_use_authorized: Literal[False]
 
 
-OWN_CASH_SOURCE_CLOCKS = {
-    ('P07', '2020-06-30'): (41827156321, '9f4dbf9ae615cbdfcee7b10ee3c2458855c90c4b', 13320032317),
-    ('P00', '2025-06-30'): (41837453683, 'ecf08be298726e86ed48d97f468b834d3fcb51a6', 13327262198),
-    ('P04', '2022-09-30'): (41830900595, '6022c86853d71a575df8e562a0d1ada63f787dd2', 13321284554),
-    ('P04', '2022-08-31'): (41798315426, 'c750169a3cadb1d18fc58cdb6e5ec3cc807c6dd7', 13307310013),
-    ('P00', '2018-08-31'): (41807854617, '4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd', 13311490065),
-    ('P04', '2022-06-30'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299799904),
-    ('P10', '2022-07-29'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299684770),
-    ('P10', '2024-04-30'): (41799737694, '3ea65d6eefefc66d593858dc0ee6a4b476769c2a', 13307052219),
-}
+OWN_CASH_SOURCE_CLOCKS = {('P07', '2020-06-30'): (41827156321, '9f4dbf9ae615cbdfcee7b10ee3c2458855c90c4b', 13320032317),
+ ('P00', '2025-06-30'): (41837453683, 'ecf08be298726e86ed48d97f468b834d3fcb51a6', 13327262198),
+ ('P04', '2022-09-30'): (41830900595, '6022c86853d71a575df8e562a0d1ada63f787dd2', 13321284554),
+ ('P04', '2022-08-31'): (41798315426, 'c750169a3cadb1d18fc58cdb6e5ec3cc807c6dd7', 13307310013),
+ ('P00', '2018-08-31'): (41807854617, '4bd9083c233779cbfbb00503a6bfee9bf7d2ddcd', 13311490065),
+ ('P04', '2022-06-30'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299799904),
+ ('P10', '2022-07-29'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299684770),
+ ('P10', '2024-04-30'): (41799737694, '3ea65d6eefefc66d593858dc0ee6a4b476769c2a', 13307052219),
+ ('P05', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13338596091),
+ ('P06', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337926516),
+ ('P11', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337507034)}
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -235,8 +268,41 @@ INITIAL_WITNESS_SCOPES = {'P05': {'parent_outer_sha256': '201001331f78634a46ce80
                                           'quantity': 35,
                                           'entry_date': '2017-11-30'}]}]}}
 EXTRA_WITNESS_SCOPES['P04', '2025-10-31'] = {'parent_outer_sha256': 'f5562177949d371147920b4cbd05bd149559c2840bd2c742ff826ea245b938a8', 'parent_cursor': '2025-10-31', 'terms': [{'ticker': 'LNWO', 'security_id': '467726443352731838', 'session': '2025-11-13', 'native_session': '2025-11-14', 'native_term_sha256': '6cc2c176c4e2289531450e4bbfc11a0434114506766daed1310363a9ad6aff8d', 'parent_positions': []}]}
+RESOLVED_TENDER_WITNESS_SCOPES = {'P05': {'parent_cursor': '2018-01-31',
+         'parent_outer_sha256': '201001331f78634a46ce80509992c04c927ae6304dda28a3f248f3a4393c718b',
+         'terms': [{'native_session': '2018-02-09',
+                    'native_term_sha256': '4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9',
+                    'parent_positions': [{'entry_date': '2018-01-08',
+                                          'quantity': 25,
+                                          'slot_id': 7,
+                                          'ticker': 'AAAP1'}],
+                    'security_id': '554122275008038119',
+                    'session': '2018-01-31',
+                    'ticker': 'AAAP1'}]},
+ 'P06': {'parent_cursor': '2018-01-31',
+         'parent_outer_sha256': '55d61959194c0572a9a686a1ace6202255296ec1cae81127a170a7785a5bcb2a',
+         'terms': [{'native_session': '2018-02-09',
+                    'native_term_sha256': '4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9',
+                    'parent_positions': [{'entry_date': '2017-12-20',
+                                          'quantity': 17,
+                                          'slot_id': 29,
+                                          'ticker': 'AAAP1'}],
+                    'security_id': '554122275008038119',
+                    'session': '2018-01-31',
+                    'ticker': 'AAAP1'}]},
+ 'P11': {'parent_cursor': '2018-01-31',
+         'parent_outer_sha256': '527b7d4fcb92d4136195cc0eacf0459b73c368edfb0cdf3e9121f15ed8335e57',
+         'terms': [{'native_session': '2018-02-09',
+                    'native_term_sha256': '4dadd533c4360a8f766033f95d0bea355dea375ff223d39cfd3c893ebb1ee0b9',
+                    'parent_positions': [{'entry_date': '2017-11-30',
+                                          'quantity': 35,
+                                          'slot_id': 11,
+                                          'ticker': 'AAAP1'}],
+                    'security_id': '554122275008038119',
+                    'session': '2018-01-31',
+                    'ticker': 'AAAP1'}]}}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
-    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES) for scope in scopes.values()}
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
                          'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 ACTIVE_WITNESS_SCOPES['P00'] = digest(EXTRA_WITNESS_SCOPES['P00', '2025-06-30'])
@@ -462,7 +528,9 @@ def own_cash_selection(arm, cursor):
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        if term['recognition_rule'] == RESEARCH_CASH:
+        if term['recognition_rule'] == RESEARCH_TENDER:
+            research_tender_term(term)
+        elif term['recognition_rule'] == RESEARCH_CASH:
             research_cash_term(term)
         elif term['recognition_rule'] == SOURCE_CLOSE:
             source_cash_term(term)
@@ -511,7 +579,10 @@ def own_cash_selection(arm, cursor):
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Source-bound selected stock term; raw ratio preserved in catalog and exactly normalized for the canonical typed parser.'
         return codec, OWN_CASH_CATALOG, [selected_stock_term(chosen)]
-    if chosen['recognition_rule'] == RESEARCH_CASH:
+    if chosen['recognition_rule'] == RESEARCH_TENDER:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Published listed-unit cash with explicit modeled tender participation and opening recognition after the offer deadline; actual settlement and mandatory conversion are not claimed.'
+    elif chosen['recognition_rule'] == RESEARCH_CASH:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Published cash consideration with explicit research opening availability on the completion calendar date; actual settlement and preopen completion are not claimed.'
     elif chosen['recognition_rule'] == NEXT_COMPLETION:
@@ -521,6 +592,24 @@ def own_cash_selection(arm, cursor):
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared closing source valuation; actual unowned/unordered and canonical no-op proofs are mandatory, with no portfolio completion authority.'
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def research_tender_term(term):
+    model = ResearchTenderAssumption.model_validate(term['research_assumption'])
+    a, w = term['added'], term['identity_witness']
+    need(term['recognition_rule'] == RESEARCH_TENDER
+         and term['preopen_completion_confirmed'] is term['mandatory_common_share_completion_confirmed'] is False
+         and term['parent_cursor'] == w['session'] == model.offer_deadline_session
+         and model.offer_deadline_session < model.recognition_session == a['session'] < term['native_session']
+         and a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and Fraction(str(a['cash_per_share'])) == Fraction(model.published_cash_per_source_unit)
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and a['reference'] == term['primary_source'] + ' | ' + term['description'],
+         'OWN_INPUT_EXPLICIT_ASSUMED_TENDER_AND_PUBLISHED_CASH')
 
 
 def research_cash_term(term):
@@ -590,6 +679,13 @@ def completion_cash_term(term):
 
 
 def completion_session(term, dates):
+    if term.get('recognition_rule') == RESEARCH_TENDER:
+        model = ResearchTenderAssumption.model_validate(term['research_assumption'])
+        need(dates == sorted(set(dates)) and model.offer_deadline_session in dates
+             and term['native_session'] in dates and dates.index(model.offer_deadline_session) + 1 < len(dates)
+             and dates[dates.index(model.offer_deadline_session) + 1] == term['added']['session'] == model.recognition_session,
+             'OWN_INPUT_TENDER_EXACT_NEXT_FROZEN_DAILY_BOUNDARY')
+        return
     if term.get('recognition_rule') == RESEARCH_CASH:
         need(dates == sorted(set(dates)) and term['native_session'] in dates
              and dates.index(term['native_session']) + 1 < len(dates)
@@ -831,7 +927,7 @@ def hydrate(cp, arm, *, source_root=None):
         need(held == [codec.parent_positions], 'OWN_CASH_CURRENT_PARENT_POSITION_SCOPE')
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH) for t in terms):
+    if any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:
@@ -938,8 +1034,10 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
     for t in material['terms']:
         sid = t['security_id']
         bar = vendor(delivered[sid]) if sid in delivered else None
+        prior_session = (t['identity_witness']['session'] if t.get('recognition_rule') == RESEARCH_TENDER
+                         else t['last_trading_session'])
         prior = SimpleNamespace(median5={'selected': [sid]}, feed={'series': {sid: {
-            'signal_basis_anchor': (t['last_trading_session'], 1., 1.)}}}, last_processed_session=t['last_trading_session'])
+            'signal_basis_anchor': (prior_session, 1., 1.)}}}, last_processed_session=prior_session)
         for day in sorted({t['native_session'], t['added']['session']}):
             original = Packet(day, (bar,) if bar and day == t['added']['session'] else (), {}, {}, 1., {},
                               tuple(actions.terminal.get(day, ())), ())
