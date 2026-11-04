@@ -522,6 +522,11 @@ EXTRA_WITNESS_SCOPES['P05', '2020-01-31'] = dict(
         session='2020-02-06', ticker='TMHC', maximum_rows=1,
         require_unheld_at_parent=True, financial_use_authorized=False)])
 EXTRA_WITNESS_SCOPES['P05_RESOLVED', '2020-01-31'] = {'additional_rows': [{'parent_positions': [], 'security_id': '13062188894457483', 'session': '2020-02-06', 'source_observation_sha256': 'a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3', 'ticker': 'TMHC'}], 'parent_cursor': '2020-01-31', 'parent_outer_sha256': '8c3f8d3c53b380317fd624e7a55714960cf82ba44f1aaca204f58fbdaed28b38', 'terms': [{'native_session': '2020-02-05', 'native_term_sha256': '431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181', 'parent_positions': [], 'security_id': '355892456681242666', 'session': '2020-02-04', 'ticker': 'WLH'}]}
+EXTRA_WITNESS_SCOPES['P03', '2018-11-30'] = dict(
+    parent_outer_sha256='9330b6d44b8dac35d528d18aed2687c5a4609c0cedd2c0872f2b4229f88844d1',
+    parent_cursor='2018-11-30',terms=[dict(ticker='ARII',security_id='435766160247494711',
+        session='2018-12-03',native_session='2018-12-04',
+        native_term_sha256='4447441e01411420775c471f8c54d01fe6f00d54adaff997517b0d360cad8222',parent_positions=[])])
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES, NATIVE_INVENTORY_WITNESS_SCOPES, RESOLVED_NATIVE_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
@@ -535,6 +540,7 @@ ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_DATE_W
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in NATIVE_INVENTORY_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in RESOLVED_NATIVE_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2020-01-31'])
+ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES['P03', '2018-11-30'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 

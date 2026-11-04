@@ -251,8 +251,8 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
 
 def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P11',))
-    request=m.expected_request();selected=m.root_spec('P11')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
+    request=m.expected_request();selected=m.root_spec('P03')
     monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
     m.source_request_bindings(request,selected)
 
@@ -260,12 +260,12 @@ def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(mon
 @pytest.mark.parametrize('change',['schema','mode','scope','root','bundle','launcher','selector'])
 def test_changed_worker_request_binding_refuses(change,monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P11',))
-    request=m.expected_request();selected=m.root_spec('P11')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
+    request=m.expected_request();selected=m.root_spec('P03')
     if change=='schema':request['schema']='UNKNOWN'
     elif change=='mode':request['financial_resume_authorized']=True
-    elif change=='scope':request['source_witness_scopes']['P11']['terms'][0]['ticker']='OTHER'
-    elif change=='root':request['admitted_checkpoints']['P11']='0'*64
+    elif change=='scope':request['source_witness_scopes']['P03']['terms'][0]['ticker']='OTHER'
+    elif change=='root':request['admitted_checkpoints']['P03']='0'*64
     elif change=='bundle':request['admitted_financial_parents_sha256']='0'*64
     elif change=='launcher':request['sources']['system_campaign_financial_resume.py']='0'*64
     else:request['sources']['system_campaign_financial_future.py']='0'*64
@@ -333,7 +333,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==28
+    assert len(f.WITNESS_SCOPE_REGISTRY)==30
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -372,7 +372,9 @@ def test_p11_edr_query_uses_new169_root_and_one_actual_share():
 
 
 def test_p11_tvty_query_binds_only_own1111_and_never_backdates_later134_shares():
-    scope=f.EXTRA_WITNESS_SCOPES['P11','2022-05-31'];root=m.root_spec('P11');term,=scope['terms']
+    original=next(t for t in json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms']
+                  if (t['arm'],t['parent_cursor'])==('P11','2022-05-31'))
+    scope=f.EXTRA_WITNESS_SCOPES['P11','2022-05-31'];root=m.root_spec('P11',original['parent_root_admission_sha256']);term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert root['measured_closes']==1111 and scope['parent_cursor']==root['selected_session']=='2022-05-31'
     assert scope['parent_outer_sha256']==root['outer_sha256']
@@ -380,6 +382,16 @@ def test_p11_tvty_query_binds_only_own1111_and_never_backdates_later134_shares()
     assert term['parent_positions']==[] and term['native_term_sha256'] is None
     assert f.source_schema(scope)==f.SOURCE_WITNESS_DISCOVERY_SCHEMA
     assert scope['native_preimage_query']['financial_use_authorized'] is False
+
+
+def test_p03_arii_query_binds_only_own232_and_exact_frozen_native():
+    scope=f.WITNESS_SCOPES['P03'];root=m.root_spec('P03');term,=scope['terms']
+    assert scope==f.registered_scope('cafac06fa7fce92009e528bfdcfb2cb4dc9a7e5719b69edfb9e5f8737f6813e2')
+    assert root['measured_closes']==232 and scope['parent_cursor']==root['selected_session']=='2018-11-30'
+    assert scope['parent_outer_sha256']==root['outer_sha256']
+    assert term==dict(ticker='ARII',security_id='435766160247494711',session='2018-12-03',
+        native_session='2018-12-04',native_term_sha256='4447441e01411420775c471f8c54d01fe6f00d54adaff997517b0d360cad8222',parent_positions=[])
+    assert f.source_schema(scope)==f.SOURCE_WITNESS_SCHEMA
 
 
 def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):

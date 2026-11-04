@@ -1935,3 +1935,11 @@ is diagnostic corroboration, not newly admitted financial state. Do not round,
 change allocation, adopt the diagnostic book or claim an unchanged-source fix.
 A rational quantity source successor requires separate design/certification;
 continue the other unfinished variants without weakening this refusal.
+
+P03's next exact frozen identity is ARII435766160247494711, not OCLR. Select
+one source-only witness from own232:December3 complete identity row and December4
+native4447441e01411420775c471f8c54d01fe6f00d54adaff997517b0d360cad8222.
+The exact November30 parent has no holding or pending order for ARII. Register
+the new scope while preserving every older scope. Reuse the unchanged schema1
+known-native source capture and DATA gates; this request grants no financial
+transitions or completion/settlement input authority.
