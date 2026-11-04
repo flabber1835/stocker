@@ -111,7 +111,11 @@ def test_exact_p03_saved82_prefix_reports_only_from_its_own_zero_seed():
     assert (seed['measured_closes'],seed['selected_session'])==(0,'2017-06-30')
     assert seed['outer_sha256']=='fa1f7daca5e345490b4938fd786995755701664bdc265876d6d3545ce6fca6e0'
     assert seed['base']==value['base'] and seed['journals']['daily']['bytes']==seed['journals']['monthly']['bytes']==0
-    assert 'P03' not in p.ADMISSIONS
+    spec=p.root_spec('P03')
+    assert spec['outer_sha256']==value['outer_sha256'] and spec['measured_closes']==82
+    assert spec['root_admission']['independent_accounting_snapshots']==416
+    assert spec['root_admission']['new_monthly_reports']==4
+    assert spec['root_admission']['performance_scoring_authorized'] is False
 
 
 def test_p03_axis_guard_removal_admits_the_other_arms_counter(monkeypatch):

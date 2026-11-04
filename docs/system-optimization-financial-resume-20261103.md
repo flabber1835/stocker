@@ -1719,3 +1719,33 @@ economic assumption and preserves every383 frozen driver and financial source.
 The point-growth, retained-proof and launcher qualification passed129 targeted
 tests in19.72s, including the four real counterexamples, interpreter/source/input
 falsifiers and both unchanged-input and existing-adoption composition paths.
+
+## Reuse original mixed consideration and admit P03's reviewed initial prefix
+
+P05 run41881979577 passed the KS input and stopped November26,2018 at COL's
+incomplete leadership terminal. Retain its admitted211/October31 parent; the
+November tail is excluded. The unchanged MidyearFacts catalog already declares
+COL93.33USD plus0.37525 successor shares on November27, preserving November26
+under its explicit next-session convention. Reuse that literal validator and
+frozen successor raw-open proxy; this grants no actual settlement-rate claim.
+
+Extend the shared original-input selector with a separate registered family of
+literal delivery catalogs. Compose only future mixed terms with selected cash
+terms, preserving old cash selection and source metadata. Discover the parent
+identity on the actual frozen session before the native event, and reconstruct
+the delivered identity only from the catalog's exact date/ID/full-row SHA256.
+Require its ticker/issuer to match the original added term and preserve the raw
+eligibility metadata. The existing typed parser, packet/notional qualification,
+stock observer and independent input reconstruction remain the execution path.
+No per-symbol compiler or financial calculation is introduced. P05 resumes
+from its own211 root with KS and COL selected together; earlier repairs remain.
+
+P03's hosted reporting41880115517 and independent DATA already passed its own126
+formation and82 daily records,416 accounting snapshots,four reports and112
+Decimal metrics through April30,2018. Record separate root admission for this
+exact existing prefix and its genuine zero-measurement origin. Do not rerun this
+closed review, adopt May tails, claim full scoring, or treat its earlier FMSA
+settlement uncertainty as a requirement for further settlement research.
+The original-delivery/original-cash/future/initial-prefix/launcher qualification
+passed157 targeted tests in14.64s. P03 root65b4309305ed9a62 admits only its82
+existing closes; P05's request selects its unchanged211 root and404 source files.

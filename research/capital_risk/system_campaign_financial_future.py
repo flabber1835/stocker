@@ -102,6 +102,12 @@ ORIGINAL_ORDINARY_SOURCES = {
            '046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222'))
     for arm in ('P05', 'P06', 'P11')
 }
+ORIGINAL_DELIVERY_SOURCES = {
+    arm: (('system_campaign_midyear_facts', 'MidyearFacts',
+           'system-campaign-midyear-terminal-facts.json',
+           'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),)
+    for arm in ('P05', 'P06', 'P11')
+}
 
 
 class ResearchCashAssumption(BaseModel):
@@ -923,6 +929,50 @@ def merge_selected_terms(primary, extra):
     return terms
 
 
+def original_delivery_selection(arm, cursor):
+    """Future mixed terms from unchanged literal validators; cash selection is separate."""
+    import importlib
+    for module_name, class_name, catalog, expected_sha in ORIGINAL_DELIVERY_SOURCES.get(arm, ()):
+        raw = (HERE / catalog).read_bytes()
+        need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES')
+        module = importlib.import_module(module_name)
+        codec = getattr(module, class_name)(HERE / catalog)
+        mixed = [t for t in codec.catalog['terms'] if t['added']['kind'] == 'CASH_PLUS_STOCK']
+        need(not any(t['native_session'] <= cursor < t['added']['session'] for t in mixed),
+             'FUTURE_ORIGINAL_DELIVERY_NO_CONSUMED_PENDING_NATIVE')
+        source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
+                      validator_file=Path(module.__file__).name, validator_sha256=codec.compiler_sha)
+        terms = []
+        for original in mixed:
+            if original['native_session'] <= cursor or original['added']['session'] <= cursor:
+                continue
+            term = deepcopy(original)
+            term['original_ordinary_source'] = dict(source, term_sha256=digest(original))
+            term['timing_source'] = original['primary_source']
+            terms.append(term)
+        if terms:
+            codec.ordinary_source = source
+            return codec, catalog, terms
+    return None
+
+
+def ordinary_delivery_identity(term, row):
+    """Retain the exact original delivered row and its descriptive identity."""
+    from datetime import date
+    proxy, added = term['proxy'], term['added']
+    need(row['session'] == proxy['session'] == added['session']
+         and row['security_id'] == proxy['security_id'] == added['delivered_security_id']
+         and digest(row) == proxy['source_observation_sha256']
+         and row['ticker'] == added['delivered_ticker']
+         and row['issuer_id'] == added['delivered_issuer_id']
+         and row['security_type_eligible'] in ('0', '1')
+         and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session']),
+         'FUTURE_ORIGINAL_DELIVERY_EXACT_FROZEN_IDENTITY_AND_PROXY')
+    return dict({k: row[k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
+                                    'listing_first_session', 'security_type_eligible')},
+                source_observation_sha256=digest(row))
+
+
 def remaining_ordinary_terms(cp, terms, root):
     """Preserve source-bound forward repairs instead of suppressing them twice."""
     documents = []
@@ -990,6 +1040,9 @@ def selected(arm, *, cursor=None):
     ordinary = original_ordinary_selection(arm, cursor)
     if ordinary is not None:
         return ordinary
+    delivery = original_delivery_selection(arm, cursor)
+    if delivery is not None:
+        return delivery
     if arm == 'P07':
         need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES,
              'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
@@ -1131,6 +1184,14 @@ def hydrate(cp, arm, *, source_root=None):
         else:
             terms = original_terms
         ordinary_components.append(deepcopy(original_codec.ordinary_source))
+    delivery = original_delivery_selection(arm, cp['source_cursor'])
+    if delivery is not None:
+        delivery_codec, delivery_catalog, delivery_terms = delivery
+        need(source_root is not None, 'FUTURE_ORIGINAL_DELIVERY_EXPLICIT_REPAIR_ROOT')
+        delivery_terms, inherited = remaining_ordinary_terms(cp, delivery_terms, source_root)
+        inherited_ordinary.extend(inherited)
+        terms = merge_selected_terms(terms, delivery_terms) if catalog != delivery_catalog else delivery_terms
+        ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT) for t in terms):
@@ -1143,6 +1204,7 @@ def hydrate(cp, arm, *, source_root=None):
         terms = [ordinary_term_dates(t, dates) if 'original_ordinary_source' in t else t for t in terms]
     wanted = {}
     ordinary_rows = {}
+    delivery_rows = {}
     for t in terms:
         native, = [v for v in actions.terminal.get(t['native_session'], ()) if v.security_id == t['security_id']]
         need(digest(asdict(native)) == t['native_term_sha256'] and not native.completeness(0)[0],
@@ -1155,6 +1217,12 @@ def hydrate(cp, arm, *, source_root=None):
             need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_WITNESS')
             wanted[key] = None
             ordinary_rows[key] = t
+            if t['added']['kind'] == 'CASH_PLUS_STOCK':
+                proxy = t['proxy']
+                key = proxy['session'], proxy['security_id']
+                need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_DELIVERY_WITNESS')
+                wanted[key] = None
+                delivery_rows[key] = t
             continue
         for w in (t['identity_witness'], *([t['delivered_identity_witness']] if 'delivered_identity_witness' in t else [])):
             key = w['session'], w['security_id']
@@ -1172,6 +1240,10 @@ def hydrate(cp, arm, *, source_root=None):
                     term = ordinary_rows[key]
                     term['identity_witness'] = ordinary_identity(term, row)
                     wanted[key] = term['identity_witness']
+                if key in delivery_rows:
+                    term = delivery_rows[key]
+                    term['delivered_identity_witness'] = ordinary_delivery_identity(term, row)
+                    wanted[key] = term['delivered_identity_witness']
                 require_witness(row, wanted[key])
                 seen[key] = row
     need(set(seen) == set(wanted), 'FUTURE_ALL_SELECTED_NATIVE_AND_DELIVERY_WITNESSES')
