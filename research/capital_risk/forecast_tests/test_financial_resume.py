@@ -40,10 +40,10 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P10']
+    assert r['arms'] == ['P07']
     assert r['maximum_parallel_financial_workers'] == 1
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == dict(P10=dict(new_factual_overlay='AHL2_MANDATORY_42_75USD', restored_correlation=False))
+    assert r['arm_inputs'] == dict(P07=dict(new_factual_overlay='ARRAY_PLUS_REVIEWED_TABLEAU_BATCH', restored_correlation=False))
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
 
@@ -231,7 +231,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
         exports.append(root); return {'synthetic_cipher': True}
     monkeypatch.setattr(m, 'seal', seal)
     args = SimpleNamespace(request=request_path, staging=stage_path, capacity=cap_path,
-                           arm='P10', output=tmp_path / 'artifacts/receipt.json')
+                           arm='P07', output=tmp_path / 'artifacts/receipt.json')
     return args, calls, exports
 
 
@@ -472,3 +472,49 @@ def test_p10_actual_base_equality_guard_removal_falsifier():
     assert len(sites)==1;fn.body.remove(sites[0]);namespace=dict(vars(m))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-p10-base-guard>','exec'),namespace)
     assert namespace['p10_document'](cp)[0]['add'][0]['cash_per_share']==42.75
+
+
+def ordinary_pair():
+    cp=dict(run=dict(checkpoint_sha256='c'*64))
+    def document(day,sid):
+        return dict(schema='terminal-repair/1',predecessor_checkpoint_sha256='c'*64,
+                    source_evidence=[dict(reference=sid,sha256='e'*64)],
+                    suppress=[dict(session=day,security_id=sid,term_sha256='d'*64)],
+                    add=[dict(session=day,security_id=sid)])
+    return cp,[document('2019-07-30','ARRAY'),document('2019-07-31','DATA')]
+
+
+def test_composition_preserves_each_input_and_binds_only_selected_parent():
+    cp,documents=ordinary_pair();before=deepcopy(documents)
+    result=m.combine_documents(documents,cp)
+    assert documents==before
+    assert result['predecessor_checkpoint_sha256']==cp['run']['checkpoint_sha256']
+    assert all(result[k]==[r for d in documents for r in d[k]] for k in ('source_evidence','suppress','add'))
+    result['add'][0]['security_id']='changed';assert documents==before
+
+
+@pytest.mark.parametrize('change',['schema','predecessor','missing','duplicate_add','duplicate_suppress'])
+def test_ordinary_composition_rejects_mixed_parents_or_duplicate_terms(change):
+    cp,documents=ordinary_pair()
+    if change=='schema':documents[1]['schema']='diagnostic-input/1'
+    elif change=='predecessor':documents[1]['predecessor_checkpoint_sha256']='0'*64
+    elif change=='missing':documents[1].pop('source_evidence')
+    else:
+        field=change.removeprefix('duplicate_');documents[1][field]=deepcopy(documents[0][field])
+    with pytest.raises(ValueError):m.combine_documents(documents,cp)
+
+
+@pytest.mark.parametrize('guard,change',[
+    ('RESUME_COMPOSE_ONLY_EXACT_OWN_ORDINARY_DOCUMENTS','predecessor'),
+    ('RESUME_NO_DUPLICATE_TERMINAL_INPUT_KEYS','add')])
+def test_actual_input_composition_guard_removal_falsifiers(guard,change):
+    cp,documents=ordinary_pair()
+    if change=='predecessor':documents[1]['predecessor_checkpoint_sha256']='0'*64
+    else:documents[1]['add']=deepcopy(documents[0]['add'])
+    with pytest.raises(ValueError):m.combine_documents(documents,cp)
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='combine_documents')
+    sites=[n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
+           any(isinstance(a,ast.Constant) and a.value==guard for a in n.value.args)]
+    assert len(sites)==1;fn.body.remove(sites[0]);namespace=dict(vars(m))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-ordinary-composition-guard>','exec'),namespace)
+    assert namespace['combine_documents'](documents,cp)

@@ -44,7 +44,7 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P10',)
+SELECTED_ARMS = ('P07',)
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
@@ -64,7 +64,7 @@ def expected_request():
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
                 diagnostic_state_adopted=False,
-                arm_inputs=dict(P10=dict(new_factual_overlay='AHL2_MANDATORY_42_75USD', restored_correlation=False)),
+                arm_inputs=dict(P07=dict(new_factual_overlay='ARRAY_PLUS_REVIEWED_TABLEAU_BATCH', restored_correlation=False)),
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -247,8 +247,45 @@ def p10_overlay(cp, out):
 
 
 def overlay_contract(arm):
-    return {'P07': ('array-terminal-overlay.json', '2019-07-30'),
+    return {'P07': ('p07-reviewed-terminal-overlay.json', '2019-07-30'),
             'P10': ('ahl2-terminal-overlay.json', '2019-02-14')}[arm]
+
+
+def combine_documents(documents, cp):
+    need(documents and all(set(d) == {'schema', 'predecessor_checkpoint_sha256', 'source_evidence', 'suppress', 'add'}
+         and d['schema'] == 'terminal-repair/1'
+         and d['predecessor_checkpoint_sha256'] == cp['run']['checkpoint_sha256'] for d in documents),
+         'RESUME_COMPOSE_ONLY_EXACT_OWN_ORDINARY_DOCUMENTS')
+    combined = dict(schema='terminal-repair/1', predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
+    for field in ('source_evidence', 'suppress', 'add'):
+        combined[field] = [deepcopy(row) for d in documents for row in d[field]]
+    need(all(len({(r['session'], r['security_id']) for r in combined[field]}) == len(combined[field])
+         for field in ('suppress', 'add')), 'RESUME_NO_DUPLICATE_TERMINAL_INPUT_KEYS')
+    return combined
+
+
+def p07_overlay(cp, out):
+    from system_campaign_array_facts import ArrayFacts
+    from system_campaign_tableau_facts import TableauFacts
+    from research.pooled_vacancy_funding.repair import load_repair
+    facts = []
+    documents = []
+    for name, cls, catalog in (
+            ('array', ArrayFacts, 'system-campaign-array-terminal-facts.json'),
+            ('tableau', TableauFacts, 'system-campaign-tableau-terminal-facts.json')):
+        codec = cls('/driver/' + catalog)
+        codec.hydrate(out / ('hydrated-' + name + '-terminal-catalog.json'))
+        path = out / (name + '-terminal-overlay.json')
+        codec.overlay(cp, path)
+        documents.append(json.loads(path.read_bytes()))
+        facts.append((name, codec))
+    path = out / overlay_contract('P07')[0]
+    save(path, combine_documents(documents, cp))
+    loaded = load_repair(path, resume_session=cp['source_cursor'],
+                         predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
+    for name, codec in facts:
+        codec.qualify(loaded, out / (name + '-input-qualification.json'))
+    return path, loaded
 
 
 def qualified_overlay(cp, out, spec):
@@ -258,11 +295,8 @@ def qualified_overlay(cp, out, spec):
     name, earliest = overlay_contract(spec['arm'])
     overlay = out / name
     if spec['arm'] == 'P07':
-        from system_campaign_array_facts import ArrayFacts
-        facts = ArrayFacts('/driver/system-campaign-array-terminal-facts.json')
-        facts.hydrate(out / 'hydrated-array-terminal-catalog.json')
-        loaded = facts.overlay(cp, overlay)
-        facts.qualify(loaded, out / 'array-input-qualification.json')
+        actual, loaded = p07_overlay(cp, out)
+        need(actual == overlay, 'RESUME_P07_EXACT_OVERLAY_PATH')
     else:
         actual, loaded = p10_overlay(cp, out)
         need(actual == overlay, 'RESUME_P10_EXACT_OVERLAY_PATH')
@@ -285,6 +319,10 @@ def review_adoption(evidence, cp, spec):
     saved = json.loads(gzip.decompress(raw))
     name, earliest = overlay_contract(spec['arm'])
     event = adoption(saved, cp, sha256_file(evidence / name), earliest)
+    if spec['arm'] == 'P07':
+        documents = [json.loads((evidence / (n + '-terminal-overlay.json')).read_bytes()) for n in ('array', 'tableau')]
+        need(json.loads((evidence / name).read_bytes()) == combine_documents(documents, cp),
+             'RESUME_REVIEW_EXACT_P07_COMBINED_ORDINARY_INPUT')
     if spec['arm'] == 'P10':
         need(json.loads((evidence / name).read_bytes()) == p10_document(cp)[0],
              'RESUME_REVIEW_EXACT_P10_ORDINARY_INPUT_REBINDING')

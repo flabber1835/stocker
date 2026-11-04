@@ -1,12 +1,12 @@
 {
   "arm_inputs": {
-    "P10": {
-      "new_factual_overlay": "AHL2_MANDATORY_42_75USD",
+    "P07": {
+      "new_factual_overlay": "ARRAY_PLUS_REVIEWED_TABLEAU_BATCH",
       "restored_correlation": false
     }
   },
   "arms": [
-    "P10"
+    "P07"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
@@ -196,7 +196,7 @@
     "system_campaign_factual_admit.py": "63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4",
     "system_campaign_factual_job.py": "57c0b78e634ba093ceb701cc5e29e43d1c6e6ee92c0d92ce220465912d1b1a1f",
     "system_campaign_factual_run.py": "6438dab1c0fc406f25e46e102f2c3f1b0ed00056a05deb27d40ed643497834bc",
-    "system_campaign_financial_resume.py": "e6cfd60e5a6132f8a844d20419fae59ea45612ae198641b4415a427237e00f8c",
+    "system_campaign_financial_resume.py": "a3469e68d65efd86092229cc83b769236be1844c3c90bc248534d8858e09597b",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
     "system_campaign_followon_job.py": "5c0ffcd6dd4383c381a44b76950aea4154fde918e40c270b765e360a0ba24c3a",
@@ -418,5 +418,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "4a5eddba6df3f5545350b5457394b6b3472423fd06323d9d5ea35a3001bfecc5"
+  "workflow_sha256": "33fcfa79c1c39208a0fcb493c161c2dc7ae5a3648606999f480f71d552178233"
 }

@@ -154,3 +154,32 @@ P07/P04 request runs. Matrix parallel limits apply per explicit batch; per-arm
 concurrency prevents overlapping writers across requests. Every runner still
 has only one bounded offline financial worker at a time. Later refusals preserve
 actual stopped output and do not imply financial completion or root admission.
+
+## P07 reaches the next reviewed terminal batch
+
+Run41746957036 passed actual neutral ARRY1 input adoption and July30, then
+stopped on July31 SID1043452212170571060 (Tableau/DATA). All stopped bytes and
+the independent hosted review were authenticated. The main financial checkpoint
+is still375 closes: successful July rows remain uncommitted tails. Preserve this
+attempt in full. Its input-adopted checkpoint has no new root financial admission.
+The selected financial parent therefore remains the original strict375-close
+checkpoint, not a reconstructed July tail or another arm's financial state.
+
+For the next P07 request, compile ArrayFacts plus the existing financial
+TableauFacts batch into ONE ordinary future-only terminal-repair document bound
+to that same selected parent. Qualify both unchanged compilers against the
+combined parsed document and actual frozen native subsets before any financial
+advance. Keep the individual input documents, hydrated catalogs and qualification
+proofs. Require exact predecessor equality and no duplicate suppression/addition
+keys when composing documents. The actual canonical neutral-adoption gate now
+binds the combined raw SHA and earliest affected publication July30.
+
+The Tableau batch includes DATA at 1.103 CRM shares and TCF1 at 0.5081 TCF
+shares, plus CTRL at $23.91, UQM at $1.71 and BKS at $6.50 in cash. Reuse its
+already disclosed financial
+raw-open fractional-cash research proxies and next-session CTRL/UQM timing
+conventions, preserving their references and limitations. They are not asserted
+to be actual transfer-agent net proceeds or exact statutory timestamps. No
+diagnostic convention is imported. A resulting full financial pass must disclose
+these existing modeling assumptions; common-assumption ranking stays unadmitted.
+Select P07 alone; the immutable P04/P10 jobs continue independently.
