@@ -37,3 +37,26 @@ proof and all prior input disclosures. Keep the earlier1883 continuation root as
 history and refuse further execution of completed P00. Calculate CAGR directly
 from the authenticated committed daily series with the same first-to-last-close
 convention as the other completed variants. Archived P00 returns remain excluded.
+
+
+Admit the existing own P05/P06/P11 January31,2018 checkpoints as continuation
+roots after their passed independent initial-prefix review. Each retains its real
+June30 zero-measurement seed,126 formation days,21 measured closes,294 accounting
+snapshots, original input transitions, one exact hosted monthly report and
+independently derived reporting/retry state. This is admission of saved financial
+progress, not a fresh rerun. Exclude all February tails and keep performance/full
+validation false. Register their exact reporting clocks in the existing shared
+root authority. A subsequent hosted frozen-source witness reads the held AAAP1
+identity and future native by permanent security ID before the modeled tender
+input is adopted. Ultimate mandatory settlement precision remains unnecessary.
+
+P04 has separately preserved1970 closes through October31,2025. Review only its
+new691 committed days and33 monthly reports from admitted1279, using the shared
+reporting-only workflow; exclude its November tail. No settlement assumptions or
+financial guards are changed by these checkpoint admissions/reporting requests.
+
+Initial-prefix DATA qualification: eight tests passed in75.70s, including an
+actual guard-removal falsifier;104 directly relevant repository tests passed
+in15.35s. Existing continuation, historical and completed root entries were
+verified unchanged. New initial roots: P05b5135e817ef9359c, P06f7421f89b0f7af3a,
+P116d6cb4beb530ba6f. No full financial score is granted by these admissions.

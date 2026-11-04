@@ -23,8 +23,11 @@ def test_exact_own_existing_prefix_uses_its_real_zero_measurement_seed_only(arm)
     assert (seed['measured_closes'],seed['selected_session'])==(0,'2017-06-30')
     assert seed['base']==value['base'] and seed['selected_checkpoint'].startswith('lineage/original-checkpoints/')
     assert value['financial_authority'] is value['financial_predecessor_admitted'] is False
-    assert arm not in p.ADMISSIONS
-    with pytest.raises(ValueError,match='EXACT_ADMITTED_ARM'):p.root_spec(arm)
+    root=p.root_spec(arm)
+    assert root['outer_sha256']==value['outer_sha256'] and root['measured_closes']==21
+    assert root['root_admission']['financial_continuation_authorized'] is True
+    assert root['root_admission']['performance_scoring_authorized'] is False
+    assert root['root_admission']['independent_accounting_snapshots']==294
 
 
 @pytest.mark.parametrize('change',['arm','checkpoint','cash','seed','counter','format','authority','marker','date'])
@@ -65,6 +68,10 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
 
 
 def test_initial_report_request_can_never_start_financial_workers(monkeypatch):
+    # Preserve the historical reporting-only authority before root admission.
+    prior={a:h for a,h in p.ADMISSIONS.items() if a not in ('P05','P06','P11')}
+    monkeypatch.setattr(p,'ADMISSIONS',prior)
+    monkeypatch.setattr(m,'ADMISSIONS',prior)
     monkeypatch.setattr(m,'SELECTED_ARMS',('P05','P06','P11'))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
