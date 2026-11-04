@@ -341,3 +341,49 @@ session. Keep all cash-posting, source-removal, pending-intent and V-loop checks
 Its stopped artifact has only the neutral input successor and no new financial
 close; retry from the original admitted 692-close book without adopting failed
 transition state. Include this now-terminal P10 arm in the same three-arm batch.
+
+## Distinct branch-invariance proof after P07's strict interval refusal
+
+Run41762473427 actually advanced P07 through October22,2019, then refused the
+October23 comparison `recent_r20 > 0`: its rigorous interval crosses zero.
+The main committed checkpoint still contains439 closes and the two neutral
+input adoptions. Preserve the complete stopped artifact and the original strict
+contract/refusal. Do not claim its executed comparisons are invariant and do not
+choose a CVR price to obtain a continuation.
+
+Qualify a distinct typed research input and certificate. Its factual scope stays
+the same: ALDR, October22,18-to20 consideration, sensor only, no held or ordered
+position, exact source/native/event witnesses. Its financial condition
+is that every reachable canonical recovery decision, including its reason, is
+identical for every admitted consideration. Internal controller counters may
+differ only when retained explicitly as a complete set of possible states.
+
+For each actual recovery, start from every previously possible discrete state.
+Run the unchanged qualified canonical function on copies. Partition any ambiguous
+binary64 comparison at its exact threshold, retaining every nonempty subdomain;
+never select a branch or sample only endpoints. Require each completed partition
+to be comparison invariant and its whole decision equal to the actual ordinary
+canonical decision. Require every state field outside the qualified recovery
+fields to remain identical. Retain/deduplicate all resulting discrete states,
+require the actual representative state to belong to that set, and propagate
+the complete set to the next actual session. Overapproximating correlations
+between uncertain inputs is permitted; deleting a possible state is forbidden.
+Exceeding an explicit state/partition bound refuses rather than truncates.
+
+The source-bound comparison surface must accept uncertain inputs only in finite
+checks or comparisons against finite point thresholds. Any unsupported arithmetic
+or use refuses qualification. Preserve the exact six controller/kernel sources
+and the existing rounding-aware rolling-witness enclosure. This is a proof-only
+observer: copied alternative states never enter the canonical financial book.
+Actual recovery still delegates to the unchanged ordinary function once and
+returns its exact original result. No broker, Core holding or accounting input
+is changed by the proof.
+
+Use a separate schema/treatment and contract, with canonical neutral input
+adoption before advance. Keep the prior strict input codec and guard unchanged.
+Tests must cover an ambiguous comparison with identical decisions, propagation
+and later merging of all counter states, contradictory repeated comparisons,
+uncovered input operations, guard removal and an ambiguous comparison that
+changes a decision. The latter must refuse before journal commit. Independently
+reconstruct every domain split, complete state set and financial/watch commitment
+in the hosted reviewer before any root admission or score.

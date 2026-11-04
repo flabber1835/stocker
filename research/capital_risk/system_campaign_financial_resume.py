@@ -47,12 +47,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04', 'P07', 'P10')
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/5'
+SCHEMA = 'research.system-campaign-accurate-resume-request/6'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -66,7 +66,8 @@ def expected_request():
              'system_campaign_p10_ahl2_input.py', 'system_campaign_p10_ahl2_contract.py',
              'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
              'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py',
-             'system_campaign_financial_uncertainty.py')
+             'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
+             'system-campaign-financial-branch-contract.json')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode='ROOT_ADMITTED_OWN_FINANCIAL_CONTINUATION', new_origin=False,
                 financial_resume_authorized=True, readonly_partial_review=False,
@@ -78,6 +79,9 @@ def expected_request():
                 selected_partials_sha256=sha256_file(HERE / PARTIALS),
                 admitted_financial_parents_sha256=sha256_file(HERE / ROOTS),
                 admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS},
+                selected_research_models={'P07': dict(input_schema='research.leadership-branch-uncertainty-input/1',
+                    contract_sha256=sha256_file(HERE / 'system-campaign-financial-branch-contract.json'),
+                    every_reachable_canonical_decision_must_match=True, original_strict_guard_unchanged=True)},
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},

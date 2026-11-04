@@ -52,11 +52,11 @@ def run(cp, out, args, rows, observer, execution):
     from system_campaign_financial_resume import AdoptionGate
     from system_campaign_factual_run import SeededObservation
     from system_campaign_p02_retained_run import idempotent_dispatch, qualify_dispatch
-    from system_campaign_uncertainty_facts import hydrate, overlay, evidence
+    from system_campaign_uncertainty_facts import hydrate
+    from system_campaign_financial_branches import overlay, evidence, Codec, Certificate, qualify
     from system_campaign_uncertainty_integration import AdmissionPause
-    from system_campaign_uncertainty_input import InputCodec
-    from system_campaign_uncertainty_context import SensorCertificate
     hashes = source_contract(cp)
+    qualify(out, hashes)
     alder, loaded = prepare_date(cp, out)
     event_source = hydrate(alder.native, out / 'hydrated-uncertainty-event.json')
     date_gate = AdoptionGate(cp, out / 'book', out / DATE_ADOPTION, loaded.sha256, '2019-10-21')
@@ -73,7 +73,7 @@ def run(cp, out, args, rows, observer, execution):
         need(gzip.decompress((out / 'admission-correlation-inputs.jsonl.gz').read_bytes()) == b''.join(rows),
              'FINANCIAL_UNCERTAINTY_ZERO_NEW_OBSERVATIONS_AT_PAUSE')
         path = overlay(current, out)
-        codec = InputCodec(evidence(out))
+        codec = Codec(evidence(out))
         with codec:
             for cursor, predecessor in ((current['source_cursor'], '0' * 64),
                                         ('2019-10-22', current['run']['checkpoint_sha256'])):
@@ -86,10 +86,12 @@ def run(cp, out, args, rows, observer, execution):
             model = backtest.load_repair(path, resume_session=current['source_cursor'],
                                         predecessor_checkpoint_sha256=current['run']['checkpoint_sha256'])
             gate = AdoptionGate(current, out / 'book', out / MODEL_ADOPTION, model.sha256, '2019-10-22')
-            certificate = SensorCertificate(out, codec, alder.native, hashes, event_source=event_source)
+            certificate = Certificate(out, codec, alder.native, hashes, event_source=event_source)
             save(out / 'own-uncertainty-admission.json', dict(arm='P07', root_parent_sha256=cp['sha256'],
                 date_input_successor_sha256=current['sha256'], qualified_controller_sources=hashes,
-                reused_frozen_qualification=True, diagnostic_state_adopted=False,
+                reused_frozen_controller_and_math_sources=True, new_branch_observer_qualification=True,
+                diagnostic_state_adopted=False,
+                proof_kind='EXHAUSTIVE_REACHABLE_CANONICAL_DECISION_INVARIANCE',
                 owned_or_ordered_right_valuation_authorized=False, representative_is_not_a_valuation=True))
             with gate, certificate, observer, execution:
                 code = backtest.main(args + ['--repair-overlay', str(path)])
@@ -99,9 +101,8 @@ def run(cp, out, args, rows, observer, execution):
 
 def review(cp, evidence_root, out):
     hosted()
-    from system_campaign_uncertainty_facts import hydrate, overlay, evidence
-    from system_campaign_uncertainty_input import InputCodec, parse
-    from system_campaign_uncertainty_archive import review as review_certificate
+    from system_campaign_uncertainty_facts import hydrate
+    from system_campaign_financial_branches import overlay, evidence, Codec, parse, review as review_certificate
     source_contract(cp)
     alder, _ = prepare_date(cp, out)
     hydrate(alder.native, out / 'hydrated-uncertainty-event.json')
@@ -115,7 +116,7 @@ def review(cp, evidence_root, out):
     parse(path, resume_session=current['source_cursor'], predecessor_checkpoint_sha256=current['run']['checkpoint_sha256'],
           expected_evidence=evidence(out))
     model_cp = boundary(evidence_root, MODEL_ADOPTION, current, path.name, '2019-10-22')
-    with InputCodec(evidence(evidence_root)):
+    with Codec(evidence(evidence_root)):
         review_certificate(evidence_root, out / 'uncertainty-certificate-review.json')
     save(out / 'own-uncertainty-input-boundaries-review.json', dict(passed=True,
         root_parent_sha256=cp['sha256'], date_successor_sha256=current['sha256'], model_successor_sha256=model_cp['sha256'],

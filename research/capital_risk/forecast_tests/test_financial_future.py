@@ -10,6 +10,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import system_campaign_financial_partial as p
 import system_campaign_financial_future as f
 import system_campaign_financial_uncertainty as u
