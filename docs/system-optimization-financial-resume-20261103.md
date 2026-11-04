@@ -1498,3 +1498,22 @@ The1883 admission/source request passed293 targeted resume/source-witness/
 initial-reporting/pending-source/selected-stock/retention/future tests in35.62s.
 Fresh169 archive-format fixtures now explicitly select the unchanged historical
 c08cec7a root; current1883 authority retains that original empty-origin chain.
+
+## Review P04's83 new October2022–January2023 closes
+
+Financial41832538725/e1b91fbe3 artifact13325690752 is authenticated and its
+original prefix reviewer passed. Its strict1279/January31,2023 checkpoint adds
+83 committed closes beyond1196. The later February tail is excluded; February21
+refuses LHCG348961068556052300's incomplete leadership cash terminal. The GBT
+input's actual canonical cash call passed. Do not rerun the closed GBT source audit.
+
+Select only1279 for read-only reporting seeded from1196/dfcd3aee, reuse the exact
+closed prefix review and recompute83 reporting inputs/four monthly reports.
+Independent DATA must verify166 accounting snapshots,112 Decimal metrics,
+neutral input adoption,GBT's original query/resolved-native/cash input binding,
+actual canonical cash result and financial/watch chains. No old financial
+transitions or event qualification repeat. P00's source capture keeps its immutable
+commit. The original October cash-calendar catalog already contains LHCG's
+separately validated literal and full witness; selection follows root admission.
+The1279 read-only request passed142 targeted resume/partial/retention/retained-proof
+tests in19.10s and authorizes zero financial workers.
