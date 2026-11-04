@@ -1213,6 +1213,105 @@
       },
       "ticker": "TVTY",
       "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-150"
+    },
+    {
+      "actual_completion_date": "2020-02-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 2.5,
+        "delivered_issuer_id": "SEC_CIK:1562476",
+        "delivered_security_id": "13062188894457483",
+        "delivered_ticker": "TMHC",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "0.8000",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm | Published exact2.50USD cash plus0.8000 TMHC shares. Research assumes February6,2020 opening recognition and holder-level fractional cash at the frozen TMHC raw open27.55. This fractional proxy is a separate research assumption; the preserved P01 factual record supplies no legal common cash-in-lieu rate and supports only exact integral delivery. Actual settlement and fees are not observed. Preserve both frozen identities and the empty January31 own-parent positions; later holdings arise only from this own continuation.",
+        "security_id": "355892456681242666",
+        "session": "2020-02-06"
+      },
+      "arm": "P05",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1562476",
+        "listing_first_session": "2013-04-10",
+        "security_id": "13062188894457483",
+        "security_type_eligible": "1",
+        "session": "2020-02-06",
+        "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+        "ticker": "TMHC"
+      },
+      "description": "Published exact2.50USD cash plus0.8000 TMHC shares. Research assumes February6,2020 opening recognition and holder-level fractional cash at the frozen TMHC raw open27.55. This fractional proxy is a separate research assumption; the preserved P01 factual record supplies no legal common cash-in-lieu rate and supports only exact integral delivery. Actual settlement and fees are not observed. Preserve both frozen identities and the empty January31 own-parent positions; later holdings arise only from this own continuation.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1095996",
+        "listing_first_session": "2013-05-17",
+        "security_id": "355892456681242666",
+        "security_type_eligible": "1",
+        "session": "2020-02-04",
+        "source_observation_sha256": "f4f1b4c9f0376c5eb41e72b2dcbba80de496c793f15b35ccb25b5ddad90727d0",
+        "ticker": "WLH"
+      },
+      "last_trading_session": "2020-02-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3603",
+        "security_id": "355892456681242666",
+        "session": "2020-02-05"
+      },
+      "native_session": "2020-02-05",
+      "native_term_sha256": "431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181",
+      "parent_cursor": "2020-01-31",
+      "parent_outer_sha256": "8c3f8d3c53b380317fd624e7a55714960cf82ba44f1aaca204f58fbdaed28b38",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "95087a57a75a2747966d9e2afdf5c6c729409381dd8f2d42b011b8218bf37519",
+      "preopen_completion_confirmed": false,
+      "preserved_factual_record": {
+        "action_id": "WLH-2020-02-06",
+        "filename": "p01_factual_batch_facts.json",
+        "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+        "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+        "record_sha256": "77d7548a2035f6c611a7e0284a8e5ba4f70489d730d959f14e54fa549d6ff5d3",
+        "sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "13062188894457483",
+        "session": "2020-02-06",
+        "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+        "ticker": "TMHC"
+      },
+      "recognition_rule": "RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+        "opening_availability_assumed": true,
+        "published_cash_is_approximate": false,
+        "published_cash_per_share": "2.50",
+        "published_exchange_ratio": "0.8000",
+        "recognition_session": "2020-02-06",
+        "schema": "research.daily-mixed-consideration-assumption/2",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "355892456681242666",
+      "source_capture": {
+        "artifact_id": 13367833467,
+        "head": "3e1c36e288bcf3ebf553f9e560583e8771b485ab",
+        "independent_data_review_sha256": "beeea97176da14a12255d8d170837b50a6fb3e8cdbec195a5dc9ea7378e9c588",
+        "payload_sha256": "d1f5d5f3eeefc39a691b44e2ceef8b0cd0fbf03ef901305e1d2de50b97d2e701",
+        "query_scope_sha256": "f789511ad123c677ef7ea05c20572ed9b2f91b02ea7765a2dc60a807445d2bcf",
+        "run_id": 41923205664,
+        "scope_sha256": "711a8a9ae7f9c0a6386b858219191f44c17899512816a5c02748930c7471e378"
+      },
+      "ticker": "WLH",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm"
     }
   ]
 }

@@ -21,7 +21,7 @@ def entry(arm='P10'):
 
 
 def test_actual_root_admissions_preserve_historical_transport_flags():
-    for arm, count in [('P03',169),('P04',1970),('P05',524),('P06',291),('P07',817),('P10',1592),('P11',1152)]:
+    for arm, count in [('P03',232),('P04',1970),('P05',524),('P06',291),('P07',817),('P10',1592),('P11',1298)]:
         value = entry(arm); before = deepcopy(value)
         spec = p.authorized_spec(value, arm)
         p.validate_root_spec(spec)
@@ -29,6 +29,19 @@ def test_actual_root_admissions_preserve_historical_transport_flags():
         assert spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
         assert spec['root_admission']['financial_continuation_authorized'] is True
         assert spec['root_admission']['full_financial_validation_completed'] is False
+
+
+def test_p11_1298_selects_only_original_unconsumed_cash_calendar_in_order(monkeypatch):
+    import system_campaign_ordinary_registry as registry
+    original_registry=registry.registrations
+    monkeypatch.setattr(registry,'registrations',lambda:original_registry(f.HERE))
+    codec,catalog,terms=f.selected('P11',cursor='2023-02-28')
+    assert catalog=='system-campaign-october-cash-calendar-terminal-facts.json'
+    assert [t['ticker'] for t in terms]==['EVOP','SGFY','CTIC','MGI','ISEE','UNVR','RETA','SYNH']
+    original=json.loads((f.HERE/catalog).read_bytes())['terms']
+    assert terms==[t for t in original if t['ticker'] in {v['ticker'] for v in terms}]
+    assert all(t['native_session']>'2023-02-28' and t['added']['session']>'2023-02-28' for t in terms)
+    assert not {'LHCG','ONEM','COUP'}&{t['ticker']for t in terms}
 
 
 @pytest.mark.parametrize('change', ['digest','score','arm','cipher','journal','source','checkpoint','count'])

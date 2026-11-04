@@ -29,6 +29,8 @@ PLANS = {
             'system-campaign-medicines-terminal-facts.json', ('MDCO',)),
 }
 CASH_PHASES = {
+    ('P11', '2023-02-28'): ('system-campaign-october-cash-calendar-terminal-facts.json',
+        ('EVOP', 'SGFY', 'CTIC', 'MGI', 'ISEE', 'UNVR', 'RETA', 'SYNH')),
     ('P11', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
     ('P04', '2023-01-31'): ('system-campaign-october-cash-calendar-terminal-facts.json',
         ('LHCG', 'EVOP', 'SGFY', 'CTIC', 'MGI', 'ISEE', 'UNVR', 'ONEM', 'COUP', 'RETA', 'SYNH')),
@@ -61,7 +63,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c'
+OWN_CASH_SHA = 'c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -84,7 +86,8 @@ OWN_CASH_PHASES = {('P03', '2018-08-31'): 'NLST',
  ('P11', '2018-01-31'): 'AAAP1',
  ('P04', '2025-10-31'): 'LNWO',
  ('P11', '2018-08-31'): 'EDR1'}
-CLOSED_CASH_GENERATIONS = {'5c987533c0fdf7ac1a781044bd50f0a4232db2d9cc43d5a403c39a9bfad3b749': 14,
+OWN_CASH_PHASES['P05', '2020-01-31'] = 'WLH'
+CLOSED_CASH_GENERATIONS = {'465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c': 16, '5c987533c0fdf7ac1a781044bd50f0a4232db2d9cc43d5a403c39a9bfad3b749': 14,
  '1998e26f6dc43f54ec63cff5171989b6b7952948af1b46a6d3c103e325ae004c': 15,
  'ddfb2f16b73dae3b1d4586e11ba3d8ec84365de260fcbc7e9cb9cf21b9481852': 13,
  '7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
@@ -112,6 +115,7 @@ CASH_GENERATION_LENGTHS = {('P03', '2018-08-31'): 15,
  ('P11', '2018-01-31'): 11,
  ('P04', '2025-10-31'): 12,
  ('P11', '2018-08-31'): 13}
+CASH_GENERATION_LENGTHS['P05', '2020-01-31'] = 17
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
@@ -189,6 +193,12 @@ class ResearchMixedAssumption(BaseModel):
     fractional_cash_proxy: Literal['FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE']
     actual_settlement_claimed: Literal[False]
     settlement_fees: Literal['IGNORED_FOR_RESEARCH']
+
+
+class ResearchExactCashMixedAssumption(ResearchMixedAssumption):
+    """Version2 preserves all daily assumptions and declares exact published cash."""
+    schema_id: Literal['research.daily-mixed-consideration-assumption/2'] = Field(alias='schema')
+    published_cash_is_approximate: Literal[False]
 
 
 class ResearchTenderAssumption(BaseModel):
@@ -287,6 +297,7 @@ OWN_CASH_SOURCE_CLOCKS = {('P03', '2018-08-31'): (41919370510, '3aa0c311346305f0
  ('P11', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337507034),
  ('P04', '2025-10-31'): (41858834037, '790729ae679f165e6c3fb458a5c1537e3f07f05e', 13339516521),
  ('P11', '2018-08-31'): (41874947218, '23ff8feb61239406896bafe24a80bfc9cb95be89', 13345399053)}
+OWN_CASH_SOURCE_CLOCKS['P05', '2020-01-31'] = (41923205664, '3e1c36e288bcf3ebf553f9e560583e8771b485ab', 13367833467)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -510,6 +521,7 @@ EXTRA_WITNESS_SCOPES['P05', '2020-01-31'] = dict(
     additional_row_queries=[dict(schema='research.frozen-observation-identity-query/1',
         session='2020-02-06', ticker='TMHC', maximum_rows=1,
         require_unheld_at_parent=True, financial_use_authorized=False)])
+EXTRA_WITNESS_SCOPES['P05_RESOLVED', '2020-01-31'] = {'additional_rows': [{'parent_positions': [], 'security_id': '13062188894457483', 'session': '2020-02-06', 'source_observation_sha256': 'a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3', 'ticker': 'TMHC'}], 'parent_cursor': '2020-01-31', 'parent_outer_sha256': '8c3f8d3c53b380317fd624e7a55714960cf82ba44f1aaca204f58fbdaed28b38', 'terms': [{'native_session': '2020-02-05', 'native_term_sha256': '431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181', 'parent_positions': [], 'security_id': '355892456681242666', 'session': '2020-02-04', 'ticker': 'WLH'}]}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES, NATIVE_INVENTORY_WITNESS_SCOPES, RESOLVED_NATIVE_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
@@ -892,6 +904,29 @@ def selected_query_scope(term, query):
     return resolved
 
 
+def qualify_selected_query_resolution(term, query, scope):
+    """Bind either captured discovery or exact known-native delivery query."""
+    if 'native_preimage_query' not in query:
+        need(set(query) == {'parent_outer_sha256', 'parent_cursor', 'terms', 'additional_row_queries'}
+             and len(query['terms']) == 1,
+             'OWN_INPUT_KNOWN_NATIVE_SINGLE_DELIVERY_QUERY_SCOPE')
+        declared, = query['terms']
+        need(set(declared) == {'ticker', 'security_id', 'session', 'native_session',
+                              'native_term_sha256', 'parent_positions'}
+             and query['parent_outer_sha256'] == term['parent_outer_sha256']
+             and query['parent_cursor'] == term['parent_cursor']
+             and declared == dict(ticker=term['ticker'], security_id=term['security_id'],
+                 session=term['identity_witness']['session'], native_session=term['native_session'],
+                 native_term_sha256=term['native_term_sha256'], parent_positions=term['parent_positions'])
+             and declared['native_term_sha256'] == digest(term['native'])
+             and term['native']['session'] == declared['native_session']
+             and term['native']['security_id'] == declared['security_id']
+             and query['parent_cursor'] < declared['session'] < declared['native_session'],
+             'OWN_INPUT_KNOWN_NATIVE_EXACT_PREIMAGE_PARENT_AND_UNCONSUMED_SCOPE')
+    need(digest(selected_query_scope(term, query)) == digest(scope),
+         'OWN_CASH_EXACT_QUERY_RESOLUTION_NATIVE_PREIMAGE')
+
+
 def own_cash_selection(arm, cursor):
     from system_campaign_cash_calendar import validate_term
     import system_campaign_cash_calendar as calendar
@@ -935,9 +970,7 @@ def own_cash_selection(arm, cursor):
         declared, = scope['terms']
         if 'query_scope_sha256' in source:
             query = registered_scope(source['query_scope_sha256'])
-            need('native_preimage_query' in query
-                 and digest(selected_query_scope(term, query)) == digest(scope),
-                 'OWN_CASH_EXACT_QUERY_RESOLUTION_NATIVE_PREIMAGE')
+            qualify_selected_query_resolution(term, query, scope)
         retained_primary(term)
         need(OWN_CASH_PHASES.get(phase) == term['ticker']
              and term['parent_outer_sha256'] == scope['parent_outer_sha256']
@@ -965,7 +998,7 @@ def own_cash_selection(arm, cursor):
         validator_description='Unchanged cash-calendar term validator; new own-source catalog validated by the shared selector.')
     if chosen['recognition_rule'] == RESEARCH_MIXED:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
-        codec.validator_description = 'Published approximate cash and literal stock ratio with explicit daily research opening availability and frozen raw-open fractional proxy; actual settlement is not claimed.'
+        codec.validator_description = 'Published cash precision declared by the versioned assumption and literal stock ratio with explicit daily research opening availability and frozen raw-open fractional proxy; actual settlement is not claimed.'
         return codec, OWN_CASH_CATALOG, [research_mixed_term(chosen)]
     if chosen['added']['kind'] != 'CASH_MERGER':
         codec.compiler_sha = sha(Path(__file__).read_bytes())
@@ -1091,12 +1124,17 @@ def research_cash_term(term):
 
 
 def research_mixed_term(term):
-    model = ResearchMixedAssumption.model_validate(term['research_assumption'])
+    assumption = term['research_assumption']
+    model_class = (ResearchExactCashMixedAssumption
+                   if assumption.get('schema') == 'research.daily-mixed-consideration-assumption/2'
+                   else ResearchMixedAssumption)
+    model = model_class.model_validate(assumption)
     a, w, dw, proxy = term['added'], term['identity_witness'], term['delivered_identity_witness'], term['proxy']
     ratio = a['exchange_ratio']
     value = float(ratio)
     need(term['recognition_rule'] == RESEARCH_MIXED
-         and model.published_cash_is_approximate is model.opening_availability_assumed is True
+         and type(assumption['published_cash_is_approximate']) is bool
+         and model.opening_availability_assumed is True
          and model.actual_settlement_claimed is False
          and term['preopen_completion_confirmed'] is False
          and term['mandatory_common_share_completion_confirmed'] is True

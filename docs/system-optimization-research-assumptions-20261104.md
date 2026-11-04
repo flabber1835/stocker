@@ -385,3 +385,33 @@ P05 continuation qualification:145 relevant resume, initial/history, original-
 ordinary and future cases passed in16.03s. The own211 selector returns only the
 original KS35USD record. All older own cash/model phases and the three initial21
 transports remain independently addressable. Request/import probes passed.
+# P05 own524 WLH research continuation proposal
+
+P05 has independently admitted its own524 January31,2020 close. Source222 is
+closed independent DATA: its February4 WLH observation, February5 incomplete
+native and February6 TMHC observation are exact frozen rows. Parent WLH and TMHC
+holdings are empty; later event holdings must come from this own continuation.
+
+Reuse the generic daily mixed-consideration selector and canonical conversion.
+Keep version1 unchanged: FMSA's published cash remains explicitly approximate.
+Add version2 for exact published cash, requiring published_cash_is_approximate
+to be false. Both versions retain explicit research opening availability,
+holder-level fractional cash at the frozen delivered raw open, ignored settlement
+fees and no actual-settlement claim. WLH uses2.50USD plus0.8000 TMHC shares on
+February6,2020; its frozen TMHC raw open is27.55. The original P01 factual registry
+and its exact-integral-only legal fractional policy remain unchanged. This new
+research assumption does not establish a legal cash-in-lieu rate.
+
+Add a separate known-native row-query resolution path to the shared selector.
+Its exact query must declare one unconsumed native with the catalog's native
+digest, session, security, parent and complete declared identity scope, plus one
+typed delivery-row query. The existing shared selected_query_scope checks the
+delivery identity and full-row digest. Bind the resulting scope's digest to the
+closed source222 scope. Preserve the original discovery-query path and every
+old catalog generation byte-for-byte. Append only WLH as record17 and preserve
+the closed16-term catalog hash. This proposal grants no DATA root admission,
+financial replay or production authority.
+
+Private qualification uses only DATA selectors, Pydantic validation, hashes,
+AST checks and synthetic guard-removal falsifiers. Canonical financial execution,
+restore, serialization and imports of financial runtime packages are forbidden.

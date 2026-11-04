@@ -1893,3 +1893,26 @@ The two-root/literal-calendar/retained-proof/risk-observer/future/launcher check
 passed175 tests in22.50s. Risk observation preserves argument identities, return
 values and original exceptions, including when diagnostic output fails; context
 exit restores the exact original function. All383 frozen driver bytes remain.
+
+P11's saved1298/February28,2023 prefix passed hosted reporting and independent
+DATA:146 new closes,292 raw accounting snapshots,seven reports and196 Decimal
+metrics. The retained ACC source generation was bound to P11's own1152 parent;
+the actual August10 event converted65 shares at65.47USD for4255.55USD. Its source
+book's positions and authority were excluded. Nine DATA tests, including seven
+guard-removal falsifiers, passed in2.26s. Admit only1298 and preserve1152 in
+history; exclude the later March tail.
+
+Continue from1298 with the already qualified October cash-calendar subset in
+its original order:EVOP,SGFY,CTIC,MGI,ISEE,UNVR,RETA,SYNH. LHCG,ONEM and COUP
+are consumed before the February28 checkpoint and remain excluded. Reuse the
+original CashCalendar validator, frozen source rows, native hashes and published
+cash/timing conventions. The observed March24 EVOP risk refusal is addressed
+through this missing future input; preserve the original V10 risk guard.
+
+P03's saved232/November30,2018 prefix passed63 new closes,126 raw accountings,
+three reports and84 Decimal metrics. Independent DATA verifies NLST's never-held
+source exit at the exact retained0.651 raw close, with no portfolio settlement,
+and the inherited COL full-row123.67 fractional proxy and original repair bytes.
+The47 DATA tests passed in2.03s. Admit232 while retaining169 in history. Exclude
+the December3 tail and resolve the December4 native435766160247494711 from the
+frozen source identity; no ticker or consideration is inferred from the error.
