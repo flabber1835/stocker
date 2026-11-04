@@ -38,8 +38,17 @@ COMBINED_PHASES = {
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9'
-OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC'}
+OWN_CASH_SHA = 'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3'
+OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
+                   ('P10', '2024-04-30'): 'SWAV'}
+CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2}
+CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
+                           ('P10', '2024-04-30'): 3}
+OWN_CASH_SOURCE_CLOCKS = {
+    ('P04', '2022-06-30'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299799904),
+    ('P10', '2022-07-29'): (41783795694, 'cddd0dfb84433998b52c46b5e53e836a84fc5d58', 13299684770),
+    ('P10', '2024-04-30'): (41799737694, '3ea65d6eefefc66d593858dc0ee6a4b476769c2a', 13307052219),
+}
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -174,6 +183,12 @@ def own_cash_selection(arm, cursor):
          and all(catalog[k] is False for k in ('canonical_financial_source_changed',
                                               'provider_metadata_upgraded', 'production_contacted'))
          and len(catalog['terms']) == len(OWN_CASH_PHASES), 'OWN_CASH_EXACT_NEW_CATALOG_SCOPE')
+    def generation(count):
+        value = dict(deepcopy(catalog), terms=deepcopy(catalog['terms'][:count]))
+        encoded = (json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
+        return value, sha(encoded)
+    for old_sha, count in CLOSED_CASH_GENERATIONS.items():
+        need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
         validate_term(term)
         phase = term['arm'], term['parent_cursor']
@@ -181,6 +196,7 @@ def own_cash_selection(arm, cursor):
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
         scope = registered_scope(source['scope_sha256'])
         declared, = scope['terms']
+        retained_primary(term)
         need(OWN_CASH_PHASES.get(phase) == term['ticker']
              and term['parent_outer_sha256'] == scope['parent_outer_sha256']
              and term['parent_outer_sha256'] == parent['outer_sha256']
@@ -190,9 +206,7 @@ def own_cash_selection(arm, cursor):
              and term['native_session'] == declared['native_session']
              and term['native_term_sha256'] == declared['native_term_sha256']
              and term['security_id'] == declared['security_id']
-             and source['run_id'] == 41783795694
-             and source['head'] == 'cddd0dfb84433998b52c46b5e53e836a84fc5d58'
-             and source['artifact_id'] == {'P04': 13299799904, 'P10': 13299684770}[term['arm']]
+             and (source['run_id'], source['head'], source['artifact_id']) == OWN_CASH_SOURCE_CLOCKS.get(phase)
              and source['scope_sha256'] == digest(scope)
              and all(type(source[k]) is str and len(source[k]) == 64
                      and all(c in '0123456789abcdef' for c in source[k])
@@ -201,11 +215,26 @@ def own_cash_selection(arm, cursor):
     chosen, = [t for t in catalog['terms'] if (t['arm'], t['parent_cursor']) == (arm, cursor)]
     need(len({(t['arm'], t['parent_cursor']) for t in catalog['terms']}) == len(catalog['terms']),
          'OWN_CASH_UNIQUE_DECLARED_PHASES')
-    codec = SimpleNamespace(catalog=catalog, catalog_sha=sha(raw),
+    selected_catalog, selected_sha = generation(CASH_GENERATION_LENGTHS[arm, cursor])
+    need(chosen in selected_catalog['terms'], 'OWN_CASH_EXACT_PHASE_CATALOG_GENERATION')
+    codec = SimpleNamespace(catalog=selected_catalog, catalog_sha=selected_sha,
         compiler_sha=sha(Path(calendar.__file__).read_bytes()),
         parent_outer_sha256=chosen['parent_outer_sha256'], parent_positions=chosen['parent_positions'],
         validator_description='Unchanged cash-calendar term validator; new own-source catalog validated by the shared selector.')
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def retained_primary(term):
+    source = term.get('retained_primary_catalog')
+    if source is None:
+        return
+    raw = (HERE / source['filename']).read_bytes()
+    original, = [t for t in json.loads(raw)['terms'] if t['security_id'] == term['security_id']]
+    identity = ('security_id', 'ticker', 'issuer_id', 'listing_first_session', 'security_type_eligible')
+    need(sha(raw) == source['sha256'] and digest(original) == source['term_sha256']
+         and all(term[k] == v for k, v in original.items() if k != 'identity_witness')
+         and all(term['identity_witness'][k] == original['identity_witness'][k] for k in identity),
+         'OWN_CASH_UNCHANGED_RETAINED_PRIMARY_TERM_AND_SOURCE_METADATA')
 
 
 def catalog_terms(codec, tickers):

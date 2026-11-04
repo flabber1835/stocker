@@ -108,6 +108,85 @@
       },
       "ticker": "ACC",
       "timing_source": "https://infomemo.theocc.com/infomemos?number=50844"
+    },
+    {
+      "actual_completion_date": "2024-05-31",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 335.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255 | Mandatory remaining common-share cash conversion completed before the 2024-05-31 market open; preserve 2024-05-30 trading and frozen source metadata.",
+        "security_id": "158012003593585084",
+        "session": "2024-05-31"
+      },
+      "arm": "P10",
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-05-31 market open; preserve 2024-05-30 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1642545",
+        "listing_first_session": "2019-03-07",
+        "security_id": "158012003593585084",
+        "security_type_eligible": "1",
+        "session": "2024-05-29",
+        "source_observation_sha256": "c605a7d12487cc1cdc4a10b64ad12c66389fd05bea6be8b8833c20a5ca866100",
+        "ticker": "SWAV"
+      },
+      "last_trading_session": "2024-05-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-05-30",
+      "native_term_sha256": "011cbd286ef8f6e57519452164b18187177190814dfe5742ce4ac52d70f02a0c",
+      "parent_cursor": "2024-04-30",
+      "parent_outer_sha256": "6ffb77026ee113108e175f22c6aa24c2d68963b24b48100340b9ce9888d58377",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "before_market_open": true,
+        "cash_per_common_share": "335.00",
+        "cash_per_ordinary_share": "335.00",
+        "completion": "2024-05-31",
+        "corroboration": "https://www.investor.jnj.com/investor-news/news-details/2024/Johnson--Johnson-Completes-Acquisition-of-Shockwave-Medical/default.aspx",
+        "currency": "USD",
+        "last_trade_confirmed": "2024-05-30",
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-05-30",
+        "source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255",
+        "ticker": "SWAV"
+      },
+      "primary_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "07cd0520063f8ccddb59c795d649d6bcf2cef4cc6dea1a596e7f83ecbe136265",
+        "selected_row_sha256": [
+          "fc0c8e151b4e1806065545285e8240ff95079e7022d728024867b8d813062e17",
+          "f4f46d3ef6566586dba64756844929835d8b8e25bdbf8b7de0fcbc5abb8b1618",
+          "4b0ecf2f681db54826eb8107b431a4b5935d465321b23fae2613d088d8bd362c"
+        ],
+        "session": "2024-05-30",
+        "ticker": "SWAV"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "retained_primary_catalog": {
+        "filename": "system-campaign-unconsumed2024-cash-calendar-terminal-facts.json",
+        "sha256": "80991b29c310eb2b91152f909890697c44ae7bebceab3258ad309bb2c3dfad53",
+        "term_sha256": "a1641434af3289a05ede76b482617414907880528a9de454deb2bd1e1b7bd209"
+      },
+      "security_id": "158012003593585084",
+      "source_capture": {
+        "artifact_id": 13307052219,
+        "head": "3ea65d6eefefc66d593858dc0ee6a4b476769c2a",
+        "independent_data_review_sha256": "210dd8a58fc0ac702ee2a767270c55f6392f1e66280cda830efd53adef9098ce",
+        "payload_sha256": "29329a4a002f353e648de478aee2e591e777ee599d0e9572d87faf3481f557fc",
+        "run_id": 41799737694,
+        "scope_sha256": "a4c9c8519560d2e56040070016a92a3e53b672d61881cfc9b17a4afc03f2a468"
+      },
+      "ticker": "SWAV",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255"
     }
   ]
 }

@@ -139,7 +139,7 @@ def test_closed_source_scopes_keep_exact_historical_own_parents():
     assert set(f.HISTORICAL_WITNESS_SCOPES)=={'P04','P10'}
     for arm,scope in f.HISTORICAL_WITNESS_SCOPES.items():
         terms=json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms']
-        term,=[t for t in terms if t['arm']==arm]
+        term,=[t for t in terms if t['arm']==arm and t['parent_cursor']==scope['parent_cursor']]
         root=root_spec(arm,term['parent_root_admission_sha256'])
         assert root['outer_sha256']==scope['parent_outer_sha256'] and root['selected_session']==scope['parent_cursor']
     assert f.HISTORICAL_WITNESS_SCOPES['P04']['terms'][0]['parent_positions'][0]['quantity']==29
@@ -330,6 +330,7 @@ def test_active_query_is_only_new_own_p10_swav_and_closed_source_scopes_are_reta
     assert f.registered_scope(f.digest(f.NEXT_WITNESS_SCOPES['P04']))['terms'][0]['ticker']=='CTXS'
     terms=json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms']
     for t in terms:
+        if t['source_capture']['run_id']!=41783795694:continue
         retained=f.registered_scope(t['source_capture']['scope_sha256'])
         assert retained==f.HISTORICAL_WITNESS_SCOPES[t['arm']]
         assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[t]

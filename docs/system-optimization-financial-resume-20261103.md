@@ -906,3 +906,29 @@ tail quantity identifies the blocker but supplies no holding/adoption authority.
 Cash terms, legal timing and actual application must be separately qualified;
 the original volatility causal-axis guard remains unchanged. No completed P04
 source capture or P00/P10 reporting job is repeated.
+
+## Resume P10 from April2024 with its separately qualified SWAV source
+
+P10 source41799737694 passed authenticated independent DATA review of the full
+May29 SWAV row, incomplete May30 native and absent position at its admitted1592
+April30 root. Close that source audit. Reuse the existing unchanged original
+SWAV335USD cash fact and actual Nasdaq May31 preopen completion; verify its
+literal original term at use. Bind the new full source witness, exact own root
+and source run/head/artifact/payload/review identities in the shared own-cash
+catalog. Preserve all original primary fields and source metadata; only the
+earlier full-row witness and new own-parent/capture bindings are added.
+
+Append this term in the same catalog. Preserve the earlier two-term generation
+by exact reconstructed JSON digest and keep historical phases resolving that
+same generation/digest. A new whole-file literal hash authorizes the append;
+neither it nor later appends may silently edit closed generation bodies. Use
+phase-keyed source clocks, rather than an arm-only clock that cannot distinguish
+P10's ACC and SWAV captures. Keep the unchanged cash-calendar term validator.
+
+The next request selects only P10 financial continuation from1592. Hydrate the
+actual frozen row/native, run existing ordinary-input parser/packet/notional
+falsifiers and require neutral adoption. The actual cash observer must see one
+canonical335USD application and prove cash removal before the original V21
+loop with the quantity produced by this own run; the unadmitted25-share tail is
+never imported. No previously closed source, qualification or report is repeated.
+Fresh P00's independent initial DATA review proceeds while this worker runs.
