@@ -1865,3 +1865,31 @@ its delivery terms. Earlier selectors and already adopted input bytes remain.
 The shared cash/delivery composition,future-input and launcher checks passed137
 tests in14.21s. The actual hydration composition keeps all three future terms
 and one LateFacts source component; all383 frozen drivers remain exact.
+
+P07 and P11 reporting41894539616 and independent DATA passed both saved prefixes.
+P07's42 days,84 accountings,two reports,56 Decimal metrics and42 new point-return
+certificates extend321 closed rows. P11's859 days,1718 accountings,41 reports and
+1148 Decimal metrics retain its169 predecessor. Its actual one-share EDR event
+posted41.50USD under the disclosed daily model. New DATA qualification passed28
+branch tests in12.36s and16 adopted-input tests in0.76s. Admit own817 and1028,
+preserving prior roots and excluding their April/February tails.
+
+From817, use the original2021Completions literal subset MIK,VAR,NAV,WORK,HOME,
+TRIL1; earlier WPX and BEAT1 events are consumed and excluded. Retain the already
+adopted future FollowingFacts terms unchanged. From1028, reuse the original VCRA
+cash-calendar input already qualified for P10:79.25USD before February23 open,
+native/last trade February22. Select cash-calendar phases before looking up a
+default arm plan, so the shared selector supports P11 without a new wrapper.
+The canonical V10 function and ten-session acceleration remain unchanged.
+
+Add a generic refusal-only risk observer for P11. Delegate the original call once
+with identical arguments and return value; on its original ValueError, retain the
+actual episode,bar window,configuration and source hash in encrypted evidence,
+then re-raise the same exception. A diagnostic write failure must not replace the
+financial exception. This observer changes no risk decision,bar,quantity or source
+and gives no financial authority to the captured failure. It resolves any further
+causal-axis refusal from actual call evidence rather than a presumed security.
+The two-root/literal-calendar/retained-proof/risk-observer/future/launcher checks
+passed175 tests in22.50s. Risk observation preserves argument identities, return
+values and original exceptions, including when diagnostic output fails; context
+exit restores the exact original function. All383 frozen driver bytes remain.

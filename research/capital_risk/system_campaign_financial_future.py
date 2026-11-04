@@ -1,6 +1,6 @@
 """Selected future ordinary facts, with read-only actual cash/risk postconditions."""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from fractions import Fraction
 import inspect
 import json
@@ -29,6 +29,7 @@ PLANS = {
             'system-campaign-medicines-terminal-facts.json', ('MDCO',)),
 }
 CASH_PHASES = {
+    ('P11', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
     ('P04', '2023-01-31'): ('system-campaign-october-cash-calendar-terminal-facts.json',
         ('LHCG', 'EVOP', 'SGFY', 'CTIC', 'MGI', 'ISEE', 'UNVR', 'ONEM', 'COUP', 'RETA', 'SYNH')),
     ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
@@ -48,6 +49,9 @@ FOLLOWING_PHASES = {('P07', '2020-03-31'):
 FUTURE_LITERAL_PHASES = {('P07', '2021-01-29'):
     ('system_campaign_following_completions_facts', 'FollowingFacts',
      'system-campaign-following-completions-terminal-facts.json', ('ACIA', 'APHA', 'CATM', 'AZPN1', 'REGI', 'PLAN'))}
+FUTURE_LITERAL_PHASES['P07', '2021-03-31'] = (
+    'system_campaign_2021_completions_facts', 'CompletionFacts',
+    'system-campaign-2021-completions-terminal-facts.json', ('MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1'))
 COMBINED_PHASES['P07', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
@@ -1230,7 +1234,6 @@ def selected(arm, *, cursor=None):
              'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
     if (arm, cursor) in COMBINED_PHASES:
         return compose(COMBINED_PHASES[arm, cursor])
-    module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES, **FUTURE_LITERAL_PHASES}.get((arm, cursor), PLANS[arm])
     if (arm, cursor) in CASH_PHASES:
         from system_campaign_cash_calendar import CashCalendar
         catalog, tickers = CASH_PHASES[arm, cursor]
@@ -1239,6 +1242,7 @@ def selected(arm, *, cursor=None):
         codec.catalog_sha = sha(raw)
         codec.compiler_sha = sha(Path(importlib.import_module('system_campaign_cash_calendar').__file__).read_bytes())
     else:
+        module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES, **FUTURE_LITERAL_PHASES}.get((arm, cursor), PLANS[arm])
         codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
     terms = catalog_terms(codec, tickers)
     return codec, catalog, terms
@@ -1788,6 +1792,23 @@ def unheld_stock_postcondition(before, after, ledger_before, ledger_after, pendi
     return dict(actual_held=False, quantity=0, nominal_cash=0.)
 
 
+def risk_diagnostic_value(value):
+    """Record primitive call data only; never call a financial serialization API."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return risk_diagnostic_value(asdict(value))
+    if isinstance(value, BaseModel):
+        return risk_diagnostic_value(vars(value))
+    if isinstance(value, dict):
+        return {str(k): risk_diagnostic_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [risk_diagnostic_value(v) for v in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return dict(nonfinite_float=str(value))
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    return dict(python_type=type(value).__name__)
+
+
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
     def __init__(self, out, arm, *, cp=None):
@@ -1832,11 +1853,32 @@ class ActualEvents:
             from stock_strategy_shared.wealth_core import capital_risk
             self.decide_original = self.patch(adapter, 'decide', self.decide)
             self.risk_original = self.patch(capital_risk, 'volatility_stop', self.risk)
+        elif self.arm == 'P11':
+            from stock_strategy_shared.wealth_core import capital_risk
+            self.risk_original = self.patch(capital_risk, 'volatility_stop', self.risk_refusal)
         return self
 
     def __exit__(self, *args):
         for owner, name, old in reversed(self.saved):
             setattr(owner, name, old)
+
+    def risk_refusal(self, episode, *args, **kwargs):
+        try:
+            return self.risk_original(episode, *args, **kwargs)
+        except ValueError as error:
+            try:
+                save(self.out / 'risk-refusal.json', dict(
+                    schema='research.original-risk-call-refusal-diagnostic/1',
+                    session=kwargs.get('session'), error=str(error),
+                    episode=risk_diagnostic_value(episode), bars=risk_diagnostic_value(kwargs.get('bars')),
+                    configuration=risk_diagnostic_value(kwargs.get('cfg')),
+                    function_source_sha256=sha(Path(self.risk_original.__code__.co_filename).read_bytes()),
+                    financial_source_changed=False, decision_overridden=False,
+                    financial_session_committed=False, financial_authority=False))
+            except Exception:
+                # Observation cannot replace or suppress the original refusal.
+                pass
+            raise
 
     def terminal(self, state, terms, **kwargs):
         key = terms.session, terms.security_id

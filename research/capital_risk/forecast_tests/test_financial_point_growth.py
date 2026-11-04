@@ -170,7 +170,7 @@ def test_only_current_registered_root_uses_point_returns_and_no_new_input():
 
 
 def test_new775_root_keeps_point_proof_math_and_requires_new_factual_adoption():
-    spec=p.root_spec('P07')
+    spec=p.root_spec('P07','672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3')
     assert spec['measured_closes']==775 and u.point_return_phase(spec)
     assert not u.unchanged_input_phase(spec) and launcher.factual_overlay_needed(spec)
     assert u.RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]==dict(

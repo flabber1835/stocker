@@ -17,11 +17,12 @@ DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
-POINT_RETURN_SEEDS = frozenset({'672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
+POINT_RETURN_SEEDS = frozenset({'8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998', '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 POINT_WITNESS_SHA = '177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
 UNCHANGED_INPUT_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 UNCHANGED_INPUT = 'retained-proof-admission/unchanged-input.json'
 RETAINED_PROOF_SEEDS = {
+    '8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998': dict(completed=817, source_cursor='2021-03-31', rows=363, new_rows=42, retained_rows=321),
     '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3': dict(completed=775, source_cursor='2021-01-29', rows=321, new_rows=19, retained_rows=302),
     'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776': dict(completed=756, source_cursor='2020-12-31', rows=302, new_rows=128, retained_rows=174),
     '2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543':
