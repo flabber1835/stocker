@@ -51,7 +51,7 @@ SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
 SOURCE_WITNESS_DISCOVERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/3'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = 'c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2'
+OWN_CASH_SHA = 'a312304df09aa19feabce82cce92adc1798a49e104333fc4d7d5cb7ce94af77f'
 OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM',
  ('P10', '2022-07-29'): 'ACC',
  ('P10', '2024-04-30'): 'SWAV',
@@ -62,14 +62,16 @@ OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM',
  ('P07', '2020-06-30'): 'LM',
  ('P05', '2018-01-31'): 'AAAP1',
  ('P06', '2018-01-31'): 'AAAP1',
- ('P11', '2018-01-31'): 'AAAP1'}
+ ('P11', '2018-01-31'): 'AAAP1',
+ ('P04', '2025-10-31'): 'LNWO'}
 CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
  'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3,
  '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4,
  '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7': 5,
  'c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101': 6,
  '4467104fa7d591af78c7665895b453757c04431492c4a805fa6027ae24f27d84': 7,
- '1baf3f3938fa8fa6e31ddd1ca7c264f79f8eae8de8396c2828fdf831c2436915': 8}
+ '1baf3f3938fa8fa6e31ddd1ca7c264f79f8eae8de8396c2828fdf831c2436915': 8,
+ 'c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2': 11}
 CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2,
  ('P10', '2022-07-29'): 2,
  ('P10', '2024-04-30'): 3,
@@ -80,11 +82,13 @@ CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2,
  ('P07', '2020-06-30'): 8,
  ('P05', '2018-01-31'): 11,
  ('P06', '2018-01-31'): 11,
- ('P11', '2018-01-31'): 11}
+ ('P11', '2018-01-31'): 11,
+ ('P04', '2025-10-31'): 12}
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
+RESEARCH_SOURCE_EXIT = 'UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH'
 SOURCE_SCOPES = 'future-source-only-scopes.json'
 ORIGINAL_ORDINARY_SOURCES = {
     arm: ('system_campaign_winter_facts', 'WinterCash',
@@ -117,6 +121,21 @@ class ResearchTenderAssumption(BaseModel):
     settlement_fees: Literal['IGNORED_FOR_RESEARCH']
 
 
+class ResearchSourceExitAssumption(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.unheld-source-exit-assumption/1'] = Field(alias='schema')
+    treatment: Literal['UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH']
+    retained_quote_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    retained_raw_close: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    retained_quote_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    scope: Literal['NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM']
+    held_settlement_supported: Literal[False]
+    legal_identity_admitted: Literal[False]
+    execution_price_claimed: Literal[False]
+    actual_settlement_claimed: Literal[False]
+
+
 class SourceOnlyScope(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
     schema_id: Literal['research.unowned-closing-source-scope/1'] = Field(alias='schema')
@@ -141,6 +160,12 @@ class NativePreimageQuery(BaseModel):
     financial_use_authorized: Literal[False]
 
 
+class NeverHeldSourceExitScope(SourceOnlyScope):
+    schema_id: Literal['research.never-held-source-exit-scope/1'] = Field(alias='schema')
+    source_ticker: Annotated[str, Field(min_length=1)]
+    require_never_held: Literal[True]
+
+
 OWN_CASH_SOURCE_CLOCKS = {('P07', '2020-06-30'): (41827156321, '9f4dbf9ae615cbdfcee7b10ee3c2458855c90c4b', 13320032317),
  ('P00', '2025-06-30'): (41837453683, 'ecf08be298726e86ed48d97f468b834d3fcb51a6', 13327262198),
  ('P04', '2022-09-30'): (41830900595, '6022c86853d71a575df8e562a0d1ada63f787dd2', 13321284554),
@@ -151,7 +176,8 @@ OWN_CASH_SOURCE_CLOCKS = {('P07', '2020-06-30'): (41827156321, '9f4dbf9ae615cbdf
  ('P10', '2024-04-30'): (41799737694, '3ea65d6eefefc66d593858dc0ee6a4b476769c2a', 13307052219),
  ('P05', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13338596091),
  ('P06', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337926516),
- ('P11', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337507034)}
+ ('P11', '2018-01-31'): (41856244317, 'b68cab1f7989e35af90630f6fbfc82e11c0c18ea', 13337507034),
+ ('P04', '2025-10-31'): (41858834037, '790729ae679f165e6c3fb458a5c1537e3f07f05e', 13339516521)}
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -534,7 +560,9 @@ def own_cash_selection(arm, cursor):
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        if term['recognition_rule'] == RESEARCH_TENDER:
+        if term['recognition_rule'] == RESEARCH_SOURCE_EXIT:
+            research_source_exit_term(term)
+        elif term['recognition_rule'] == RESEARCH_TENDER:
             research_tender_term(term)
         elif term['recognition_rule'] == RESEARCH_CASH:
             research_cash_term(term)
@@ -585,7 +613,10 @@ def own_cash_selection(arm, cursor):
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Source-bound selected stock term; raw ratio preserved in catalog and exactly normalized for the canonical typed parser.'
         return codec, OWN_CASH_CATALOG, [selected_stock_term(chosen)]
-    if chosen['recognition_rule'] == RESEARCH_TENDER:
+    if chosen['recognition_rule'] == RESEARCH_SOURCE_EXIT:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Retained raw-close controller source exit only; actual portfolio no-op and never-held history are required. No statutory cash, held settlement or execution-price claim.'
+    elif chosen['recognition_rule'] == RESEARCH_TENDER:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Published listed-unit cash with explicit modeled tender participation and opening recognition after the offer deadline; actual settlement and mandatory conversion are not claimed.'
     elif chosen['recognition_rule'] == RESEARCH_CASH:
@@ -598,6 +629,37 @@ def own_cash_selection(arm, cursor):
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared closing source valuation; actual unowned/unordered and canonical no-op proofs are mandatory, with no portfolio completion authority.'
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
+
+
+def research_source_exit_term(term):
+    model = ResearchSourceExitAssumption.model_validate(term['research_assumption'])
+    a, w, quote = term['added'], term['identity_witness'], term['retained_quote']
+    need(term['recognition_rule'] == RESEARCH_SOURCE_EXIT
+         and term['preopen_completion_confirmed'] is term['mandatory_common_share_completion_confirmed'] is False
+         and term['portfolio_completion_authorized'] is False and term['require_unowned_and_unordered'] is True
+         and term['parent_positions'] == [] and term['source_valuation_phase'] == 'CLOSE'
+         and term['parent_cursor'] < w['session'] == model.retained_quote_session
+             < model.recognition_session == a['session'] == term['native_session']
+         and a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and Fraction(str(a['cash_per_share'])) == Fraction(model.retained_raw_close)
+         and quote == dict(security_id=term['security_id'], ticker=term['ticker'],
+                           session=model.retained_quote_session, raw_close=a['cash_per_share'])
+         and digest(quote) == model.retained_quote_sha256
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and a['reference'] == 'MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:' + model.retained_quote_sha256,
+         'OWN_INPUT_EXPLICIT_UNHELD_SOURCE_EXIT_NO_SETTLEMENT')
+
+
+def source_exit_quote(term, row):
+    quote = dict(security_id=row['security_id'], ticker=row['ticker'], session=row['session'],
+                 raw_close=float(row['raw_close']))
+    need(quote == term['retained_quote']
+         and digest(quote) == term['research_assumption']['retained_quote_sha256'],
+         'OWN_INPUT_SOURCE_EXIT_EXACT_FROZEN_RAW_QUOTE')
 
 
 def research_tender_term(term):
@@ -685,6 +747,14 @@ def completion_cash_term(term):
 
 
 def completion_session(term, dates):
+    if term.get('recognition_rule') == RESEARCH_SOURCE_EXIT:
+        model = ResearchSourceExitAssumption.model_validate(term['research_assumption'])
+        need(dates == sorted(set(dates)) and model.retained_quote_session in dates
+             and dates.index(model.retained_quote_session) + 1 < len(dates)
+             and dates[dates.index(model.retained_quote_session) + 1]
+                 == term['native_session'] == term['added']['session'] == model.recognition_session,
+             'OWN_INPUT_SOURCE_EXIT_EXACT_NEXT_FROZEN_DAILY_BOUNDARY')
+        return
     if term.get('recognition_rule') == RESEARCH_TENDER:
         model = ResearchTenderAssumption.model_validate(term['research_assumption'])
         need(dates == sorted(set(dates)) and model.offer_deadline_session in dates
@@ -1004,7 +1074,7 @@ def hydrate(cp, arm, *, source_root=None):
         ordinary_components.append(deepcopy(original_codec.ordinary_source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER) for t in terms):
+    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:
@@ -1046,6 +1116,10 @@ def hydrate(cp, arm, *, source_root=None):
                 require_witness(row, wanted[key])
                 seen[key] = row
     need(set(seen) == set(wanted), 'FUTURE_ALL_SELECTED_NATIVE_AND_DELIVERY_WITNESSES')
+    for term in terms:
+        if term.get('recognition_rule') == RESEARCH_SOURCE_EXIT:
+            witness = term['identity_witness']
+            source_exit_quote(term, seen[witness['session'], witness['security_id']])
     delivered = {}
     for t in terms:
         if 'delivered_identity_witness' not in t:
@@ -1130,7 +1204,7 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
     for t in material['terms']:
         sid = t['security_id']
         bar = vendor(delivered[sid]) if sid in delivered else None
-        prior_session = (t['identity_witness']['session'] if t.get('recognition_rule') == RESEARCH_TENDER
+        prior_session = (t['identity_witness']['session'] if t.get('recognition_rule') in (RESEARCH_TENDER, RESEARCH_SOURCE_EXIT)
                          else t['last_trading_session'])
         prior = SimpleNamespace(median5={'selected': [sid]}, feed={'series': {sid: {
             'signal_basis_anchor': (prior_session, 1., 1.)}}}, last_processed_session=prior_session)
@@ -1244,26 +1318,34 @@ def hydration_name(cp):
 def source_scopes(cp, material, overlay_sha, hydrated_sha):
     from system_campaign_financial_partial import root_spec
     expected = [t for t in selected(material['arm'], cursor=cp['source_cursor'])[2]
-                if t.get('recognition_rule') == SOURCE_CLOSE]
-    actual = [t for t in material['terms'] if t.get('recognition_rule') == SOURCE_CLOSE]
+                if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_SOURCE_EXIT)]
+    actual = [t for t in material['terms'] if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_SOURCE_EXIT)]
     need(digest(actual) == digest(expected), 'FUTURE_SOURCE_ONLY_SCOPE_CANNOT_BE_OMITTED_OR_RECLASSIFIED')
     result = []
     for term in actual:
-        source_cash_term(term)
+        source_exit = term['recognition_rule'] == RESEARCH_SOURCE_EXIT
+        (research_source_exit_term if source_exit else source_cash_term)(term)
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
         need(cp['sha256'] == term['parent_outer_sha256'] == parent['outer_sha256']
              and material['parent_outer_sha256'] == cp['sha256']
              and material['arm'] == term['arm'] and cp['source_cursor'] == term['parent_cursor']
              and digest(term) == digest(selected(term['arm'], cursor=term['parent_cursor'])[2][0]),
              'FUTURE_SOURCE_ONLY_EXACT_OWN_ADMITTED_PARENT_AND_LITERAL')
-        scope = SourceOnlyScope.model_validate(dict(schema='research.unowned-closing-source-scope/1',
+        scope_class = NeverHeldSourceExitScope if source_exit else SourceOnlyScope
+        extra = dict(source_ticker=term['ticker'], require_never_held=True) if source_exit else {}
+        scope = scope_class.model_validate(dict(schema='research.never-held-source-exit-scope/1' if source_exit
+                                               else 'research.unowned-closing-source-scope/1',
             arm=term['arm'], parent_outer_sha256=cp['sha256'],
             parent_root_admission_sha256=term['parent_root_admission_sha256'],
             hydrated_sha256=hydrated_sha, overlay_sha256=overlay_sha,
             terminal_sha256=digest(term['added']), session=term['added']['session'],
             security_id=term['security_id'], source_valuation_phase='CLOSE',
-            portfolio_completion_authorized=False, require_unowned_and_unordered=True))
-        result.append(scope.model_dump(by_alias=True))
+            portfolio_completion_authorized=False, require_unowned_and_unordered=True, **extra))
+        serialized = scope.model_dump(by_alias=True)
+        if source_exit:
+            state = cp['run']['state']
+            require_source_scope(state['wealth_core'], state['pending'], state['ledger'], serialized)
+        result.append(serialized)
     return result
 
 
@@ -1276,6 +1358,21 @@ def require_source_absent(wealth, pending, ledger, sid):
                      ('terminal_pending_terms', 'terminal_pending_sessions', 'unresolved_terminals', 'terminal_carry_audit'))
          and not any(r['security_id'] == sid for r in ledger['receivables']),
          'FUTURE_SOURCE_ONLY_ACTUAL_UNOWNED_UNORDERED_NO_CLAIMS')
+
+
+def mentions_source(value, identities):
+    if isinstance(value, dict):
+        return any(mentions_source(k, identities) or mentions_source(v, identities) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(mentions_source(v, identities) for v in value)
+    return isinstance(value, str) and value in identities
+
+
+def require_source_scope(wealth, pending, ledger, scope):
+    require_source_absent(wealth, pending, ledger, scope['security_id'])
+    if scope.get('require_never_held') is True:
+        need(not mentions_source(ledger['events'], (scope['security_id'], scope['source_ticker'])),
+             'FUTURE_SOURCE_EXIT_NO_HISTORICAL_OWNERSHIP')
 
 
 def actual_source_call(frame, kernel_code, prior, published):
@@ -1294,7 +1391,7 @@ def actual_source_phase(record, result, scopes):
              and cash[0]['source_only_noop'] is True
              and cash[0]['postcondition'] == dict(actual_held=False, quantity=0, nominal_cash=0.),
              'FUTURE_SOURCE_ONLY_ONE_ACTUAL_NOOP_AND_SOURCE_DELEGATION')
-        require_source_absent(result.state.wealth_core, result.state.pending, result.state.ledger, sid)
+        require_source_scope(result.state.wealth_core, result.state.pending, result.state.ledger, scope)
 
 
 def cash_postcondition(before, after, ledger_before, ledger_after, terms, result):
@@ -1421,11 +1518,12 @@ class ActualEvents:
         caller = inspect.currentframe().f_back
         actual = actual_terminal_call(caller, self.step_code, state, kwargs['ledger'], terms.session)
         need(asdict(terms) == self.terms[key], 'FUTURE_ACTUAL_TERMS_EXACT_SELECTED_CONTRACT')
-        scoped = any((s['session'], s['security_id']) == key for s in self.scopes)
+        scope = next((s for s in self.scopes if (s['session'], s['security_id']) == key), None)
+        scoped = scope is not None
         if scoped:
             need(actual and self.current['source_prior_absent'] is True,
                  'FUTURE_SOURCE_ONLY_ACTUAL_ADAPTER_CALL_REQUIRED')
-            require_source_absent(before, caller.f_locals['pending'], ledger, terms.security_id)
+            require_source_scope(before, caller.f_locals['pending'], ledger, scope)
         result = self.terminal_original(state, terms, **kwargs)
         if terms.kind == 'CASH_PLUS_STOCK':
             after, ledger_after = state.to_dict(), kwargs['ledger'].to_dict()
@@ -1462,7 +1560,7 @@ class ActualEvents:
              'FUTURE_SOURCE_ONLY_ACTUAL_KERNEL_CALL_REQUIRED')
         before = deepcopy((prior.wealth_core, prior.pending, prior.ledger))
         for scope in scopes:
-            require_source_absent(*before, scope['security_id'])
+            require_source_scope(*before, scope)
         result = self.source_original(prior=prior, published=published)
         need(before == (prior.wealth_core, prior.pending, prior.ledger),
              'FUTURE_SOURCE_ONLY_ORIGINAL_RETURN_FUNCTION_READONLY')
@@ -1510,7 +1608,7 @@ class ActualEvents:
         try:
             for scope in self.scopes:
                 if scope['session'] == publication.session:
-                    require_source_absent(run.state.wealth_core, run.state.pending, run.state.ledger, scope['security_id'])
+                    require_source_scope(run.state.wealth_core, run.state.pending, run.state.ledger, scope)
                     record['source_prior_absent'] = True
             result = self.advance_original(run, publication)
             actual_cash_phase(record, result, self.arm, self.terms.values())

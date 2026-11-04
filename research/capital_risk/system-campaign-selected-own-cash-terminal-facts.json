@@ -811,6 +811,88 @@
       },
       "ticker": "AAAP1",
       "timing_source": "docs/system-optimization-research-assumptions-20261104.md"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 85.6,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:4dac7b2fbc872f09880871131fee7dbbdce97df5e1d4bb5a1fcc6e6c8285d3f0",
+        "security_id": "467726443352731838",
+        "session": "2025-11-14"
+      },
+      "arm": "P04",
+      "description": "Research controller source exit at the last retainedNov13 raw close85.6 on theNov14 voluntary-delisting native. No statutory cash, portfolio settlement, legal identity admission or execution price is claimed. Never-held/no-intent/reservation/claim and exact canonical zero-value no-op are mandatory.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:467726443352731838",
+        "listing_first_session": "1997-12-31",
+        "security_id": "467726443352731838",
+        "security_type_eligible": "1",
+        "session": "2025-11-13",
+        "source_observation_sha256": "65221e258dc47123cb61e7af487d84678aaa5ba8abf8877ece72dbed7620f0ca",
+        "ticker": "LNWO"
+      },
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/voluntarydelisting deal_value_musd=7173.3",
+        "security_id": "467726443352731838",
+        "session": "2025-11-14"
+      },
+      "native_session": "2025-11-14",
+      "native_term_sha256": "6cc2c176c4e2289531450e4bbfc11a0434114506766daed1310363a9ad6aff8d",
+      "parent_cursor": "2025-10-31",
+      "parent_outer_sha256": "f5562177949d371147920b4cbd05bd149559c2840bd2c742ff826ea245b938a8",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "c43253a987d6e930f3a60b14e85a52fd0c05f768c6113132d0448d1fc8d99a9a",
+      "portfolio_completion_authorized": false,
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/750004/000095015725000856/ex99-1.htm",
+      "recognition_rule": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH",
+      "require_unowned_and_unordered": true,
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "execution_price_claimed": false,
+        "held_settlement_supported": false,
+        "legal_identity_admitted": false,
+        "recognition_session": "2025-11-14",
+        "retained_quote_session": "2025-11-13",
+        "retained_quote_sha256": "4dac7b2fbc872f09880871131fee7dbbdce97df5e1d4bb5a1fcc6e6c8285d3f0",
+        "retained_raw_close": "85.6",
+        "schema": "research.unheld-source-exit-assumption/1",
+        "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+        "treatment": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH"
+      },
+      "retained_quote": {
+        "raw_close": 85.6,
+        "security_id": "467726443352731838",
+        "session": "2025-11-13",
+        "ticker": "LNWO"
+      },
+      "security_id": "467726443352731838",
+      "source_capture": {
+        "artifact_id": 13339516521,
+        "head": "790729ae679f165e6c3fb458a5c1537e3f07f05e",
+        "independent_data_review_sha256": "ddb12ad079dc09d5d27eb47547f207f2bc28e5e63e2862b6ec9edbc13398ca37",
+        "payload_sha256": "03c826b6bc508768ab99833c494e1d9e7f8c3b01d75d6983b3b8b7f8f90cf6b5",
+        "run_id": 41858834037,
+        "scope_sha256": "8d1fd691ccd775ba890c673828759e9224463de445d37f3a7d683dd666280e59"
+      },
+      "source_valuation_phase": "CLOSE",
+      "ticker": "LNWO",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/750004/000095015725000949/form8-k.htm"
     }
   ]
 }

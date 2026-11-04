@@ -21,7 +21,7 @@ def test_each_own_ads_book_uses_shared_disclosed_tender_model(arm,quantity,artif
     assert t['mandatory_common_share_completion_confirmed'] is t['preopen_completion_confirmed'] is False
     assert t['research_assumption']['tender_participation_assumed'] is True
     assert t['research_assumption']['actual_settlement_claimed'] is False
-    assert len(c.catalog['terms'])==11 and c.catalog_sha==f.OWN_CASH_SHA
+    assert len(c.catalog['terms'])==11 and c.catalog_sha=='c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2'
     f.research_tender_term(t);f.completion_session(t,['2018-01-31','2018-02-01','2018-02-09'])
     assert f.suppressions(dict(source_cursor='2018-01-31'),terms)==[dict(session='2018-02-09',security_id=t['security_id'],term_sha256=t['native_term_sha256'])]
 

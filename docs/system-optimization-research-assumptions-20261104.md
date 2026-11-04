@@ -145,3 +145,32 @@ Original-catalog composition qualification:161 targeted cases passed in19.65s,
 including catalog-byte, consumed-pending-native, duplicate-event, frozen-date and
 identity guard-removal falsifiers. The new request closes401 sources; all383
 original drivers and the prior mandatory/stock/model validators remain unchanged.
+
+
+P04's own1970 checkpoint passed the existing P01 never-held role predicate and
+its new LNWO source payload reproduces the same retainedNovember13 raw close85.6
+and quote digest4dac7b2fbc872f09. Implement that treatment through a generic typed
+unheld-source-exit model in the shared selected-input pipeline. Recognize the source
+exit at its November14 native using the prior retained raw close for controller
+source valuation only. Statutory cash, held settlement, execution price, actual
+settlement and legal identity admission remain explicitly false. Preserve original
+eligibility1 and the voluntary-delisting native description.
+
+Use a separate typed source scope extending the existing source-only capability
+with source ticker and require_never_held. Check current positions, orders, slots,
+reservations, receivables and terminal claims using the existing absence guard;
+add a generic recursive ledger-history identity guard. Enforce it on the admitted
+parent, actual pre-session state, original controller delegation, actual canonical
+terminal call and resulting state. Require the original cash operation to be an
+exact zero-value no-op. The existing mandatory cash/closing-source validators and
+canonical incomplete guard stay unchanged. Bind the retained quote to the actual
+frozen identity row and first following frozen session. Append one own-parent
+catalog record while preserving every earlier generation. Launch only P04's final
+186 financial closes; active other variants continue on their existing requests.
+
+Never-held source-exit qualification:191 targeted source-exit/source-close/tender/
+resume/future cases passed in31.91s, including amount, actual quote, frozen-date
+and ledger-history guard-removal falsifiers. All old catalog generations remain
+exact. P04 uses twelve-term generationa312304df09aa19f; prior eleven-termc2b3d070
+remains retained. The existing absence guard and old mandatory/model validators
+were verified AST-identical. Financial waits and isolation limits are unchanged.
