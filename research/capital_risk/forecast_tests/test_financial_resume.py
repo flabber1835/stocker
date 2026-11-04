@@ -40,14 +40,14 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P00']
+    assert r['arms'] == ['P07']
     assert r['maximum_parallel_financial_workers'] == 1
     assert r['maximum_parallel_readonly_workers'] == 0
     assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
     assert r['readonly_source_witnesses'] is False and r['source_witness_scopes']=={} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False) for a in ['P00']}
-    assert r['admitted_checkpoints'] == {'P00':m.root_spec('P00')['outer_sha256']}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False) for a in ['P07']}
+    assert r['admitted_checkpoints'] == {'P07':m.root_spec('P07')['outer_sha256']}
     assert r['initial_reporting_origins'] == {}
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
@@ -195,6 +195,8 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 
 def launch_fixture(tmp_path, monkeypatch, event):
     import ephemeral_runner_capacity as capacity
+    import system_campaign_financial_future as future
+    monkeypatch.setattr(future, 'stage_selected_sources', lambda *args: None)
     request = dict(m.expected_request())
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
@@ -271,6 +273,16 @@ def test_failed_parent_review_cannot_launch_finance(tmp_path, monkeypatch):
     args, calls, exports = launch_fixture(tmp_path, monkeypatch, 'failed-preflight')
     assert m.launch(args) == 2 and calls == ['preflight']
     assert len(exports) == 1
+
+
+@pytest.mark.parametrize('event,expected', [('failed-preflight', []), ('unknown-economic', [['preflight']]), ('readonly', [])])
+def test_public_source_staging_occurs_only_after_successful_preflight_before_finance(tmp_path, monkeypatch, event, expected):
+    import system_campaign_financial_future as future
+    args, calls, exports = launch_fixture(tmp_path, monkeypatch, event)
+    stages = []
+    monkeypatch.setattr(future, 'stage_selected_sources', lambda *args: stages.append(list(calls)))
+    m.launch(args)
+    assert stages == expected
 
 
 def test_unknown_financial_writer_cannot_export_mutable_snapshot(tmp_path, monkeypatch):

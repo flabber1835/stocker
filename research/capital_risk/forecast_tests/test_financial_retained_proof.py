@@ -26,12 +26,15 @@ def test_exact_qualified_503_root_and_original_branch_source_are_accepted():
     assert len(u.retained_contract(cp,spec))==6 and (cp,spec)==before
 
 
-def test_new_543_admission_does_not_silently_expand_old_503_continuation_qualification():
+def test_new_543_admission_has_its_separately_registered_89_row_seed():
     spec=p.root_spec('P07')
     cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],
             source_cursor=spec['selected_session'],base=deepcopy(spec['base']))
     assert cp['completed']==543
-    with pytest.raises(ValueError):u.retained_contract(cp,spec)
+    assert len(u.retained_contract(cp,spec))==6
+    phase=u.RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]
+    assert phase==dict(completed=543,source_cursor='2020-02-28',rows=89,new_rows=40,retained_rows=49)
+    with pytest.raises(ValueError):u.retained_contract(dict(cp,completed=544),spec)
 
 
 @pytest.mark.parametrize('key,value',[('completed',504),('source_cursor','2020-01-02'),('sha256','0'*64)])
@@ -56,6 +59,15 @@ def test_actual_admitted_seed_identity_can_resume_without_reexecuting_old_proofs
     hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c'))
     assert len(hashes)==6 and len(rows)==49 and rows[-1]['session']=='2019-12-31'
     assert json.loads(raw)['actual_divergent_decisions_refused'] is True
+
+
+def test_actual_new_admitted_seed_keeps_all89_rows_and_closed_original_qualification():
+    old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-019/capture-P07-13299422018-001/verified-output')
+    if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
+    old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    assert len(hashes)==6 and len(rows)==89 and rows[-1]['session']=='2020-02-28'
+    assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
 
 def test_frozen_review_loop_undo_recovers_every_original_predicate():

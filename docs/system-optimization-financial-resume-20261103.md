@@ -1101,3 +1101,41 @@ Final targeted qualification:363 passed in38.60s across selected_stock,
 completed_admission,complete_reporting,resume,partial,retention,future,own_cash,
 initial_reporting,pending_source,source_witnesses. The15 new independent final
 endpoint DATA falsifiers also passed. No full suite or local canonical replay.
+
+## Continue P07 from the separately admitted543-close proof seed
+
+The root543/February28,2020 is already independently admitted. Its certificate
+contains89 committed rows:49 closed original rows plus40 independently reviewed
+new rows. Extend the shared retained-seed contract by an explicit admission-hash
+registry for503/49 and543/89. Verify the exact checkpoint, source map, proof row
+decomposition, last representative/state hash, possible-state membership,
+interval containment and exact hosted-review bytes at use. Retain the original
+branch implementation, qualification bytes and event archive. Do not rerun old
+event qualification or canonical branch transitions; only the next new suffix
+will undergo new branch induction.
+
+Select the unchanged Sprint catalog only at the543/February28 own root through
+the shared future selector. Normalize its catalog-level source witness into the
+existing term structure while preserving its literal stock ratio0.10256,
+March31 native, April1 completion, unknown S2 issuer/eligible0 and exact TMUS
+delivery witness. Preserve the declared frozen-delivered-raw-open fractional-cash
+research proxy. Never use provider action descriptions as strategy classification.
+
+The separately pinned original9,855,560-byte ACTIONS archive is absent from this
+parent export. After positive parent preflight, the hosted orchestrator may fetch
+that one exact public frozen object once, or copy an already retained exact
+object. Bound the download, verify its complete length/hash before parsing, then
+verify the four original S2 alias-row hashes and counterparty. Save the archive
+and alias proof inside the stopped output. Workers remain network-isolated;
+the shared hydrator requires the archive again at use and verifies all native,
+source and delivery row preimages. This is input-source qualification only.
+Use the existing actual parser/packet/notional and neutral-adoption checks before
+financial continuation. Keep P00's currently running immutable commit unchanged;
+the next request selects P07 alone under its own concurrency group.
+
+P07 retained-source qualification:223 targeted tests passed in18.88s across
+retained_sources,retained_proof,resume,future,retention,selected_stock,own_cash.
+Actual DATA-only use checks accepted both49-row/503 and89-row/543 admitted
+seeds; the original branch source hash remains b19a93be7b6887c1. Source tests
+prove bounded single fetch/copy, pre-parse hash refusal, unchanged alias metadata
+and staging only after successful preflight, before finance.

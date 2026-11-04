@@ -16,6 +16,12 @@ DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
+RETAINED_PROOF_SEEDS = {
+    'c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c':
+        dict(completed=503, source_cursor='2019-12-31', rows=49, new_rows=49, retained_rows=0),
+    '46fd68cb0d747c8c5ca004e979f49f89c02d505ef69069af7e086bd18b18268d':
+        dict(completed=543, source_cursor='2020-02-28', rows=89, new_rows=40, retained_rows=49),
+}
 
 
 def source_contract(cp):
@@ -134,9 +140,10 @@ def retained_contract(cp, spec):
     from system_campaign_financial_partial import validate_root_spec
     validate_root_spec(spec)
     hashes = json.loads((HERE / INTEGRATION).read_bytes())['canonical_controller_sources']
+    phase = RETAINED_PROOF_SEEDS.get(spec['root_admission_sha256'])
     need(spec['arm'] == 'P07' and cp['sha256'] == spec['outer_sha256']
-         and cp['completed'] == spec['measured_closes'] == 503
-         and cp['source_cursor'] == spec['selected_session'] == '2019-12-31'
+         and phase is not None and cp['completed'] == spec['measured_closes'] == phase['completed']
+         and cp['source_cursor'] == spec['selected_session'] == phase['source_cursor']
          and cp['base'] == spec['base'], 'FINANCIAL_RETAINED_PROOF_EXACT_OWN_ADMITTED_PARENT')
     need(len(hashes) == 6 and all(cp['base']['sources'].get(n) == h for n, h in hashes.items())
          and sha((HERE / 'system_campaign_financial_branches.py').read_bytes()) == BRANCH_SHA,
@@ -151,7 +158,11 @@ def retained_seed(old, cp, spec):
     validate_input(old, cp)
     rows = seed(old, cp)
     proof = spec['root_admission']['branch_uncertainty_proof']
-    need(proof['passed'] is True and len(rows) == proof['rows'] == 49
+    phase = RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]
+    need(proof['passed'] is True and len(rows) == phase['rows']
+         and proof['rows'] == phase['new_rows'] and proof.get('retained_rows', 0) == phase['retained_rows']
+         and len(rows) == proof['rows'] + proof.get('retained_rows', 0)
+         and proof['all_comparisons_and_state_sets_verified'] is proof['all_math_watch_financial_chains_verified'] is True
          and rows[-1]['session'] == cp['source_cursor']
          and rows[-1]['after'] == discrete(cp['run']['state']['median5'])
          and rows[-1]['next_state_sha256'] == cp['run']['state_sha256']
