@@ -1806,3 +1806,23 @@ input was adopted in this suffix.
 The prefix query, retained proof, point growth, source capture and reporting
 launcher qualification passed282 tests in32.17s. All frozen financial sources
 and383 prior drivers remain exact.
+
+P07 reporting41889291908 reproduced the19 new January closes and one report
+exactly. Independent DATA verified38 accounting snapshots,28 Decimal metrics,
+all19 new branch certificates and unchanged input/repairs, preserving302 old
+certificate bytes. Its branch and unchanged-input falsifiers passed28+9 tests.
+Admit only this own775 checkpoint; keep its756 predecessor and February tails
+distinct. The proof-only builtin-sum semantics continue from775, but its next
+run needs new ordinary inputs. Therefore register proof-growth phases separately
+from no-new-input phases; only the old756 continuation has no new adoption.
+
+Use the existing FollowingFacts literal catalog for P07's future ACIA,APHA,CATM,
+AZPN1,REGI and PLAN terms. Add one shared future-literal phase selector, preserving
+the original validator, complete identity witnesses, alias/issuer limitations and
+fractional raw-open proxies. Reuse the existing neutral adoption, packet/notional
+qualification and actual cash/stock observer. No provider metadata upgrades or
+new source/settlement claims follow. Keep the two earlier aliased-source phases
+and every frozen driver unchanged; do not run the consumed MDCO fallback.
+The own775 retained-proof/future-literal/point-growth/future/launcher qualification
+passed167 tests in23.86s. The actual retained seed contains321 committed rows,
+and the old756 no-new-input phase remains separately qualified.

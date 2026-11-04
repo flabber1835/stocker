@@ -17,10 +17,12 @@ DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
-POINT_RETURN_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
+POINT_RETURN_SEEDS = frozenset({'672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 POINT_WITNESS_SHA = '177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
+UNCHANGED_INPUT_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 UNCHANGED_INPUT = 'retained-proof-admission/unchanged-input.json'
 RETAINED_PROOF_SEEDS = {
+    '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3': dict(completed=775, source_cursor='2021-01-29', rows=321, new_rows=19, retained_rows=302),
     'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776': dict(completed=756, source_cursor='2020-12-31', rows=302, new_rows=128, retained_rows=174),
     '2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543':
         dict(completed=628, source_cursor='2020-06-30', rows=174, new_rows=63, retained_rows=111),
@@ -37,6 +39,10 @@ def point_return_phase(spec):
     return isinstance(spec, dict) and spec.get('root_admission_sha256') in POINT_RETURN_SEEDS
 
 
+def unchanged_input_phase(spec):
+    return isinstance(spec, dict) and spec.get('root_admission_sha256') in UNCHANGED_INPUT_SEEDS
+
+
 def proof_scope(cp, spec):
     if not point_return_phase(spec):
         return nullcontext()
@@ -48,7 +54,7 @@ def proof_scope(cp, spec):
 
 
 def unchanged_input_receipt(cp, spec):
-    need(point_return_phase(spec), 'FINANCIAL_NO_NEW_INPUT_EXACT_REGISTERED_PHASE')
+    need(unchanged_input_phase(spec), 'FINANCIAL_NO_NEW_INPUT_EXACT_REGISTERED_PHASE')
     return dict(schema='research.unchanged-retained-financial-input/1',
         parent_outer_sha256=cp['sha256'], root_admission_sha256=spec['root_admission_sha256'],
         completed=cp['completed'], source_cursor=cp['source_cursor'],
@@ -264,7 +270,7 @@ def run_retained(cp, out, args, observer, execution, spec, old):
     need(target.read_bytes() == (old / 'hydrated-alder-unresolved-date.json').read_bytes(),
          'FINANCIAL_RETAINED_PROOF_SAME_UNRESOLVED_NATIVE')
     source = json.loads((old / 'hydrated-uncertainty-event.json').read_bytes())
-    unchanged = point_return_phase(spec)
+    unchanged = unchanged_input_phase(spec)
     if unchanged:
         save(out / UNCHANGED_INPUT, unchanged_input_receipt(cp, spec))
         path, loaded, gate, events = None, None, nullcontext(), nullcontext()
@@ -331,7 +337,7 @@ def review_retained(parent, evidence_root, out, spec, old):
     need(actual.name == original.name and actual.read_bytes() == original.read_bytes(),
          'FINANCIAL_RETAINED_PROOF_EVENT_GZIP_NAME_AND_BYTES_PRESERVED')
     cp = journal.read_checkpoint(evidence_root / 'book/checkpoint.json.gz')
-    if point_return_phase(spec):
+    if unchanged_input_phase(spec):
         review_unchanged_input(parent, cp, evidence_root, spec)
     else:
         earliest = review_input(parent, evidence_root, 'P07')

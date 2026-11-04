@@ -103,7 +103,7 @@ def test_source_guard_removal_falsifier():
 
 
 def parent():
-    spec = p.root_spec('P07')
+    spec = p.root_spec('P07','f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776')
     cp = dict(sha256=spec['outer_sha256'], completed=spec['measured_closes'],
               source_cursor=spec['selected_session'], base=deepcopy(spec['base']),
               repairs=deepcopy(spec['repairs']), run=dict(input_sha256=spec['input_sha256']))
@@ -167,6 +167,14 @@ def test_only_current_registered_root_uses_point_returns_and_no_new_input():
     assert not u.point_return_phase(old) and launcher.factual_overlay_needed(old)
     with pytest.raises(ValueError, match='EXACT_REGISTERED_PHASE'):
         u.unchanged_input_receipt(cp, old)
+
+
+def test_new775_root_keeps_point_proof_math_and_requires_new_factual_adoption():
+    spec=p.root_spec('P07')
+    assert spec['measured_closes']==775 and u.point_return_phase(spec)
+    assert not u.unchanged_input_phase(spec) and launcher.factual_overlay_needed(spec)
+    assert u.RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]==dict(
+        completed=775,source_cursor='2021-01-29',rows=321,new_rows=19,retained_rows=302)
 
 
 @pytest.mark.parametrize('change', [None, 'receipt', 'input', 'repairs', 'base', 'adoption', 'overlay'])

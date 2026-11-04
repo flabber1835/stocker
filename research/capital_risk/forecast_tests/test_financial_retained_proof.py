@@ -27,7 +27,7 @@ def test_exact_qualified_503_root_and_original_branch_source_are_accepted():
 
 
 def test_own756_root_registers_all302_certificates_and_preserves628_history():
-    spec=p.root_spec('P07')
+    spec=p.root_spec('P07','f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776')
     cp=dict(sha256=spec['outer_sha256'],completed=spec['measured_closes'],source_cursor=spec['selected_session'],base=deepcopy(spec['base']))
     assert cp['completed']==756 and len(u.retained_contract(cp,spec))==6
     assert u.RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]==dict(completed=756,source_cursor='2020-12-31',rows=302,new_rows=128,retained_rows=174)
@@ -100,7 +100,7 @@ def test_actual_current756_admission_retains_only302_committed_certificates():
     old=Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-098/capture-P07-13335581618-001/verified-output')
     if not old.exists():pytest.skip('private authenticated DATA fixture is local-only')
     old=Path('\\\\?\\'+str(old.resolve()));cp=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
-    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07'))
+    hashes,rows,raw=u.retained_seed(old,cp,p.root_spec('P07','f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'))
     assert len(hashes)==6 and len(rows)==302 and rows[-1]['session']=='2020-12-31'
     assert json.loads(raw)['historical_financial_sessions_advanced']==0
 
@@ -242,7 +242,7 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
     (old/'hydrated-alder-unresolved-date.json').write_bytes(b'{"unchanged_native":true}\n')
     (old/'hydrated-uncertainty-event.json').write_bytes(b'{"unchanged_event":true}\n')
     cp=dict(sha256='c'*64,completed=756,source_cursor='2020-12-31',repairs=[],run=dict(input_sha256='e'*64))
-    spec=dict(root_admission_sha256=next(iter(u.POINT_RETURN_SEEDS))) if unchanged else object()
+    spec=dict(root_admission_sha256=next(iter(u.UNCHANGED_INPUT_SEEDS))) if unchanged else object()
     calls=[];active=[]
     class Context:
         def __init__(self,name):self.name=name

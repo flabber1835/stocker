@@ -45,6 +45,9 @@ SINGLE_PHASES = {('P07', '2020-02-28'):
     ('system_campaign_sprint_facts', 'SprintFacts', 'system-campaign-sprint-terminal-facts.json', ('S2',))}
 FOLLOWING_PHASES = {('P07', '2020-03-31'):
     ('system_campaign_spring2020_cash_facts', 'CashCompletionFacts', 'system-campaign-spring2020-cash-terminal-facts.json', ('CY', 'MLNX', 'WBC'))}
+FUTURE_LITERAL_PHASES = {('P07', '2021-01-29'):
+    ('system_campaign_following_completions_facts', 'FollowingFacts',
+     'system-campaign-following-completions-terminal-facts.json', ('ACIA', 'APHA', 'CATM', 'AZPN1', 'REGI', 'PLAN'))}
 COMBINED_PHASES['P07', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
@@ -1116,11 +1119,12 @@ def selected(arm, *, cursor=None):
     if delivery is not None:
         return delivery
     if arm == 'P07':
-        need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES,
+        need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES
+             or (arm, cursor) in FUTURE_LITERAL_PHASES,
              'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
     if (arm, cursor) in COMBINED_PHASES:
         return compose(COMBINED_PHASES[arm, cursor])
-    module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES}.get((arm, cursor), PLANS[arm])
+    module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES, **FUTURE_LITERAL_PHASES}.get((arm, cursor), PLANS[arm])
     if (arm, cursor) in CASH_PHASES:
         from system_campaign_cash_calendar import CashCalendar
         catalog, tickers = CASH_PHASES[arm, cursor]
