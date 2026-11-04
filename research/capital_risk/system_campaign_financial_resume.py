@@ -50,12 +50,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07', 'P11')
+SELECTED_ARMS = ('P05', 'P07')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/73'
+SCHEMA = 'research.system-campaign-accurate-resume-request/74'
 EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -67,7 +67,7 @@ def factual_overlay_needed(spec):
 
 
 def expected_request():
-    from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, FUTURE_LITERAL_PHASES, CASH_PHASES
+    from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_CASH_PHASES
     from system_campaign_financial_uncertainty import unchanged_input_phase
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
@@ -105,7 +105,8 @@ def expected_request():
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
              *(plan[2] for registry in (ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES)
                for plans in registry.values() for plan in plans),
-             *(plan[2] for plan in FUTURE_LITERAL_PHASES.values()), *(plan[0] for plan in CASH_PHASES.values()))
+             *(plan[2] for plan in FUTURE_LITERAL_PHASES.values()), *(plan[0] for plan in CASH_PHASES.values()),
+             *(plan[3] for plans in SUPPLEMENTAL_CASH_PHASES.values() for plan in plans))
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode=EXECUTION_MODE, new_origin=False,
                 financial_resume_authorized=financial, readonly_partial_review=reporting,

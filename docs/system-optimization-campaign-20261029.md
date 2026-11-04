@@ -708,3 +708,26 @@ complete book. Preserve the stopped branch and recover its exact unsent tails;
 carry immutable hydration/capture evidence forward. Finished other books remain
 preserved while a slower reference continues. This is part of the existing
 study, not a fresh rerun or another optimization candidate.
+
+## Source supplements across overlapping catalog dates — 2026-11-04
+
+P05's own November 2018 checkpoint already selects future APTI/VSM cash and
+OCLR mixed terms, but the unchanged year-end catalog has MZOR in December
+2018, before those cash terms finish. P07's own March 2021 checkpoint selects
+the original 2021 completions but also needs the previously captured eight-term
+cash amendment catalog beginning with FPRX. Selecting only the first remaining
+catalog cannot cover these interleaved event dates.
+
+Use one shared, explicitly registered own-arm/cursor supplement selector. Each
+registration pins the original catalog and validator bytes, constructor shape
+and literal ticker subset. Invoke the existing data-only validator; select only
+terms whose native and effective dates are both after the admitted cursor.
+Merge these terms with the existing ordinary and mixed selections, rejecting
+duplicate security/native/effective identities and retaining every source
+commitment. Preserve existing literal identity witnesses exactly. Only a source
+without an identity witness may acquire its full row from the frozen session
+before its native event, under the existing ordinary identity checks. Existing
+forward repairs retain their own dates and bytes through the existing exact
+equivalence check. No old catalog, validator, financial source or completed
+financial result changes. This selects already captured research inputs; it
+does not authorize settlement studies or a new strategy rule.

@@ -1,0 +1,121 @@
+"""Interleaved original inputs and source guards; no financial execution."""
+import ast
+from copy import deepcopy
+import json
+from pathlib import Path
+import sys
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import system_campaign_financial_future as f
+from research.capital_risk.forecast_tests.test_financial_source_close import removed_guard
+
+
+@pytest.mark.parametrize('arm,cursor,tickers', [
+    ('P05', '2018-11-30', ['APTI', 'VSM', 'OCLR', 'MZOR', 'TSRO', 'ZAYO']),
+    ('P07', '2021-03-31', ['MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1',
+                         'FPRX', 'GNMK', 'GLUU', 'WIFI', 'PFPT', 'STMP', 'NUAN', 'CERN']),
+])
+def test_actual_hydration_source_composition_covers_interleaved_events(tmp_path, arm, cursor, tickers):
+    codec, catalog, terms = f.selected(arm, cursor=cursor)
+    tree = ast.parse(Path(f.__file__).read_bytes())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'hydrate')
+    start = next(i for i, n in enumerate(fn.body) if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == 'ordinary_components' for t in n.targets))
+    end = next(i for i, n in enumerate(fn.body) if isinstance(n, ast.Expr)
+               and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
+               and n.value.func.id == 'suppressions')
+    scope = dict(vars(f), arm=arm, cp=dict(source_cursor=cursor, repairs=[]), source_root=tmp_path,
+                 codec=codec, catalog=catalog, terms=deepcopy(terms))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=fn.body[start:end+1], type_ignores=[])),
+                 '<actual-data-only-source-composition>', 'exec'), scope)
+    assert [t['ticker'] for t in scope['terms']] == tickers
+    assert len(scope['ordinary_components']) == (2 if arm == 'P05' else 1)
+    assert scope['inherited_ordinary'] == []
+    if arm == 'P05':
+        by = {t['ticker']: t for t in scope['terms']}
+        assert by['MZOR']['added']['session'] < by['APTI']['native_session']
+        assert by['MZOR']['added']['cash_per_share'] == 58.5
+    else:
+        original = json.loads((f.HERE / 'system-campaign-future-input-amendment-catalog.json').read_bytes())
+        for term, saved in zip(scope['terms'][6:], original['terms']):
+            assert term['identity_witness'] == saved['identity_witness']
+            assert term['added'] == saved['added']
+
+
+def test_literal_witness_survives_actual_frozen_date_normalization():
+    terms, _ = f.supplemental_cash_selection('P07', '2021-03-31')
+    before = deepcopy(terms)
+    fn = next(n for n in ast.parse(Path(f.__file__).read_bytes()).body
+              if isinstance(n, ast.FunctionDef) and n.name == 'hydrate')
+    node = next(n for n in ast.walk(fn) if isinstance(n, ast.Assign) and isinstance(n.value, ast.ListComp)
+                and any(isinstance(t, ast.Name) and t.id == 'terms' for t in n.targets))
+    scope = dict(vars(f), terms=terms, dates=[])
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
+                 '<actual-data-only-date-normalization>', 'exec'), scope)
+    assert scope['terms'] == before
+
+
+def test_exact_catalog_and_validator_bytes_falsifier(tmp_path, monkeypatch):
+    plan, = f.SUPPLEMENTAL_CASH_PHASES['P05', '2018-11-30']
+    (tmp_path / plan[3]).write_bytes((f.HERE / plan[3]).read_bytes() + b'\n')
+    monkeypatch.setattr(f, 'HERE', tmp_path)
+    with pytest.raises(ValueError, match='SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES'):
+        f.supplemental_cash_selection('P05', '2018-11-30')
+    assert len(removed_guard('supplemental_cash_selection',
+        'FUTURE_SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES')('P05', '2018-11-30')[0]) == 3
+
+
+def test_constructor_guard_falsifier(monkeypatch):
+    plan, = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
+    changed = (*plan[:2], 'UNDECLARED', *plan[3:])
+    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-03-31'), (changed,))
+    with pytest.raises(ValueError, match='SUPPLEMENT_DECLARED_CONSTRUCTOR'):
+        f.supplemental_cash_selection('P07', '2021-03-31')
+    assert len(removed_guard('supplemental_cash_selection',
+        'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')('P07', '2021-03-31')[0]) == 8
+
+
+def test_consumed_native_guard_falsifier(monkeypatch):
+    plans = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
+    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-04-15'), plans)
+    with pytest.raises(ValueError, match='SUPPLEMENT_ONLY_UNCONSUMED_CASH'):
+        f.supplemental_cash_selection('P07', '2021-04-15')
+    assert len(removed_guard('supplemental_cash_selection',
+        'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_CASH')('P07', '2021-04-15')[0]) == 8
+
+
+def test_duplicate_source_guard_falsifier(monkeypatch):
+    plan, = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
+    plans = ((*plan[:-1], ('FPRX',)), (*plan[:-1], ('GNMK',)))
+    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-03-31'), plans)
+    with pytest.raises(ValueError, match='SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS'):
+        f.supplemental_cash_selection('P07', '2021-03-31')
+    assert len(removed_guard('supplemental_cash_selection',
+        'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')('P07', '2021-03-31')[0]) == 2
+
+
+def test_unregistered_phase_has_no_supplement():
+    assert f.supplemental_cash_selection('P00', '2026-07-31') == ([], [])
+
+
+def test_actual_supplement_composition_requires_explicit_repair_root():
+    fn = next(n for n in ast.parse(Path(f.__file__).read_bytes()).body
+              if isinstance(n, ast.FunctionDef) and n.name == 'hydrate')
+    start = next(i for i, n in enumerate(fn.body) if isinstance(n, ast.Assign)
+                 and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
+                 and n.value.func.id == 'supplemental_cash_selection')
+    nodes = deepcopy(fn.body[start:start+2])
+    def run():
+        scope = dict(vars(f), arm='P07', cp=dict(source_cursor='2021-03-31', repairs=[]),
+                     source_root=None, terms=[], inherited_ordinary=[], ordinary_components=[])
+        exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),
+                     '<actual-data-only-supplement-root-guard>', 'exec'), scope)
+        return scope
+    with pytest.raises(ValueError, match='SUPPLEMENT_EXPLICIT_REPAIR_ROOT'):
+        run()
+    assert isinstance(nodes[1], ast.If)
+    removed = nodes[1].body.pop(0)
+    assert 'FUTURE_SUPPLEMENT_EXPLICIT_REPAIR_ROOT' in ast.unparse(removed)
+    assert len(run()['terms']) == 8

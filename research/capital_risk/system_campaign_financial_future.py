@@ -126,6 +126,22 @@ ORIGINAL_DELIVERY_SOURCES = {
            '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7'))
     for arm in ('P05', 'P06', 'P11')
 }
+SUPPLEMENTAL_CASH_PHASES = {
+    ('P05', '2018-11-30'): (
+        ('system_campaign_yearend_facts', 'YearendFacts', 'PATH',
+         'system-campaign-yearend-terminal-facts.json',
+         '967d6fd19080f08142f5d93620ab832e10481b4c828d2a062cc9b1ca7166c7cb',
+         'b4318a6ea900586e72e663aac9da28a607f415bb4a881a1c9061dc97bde2aa6e',
+         ('MZOR', 'TSRO', 'ZAYO')),
+    ),
+    ('P07', '2021-03-31'): (
+        ('system_campaign_cash_batch', 'CashBatch', 'JSON',
+         'system-campaign-future-input-amendment-catalog.json',
+         '8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066',
+         '29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f',
+         ('FPRX', 'GNMK', 'GLUU', 'WIFI', 'PFPT', 'STMP', 'NUAN', 'CERN')),
+    ),
+}
 
 
 class ResearchCashAssumption(BaseModel):
@@ -1105,6 +1121,34 @@ def original_ordinary_selection(arm, cursor):
     return None
 
 
+def supplemental_cash_selection(arm, cursor):
+    """Select pinned original cash catalogs even when their dates interleave."""
+    import importlib
+    terms, sources = [], []
+    for module_name, class_name, constructor, catalog, catalog_sha, validator_sha, tickers in SUPPLEMENTAL_CASH_PHASES.get((arm, cursor), ()):
+        raw = (HERE / catalog).read_bytes()
+        module = importlib.import_module(module_name)
+        need(sha(raw) == catalog_sha and sha(Path(module.__file__).read_bytes()) == validator_sha,
+             'FUTURE_SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES')
+        need(constructor in ('PATH', 'JSON'), 'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')
+        codec = getattr(module, class_name)(HERE / catalog if constructor == 'PATH' else json.loads(raw))
+        selected_terms = catalog_terms(codec, tickers)
+        need(selected_terms and all(t['added']['kind'] == 'CASH_MERGER'
+             and cursor < t['native_session'] < t['added']['session'] for t in selected_terms),
+             'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_CASH')
+        source = dict(catalog_file=catalog, catalog_sha256=catalog_sha,
+                      validator_file=Path(module.__file__).name, validator_sha256=validator_sha,
+                      selected_tickers=list(tickers))
+        need(not any(s['catalog_file'] == catalog or s['validator_file'] == source['validator_file'] for s in sources),
+             'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')
+        sources.append(source)
+        for term in selected_terms:
+            term['original_ordinary_source'] = dict(source, term_sha256=digest(term))
+            term.setdefault('timing_source', term['primary_source'])
+        terms = merge_selected_terms(terms, selected_terms)
+    return terms, sources
+
+
 def merge_selected_terms(primary, extra):
     terms = deepcopy(primary) + deepcopy(extra)
     need(len({t['security_id'] for t in terms}) == len(terms)
@@ -1380,6 +1424,15 @@ def hydrate(cp, arm, *, source_root=None):
                  if catalog != delivery_catalog or ordinary is not None else delivery_terms)
         if delivery_codec.ordinary_source not in ordinary_components:
             ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
+    supplement, components = supplemental_cash_selection(arm, cp['source_cursor'])
+    if supplement:
+        need(source_root is not None, 'FUTURE_SUPPLEMENT_EXPLICIT_REPAIR_ROOT')
+        supplement, inherited = remaining_ordinary_terms(cp, supplement, source_root)
+        inherited_ordinary.extend(inherited)
+        terms = merge_selected_terms(terms, supplement)
+        for source in components:
+            if source not in ordinary_components:
+                ordinary_components.append(deepcopy(source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT) for t in terms):
@@ -1389,7 +1442,8 @@ def hydrate(cp, arm, *, source_root=None):
             completion_session(t, dates)
             if t.get('recognition_rule') == SOURCE_CLOSE:
                 need(t['added']['session'] in dates, 'OWN_INPUT_CLOSING_SOURCE_DATE_ON_ACTUAL_AXIS')
-        terms = [ordinary_term_dates(t, dates) if 'original_ordinary_source' in t else t for t in terms]
+        terms = [ordinary_term_dates(t, dates)
+                 if 'original_ordinary_source' in t and 'identity_witness' not in t else t for t in terms]
     wanted = {}
     ordinary_rows = {}
     delivery_rows = {}
@@ -1400,7 +1454,7 @@ def hydrate(cp, arm, *, source_root=None):
         other = [v for v in actions.terminal.get(t['added']['session'], ()) if v.security_id == t['security_id']]
         need(other == [native] if t['native_session'] == t['added']['session'] else not other,
              'FUTURE_NO_CONFLICTING_EFFECTIVE_TERM')
-        if 'original_ordinary_source' in t:
+        if 'original_ordinary_source' in t and 'identity_witness' not in t:
             key = t['ordinary_identity_session'], t['security_id']
             need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_WITNESS')
             wanted[key] = None
