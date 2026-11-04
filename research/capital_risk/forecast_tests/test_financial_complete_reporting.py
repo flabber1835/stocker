@@ -16,6 +16,15 @@ def target():
     return deepcopy(json.loads((m.HERE / m.PARTIALS).read_bytes())['arms']['P10'])
 
 
+@pytest.mark.parametrize('arm',['P00','P10'])
+def test_each_actual_completed_transport_explicitly_selects_complete_reporting(arm):
+    spec=json.loads((m.HERE/m.PARTIALS).read_bytes())['arms'][arm]
+    assert spec['readonly_full_financial_target'] is True
+    assert p.full_target(spec) is True
+    assert spec['receipt_status']=='COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT'
+    assert p.reporting_seed(spec)['measured_closes']<2156
+
+
 def checkpoint(spec):
     return dict(schema='research.pooled-vacancy-backtest/1', sha256=spec['outer_sha256'],
         source_cursor=spec['selected_session'], completed=spec['measured_closes'],

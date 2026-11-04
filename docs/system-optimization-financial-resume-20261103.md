@@ -1648,3 +1648,8 @@ tests in32.21s. The historical169-repeat refusal explicitly selects the unchange
 The final read-only P00 request passed88 resume/complete-reporting checks in15.39s
 and authorizes no financial workers. P07's economic run keeps its own bb84258ee
 commit; P05/P06/P11's21-row hosted reporting has already reproduced exactly.
+Reporting41849123393 refused before launching a worker: the P00 target omitted
+the existing explicit readonly_full_financial_target flag, so its complete receipt
+was checked as a partial receipt. Set that metadata flag without changing any
+financial bytes. The actual complete public metadata now passes at use;18 targeted
+complete-reporting tests passed in1.57s, including both actual P00/P10 targets.

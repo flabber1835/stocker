@@ -357,6 +357,7 @@
           "sha256": "e96e83029de57d66dfea85b6d34d7bbf7f715f9bc2e1457d3bae91360c991f40"
         }
       },
+      "readonly_full_financial_target": true,
       "receipt_name": "campaign-factual-P00.json",
       "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
       "receipt_sha256": "3930c8a9d84a1afd4fc29a9c72312bf2c192245e5156688f21174935a91db15c",
