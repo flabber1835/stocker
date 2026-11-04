@@ -13,6 +13,7 @@ from research.capital_risk.forecast_tests.test_financial_source_close import rem
 
 
 @pytest.mark.parametrize('arm,cursor,tickers', [
+    ('P03', '2018-11-30', ['ARII','OCLR','APTI','VSM','MZOR','TSRO','ZAYO','XOXO','MB2','ESRX']),
     ('P05', '2018-11-30', ['APTI', 'VSM', 'OCLR', 'MZOR', 'TSRO', 'ZAYO', 'XOXO', 'MB2', 'ESRX']),
     ('P07', '2021-03-31', ['MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1',
                          'FPRX', 'GNMK', 'GLUU', 'WIFI', 'PFPT', 'STMP', 'NUAN', 'CERN']),
@@ -31,7 +32,7 @@ def test_actual_hydration_source_composition_covers_interleaved_events(tmp_path,
     exec(compile(ast.fix_missing_locations(ast.Module(body=fn.body[start:end+1], type_ignores=[])),
                  '<actual-data-only-source-composition>', 'exec'), scope)
     assert [t['ticker'] for t in scope['terms']] == tickers
-    assert len(scope['ordinary_components']) == (3 if arm == 'P05' else 1)
+    assert len(scope['ordinary_components']) == (1 if arm == 'P07' else 3)
     assert scope['inherited_ordinary'] == []
     if arm == 'P05':
         by = {t['ticker']: t for t in scope['terms']}
@@ -40,11 +41,16 @@ def test_actual_hydration_source_composition_covers_interleaved_events(tmp_path,
         assert by['ESRX']['added']['exchange_ratio'] == .2434
         assert by['ESRX']['added']['delivered_ticker'] == 'CI'
         assert by['XOXO']['added']['session'] == by['ESRX']['added']['session'] == '2018-12-21'
-    else:
+    elif arm == 'P07':
         original = json.loads((f.HERE / 'system-campaign-future-input-amendment-catalog.json').read_bytes())
         for term, saved in zip(scope['terms'][6:], original['terms']):
             assert term['identity_witness'] == saved['identity_witness']
             assert term['added'] == saved['added']
+    else:
+        assert terms[0]['ticker']=='ARII' and terms[0]['source_capture']['run_id']==41934413763
+        assert not any(t['ticker']=='AET'for t in scope['terms'])
+        assert all(t['native_session']>cursor for t in scope['terms'])
+        assert len({s['catalog_file']for s in scope['ordinary_components']})==3
 
 
 def test_literal_witness_survives_actual_frozen_date_normalization():

@@ -174,6 +174,16 @@ SUPPLEMENTAL_PHASES = {
 }
 
 
+SUPPLEMENTAL_PHASES['P03', '2018-11-30'] = (
+    ('system_campaign_late_facts', 'LateFacts', 'PATH',
+     'system-campaign-late-terminal-facts.json',
+     '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7',
+     'ac77d968aee0ffc769bfba22e69ca16daa5bac6c723997fc947a0612596236ca',
+     ('OCLR', 'APTI', 'VSM')),
+    *SUPPLEMENTAL_PHASES['P05', '2018-11-30'],
+)
+
+
 class ResearchCashAssumption(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
     schema_id: Literal['research.daily-economic-cash-assumption/1'] = Field(alias='schema')

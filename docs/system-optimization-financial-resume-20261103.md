@@ -1984,3 +1984,13 @@ as record18,retaining every older catalog generation and all17 previous records.
 Its exact70USD completion right uses the unchanged cash-right validator and the
 qualified off-calendar date predicate. Hosted financial qualification and later
 DATA/root admission remain separate.
+
+From P03 own232,compose the ARII cash right with already qualified original
+future literals so the run can cross the December/January event cluster. Reuse
+LateFacts OCLR,APTI,VSM and the same YearendFacts/FollowonFacts subsets already
+selected for P05's November30 phase:MZOR,TSRO,ZAYO,XOXO,MB2,ESRX. Exclude AET
+because its November native is consumed. These are shared frozen input facts,
+not another variant's positions,returns or continuation authority. The existing
+supplement selector rechecks catalog/module bytes,disjoint native/effective keys,
+full source identities,child rows and declared fractional proxies,then performs
+one neutral input adoption before unchanged canonical packet qualification.
