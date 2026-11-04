@@ -29,9 +29,16 @@ FRESH_REQUEST = 'system-campaign-fresh-origin-request.json'
 FRESH_TARGET_SHA = '0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf2d1d'
 FRESH_REQUEST_SHA = '13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'
 INITIAL_PREFIX_TARGETS = {
+    'P03': '6ddbfef83b3f4d69922cd65deabe7ab8d54db983fca9652c89c0e4948e99fb18',
     'P05': 'd56ad992d8086d0815cbeabc57dd2bec5971e9bff051e2bd65ab4d37799c3faf',
     'P06': '651d13b0bbc442d44f4735374c56bdb2e49b6d6275b5f7e2d875705c0db75436',
     'P11': '14678692a6ed71a18c7ded8b66e4146148a8608403fcfb9a05c744797c3e869e',
+}
+INITIAL_PREFIX_AXES = {
+    'P03': (82, '2018-04-30'),
+    'P05': (21, '2018-01-31'),
+    'P06': (21, '2018-01-31'),
+    'P11': (21, '2018-01-31'),
 }
 ROOTS = 'system-campaign-financial-admitted-parents.json'
 ADMISSIONS = {
@@ -200,14 +207,14 @@ def reporting_seed(spec):
 
 
 def initial_prefix_seed(spec):
-    """Reporting only for three exact existing own prefixes, never a new origin."""
+    """Reporting only for exact existing own prefixes on their declared axes."""
     need(spec.get('arm') in INITIAL_PREFIX_TARGETS
          and digest(spec) == INITIAL_PREFIX_TARGETS[spec['arm']],
          'PARTIAL_EXACT_EXISTING_INITIAL_PREFIX_TARGET')
     seed = spec['initial_monthly_seed']
     need(spec['initial_prefix_reporting'] is True and spec['archive_format'] == FORMAT
          and spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
-         and spec['measured_closes'] == 21 and spec['selected_session'] == '2018-01-31'
+         and (spec['measured_closes'], spec['selected_session']) == INITIAL_PREFIX_AXES[spec['arm']]
          and seed['arm'] == spec['arm'] and seed['measured_closes'] == 0
          and seed['selected_session'] == '2017-06-30'
          and all(seed['journals'][n]['bytes'] == 0 for n in ('daily', 'monthly')),

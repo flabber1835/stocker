@@ -23,9 +23,12 @@ def test_existing_catalog_and_validator_supply_all_five_exact_cash_terms():
     assert len(codec.catalog['terms'])==5
     assert [t['ticker'] for t in selection('2018-02-28')[2]]==['JUNO','BIVV','CSRA']
     assert f.original_ordinary_selection('P04','2025-10-31') is None
-    assert selection('2018-04-30') is None
+    assert [t['ticker'] for t in selection('2018-04-30')[2]]==['AVXS','KS']
+    assert selection('2018-11-05') is None
 
 def test_catalog_bytes_guard_removal_accepts_changed_source_metadata(tmp_path,monkeypatch):
+    for plan in f.ORIGINAL_ORDINARY_SOURCES['P05']:
+        (tmp_path/plan[2]).write_bytes((f.HERE/plan[2]).read_bytes())
     name=selection()[1];j=json.loads((f.HERE/name).read_bytes());j['terms'][0]['description']='not the qualified original description'
     (tmp_path/name).write_text(json.dumps(j));monkeypatch.setattr(f,'HERE',tmp_path)
     with pytest.raises(ValueError,match='ORIGINAL_ORDINARY_CATALOG_BYTES'):selection()
@@ -33,7 +36,23 @@ def test_catalog_bytes_guard_removal_accepts_changed_source_metadata(tmp_path,mo
 
 def test_consumed_pending_native_guard_removal_discards_an_unsettled_boundary():
     with pytest.raises(ValueError,match='NO_CONSUMED_PENDING_NATIVE'):selection('2018-04-03')
-    assert removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_NO_CONSUMED_PENDING_NATIVE')('P05','2018-04-03') is None
+    assert [t['ticker'] for t in removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_NO_CONSUMED_PENDING_NATIVE')('P05','2018-04-03')[2]]==['AVXS','KS']
+
+
+def test_original_followup_cash_is_selected_without_pnk_stock_or_past_avxs():
+    codec,name,terms=selection('2018-10-31');t,=terms
+    assert name=='system-campaign-followup-terminal-facts.json' and len(codec.catalog['terms'])==3
+    assert t['ticker']=='KS' and t['added']['cash_per_share']==35. and t['added']['session']=='2018-11-05'
+    assert t['native_session']=='2018-11-02'
+    assert codec.catalog_sha=='046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222'
+    assert codec.compiler_sha=='33e23f906c69ad6437d9173060b23cb03bf4a616ef816a1b48a588fa7d28a9a9'
+    with pytest.raises(ValueError,match='NO_CONSUMED_PENDING_NATIVE'):selection('2018-11-02')
+
+
+def test_catalog_order_guard_removal_accepts_a_later_catalog_before_earlier_facts(monkeypatch):
+    monkeypatch.setitem(f.ORIGINAL_ORDINARY_SOURCES,'P05',tuple(reversed(f.ORIGINAL_ORDINARY_SOURCES['P05'])))
+    with pytest.raises(ValueError,match='ORDERED_DISJOINT_CASH_CATALOGS'):selection()
+    assert [t['ticker'] for t in removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_ORDERED_DISJOINT_CASH_CATALOGS')('P05','2018-01-31')[2]]==['AVXS','KS']
 
 def test_selected_events_guard_removal_accepts_duplicate_native_and_effective_keys():
     t=scmp()

@@ -101,6 +101,25 @@ def test_p04_complete_target_is_explicit_readonly_evidence_from_own1970_seed():
     assert p.reporting_seed(value)['measured_closes']==1970
 
 
+def test_exact_p03_saved82_prefix_reports_only_from_its_own_zero_seed():
+    value=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']['P03']
+    seed=p.reporting_seed(value)
+    assert (value['measured_closes'],value['selected_session'])==(82,'2018-04-30')
+    assert p.digest(value)==p.INITIAL_PREFIX_TARGETS['P03']
+    assert (seed['measured_closes'],seed['selected_session'])==(0,'2017-06-30')
+    assert seed['outer_sha256']=='fa1f7daca5e345490b4938fd786995755701664bdc265876d6d3545ce6fca6e0'
+    assert seed['base']==value['base'] and seed['journals']['daily']['bytes']==seed['journals']['monthly']['bytes']==0
+    assert 'P03' not in p.ADMISSIONS
+
+
+def test_p03_axis_guard_removal_admits_the_other_arms_counter(monkeypatch):
+    value=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']['P03']
+    value['measured_closes']=21;value['selected_session']='2018-01-31'
+    monkeypatch.setattr(p,'INITIAL_PREFIX_TARGETS',dict(p.INITIAL_PREFIX_TARGETS,P03=p.digest(value)))
+    with pytest.raises(ValueError,match='ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED'):p.initial_prefix_seed(value)
+    assert without_guard('PARTIAL_ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED')(value)['measured_closes']==0
+
+
 def test_initial_reporting_does_not_repin_original_fresh_p00_origin():
     assert p.FRESH_TARGET_SHA=='0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf2d1d'
     assert p.FRESH_REQUEST_SHA=='13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'

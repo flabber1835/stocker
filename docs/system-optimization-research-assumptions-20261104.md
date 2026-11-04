@@ -311,3 +311,35 @@ admission. The corrected historical case, new actual302-certificate seed and
 new756 root case all passed together (3 passed in3.65s). The actual P05 public
 ZIP and independently admitted21 reporting seed passed metadata validation.
 No closed certificate induction or canonical financial runtime was re-executed.
+
+Extend the shared original-ordinary source registry to ordered original catalogs:
+WinterCash followed by FollowupFacts for P05/P06/P11. Reuse both unchanged literal
+constructors and catalog bytes. Select only CASH_MERGER terms; PNK's stock terms
+remain outside this cash selector and are never projected into cash. Require the
+catalog cash windows to be strictly chronological and disjoint. Then choose the
+first catalog with future native/effective cash terms, retaining the existing
+consumed-pending-native refusal and inherited-repair exclusion. This supplies
+KS35USD after P05's October31 checkpoint with the original November5 convention,
+without reapplying AVXS or any earlier event. Add the original followup catalog
+to the request source closure. Keep the original FollowupFacts overlay guard,
+WinterCash, canonical financial source and existing hosted qualification intact.
+
+P03 has an authenticated own82/April30,2018 checkpoint in the original resumed
+financial artifact13277978278. Its exact June30,2017 zero-measurement checkpoint
+is retained as lineage/original-checkpoints/0d11db0dcd30e6bc9abd9e68e31b9fb5a004a17132f9eaf8a3a733eb5190b200.json.gz.
+Extend the existing exact initial-prefix reporting gate with an explicit per-arm
+axis registry: P03 has82/April30; P05/P06/P11 keep21/January31. Bind P03's entire
+transport by a new digest without changing the three old digests. Reuse the same
+five-member archive reader, real zero-measurement seed, canonical monthly-only
+bootstrap and source-bound hosted reporter. No financial replay or arbitrary
+prefix is authorized. Select P03 alone for this new reporting request while P05's
+already queued reporting and P11's financial run keep their immutable requests.
+P03's126 formation and82 measured records require independent DATA and reporting
+before continuation; FMSA's approximate published terms remain the later input
+step, without an ultimate-denominator study.
+
+Shared cash-selector/P03 reporting qualification:125 relevant resume, archive,
+initial-prefix and original-catalog cases passed in17.51s. The new catalog-order
+and P03-axis guard-removal falsifiers passed. P03's actual five-member public ZIP
+passed the existing transport validator. The request closes402 sources while all
+383 original drivers and the prior catalog generations remain unchanged.

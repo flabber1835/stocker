@@ -94,9 +94,12 @@ RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
 RESEARCH_SOURCE_EXIT = 'UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH'
 SOURCE_SCOPES = 'future-source-only-scopes.json'
 ORIGINAL_ORDINARY_SOURCES = {
-    arm: ('system_campaign_winter_facts', 'WinterCash',
+    arm: (('system_campaign_winter_facts', 'WinterCash',
           'system-campaign-corrected-winter-facts.json',
-          '9784f96a4037fda8f4494d4d080b2a99e56bb4d4cd7640a52dd9cd9b99e23f4c')
+          '9784f96a4037fda8f4494d4d080b2a99e56bb4d4cd7640a52dd9cd9b99e23f4c'),
+          ('system_campaign_followup_facts', 'FollowupFacts',
+           'system-campaign-followup-terminal-facts.json',
+           '046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222'))
     for arm in ('P05', 'P06', 'P11')
 }
 
@@ -877,30 +880,38 @@ def compose(plans):
 def original_ordinary_selection(arm, cursor):
     """Select future terms from an unchanged original ordinary cash validator."""
     import importlib
-    plan = ORIGINAL_ORDINARY_SOURCES.get(arm)
-    if plan is None:
+    plans = ORIGINAL_ORDINARY_SOURCES.get(arm)
+    if plans is None:
         return None
-    module_name, class_name, catalog, expected_sha = plan
-    raw = (HERE / catalog).read_bytes()
-    need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_ORDINARY_CATALOG_BYTES')
-    module = importlib.import_module(module_name)
-    codec = getattr(module, class_name)(HERE / catalog)
-    need(not any(t['native_session'] <= cursor < t['added']['session'] for t in codec.catalog['terms']),
-         'FUTURE_ORIGINAL_ORDINARY_NO_CONSUMED_PENDING_NATIVE')
-    source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
-                  validator_file=Path(module.__file__).name, validator_sha256=codec.compiler_sha)
-    terms = []
-    for original in codec.catalog['terms']:
-        if original['native_session'] <= cursor or original['added']['session'] <= cursor:
-            continue
-        term = deepcopy(original)
-        term['original_ordinary_source'] = dict(source, term_sha256=digest(original))
-        term['timing_source'] = original['primary_source']
-        terms.append(term)
-    if not terms:
-        return None
-    codec.ordinary_source = source
-    return codec, catalog, terms
+    sources = []
+    for module_name, class_name, catalog, expected_sha in plans:
+        raw = (HERE / catalog).read_bytes()
+        need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_ORDINARY_CATALOG_BYTES')
+        module = importlib.import_module(module_name)
+        codec = getattr(module, class_name)(HERE / catalog)
+        cash = [t for t in codec.catalog['terms'] if t['added']['kind'] == 'CASH_MERGER']
+        need(not any(t['native_session'] <= cursor < t['added']['session'] for t in cash),
+             'FUTURE_ORIGINAL_ORDINARY_NO_CONSUMED_PENDING_NATIVE')
+        source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
+                      validator_file=Path(module.__file__).name, validator_sha256=codec.compiler_sha)
+        sources.append((codec, catalog, source, cash))
+    need(all(cash for _, _, _, cash in sources)
+         and all(max(t['added']['session'] for t in left[3]) < min(t['native_session'] for t in right[3])
+                 for left, right in zip(sources, sources[1:])),
+         'FUTURE_ORIGINAL_ORDINARY_ORDERED_DISJOINT_CASH_CATALOGS')
+    for codec, catalog, source, cash in sources:
+        terms = []
+        for original in cash:
+            if original['native_session'] <= cursor or original['added']['session'] <= cursor:
+                continue
+            term = deepcopy(original)
+            term['original_ordinary_source'] = dict(source, term_sha256=digest(original))
+            term['timing_source'] = original['primary_source']
+            terms.append(term)
+        if terms:
+            codec.ordinary_source = source
+            return codec, catalog, terms
+    return None
 
 
 def merge_selected_terms(primary, extra):
