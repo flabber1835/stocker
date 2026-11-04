@@ -387,3 +387,38 @@ uncovered input operations, guard removal and an ambiguous comparison that
 changes a decision. The latter must refuse before journal commit. Independently
 reconstruct every domain split, complete state set and financial/watch commitment
 in the hosted reviewer before any root admission or score.
+
+## Admit the newer P04/P07/P10 prefixes without repeating closed history
+
+The latest stopped artifacts have positively reviewed checkpoints P04/1090,
+P07/503 and P10/1028. They add673 committed daily records to the separately
+admitted817/439/692 parents. Their complete new archives, actual stops, public
+staging/export/capacity controls and exact retained parent gzip files are already
+authenticated. Select all three for one read-only batch, with zero financial
+workers. Transport provenance stays unadmitted; only subsequent independent DATA
+review and root admission can authorize another financial continuation.
+
+Bind each monthly seed by its existing root-admission SHA and arm, then verify
+the exact retained gzip, entire original checkpoint identity, source base and
+journal commitments. Reproduce only the673 new recorded NAV rows and32 new
+monthly reports from those closest admitted seeds, including entire reporting
+state. Do not restart from the older251/375/272 reporting seeds. Reuse the exact
+already-positive authenticated stopped hosted accounting review, freshly checking
+canonical restore/source/journal/correlation identity without re-auditing its
+closed history. The reuse flag supplies no financial authority.
+
+P07's current book contains one explicitly selected branch-uncertainty input.
+Preserve its actual complete checkpoint and every original input document. Extend
+the shared retainer through a source-bound adapter: retain the frozen function's
+document preservation and byte-identical hydration guards; replace only its
+ordinary-schema predicate with validation of ordinary documents plus exactly one
+declared, fully validated BranchInput, and enter that input's existing codec.
+Unknown models, missing declarations, changed evidence or duplicate models refuse.
+Do not filter or fabricate a checkpoint to bypass the original schema guard.
+The frozen383 files remain unchanged, and an undo test must recover the entire
+original retainer AST after removing the two declared adapter sites.
+
+Independent DATA review must cover all1346 new accounting snapshots, every new
+factor/chain, actual neutral adoptions, monthly/retry memory and P07's complete
+branch-certificate identity prefix. No alpha transition is rerun in this batch,
+and no partial result becomes a full-period score.

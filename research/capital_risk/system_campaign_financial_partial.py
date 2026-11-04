@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import zipfile
+from contextlib import contextmanager, nullcontext
 
 from full_system_benchmark import need, save
 from full_system_core import hosted
@@ -73,6 +74,83 @@ def validate_root_spec(spec):
     need(authorized_spec(dict(transport=transport, admission=spec['root_admission'],
          admission_sha256=spec['root_admission_sha256']), spec['arm']) == spec,
          'FINANCIAL_EXACT_ROOT_SPEC')
+
+
+def reporting_seed(spec):
+    """Select an independently admitted own seed, never arbitrary newer state."""
+    if 'monthly_seed_root_admission_sha256' in spec:
+        original = root_spec(spec['arm'])
+        need(spec['monthly_seed_root_admission_sha256'] == original['root_admission_sha256'],
+             'PARTIAL_EXACT_MONTHLY_ROOT_ADMISSION')
+    else:
+        original = json.loads((HERE / ORIGINALS).read_bytes())['arms'][spec['arm']]
+    need(original['arm'] == spec['arm'] and original['base'] == spec['base']
+         and original['measured_closes'] < spec['measured_closes']
+         and original['selected_session'] < spec['selected_session'], 'PARTIAL_OWN_EARLIER_MONTHLY_SOURCE_SEED')
+    return original
+
+
+def retained_models(root, parent, spec):
+    schemas = [json.loads((Path(root) / 'book/repairs' / d['filename']).read_bytes())['schema']
+               for d in parent['repairs']]
+    declared = spec.get('retained_uncertainty_model')
+    if declared is None:
+        return all(s == 'terminal-repair/1' for s in schemas)
+    from system_campaign_financial_branches import INPUT, validate_input
+    need(spec['arm'] == 'P07' and declared == INPUT and schemas.count(INPUT) == 1
+         and all(s in ('terminal-repair/1', INPUT) for s in schemas), 'PARTIAL_ONLY_EXACT_SELECTED_RETAINED_MODEL')
+    validate_input(Path(root), parent)
+    return True
+
+
+def model_context(root, parent, spec):
+    if spec.get('retained_uncertainty_model') is None:
+        return nullcontext()
+    from system_campaign_financial_branches import Codec, evidence
+    return Codec(evidence(Path(root)))
+
+
+def retention_tree():
+    """Retain every frozen retainer statement except two declared codec sites."""
+    import system_campaign_parallel_discovery_run as original
+    raw = Path(original.__file__).read_bytes()
+    request = json.loads((HERE / 'system-campaign-parallel-discovery-request-001.json').read_bytes())
+    need(sha(raw) == request['sources']['system_campaign_parallel_discovery_run.py'],
+         'PARTIAL_UNCHANGED_FROZEN_INPUT_RETAINER')
+    fn, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'retained_inputs']
+
+    class SelectedModel(ast.NodeTransformer):
+        guard = codec = 0
+
+        def visit_Expr(self, node):
+            if (isinstance(node.value, ast.Call) and any(isinstance(a, ast.Constant)
+                    and a.value == 'PARALLEL_NO_UNSELECTED_CONDITIONAL_INPUT_MODELS' for a in node.value.args)):
+                self.guard += 1
+                node.value.args[0] = ast.parse('retained_models(root, parent, selected_spec)', mode='eval').body
+                return node
+            if isinstance(node.value, ast.Yield):
+                self.codec += 1
+                return [ast.parse('stack.enter_context(model_context(root, parent, selected_spec))').body[0], node]
+            return self.generic_visit(node)
+
+    adapter = SelectedModel()
+    fn = adapter.visit(fn)
+    need(adapter.guard == adapter.codec == 1, 'PARTIAL_EXACT_TWO_RETAINED_MODEL_SITES')
+    return ast.fix_missing_locations(fn)
+
+
+@contextmanager
+def financial_inputs(root, parent, output, spec):
+    import system_campaign_parallel_discovery_run as original
+    if spec.get('retained_uncertainty_model') is None:
+        with original.retained_inputs(root, parent, output):
+            yield
+        return
+    fn = retention_tree()
+    namespace = dict(vars(original), retained_models=retained_models, model_context=model_context, selected_spec=spec)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-input-retainer>', 'exec'), namespace)
+    with namespace['retained_inputs'](root, parent, output):
+        yield
 
 
 def public_names(spec, archive):
@@ -198,7 +276,7 @@ def monthly_reproduction(evidence, out, spec, current):
     from research.pooled_input_support.bundle import axis
     need(sha256_file(HERE / ORIGINALS) == spec['original_parent_index_sha256'],
          'PARTIAL_EXACT_RETAINED_ORIGINAL_INDEX')
-    original = json.loads((HERE / ORIGINALS).read_bytes())['arms'][spec['arm']]
+    original = reporting_seed(spec)
     path = evidence / 'book/predecessor-checkpoints' / (original['outer_sha256'] + '.json.gz')
     raw = path.read_bytes()
     need(dict(bytes=len(raw), sha256=sha(raw)) == original['selected_file'],
