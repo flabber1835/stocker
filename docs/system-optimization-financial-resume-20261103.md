@@ -1355,3 +1355,16 @@ incomplete leadership cash terminal827416728546053456. The21 new closes still
 need separate financial DATA/reporting and root admission;1196 is not yet a
 financial predecessor or performance authority. Do not repeat the CTXS source
 audit or alter the canonical missing-term guard.
+
+## Review P04's new September2022 financial prefix without replay
+
+Select1196/September30 from financial41824920958/cb4caa322 for exact read-only
+reporting, seeded from the independently admitted1175/August31 root. Reuse its
+closed hosted accounting review. Advance zero financial sessions and recompute
+only21 new daily/report inputs,one September report and reporting/retry memory.
+Independent DATA must check42 accounting snapshots,28 Decimal report metrics,
+neutral input adoption and financial/watch chains, plus the authenticated actual
+source-only CTXS scope and no-op/delegation proof. The failed October tail is
+excluded. P07's LM source capture and fresh P00 keep their immutable commits.
+The1196 read-only target passed142 resume/partial/retention/retained-proof tests
+in19.94s; financial worker limit remains0.
