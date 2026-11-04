@@ -1773,3 +1773,15 @@ The bounded-row/native/pending/source-capture/launcher checks passed224 tests
 in27.02s, including synthetic capture, duplicate rejection and guard-removal
 falsifiers. The historical GBT test now explicitly selects its admitted1196
 checkpoint instead of following the newer P04 root. No financial source changed.
+
+P05's original COL input passed all four hosted packet/notional checks. Its next
+stop on November27 was the observer's unconditional requirement that a stock
+conversion be applied. The actual November26 accounting has no COL holding,
+pending order,reservation,terminal claim or receivable. Restore conformance with
+the canonical unheld-terminal no-op: require NOT_HELD,applied=false and bytewise
+equal financial state/ledger, with the source absent before and after the call.
+Keep the existing applied-and-source-cleared guard for held conversions. Record
+the unheld proof distinctly and require exactly one actual canonical call for
+either case; this changes no terminal economics or treatment of held positions.
+The unheld-stock/selected-stock/original-delivery/future/launcher checks passed
+163 tests in16.67s, including actual-context delegation and mutation falsifiers.

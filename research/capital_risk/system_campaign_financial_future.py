@@ -1643,8 +1643,20 @@ def actual_stock_phase(record, selected):
             continue
         actual = [v for v in record['stock'] if v['security_id'] == term['security_id']
                   and v['actual_context_call'] is True]
-        need(len(actual) == 1 and actual[0]['applied'] is True,
+        need(len(actual) == 1 and (actual[0]['applied'] is True or (
+             actual[0]['applied'] is False and actual[0].get('unheld_noop') is True
+             and actual[0].get('postcondition') == dict(actual_held=False, quantity=0, nominal_cash=0.))),
              'FUTURE_ONE_SELECTED_APPLIED_STOCK_CALL_IN_ACTUAL_CANONICAL_STEP')
+
+
+def unheld_stock_postcondition(before, after, ledger_before, ledger_after, pending, terms, result, phase):
+    sid = terms['security_id']
+    require_source_absent(before, pending, ledger_before, sid)
+    require_source_absent(after, pending, ledger_after, sid)
+    need(phase == 'OPEN' and result.get('applied') is False and result.get('reason') == 'NOT_HELD'
+         and before == after and ledger_before == ledger_after,
+         'FUTURE_UNHELD_STOCK_EXACT_CANONICAL_NOOP')
+    return dict(actual_held=False, quantity=0, nominal_cash=0.)
 
 
 class ActualEvents:
@@ -1714,6 +1726,15 @@ class ActualEvents:
         result = self.terminal_original(state, terms, **kwargs)
         if terms.kind == 'CASH_PLUS_STOCK':
             after, ledger_after = state.to_dict(), kwargs['ledger'].to_dict()
+            if not any(e['security_id'] == terms.security_id for e in before['episodes'].values()):
+                need(actual, 'FUTURE_UNHELD_STOCK_ACTUAL_CANONICAL_CALL')
+                proof = unheld_stock_postcondition(before, after, ledger, ledger_after,
+                    caller.f_locals['pending'], asdict(terms), result, kwargs.get('phase', 'OPEN'))
+                self.current['stock'].append(dict(session=terms.session, security_id=terms.security_id,
+                    actual_context_call=actual, applied=False, unheld_noop=True, postcondition=proof,
+                    result=deepcopy(result), before_state_sha256=digest(before), after_state_sha256=digest(after),
+                    before_ledger_sha256=digest(ledger), after_ledger_sha256=digest(ledger_after)))
+                return result
             need(kwargs.get('phase', 'OPEN') == 'OPEN' and result.get('applied') is True
                  and ledger_after['events'][:len(ledger['events'])] == ledger['events']
                  and not any(e['security_id'] == terms.security_id for e in after['episodes'].values())
