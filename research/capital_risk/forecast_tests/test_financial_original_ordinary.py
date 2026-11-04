@@ -24,7 +24,7 @@ def test_existing_catalog_and_validator_supply_all_five_exact_cash_terms():
     assert [t['ticker'] for t in selection('2018-02-28')[2]]==['JUNO','BIVV','CSRA']
     assert f.original_ordinary_selection('P04','2025-10-31') is None
     assert [t['ticker'] for t in selection('2018-04-30')[2]]==['AVXS','KS']
-    assert selection('2018-11-05') is None
+    assert [t['ticker'] for t in selection('2018-11-05')[2]]==['APTI','VSM']
 
 def test_catalog_bytes_guard_removal_accepts_changed_source_metadata(tmp_path,monkeypatch):
     for plan in f.ORIGINAL_ORDINARY_SOURCES['P05']:
@@ -52,7 +52,7 @@ def test_original_followup_cash_is_selected_without_pnk_stock_or_past_avxs():
 def test_catalog_order_guard_removal_accepts_a_later_catalog_before_earlier_facts(monkeypatch):
     monkeypatch.setitem(f.ORIGINAL_ORDINARY_SOURCES,'P05',tuple(reversed(f.ORIGINAL_ORDINARY_SOURCES['P05'])))
     with pytest.raises(ValueError,match='ORDERED_DISJOINT_CASH_CATALOGS'):selection()
-    assert [t['ticker'] for t in removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_ORDERED_DISJOINT_CASH_CATALOGS')('P05','2018-01-31')[2]]==['AVXS','KS']
+    assert [t['ticker'] for t in removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_ORDERED_DISJOINT_CASH_CATALOGS')('P05','2018-01-31')[2]]==['APTI','VSM']
 
 def test_selected_events_guard_removal_accepts_duplicate_native_and_effective_keys():
     t=scmp()

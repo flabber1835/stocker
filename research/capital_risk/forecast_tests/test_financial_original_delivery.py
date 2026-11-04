@@ -26,9 +26,10 @@ def test_original_mixed_term_and_validator_are_exact_and_cash_stays_separate():
     assert codec.catalog_sha == 'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'
     assert codec.compiler_sha == '025be4d9649f8f81f970757f74899044a576e7c1c4f0297e6ccfc7cdf32030ae'
     assert [t['ticker'] for t in f.original_ordinary_selection('P05','2018-10-31')[2]] == ['KS']
-    assert selected('2018-11-27') is None
+    assert [t['ticker'] for t in selected('2018-11-27')[2]]==['AET','OCLR']
+    assert selected('2018-12-10') is None
     assert f.original_delivery_selection('P07','2020-12-31') is None
-    assert f.selected('P05',cursor='2018-11-05')[2][0]['ticker'] == 'COL'
+    assert f.original_delivery_selection('P05','2018-11-05')[2][0]['ticker'] == 'COL'
     merged = f.merge_selected_terms(f.original_ordinary_selection('P05','2018-10-31')[2], terms)
     assert [t['ticker'] for t in merged] == ['KS','COL']
     assert f.suppressions(dict(source_cursor='2018-10-31'), merged)[1]['session'] == '2018-11-26'
@@ -48,7 +49,7 @@ def test_catalog_byte_guard_removal_accepts_changed_source_description(tmp_path,
 def test_consumed_pending_native_guard_removal_drops_unresolved_delivery():
     with pytest.raises(ValueError,match='DELIVERY_NO_CONSUMED_PENDING_NATIVE'):
         selected('2018-11-26')
-    assert removed_guard('original_delivery_selection','FUTURE_ORIGINAL_DELIVERY_NO_CONSUMED_PENDING_NATIVE')('P05','2018-11-26') is None
+    assert [t['ticker'] for t in removed_guard('original_delivery_selection','FUTURE_ORIGINAL_DELIVERY_NO_CONSUMED_PENDING_NATIVE')('P05','2018-11-26')[2]]==['AET','OCLR']
 
 
 def fixture():

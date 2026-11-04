@@ -107,13 +107,19 @@ ORIGINAL_ORDINARY_SOURCES = {
           '9784f96a4037fda8f4494d4d080b2a99e56bb4d4cd7640a52dd9cd9b99e23f4c'),
           ('system_campaign_followup_facts', 'FollowupFacts',
            'system-campaign-followup-terminal-facts.json',
-           '046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222'))
+           '046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222'),
+          ('system_campaign_late_facts', 'LateFacts',
+           'system-campaign-late-terminal-facts.json',
+           '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7'))
     for arm in ('P05', 'P06', 'P11')
 }
 ORIGINAL_DELIVERY_SOURCES = {
     arm: (('system_campaign_midyear_facts', 'MidyearFacts',
            'system-campaign-midyear-terminal-facts.json',
-           'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),)
+           'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),
+          ('system_campaign_late_facts', 'LateFacts',
+           'system-campaign-late-terminal-facts.json',
+           '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7'))
     for arm in ('P05', 'P06', 'P11')
 }
 
@@ -1366,8 +1372,10 @@ def hydrate(cp, arm, *, source_root=None):
         need(source_root is not None, 'FUTURE_ORIGINAL_DELIVERY_EXPLICIT_REPAIR_ROOT')
         delivery_terms, inherited = remaining_ordinary_terms(cp, delivery_terms, source_root)
         inherited_ordinary.extend(inherited)
-        terms = merge_selected_terms(terms, delivery_terms) if catalog != delivery_catalog else delivery_terms
-        ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
+        terms = (merge_selected_terms(terms, delivery_terms)
+                 if catalog != delivery_catalog or ordinary is not None else delivery_terms)
+        if delivery_codec.ordinary_source not in ordinary_components:
+            ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT) for t in terms):

@@ -1848,3 +1848,20 @@ the saved42-day/two-report prefix and363 committed certificates; exclude April
 tails. Use the shared reporting matrix for P07 and P11 without financial replay.
 The reporting-target/launcher checks passed88 tests in14.64s. No new economic
 model, financial source or independent prior-prefix review is introduced.
+
+P05 reporting41891185379 and independent DATA passed its21 new November days,
+42 accounting snapshots,one report and28 Decimal metrics. KS cash and COL stock
+contexts were both actual unheld zero-value no-ops; the latter preserved state
+and ledger hashes. Fourteen DATA falsifiers passed in1.53s, and the established
+ordinary cash/report arithmetic functions remain AST-identical. Admit its exact
+own232 checkpoint and retain211 and21 as history.
+
+Register the unchanged LateFacts literal catalog in both shared original cash and
+delivery registries. From232, select future OCLR5.60USD+.0636LITE,APTI38USD and
+VSM53USD, preserving source metadata and declared raw-open fractional proxies.
+A catalog can supply both cash and mixed terms: merge its disjoint selected terms
+and retain its source component once. Do not replace its cash terms when adding
+its delivery terms. Earlier selectors and already adopted input bytes remain.
+The shared cash/delivery composition,future-input and launcher checks passed137
+tests in14.21s. The actual hydration composition keeps all three future terms
+and one LateFacts source component; all383 frozen drivers remain exact.
