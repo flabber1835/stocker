@@ -496,3 +496,34 @@ minimum original historical-row, completed-run, account, source and leader clock
 never retime or extend any proof. Keep ordinary queued-check behavior and the
 canonical verifier/owner/scheduler unchanged. No broker/provider calls, manual
 verification, financial rewrite, automatic ACK or green override is introduced.
+
+### PR566 complete-source release record (November 4)
+
+The PR566 safety lanes correctly refused the unregistered executable source:
+the complete candidate map still described the installed PR565 files while
+eight presentation modules had changed. Finalize the release record after those
+reviewed changes settle. This is an exact source transition, not a relaxation of
+the complete-map guard or an update to historical test expectations.
+
+Advance the existing URL-selected descriptor to version 6 and retain the actual
+installed PR565 revision fcfbd7b1e8bd1134ad14563347ab9df0980c545f as another
+independent predecessor. Its 442 executable Python files have source closure
+95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca,
+computed from the verified Git objects. Preserve the 422-file base, every older
+retained map, structural witness, and economic mapping byte for byte. The new
+candidate records the eight reviewed presentation module hashes and the
+normalized source checker; no other executable module changes.
+
+Retain authority_effect NONE, exact whole-candidate equality, independent
+predecessor count/hash checks, and refusal for changed, missing or extra source,
+including a changed checker. Regress the failed CI cases and execute the
+existing removed-guard falsifiers against the final record. Do not change
+historical fixtures, skip tests, broaden accepted sources, or repeat a local
+overlay, acknowledgement, lifecycle or backup operation for this CI repair.
+
+Qualification reproduced the missing-record failure before the repair. The
+194 failed CI cases plus the complete directly related source-policy modules
+passed 297 cases, including removed-guard falsifiers. The private source snapshot
+retained all 479 tracked files byte for byte before and after execution; all 442
+Python files matched the reviewed record. An earlier Windows bind-mounted run
+reached its 900-second limit and is not counted as passing evidence.
