@@ -1,21 +1,21 @@
 {
   "admitted_checkpoints": {
-    "P07": "1cf20615c6780b228f5aa6ef03126bca86c882f9e1adde33cfc94bb63a46c15d"
+    "P03": "8b7358f5848b23ac440a9d5da094f17bee39acd46e8ad69526159e23af509f6b"
   },
   "admitted_financial_parents_sha256": "6f8c0f61e7af1b7eb93a6e8753571b23528f7344d626ab402718638c6cc3d2b2",
   "arm_inputs": {
-    "P07": {
+    "P03": {
       "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P07"
+    "P03"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
+  "execution_mode": "READONLY_FROZEN_SOURCE_WITNESSES",
   "financial_resume_authorized": false,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
@@ -30,10 +30,10 @@
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "readonly_partial_review": true,
-  "readonly_source_witnesses": false,
+  "readonly_partial_review": false,
+  "readonly_source_witnesses": true,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/66",
+  "schema": "research.system-campaign-accurate-resume-request/67",
   "selected_partials_sha256": "76349f1be638dfe5cde4c58006e4e48b2c0582e31bea6c297efc9766fd8b06a4",
   "selected_research_models": {
     "P07": {
@@ -43,7 +43,39 @@
       "original_strict_guard_unchanged": true
     }
   },
-  "source_witness_scopes": {},
+  "source_witness_scopes": {
+    "P03": {
+      "additional_row_queries": [
+        {
+          "financial_use_authorized": false,
+          "match_mode": "PREFIX",
+          "maximum_rows": 1,
+          "require_unheld_at_parent": true,
+          "schema": "research.frozen-observation-identity-query/1",
+          "session": "2018-06-01",
+          "ticker": "CVIA"
+        }
+      ],
+      "native_preimage_query": {
+        "financial_use_authorized": false,
+        "maximum_terms": 1,
+        "native_kind": "CASH_MERGER",
+        "schema": "research.unconsumed-cash-native-preimage-query/1"
+      },
+      "parent_cursor": "2018-04-30",
+      "parent_outer_sha256": "8b7358f5848b23ac440a9d5da094f17bee39acd46e8ad69526159e23af509f6b",
+      "terms": [
+        {
+          "native_session": "2018-05-31",
+          "native_term_sha256": null,
+          "parent_positions": [],
+          "security_id": "278580348046109004",
+          "session": "2018-05-30",
+          "ticker": "FMSA"
+        }
+      ]
+    }
+  },
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
     "alpaca_fit_compare.py": "aec55dc127b7f7d815c5399c1c217b4752583adaec6e936b7b1fa88bbddb9161",
@@ -226,7 +258,7 @@
     "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
     "system_campaign_financial_future.py": "57ef2f050b52e5fe509fd56eddfc06e9ab2998293c9ac9295344bcc12000c768",
     "system_campaign_financial_partial.py": "274289a9b185ba3fd608c1433f888f6ff83b4f615dc5211f3b01ae5c3899b7c7",
-    "system_campaign_financial_resume.py": "6d585fa224063ea84312f26fb6519259559f47390004ed67ab685d2434946c39",
+    "system_campaign_financial_resume.py": "0676fbb2fd09182cafad894954d5ee35c46a71891ff4f7baa96f0de02407d61a",
     "system_campaign_financial_uncertainty.py": "41791dd6027763eeb28c5684884463249acf124ef8e9f1c383982bdc39e805c5",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
@@ -450,5 +482,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "2087ffc4606c245d6908fed506b46e161db3aa5bf5741f509f0f93fe1e500d06"
+  "workflow_sha256": "c2894c74f119d551c20a3fdcab803234ed10303b037185051d1cf1785c4333da"
 }
