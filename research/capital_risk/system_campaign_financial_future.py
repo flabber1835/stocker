@@ -62,6 +62,12 @@ SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 OWN_CASH_SHA = '465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c'
+RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
+    source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
+    source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
+    parent_root_admission_sha256='a2cd1c0d680f78f93d021de662f6dff7def0cb4add2ed15c28349acc8670f3d2',
+    parent_outer_sha256='ee6cdd1bdc992883636495a5c20e1b93371af5e638fa8f553ef55198e9b73814',
+    parent_positions=[])}
 OWN_CASH_PHASES = {('P03', '2018-08-31'): 'NLST',
  ('P11', '2022-05-31'): 'TVTY',
  ('P03', '2018-04-30'): 'FMSA',
@@ -983,6 +989,39 @@ def own_cash_selection(arm, cursor):
     return codec, OWN_CASH_CATALOG, [deepcopy(chosen)]
 
 
+def retained_own_cash_selection(arm, cursor):
+    """Reuse qualified ordinary cash facts while binding a separate own book."""
+    from system_campaign_cash_calendar import NEXT, PREOPEN, validate_term
+    from system_campaign_financial_partial import root_spec
+    plan = RETAINED_OWN_CASH_PHASES[arm, cursor]
+    original_codec, catalog, originals = own_cash_selection(plan['source_arm'], plan['source_cursor'])
+    need(len(originals) == 1 and original_codec.catalog_sha == plan['source_generation_sha256'],
+         'RETAINED_CASH_EXACT_CLOSED_SOURCE_GENERATION')
+    original, = originals
+    old = root_spec(plan['source_arm'], original['parent_root_admission_sha256'])
+    current = root_spec(arm, plan['parent_root_admission_sha256'])
+    need(arm != plan['source_arm'] and current['selected_session'] == cursor
+         and current['outer_sha256'] == plan['parent_outer_sha256']
+         and all(old['base'][k] == current['base'][k] for k in ('archive_sha256', 'bundle_sha256')),
+         'RETAINED_CASH_EXACT_OWN_PARENT_AND_FROZEN_HISTORY')
+    need(original['ticker'] == plan['ticker'] and original['added']['kind'] == 'CASH_MERGER'
+         and original['recognition_rule'] in (NEXT, PREOPEN)
+         and original['native_session'] > cursor and original['added']['session'] > cursor
+         and original['mandatory_common_share_completion_confirmed'] is True,
+         'RETAINED_CASH_ORDINARY_MANDATORY_FUTURE_FACTS_ONLY')
+    validate_term(original)
+    book_fields = {'arm', 'parent_cursor', 'parent_outer_sha256', 'parent_root_admission_sha256', 'parent_positions'}
+    term = {k: deepcopy(v) for k, v in original.items() if k not in book_fields}
+    term['retained_qualified_source'] = dict(source_arm=plan['source_arm'], source_cursor=plan['source_cursor'],
+        source_parent_admission_sha256=original['parent_root_admission_sha256'],
+        source_term_sha256=digest(original), source_catalog_generation_sha256=original_codec.catalog_sha)
+    codec = SimpleNamespace(catalog=deepcopy(original_codec.catalog), catalog_sha=original_codec.catalog_sha,
+        compiler_sha=sha(Path(__file__).read_bytes()), parent_outer_sha256=current['outer_sha256'],
+        parent_positions=deepcopy(plan['parent_positions']),
+        validator_description='Retained qualified ordinary cash facts only; originating book fields removed. Exact own admitted parent and positions, frozen native and full source row must be reverified.')
+    return codec, catalog, [term]
+
+
 def research_source_exit_term(term):
     model = ResearchSourceExitAssumption.model_validate(term['research_assumption'])
     a, w, quote = term['added'], term['identity_witness'], term['retained_quote']
@@ -1474,6 +1513,8 @@ def ordinary_identity(term, row):
 
 def selected(arm, *, cursor=None):
     import importlib
+    if (arm, cursor) in RETAINED_OWN_CASH_PHASES:
+        return retained_own_cash_selection(arm, cursor)
     if (arm, cursor) in OWN_CASH_PHASES:
         return own_cash_selection(arm, cursor)
     ordinary = original_ordinary_selection(arm, cursor)
@@ -1766,10 +1807,17 @@ def document(cp, material, hydrated_sha):
         evidence.extend((dict(reference=t['primary_source'], description=t['description'], sha256=None),
             dict(reference=t['timing_source'], description='Actual mandatory completion; preserve native trading history.', sha256=None)))
         if 'source_capture' in t:
-            evidence.extend(dict(reference=REFERENCE + '/source-capture/' + t['arm'] + '/' + name,
-                description=description, sha256=t['source_capture'][key]) for name, key, description in (
+            retained = t.get('retained_qualified_source')
+            source_arm = retained['source_arm'] if retained is not None else t['arm']
+            evidence.extend(dict(reference=REFERENCE + '/source-capture/' + source_arm + '/' + name,
+                description=('Retained original factual source only; no originating book authority. ' if retained is not None else '')
+                    + description, sha256=t['source_capture'][key]) for name, key, description in (
                     ('payload', 'payload_sha256', 'Authenticated frozen source/native payload from the exact own admitted parent.'),
                     ('independent-data-review', 'independent_data_review_sha256', 'Separate DATA review of the complete row/native and admitted parent role.')))
+            if retained is not None:
+                evidence.append(dict(reference=REFERENCE + '/retained-qualified-source',
+                    description='Exact original factual term and closed source generation; state,returns and continuation authority are excluded.',
+                    sha256=digest(retained)))
     return dict(schema='terminal-repair/1', predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'],
         source_evidence=evidence, suppress=suppressions(cp, material['terms']),
         add=[deepcopy(t['added']) for t in material['terms']])

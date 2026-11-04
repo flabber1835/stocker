@@ -859,3 +859,33 @@ hosted report reproduction and independent DATA, preserving1111 as authority
 until admission. Verify the source217-bound TVTY research cash event under the
 existing model and both raw accounting snapshots per close; exclude August
 tails and preserve the original V10 source and causal-axis guard.
+
+P11 reporting41923826375 and independent DATA passed41 new closes,82 accounting
+snapshots,two reports and56 Decimal metrics. The actual TVTY134-share event
+posted4355USD under the existing disclosed daily research model. Nine DATA tests,
+including seven guard-removal falsifiers, passed. Admit only own1152 through
+July29,2022 and retain1111 as history. Its next actual August10 risk refusal
+names65ACC shares enteredAugust4,absent from8341 supplied bars; do not adopt the
+August tail or change V10. Reuse existing factual ACC source data only after
+qualifying its application to this own parent and the correct economic clock.
+
+Previously qualified ordinary mandatory-cash facts may be reused as data across
+books when the frozen archive and bundle identities are identical. Add one
+shared retained-own-cash selector: validate the original own-source catalog and
+its exact closed generation through the existing selector,then retain the
+literal cash/date/identity/native commitment and source-capture provenance.
+Remove the originating book's arm,parent and position fields from the selected
+factual term; record its original term digest and generation as provenance.
+Do not transfer state,returns or continuation authority. Bind the new codec to
+the separately admitted current book and its actual parent positions. The
+existing hosted hydration must recheck the full frozen source row and native,
+and neutral adoption,canonical cash application and independent accounting must
+still pass. Restrict reuse to the original cash-calendar mandatory-cash rules;
+source-only exits,tenders and research timing models are outside this selector.
+
+Use this selector for P11 own1152's ACC continuation,retaining the exact65.47USD
+consideration and August10 next-session recognition after August9 completion.
+The original P10 two-term catalog generation is
+7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9.
+P11's July29 parent has no ACC position; its later65-share August4 episode is
+not backdated. No new settlement convention or volatility exception follows.
