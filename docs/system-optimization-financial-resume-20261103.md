@@ -422,3 +422,65 @@ Independent DATA review must cover all1346 new accounting snapshots, every new
 factor/chain, actual neutral adoptions, monthly/retry memory and P07's complete
 branch-certificate identity prefix. No alpha transition is rerun in this batch,
 and no partial result becomes a full-period score.
+
+
+## Root admission of 1090/503/1028 and the next qualified continuation
+
+Read-only run41769843340 at eb7d24f2466498062d0b32054ab086fc3d243253
+passed all three source-bound restores and reproduced only the673 new rows and32
+reports. Independent DATA review passed1346 new accounting snapshots, all new
+factors/chains, actual neutral boundaries and complete reporting/retry memory.
+P07 additionally passed49 certificate rows and58 exhaustive leaves, including
+independent binary64 cardinality coverage/disjointness and complete state-set
+induction; the positive separate hosted reviewer supplies the exact canonical
+transition oracle. Local canonical execution remains forbidden.39 negative and
+semantic DATA tests passed, including actual coverage/decision guard removals.
+
+Admit each exact main checkpoint separately for continuation, retaining transport
+financial-authority flags false and all uncommitted tails outside authority.
+The shared root registry keeps the preceding admission entries unchanged, keyed
+by their admission hashes, alongside the selected current roots. Exact reporting
+seed hashes resolve those historical entries; they must never silently select a
+newer root. Both current and historical admissions require literal source-pinned
+hashes, arm, original read-only run/head and transport identity. No generic
+unreviewed registry record may grant authority.
+
+The next P04 suffix selects only EPAY from the unchanged registered December
+cash-calendar catalog: mandatory57USD May13,2022 preopen, May12 last trade.
+Its incomplete native is on the effective date itself. The existing shared
+future-input selector therefore verifies same-day replacement against that exact
+native, unchanged packet fields and the full original identity witness. The
+wrong-native falsifier must run for same-day replacements too. Previously
+consumed APHA/CATM and already committed future REGI/PLAN inputs are retained
+unchanged, never duplicated. This new ordinary input is canonically adopted with
+all economic/controller/reporting/retry state unchanged before any advance.
+P04 and P10 are selected for the immediate hosted financial batch, using the
+qualified terms below; P07 awaits its retained proof continuation.
+
+
+## User-requested interim CAGR display
+
+The owner explicitly requested preliminary CAGR during the ongoing full-financial
+campaign. A descriptive interim view may therefore use the latest independently
+admitted main checkpoints, never uncommitted diagnostic tails. Match the existing
+comparison convention: first measured daily closing NAV to the admitted closing
+NAV, calendar elapsed days annualized with365.2425 days/year. Bind displayed
+inputs to exact checkpoint/admission/journal hashes, retain disclosed per-variant
+assumptions, and show every differing cutoff date. This arithmetic view grants no
+full-validation, optimization-ranking, performance-admission or release authority;
+the continuation registry's performance-scoring authorization stays false.
+
+
+P10's stopped February23,2022 V21 trace passed slots5 through10; the next
+eligible slot13 held69 VCRA shares at the February22 tail. The unchanged
+registered February cash catalog binds its incomplete February22 native to
+mandatory79.25USD February23 preopen completion and the exact February18 frozen
+identity witness. Select only VCRA from that catalog, using the admitted
+January31/1028 parent so both event dates remain unconsumed. Qualify its ordinary
+input and neutral adoption through the same shared path as P04, then require
+actual5468.25USD settlement of69shares before the original V loop, no surviving
+VCRA episode/pending order, and original V21 traversal for every survivor. The
+existing MNTA postcondition remains for its original phase. Log a failed risk
+call's SID without intercepting or weakening the canonical exception. Include
+this now-qualified P10 continuation alongside P04 in the next explicit batch;
+P07 remains withheld while its retained proof continuation is prepared.

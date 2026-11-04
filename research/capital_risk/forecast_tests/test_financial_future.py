@@ -21,7 +21,7 @@ def entry(arm='P10'):
 
 
 def test_actual_root_admissions_preserve_historical_transport_flags():
-    for arm, count in [('P04', 817), ('P07', 439), ('P10', 692)]:
+    for arm, count in [('P04', 1090), ('P07', 503), ('P10', 1028)]:
         value = entry(arm); before = deepcopy(value)
         spec = p.authorized_spec(value, arm)
         p.validate_root_spec(spec)
@@ -189,7 +189,7 @@ def test_actual_code_identity_guard_removal_falsifier():
 
 
 def test_uncertainty_proof_uses_only_exact_qualified_sources_and_own_root():
-    s=p.root_spec('P07')
+    s=p.root_spec('P07',p.PRIOR_ADMISSIONS['P07'])
     cp=dict(base=deepcopy(s['base']),sha256=s['outer_sha256'],source_cursor=s['selected_session'],completed=s['measured_closes'])
     saved=deepcopy(cp);assert len(u.source_contract(cp))==6 and cp==saved
     for change in ['source','count','parent']:
@@ -201,7 +201,7 @@ def test_uncertainty_proof_uses_only_exact_qualified_sources_and_own_root():
 
 
 def test_uncertainty_controller_guard_removal_falsifier():
-    s=p.root_spec('P07');cp=dict(base=deepcopy(s['base']),sha256=s['outer_sha256'],source_cursor=s['selected_session'],completed=s['measured_closes'])
+    s=p.root_spec('P07',p.PRIOR_ADMISSIONS['P07']);cp=dict(base=deepcopy(s['base']),sha256=s['outer_sha256'],source_cursor=s['selected_session'],completed=s['measured_closes'])
     cp['base']['sources']['sentinel/controller/median5.py']='0'*64
     with pytest.raises(ValueError):u.source_contract(cp)
     fn=next(n for n in ast.parse(Path(u.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_contract')

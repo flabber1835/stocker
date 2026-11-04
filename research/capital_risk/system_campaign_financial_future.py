@@ -22,12 +22,24 @@ PLANS = {
     'P10': ('system_campaign_autumn2020_cash_facts', 'CashCompletionFacts',
             'system-campaign-autumn2020-cash-terminal-facts.json', ('MNTA', 'AIMT', 'IMMU', 'MYOK', 'VRTU')),
 }
+CASH_PHASES = {
+    ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
+    ('P10', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
+}
 
 
-def selected(arm):
+def selected(arm, *, cursor=None):
     import importlib
     module, cls, catalog, tickers = PLANS[arm]
-    codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
+    if (arm, cursor) in CASH_PHASES:
+        from system_campaign_cash_calendar import CashCalendar
+        catalog, tickers = CASH_PHASES[arm, cursor]
+        raw = (HERE / catalog).read_bytes()
+        codec = CashCalendar(json.loads(raw))
+        codec.catalog_sha = sha(raw)
+        codec.compiler_sha = sha(Path(importlib.import_module('system_campaign_cash_calendar').__file__).read_bytes())
+    else:
+        codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
     terms = [deepcopy(t) for t in codec.catalog['terms'] if t['ticker'] in tickers]
     need(tuple(t['ticker'] for t in terms) == tickers, 'FUTURE_EXACT_DECLARED_CATALOG_SUBSET')
     return codec, catalog, terms
@@ -69,7 +81,7 @@ def hydrate(cp, arm):
     hosted()
     from research.pooled_input_support import inputs
     from system_campaign_2021_completions_facts import require_witness, CIL
-    codec, catalog, terms = selected(arm)
+    codec, catalog, terms = selected(arm, cursor=cp['source_cursor'])
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     wanted = {}
@@ -77,7 +89,8 @@ def hydrate(cp, arm):
         native, = [v for v in actions.terminal.get(t['native_session'], ()) if v.security_id == t['security_id']]
         need(digest(asdict(native)) == t['native_term_sha256'] and not native.completeness(0)[0],
              'FUTURE_EXACT_INCOMPLETE_FROZEN_NATIVE')
-        need(not any(v.security_id == t['security_id'] for v in actions.terminal.get(t['added']['session'], ())),
+        other = [v for v in actions.terminal.get(t['added']['session'], ()) if v.security_id == t['security_id']]
+        need(other == [native] if t['native_session'] == t['added']['session'] else not other,
              'FUTURE_NO_CONFLICTING_EFFECTIVE_TERM')
         for w in (t['identity_witness'], *([t['delivered_identity_witness']] if 'delivered_identity_witness' in t else [])):
             key = w['session'], w['security_id']
@@ -143,7 +156,7 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
         bar = vendor(delivered[sid]) if sid in delivered else None
         prior = SimpleNamespace(median5={'selected': [sid]}, feed={'series': {sid: {
             'signal_basis_anchor': (t['last_trading_session'], 1., 1.)}}}, last_processed_session=t['last_trading_session'])
-        for day in (t['native_session'], t['added']['session']):
+        for day in sorted({t['native_session'], t['added']['session']}):
             original = Packet(day, (bar,) if bar and day == t['added']['session'] else (), {}, {}, 1., {},
                               tuple(actions.terminal.get(day, ())), ())
             before = asdict(original)
@@ -175,6 +188,8 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
                 need(fixed == original and len(matches) == 1, 'FUTURE_CONSUMED_NATIVE_PACKET_UNCHANGED')
             else:
                 need(not matches, 'FUTURE_LAST_NATIVE_TRADING_SESSION_PRESERVED')
+            # A same-day native replacement requires this falsifier too.
+            if day == t['native_session'] and day > cp['source_cursor']:
                 bad = json.loads(path.read_bytes())
                 row, = [r for r in bad['suppress'] if r['security_id'] == sid]
                 row['term_sha256'] = '0' * 64
@@ -266,6 +281,16 @@ def actual_terminal_call(frame, step_code, state, ledger, session):
             and frame.f_locals.get('ledger') is ledger and frame.f_locals.get('session') == session)
 
 
+def cash_before_v(record, result, sid, quantity, nominal_cash):
+    actual = [r for r in record['cash'] if r['actual_context_call'] and r['security_id'] == sid]
+    need(len(actual) == 1 and actual[0]['postcondition'] == dict(
+             actual_held=True, quantity=quantity, nominal_cash=nominal_cash)
+         and record['engine_calls'] > 0 and record['order'].index('CASH:' + sid) < record['order'].index('ENGINE')
+         and not any(s == sid for _, s in record['risk'])
+         and not any(p['security_id'] == sid for p in result.state.pending),
+         'FUTURE_EXACT_CASH_REMOVAL_BEFORE_UNCHANGED_V_LOOP')
+
+
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
     def __init__(self, out, arm):
@@ -326,7 +351,13 @@ class ActualEvents:
         return result
 
     def risk(self, ep, *, bars, session, cfg):
-        result = self.risk_original(ep, bars=bars, session=session, cfg=cfg)
+        try:
+            result = self.risk_original(ep, bars=bars, session=session, cfg=cfg)
+        except BaseException as error:
+            if self.current is not None:
+                self.current['failed_risk_call'] = dict(slot_id=ep.slot_id, security_id=ep.security_id,
+                                                       session=session, error=str(error))
+            raise
         if self.current is not None:
             from sentinel.feed.calendar import previous_sessions
             bar = next((b for b in bars if b.security_id == ep.security_id), None)
@@ -341,14 +372,11 @@ class ActualEvents:
         record = self.current = dict(session=publication.session, cash=[], risk=[], order=[], engine_calls=0)
         try:
             result = self.advance_original(run, publication)
-            if self.arm == 'P10' and publication.session == '2020-10-01':
-                sid = '510659411298086546'
-                actual = [r for r in record['cash'] if r['actual_context_call'] and r['security_id'] == sid]
-                need(len(actual) == 1 and actual[0]['postcondition'] == dict(actual_held=True, quantity=101, nominal_cash=5302.5)
-                     and record['engine_calls'] > 0 and record['order'].index('CASH:' + sid) < record['order'].index('ENGINE')
-                     and not any(s == sid for _, s in record['risk'])
-                     and not any(p['security_id'] == sid for p in result.state.pending),
-                     'FUTURE_MNTA_EXACT_CASH_REMOVAL_BEFORE_UNCHANGED_V_LOOP')
+            if self.arm == 'P10':
+                if publication.session == '2020-10-01':
+                    cash_before_v(record, result, '510659411298086546', 101, 5302.5)
+                elif publication.session == '2022-02-23':
+                    cash_before_v(record, result, '576374012507208201', 69, 5468.25)
             if record['cash'] or publication.session in {d for d, _ in self.terms}:
                 save(self.out / ('actual-future-event-' + publication.session + '.json'), dict(record, passed=True, financial_source_changed=False))
             return result

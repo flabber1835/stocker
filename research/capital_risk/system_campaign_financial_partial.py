@@ -25,6 +25,11 @@ CRYPTO_SHA = '63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4'
 FORMAT = 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1'
 ROOTS = 'system-campaign-financial-admitted-parents.json'
 ADMISSIONS = {
+    'P04': 'c0e9c671daa7a620f8d0fede0ba548a6edf5d669da99a083a7df65aebd301156',
+    'P07': 'c3b3695de955721404aa8b1eb04f2f272efa4f3bd01c8bdd5fac10b92995811c',
+    'P10': 'b98f7dcd4a9a9cff118c53c290cf68794e30b49c2b0e1ca06fd77b3c8bd5b1b9',
+}
+PRIOR_ADMISSIONS = {
     'P04': '11c64d8c83d26c8e381ddc4e306829e896f3996c423c394d50c5b2d2d0307492',
     'P07': '760e41a64a8e2fdf497c96919a5aef9eaa34a9faddee26bc9b5cee843b2ab8fa',
     'P10': 'c3e9784fdaee742284dc4f7d90aaecbcb541cb50f699dabbb17e8c250f68815c',
@@ -35,8 +40,12 @@ def authorized_spec(entry, arm):
     """Separate root continuation authority from immutable transport provenance."""
     a, t = entry['admission'], entry['transport']
     raw = (json.dumps(a, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
-    need(arm in ADMISSIONS and sha(raw) == entry['admission_sha256'] == ADMISSIONS[arm],
+    need(arm in ADMISSIONS and sha(raw) == entry['admission_sha256']
+         and entry['admission_sha256'] in (ADMISSIONS[arm], PRIOR_ADMISSIONS[arm]),
          'FINANCIAL_EXACT_ROOT_ADMISSION_BYTES')
+    readonly_run, readonly_head = ((41769843340, 'eb7d24f2466498062d0b32054ab086fc3d243253')
+        if entry['admission_sha256'] == ADMISSIONS[arm]
+        else (41754595229, 'cec7f49da4edf5ca4dd760e3b593451624c1d063'))
     need(a['schema'] == 'research.root-financial-continuation-admission/1'
          and a['status'] == 'ADMITTED_EXACT_FINANCIAL_CONTINUATION_CHECKPOINT'
          and a['arm'] == t['arm'] == arm and a['financial_continuation_authorized'] is True
@@ -46,8 +55,7 @@ def authorized_spec(entry, arm):
          and a['all_new_monthly_and_retry_state_verified'] is True
          and a['financial_source_epoch_unchanged'] is a['input_adoptions_fully_state_neutral'] is True
          and a['production_contacted'] is a['local_canonical_runtime_executed'] is False
-         and a['readonly_run_id'] == 41754595229
-         and a['readonly_head'] == 'cec7f49da4edf5ca4dd760e3b593451624c1d063'
+         and a['readonly_run_id'] == readonly_run and a['readonly_head'] == readonly_head
          and t['archive_format'] == FORMAT
          and t['financial_authority'] is t['financial_predecessor_admitted'] is False,
          'FINANCIAL_ONLY_SEPARATE_ROOT_CONTINUATION_AUTHORITY')
@@ -62,11 +70,21 @@ def authorized_spec(entry, arm):
     return dict(deepcopy(t), root_admission=deepcopy(a), root_admission_sha256=entry['admission_sha256'])
 
 
-def root_spec(arm):
+def root_spec(arm, admission_sha256=None):
     bundle = json.loads((HERE / ROOTS).read_bytes())
     need(bundle['schema'] == 'research.root-admitted-financial-parents/1'
          and bundle['full_financial_validation_completed'] is False, 'FINANCIAL_ROOT_BUNDLE_SCOPE')
-    return authorized_spec(bundle['arms'][arm], arm)
+    if admission_sha256 is None:
+        entry = bundle['arms'][arm]
+        need(entry['admission_sha256'] == ADMISSIONS[arm], 'FINANCIAL_SELECTED_CURRENT_ROOT')
+    elif admission_sha256 == ADMISSIONS[arm]:
+        entry = bundle['arms'][arm]
+    else:
+        need(admission_sha256 == PRIOR_ADMISSIONS[arm], 'FINANCIAL_EXACT_HISTORICAL_ROOT_SELECTION')
+        entry = bundle['historical_roots'][admission_sha256]
+    need(entry['admission_sha256'] == (admission_sha256 or ADMISSIONS[arm]),
+         'FINANCIAL_EXACT_SELECTED_ROOT_HASH')
+    return authorized_spec(entry, arm)
 
 
 def validate_root_spec(spec):
@@ -79,7 +97,7 @@ def validate_root_spec(spec):
 def reporting_seed(spec):
     """Select an independently admitted own seed, never arbitrary newer state."""
     if 'monthly_seed_root_admission_sha256' in spec:
-        original = root_spec(spec['arm'])
+        original = root_spec(spec['arm'], spec['monthly_seed_root_admission_sha256'])
         need(spec['monthly_seed_root_admission_sha256'] == original['root_admission_sha256'],
              'PARTIAL_EXACT_MONTHLY_ROOT_ADMISSION')
     else:

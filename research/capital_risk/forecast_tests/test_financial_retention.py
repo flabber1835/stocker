@@ -35,8 +35,10 @@ def test_wrong_admission_source_axis_or_arm_cannot_seed_reporting(change):
     with pytest.raises(ValueError):p.reporting_seed(spec)
 
 
-def test_admitted_seed_guard_removal_falsifier():
-    spec=deepcopy(json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P04']);spec['monthly_seed_root_admission_sha256']='0'*64
+def test_admitted_seed_guard_removal_falsifier(monkeypatch):
+    spec=deepcopy(json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P04'])
+    seed=p.root_spec('P04',p.PRIOR_ADMISSIONS['P04']);seed['root_admission_sha256']='0'*64
+    monkeypatch.setattr(p,'root_spec',lambda *args:seed)
     with pytest.raises(ValueError):p.reporting_seed(spec)
     fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='reporting_seed')
     branch=next(n for n in fn.body if isinstance(n,ast.If));branch.body.pop(1);ns=dict(vars(p))

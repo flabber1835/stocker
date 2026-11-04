@@ -40,12 +40,12 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P04', 'P07', 'P10']
-    assert r['maximum_parallel_financial_workers'] == 0
-    assert r['maximum_parallel_readonly_workers'] == 3
-    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
+    assert r['arms'] == ['P04', 'P10']
+    assert r['maximum_parallel_financial_workers'] == 2
+    assert r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ['P04','P07','P10']}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False) for a in ['P04','P10']}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in m.SELECTED_ARMS}
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
@@ -193,6 +193,7 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 
 def launch_fixture(tmp_path, monkeypatch, event):
     import ephemeral_runner_capacity as capacity
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
     request = dict(m.expected_request())
     request.update(readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith('readonly'))
