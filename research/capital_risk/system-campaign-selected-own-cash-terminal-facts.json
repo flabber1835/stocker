@@ -1061,6 +1061,158 @@
       },
       "ticker": "FMSA",
       "timing_source": "https://www.globenewswire.com/news-release/2018/06/01/1515537/29329/en/Covia-to-Commence-Trading-Following-Combination-of-Unimin-and-Fairmount-Santrol.html"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 0.651,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:4aa7051f3095138a2c088b901b87a6fc17f1bc196aa2751aecb3d0a968ec33a2",
+        "security_id": "92160119416751819",
+        "session": "2018-09-26"
+      },
+      "arm": "P03",
+      "description": "Research controller source exit at the retainedSeptember25 raw close0.651 on theSeptember26,2018 regulatory-delisting native. The provider CASH_MERGER compatibility label does not establish an acquisition or cash consideration. No statutory cash, held settlement, legal identity admission or execution price is claimed. Never-held/no-intent/reservation/claim and exact canonical zero-value no-op are mandatory.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1282631",
+        "listing_first_session": "2006-12-11",
+        "security_id": "92160119416751819",
+        "security_type_eligible": "1",
+        "session": "2018-09-25",
+        "source_observation_sha256": "bf4c307ffbdb9905a3b93f91894dbcdb516a546dc156e34929d4703ed18bb2a2",
+        "ticker": "NLST"
+      },
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/regulatorydelisting deal_value_musd=61.2",
+        "security_id": "92160119416751819",
+        "session": "2018-09-26"
+      },
+      "native_session": "2018-09-26",
+      "native_term_sha256": "b3c9c9332ac9fa5380eadd30abfda1ff4ecb0d0bf671d7e4d1c1cf8bb2c040b3",
+      "parent_cursor": "2018-08-31",
+      "parent_outer_sha256": "46c576de5f3d5f9ecaabe460bf82ac5d5a184b42f2f4297583324f65dd5f2b54",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "9a17edfdacaf8ffe75ead2e0b12bd2650e19b4cbd948526317703a842b89141f",
+      "portfolio_completion_authorized": false,
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://github.com/flabber1835/stocker/actions/runs/41919370510",
+      "recognition_rule": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH",
+      "require_unowned_and_unordered": true,
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "execution_price_claimed": false,
+        "held_settlement_supported": false,
+        "legal_identity_admitted": false,
+        "recognition_session": "2018-09-26",
+        "retained_quote_session": "2018-09-25",
+        "retained_quote_sha256": "4aa7051f3095138a2c088b901b87a6fc17f1bc196aa2751aecb3d0a968ec33a2",
+        "retained_raw_close": "0.651",
+        "schema": "research.unheld-source-exit-assumption/1",
+        "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+        "treatment": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH"
+      },
+      "retained_quote": {
+        "raw_close": 0.651,
+        "security_id": "92160119416751819",
+        "session": "2018-09-25",
+        "ticker": "NLST"
+      },
+      "security_id": "92160119416751819",
+      "source_capture": {
+        "artifact_id": 13366886633,
+        "head": "3aa0c311346305f0699dd3562ee047106129efdc",
+        "independent_data_review_sha256": "1b8a3de88eb07db8610403df0983285b12e3cbc9495437a8c07da3783227ced5",
+        "payload_sha256": "46f3ac8eea1e8ee13d3b470e1ba89d547059bb503307c54a6436f342e5d0f4e1",
+        "run_id": 41919370510,
+        "scope_sha256": "c55cbef79fcc48e1a2706bcc7f3b01dc8a14084fbf6690170aaa46ab31167534"
+      },
+      "source_valuation_phase": "CLOSE",
+      "ticker": "NLST",
+      "timing_source": "https://github.com/flabber1835/stocker/actions/runs/41919370510"
+    },
+    {
+      "actual_completion_date": "2022-06-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 32.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/704415/000156459022024375/tvty-8k_20220628.htm | Published mandatory32.50USD cash right on June28,2022 completion. Research assumes opening cash availability on that date; actual payment-agent settlement and fees are not observed. Preserve theJune27 native/last-trading boundary,June24 frozen identity and emptyMay31 parent position set; later holdings arise only from this own continuation.",
+        "security_id": "506048722516044547",
+        "session": "2022-06-28"
+      },
+      "arm": "P11",
+      "description": "Published mandatory32.50USD cash right on June28,2022 completion. Research assumes opening cash availability on that date; actual payment-agent settlement and fees are not observed. Preserve theJune27 native/last-trading boundary,June24 frozen identity and emptyMay31 parent position set; later holdings arise only from this own continuation.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:704415",
+        "listing_first_session": "1997-12-31",
+        "security_id": "506048722516044547",
+        "security_type_eligible": "1",
+        "session": "2022-06-24",
+        "source_observation_sha256": "977374e6361f5729f4bf403a1afc640a237ac62660f3f1055bffb4d3b7eb24ab",
+        "ticker": "TVTY"
+      },
+      "last_trading_session": "2022-06-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1621",
+        "security_id": "506048722516044547",
+        "session": "2022-06-27"
+      },
+      "native_session": "2022-06-27",
+      "native_term_sha256": "aca7bf92b9c5faea11cf82b77b7e081e728242a3775f9ba2f435da3015236e95",
+      "parent_cursor": "2022-05-31",
+      "parent_outer_sha256": "8e43f75b8686d18f688b6cb35b6292634e525e8b9b979351d3765923e4a0af34",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "524ad7d5c2ca46bd48d6fdd7066c788ba557e62116246a1fae9b00845a106e58",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/704415/000156459022024375/tvty-8k_20220628.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "32.50",
+        "recognition_session": "2022-06-28",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "506048722516044547",
+      "source_capture": {
+        "artifact_id": 13367285466,
+        "head": "3aa0c311346305f0699dd3562ee047106129efdc",
+        "independent_data_review_sha256": "c9fc2c148b5ab70c9cd3d7802744628698e85298a6debdb3937792b0aa902802",
+        "payload_sha256": "803ab1067f6a35b3a982905a172d144d5b16598bdd2389c5071703ee92baa7d5",
+        "run_id": 41919370510,
+        "scope_sha256": "6582a9e49506178d7c473432571c20c6e11323bcb875cf1d54dbd5ad37722996"
+      },
+      "ticker": "TVTY",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-150"
     }
   ]
 }

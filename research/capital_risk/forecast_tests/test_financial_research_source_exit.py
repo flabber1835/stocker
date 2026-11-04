@@ -25,7 +25,7 @@ def test_source_exit_preserves_exact_quote_native_and_denies_settlement():
     assert t['mandatory_common_share_completion_confirmed'] is t['portfolio_completion_authorized'] is False
     assert t['research_assumption']['held_settlement_supported'] is t['research_assumption']['actual_settlement_claimed'] is False
     f.research_source_exit_term(t);f.completion_session(t,['2025-11-13','2025-11-14'])
-    assert len(c.catalog['terms'])==12 and c.catalog_sha==f.OWN_CASH_SHA
+    assert len(c.catalog['terms'])==12 and c.catalog_sha=='a312304df09aa19feabce82cce92adc1798a49e104333fc4d7d5cb7ce94af77f'
     assert f.selected('P05',cursor='2018-01-31')[0].catalog_sha=='c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2'
 
 @pytest.mark.parametrize('change',['cash','quote','digest','date','mandatory','preopen','held','portfolio','stock','reference','claim','execution','identity','scope','extra'])
@@ -80,3 +80,31 @@ def test_history_guard_removal_hides_prior_source_ownership():
     args=(state['wealth_core'],state['pending'],state['ledger'],scope)
     with pytest.raises(ValueError,match='NO_HISTORICAL_OWNERSHIP'):f.require_source_scope(*args)
     assert removed_guard('require_source_scope','FUTURE_SOURCE_EXIT_NO_HISTORICAL_OWNERSHIP')(*args) is None
+
+
+def test_resolved_nlst_is_only_a_never_held_source_exit_with_the_exact_raw_quote():
+    c,_,terms=f.selected('P03',cursor='2018-08-31');t,=terms
+    assert len(c.catalog['terms'])==15 and c.catalog_sha=='1998e26f6dc43f54ec63cff5171989b6b7952948af1b46a6d3c103e325ae004c'
+    assert t['parent_root_admission_sha256']=='9a17edfdacaf8ffe75ead2e0b12bd2650e19b4cbd948526317703a842b89141f'
+    assert t['native']['reference']=='actions/regulatorydelisting deal_value_musd=61.2'
+    assert t['native']['cash_per_share'] is None and f.digest(t['native'])==t['native_term_sha256']
+    assert t['source_capture']['artifact_id']==13366886633 and t['parent_positions']==[]
+    assert t['added']['session']==t['native_session']=='2018-09-26'
+    assert t['identity_witness']['source_observation_sha256']=='bf4c307ffbdb9905a3b93f91894dbcdb516a546dc156e34929d4703ed18bb2a2'
+    assert t['research_assumption']['retained_raw_close']=='0.651'
+    f.research_source_exit_term(t)
+    f.source_exit_quote(t,dict(t['retained_quote'],raw_close='0.65100000000000002'))
+    f.completion_session(t,['2018-09-25','2018-09-26'])
+    w,p,l=absent()
+    cp=dict(sha256=t['parent_outer_sha256'],source_cursor=t['parent_cursor'],run=dict(state=dict(wealth_core=w,pending=p,ledger=l)))
+    material=dict(arm='P03',parent_outer_sha256=cp['sha256'],terms=[t])
+    scope,=f.source_scopes(cp,material,'a'*64,'b'*64)
+    assert scope['require_never_held'] is True and scope['portfolio_completion_authorized'] is False
+    l['events'].append(dict(security_id=t['security_id'],event_type='BUY'))
+    with pytest.raises(ValueError,match='NO_HISTORICAL_OWNERSHIP'):f.require_source_scope(w,p,l,scope)
+
+
+def test_nlst_raw_csv_spelling_does_not_claim_a_different_canonical_quote():
+    t=deepcopy(f.selected('P03',cursor='2018-08-31')[2][0])
+    t['research_assumption']['retained_raw_close']='0.65100000000000002'
+    with pytest.raises(ValueError,match='UNHELD_SOURCE_EXIT_NO_SETTLEMENT'):f.research_source_exit_term(t)

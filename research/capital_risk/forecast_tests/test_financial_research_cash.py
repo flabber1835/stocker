@@ -74,3 +74,17 @@ def test_research_axis_guard_removal_admits_a_missing_daily_boundary():
     t=term();dates=['2020-07-29','2020-07-30','2020-08-03']
     with pytest.raises(ValueError):f.completion_session(t,dates)
     assert removed_guard('completion_session','OWN_INPUT_RESEARCH_EXACT_NEXT_FROZEN_DAILY_BOUNDARY')(t,dates) is None
+
+
+def test_resolved_tvty_uses_the_same_cash_model_from_own1111_without_backdating_holdings():
+    codec,_,terms=f.selected('P11',cursor='2022-05-31');t,=terms
+    assert codec.catalog_sha==f.OWN_CASH_SHA and len(codec.catalog['terms'])==16
+    assert t['parent_root_admission_sha256']=='524ad7d5c2ca46bd48d6fdd7066c788ba557e62116246a1fae9b00845a106e58'
+    assert t['parent_positions']==[] and t['source_capture']['artifact_id']==13367285466
+    assert t['identity_witness']['session']=='2022-06-24'
+    assert t['identity_witness']['source_observation_sha256']=='977374e6361f5729f4bf403a1afc640a237ac62660f3f1055bffb4d3b7eb24ab'
+    assert f.digest(t['native'])==t['native_term_sha256']=='aca7bf92b9c5faea11cf82b77b7e081e728242a3775f9ba2f435da3015236e95'
+    assert t['native_session']==t['last_trading_session']=='2022-06-27'
+    assert t['added']['cash_per_share']==32.5 and t['added']['session']=='2022-06-28'
+    assert t['research_assumption']['actual_settlement_claimed'] is t['preopen_completion_confirmed'] is False
+    f.research_cash_term(t);f.completion_session(t,['2022-06-24','2022-06-27','2022-06-28'])

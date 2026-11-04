@@ -45,7 +45,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Capture resolved P03 NLST and P11 TVTY pre-native source identities
+      - name: Continue P03 own169 and P11 own1111 with qualified source and cash inputs
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

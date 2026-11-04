@@ -797,3 +797,25 @@ June 24, the prior exchange session, so the existing strict pre-native identity
 rule remains intact. These captures bind the known native hashes to each own
 admitted parent and its actual empty position role. Independent source DATA and
 separately declared economic assumptions still precede financial adoption.
+
+Resolved source run41919370510/head3aa0c311346305f0699dd3562ee047106129efdc
+and independent source DATA qualify these two exact identities and native
+preimages. Append them to the existing selected-own catalog, preserving every
+earlier catalog generation. Continue P03 from its admitted169 closes and P11
+from its admitted1111 closes; no unadmitted tail or other book is a seed.
+
+For NLST, reuse the generic never-held source-exit model on September26,2018,
+valued at its retained September25 raw close. The provider's CASH_MERGER label
+describes a regulatory-delisting record with no cash right; do not claim an
+acquisition, statutory payment or execution price. Preserve the full raw-row
+hash and the canonical float quote0.651 (raw CSV0.65100000000000002). Existing
+never-held/no-order/reservation/claim and actual zero-value portfolio no-op
+guards remain mandatory. This is controller source completion only.
+
+For TVTY, reuse the generic research cash model at32.50USD on June28,2022,
+with native/last-trading June27 and the unmodified June24 identity. SEC completion
+disclosure and Nasdaq's event notice support the date and consideration.
+Opening cash availability is a daily research assumption; fees are ignored and
+actual settlement timing is not claimed. The May31 parent has no TVTY position;
+the later134-share episode must arise only from P11's own continuation. Existing
+canonical cash application and independent actual accounting checks remain.

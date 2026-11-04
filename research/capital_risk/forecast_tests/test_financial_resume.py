@@ -41,13 +41,12 @@ def proof():
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
     assert r['arms'] == ['P03','P11']
-    assert r['maximum_parallel_financial_workers'] == 0
-    assert r['maximum_parallel_readonly_workers'] == 2
-    assert r['readonly_partial_review'] is r['financial_resume_authorized'] is False
-    from system_campaign_financial_future import WITNESS_SCOPES
-    assert r['readonly_source_witnesses'] is True and r['source_witness_scopes']=={a:WITNESS_SCOPES[a]for a in ('P03','P11')} and m.request_authority(r)
+    assert r['maximum_parallel_financial_workers'] == 2
+    assert r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
+    assert r['readonly_source_witnesses'] is False and r['source_witness_scopes']=={} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False)for a in ('P03','P11')}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False)for a in ('P03','P11')}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256']for a in ('P03','P11')}
     assert r['initial_reporting_origins'] == {}
     assert r['full_measured_closes'] == 2156
