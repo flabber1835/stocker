@@ -970,6 +970,97 @@
       },
       "ticker": "EDR1",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1351345/000114036118038813/form8k.htm"
+    },
+    {
+      "actual_completion_date": "2018-06-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 0.73,
+        "delivered_issuer_id": "SEC_UNKNOWN:357217500185735770",
+        "delivered_security_id": "357217500185735770",
+        "delivered_ticker": "CVIAQ",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "0.20",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.globenewswire.com/news-release/2018/06/01/1515537/29329/en/Covia-to-Commence-Trading-Following-Combination-of-Unimin-and-Fairmount-Santrol.html | Published approximate0.73USD cash plus0.20 successor shares. Research assumes June1,2018 opening recognition and holder-level fractional cash at the frozen successor raw open. Actual settlement and fees are not observed; preserve raw CVIAQ identity, SEC_UNKNOWN issuer and eligibility0.",
+        "security_id": "278580348046109004",
+        "session": "2018-06-01"
+      },
+      "arm": "P03",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:357217500185735770",
+        "listing_first_session": "2018-06-01",
+        "security_id": "357217500185735770",
+        "security_type_eligible": "0",
+        "session": "2018-06-01",
+        "source_observation_sha256": "8acc30ed1e01a33320a54ca45f8f5d0c112bf3889900129b8d17e08199563053",
+        "ticker": "CVIAQ"
+      },
+      "description": "Published approximate0.73USD cash plus0.20 successor shares. Research assumes June1,2018 opening recognition and holder-level fractional cash at the frozen successor raw open. Actual settlement and fees are not observed; preserve raw CVIAQ identity, SEC_UNKNOWN issuer and eligibility0.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1010858",
+        "listing_first_session": "2014-10-03",
+        "security_id": "278580348046109004",
+        "security_type_eligible": "1",
+        "session": "2018-05-30",
+        "source_observation_sha256": "7b5ac0ba1c0d45da190cbd0c291c7984f412f8b155bd29f9c852ae6039872ea6",
+        "ticker": "FMSA"
+      },
+      "last_trading_session": "2018-05-31",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1267.4",
+        "security_id": "278580348046109004",
+        "session": "2018-05-31"
+      },
+      "native_session": "2018-05-31",
+      "native_term_sha256": "ea6383d0b229748e2248335707c24b66f30e1479f4374da3aa450f0fbc40b877",
+      "parent_cursor": "2018-04-30",
+      "parent_outer_sha256": "8b7358f5848b23ac440a9d5da094f17bee39acd46e8ad69526159e23af509f6b",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "65b4309305ed9a62a6dfd9db12070d124dcc7e5efcc1a582555386ff5c7dbd9c",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.globenewswire.com/news-release/2018/06/01/1515537/29329/en/Covia-to-Commence-Trading-Following-Combination-of-Unimin-and-Fairmount-Santrol.html",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "357217500185735770",
+        "session": "2018-06-01",
+        "source_observation_sha256": "8acc30ed1e01a33320a54ca45f8f5d0c112bf3889900129b8d17e08199563053",
+        "ticker": "CVIAQ"
+      },
+      "recognition_rule": "RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+        "opening_availability_assumed": true,
+        "published_cash_is_approximate": true,
+        "published_cash_per_share": "0.73",
+        "published_exchange_ratio": "0.20",
+        "recognition_session": "2018-06-01",
+        "schema": "research.daily-mixed-consideration-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "278580348046109004",
+      "source_capture": {
+        "artifact_id": 13353540587,
+        "head": "eb12a1517e9f3e73c7e4976f9bc7dfcc44367855",
+        "independent_data_review_sha256": "2d31d44f89afb053ec5cca469e0f172ccaf64be099198429505b2fc2fc43f1ab",
+        "payload_sha256": "974d323261942915d4f8b9b294efc400ec59c1067803c5139c63f1888cae15e7",
+        "query_scope_sha256": "ec5249642cfe6103a5474ab4f292cfd70c763849835fa1793294efba8bfd6f0d",
+        "run_id": 41889428177,
+        "scope_sha256": "e932a346d586b5cbb70163e28a2ffba11c888d592d837f2b6232971dee0a3bac"
+      },
+      "ticker": "FMSA",
+      "timing_source": "https://www.globenewswire.com/news-release/2018/06/01/1515537/29329/en/Covia-to-Commence-Trading-Following-Combination-of-Unimin-and-Fairmount-Santrol.html"
     }
   ]
 }

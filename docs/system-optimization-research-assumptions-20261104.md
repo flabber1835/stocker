@@ -28,6 +28,32 @@ Keep earlier validated paths and closed evidence immutable; do not redo them onl
 to improve settlement precision. The canonical Wealth Core and Sentinel financial
 engine, long-only/unlevered guards and research-only boundary remain intact.
 
+Implement FMSA through one generic typed daily mixed-consideration assumption in
+the existing own-source selector. Source167's independent DATA review passed:
+the own82/April30 parent holds neither FMSA nor the delivered source; the actual
+May30 FMSA identity and May31 incomplete native are bound, and the frozen June1
+successor is CVIAQ357217500185735770 with raw open28,SEC_UNKNOWN issuer and
+eligibility0. Preserve those provider fields. Do not publish complete private
+source rows; retain their complete-row SHA256 and identity witnesses instead.
+
+The new model records published approximate0.73USD cash, literal0.20 shares,
+June1 opening availability as a research assumption, ignored settlement fees,
+and a frozen delivered raw-open fractional cash proxy. Actual settlement is not
+claimed. Validate both identity witnesses, the exact native digest, holder-level
+aggregation, literal-ratio normalization and the actual next frozen session.
+Keep the existing weekend stock-right and mandatory cash validators unchanged.
+Append one source-bound own-parent record to the shared catalog; every old
+catalog generation must retain its original bytes. Bind the original prefix query
+and its resolved scope using captured identity/digest metadata, with the full row
+checked against the frozen archive by the hosted hydrator. Reuse neutral input
+adoption, canonical packet/notional qualification and actual cash/stock observers.
+No new book, economic engine, broker authority or settlement study is introduced.
+Independent source qualification passed15 tests in0.92s. The mixed-input,
+existing cash/stock,source-capture,own-catalog and launcher qualification passed
+221 tests in33.81s. The14-term catalog is5c987533c0fdf7ac; its first13 records
+reproduce ddfb2f16b73dae3b exactly. Existing six cash/weekend validators are
+AST-identical, and all383 original drivers remain unchanged.
+
 Fresh P00 has now completed all2,156 measured closes through July31,2026. Its
 final273 days,546 accounting snapshots and13 monthly reports passed independent
 DATA review and hosted exact report reproduction. Admit this completed own result

@@ -15,7 +15,7 @@ import system_campaign_financial_partial as p
 
 def raw_term():
     term, = [t for t in json.loads((f.HERE / f.OWN_CASH_CATALOG).read_bytes())['terms']
-             if t['added']['kind'] == 'CASH_PLUS_STOCK']
+             if t['recognition_rule'] == 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_NONTRADING_DAY_COMPLETION']
     return deepcopy(term)
 
 
