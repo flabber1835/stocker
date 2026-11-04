@@ -136,12 +136,13 @@ def test_different_codec_or_retained_model_identity_refuses(tmp_path,change):
 
 
 def test_mdco_shared_selector_preserves_complete_original_term():
-    _,_,terms=f.selected('P07',cursor='2019-12-31');t,=terms
+    _,_,terms=f.selected('P07',cursor='2019-12-31');t=next(v for v in terms if v['ticker']=='MDCO')
     catalog=json.loads((f.HERE/'system-campaign-medicines-terminal-facts.json').read_bytes())
     assert t['added']==catalog['terms'][0]['added'] and t['identity_witness']==catalog['identity_witness']
     assert t['last_trading_session']=='2020-01-03' and t['added']['session']=='2020-01-06'
-    assert f.suppressions(dict(source_cursor='2019-12-31'),terms)==[dict(
-        session='2020-01-03',security_id=t['security_id'],term_sha256=t['native_term_sha256'])]
+    assert f.suppressions(dict(source_cursor='2019-12-31'),terms)[0]==dict(
+        session='2020-01-03',security_id=t['security_id'],term_sha256=t['native_term_sha256'])
+    assert [v['ticker'] for v in terms]==['MDCO','ARQL']
     with pytest.raises(ValueError):f.selected('P07',cursor='2020-01-03')
 
 
@@ -168,7 +169,7 @@ def test_mdco_phase_guard_removal_falsifier():
     with pytest.raises(ValueError):f.selected('P07',cursor='2020-01-03')
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='selected')
     branch=next(n for n in fn.body if isinstance(n,ast.If) and ast.unparse(n.test)=="arm == 'P07'")
-    branch.body.pop(0);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-mdco-phase-guard>','exec'),ns)
+    branch.body[0]=ast.Pass();ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-mdco-phase-guard>','exec'),ns)
     assert ns['selected']('P07',cursor='2020-01-03')[2][0]['ticker']=='MDCO'
 
 

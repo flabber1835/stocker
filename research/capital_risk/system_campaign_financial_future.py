@@ -28,10 +28,57 @@ CASH_PHASES = {
     ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
     ('P10', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
 }
+COMPOSITION = 'research.selected-future-catalog-composition/1'
+COMBINED_PHASES = {
+    ('P07', '2019-12-31'): (
+        PLANS['P07'],
+        ('system_campaign_arqule_facts', 'ArQuleFacts', 'system-campaign-arqule-terminal-facts.json', ('ARQL',)),
+    ),
+}
+
+
+def catalog_terms(codec, tickers):
+    terms = [deepcopy(t) for t in codec.catalog['terms'] if t['ticker'] in tickers]
+    need(tuple(t['ticker'] for t in terms) == tickers, 'FUTURE_EXACT_DECLARED_CATALOG_SUBSET')
+    if 'identity_witness' in codec.catalog:
+        for term in terms:
+            need('identity_witness' not in term and term['native_session'] < term['added']['session']
+                 and codec.catalog['identity_witness']['security_id'] == term['security_id'],
+                 'FUTURE_EXACT_CATALOG_LEVEL_WITNESS_NORMALIZATION')
+            term.update(identity_witness=deepcopy(codec.catalog['identity_witness']),
+                        last_trading_session=term['native_session'], timing_source=term['exchange_source'])
+    return terms
+
+
+def compose(plans):
+    """Compose only validated literal source terms; preserve every original term."""
+    import importlib
+    sources, terms = [], []
+    for module, cls, catalog, tickers in plans:
+        original = importlib.import_module(module)
+        codec = getattr(original, cls)(HERE / catalog)
+        terms.extend(catalog_terms(codec, tickers))
+        sources.append(dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
+            validator_file=Path(original.__file__).name, validator_sha256=codec.compiler_sha,
+            selected_tickers=list(tickers)))
+    need(len(sources) > 1 and len({v['catalog_file'] for v in sources}) == len(sources)
+         and len({v['validator_file'] for v in sources}) == len(sources), 'FUTURE_UNIQUE_COMPOSITION_SOURCES')
+    need(len({t['ticker'] for t in terms}) == len({t['security_id'] for t in terms}) == len(terms)
+         and len({(t['native_session'], t['security_id']) for t in terms}) == len(terms)
+         and len({(t['added']['session'], t['security_id']) for t in terms}) == len(terms),
+         'FUTURE_DISJOINT_COMPOSITION_EVENTS')
+    manifest = dict(schema=COMPOSITION, sources=sources)
+    selection = SimpleNamespace(catalog=dict(terms=terms), catalog_sha=digest(manifest),
+        compiler_sha=digest([{v['validator_file']: v['validator_sha256']} for v in sources]), composition=manifest)
+    return selection, 'EXPLICIT_ORDERED_CATALOG_COMPOSITION', terms
 
 
 def selected(arm, *, cursor=None):
     import importlib
+    if arm == 'P07':
+        need(cursor == '2019-12-31', 'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
+    if (arm, cursor) in COMBINED_PHASES:
+        return compose(COMBINED_PHASES[arm, cursor])
     module, cls, catalog, tickers = PLANS[arm]
     if (arm, cursor) in CASH_PHASES:
         from system_campaign_cash_calendar import CashCalendar
@@ -42,13 +89,7 @@ def selected(arm, *, cursor=None):
         codec.compiler_sha = sha(Path(importlib.import_module('system_campaign_cash_calendar').__file__).read_bytes())
     else:
         codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
-    terms = [deepcopy(t) for t in codec.catalog['terms'] if t['ticker'] in tickers]
-    need(tuple(t['ticker'] for t in terms) == tickers, 'FUTURE_EXACT_DECLARED_CATALOG_SUBSET')
-    if arm == 'P07':
-        need(cursor == '2019-12-31', 'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
-        for term in terms:
-            term.update(identity_witness=deepcopy(codec.catalog['identity_witness']),
-                        last_trading_session='2020-01-03', timing_source=term['exchange_source'])
+    terms = catalog_terms(codec, tickers)
     return codec, catalog, terms
 
 
@@ -130,16 +171,34 @@ def hydrate(cp, arm):
         cil_convention=CIL if delivered else None, native_and_delivery_witnesses_verified=len(seen),
         consumed_native_preserved=[t['security_id'] for t in terms if t['native_session'] <= cp['source_cursor']],
         financial_source_changed=False, provider_metadata_upgraded=False)
+    if hasattr(codec, 'composition'):
+        material['composition'] = deepcopy(codec.composition)
     return material, delivered, actions
 
 
 def document(cp, material, hydrated_sha):
-    evidence = [dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
+    if 'composition' in material:
+        manifest = material['composition']
+        need(manifest['schema'] == COMPOSITION and digest(manifest) == material['catalog_sha256']
+             and digest([{v['validator_file']: v['validator_sha256']} for v in manifest['sources']])
+                 == material['original_validator_sha256'], 'FUTURE_EXACT_COMPOSITION_EVIDENCE_DIGESTS')
+        evidence = [dict(reference=REFERENCE + '/composition',
+                        description='Ordered manifest of independently validated original source catalogs.',
+                        sha256=digest(manifest))]
+        for source in manifest['sources']:
+            evidence.extend(dict(reference=REFERENCE + '/' + source[file], description=description, sha256=source[value])
+                for file, value, description in (
+                    ('catalog_file', 'catalog_sha256', 'Unchanged literal source catalog.'),
+                    ('validator_file', 'validator_sha256', 'Unchanged original literal validator.')))
+    else:
+        evidence = [dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
+            for name, description, value in (
+                ('catalog', 'Unchanged literal ordinary completion catalog.', material['catalog_sha256']),
+                ('validator', 'Original literal catalog validator; original compiler guard remains intact.', material['original_validator_sha256']))]
+    evidence.extend(dict(reference=REFERENCE + '/' + name, description=description, sha256=value)
         for name, description, value in (
-            ('catalog', 'Unchanged literal ordinary completion catalog.', material['catalog_sha256']),
-            ('validator', 'Original literal catalog validator; original compiler guard remains intact.', material['original_validator_sha256']),
             ('selector', 'Own-parent future-only selected ordinary input.', material['selector_sha256']),
-            ('hydrated', 'Actual frozen native and complete identity/delivery witnesses.', hydrated_sha))]
+            ('hydrated', 'Actual frozen native and complete identity/delivery witnesses.', hydrated_sha)))
     for t in material['terms']:
         evidence.extend((dict(reference=t['primary_source'], description=t['description'], sha256=None),
             dict(reference=t['timing_source'], description='Actual mandatory completion; preserve native trading history.', sha256=None)))

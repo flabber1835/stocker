@@ -629,3 +629,53 @@ verify248 new accounting snapshots, every new factor/chain, the actual neutral
 VCRA input boundary and complete reporting/retry state before root publication.
 Fresh P00 continues at its immutable launch commit; do not refresh its request or
 launch another P00 because continuation metadata changed in the branch.
+
+
+## Compose the two unconsumed January2020 cash inputs for P07
+
+The retained-proof continuation passed actual MDCO processing and stopped at the
+January15 ARQL incomplete terminal. Its main checkpoint still has503 closes;
+January2-14 rows are unadmitted tail. Retry from the original admittedDecember31
+root with one neutral ordinary document covering MDCO and ARQL, both strictly
+future from that root. Do not adopt the failed neutral successor or its tail.
+
+Extend the existing shared future-input selector with an explicit ordered
+composition of source catalogs, using the unchanged MedicinesFacts and ArQuleFacts
+literal validators. Normalize only their catalog-level identity-witness and
+exchange-source labels into selected term metadata. Each original added terminal
+term stays byte-for-byte equal as JSON data. Reject duplicate catalog/validator
+identities, selected tickers, security IDs and native/effective event keys before
+hydration. No source classifier, ownership decision or valuation rule changes.
+
+The private hydration records the ordered composition manifest with every real
+catalog filename/hash and validator filename/hash plus the selected tickers.
+The sparse input evidence names those actual sources individually and binds the
+manifest, selector and full hydrated payload. An aggregate digest is explicitly
+a composition digest, never misrepresented as a literal source file. Reuse the
+same frozen native/full-witness hydration, disjoint packet replacement,
+completeness/controller-notional tests, wrong-native and parser falsifiers,
+canonical neutral adoption, actual cash observer and retained branch certificate.
+This is one shared data-selection capability, not another financial wrapper.
+
+Run P07 alone while the fresh P00 and P10 reporting jobs keep their pinned
+commits and per-arm leases. New combined-input qualification checks the exact
+composition at use; previously closed source audits and financial history remain
+closed. Any later January blocker remains an explicit refusal.
+
+
+## Admit P10's independently reviewed1152 root
+
+Read-only run41779617448 at db16788d7f7eecd65e87cc9283e5b0110beee48f
+authenticated and reproduced only the124 new daily rows and6 reports from the
+own1028 seed. Independent DATA review passed248 accounting snapshots, every
+new factor/chain, neutral VCRA adoption and complete monthly/retry memory.
+Publish exactly its July29,2022 checkpoint1152 as a continuation-only root.
+Retain both1028 and692 historical entries byte-for-byte as JSON data, with
+their exact original admission clocks. The new root binds this read-only run,
+head, source-pinned reader, DATA review and original financial artifact.
+Reuse the closed negative-test qualification; do not re-audit admitted history.
+No full-period score, performance or production authority is granted.
+
+Select P07 alone in the next shared financial request; it starts from its own
+originally admitted503 root with the combined future MDCO/ARQL document.
+Fresh P00's launch request and running commit remain unchanged.
