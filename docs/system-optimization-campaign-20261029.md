@@ -819,3 +819,10 @@ Opening cash availability is a daily research assumption; fees are ignored and
 actual settlement timing is not claimed. The May31 parent has no TVTY position;
 the later134-share episode must arise only from P11's own continuation. Existing
 canonical cash application and independent actual accounting checks remain.
+
+P05 run41917848515 saved524 closes through January31,2020,21 beyond its admitted
+503 root. Its next February5 refusal is the original WLH mixed-consideration
+source355892456681242666. Select only the saved January prefix for hosted
+reporting and independent DATA; exclude the two February tail closes. Validate
+the original MDCO85 and ARQL20 inputs and actual per-book cash events before
+admission. Keep503 authoritative until those checks pass.
