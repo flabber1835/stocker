@@ -1544,3 +1544,34 @@ selected-stock/resolved-cash/retention tests in28.11s. Historical query falsifie
 explicitly select their original six-term generation; all closed generation byte
 pins remain unchanged. The shared document compiler requires a timing source,
 so TGI explicitly retains the same original issuer8K as timing provenance.
+
+## Admit P04's1279 checkpoint and select its remaining original2023 cash inputs
+
+Independent DATA for financial41832538725/e1b91fbe3 and read-only41839831877/
+3d9d0d4b8 passed83 new closes,166 accounting snapshots,four reports and112
+Decimal metrics through January31,2023. The original six-term GBT catalog,
+selector/validator bytes, closed query/resolved-source proofs, exact selected
+literal and zero-session hosted qualification are independently bound at use.
+The actual canonical GBT call is an unheld zero-cash no-op; raw opening accounting
+and the complete ledger show no invented holding/order/payment. All11 new DATA
+tests passed in1.90s, including removal of every new review/event guard. Retain
+the1196/dfcd root unchanged in history and admit only the strict1279 checkpoint.
+
+For the next continuation, select all11 still-future unused literals from the
+unchanged original October cash-calendar catalog through the existing shared
+CASH_PHASES path: LHCG,EVOP,SGFY,CTIC,MGI,ISEE,UNVR,ONEM,COUP,RETA,SYNH.
+Their native dates are strictly after January31 and their IDs occur in none of
+the current checkpoint's retained additions. Exclude AVLR,FMTX,PING,Y,ZEN and
+SJI because their natives are already consumed; no historical terminal is changed.
+Each selected literal retains its full frozen witness, native digest, mandatory
+cash right and original preopen/retained-next-session recognition metadata.
+
+This uses one existing catalog and its unchanged registered generic cash-calendar
+validator, with actual hosted full-row/native/packet/cash qualification before
+zero-state input adoption. It adds no wrapper family, source preimage query,
+economic engine change or new consideration/timing convention. Recompute only
+the remaining877 closes from the admitted1279 root. February's diagnostic tail
+is excluded. P00 continues independently on its immutable c79c2b5ab commit.
+The1279 admission and future11 request passed194 targeted admission-generation/
+resume/future/retention/own-cash/resolved-cash tests in19.18s. Both1279 and every
+earlier pinned P04 generation resolve their exact original reporting clocks.

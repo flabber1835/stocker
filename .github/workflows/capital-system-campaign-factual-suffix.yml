@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        arm: [P00]
+        arm: [P04]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -45,7 +45,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Continue fresh P00 remaining273 closes from own1883 with source-bound retained TGI cash
+      - name: Continue P04 remaining877 closes from own1279 with original future2023 cash terms
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

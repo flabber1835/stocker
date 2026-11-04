@@ -21,7 +21,7 @@ def local_registered_catalog_path(monkeypatch):
 
 
 def test_both_generations_resolve_by_exact_own_admission_hash():
-    for arm,old,new in [('P04',817,1196),('P07',439,628),('P10',692,1592)]:
+    for arm,old,new in [('P04',817,1279),('P07',439,628),('P10',692,1592)]:
         latest=p.root_spec(arm);prior=p.root_spec(arm,p.PRIOR_ADMISSIONS[arm])
         assert (prior['measured_closes'],latest['measured_closes'])==(old,new)
         parent=p.root_spec(arm,latest['root_admission']['parent_root_admission_sha256'])
@@ -55,6 +55,20 @@ def test_next_p04_selects_only_unconsumed_epay_no_duplicate_regi_plan():
     assert t['native_session']==t['added']['session']=='2022-05-13'
     assert len(f.suppressions(dict(source_cursor='2022-04-29'),terms))==1
     with pytest.raises(ValueError):f.suppressions(dict(source_cursor='2022-05-13'),terms)
+
+
+def test_p04_1279_preserves_all_eleven_original_future_cash_terms_and_excludes_consumed():
+    codec,catalog,terms=f.selected('P04',cursor='2023-01-31')
+    assert p.root_spec('P04')['measured_closes']==1279
+    assert catalog=='system-campaign-october-cash-calendar-terminal-facts.json'
+    expected=('LHCG','EVOP','SGFY','CTIC','MGI','ISEE','UNVR','ONEM','COUP','RETA','SYNH')
+    assert tuple(t['ticker'] for t in terms)==expected
+    original=json.loads((p.HERE/catalog).read_bytes())
+    assert codec.catalog==original and all(t in original['terms'] for t in terms)
+    assert all(t['native_session']>'2023-01-31' and t['added']['session']>'2023-01-31' for t in terms)
+    assert {t['ticker'] for t in original['terms']} - set(expected)=={'AVLR','FMTX','PING','Y','ZEN','SJI'}
+    assert len(f.suppressions(dict(source_cursor='2023-01-31'),terms))==11
+    assert p.root_spec('P04','dfcd3aee60ebd3ea7fdc073454af662170a14960f9b034cae6177431ea6c8e2c')['measured_closes']==1196
 
 
 def test_actual_same_day_qualification_exercises_wrong_native_falsifier(tmp_path,monkeypatch):
@@ -204,7 +218,7 @@ def test_every_pinned_generation_resolves_its_original_readonly_clock():
             assert spec['root_admission_sha256']==digest
             assert (spec['root_admission']['readonly_run_id'],spec['root_admission']['readonly_head'])==(run,head)
             p.validate_root_spec(spec)
-    assert {p.root_spec('P04',h)['measured_closes'] for h in p.ADMISSION_CLOCKS['P04']}=={817,1090,1132,1175,1196}
+    assert {p.root_spec('P04',h)['measured_closes'] for h in p.ADMISSION_CLOCKS['P04']}=={817,1090,1132,1175,1196,1279}
 
 
 def test_unreviewed_registry_data_cannot_create_authority_without_exact_digest_guard():

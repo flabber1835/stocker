@@ -29,6 +29,8 @@ PLANS = {
             'system-campaign-medicines-terminal-facts.json', ('MDCO',)),
 }
 CASH_PHASES = {
+    ('P04', '2023-01-31'): ('system-campaign-october-cash-calendar-terminal-facts.json',
+        ('LHCG', 'EVOP', 'SGFY', 'CTIC', 'MGI', 'ISEE', 'UNVR', 'ONEM', 'COUP', 'RETA', 'SYNH')),
     ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
     ('P10', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
 }
