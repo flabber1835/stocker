@@ -1916,3 +1916,10 @@ and the inherited COL full-row123.67 fractional proxy and original repair bytes.
 The47 DATA tests passed in2.03s. Admit232 while retaining169 in history. Exclude
 the December3 tail and resolve the December4 native435766160247494711 from the
 frozen source identity; no ticker or consideration is inferred from the error.
+
+P07 financial226 passed the cumulative original input-projection qualification,
+advanced21 committed closes to838/April30,2021 and passed its hosted prefix
+review. Preserve its original817 root until independent DATA and one-report
+reproduction pass. The May24 tail is excluded. The May25 next refusal is an
+unresolved PPLI distribution; its actual role and native source must be examined
+separately. Select the saved21-day prefix for reporting without financial replay.
