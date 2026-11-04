@@ -1575,3 +1575,46 @@ is excluded. P00 continues independently on its immutable c79c2b5ab commit.
 The1279 admission and future11 request passed194 targeted admission-generation/
 resume/future/retention/own-cash/resolved-cash tests in19.18s. Both1279 and every
 earlier pinned P04 generation resolve their exact original reporting clocks.
+
+## Qualify the three existing January2018 prefixes before the AAAP correction
+
+BNY's public single-CUSIP search located ad644125.pdf, its July6,2018 mandatory
+cash-exchange notice. It confirms sale of all remaining deposited AAA securities,
+July13 effective exchange,82USD gross,0.05USD cancellation fee and81.95USD net
+per ADS. The January25 termination notice ad593420.pdf instead ends the facility
+February25 at17:00ET and permits withdrawal through June25; it does not establish
+a February mandatory82USD payment. Preserve both notices and their SHA256 bytes.
+No AAAP cash input or recognition timing is authorized by this documentation step.
+
+P05,P06 and P11's positively stopped first financial attempts retained their exact
+own21/January31 checkpoints without advancing a committed financial close. Their
+authenticated books use tickerAAAP1 for permanent ID554122275008038119 and hold
+25(P05),17(P06),35(P11) shares, with no AAAP order; P11's unrelated MYGN
+exit remains intact. A ticker-onlyAAAP inspection initially missed these holdings;
+the permanent-ID inspection corrected that claim before publication. Before any
+new input, independently admit these existing own
+prefixes. Do not represent them as fresh reruns or borrow another variant's book.
+
+Add one shared reporting-only bootstrap for exactly three literal, digest-pinned
+ordinary five-member transports. Each target includes its own real authenticated
+June30,2017 zero-measurement checkpoint from retained lineage, with same source
+base,zero daily/monthly prefixes and null statistics. Reuse its closed full126
+formation/21-daily canonical prefix review; reproduce exactly21 recorded daily
+reporting inputs and the January report from the unchanged monthly implementation.
+Financial transitions, formation,old qualification and closed source audits are
+not rerun. Independent DATA must separately verify its own formation/measurement
+accounting,neutral input lineage,financial chains and reporting before root admission.
+
+The bootstrap grants no financial continuation,score,source correction or new
+origin authority. Existing fresh-P00 transport/request/target pins remain exact.
+Only named digest-pinned P05/P06/P11 targets may use the bootstrap; arbitrary
+unadmitted roots and already-admitted targets still refuse. Future AAAP treatment
+must bind the actual native/full-row source and independently qualified input,
+preserving the genuine interval before July13 and allowing no assumed tender.
+The later payment does not establish raw marks for the held February–July interval;
+no financial continuation or fabricated interim valuation follows from this notice.
+P00 and P04 keep running on their immutable commits while these read-only jobs run.
+The reporting bootstrap passed173 targeted initial-prefix/initial-reporting/
+partial/resume/retention tests in24.98s, including both new guard-removal
+falsifiers. The three original current stats objects each retain the same four
+required50000-initial-NAV series; no reporting seed or financial state is invented.

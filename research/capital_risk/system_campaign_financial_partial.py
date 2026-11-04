@@ -28,6 +28,11 @@ FRESH_FORMAT = 'FRESH_CANDIDATE_SIX_MEMBER_ZIP/1'
 FRESH_REQUEST = 'system-campaign-fresh-origin-request.json'
 FRESH_TARGET_SHA = '0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf2d1d'
 FRESH_REQUEST_SHA = '13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'
+INITIAL_PREFIX_TARGETS = {
+    'P05': 'd56ad992d8086d0815cbeabc57dd2bec5971e9bff051e2bd65ab4d37799c3faf',
+    'P06': '651d13b0bbc442d44f4735374c56bdb2e49b6d6275b5f7e2d875705c0db75436',
+    'P11': '14678692a6ed71a18c7ded8b66e4146148a8608403fcfb9a05c744797c3e869e',
+}
 ROOTS = 'system-campaign-financial-admitted-parents.json'
 ADMISSIONS = {
     'P00': 'a666dc395e4c3d6e84ae7402967e28befa65052d84d6da68d5df52b8bc9970bc',
@@ -165,6 +170,8 @@ def validate_root_spec(spec):
 
 def reporting_seed(spec):
     """Select an independently admitted own seed, never arbitrary newer state."""
+    if spec.get('initial_prefix_reporting') is not None:
+        return initial_prefix_seed(spec)
     if spec.get('archive_format') == FRESH_FORMAT:
         return initial_reporting_seed(spec)
     if 'monthly_seed_root_admission_sha256' in spec:
@@ -177,6 +184,22 @@ def reporting_seed(spec):
          and original['measured_closes'] < spec['measured_closes']
          and original['selected_session'] < spec['selected_session'], 'PARTIAL_OWN_EARLIER_MONTHLY_SOURCE_SEED')
     return original
+
+
+def initial_prefix_seed(spec):
+    """Reporting only for three exact existing own prefixes, never a new origin."""
+    need(spec.get('arm') in INITIAL_PREFIX_TARGETS
+         and digest(spec) == INITIAL_PREFIX_TARGETS[spec['arm']],
+         'PARTIAL_EXACT_EXISTING_INITIAL_PREFIX_TARGET')
+    seed = spec['initial_monthly_seed']
+    need(spec['initial_prefix_reporting'] is True and spec['archive_format'] == FORMAT
+         and spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
+         and spec['measured_closes'] == 21 and spec['selected_session'] == '2018-01-31'
+         and seed['arm'] == spec['arm'] and seed['measured_closes'] == 0
+         and seed['selected_session'] == '2017-06-30'
+         and all(seed['journals'][n]['bytes'] == 0 for n in ('daily', 'monthly')),
+         'PARTIAL_ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED')
+    return dict(deepcopy(seed), base=deepcopy(spec['base']))
 
 
 def initial_reporting_seed(spec):
@@ -490,7 +513,7 @@ def reproduce_reports(stats, parent, current, daily, reports, following):
 def reporting_stats(cls, parent, current, spec):
     if parent['stats'] is not None:
         return cls.from_dict(parent['stats'])
-    initial_reporting_seed(spec)
+    (initial_prefix_seed if spec.get('initial_prefix_reporting') is not None else initial_reporting_seed)(spec)
     required = ('pooled', 'owned55_previous', 'compact_previous', 'spy')
     need(parent['completed'] == 0 and parent['stats'] is None
          and all(parent['journals'][n]['bytes'] == 0 for n in ('daily', 'monthly'))
@@ -512,6 +535,7 @@ def monthly_reproduction(evidence, out, spec, current):
          'PARTIAL_EXACT_RETAINED_ORIGINAL_INDEX')
     original = reporting_seed(spec)
     path = (evidence / original['selected_checkpoint'] if spec['archive_format'] == FRESH_FORMAT
+            or spec.get('initial_prefix_reporting') is True
             else evidence / 'book/predecessor-checkpoints' / (original['outer_sha256'] + '.json.gz'))
     raw = path.read_bytes()
     need(dict(bytes=len(raw), sha256=sha(raw)) == original['selected_file'],

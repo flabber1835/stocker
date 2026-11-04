@@ -41,6 +41,7 @@ from system_campaign_financial_partial import (
     admit as admit_partial, monthly_reproduction, ROOTS, root_spec, validate_root_spec,
     financial_inputs,
     ADMISSIONS, COMPLETED_ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name, full_target,
+    INITIAL_PREFIX_TARGETS, initial_prefix_seed,
 )
 
 HERE = Path(__file__).parent
@@ -49,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04',)
+SELECTED_ARMS = ('P05', 'P06', 'P11')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/41'
-EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/42'
+EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -74,7 +75,9 @@ def expected_request():
         for arm in SELECTED_ARMS:
             target = targets[arm]
             full_target(target)
-            if arm == 'P00' and arm not in ADMISSIONS:
+            if arm in INITIAL_PREFIX_TARGETS and arm not in ADMISSIONS:
+                origins[arm] = initial_prefix_seed(target)
+            elif arm == 'P00' and arm not in ADMISSIONS:
                 origins[arm] = initial_reporting_seed(target)
             else:
                 seed = root_spec(arm)
