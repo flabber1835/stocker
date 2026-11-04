@@ -48,12 +48,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04', 'P10')
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/8'
+SCHEMA = 'research.system-campaign-accurate-resume-request/9'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -515,7 +515,7 @@ def economic(old, out, spec):
         try:
             if 'root_admission' in spec and spec['arm'] == 'P07':
                 from system_campaign_financial_uncertainty import run
-                code = run(cp, out, args, rows, observation, execution)
+                code = run(cp, out, args, rows, observation, execution, spec=spec, old=old)
             else:
                 extra, gate = qualified_overlay(cp, out, spec)
                 if 'root_admission' in spec:
@@ -548,7 +548,7 @@ def review(evidence, out, spec):
              'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
     if 'root_admission' in spec and spec['arm'] == 'P07':
         from system_campaign_financial_uncertainty import review as review_uncertainty
-        review_uncertainty(cp, evidence, out)
+        review_uncertainty(cp, evidence, out, spec=spec, old=old)
     elif 'root_admission' in spec or spec['arm'] in ('P07', 'P10'):
         review_adoption(evidence, cp, spec)
     readonly_review(evidence / 'book', out / 'core-review.json')

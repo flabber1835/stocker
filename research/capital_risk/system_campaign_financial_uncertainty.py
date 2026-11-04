@@ -1,5 +1,6 @@
 """Own-book neutral input boundaries and the existing certified sensor gateway."""
 from copy import deepcopy
+import ast
 import gzip
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ DATE_OVERLAY = 'alder-date-financial-overlay.json'
 DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
+BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
 
 
 def source_contract(cp):
@@ -46,8 +48,10 @@ def boundary(root, name, original, overlay, earliest):
     return cp
 
 
-def run(cp, out, args, rows, observer, execution):
+def run(cp, out, args, rows, observer, execution, *, spec=None, old=None):
     hosted()
+    if spec is not None and cp['completed'] >= 503:
+        return run_retained(cp, out, args, observer, execution, spec, old)
     from research.pooled_vacancy_funding import backtest, journal
     from system_campaign_financial_resume import AdoptionGate
     from system_campaign_factual_run import SeededObservation
@@ -99,8 +103,10 @@ def run(cp, out, args, rows, observer, execution):
     return code
 
 
-def review(cp, evidence_root, out):
+def review(cp, evidence_root, out, *, spec=None, old=None):
     hosted()
+    if spec is not None and cp['completed'] >= 503:
+        return review_retained(cp, evidence_root, out, spec, old)
     from system_campaign_uncertainty_facts import hydrate
     from system_campaign_financial_branches import overlay, evidence, Codec, parse, review as review_certificate
     source_contract(cp)
@@ -122,3 +128,162 @@ def review(cp, evidence_root, out):
         root_parent_sha256=cp['sha256'], date_successor_sha256=current['sha256'], model_successor_sha256=model_cp['sha256'],
         both_actual_gzip_boundaries_neutral=True, complete_input_bytes_independently_reconstructed=True,
         no_qualifier_state_adopted=True, financial_sessions_reexecuted=0))
+
+
+def retained_contract(cp, spec):
+    from system_campaign_financial_partial import validate_root_spec
+    validate_root_spec(spec)
+    hashes = json.loads((HERE / INTEGRATION).read_bytes())['canonical_controller_sources']
+    need(spec['arm'] == 'P07' and cp['sha256'] == spec['outer_sha256']
+         and cp['completed'] == spec['measured_closes'] == 503
+         and cp['source_cursor'] == spec['selected_session'] == '2019-12-31'
+         and cp['base'] == spec['base'], 'FINANCIAL_RETAINED_PROOF_EXACT_OWN_ADMITTED_PARENT')
+    need(len(hashes) == 6 and all(cp['base']['sources'].get(n) == h for n, h in hashes.items())
+         and sha((HERE / 'system_campaign_financial_branches.py').read_bytes()) == BRANCH_SHA,
+         'FINANCIAL_RETAINED_PROOF_UNCHANGED_CONTROLLER_AND_IMPLEMENTATION')
+    return hashes
+
+
+def retained_seed(old, cp, spec):
+    from system_campaign_financial_branches import validate_input, seed, discrete, digest
+    from system_campaign_uncertainty_math import RollingWitnessBounds
+    hashes = retained_contract(cp, spec)
+    validate_input(old, cp)
+    rows = seed(old, cp)
+    proof = spec['root_admission']['branch_uncertainty_proof']
+    need(proof['passed'] is True and len(rows) == proof['rows'] == 49
+         and rows[-1]['session'] == cp['source_cursor']
+         and rows[-1]['after'] == discrete(cp['run']['state']['median5'])
+         and rows[-1]['next_state_sha256'] == cp['run']['state_sha256']
+         and digest(rows[-1]['after']) in {digest(v) for v in rows[-1]['possible_after']}
+         and RollingWitnessBounds.restore(rows[-1]['math']).absolute.contains(
+             cp['run']['state']['median5']['witness_nav'][-1]), 'FINANCIAL_RETAINED_PROOF_EXACT_COMMITTED_SEED')
+    need(sha((old / 'stopped-review/uncertainty-certificate-review.json').read_bytes())
+         == proof['hosted_canonical_transition_oracle_sha256'], 'FINANCIAL_RETAINED_PROOF_PRIOR_REVIEW_IDENTITY')
+    raw = (old / 'branch-controller-qualification.json').read_bytes()
+    qualified = json.loads(raw)
+    need(qualified['passed'] is True and qualified['exact_controller_sources'] == hashes
+         and qualified['ambiguous_comparisons_exhaustively_partitioned'] is True
+         and qualified['all_possible_counters_retained_and_later_merged'] is True
+         and qualified['actual_divergent_decisions_refused'] is True
+         and qualified['historical_financial_sessions_advanced'] == 0,
+         'FINANCIAL_RETAINED_PROOF_EXACT_PRIOR_QUALIFICATION')
+    return hashes, rows, raw
+
+
+def active_codec(backtest, old, cp):
+    from system_campaign_financial_branches import Codec, INPUT, evidence
+    codec = getattr(backtest.load_repair, '__self__', None)
+    need(isinstance(codec, Codec) and codec.evidence == evidence(old),
+         'FINANCIAL_RETAINED_PROOF_SAME_ACTIVE_INPUT_CODEC')
+    descriptors = [d for d in cp['repairs']
+                   if json.loads((old / 'book/repairs' / d['filename']).read_bytes())['schema'] == INPUT]
+    need(len(descriptors) == 1, 'FINANCIAL_RETAINED_PROOF_ONE_COMMITTED_MODEL')
+    d, = descriptors
+    loaded = backtest.load_repair(old / 'book/repairs' / d['filename'],
+        resume_session=d['resume_session'], predecessor_checkpoint_sha256=d['predecessor_checkpoint_sha256'])
+    need(loaded.sha256 == d['sha256'] and any(loaded is obj for obj in codec.objects),
+         'FINANCIAL_RETAINED_PROOF_ACTUAL_BOUND_MODEL_OBJECT')
+    return codec
+
+
+def run_retained(cp, out, args, observer, execution, spec, old):
+    hosted()
+    from research.pooled_vacancy_funding import backtest
+    from system_campaign_alder_date_v2 import AlderDateV2
+    from system_campaign_p02_retained_run import idempotent_dispatch
+    from system_campaign_uncertainty_archive import preserve
+    from system_campaign_financial_branches import Certificate
+    from system_campaign_financial_future import prepare, ActualEvents
+    from system_campaign_financial_resume import AdoptionGate
+    hashes, rows, qualified = retained_seed(old, cp, spec)
+    codec = active_codec(backtest, old, cp)
+    with (out / 'branch-controller-qualification.json').open('xb') as stream:
+        stream.write(qualified)
+    preserve(old, out)
+    directory = out / 'retained-proof-admission'
+    directory.mkdir()
+    alder = AlderDateV2(HERE / 'system-campaign-alder-unresolved-date.json')
+    target = directory / 'alder-source.json'
+    alder.hydrate(target)
+    need(target.read_bytes() == (old / 'hydrated-alder-unresolved-date.json').read_bytes(),
+         'FINANCIAL_RETAINED_PROOF_SAME_UNRESOLVED_NATIVE')
+    source = json.loads((old / 'hydrated-uncertainty-event.json').read_bytes())
+    path, loaded = prepare(cp, out, 'P07')
+    gate = AdoptionGate(cp, out / 'book', out / MODEL_ADOPTION, loaded.sha256, loaded.earliest_affected_session)
+    certificate = Certificate(out, codec, alder.native, hashes, seed=rows, event_source=source)
+    save(directory / 'seed.json', dict(parent_sha256=cp['sha256'], rows=len(rows),
+        chain_sha256=rows[-1]['chain_sha256'], possible_after=rows[-1]['possible_after'],
+        prior_qualification_reexecuted=False, prior_proof_rows_reexecuted=0,
+        financial_source_changed=False, new_date_or_model_adoption=False))
+    with alder, idempotent_dispatch(alder), gate, certificate, observer, execution, ActualEvents(out, 'P07'):
+        code = backtest.main(args + ['--repair-overlay', str(path)])
+    boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
+    return code
+
+
+def suffix_review_tree():
+    raw = (HERE / 'system_campaign_financial_branches.py').read_bytes()
+    need(sha(raw) == BRANCH_SHA, 'FINANCIAL_RETAINED_PROOF_FROZEN_REVIEW_LOOP_SOURCE')
+    fn, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'review']
+    loop, = [n for n in fn.body if isinstance(n, ast.For) and ast.unparse(n.target) == '(index, row)']
+    need(ast.unparse(loop.iter) == 'enumerate(rows)', 'FINANCIAL_RETAINED_PROOF_EXACT_REVIEW_ITERATOR')
+    loop.iter = ast.parse('enumerate(rows, start=retained_count)', mode='eval').body
+    current, = [n for n in fn.body if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+        and any(isinstance(a, ast.Constant) and a.value == 'BRANCH_EXACT_CURRENT_REPRESENTATIVE_STATE' for a in n.value.args)]
+    return ast.fix_missing_locations(ast.Module(body=[loop, current], type_ignores=[]))
+
+
+def review_new_rows(parent, cp, retained, rows, financial, *, median5, champion_config):
+    import system_campaign_financial_branches as b
+    from system_campaign_uncertainty_math import RollingWitnessBounds
+    need(retained and rows is not retained and len(rows) == cp['completed'] - parent['completed']
+         and all(parent['source_cursor'] < r['session'] <= cp['source_cursor'] for r in rows)
+         and [r['session'] for r in rows] == sorted(financial), 'FINANCIAL_RETAINED_PROOF_EXACT_NEW_ROW_SCOPE')
+    scope = dict(vars(b), rows=rows, retained_count=len(retained), cp=cp, financial=financial,
+        math_state=RollingWitnessBounds.restore(retained[-1]['math']),
+        possible=deepcopy(retained[-1]['possible_after']), representative=b.discrete(parent['run']['state']['median5']),
+        median5=median5, champion_config=champion_config, total=0, maximum=len(retained[-1]['possible_after']))
+    exec(compile(suffix_review_tree(), '<frozen-branch-new-suffix-review>', 'exec'), scope)
+    return dict(rows=len(rows), exhaustive_leaves=scope['total'], maximum_possible_states=scope['maximum'],
+                prior_proof_rows_reexecuted=0, every_reachable_decision_identical=True)
+
+
+def review_retained(parent, evidence_root, out, spec, old):
+    hosted()
+    from research.pooled_vacancy_funding import journal
+    from sentinel.controller import median5, champion_config
+    from system_campaign_financial_branches import seed, validate_input, encoded, qualify_surface
+    from system_campaign_financial_future import review_input, OVERLAY
+    from system_campaign_uncertainty_archive import resolve
+    hashes, retained, qualified = retained_seed(old, parent, spec)
+    need((evidence_root / 'branch-controller-qualification.json').read_bytes() == qualified,
+         'FINANCIAL_RETAINED_PROOF_QUALIFICATION_BYTES_PRESERVED')
+    need(all(sha((Path('/variant') / n).read_bytes()) == h for n, h in hashes.items()),
+         'FINANCIAL_RETAINED_PROOF_PHYSICAL_CONTROLLER_SOURCES')
+    qualify_surface(Path('/variant/sentinel/controller/champion_frozen.py').read_bytes(),
+                    Path('/variant/sentinel/controller/champion.py').read_bytes())
+    original, _ = resolve(old)
+    actual, _ = resolve(evidence_root)
+    need(actual.name == original.name and actual.read_bytes() == original.read_bytes(),
+         'FINANCIAL_RETAINED_PROOF_EVENT_GZIP_NAME_AND_BYTES_PRESERVED')
+    earliest = review_input(parent, evidence_root, 'P07')
+    adopted = boundary(evidence_root, MODEL_ADOPTION, parent, OVERLAY, earliest)
+    cp = journal.read_checkpoint(evidence_root / 'book/checkpoint.json.gz')
+    need(cp['base'] == parent['base'] and cp['repairs'] == adopted['repairs']
+         and cp['run']['input_sha256'] == adopted['run']['input_sha256'],
+         'FINANCIAL_RETAINED_PROOF_ONLY_NEUTRAL_ORDINARY_SUCCESSOR')
+    validate_input(evidence_root, cp)
+    current = seed(evidence_root, cp)
+    need(len(current) >= len(retained) and b''.join(encoded(r) + b'\n' for r in current[:len(retained)])
+         == b''.join(encoded(r) + b'\n' for r in retained), 'FINANCIAL_RETAINED_PROOF_ENTIRE_PRIOR_PREFIX_UNCHANGED')
+    from system_campaign_uncertainty_review import committed_rows
+    financial = {r['session']: r for r in committed_rows(evidence_root / 'book', cp, 'daily')
+                 if r['session'] > parent['source_cursor']}
+    result = review_new_rows(parent, cp, retained, current[len(retained):], financial,
+                             median5=median5, champion_config=champion_config)
+    save(out / 'uncertainty-certificate-review.json', dict(result,
+        schema='research.retained-leadership-branch-suffix-review/1', passed=True,
+        checkpoint_sha256=cp['sha256'], parent_sha256=parent['sha256'], retained_rows=len(retained),
+        through=cp['source_cursor'], prior_qualification_reexecuted=False,
+        all_financial_watch_and_proof_identities_verified=True, full_period_complete=cp['completed'] == 2156))

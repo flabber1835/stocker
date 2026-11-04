@@ -503,3 +503,49 @@ Never overwrite/remove the old hydration or weaken exclusive-create saves. No
 source/cursor/financial-state change is needed to resolve this storage collision.
 Qualify the collision regression locally using synthetic DATA only, then retry
 both variants once from their identical independently admitted parent gzips.
+
+
+## P07 continuation from its admitted branch-proof checkpoint
+
+Continue P07 from the exact separately admitted503-close December31,2019
+checkpoint, preserving its49 committed certificate rows, rolling-witness math,
+complete possible-state set, chain and original named pre-event gzip. Verify the
+root admission, current input descriptors/evidence, original positive hosted
+proof hash and identical six controller sources at use. These are identity
+checks; do not rerun the admitted49-session proof or its qualification.
+
+Keep system_campaign_financial_branches.py byte-identical: its hash is part of
+the committed typed input. The shared financial_uncertainty adapter obtains the
+same active BranchInput codec installed by the shared retainer, loads the exact
+retained model descriptor, reconstructs the unchanged unresolved Alder native
+under a disjoint admission directory, and compares its bytes with the retained
+hydration. Reuse the existing Certificate with the complete49-row committed
+seed, so math/chain/possible states resume exactly. The original date wrapper
+and idempotent dispatch remain active for historical packet reconstruction.
+No date/model input is adopted a second time.
+
+Select only MDCO from the unchanged MedicinesFacts catalog, normalize its
+catalog-level identity witness and exchange-source label into the shared future
+input material without changing its added terminal term. January3 native and
+January6 mandatory85USD completion are both future from the selected root. Use
+the existing shared qualification, parent-bound hydration filename, complete
+neutral ordinary adoption and actual cash observer. No separate per-symbol run
+or financial book is introduced.
+
+The separate hosted reviewer verifies the complete prior certificate prefix by
+identity and checks only newly committed proof rows. Reuse the entire frozen
+branch review loop through a source-hash-bound AST adapter: change its enumerate
+start to the retained row count, initialize math/possible states from the last
+admitted seed and the actual representative from the admitted checkpoint, then
+retain every original loop predicate and final current-state guard. No initial
+ALDR event block executes again. An undo test must recover the entire original
+loop AST after removing that one iterator adaptation. The new review binds every
+new certificate row to financial/watch commitments and the exact actual neutral
+MDCO boundary. Unsupported source, seed, codec, state, math, branch or decision
+refuses; no price/CVR probability is selected.
+
+
+Select P07 alone in the next explicit request while the P04/P10 hydration retry
+continues at its already pinned head. Preserve per-arm concurrency and do not
+cancel or relaunch those arms. All three use the same shared financial launcher,
+retainer, future-input selector, proof adapter and admission registry.

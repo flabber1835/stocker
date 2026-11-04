@@ -21,6 +21,8 @@ PLANS = {
             'system-campaign-following-completions-terminal-facts.json', ('APHA', 'CATM', 'REGI', 'PLAN')),
     'P10': ('system_campaign_autumn2020_cash_facts', 'CashCompletionFacts',
             'system-campaign-autumn2020-cash-terminal-facts.json', ('MNTA', 'AIMT', 'IMMU', 'MYOK', 'VRTU')),
+    'P07': ('system_campaign_medicines_facts', 'MedicinesFacts',
+            'system-campaign-medicines-terminal-facts.json', ('MDCO',)),
 }
 CASH_PHASES = {
     ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
@@ -42,6 +44,11 @@ def selected(arm, *, cursor=None):
         codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
     terms = [deepcopy(t) for t in codec.catalog['terms'] if t['ticker'] in tickers]
     need(tuple(t['ticker'] for t in terms) == tickers, 'FUTURE_EXACT_DECLARED_CATALOG_SUBSET')
+    if arm == 'P07':
+        need(cursor == '2019-12-31', 'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
+        for term in terms:
+            term.update(identity_witness=deepcopy(codec.catalog['identity_witness']),
+                        last_trading_session='2020-01-03', timing_source=term['exchange_source'])
     return codec, catalog, terms
 
 
