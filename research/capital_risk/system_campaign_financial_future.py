@@ -1999,6 +1999,9 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
 
 
 def prepare(cp, out, arm):
+    from system_campaign_financial_compound_runtime import applies, prepare as compound_prepare
+    if applies(cp, arm):
+        return compound_prepare(cp, out, arm)
     material, delivered, actions = hydrate(cp, arm, source_root=out)
     hydrated = out / hydration_name(cp)
     save(hydrated, material)
@@ -2015,6 +2018,9 @@ def prepare(cp, out, arm):
 
 
 def review_input(cp, evidence, arm):
+    from system_campaign_financial_compound_runtime import applies, review as compound_review
+    if applies(cp, arm):
+        return compound_review(cp, evidence, arm)
     material, _, _ = hydrate(cp, arm, source_root=evidence)
     hydrated = evidence / hydration_name(cp)
     from system_campaign_financial_projection import review_overlay

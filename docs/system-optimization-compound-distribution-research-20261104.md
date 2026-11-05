@@ -109,3 +109,27 @@ hashes. Test-local hash rebinding may load this excerpt while checking every
 frozen function AST and identity-replacement site. Production source hashes and
 runtime/model bytes remain unchanged; no financial state,engine or alternate
 book implementation is included in the fixture.
+
+P06 source231 is closed with independent DATA reviewe4bf5a16 and qualification
+5977a99e:four full rows,two native preimages,exact own291 roles,411 producer
+files and all16 authenticated members. Forty-four tests passed,including37
+guard-removal falsifiers. The runtime catalog pins both reviews and reconstructs
+the original source payload through an immutable byte-identical version6 source
+producer,insulating it from the later source-only version7 extension.
+
+The scoped P06 runtime uses only input projection and delegating observers. Its
+initial context wraps the existing neutral adoption gate; its ordinary retention
+context preserves the original activation cursor,source bindings and payload.
+The original kernel owns distribution liquidation and the original adapter owns
+the terminal conversion. Require their actual call order,whole/fractional child
+cash,fees,parent reference scaling,terminal retirement and controller notional.
+Independent peer reviewf071c813 found no blocking issue and exercised14 additional
+arithmetic/role falsifiers. Hosted packet/primitive qualification remains required
+before any financial session advances. All financial sources stay byte-identical.
+
+The integrated portable compound-model/runtime,existing future/retention and
+launcher checks passed198 tests in16.63s. The exact request import probe also
+passed without financial execution. Publish only P06own291 for the first hosted
+financial attempt; the source closure adds the immutable old source producer,
+model,runtime and filled catalog for415 files. Keep the415 staged-source,383
+original-driver and unchanged branch checks as the publication gate.

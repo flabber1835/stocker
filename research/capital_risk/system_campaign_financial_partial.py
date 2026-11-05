@@ -298,18 +298,20 @@ def retention_tree():
 
 @contextmanager
 def financial_inputs(root, parent, output, spec):
-    import system_campaign_parallel_discovery_run as original
-    if spec.get('retained_uncertainty_model') is None:
-        with original.retained_inputs(root, parent, output):
+    from system_campaign_financial_compound_runtime import retained_context as compound_retained_context
+    with compound_retained_context(root, parent, output):
+        import system_campaign_parallel_discovery_run as original
+        if spec.get('retained_uncertainty_model') is None:
+            with original.retained_inputs(root, parent, output):
+                yield
+            return
+        from system_campaign_financial_projection import preserve
+        preserve(root, parent, output)
+        fn = retention_tree()
+        namespace = dict(vars(original), retained_models=retained_models, model_context=model_context, selected_spec=spec)
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-input-retainer>', 'exec'), namespace)
+        with namespace['retained_inputs'](root, parent, output):
             yield
-        return
-    from system_campaign_financial_projection import preserve
-    preserve(root, parent, output)
-    fn = retention_tree()
-    namespace = dict(vars(original), retained_models=retained_models, model_context=model_context, selected_spec=spec)
-    exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-input-retainer>', 'exec'), namespace)
-    with namespace['retained_inputs'](root, parent, output):
-        yield
 
 
 def public_names(spec, archive):
