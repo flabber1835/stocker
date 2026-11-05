@@ -3812,3 +3812,24 @@ committed month-end closes through2022-03-31/own1070 (outerfeef2cdb81f4a469b69f3
 Later uncommitted April rows are preserved separately. The April7 refusal is
 unresolved/blocked Wealth Core equity in verified Core+BIL accounting. It is not
 authority to treat the unresolved value as zero or adopt the diagnostic tail.
+
+
+Select REPORT297/request163 for only P05 saved own1070/2022-03-31/feef2c.
+The unchanged original generic build_target AST authenticates all169 members,
+original receipt/source clock, checkpoint commitments, four preserved tails and
+hosted prefix review. A separate JSON review verifies12 original input descriptors
+plus one neutral adoption to13, its exact watch append and all eight new terms.
+Other reporting target records and all root admissions remain unchanged. This
+request has zero financial workers and one readonly worker; FIN296 may continue
+independently from its immutable P07 request. Reporting targets never authorize
+continuation or imply completion. Only a successful independent readonly review
+and separately qualified root writer can admit the selected P05 month-end prefix.
+
+REPORT297 validation passes18 cases in4.69seconds:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/report297-selector-tests-20261105-001
+forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished`.
+The exact launcher probe passes. Original383/B19 and the admitted P05 root are
+unchanged; this request only reviews already committed financial rows.
