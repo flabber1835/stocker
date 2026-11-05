@@ -40,17 +40,17 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P03']
+    assert r['arms'] == ['P07']
     assert r['maximum_parallel_financial_workers'] == 0
     assert r['maximum_parallel_readonly_workers'] == 1
     assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
     assert r['readonly_source_witnesses'] is True and m.request_authority(r)
-    scope = r['source_witness_scopes']['P03']
-    assert scope['parent_cursor'] == '2019-10-31' and len(scope['terms']) == 161
-    assert len({t['security_id'] for t in scope['terms']}) == 161
-    assert {'DOVA', 'HMHC', 'ANAT'}.issubset({t['ticker'] for t in scope['terms']})
+    scope = r['source_witness_scopes']['P07']
+    assert scope['parent_cursor'] == '2022-09-30' and len(scope['terms']) == 112
+    assert len({t['security_id'] for t in scope['terms']}) == 112
+    assert scope['terms'][0]['ticker'] == 'GBT'
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P03':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {}
     assert set(r['selected_research_models']) == {'P07'}
@@ -222,6 +222,10 @@ def launch_fixture(tmp_path, monkeypatch, event):
     if event.startswith('witness'):
         from research.capital_risk.forecast_tests.test_financial_source_witnesses import source_fixture
         cp,scope,natives,rows=source_fixture()
+        natives[0]['session'] = '2023-01-10'
+        rows[0]['session'] = '2023-01-09'
+        scope['terms'][0].update(session=rows[0]['session'], native_session=natives[0]['session'],
+                                 native_term_sha256=future.digest(natives[0]))
         actual=m.root_spec('P07')
         cp.update(sha256=actual['outer_sha256'],source_cursor=actual['selected_session'],base=actual['base'])
         scope.update(parent_outer_sha256=cp['sha256'],parent_cursor=cp['source_cursor'])

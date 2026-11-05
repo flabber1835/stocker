@@ -113,9 +113,10 @@ def test_all_original383_and_b19_bytes_and_legacy_p07_helpers_preserved():
 def test_every_earlier_policy_and_source_generation_stays_identical(env):
     actual=json.loads((env.overlay/env.u.OWN_POLICY_CATALOG).read_bytes())
     before=json.loads((DEP/env.u.OWN_POLICY_CATALOG).read_bytes())
-    before['phases'].pop(env.p['root_admission_sha256'],None)
+    prior_keys = env.u.OWN_POLICY_CLOSED_GENERATIONS['6a867f721b31cd5fb71d1b965820facf2b48939158ed8d35432257eabd0d0ff1']
+    before['phases'] = {k:before['phases'][k] for k in prior_keys}
     assert data.sha(data.encoded(before))=='6a867f721b31cd5fb71d1b965820facf2b48939158ed8d35432257eabd0d0ff1'
-    assert {k:v for k,v in actual['phases'].items() if k!=env.p['root_admission_sha256']}==before['phases']
+    assert {k:actual['phases'][k] for k in prior_keys}==before['phases']
     assert all(actual[k]==v for k,v in before.items() if k!='phases')
     assert data.sha(data.encoded(before)) in env.u.OWN_POLICY_CLOSED_GENERATIONS
     sources=json.loads((env.overlay/env.u.OWN_SOURCE_CATALOG).read_bytes())

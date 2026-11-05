@@ -29,11 +29,14 @@ def target():
 def test_actual_quarantine_target_has_no_financial_or_root_authority():
     spec = target()
     assert repair.validate_target(spec)
-    repair.request_only_readonly(resume.expected_request(), spec)
+    request = dict(execution_mode='READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION', arms=['P07'],
+        financial_resume_authorized=False, readonly_partial_review=True, readonly_source_witnesses=False,
+        maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=1)
+    repair.request_only_readonly(request, spec)
     assert spec['prior_stops']['worker']['exit_code'] == spec['prior_stops']['reviewer']['exit_code'] == 1
     assert spec['receipt_status'] == repair.STATUS
     assert spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
-    assert partial.root_spec('P07')['measured_closes'] == 1047
+    assert partial.root_spec('P07', repair.ORIGIN)['measured_closes'] == 1047
 
 
 @pytest.mark.parametrize('change', ['run', 'head', 'artifact', 'outer', 'cursor', 'closes', 'descriptors', 'authority',

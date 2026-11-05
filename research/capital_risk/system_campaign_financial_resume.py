@@ -50,12 +50,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P03',)
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/167'
+SCHEMA = 'research.system-campaign-accurate-resume-request/168'
 EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -119,6 +119,7 @@ def expected_request():
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
              'system_campaign_financial_additional_sensor.py', 'system_campaign_financial_additional_sensor_runtime.py',
              'system_campaign_financial_additional_sensor_review.py', 'system_campaign_financial_review_repair.py',
+             'system_campaign_financial_requalified_parent.py', 'system-campaign-p07-requalified-review-transport.json',
              'system_campaign_financial_projection.py', 'system-campaign-own-future-projection.json',
              'system_campaign_financial_distribution_source.py', 'system-campaign-compound-source-witness-scopes.json',
              'system_campaign_financial_distribution_source_v1.py', 'system_campaign_financial_compound_input.py',

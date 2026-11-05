@@ -4099,3 +4099,102 @@ forecast_tests/test_financial_source_witnesses.py. Launcher/selector/source
 refusal checks were included in the initial command with basetemp
 source301-targeted-tests-20261105-001. Request167 retains448 exact sources,
 zero financial workers and one readonly worker.
+
+
+REVIEW300 succeeds with positive zero/non-OOM preflight and original reviewer,
+artifact13439737997 (191749644bytes, SHA3ef67ccbd507c56915e09a118f741a40b9d981ecded13d8d14dfedaf94941e49).
+Authenticated original core review93cb1130f8ae3016ffc1f8d3698b612e8cec20eaa1ef64527ec5057ea9451300 and
+branch review8513db43ab9329fd5272bf01dd42939dc58dd127106f65d82462e39f8584fea7 qualify
+1196 and old593+new149 proof rows without financial replay. Independent DATA
+will reuse the closed accounting/report arithmetic and branch induction reader;
+review only149 new rows/298 accounting snapshots/seven reports, preserve all593
+prior certificates byte-for-byte, and verify both exact neutral input adoptions.
+Extend only the induction reader's single varying-event permission for an exact
+source/contract/pre-event-state bound ZGNX26..28 interval; retain the complete
+original binary64 coverage, comparison, factor, state-set and financial guards.
+Use original interval growth for varying returns and the unchanged CPython3.12
+point operation order otherwise. Verify inherited/new ordinary cash events from
+actual before/open snapshots and ledger quantities with Decimal, retaining all
+future dates. Original FIN296 review failure remains explicit; only separately
+authenticated successful REVIEW300 supplies the new canonical review oracle.
+
+Independent P07 DATA passes149 rows/298 accountings/seven reports/196 Decimal
+metrics, both neutral adoptions,593 unchanged old certificates and149 new
+exhaustive branch rows. Actual events are unheld NUAN, ARNA, EPAY, MIME, REGI,
+PLAN, CERN and AZPN1; the original stock no-op has an empty order list and no
+engine calls. Mutation tests pass28 in16.41s plus the extra cash-fact guard
+removal in4.10s (initial test-only double Windows prefix fixed). All original
+math/coverage/comparison/decision guards remain; undoing the one extra varying
+event permission restores the closed induction AST.
+
+For the first admitted1196 restart, use a separately versioned requalified-parent
+transport. Authenticate original FIN296 with every original crypto/member/stop/
+prefix guard and preserve its failed review unchanged. Separately authenticate
+exact successful REVIEW300 with the same frozen crypto extraction predicates,
+positive readonly worker inspections, all public/request/capacity guards and
+source bindings. Its archive contains review outputs rather than a financial
+checkpoint: stop the unchanged crypto AST only immediately before its financial
+checkpoint/review tail, retaining its entire authenticated extraction and stop
+validation. Then require the exact new core1196 and branch149+593 proofs.
+Only a separately hash-pinned admitted root may use this transport; quarantine
+remains readonly and cannot confer authority. Construct an explicit qualified
+input view from original authenticated bytes, preserving every book/checkpoint/
+journal byte. Keep original artifacts separately intact; retain original old
+proof bytes under provenance and supply the successful current branch/core proof
+in this qualified view with an explicit overlay receipt. No financial transition,
+checkpoint serialization, changed book, stop relabeling or new economic input is
+permitted. A fresh SOURCE302 preflight will qualify the actual transport/restore
+and capture P07 future native identities before any financial continuation.
+
+SOURCE301 independent DATA closes161 identities/361 raw action rows, payload
+892a02c62af799f8c301c452e461b3863d29c2f574ff6a520bff382e9aca79e5,
+review8c3755750e030bc07e9046d298c5fec1248857652690d4c4fb13eff563093d87,
+qualification0e17c73cdb8b35dfdeadf6899861e86e168f2b5635f6243e8a324c75ac4ea2ab.
+All26 checks pass in5.58s including one guard removal/five import fences. Fresh
+whole archive rehash and complete requested2019/2021–2026 annual scans retain
+source-only authority; there was no requested2020 source row.
+
+P07 own1196 is separately root-admitted as
+75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719, with
+independent DATA reviewdd1a0a1d5deb2fce3181baabecaab738d2c9ad00dacd7c8148b94de67201c533 and
+qualification3eb2e4182f5ff02d406d1477be44faedb0c7642c4ee9b21351a6e74ac1b21470.
+The original1047 root remains historical. A RETAINED742-row policy copies the
+INITIAL declaration unchanged, closing the prior complete policy generation
+fadb3f24477ed70b04d4241f0ed61258a1d477e58ef50e9de3b49096fd9ea089.
+No original source or observer qualification is rewritten. The qualified-view
+transport is locked to catalog48b9993c84484b264fb2740692faa71c900a8f81ef7910c5b5aaaf747a06e7a2
+and original quarantine485b3c13e3c911690efc3500e1e50cf778f8c3a50f14fe90609793bb9c9b32aa.
+Separate tests pass61 in7.83s and all25 expanded transport checks in1.20s;
+negative root, replay, original-stop, new readonly stop/UNKNOWN/OOM/finance and
+book-copy mutations refuse. Removing the positive-stop or book-copy guard
+actually accepts the corresponding corruption. Initial test-only root-ID
+closure/copytree-recursion fixtures and a stale current-selector dependency were
+fixed; the historical readonly quarantine remains independently tested.
+
+Select fresh SOURCE302/request168 for112 remaining P07 native identities/248
+raw action rows, scopeccf6ee0c81f5585098f00c6f36d813ad0853cae8f6535f9b96d98cc1441074cf.
+Derive all roles from actual1196: all112 are currently unowned; GBT is first
+(native October4). Exclude every native already covered by the full22 current
+input documents, including the six future cash completions in the newest input.
+Do not infer future holdings. All58 prior scopes remain identical, digest
+fef97236b73fdb097b4e9acd9b7a80713ba9602737392171be05bee0a592cc51.
+First qualify actual authenticated root restoration and canonical roundtrip in
+the hosted source preflight; no financial worker is selected. The request has450
+exact source files, zero financial workers and one readonly worker.
+
+SOURCE302 integrated qualification runs
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/p07-qualified-root-source302-integrated-20261105-001
+forecast_tests/additional_sensor forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
+forecast_tests/test_financial_resume.py::test_isolated_host_import_reproduces_missing_schema_dependency_and_then_passes`.
+Result319 pass/five fixture failures in100.81s: the historical policy snapshot
+incorrectly included the new RETAINED phase; four synthetic source-launch tests
+used a July2022 native now consumed by September1196. Preserve every historical
+hash and select its explicit closed phase keys; move only the synthetic event
+to a future2023 date. All37 affected lifetime/source-launch cases then pass in
+8.69s with basetemp p07-source302-final-affected-20261105-001. The new actual
+root1196/declaration conformance check also passes in1.04s. The request/launcher
+probe passes450 exact sources; no financial or Wealth Core suite is run.
