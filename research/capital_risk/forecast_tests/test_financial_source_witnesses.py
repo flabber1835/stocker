@@ -333,7 +333,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==31
+    assert len(f.WITNESS_SCOPE_REGISTRY)==34
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -395,8 +395,8 @@ def test_p03_arii_query_binds_only_own232_and_exact_frozen_native():
 
 
 def test_p07_lm_query_binds_only_new628_root_and_its_actual_parent_holding(monkeypatch):
-    scope=f.WITNESS_SCOPES['P07'];root=m.root_spec('P07','2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543');term,=scope['terms']
-    assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P07'])
+    scope=f.NEXT_WITNESS_SCOPES['P07'];root=m.root_spec('P07','2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543');term,=scope['terms']
+    assert scope==f.registered_scope(f.digest(scope))
     assert root['measured_closes']==628 and root['selected_session']==scope['parent_cursor']=='2020-06-30'
     assert root['outer_sha256']==scope['parent_outer_sha256']
     assert term['ticker']=='LM' and term['session']=='2020-07-29' and term['native_session']=='2020-07-30'

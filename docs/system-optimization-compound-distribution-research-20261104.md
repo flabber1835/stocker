@@ -55,3 +55,49 @@ source guard-removal cases cover raw/typed preimages,full rows,zero authority,
 consumed scope and an extra same-parent native. Exact launcher probing passes
 without financial execution. The request closes411 sources while all383 original
 drivers and the frozen branch implementation remain byte-identical.
+
+Add schema7 as an appended distribution-only source capability for P07. Preserve
+every version6 function and the exact original byte prefix; the original parser
+hash remains unchanged. Scope schema7 declares all expected native distributions
+for one parent/date,counts them before matching hashes,and binds complete raw and
+typed preimages plus full observation rows and exact own-parent positions. It
+contains no terminal terms and grants zero financial transitions or authority.
+
+P07's actual own838 parent holds13 PPLI shares. On May25 the frozen source has a
+spinoff ratio native and a separate spinoff-dividend cash proxy for the same VMEO
+distribution. Capture both before qualifying one economic child entitlement;
+do not treat them as two deliveries or silently grant input authority. Preserve
+the provider's PPLI/SEC_UNKNOWN identity and the exact VMEO row. Independent
+source DATA must pass before selecting a financial correction. Preserve P06's
+unchanged scope in the expanded source catalog and validate its historical
+schema6 evidence through its immutable producer snapshot.
+
+For a distribution-only correction,preserve the canonical refusal of an empty
+ordinary terminal repair. Activate the scoped distribution projection alongside
+a genuine unconsumed,already qualified future cash fact through the shared
+ordinary selector. For P07own838 this is the original VCRA79.25USD February2022
+calendar input,provided the exact own repair ledger confirms it is not already
+adopted. Rehydrate its original native/full row and run the existing packet and
+collision qualification. It is a real future event,not a dummy activation term.
+
+The distribution model must separately declare a continuing parent and exclude
+a same-day terminal consideration leg. Shared runtime/retention routing must
+compose this context with P07's original branch codec and the immutable APHA
+projection,including its retained-run entry path. Do not replace either existing
+projection or weaken the empty-repair guard. Preserve all384 admitted branch
+certificates and exact original financial-source bytes.
+
+The distribution may affect inputs before the genuine future terminal's first
+date. After the unchanged ordinary parser accepts the nonempty document,a
+qualified generic loaded-repair view may expose the first affected session as
+the minimum of the original ordinary date and the exact source-bound modeled
+distribution date. Preserve every raw field,digest,model dump and terminal term.
+The view must bind the exact document/model/source proofs and own parent,and
+refuse a date at or before the admitted cursor. This is a validated input-epoch
+boundary,not an arbitrary AdoptionGate argument override. Prove unchanged prior
+packets and the exact affected packet with guard-removal falsifiers.
+
+Keep the first activated P06 runtime/model source generation immutable. Implement
+this optional distribution-only capability through a separately qualified
+generic version/retention route,so adding P07 cannot change code bytes already
+referenced by a P06 admitted input document.

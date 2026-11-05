@@ -540,8 +540,20 @@ EXTRA_WITNESS_SCOPES['P03', '2018-11-30'] = dict(
     parent_cursor='2018-11-30',terms=[dict(ticker='ARII',security_id='435766160247494711',
         session='2018-12-03',native_session='2018-12-04',
         native_term_sha256='4447441e01411420775c471f8c54d01fe6f00d54adaff997517b0d360cad8222',parent_positions=[])])
+EXTRA_WITNESS_SCOPES['P05', '2020-06-30'] = dict(
+    parent_outer_sha256='2666a9c29c778f499db15c687303d1dd663edc6cb3461d3ba877c615c03a4446',
+    parent_cursor='2020-06-30',terms=[dict(ticker='LM',security_id='986298677409235360',
+        session='2020-07-29',native_session='2020-07-30',
+        native_term_sha256='6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d',
+        parent_positions=[dict(slot_id=17,ticker='LM',quantity=41,entry_date='2020-04-03')])])
+EXTRA_WITNESS_SCOPES['P11', '2023-06-30'] = dict(
+    parent_outer_sha256='28f4b89c314c2d9b3fe3256412d83f335bf394708497b638fba9e95cb1cd3895',
+    parent_cursor='2023-06-30',terms=[dict(ticker='AJRD',security_id='721679296374852573',
+        session='2023-07-26',native_session='2023-07-27',
+        native_term_sha256='c18c68ef2a138d80a1bf1325d3ece4707e45c2bb6d51ea96a9a3c6dbb402237d',
+        parent_positions=[dict(slot_id=15,ticker='AJRD',quantity=75,entry_date='2023-02-13')])])
 _distribution_scope_raw = (HERE / 'system-campaign-compound-source-witness-scopes.json').read_bytes()
-need(sha(_distribution_scope_raw) == 'a602e1c0b76cc8e4428fa49d2c2ce3db9478a4861bf825cfb9fad68346d6d0af',
+need(sha(_distribution_scope_raw) == '96da962471d10724a2d0c320b03837468628ac36ca3c890cb391aaf68ac67714',
      'SOURCE_DISTRIBUTION_EXACT_REGISTERED_SCOPE_CATALOG')
 DISTRIBUTION_WITNESS_SCOPES = json.loads(_distribution_scope_raw)['scopes']
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
@@ -559,6 +571,8 @@ ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in RESOLVED_NATI
 ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2020-01-31'])
 ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES['P03', '2018-11-30'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in DISTRIBUTION_WITNESS_SCOPES.items()})
+ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2020-06-30'])
+ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2023-06-30'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -642,6 +656,8 @@ def source_terms(scope, natives, rows, positions, pending_contexts=None):
 
 
 def source_schema(scope):
+    if scope.get('schema') == 'research.distribution-only-source-scope/1':
+        return 'research.own-parent-frozen-source-witnesses/7'
     if 'native_distribution_queries' in scope:
         return 'research.own-parent-frozen-source-witnesses/6'
     if 'native_date_query' in scope:

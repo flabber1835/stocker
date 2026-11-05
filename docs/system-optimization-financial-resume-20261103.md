@@ -1994,3 +1994,16 @@ not another variant's positions,returns or continuation authority. The existing
 supplement selector rechecks catalog/module bytes,disjoint native/effective keys,
 full source identities,child rows and declared fractional proxies,then performs
 one neutral input adoption before unchanged canonical packet qualification.
+
+P05 saved628/June30,2020 passed104 new closes,208 raw accountings,five exact
+reports and140 Decimal metrics. Its new WLH context was an actual unheld zero-op;
+the exact-cash model,27.55 fractional proxy,original source222 and all older facts
+were bound independently. Forty-three DATA tests passed,including40 refusal
+cases and six guard-removal cases. Admit628 and retain524 in history.
+
+P11 saved1383/June30,2023 passed85 new closes,170 accountings,four reports and112
+Decimal metrics. Its unchanged eight-term calendar subset and original loader
+were verified; actual EVOP122shares posted4148USD,with SGFY,CTIC,MGI unheld zero
+contexts. Nine DATA tests passed in2.68s,including seven guard-removal cases.
+Admit1383 and retain1298 in history. Exclude both July tails. Subsequent exact
+source requests bind LM41shares from P05own628 and AJRD75shares from P11own1383.
