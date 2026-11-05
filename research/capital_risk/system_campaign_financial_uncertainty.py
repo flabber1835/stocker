@@ -19,7 +19,7 @@ INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
 POINT_RETURN_SEEDS = frozenset({'ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95', '3cbfc7cce74b9c9401b4ca06ca685f7fc1b2fd19e4a6ae16fc4829c4d6ba1ec0', '6abf375981b345fcdfebc5db1f68664a1f401783a7e13f6a3cf2e9c8bd6a2a22', '99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b', '8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998', '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 POINT_WITNESS_SHA = '177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
-UNCHANGED_INPUT_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
+UNCHANGED_INPUT_SEEDS = frozenset({'ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 UNCHANGED_INPUT = 'retained-proof-admission/unchanged-input.json'
 RETAINED_PROOF_SEEDS = {
     'ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95': {'completed': 1028, 'source_cursor': '2022-01-31', 'rows': 574, 'new_rows': 42, 'retained_rows': 532},

@@ -203,7 +203,7 @@ def test_actual_dispatcher_enters_bridge_after_retained_context_before_inner_cod
             order.append('retained-exiting')
     s.module.retained_context=retained
     fn=node('system_campaign_financial_compound_dispatch.py',ast.FunctionDef,'retained_context')
-    scope=dict(s.route.__wrapped__.__globals__,ExitStack=ExitStack,versions=lambda:(s.module,),retained_versions=lambda root,cp:(s.module,),retained_loader_surfaces=s.route)
+    scope=dict(s.route.__wrapped__.__globals__,ExitStack=ExitStack,versions=lambda:(s.module,),retained_versions=lambda root,cp:(s.module,),retained_loader_surfaces=s.route,retained_terminal_callers=lambda modules:nullcontext())
     run_nodes([fn],scope)
     with scope['retained_context'](tmp_path,{},tmp_path):
         assert order==['retained-entered']and s.repair.load_repair==s.ctx.load

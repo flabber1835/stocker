@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '677c0bd781406b4fbfb9871ce14707250168526ef9f07162b4bde8c992423cc6'
+OWN_CASH_SHA = '69cace876439b11fd0d9b48f8a6c8faa2ee149be9c6ffaf2e54dda034292feca'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -150,6 +150,9 @@ CASH_GENERATION_LENGTHS['P06', '2020-06-30'] = 25
 CLOSED_CASH_GENERATIONS['712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28'] = 25
 OWN_CASH_PHASES['P11', '2025-06-30'] = 'TGI'
 CASH_GENERATION_LENGTHS['P11', '2025-06-30'] = 26
+CLOSED_CASH_GENERATIONS['677c0bd781406b4fbfb9871ce14707250168526ef9f07162b4bde8c992423cc6'] = 26
+OWN_CASH_PHASES['P03', '2019-09-30'] = 'CBLK'
+CASH_GENERATION_LENGTHS['P03', '2019-09-30'] = 27
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
@@ -260,6 +263,20 @@ SUPPLEMENTAL_PHASES['P11', '2023-06-30'] = (
      '8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086',
      '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f',
      ('DICE','ARNC','FRG','FORG','CFMS','QUOT','RADI')),
+)
+
+
+SUPPLEMENTAL_PHASES['P03', '2019-09-30'] = (
+    ('system_campaign_medicines_facts', 'MedicinesFacts', 'PATH',
+     'system-campaign-medicines-terminal-facts.json',
+     '6331ed5c48e09492cc0c15db2dac69ae0b31ce761a00bd443af7015ced1179e2',
+     '4d77a4ad59ed8a626502573decfd7b842812228aa9c6cdf1c1f05a064b1717d5',
+     ('MDCO',)),
+    ('system_campaign_arqule_facts', 'ArQuleFacts', 'PATH',
+     'system-campaign-arqule-terminal-facts.json',
+     'a785c139eeea04306948fd7a62cca4d6d9b0dd9211dba30123dad4892a150aa4',
+     '2ce2a4b4dcf0cb7573c3a724b1aea7d95327ed58b3b0d01a008225bb069b176a',
+     ('ARQL',)),
 )
 
 
@@ -398,6 +415,7 @@ OWN_CASH_SOURCE_CLOCKS['P05', '2020-11-30'] = (41950496055, '4447cb10993eb7a7069
 OWN_CASH_SOURCE_CLOCKS['P03', '2019-05-31'] = (41961189857, 'a766451be5a7fdcdad6f1cc755244f7ab5bbd8be', 13384628988)
 OWN_CASH_SOURCE_CLOCKS['P06', '2020-06-30'] = (41966300662, '9f73b5fa7ab5102b079313b6715f030e70419c7a', 13388235253)
 OWN_CASH_SOURCE_CLOCKS['P11', '2025-06-30'] = (41971859824, 'f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6', 13390656184)
+OWN_CASH_SOURCE_CLOCKS['P03', '2019-09-30'] = (41974204844, '51a1d68b1a615af2e80937f11e22a60510802185', 13391196722)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1126,7 +1144,15 @@ def own_cash_selection(arm, cursor):
         source = term['source_capture']
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
         scope = registered_scope(source['scope_sha256'])
-        declared, = scope['terms']
+        if len(scope['terms']) == 1:
+            declared, = scope['terms']
+        else:
+            need(len({t['security_id'] for t in scope['terms']}) == len(scope['terms'])
+                 and len({(t['native_session'], t['security_id']) for t in scope['terms']}) == len(scope['terms']),
+                 'OWN_CASH_UNIQUE_MULTI_SOURCE_SECURITY_AND_NATIVE_KEYS')
+            matches = [t for t in scope['terms'] if t['security_id'] == term['security_id']]
+            need(len(matches) == 1, 'OWN_CASH_EXACT_SELECTED_MEMBER_OF_MULTI_SOURCE_SCOPE')
+            declared, = matches
         if 'query_scope_sha256' in source:
             query = registered_scope(source['query_scope_sha256'])
             qualify_selected_query_resolution(term, query, scope)

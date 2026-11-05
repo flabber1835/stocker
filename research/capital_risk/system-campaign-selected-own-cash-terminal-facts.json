@@ -2001,6 +2001,76 @@
       },
       "ticker": "TGI",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm"
+    },
+    {
+      "actual_completion_date": "2019-10-08",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm | Issuer8K confirms mandatory26USD cash conversion of eligible remaining common shares on October8,2019 after the October7 tender deadline. Recognize cash at the October8 research opening boundary under an explicit daily-model assumption. Market-open trading cessation does not prove preopen legal completion or cash availability; actual settlement and fees are not claimed. Preserve October7 native trading and all frozen identity metadata.",
+        "security_id": "325066623134917949",
+        "session": "2019-10-08"
+      },
+      "arm": "P03",
+      "description": "Issuer8K confirms mandatory26USD cash conversion of eligible remaining common shares on October8,2019 after the October7 tender deadline. Recognize cash at the October8 research opening boundary under an explicit daily-model assumption. Market-open trading cessation does not prove preopen legal completion or cash availability; actual settlement and fees are not claimed. Preserve October7 native trading and all frozen identity metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1366527",
+        "listing_first_session": "2018-05-04",
+        "security_id": "325066623134917949",
+        "security_type_eligible": "1",
+        "session": "2019-10-04",
+        "source_observation_sha256": "1194b8c3777f365d607d740ee257aba9b904cc63aa2004b1fe727eacdb2259e7",
+        "ticker": "CBLK"
+      },
+      "last_trading_session": "2019-10-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1912.3",
+        "security_id": "325066623134917949",
+        "session": "2019-10-07"
+      },
+      "native_session": "2019-10-07",
+      "native_term_sha256": "bc11617318adfe6fa2f2b9d4d5fa2fdf1b302adc31bfe89ef0191d08dc25ab9b",
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "26.00",
+        "recognition_session": "2019-10-08",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "325066623134917949",
+      "source_capture": {
+        "artifact_id": 13391196722,
+        "head": "51a1d68b1a615af2e80937f11e22a60510802185",
+        "independent_data_review_sha256": "579437a1a8ca1e414adbc4081f67c97ab83507fda650261e30781e8e43c9dcfa",
+        "payload_sha256": "44aba88bb172c2f9a5227a85ee665426f52ee5603a532fc0b8b73c83d49d8b0f",
+        "run_id": 41974204844,
+        "scope_sha256": "62e0dc2c7aa979f13a8d7ba8a02691468228a88c89b8ce78605d33494e16b7fc"
+      },
+      "ticker": "CBLK",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm"
     }
   ]
 }

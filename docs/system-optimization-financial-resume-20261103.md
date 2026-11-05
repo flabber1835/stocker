@@ -2698,3 +2698,15 @@ corrected admission. The generic admission helper now replaces this legacy
 field from current DATA whenever it exists; it must not copy a prior-prefix
 summary. The separate next-run unchanged-input choice concerns continuation
 after this admitted checkpoint and does not describe the preceding42 closes.
+
+Dispatch financial270 for P03 own439/bd698 and corrected P07 own1028/ad8.
+P03 uses catalog27
+69cace876439b11fd0d9b48f8a6c8faa2ee149be9c6ffaf2e54dda034292feca,
+the qualified multi-term source selector and original MDCO/ARQL supplemental
+facts; all26 prior catalog records and12 inherited inputs remain exact.
+P07 uses its registered unchanged-input route and the qualified caller bridge,
+retaining all20 descriptors and574 certificates with no new overlay. Author
+and independent peer qualified the caller/loader37 cases; twelve additional
+unchanged-input cases bind the corrected root. CBLK input selection passed25
+author and25 independent peer cases including eleven guard removals. Hosted
+packet/notional checks and full financial/DATA admission still govern results.

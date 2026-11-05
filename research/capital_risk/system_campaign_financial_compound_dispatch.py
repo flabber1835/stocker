@@ -1,7 +1,10 @@
 """Version selection and outer retention; immutable input generations coexist."""
 from contextlib import contextmanager, ExitStack
+import ast
+import inspect
 import json
 from pathlib import Path
+from types import CodeType
 
 from system_campaign_financial_compound_input_v2 import need,sha
 
@@ -53,6 +56,127 @@ def retained_loader_surfaces(modules):
         repair.load_repair = original
 
 
+_RETAINED_CALLER_BINDINGS = {}
+
+
+def _caller_code_shape(code):
+    return (code.co_code, code.co_argcount, code.co_posonlyargcount, code.co_kwonlyargcount,
+            code.co_flags, code.co_names, code.co_varnames, code.co_freevars, code.co_cellvars,
+            tuple(_caller_code_shape(value) if isinstance(value, CodeType) else value
+                  for value in code.co_consts))
+
+
+def _observer_terminal_code(raw):
+    owner, = [n for n in ast.parse(raw).body if isinstance(n, ast.ClassDef) and n.name == 'ActualEvents']
+    function, = [n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name == 'terminal']
+    namespace = {}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                 '<source-qualified-observer-terminal-code-only>', 'exec'), namespace)
+    return _caller_code_shape(namespace['terminal'].__code__)
+
+
+def _observer_predicate_code(raw):
+    function, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'actual_terminal_call']
+    namespace = {}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                 '<source-qualified-original-terminal-caller-predicate>', 'exec'), namespace)
+    return _caller_code_shape(namespace['actual_terminal_call'].__code__)
+
+
+def _terminal_delegation_call(frame, callee, step_code, state, ledger, session, *, original, terminal, binding):
+    """Qualify transparent foreign observer frames, then use the original gate."""
+    receiver = callee.f_locals.get('self')
+    inner_owner, inner_function = binding(getattr(receiver, 'terminal', None))
+    terms = callee.f_locals.get('terms');kwargs = callee.f_locals.get('kwargs')
+    need(callee.f_code is inner_function.__code__ and inner_owner.step_code is step_code and callee.f_locals.get('state') is state
+         and isinstance(kwargs, dict) and kwargs.get('ledger') is ledger
+         and terms is not None and terms.session == session,
+         'RETAINED_CALLER_EXACT_RECEIVING_OBSERVER_FRAME')
+    outer_owner, outer_function = inner_owner, inner_function
+    while frame.f_code is not step_code:
+        owner, function = binding(getattr(frame.f_locals.get('self'), 'terminal', None))
+        forwarded = frame.f_locals.get('kwargs')
+        need(frame.f_code is function.__code__ and owner.step_code is step_code and frame.f_locals.get('self') is owner
+             and frame.f_locals.get('state') is state and frame.f_locals.get('terms') is terms
+             and isinstance(forwarded, dict) and forwarded.keys() == kwargs.keys()
+             and all(forwarded[key] is kwargs[key] for key in kwargs)
+             and forwarded.get('ledger') is ledger,
+             'RETAINED_CALLER_FOREIGN_FRAME_ARGUMENTS_IDENTICAL')
+        need(owner.current is not None and (terms.session, terms.security_id) not in owner.terms,
+             'RETAINED_CALLER_ONLY_FOREIGN_UNSELECTED_TERMINAL_DELEGATION')
+        delegated = owner.terminal_original
+        need(getattr(delegated, '__self__', None) is inner_owner
+             and getattr(delegated, '__func__', None) is inner_function,
+             'RETAINED_CALLER_COMPLETE_EXACT_OBSERVER_DELEGATION_CHAIN')
+        inner_owner, inner_function = owner, function
+        outer_owner, outer_function = owner, function
+        frame = frame.f_back
+        need(frame is not None, 'RETAINED_CALLER_CANONICAL_FRAME_REQUIRED')
+    installed = terminal.apply_terminal
+    need(getattr(installed, '__self__', None) is outer_owner
+         and getattr(installed, '__func__', None) is outer_function,
+         'RETAINED_CALLER_OUTERMOST_OBSERVER_ACTUALLY_INSTALLED')
+    return original(frame, step_code, state, ledger, session)
+
+
+@contextmanager
+def retained_terminal_callers(modules):
+    if not modules:
+        yield
+        return
+    import system_campaign_financial_future as future
+    from stock_strategy_shared.wealth_core import terminal
+    frozen_path = Path(__file__).parent / 'system_campaign_financial_ordinary_observer_v1.py'
+    frozen = frozen_path.read_bytes();future_raw = Path(future.__file__).read_bytes()
+    request = json.loads((Path(__file__).parent / 'system-campaign-factual-request.json').read_bytes())
+    need(sha(frozen) == 'a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3'
+         and sha(future_raw) == request['sources']['system_campaign_financial_future.py'],
+         'RETAINED_CALLER_EXACT_ORIGINAL_AND_CURRENT_OBSERVER_SOURCES')
+    shapes = {str(frozen_path.resolve()): _observer_terminal_code(frozen),
+              str(Path(future.__file__).resolve()): _observer_terminal_code(future_raw)}
+    gates = {str(frozen_path.resolve()): _observer_predicate_code(frozen),
+             str(Path(future.__file__).resolve()): _observer_predicate_code(future_raw)}
+
+    def binding(method):
+        owner = getattr(method, '__self__', None);function = getattr(method, '__func__', None)
+        namespace = getattr(function, '__globals__', {})
+        path = str(Path(namespace.get('__file__', '')).resolve())
+        cls = namespace.get('ActualEvents')
+        need(owner is not None and cls is not None and isinstance(owner, cls)
+             and function is cls.terminal and path in shapes
+             and _caller_code_shape(function.__code__) == shapes[path],
+             'RETAINED_CALLER_EXACT_SOURCE_QUALIFIED_OBSERVER_CODE_AND_OWNER')
+        return owner, function
+
+    changes = [];method = terminal.apply_terminal
+    try:
+        while getattr(method, '__self__', None) is not None:
+            owner, function = binding(method);namespace = function.__globals__;key = id(namespace)
+            if not any(value[0] is namespace for value in changes):
+                previous = _RETAINED_CALLER_BINDINGS.get(key)
+                current = namespace['actual_terminal_call']
+                if previous is not None:
+                    need(previous[0] is namespace and current is previous[2],
+                         'RETAINED_CALLER_NESTED_BINDING_EXACT_NAMESPACE_AND_FUNCTION')
+                original = previous[1] if previous is not None else current
+                need(getattr(original, '__globals__', None) is namespace
+                     and _caller_code_shape(original.__code__) == gates[str(Path(namespace['__file__']).resolve())],
+                     'RETAINED_CALLER_EXACT_UNCHANGED_ORIGINAL_GATE_CALLBACK')
+                def routed(frame, step_code, state, ledger, session, original=original):
+                    return _terminal_delegation_call(frame, inspect.currentframe().f_back, step_code,
+                        state, ledger, session, original=original, terminal=terminal, binding=binding)
+                changes.append((namespace, current, previous))
+                namespace['actual_terminal_call'] = routed
+                _RETAINED_CALLER_BINDINGS[key] = (namespace, original, routed)
+            method = owner.terminal_original
+        yield
+    finally:
+        for namespace, original, previous in reversed(changes):
+            namespace['actual_terminal_call'] = original
+            if previous is None:_RETAINED_CALLER_BINDINGS.pop(id(namespace), None)
+            else:_RETAINED_CALLER_BINDINGS[id(namespace)] = previous
+
+
 @contextmanager
 def retained_context(root,cp,out):
     # Both enter outside the preexisting B19/APHA stack. Each delegates foreign
@@ -60,7 +184,7 @@ def retained_context(root,cp,out):
     retained = retained_versions(root,cp)
     with ExitStack() as stack:
         for module in versions():stack.enter_context(module.retained_context(root,cp,out))
-        with retained_loader_surfaces(retained):
+        with retained_loader_surfaces(retained), retained_terminal_callers(retained):
             yield
 
 
