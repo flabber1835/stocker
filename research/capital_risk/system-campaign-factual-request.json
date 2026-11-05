@@ -33,7 +33,7 @@
   "readonly_partial_review": true,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/173",
+  "schema": "research.system-campaign-accurate-resume-request/174",
   "selected_ordinary_augmentations": {},
   "selected_partials_sha256": "12b781e1765264f5e0b561c4c17bb109b96bd021d4b45ea1b1c4720cbf173cc0",
   "selected_research_models": {
@@ -270,10 +270,10 @@
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
     "system_campaign_financial_future.py": "8cd57c08782d33183c988c75bf3a945a9153316d4ed1479bf506830aa4dc6dec",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
-    "system_campaign_financial_partial.py": "0484d8b6c28475ed8eb9e988906aa6bdb0993d3f3ad205795aaaf8351ace7334",
+    "system_campaign_financial_partial.py": "5508b7ebed2dd642c2181aa5b88ad1efbab46ec71ba5e7e4e31c46309fa87439",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "9ba5c835c5d09ca8e7641c8325ef23e7439b41b25503c96549c8ee83b38d35d3",
+    "system_campaign_financial_resume.py": "936d8fd7ac647a299f598c622dec4acfc374cf7550951769879bebfd18a1aa20",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "1cf1eac11d6304032ab77beca75b3989716c2c8ecc20368c2c636a5384cf530e",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
@@ -505,5 +505,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "fd42ce9922676ad14947f59b0d072d103de7ba7263b5517e31375acd53ffbd84"
+  "workflow_sha256": "00ed2b040983f57a134fe08d24d1b67eadcb5fc334802fb1becfa44c20612be0"
 }

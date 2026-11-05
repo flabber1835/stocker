@@ -4581,3 +4581,36 @@ target only to synthetic repair scenarios; no runtime guard changes. All142
 affected launcher/quarantine/requalified-parent checks then pass29.01s. The
 remaining86 cases had already passed. The exact launcher probe passes with
 zero financial sessions. No root admission or new completion is claimed.
+
+REPORT307 stops before a preflight worker and exports only public failure
+metadata. The selected576040524-byte FIN306 ZIP exceeds partial.admit's fixed
+512MiB caller limit. The unchanged original crypto archive_bound already
+explicitly supports1GiB, while the manifest's731251188 plaintext bytes remain
+below the unchanged1GiB logical bound. Qualify selection of that existing option
+only for the exact FIN306 P07 run/head/artifact/ZIP commitments, selected1238
+checkpoint,545-member manifest and positive0/1/0 non-OOM stops. Keep512MiB for
+every other target. Do not change the original crypto helper or its limits,
+plaintext/file/member/public/GCM/hash/source/inspection guards, worker fences,
+or any book bytes. A later root may retain this exact transport selection;
+other large archives require separate explicit qualification. Demonstrate the
+original512MiB refusal and existing1GiB acceptance using metadata-only guards,
+then issue a fresh readonly request rather than rerunning REPORT307.
+
+REPORT308/request174 retains the identical positive P07 own1238 target and
+own1196 root. It selects the original reader's existing 1GiB archive bound only
+for the complete FIN306 run/head/artifact/ZIP clock, exact 545-member and
+731251188-byte logical manifest, exact saved gzip/outer/cursor, and positive
+preflight0/economic1/reviewer0 stopped non-OOM receipts. Unknown transports retain
+512MiB. The crypto implementation, authentication, logical plaintext bound,
+worker isolation and original financial sources remain unchanged.
+
+Validation: `pytest -q -p no:cacheprovider --tb=short
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_retention.py
+forecast_tests/ordinary_augmentation/test_archive_limit.py` passes138 tests in
+25.66s. The DATA-only exact-request import probe passes under all five financial
+import fences; it advances zero financial sessions. Archive tests include a
+meaningful positive-stop guard removal and reject changed clock, bytes,
+manifest, checkpoint, cursor, authority, UNKNOWN/OOM and failed-review metadata.
+REPORT308 authorizes zero financial and one readonly worker; no new root is
+admitted by this transport correction.

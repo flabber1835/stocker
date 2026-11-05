@@ -501,6 +501,34 @@ def admission_tree(review_file='stopped-review/core-review.json'):
     return ast.fix_missing_locations(fn)
 
 
+def reviewed_archive_limit(spec):
+    """Select an existing crypto size option for one source-qualified transport."""
+    clock=(spec.get('arm'),spec.get('run_id'),spec.get('head'),spec.get('artifact_id'),spec.get('zip_sha256'))
+    if clock!=('P07',42100223336,'e66f23919cdb17da52707c0c3e10abf9d531e3e2',13451345162,
+               '6113900f2daf3320954dd042b51c78057c0e98abfea51270284b5705eac47c12'):
+        return 512*1024**2
+    need(type(spec['zip_bytes']) is int and spec['zip_bytes']==576040524
+         and spec['manifest']==dict(member_count=545,raw_member_bytes=731251188)
+         and all(type(v) is int for v in spec['manifest'].values())
+         and spec['selected_checkpoint']=='book/checkpoint.json.gz'
+         and spec['selected_file']==dict(bytes=1197812,sha256='76df216faf4060c1f96d8fc9833bfc1681303c0dcfe19e2322e326fada42d43a')
+         and spec['outer_sha256']=='efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277'
+         and type(spec['measured_closes']) is int and spec['measured_closes']==1238
+         and spec['selected_session']=='2022-11-30',
+         'PARTIAL_EXACT_QUALIFIED_ONE_GIB_ARCHIVE_COMMITMENTS')
+    need(spec['archive_format']==FORMAT and spec['financial_authority'] is False
+         and spec['financial_predecessor_admitted'] is False
+         and spec['receipt_status']=='PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT'
+         and set(spec['prior_stops'])=={'preflight','worker','reviewer'}
+         and all(spec['prior_stops'][role]['stopped'] is True
+                 and type(spec['prior_stops'][role]['exit_code']) is int
+                 and spec['prior_stops'][role]['exit_code']==code
+                 and spec['prior_stops'][role]['oom_killed'] is False
+                 for role,code in (('preflight',0),('worker',1),('reviewer',0))),
+         'PARTIAL_QUALIFIED_ONE_GIB_POSITIVE_REVIEW_AND_STOP_SCOPE')
+    return 1024**3
+
+
 def admit(spec, root, key, inspector):
     from system_campaign_financial_requalified_parent import applies as requalified, admit as requalified_admit
     if requalified(spec):
@@ -515,7 +543,7 @@ def admit(spec, root, key, inspector):
     namespace = dict(vars(crypto), public_names=public_names)
     fn = admission_tree(review_name(spec))
     exec(compile(ast.Module(body=[fn], type_ignores=[]), '<source-bound-financial-format-adapter>', 'exec'), namespace)
-    destination = namespace['admit'](spec, root, key, max_zip_bytes=512 * 1024**2)
+    destination = namespace['admit'](spec, root, key, max_zip_bytes=reviewed_archive_limit(spec))
     for name, expected in spec['inspections'].items():
         value = json.loads((destination / name).read_bytes())
         need(re.fullmatch(r'[1-9][0-9]*:[1-9][0-9]*', expected['user']) is not None,
