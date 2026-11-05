@@ -2951,3 +2951,13 @@ separate generic selector to delegate its established behavior. The explicit
 record also determines the request's new_factual_overlay flag. This extends
 the documented per-arm/root phase selection without changing financial
 comparisons or the interval model.
+
+Source276 stopped during frozen-input staging with HTTP504 before its source
+worker launched. Preserve its exact capacity-only artifact and failure review;
+it supplies no source payload or DATA authority. The existing launcher and
+capacity guards require run-attempt1, so do not rerun that job or weaken those
+guards. Issue fresh source278/request145 for the identical own1047/532e query,
+with the same scope, identities, natives and input bytes. This is one explicit
+source-only recovery after a verified terminal staging failure, not a restart
+after an observation timeout. New authenticated independent DATA remains
+mandatory. P11 financial275 and P06 readonly report277 keep their own handles.

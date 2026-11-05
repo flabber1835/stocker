@@ -33,7 +33,7 @@
   "readonly_partial_review": false,
   "readonly_source_witnesses": true,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/144",
+  "schema": "research.system-campaign-accurate-resume-request/145",
   "selected_partials_sha256": "978b9193589739f12a171b5bc467e6b1d827257588a7f69264e4684770431751",
   "selected_research_models": {
     "P07": {
@@ -370,7 +370,7 @@
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
     "system_campaign_financial_partial.py": "de5a12fa8e8404758d19e41e8fa620fbee767912847de15476df70f2fa368d8c",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
-    "system_campaign_financial_resume.py": "68674c69055bdcda4913c884517312293087befc68a8d6ff950cf18430f892e6",
+    "system_campaign_financial_resume.py": "7882c3ee5aaf9550d82071a8a643c104b3f256366523aa9037849c653cb1cdc9",
     "system_campaign_financial_uncertainty.py": "78ca6e2c63747feb2758dbb18b001a1cec065063045ce7266c2a2b1a2b16d7f4",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
