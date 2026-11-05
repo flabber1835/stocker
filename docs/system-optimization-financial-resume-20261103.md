@@ -4286,3 +4286,71 @@ forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_fro
 forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
 forecast_tests/test_financial_resume.py::test_isolated_host_import_reproduces_missing_schema_dependency_and_then_passes`.
 No financial helper function/class changes are made for this query.
+
+Retained original-cash references must survive a later qualified append to the
+selected-own cash catalog. Authenticate the current catalog against its exact
+qualified OWN_CASH_SHA, then reconstruct only a registered CLOSED_CASH_GENERATIONS
+prefix when the reference selects an older generation; require its exact old
+encoded-byte hash and original record digest. Never select an arbitrary prefix
+or change earlier source records. Original383 catalogs remain full-file pinned
+and immutable. This versions input facts only, with no financial checkpoint
+reconstruction. Add an appended-generation preservation test and falsifiers.
+
+SOURCE304 independent DATA closes the single TRQ native, exact December14 row
+and both raw native-date actions, payload
+16019a736a1f5e5b1a26c366271e2d021a6ed0116c3e2270bc7b3e3c3491ed03,
+reviewd4a1c93f596f3260f69d693ff22edaad3ca78a71b83bbc9bc35a8089099ade49,
+qualification23ea9339641b9edb3b159693ffdc8502e6a0f453d415fc1ed7628cf29ddda96b.
+Artifact13444323523 is91004494bytes, SHA
+7b4b50e1b6f1e0a819b3b23cab356a579f04ae092500c682a23d3b242cec35db;
+authentication verifies86 members/102561437 logical bytes and preflight0/non-OOM.
+All26 DATA checks pass5.34s plus fresh archive rehash and complete2022 scan.
+
+The new original-cash-literal family now qualifies one GBT catalog using closed
+SOURCE303 and one TRQ catalog using closed SOURCE304. It preserves the entire
+original qualified term apart from eight explicit fresh provenance/identity/role
+fields. It keeps original inactive primary fields and the exact CAD43/1.3618
+Decimal50/canonical-float research policy; no USD primary quote or actual holder
+settlement is invented. Registry qualification covers the own cash catalog or
+immutable original383 source catalogs, and registered closed own generations
+survive later appends. Old unheld-only/source-only/stock/CVR policies cannot gain
+held cash authority. Actual GBT, normalized TRQ and an original CEMI NEXT term
+validate; amount/source-order/registered-catalog/strict-generation guard removals
+admit their corresponding bad data. All41 final repository tests pass2.64s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/original-cash-literals-repo-final-tests-20261105-002
+forecast_tests/original_cash_literals/test_original_cash_literals.py`.
+Whole validator AST undo restores the original v1 predicate exactly; five
+canonical-import fences hold. The input family is not financially selected.
+
+## Explicit ordinary augmentation outside the frozen additional-sensor origin
+
+P07's frozen retained runner requires an unchanged22-input history. A new
+ordinary input therefore needs a separate qualified augmentation protocol, not
+a modified INITIAL record or an unselected future-phase metadata entry. Keep
+the original source/runtime/observer bytes and origin resource names unchanged.
+Use a separate augmentation staging namespace for literal preparation, exact
+source resources and qualification; give its canonical terminal-repair overlay
+a distinct root filename. Stage authenticated input documents/resources only,
+never a fabricated/narrow checkpoint. Adopt the new ordinary overlay once via
+the original paused neutral-adoption contract: old22 descriptors remain the
+exact prefix, new23 is explicit, canonical state/economics/session axis stay
+unchanged, and the full23-input hash is bound throughout.
+
+Reuse the original retained financial body and its joint B19/ZGNX certificate,
+source-qualifying only explicit augmentation routing, the neutral-adoption step,
+its complete successor-input postcondition and authenticated scratch staging.
+Compose a new ordinary event observer with every retained original observer and
+qualify actual loader/caller identities and dynamic held quantities. Extend the
+full-checkpoint semantic visitor only for that exact validated ordinary suffix;
+never present a truncated/synthetic checkpoint to existing validators. Preserve
+all original593 plus later149 proof rows and joint math/cloud behavior.
+
+Readonly review must verify the new neutral boundary, full raw23 descriptors,
+new literal/native/packet/event proofs, old origin resources and every new
+financial/math/watch chain. Existing retained equality guards remain for the
+non-augmented route; augmentation gets its own exact receipt/descriptor guards.
+A later admitted restart preserves that receipt and its input namespace without
+readopting or replaying it. No financial request may select GBT/TRQ until the
+complete parser, neutral-adoption, caller, readonly-review and restart lifecycle
+is qualified. Current request170 remains readonly source capture only.
