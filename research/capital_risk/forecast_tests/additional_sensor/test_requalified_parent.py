@@ -2,6 +2,7 @@
 import ast
 from copy import deepcopy
 import io
+import gzip
 import json
 from pathlib import Path
 import sys
@@ -59,6 +60,27 @@ def test_actual_root1196_has_separate_authority_and_preserves_initial_policy():
     assert phase['adoption_mode'] == 'RETAINED' and phase['proof_rows'] == 742
     assert sensor.retained_origin(phase)['root_admission_sha256'] == data.quarantine.ORIGIN
     assert old == target() and spec['financial_authority'] is False
+    path, pin = data.accounting_review(spec)
+    assert path == 'stopped-review/core-review.json' and pin == '93cb1130f8ae3016ffc1f8d3698b612e8cec20eaa1ef64527ec5057ea9451300'
+    assert pin != spec['review_sha256']  # Original failed-artifact reference is preserved.
+
+
+def test_preflight_uses_admitted_current_review_and_restoring_old_reference_refuses(tmp_path,monkeypatch):
+    import system_campaign_financial_resume as resume
+    from research.capital_risk.forecast_tests.test_financial_retention import preflight_fixture
+    old,out,spec,calls = preflight_fixture(tmp_path,monkeypatch)
+    current = partial.root_spec('P07')
+    spec.clear();spec.update(current)
+    metadata,_ = resume.actual_parent()
+    metadata.update(sha256=spec['outer_sha256'],completed=1196,source_cursor='2022-09-30')
+    # Synthetic three-field metadata DTO; never a canonical checkpoint or book.
+    (old/'book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(metadata).encode()))
+    fixture=json.loads((Path(__file__).parent/'fixtures/requalified-review300-protocol-metadata.json').read_bytes())
+    raw=data.encoded(fixture['core']);(old/'stopped-review/core-review.json').write_bytes(raw)
+    resume.preflight(old,out,spec)
+    assert (out/'old-prefix-canonical-review.json').read_bytes()==raw and calls==[]
+    monkeypatch.setattr(data,'accounting_review',lambda actual:(partial.review_name(actual),actual['review_sha256']))
+    with pytest.raises(ValueError,match='CLOSED_ROOT_ACCOUNTING_REVIEW_BYTES'):resume.preflight(old,out,spec)
 
 
 @pytest.mark.parametrize('change',['missing_root','old_readonly_flag','unregistered_review','changed_checkpoint',

@@ -4198,3 +4198,34 @@ to a future2023 date. All37 affected lifetime/source-launch cases then pass in
 8.69s with basetemp p07-source302-final-affected-20261105-001. The new actual
 root1196/declaration conformance check also passes in1.04s. The request/launcher
 probe passes450 exact sources; no financial or Wealth Core suite is run.
+
+SOURCE302 authenticates both artifacts and restores/roundtrips1196, then its
+readonly preflight positively stops1/non-OOM at
+RESUME_CLOSED_ROOT_ACCOUNTING_REVIEW_BYTES. The qualified input view correctly
+contains REVIEW300's new93cb1130 core proof, while the transport's original
+review_sha256 remains the older FIN296 provenance value. Preserve both; bind
+preflight's existing exact-byte reuse guard to the separately validated
+requalified review path/hash for this admitted parent only. Do not alter the
+original transport, root75e, book, failed stops or guard strength. Add an actual
+root/pin conformance test and a tampered-pin falsifier. Use fresh SOURCE303/
+request169 for the same112-identity source scope, not a rerun. Failed artifact
+13441824326 (90986702bytes, SHA2e40a955ac587d9bd9f1d8a5c7d3bd2ac8f00d06e159e10afab40b55e5381429)
+is authenticated as80 members/102533321 logical bytes; no financial worker ran.
+
+SOURCE303 reference-binding qualification initially passes51/53 in11.17s.
+Both failures are unrelated synthetic foreign-scope fixtures that have no
+producer request.json; explicitly mock that classifier as false so the intended
+outer scope guard and its removal are tested, without changing runtime behavior.
+The actual1196 preflight test uses only a synthetic three-field metadata DTO
+and the authenticated protocol review metadata: it succeeds with the admitted
+review pin and refuses when restored to the older transport reference. All new
+transport/root/reference and launcher checks pass in that targeted command.
+
+All23 retention checks then pass in2.89s with basetemp
+p07-source303-final-retention-tests-20261105-001. The earlier targeted command
+uses basetemp p07-source303-accounting-reference-tests-20261105-001 with
+forecast_tests/additional_sensor/test_requalified_parent.py,
+forecast_tests/test_financial_retention.py and the three current request/workflow/
+isolated-launcher nodes; all remaining51 passed. Original450-source request,
+original383/B19 commitments and root75e stay unchanged except fresh169 request
+identity and the qualified-accounting-reference helper/preflight binding.

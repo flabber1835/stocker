@@ -121,7 +121,9 @@ def test_model_retainer_validates_entire_original_book_without_mutation(tmp_path
 
 
 @pytest.mark.parametrize('change',['scope','unknown','duplicate','evidence','missing'])
-def test_unselected_or_misbound_model_refuses(tmp_path,change):
+def test_unselected_or_misbound_model_refuses(tmp_path,change,monkeypatch):
+    import system_campaign_financial_uncertainty as uncertainty
+    monkeypatch.setattr(uncertainty,'retained_model_scope',lambda *args:False)
     root,cp,spec=typed_book(tmp_path)
     if change=='scope':spec['arm']='P04'
     elif change=='unknown':spec['retained_uncertainty_model']='unknown/1'
@@ -158,7 +160,9 @@ def test_source_bound_retainer_preserves_actual_checkpoint_documents_and_hydrati
     assert calls==[]
 
 
-def test_retained_model_scope_guard_removal_falsifier(tmp_path):
+def test_retained_model_scope_guard_removal_falsifier(tmp_path,monkeypatch):
+    import system_campaign_financial_uncertainty as uncertainty
+    monkeypatch.setattr(uncertainty,'retained_model_scope',lambda *args:False)
     root,cp,spec=typed_book(tmp_path);spec['arm']='P04'
     with pytest.raises(ValueError):p.retained_models(root,cp,spec)
     fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='retained_models')

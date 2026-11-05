@@ -55,7 +55,7 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/168'
+SCHEMA = 'research.system-campaign-accurate-resume-request/169'
 EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -622,9 +622,11 @@ def preflight(old, out, spec):
             need(spec['reuse_closed_hosted_prefix_review'] is True, 'RESUME_EXACT_CLOSED_PREFIX_REUSE_DECLARATION')
         if 'root_admission' in spec or spec.get('reuse_closed_hosted_prefix_review') is True:
             # Reuse this exact positively stopped accounting review; root authority is separate.
-            need(sha256_file(old / review_name(spec)) == spec['review_sha256'],
+            from system_campaign_financial_requalified_parent import applies as requalified, accounting_review
+            review_file, review_sha = accounting_review(spec) if requalified(spec) else (review_name(spec), spec['review_sha256'])
+            need(sha256_file(old / review_file) == review_sha,
                  'RESUME_CLOSED_ROOT_ACCOUNTING_REVIEW_BYTES')
-            shutil.copyfile(old / review_name(spec), out / 'old-prefix-canonical-review.json')
+            shutil.copyfile(old / review_file, out / 'old-prefix-canonical-review.json')
         else:
             readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
     proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())

@@ -62,6 +62,11 @@ def validated(spec):
     return target, review
 
 
+def accounting_review(spec):
+    _, review = validated(spec)
+    return 'stopped-review/core-review.json', review['core_review_sha256']
+
+
 def public_names(spec, archive):
     import system_campaign_financial_partial as partial
     need(spec == transport(), 'REQUALIFIED_EXACT_PUBLIC_REVIEW_SCOPE')
