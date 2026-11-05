@@ -94,6 +94,28 @@ ending the context at uncertainty review would invalidate the later exact-byte
 round trip. Extend only the selected additional-sensor route and restore the
 entire context after all review calls, preserving every legacy path.
 
+Retain the inherited December ordinary observer as well as the new seven-term
+observer: the old compound-v2 VCRA observer is already past its active interval,
+while six adopted December terms remain ahead. Pin the inherited raw descriptor,
+hydrated material and original source generation. Bind only their original
+overlay filename/material name into the unchanged ActualEvents constructor;
+verify its original source_scopes returns an empty list, rather than forcing it.
+Install that observer first, with output under
+additional-inherited-ordinary-observation/<descriptor SHA>/, then install the
+new seven-term instance of the exact same ActualEvents class at the normal
+output. Require disjoint selected (session,SID) keys. Consumed old terms remain
+provenance and never become new input or economic authority.
+
+After both observers are installed, enter the existing retained_terminal_callers
+scope with authenticated retained_versions(old,cp0). It must validate identical
+state/pending/ledger/terms arguments, actual outermost installation, original
+step code and same-class wrapper frames before delegating to unchanged
+actual_terminal_call. Naive stacking cannot claim a canonical callback from an
+inner wrapper. Each selected term must have exactly one true actual canonical
+callback and one observation in its own origin directory. Qualify wrong code,
+duplicate terms, altered arguments, foreign frames and restoration; preserve
+the original advance/terminal/cash postconditions and actual quantity derivation.
+
 Qualification must cover actual-source AST method/super dispatch, original
 function identity, loader order and restoration, genuine point/interval cases,
 both original origins, all20/593 retained bytes and two state-neutral adoptions.
