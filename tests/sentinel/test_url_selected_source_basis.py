@@ -124,7 +124,41 @@ def test_installed_pr565_source_is_exact_and_only_reviewed_modules_change():
         'automation/service.py', 'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
         'panel/presentation.py', 'panel/pwa.py', 'panel/render.py', 'panel/review.py',
         'panel/retry_status.py', 'paper_plan_preview.py', 'url_selected_source_basis.py',
+        'panel/authority_reader.py', 'panel/sources.py', 'panel/verification_service.py',
     }
+
+
+def test_installed_main_verifier_predecessor_has_only_the_exact_display_successor():
+    previous = basis._profile()['retained_predecessors'][basis.VERIFIER_PREDECESSOR_REVISION]['files']
+    assert len(previous) == 442
+    assert admission.source_closure(previous) == (
+        'db2228d6def65283cb75ac3da8f3250a99fb3f180600f9fd9e52b46cf6da0ee8')
+    actual = _actual()
+    assert set(previous) == set(actual)
+    assert {name for name in actual if actual[name] != previous[name]} == {
+        'panel/authority_reader.py', 'panel/sources.py', 'panel/verification_service.py',
+        'url_selected_source_basis.py'}
+    assert basis.predecessor_view(actual, previous=previous) == previous
+    for name in actual:
+        changed = {**actual, name: 'f'*64}
+        assert basis.predecessor_view(changed, previous=previous) is changed
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_main_verifier_source(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.VERIFIER_PREDECESSOR_REVISION]
+    if defect == 'changed': prior['files']['panel/sources.py'] = 'f'*64
+    elif defect == 'missing': prior['files'].pop('panel/sources.py')
+    elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
+    else: prior['files']['url_selected_source_basis.py'] = 'f'*64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path/'changed-verifier-predecessor.json'; path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])

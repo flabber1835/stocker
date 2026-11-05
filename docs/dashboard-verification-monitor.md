@@ -105,6 +105,52 @@ UNKNOWN result unless the finite observer explicitly requests propagation.
 This changes display retry only; it does not alter retention, broker execution,
 backup policy, lock exclusion or any durable financial state.
 
+### Typed SQL read unavailability (2026-11-05)
+
+A PostgreSQL `QueryCanceled` (57014) or `LockNotAvailable` (55P03) during a
+financial observation means that the bounded read did not complete. The
+background verifier must receive that typed refusal instead of authenticating
+an UNKNOWN financial result produced by the display source's generic exception
+adapter. Propagate it through the shadow status, canonical book and optional
+PAPER adapters only when the finite observer explicitly requests it. Direct
+display source calls retain their existing UNKNOWN behavior.
+
+Retry the complete independent observation with a fresh connection and the same
+expected subject. Corpus-pin and typed SQL refusals share one 20-second retry
+admission window anchored at the first refusal, capped by the original
+300-second work budget. Pause at most 500 milliseconds between attempts. An
+attempt admitted before that retry boundary may complete within the original
+work deadline; it cannot admit another attempt after the boundary. The parent
+still enforces its original queue/work, ownership and process-reaping bounds.
+Do not extend statement limits, proof expiry, receipt times or any trading clock.
+
+During these bounded attempts, a still-valid successful proof for the exact
+same subject may remain visible under its original expiry. Cold or expired
+proof remains explicitly checking. Exhausted availability retry fails the
+observer and uses the existing 30-second scheduling cadence. Connection loss,
+integrity refusals, changed subjects, malformed evidence and completed negative
+financial results are not availability retries and keep their existing failure
+behavior. No failure, signed review history or trial verdict is cleared by this
+classification, and no financial or source-publication writer is introduced.
+
+Seal this display-only successor through version 7 of the existing complete
+URL-selected source profile. Retain the exact installed `b0d516022b1cc20375d987e7cf94236ce061710f`
+Python source map as an additional predecessor, independently pinned by its
+complete closure. Preserve all earlier predecessor maps and structural witness
+bytes. Only the three verifier/source adapters and the profile checker may
+differ from this installed main predecessor. Authenticate the complete candidate
+map; missing, extra or changed neighboring files must retain their actual
+identity and gain no compatibility. This source edge has `authority_effect=NONE`;
+it cannot grant financial authority or renew any receipt.
+
+The verifier itself must match the exact source/runtime identity certified for
+the installed image. This compatibility profile permits the reviewed retained
+history transition; it does not authorize changing files inside an already
+certified verifier. Ship this fix in a newly certified signed image through the
+normal installation and activation path. An in-place verifier overlay must be
+refused by the existing identity guard. Never change the validated identity,
+reviewed configuration, or admission rules to make such an overlay pass.
+
 Exercise the actual Reader, monitor lifecycle, JSON, HTML and browser refresh.
 Prove independence on broker-only changes and withdrawal on shadow input or
 annotation changes. Cross several proof lifetimes with no HTTP traffic, queued

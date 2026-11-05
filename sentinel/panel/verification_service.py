@@ -33,7 +33,8 @@ def _observe_once(database_url, include_paper, expected_key):
     from sentinel.panel import sources
     if not include_paper:
         rows, details, history, errors = sources._dual_authority_rows(database_url,
-            now=datetime.now(timezone.utc), include_paper=False, propagate_corpus_lock=True)
+            now=datetime.now(timezone.utc), include_paper=False,
+            propagate_corpus_lock=True, propagate_read_unavailability=True)
         if details or history:
             raise ValueError('unexpected shadow observation shape')
     else:
@@ -60,7 +61,7 @@ def observe(database_url, include_paper, expected_key):
     if preparation is not None:
         return preparation
     try:
-        return financial.retry_corpus_lock(lambda: _observe_once(database_url, include_paper, expected_key))
+        return financial.retry_observation_read(lambda: _observe_once(database_url, include_paper, expected_key))
     except CorpusLockUnavailable:
         from sentinel.panel import publication_wait
         result=publication_wait.observe(database_url,include_paper,expected_key)

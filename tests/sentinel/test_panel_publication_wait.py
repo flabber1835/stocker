@@ -101,7 +101,7 @@ def test_changed_scope_subject_refuses(monkeypatch,record,subjects):
 
 def test_only_actual_corpus_lock_type_gets_publication_fallback(monkeypatch):
     answer=object();calls=[]
-    monkeypatch.setattr(verification_service.financial,'retry_corpus_lock',lambda operation:operation())
+    monkeypatch.setattr(verification_service.financial,'retry_observation_read',lambda operation:operation())
     def unavailable(*a):raise CorpusLockUnavailable('busy')
     monkeypatch.setattr(verification_service,'_observe_once',unavailable)
     monkeypatch.setattr(waiting,'observe',lambda *a:calls.append(a) or answer)

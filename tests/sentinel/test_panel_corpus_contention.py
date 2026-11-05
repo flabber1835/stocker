@@ -109,11 +109,11 @@ def test_identity_change_during_retry_refuses_the_old_expected_key(monkeypatch):
         calls.append(True)
         raise CorpusLockUnavailable('busy')
     monkeypatch.setattr(sources, '_dual_authority_rows', busy)
-    retry = reader.retry_corpus_lock
+    retry = reader.retry_observation_read
     def sleep(seconds):
         clock.sleep(seconds)
         identity[0] = 'after'
-    monkeypatch.setattr(reader, 'retry_corpus_lock', lambda operation: retry(
+    monkeypatch.setattr(reader, 'retry_observation_read', lambda operation: retry(
         operation, clock=clock, sleep=sleep))
     with pytest.raises(ValueError, match='verification subject changed before'):
         verifier.observe('fixture', False, expected)
@@ -196,21 +196,22 @@ def test_real_exclusive_pin_collision_recovers_without_cached_red(pg, monkeypatc
 
 
 def test_removing_retry_deadline_breaks_its_falsifier(monkeypatch):
-    source = inspect.getsource(reader.retry_corpus_lock)
+    source = inspect.getsource(reader._retry_read)
     source = source.replace('if remaining <= 0:', 'if False:')
+    source = source.replace('if clock() >= retry_deadline:', 'if False:')
     namespace = {}
     exec(compile(source, 'unbounded-lock-retry', 'exec'), vars(reader), namespace)
-    monkeypatch.setattr(reader, 'retry_corpus_lock', namespace['retry_corpus_lock'])
+    monkeypatch.setattr(reader, '_retry_read', namespace['_retry_read'])
     with pytest.raises(AssertionError):
         test_retry_budget_is_fixed_and_capped_by_original_work_deadline()
 
 
 def test_retrying_all_errors_breaks_its_falsifier(monkeypatch):
-    source = inspect.getsource(reader.retry_corpus_lock)
-    source = source.replace('except CorpusLockUnavailable:', 'except Exception:')
+    source = inspect.getsource(reader._retry_read)
+    source = source.replace('except retryable:', 'except Exception:')
     namespace = {}
     exec(compile(source, 'overbroad-lock-retry', 'exec'), vars(reader), namespace)
-    monkeypatch.setattr(reader, 'retry_corpus_lock', namespace['retry_corpus_lock'])
+    monkeypatch.setattr(reader, '_retry_read', namespace['_retry_read'])
     with pytest.raises(AssertionError):
         test_other_errors_are_not_retried(ValueError('invalid book'))
 
