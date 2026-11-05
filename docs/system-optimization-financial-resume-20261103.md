@@ -2037,3 +2037,21 @@ fractional proxy,with original clock/slot/reference scaling preserved. Forty-six
 DATA tests passed,including39 negatives and31 guard-removal cases. Admit251,
 retain232 in history and exclude the January tail. The next SEND source scope
 may bind this own December31 parent only after admission.
+
+Select the exact SEND January30 identity/January31 native and February1 TWLO
+full observation from P03's admitted251 parent. Both instruments are unheld at
+that own checkpoint; no claim is made about the unadmitted January tail. Reuse
+the existing known-native plus additional-row schema2,retain every closed scope
+and grant no financial transitions or term authority. The issuer confirms the
+mandatory0.485TWLO stock-only conversion before February1 open; a later generic
+zero-fixed-cash stock predicate must be qualified separately after source DATA.
+
+The later generic stock selector may accept a source-qualified mandatory stock-
+only right with zero fixed cash and confirmed preopen recognition. Preserve the
+existing positive-cash/date branches and all historical generations. The complete
+canonical stock conversion already supports nonnegative cash; no financial
+engine change is required. Bind exact ratio,delivered identity,full frozen row,
+primary timing and declared fractional raw-open proxy. Support actual future
+holdings through canonical conversion; do not infer a never-held portfolio from
+the December source-only checkpoint. Keep such a term nonselectable until its
+own source capture and independent DATA have closed.

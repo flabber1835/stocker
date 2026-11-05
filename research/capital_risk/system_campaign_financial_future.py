@@ -574,6 +574,13 @@ EXTRA_WITNESS_SCOPES['P11', '2023-06-30'] = dict(
         session='2023-07-26',native_session='2023-07-27',
         native_term_sha256='c18c68ef2a138d80a1bf1325d3ece4707e45c2bb6d51ea96a9a3c6dbb402237d',
         parent_positions=[dict(slot_id=15,ticker='AJRD',quantity=75,entry_date='2023-02-13')])])
+EXTRA_WITNESS_SCOPES['P03', '2018-12-31'] = dict(
+    parent_outer_sha256='32b2fb50d0686f057814a7d1950b5bf5a48bd7a46ad7c686e2dcda6cdca1ebf7',
+    parent_cursor='2018-12-31',terms=[dict(ticker='SEND',security_id='33561376965494239',
+        session='2019-01-30',native_session='2019-01-31',
+        native_term_sha256='53de6f69b2b4f8071a785b84cf9fa697da8c8b098db2227b8e0b48b7e9c23919',parent_positions=[])],
+    additional_rows=[dict(ticker='TWLO',security_id='361746987237610562',session='2019-02-01',
+        source_observation_sha256='9d1d9eeb1363f4226fa7789a982a35ec3bb738f92d65a398b1208aca68df1107',parent_positions=[])])
 _distribution_scope_raw = (HERE / 'system-campaign-compound-source-witness-scopes.json').read_bytes()
 need(sha(_distribution_scope_raw) == '96da962471d10724a2d0c320b03837468628ac36ca3c890cb391aaf68ac67714',
      'SOURCE_DISTRIBUTION_EXACT_REGISTERED_SCOPE_CATALOG')
@@ -595,6 +602,7 @@ ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES['P03', '2018-11-30'])
 ACTIVE_WITNESS_SCOPES.update({arm: digest(scope) for arm, scope in DISTRIBUTION_WITNESS_SCOPES.items()})
 ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2020-06-30'])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2023-06-30'])
+ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES['P03', '2018-12-31'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
