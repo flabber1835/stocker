@@ -2071,6 +2071,107 @@
       },
       "ticker": "CBLK",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm"
+    },
+    {
+      "actual_completion_date": "2021-04-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 66.0,
+        "delivered_issuer_id": "SEC_CIK:1058057",
+        "delivered_security_id": "522595530457156829",
+        "delivered_ticker": "MRVL",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "2.323",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://investor.marvell.com/sec-filings/all-sec-filings/content/0001193125-21-122807/0001193125-21-122807.pdf | Published66USD cash plus2.323 new MTI shares per eligible Inphi common share. Legal effectiveness is April20,2021 at16:02 America/New_York after the regular trading close. Preserve April20 trading; recognize consideration at the next frozen April21 research opening. Holder fractional cash uses the retained MRVL raw-open research proxy, not an observed issuer settlement rate. Actual settlement, fees and taxes are not claimed. Preserve the frozen MRVL issuer SEC_CIK:1058057 and eligibility1 without replacing them with the new legal-company CIK.",
+        "security_id": "417303318744640788",
+        "session": "2021-04-21"
+      },
+      "arm": "P06",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1058057",
+        "listing_first_session": "2000-06-30",
+        "security_id": "522595530457156829",
+        "security_type_eligible": "1",
+        "session": "2021-04-21",
+        "source_observation_sha256": "f99c5f4ff4a4e92c5e232c27415a753b3de1815f9c6082a73a022b0289e61a2e",
+        "ticker": "MRVL"
+      },
+      "description": "Published66USD cash plus2.323 new MTI shares per eligible Inphi common share. Legal effectiveness is April20,2021 at16:02 America/New_York after the regular trading close. Preserve April20 trading; recognize consideration at the next frozen April21 research opening. Holder fractional cash uses the retained MRVL raw-open research proxy, not an observed issuer settlement rate. Actual settlement, fees and taxes are not claimed. Preserve the frozen MRVL issuer SEC_CIK:1058057 and eligibility1 without replacing them with the new legal-company CIK.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1160958",
+        "listing_first_session": "2010-11-12",
+        "security_id": "417303318744640788",
+        "security_type_eligible": "1",
+        "session": "2021-04-19",
+        "source_observation_sha256": "c404673c1cc872874c9811e4301841756ac073765ede6b0251f72c680a9c676c",
+        "ticker": "IPHI"
+      },
+      "last_trading_session": "2021-04-20",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=9235.1",
+        "security_id": "417303318744640788",
+        "session": "2021-04-20"
+      },
+      "native_session": "2021-04-20",
+      "native_term_sha256": "784f0b044d83705dd144f20dda7dc87392ce7567336185b84d49811aabf2f518",
+      "parent_cursor": "2021-03-31",
+      "parent_outer_sha256": "41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246",
+      "parent_positions": [
+        {
+          "entry_date": "2020-03-30",
+          "quantity": 23,
+          "slot_id": 7,
+          "ticker": "IPHI"
+        }
+      ],
+      "parent_root_admission_sha256": "f8be3c331ac12f211c630078d128278c155eb99a98afaff81bc8219e435094aa",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://investor.marvell.com/sec-filings/all-sec-filings/content/0001193125-21-122807/0001193125-21-122807.pdf",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "522595530457156829",
+        "session": "2021-04-21",
+        "source_observation_sha256": "f99c5f4ff4a4e92c5e232c27415a753b3de1815f9c6082a73a022b0289e61a2e",
+        "ticker": "MRVL"
+      },
+      "recognition_rule": "RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "completed_after_close_confirmed": true,
+        "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+        "legal_effective_local": "2021-04-20T16:02:00-04:00",
+        "legal_effective_timezone": "America/New_York",
+        "opening_availability_assumed": true,
+        "published_cash_is_approximate": false,
+        "published_cash_per_share": "66.00",
+        "published_exchange_ratio": "2.323",
+        "recognition_session": "2021-04-21",
+        "schema": "research.daily-mixed-consideration-assumption/3",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "417303318744640788",
+      "source_capture": {
+        "artifact_id": 13392737266,
+        "head": "a0a06b71157b91557bf30951ac4dc7a2aba243ca",
+        "independent_data_review_sha256": "5aa84297a314aa70e6931f46fdef427b8e09302d5c13226242ab365a401ff1f5",
+        "independent_qualification_sha256": "3258f81d440e1e01530d2abd9141e9a25c872eb8841b9a0bdde71071f1f34990",
+        "payload_sha256": "c6727b4380c713d4ad4b506893605d1058db20eec740782cfc1273688febc375",
+        "run_id": 41978263810,
+        "scope_sha256": "9433a201e6c3c63b2edaac2c7e3dc4cee42225e5a875fb153e37403abcd8cb9c"
+      },
+      "ticker": "IPHI",
+      "timing_source": "https://investor.marvell.com/sec-filings/all-sec-filings/content/0001193125-21-122807/0001193125-21-122807.pdf"
     }
   ]
 }

@@ -159,6 +159,13 @@ def test_original_model_and_unrelated_validator_asts_unchanged():
     for mode in ('PRIOR_STOCK','PREOPEN_STOCK'):
         assert isinstance(after.body[0],ast.If) and mode in ast.unparse(after.body[0].test)
         del after.body[0]
+    # The new explicit /3 path retains the complete old mixed predicate as else.
+    mixed, = [n for n in after.body if isinstance(n, ast.If) and 'RESEARCH_MIXED' in ast.unparse(n.test)]
+    timing = mixed.body[0]
+    expected = ast.parse("term['research_assumption'].get('schema') == 'research.daily-mixed-consideration-assumption/3'", mode='eval').body
+    assert isinstance(timing, ast.If) and ast.dump(timing.test, include_attributes=False) == ast.dump(expected, include_attributes=False)
+    assert len(timing.orelse) == 1
+    mixed.body = timing.orelse + mixed.body[1:]
     # Only the final NEXT_COMPLETION predicate now permits a nontrading
-    # completion date; all earlier recognition branches remain exact.
+    # completion date; every earlier original recognition predicate remains exact.
     assert ast.dump(ast.Module(body=before.body[:-1],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=after.body[:-2],type_ignores=[]),include_attributes=False)

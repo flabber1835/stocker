@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '69cace876439b11fd0d9b48f8a6c8faa2ee149be9c6ffaf2e54dda034292feca'
+OWN_CASH_SHA = 'b199b6df1b4e34e1b98336795dc3eeb62caa9981f3f9a96b2b1edb1704aa6581'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -153,6 +153,9 @@ CASH_GENERATION_LENGTHS['P11', '2025-06-30'] = 26
 CLOSED_CASH_GENERATIONS['677c0bd781406b4fbfb9871ce14707250168526ef9f07162b4bde8c992423cc6'] = 26
 OWN_CASH_PHASES['P03', '2019-09-30'] = 'CBLK'
 CASH_GENERATION_LENGTHS['P03', '2019-09-30'] = 27
+CLOSED_CASH_GENERATIONS['69cace876439b11fd0d9b48f8a6c8faa2ee149be9c6ffaf2e54dda034292feca'] = 27
+OWN_CASH_PHASES['P06', '2021-03-31'] = 'IPHI'
+CASH_GENERATION_LENGTHS['P06', '2021-03-31'] = 28
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
@@ -279,6 +282,8 @@ SUPPLEMENTAL_PHASES['P03', '2019-09-30'] = (
      ('ARQL',)),
 )
 
+SUPPLEMENTAL_PHASES['P06', '2021-03-31'] = (('system_campaign_2021_completions_facts', 'CompletionFacts', 'PATH', 'system-campaign-2021-completions-terminal-facts.json', 'de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb', 'c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2', ('MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1')), ('system_campaign_following_completions_facts', 'FollowingFacts', 'PATH', 'system-campaign-following-completions-terminal-facts.json', 'bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d', '2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e', ('CATM', 'AZPN1', 'REGI', 'PLAN')))
+
 
 class ResearchCashAssumption(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
@@ -307,6 +312,14 @@ class ResearchExactCashMixedAssumption(ResearchMixedAssumption):
     """Version2 preserves all daily assumptions and declares exact published cash."""
     schema_id: Literal['research.daily-mixed-consideration-assumption/2'] = Field(alias='schema')
     published_cash_is_approximate: Literal[False]
+
+
+class ResearchAfterCloseMixedAssumption(ResearchExactCashMixedAssumption):
+    """Version3 separates a confirmed post-close legal event from daily recognition."""
+    schema_id: Literal['research.daily-mixed-consideration-assumption/3'] = Field(alias='schema')
+    legal_effective_local: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$')]
+    legal_effective_timezone: Literal['America/New_York']
+    completed_after_close_confirmed: Literal[True]
 
 
 class ResearchTenderAssumption(BaseModel):
@@ -416,6 +429,7 @@ OWN_CASH_SOURCE_CLOCKS['P03', '2019-05-31'] = (41961189857, 'a766451be5a7fdcdad6
 OWN_CASH_SOURCE_CLOCKS['P06', '2020-06-30'] = (41966300662, '9f73b5fa7ab5102b079313b6715f030e70419c7a', 13388235253)
 OWN_CASH_SOURCE_CLOCKS['P11', '2025-06-30'] = (41971859824, 'f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6', 13390656184)
 OWN_CASH_SOURCE_CLOCKS['P03', '2019-09-30'] = (41974204844, '51a1d68b1a615af2e80937f11e22a60510802185', 13391196722)
+OWN_CASH_SOURCE_CLOCKS['P06', '2021-03-31'] = (41978263810, 'a0a06b71157b91557bf30951ac4dc7a2aba243ca', 13392737266)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1308,12 +1322,32 @@ def research_cash_term(term):
          'OWN_INPUT_EXPLICIT_RESEARCH_CASH_AMOUNT_AND_DAILY_RECOGNITION')
 
 
+def research_after_close_mixed_timing(term, model):
+    """Qualify legal post-close timing without moving the legal completion date."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    effective = datetime.fromisoformat(model.legal_effective_local)
+    local = effective.astimezone(ZoneInfo(model.legal_effective_timezone))
+    need(effective.isoformat() == local.isoformat() == model.legal_effective_local
+         and local.date().isoformat() == term['actual_completion_date']
+             == term['native_session'] == term['last_trading_session']
+         and (local.hour, local.minute, local.second) > (16, 0, 0)
+         and model.completed_after_close_confirmed is True
+         and model.recognition_session == term['added']['session'] > term['actual_completion_date'],
+         'OWN_INPUT_MIXED_CONFIRMED_POSTCLOSE_LEGAL_TIME_AND_DISTINCT_RECOGNITION')
+    return model.recognition_session
+
+
 def research_mixed_term(term):
     assumption = term['research_assumption']
-    model_class = (ResearchExactCashMixedAssumption
-                   if assumption.get('schema') == 'research.daily-mixed-consideration-assumption/2'
-                   else ResearchMixedAssumption)
+    model_class = (ResearchAfterCloseMixedAssumption
+                   if assumption.get('schema') == 'research.daily-mixed-consideration-assumption/3' else
+                   (ResearchExactCashMixedAssumption
+                    if assumption.get('schema') == 'research.daily-mixed-consideration-assumption/2'
+                    else ResearchMixedAssumption))
     model = model_class.model_validate(assumption)
+    recognition = (research_after_close_mixed_timing(term, model)
+                   if isinstance(model, ResearchAfterCloseMixedAssumption) else term['actual_completion_date'])
     a, w, dw, proxy = term['added'], term['identity_witness'], term['delivered_identity_witness'], term['proxy']
     ratio = a['exchange_ratio']
     value = float(ratio)
@@ -1328,7 +1362,7 @@ def research_mixed_term(term):
          and Fraction(str(a['cash_per_share'])) == Fraction(model.published_cash_per_share)
          and type(ratio) is str and math.isfinite(value) and value > 0
          and Fraction(str(value)) == Fraction(ratio) == Fraction(model.published_exchange_ratio)
-         and a['session'] == model.recognition_session == term['actual_completion_date']
+         and a['session'] == model.recognition_session == recognition
          and term['parent_cursor'] < w['session'] < term['native_session'] == term['last_trading_session'] < a['session']
          and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
          and a['entitlement_aggregation'] == 'HOLDER' and a['cash_in_lieu_price_per_delivered_share'] is None
@@ -1415,10 +1449,18 @@ def completion_session(term, dates):
              'OWN_INPUT_PREOPEN_STOCK_EXACT_FROZEN_NEXT_SESSION')
         return
     if term.get('recognition_rule') == RESEARCH_MIXED:
-        need(dates == sorted(set(dates)) and term['native_session'] in dates
-             and dates.index(term['native_session']) + 1 < len(dates)
-             and dates[dates.index(term['native_session']) + 1] == term['added']['session'] == term['actual_completion_date'],
-             'OWN_INPUT_RESEARCH_MIXED_NEXT_FROZEN_DAILY_BOUNDARY')
+        if term['research_assumption'].get('schema') == 'research.daily-mixed-consideration-assumption/3':
+            model = ResearchAfterCloseMixedAssumption.model_validate(term['research_assumption'])
+            recognition = research_after_close_mixed_timing(term, model)
+            need(dates == sorted(set(dates)) and term['native_session'] in dates
+                 and dates.index(term['native_session']) + 1 < len(dates)
+                 and dates[dates.index(term['native_session']) + 1] == term['added']['session'] == recognition,
+                 'OWN_INPUT_AFTERCLOSE_MIXED_EXACT_NEXT_FROZEN_DAILY_BOUNDARY')
+        else:
+            need(dates == sorted(set(dates)) and term['native_session'] in dates
+                 and dates.index(term['native_session']) + 1 < len(dates)
+                 and dates[dates.index(term['native_session']) + 1] == term['added']['session'] == term['actual_completion_date'],
+                 'OWN_INPUT_RESEARCH_MIXED_NEXT_FROZEN_DAILY_BOUNDARY')
         return
     if term.get('recognition_rule') == RESEARCH_SOURCE_EXIT:
         model = ResearchSourceExitAssumption.model_validate(term['research_assumption'])
@@ -1692,6 +1734,7 @@ def merge_selected_terms(primary, extra):
 
 ORIGINAL_CONTRACT_DELIVERY_PHASES = {('P05', '2021-03-31'): {'module': 'system_campaign_distribution_facts', 'class_name': 'DistributionFacts', 'catalog_file': 'system-campaign-distribution-facts.json', 'catalog_sha256': 'db0e6498224929c322c1a73a0e5b7942110e7a1c645db8f6b21bd329f22d41ae', 'validator_file': 'system_campaign_distribution_facts.py', 'validator_sha256': 'c83a3ed96b2334333fde7f8f2d05ef9e4c2b98d7a52c4be5e437a6b954aa88bb', 'selected_tickers': ('APHA',), 'parent_outer_sha256': '57fc54933459d897d290094c7cb3b9c1c5d1195ff2dd1eea182284941302070a', 'parent_root_admission_sha256': 'b1b4db73909f584bf7704cf33158eacc9ce1f8a8cbe212785d8f9b3404e6dede', 'source_capture': {'run_id': 41971859824, 'head': 'f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6', 'artifact_id': 13390251892, 'payload_sha256': '90d3c08c6010986bfb852984645e262ad623b9ba4221510e8b8e8c1fcf49a667', 'scope_sha256': 'b3cec0ea35dd39cd8a6ea16e2e1366c01783d507ebd85d2514b5278d269a885d', 'independent_data_review_sha256': '7713d40d4c9a9234603be70d13cf07d037881837f66c2d911a20bc37465f2822', 'independent_qualification_sha256': 'e0f57b8f67e0c89207980ed17a3f09ef20fb72ee45ad9b4781167c67c7df8185'}}}
 FUTURE_LITERAL_PHASES['P05', '2021-03-31'] = ('system_campaign_following_completions_facts', 'FollowingFacts', 'system-campaign-following-completions-terminal-facts.json', ('CATM', 'AZPN1', 'REGI', 'PLAN'))
+ORIGINAL_CONTRACT_DELIVERY_PHASES['P06', '2021-03-31'] = {'module': 'system_campaign_distribution_facts', 'class_name': 'DistributionFacts', 'catalog_file': 'system-campaign-distribution-facts.json', 'catalog_sha256': 'db0e6498224929c322c1a73a0e5b7942110e7a1c645db8f6b21bd329f22d41ae', 'validator_file': 'system_campaign_distribution_facts.py', 'validator_sha256': 'c83a3ed96b2334333fde7f8f2d05ef9e4c2b98d7a52c4be5e437a6b954aa88bb', 'selected_tickers': ('APHA',), 'parent_outer_sha256': '41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246', 'parent_root_admission_sha256': 'f8be3c331ac12f211c630078d128278c155eb99a98afaff81bc8219e435094aa', 'source_capture': {'run_id': 41978263810, 'head': 'a0a06b71157b91557bf30951ac4dc7a2aba243ca', 'artifact_id': 13392737266, 'payload_sha256': 'c6727b4380c713d4ad4b506893605d1058db20eec740782cfc1273688febc375', 'scope_sha256': '9433a201e6c3c63b2edaac2c7e3dc4cee42225e5a875fb153e37403abcd8cb9c', 'independent_data_review_sha256': '5aa84297a314aa70e6931f46fdef427b8e09302d5c13226242ab365a401ff1f5', 'independent_qualification_sha256': '3258f81d440e1e01530d2abd9141e9a25c872eb8841b9a0bdde71071f1f34990'}}
 
 
 def contractual_delivery_addition(term, row):

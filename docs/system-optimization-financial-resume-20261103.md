@@ -2751,3 +2751,43 @@ The actual next identities are UFS in P05's leadership cash-return path and
 EXAS in P11's missing March23 causal-bar path; neither authorizes a formula
 override. Fresh source and independently qualified consideration remain
 required after the newly saved checkpoints are admitted.
+
+P03 financial270 cleared CBLK but stopped before a new monthly checkpoint at
+the October21 ALDR leadership terminal. The neutral8996 checkpoint and all14
+October tail closes remain inadmissible; continue from own439/bd698. Reuse the
+existing Alder18USD-plus-contingent-right contract and its18-to20 bounded
+uncertainty policy through a separately source-qualified P03 own-root binding.
+Do not collapse the right to20 upfront or invent a cash-only complete terminal.
+Preserve existing P07 source contracts exactly. Require fresh P03 frozen native,
+identity, unowned/unordered scope and the same canonical-comparison invariance
+or exhaustive branch evidence before any financial admission. Generalize only
+the explicit per-arm/own-root selection of that established policy; introduce
+no symbol wrapper, broker state or relaxed comparison guard. Qualified known
+remaining original2019/2020 terms may be batched through the existing generic
+source/composition path to reduce repeat stops, with exact current-root roles.
+
+P07 financial270's retained route passed VCRA and saved1047 throughFebruary28,
+nineteen new closes. Its March4 leadership terminal is a new source-input
+blocker; preserve all March tails. For reporting this unchanged-input suffix,
+extend the generic saved-prefix selector only with an explicitly authorized
+same-input branch: the exact original financial request must select unchanged
+input for the admitted seed, the unchanged-input receipt must pass, the input
+hash and every existing descriptor byte must remain identical, and no new
+overlay or repair may be present. Preserve the existing changed-input guard
+for all new-overlay phases. This is a new nineteen-close financial suffix,
+never authority to promote a zero-close neutral adoption checkpoint. Retain
+the complete new branch-certificate prefix and independently review every
+new accounting/report before admitting another P07 root.
+
+Report271 and independent DATA admit P05 own965 throughOctober29,2021 as
+798631a219bbd2926c6e2a6633bdf71ab1cc5e013094c343bdfc86deee9045b7,
+and P11 own2050 throughFebruary27,2026 as
+4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a.
+Their148/296/7/196 and167/334/8/224 counts passed, each with21 input tests;
+retain both prior roots and every excluded tail. No new full completion is
+claimed. Dispatch financial272 P06 from own817/f8be using qualified catalog28
+b199b6df1b4e34e1b98336795dc3eeb62caa9981f3f9a96b2b1edb1704aa6581
+and its12-term composition. The /3 legal-time branch, old mixed predicates,
+source/role bindings, APHA zero and inherited inputs passed52 author,52 peer
+and52 shared tests. Only the generic model's declared timing branch changes;
+the canonical financial drivers and all prior catalog records remain exact.
