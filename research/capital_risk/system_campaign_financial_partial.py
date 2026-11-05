@@ -255,6 +255,38 @@ def retained_models(root, parent, spec):
     return True
 
 
+def activate_retained_projection(root, parent, projection):
+    """Parse the original committed activation before resolving its branch owner."""
+    from system_campaign_financial_projection import OwnProjection, branch_loader_owner
+    if not isinstance(projection, OwnProjection):
+        return None
+    root = Path(root)
+    found = [d for d in parent['repairs'] if d['sha256'] == projection.activation_sha]
+    need(len(found) == 1, 'PARTIAL_ONE_EXACT_RETAINED_PROJECTION_ACTIVATION')
+    entry = found[0]
+    path = root / 'book/repairs' / entry['filename']
+    need(entry['filename'] == entry['sha256'] + '.json'
+         and sha(path.read_bytes()) == entry['sha256']
+         and path.read_bytes() == projection.overlay_raw
+         and parent['base'] == projection.cp['base']
+         and parent['source_cursor'] >= projection.cp['source_cursor']
+         and entry['resume_session'] == projection.cp['source_cursor']
+         and entry['predecessor_checkpoint_sha256'] == projection.cp['run']['checkpoint_sha256'],
+         'PARTIAL_RETAINED_PROJECTION_EXACT_BYTES_GENERATION_AND_ORIGINAL_CLOCK')
+    backtest = projection.backtest
+    need(getattr(backtest.load_repair, '__self__', None) is projection,
+         'PARTIAL_RETAINED_PROJECTION_ACTUAL_INSTALLED_LOADER')
+    loaded = backtest.load_repair(path, resume_session=entry['resume_session'],
+        predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
+    need(loaded.sha256 == entry['sha256'] and loaded._resume_session == entry['resume_session']
+         and loaded.predecessor_checkpoint_sha256 == entry['predecessor_checkpoint_sha256'],
+         'PARTIAL_RETAINED_PROJECTION_ACTUAL_LOADED_OBJECT_ORIGINAL_CLOCK')
+    owner = branch_loader_owner(backtest.load_repair)
+    need(owner is not None and owner is getattr(projection.original_load, '__self__', None),
+         'PARTIAL_RETAINED_PROJECTION_ORIGINAL_ACTIVE_BRANCH_OWNER')
+    return loaded
+
+
 @contextmanager
 def model_context(root, parent, spec):
     with ExitStack() as stack:
@@ -263,7 +295,8 @@ def model_context(root, parent, spec):
             stack.enter_context(Codec(evidence(Path(root))))
         if spec.get('arm') == 'P07':
             from system_campaign_financial_projection import retained_context
-            stack.enter_context(retained_context(root, parent))
+            projection = stack.enter_context(retained_context(root, parent))
+            activate_retained_projection(root, parent, projection)
         yield
 
 
