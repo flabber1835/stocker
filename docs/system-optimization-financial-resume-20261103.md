@@ -2513,3 +2513,15 @@ research inputs. Chronological signal/correlation calculations do not remove
 those data-availability limitations. Preserve HISTORICAL_CAUSALITY_UNVERIFIED
 and disclose these limits alongside CAGR;do not describe financial admission
 as proof of unbiased live performance.
+
+Financial259 saved P05 own817 throughMarch31,2021,61new closes;financial252
+saved P11 own1883 throughJune30,2025,313new closes. Both hosted prefix reviews
+passed. Select readonly report262 for these saved suffixes:61/122/3/84 and
+313/626/15/420 daily/accounting/monthly/Decimal counts respectively. Preserve
+their unique per-arm selections and exclude all April/July tails. P05's next
+actual native is APHA April30;P11's next causal-axis refusal is July25 because
+TGI alone lacks that day's bar. Own1883 holds206TGI in slot3 sinceApril4.
+These identify existing source-input work;they grant no tail or input-adoption
+checkpoint authority. Both per-artifact captures completed;distinct collection
+summaries were then created after the shared-summary filename refused an
+overwrite. No archive was downloaded again or earlier collection rewritten.
