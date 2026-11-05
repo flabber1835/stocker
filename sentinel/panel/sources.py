@@ -25,6 +25,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 
+from psycopg.errors import LockNotAvailable, QueryCanceled
+
 from sentinel.panel import model
 
 #: Wealth Core's slot count. Read from the engine config rather than hardcoded
@@ -2546,7 +2548,8 @@ def _shadow_holdings(state, session, nav):
         slots=shadow_slots(state['wealth_core']))
 
 
-def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
+def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
+                               propagate_read_unavailability: bool = False):
     """Project the actual canonical shadow; never create a catchup book."""
     if result is None or not verified:
         detail = "current canonical shadow verification is unavailable"
@@ -2580,6 +2583,8 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
             as_of=now)
         return [exposure, book, terminals], []
     except Exception as exc:                                 # noqa: BLE001
+        if propagate_read_unavailability and isinstance(exc, (QueryCanceled, LockNotAvailable)):
+            raise
         detail = _short(exc)
         return [
             model.exposure_row(exposure=None, controller_active=None, error=detail),
@@ -2590,7 +2595,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
 
 def _dual_authority_rows(
         database_url: str, *, now: datetime, include_paper: bool = True,
-        propagate_corpus_lock: bool = False
+        propagate_corpus_lock: bool = False, propagate_read_unavailability: bool = False
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
@@ -2688,7 +2693,8 @@ def _dual_authority_rows(
         ]
         book_rows, book_errors = _verified_shadow_book_rows(
             conn, result, verified=(verified or source_wait is not None),
-            now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)))
+            now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)),
+            propagate_read_unavailability=propagate_read_unavailability)
         if source_wait is not None:
             book_rows = [replace(row, status=model.WARN,
                 value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",
@@ -2708,6 +2714,8 @@ def _dual_authority_rows(
         except Exception as exc:                             # noqa: BLE001
             if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
                 raise
+            if propagate_read_unavailability and isinstance(exc, (QueryCanceled, LockNotAvailable)):
+                raise
             # PAPER evidence cannot erase a shadow result that already passed
             # its independent full-corpus verification above.
             detail = _short(exc)
@@ -2719,6 +2727,8 @@ def _dual_authority_rows(
         return rows, {}, [], paper_errors
     except Exception as exc:                                 # noqa: BLE001
         if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
+            raise
+        if propagate_read_unavailability and isinstance(exc, (QueryCanceled, LockNotAvailable)):
             raise
         detail = _short(exc)
         return ([

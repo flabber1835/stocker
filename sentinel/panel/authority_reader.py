@@ -32,12 +32,28 @@ def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
     """Retry only a refused corpus pin inside the original finite observer."""
     from sentinel.feed.publication import CorpusLockUnavailable
 
+    return _retry_read(operation, (CorpusLockUnavailable,), clock=clock, sleep=sleep)
+
+
+def retry_observation_read(operation, *, clock=time.monotonic, sleep=time.sleep):
+    """Retry typed read refusals, never a completed negative verification."""
+    from psycopg.errors import LockNotAvailable, QueryCanceled
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    return _retry_read(operation, (CorpusLockUnavailable, QueryCanceled, LockNotAvailable),
+                       clock=clock, sleep=sleep)
+
+
+def _retry_read(operation, retryable, *, clock, sleep):
     work_deadline = clock() + DEADLINE_SECONDS
     retry_deadline = None
     while True:
         try:
-            return operation()
-        except CorpusLockUnavailable:
+            result = operation()
+            if clock() >= work_deadline:
+                raise TimeoutError('financial observation work deadline expired')
+            return result
+        except retryable:
             now = clock()
             if retry_deadline is None:
                 retry_deadline = min(work_deadline, now + CORPUS_LOCK_RETRY_SECONDS)
@@ -45,6 +61,8 @@ def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
             if remaining <= 0:
                 raise
             sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
+            if clock() >= retry_deadline:
+                raise
 
 
 def _observe_once(database_url, include_paper, expected_key):
@@ -53,7 +71,7 @@ def _observe_once(database_url, include_paper, expected_key):
         raise ValueError('financial evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(
         database_url, now=datetime.now(timezone.utc), include_paper=include_paper,
-        propagate_corpus_lock=True)
+        propagate_corpus_lock=True, propagate_read_unavailability=True)
     if details or history or len(rows) > 7:
         raise ValueError('unexpected financial observer shape')
     value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
@@ -63,7 +81,7 @@ def _observe_once(database_url, include_paper, expected_key):
 
 
 def _observe(database_url, include_paper, expected_key):
-    return retry_corpus_lock(lambda: _observe_once(
+    return retry_observation_read(lambda: _observe_once(
         database_url, include_paper, expected_key))
 
 

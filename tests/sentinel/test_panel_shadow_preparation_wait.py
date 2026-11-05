@@ -136,7 +136,7 @@ def test_positive_background_proof_skips_expensive_financial_closure(monkeypatch
 
 def test_unrelated_integrity_refusal_is_not_masked_when_preparation_proof_absent(monkeypatch):
     monkeypatch.setattr(shadow_source_wait, 'observe_preparation', lambda *args: None)
-    monkeypatch.setattr(verification_service.financial, 'retry_corpus_lock', lambda operation: operation())
+    monkeypatch.setattr(verification_service.financial, 'retry_observation_read', lambda operation: operation())
     def refused(*args):
         raise ValueError('unrelated immutable binding changed')
     monkeypatch.setattr(verification_service, '_observe_once', refused)
