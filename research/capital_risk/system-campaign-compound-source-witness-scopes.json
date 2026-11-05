@@ -132,6 +132,74 @@
       "parent_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
       "schema": "research.distribution-only-source-scope/1",
       "terms": []
+    },
+    "P11": {
+      "additional_rows": [
+        {
+          "parent_positions": [
+            {
+              "entry_date": "2023-08-11",
+              "quantity": 36,
+              "slot_id": 11,
+              "ticker": "GE"
+            }
+          ],
+          "security_id": "224580439420294771",
+          "session": "2024-04-01",
+          "source_observation_sha256": "4068629614b91975e06dea4e01c754122f99e8853536b92e428c05ce7cf14e10",
+          "ticker": "GE"
+        },
+        {
+          "parent_positions": [
+            {
+              "entry_date": "2023-08-11",
+              "quantity": 36,
+              "slot_id": 11,
+              "ticker": "GE"
+            }
+          ],
+          "security_id": "224580439420294771",
+          "session": "2024-04-02",
+          "source_observation_sha256": "41587d5d2aa2786e01b6dac466125031cd78b713a1078ee521ab38218836b826",
+          "ticker": "GE"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "37439132904117100",
+          "session": "2024-04-02",
+          "source_observation_sha256": "d5b6a7249659a7a8e1b270258411ce0cba5a28b4b4c04d5004c44fa26bf83cab",
+          "ticker": "GEV"
+        }
+      ],
+      "expected_native_distribution_count": 2,
+      "native_distribution_queries": [
+        {
+          "financial_use_authorized": false,
+          "maximum_records": 1,
+          "native_term_sha256": "9cea454de7f6e559b3307304db0c2a3e69bcc11f28d62700dcb557d44cff0058",
+          "parent_security_id": "224580439420294771",
+          "parent_ticker": "GE",
+          "raw_source_row_sha256": "380334e31927708af6b0b25e239d85bde757a4cb8455737e334457fbac60615d",
+          "schema": "research.exact-native-distribution-query/1",
+          "session": "2024-04-02",
+          "source_row_id": "96f13048653ea3691ebf9e0045c729444652f7ca5c26dd075e004c71c89ba574"
+        },
+        {
+          "financial_use_authorized": false,
+          "maximum_records": 1,
+          "native_term_sha256": "4015bb4bb459fb5f711c80397f437159391995ff169a3a1fbda5c2423fdfb30d",
+          "parent_security_id": "224580439420294771",
+          "parent_ticker": "GE",
+          "raw_source_row_sha256": "5bb863008f61f550f1ecd5f554ce173127dc759808291d3265a9d0f52762ebd5",
+          "schema": "research.exact-native-distribution-query/1",
+          "session": "2024-04-02",
+          "source_row_id": "465342b76294c8cde37139fcc9c0175c5881f19d7fa89440c60c418796611b3e"
+        }
+      ],
+      "parent_cursor": "2024-03-28",
+      "parent_outer_sha256": "bd4941ebbcfe4301d841c5ee9a56dd91636181a94b3d763f355716a618c06b70",
+      "schema": "research.distribution-only-source-scope/1",
+      "terms": []
     }
   }
 }

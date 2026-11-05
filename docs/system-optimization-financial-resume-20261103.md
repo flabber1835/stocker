@@ -2116,3 +2116,60 @@ monthly seeds. Financial producer bindings are239/schema106/source423 and
 bindings or admits the later tails. The next P03 refusal is an original LOXO
 cash input;P11 holds36GE at a child-ownership distribution boundary. Qualify
 their exact source and generic inputs after independent report/DATA admission.
+
+P06 saved543 passed independent DATA:252new days,504raw accountings,12reports
+and336Decimalmetrics. The original34-unit normalization,11wholeFOX sale,one-
+third fractional proxy,10bps sale cost,zero wholeDIS and terminal cash match
+the actual canonical ledger. The actual controller call was unselected and
+returnedNone;no selected-return claim is fabricated. Thirty-one tests passed,
+including three guard-removal falsifiers. Admit543 and retain291 as history.
+
+P03 saved272 passed21new January closes,42accountings,one report and28metrics.
+Actual TSRO3shares posted225USD and APTI was an unheld zero-op. The adopted SEND
+conversion remains future at January31;no February event JSON or tail was read
+or admitted. Twenty-two tests passed,including14guard-removal cases and five
+import fences. Admit272,retaining251 as history.
+
+Select source-only243 for P05 own734 BMCH and P06 own543 WAAS. Reuse standard
+known-native schemas2/1 with no new parser or financial authority. Bind exact
+December30 BMCH/December31 native and January4 BLDR full-row proxy;bind exact
+March26 WAAS identity/March27 native. Both source roles are checkpoint-specific
+and do not assert later portfolio holdings. Preserve all35 earlier scopes.
+Any BMCH future model must preserve January1 legal completion and January4
+first frozen recognition;any WAAS research opening model must disclose that
+March30 preopen timing is unconfirmed. Fill model capture pins only after
+hosted source capture and independent DATA pass.
+
+P11 saved1570 passed187new closes,374raw accountings,nine reports and252metrics.
+Actual AJRD75shares posted4350USD;native FOCS79shares posted4187USD under the
+unchanged original close-recognition reference. Seven H2terms and four retained
+calendar terms were unheld zero-ops;the CFMS/QUOT same-day batch was checked.
+Thirty-one tests passed,including26 negatives and four guard-removal cases.
+Admit1570 and retain1383 as exact history.
+
+Extend source243 to P11's own1570 GE distribution. Reuse generic schema7 with
+the exact two native representations of one event,three complete observations,
+36GE in slot11 and an empty GEV checkpoint role. Preserve the existing P06/P07
+scope objects and immutable distribution-source versions. This only captures
+source evidence;it does not admit a GE model or change industry identity. A
+later financial input can reuse the existing generic distribution route and
+genuine original unconsumed SWAV cash term once this source DATA closes.
+
+P07 retry242 cleared loader activation and stopped at the new ordinary helper's
+wrong schema literal. The exact committed B19 schema is
+research.leadership-branch-uncertainty-input/1;the legacy nonbranch schema must
+remain refused. Correct that literal and qualify against all18 actual own838
+repair bytes,including exactly one B19 input through unchanged B19.validate_input.
+
+The unchanged original ordinary-catalog collision analyzer accepts ordinary
+terminal repairs and its historical legacy input schema;it cannot scan B19's
+distinct branch document as an ordinary cash catalog. After complete exact B19
+validation,provide only a scoped collision-analysis view of the17 verified
+ordinary descriptors to the unchanged analyzer. Preserve the full canonical
+checkpoint,repair documents,branch proof and every other input field. Retain
+all ordinary collision checks and record the omitted exact B19 digest and full
+parent binding as proof of this limited view. Never serialize or adopt the view
+as a financial checkpoint,alter original analyzer/schema rules,omit unknown
+schemas or filter any ordinary descriptor. Test the real18-document refusal
+before the bridge,and exact17-document analysis after it,including collisions,
+wrong branch,changed bytes and source-clock falsifiers before another retry.
