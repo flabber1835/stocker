@@ -4075,3 +4075,27 @@ forecast_tests/additional_sensor/test_failed_review_transport.py`. Four affected
 resume/launcher selectors pass in8.63s using the four exact nodes listed for
 REVIEW299 with basetemp p07-readonly-event-selector-tests-20261105-001. The launcher
 probe passes request166/448 sources, zero finance and one readonly worker.
+
+
+While REVIEW300 runs readonly, prepare the already designed wide P03 source
+batch as SOURCE301/request167 (the deferred SOURCE299 label is not reused).
+Bind161 future identities to admitted own462 and recompute roles from its exact
+authenticated checkpoint. Preserve all existing historical source scopes by exact
+DATA comparison; the count must be measured before the append, not assumed.
+Source captures have zero financial authority and do not adopt any event model.
+Keep DOVA SOURCE290 and its actual event-date quote proof separate and unchanged.
+
+SOURCE301 scope314925db582a367fe54dbe2634ab971d946b13545737b14efaee743b30cc92f7
+contains161 identities/361 raw action rows. All15 adopted inputs stay intact.
+Current roles are recomputed from authenticated own462: WWE68 is held; DOVA,
+HMHC and ANAT are unowned. No future holding is predicted. All57 prior scopes
+remain byte-equivalent (digest a3a3113e74609d7637bc87ce87372378d26c8a2bfaa8126fa836c59c189cc6ce);
+all financial helper function/class ASTs are unchanged. Initial focused checks
+pass70 and report four stale append-boundary fixture expectations; exclude the
+new exact scope from those historical snapshots without changing their hashes.
+The five affected/new registry checks then pass; exact command uses basetemp
+source301-registry-final-tests-20261105-001 and the five registry nodes in
+forecast_tests/test_financial_source_witnesses.py. Launcher/selector/source
+refusal checks were included in the initial command with basetemp
+source301-targeted-tests-20261105-001. Request167 retains448 exact sources,
+zero financial workers and one readonly worker.
