@@ -2791,3 +2791,14 @@ and its12-term composition. The /3 legal-time branch, old mixed predicates,
 source/role bindings, APHA zero and inherited inputs passed52 author,52 peer
 and52 shared tests. Only the generic model's declared timing branch changes;
 the canonical financial drivers and all prior catalog records remain exact.
+
+Select readonly report273 for P07's saved1047 throughFebruary28,2022, using
+the exact admitted1028/ad8 seed. Verify19daily rows,38 raw accountings,one
+report and28 Decimal metrics; retain all574 prior certificates and the complete
+593-row committed prefix. Exclude all three March tail rows. The qualified
+selector's same-input branch proves the original request's explicit unchanged
+phase, unchanged receipt, identical input hash and all20 descriptor bytes;
+it refuses extra repairs/overlays and zero-close promotions. Seventeen cases
+including two guard removals passed. The older changed-input predicate remains
+unchanged for every phase without that explicit opt-in. This request starts
+no financial worker and grants no source or financial admission by itself.
