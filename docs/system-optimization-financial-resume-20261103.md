@@ -2284,3 +2284,28 @@ original function on exit and never serialize/adopt a replacement checkpoint
 or edit the protected registry. Test original constructor refusal before the
 view,all-five construction/hydration under it,collision guards and restart
 recognition before hosted financial execution.
+
+For P05 own756 after independent admission,reuse the unchanged original2021
+completion catalog/compiler for WPX and its other supported unconsumed future
+terms,retaining the already-adopted future BMCH/VRTU inputs. Prove the exact
+native/effective keys and identities,exclude past/colliding terms and qualify
+the original packets. The generic literal-phase selector must resolve an
+explicit phase before consulting PLANS;dict.get's eagerly evaluated fallback
+incorrectly raises for P05 despite a registered phase. Restore that selection
+contract without adding a P05 alias,changing any existing plan or introducing
+a symbol-specific wrapper.
+
+P05 financial248 saved756 throughDecember31,2020,22closes beyondown734;
+hosted prefix review passed. Select readonly report251 for22days,44accountings,
+one report and28metrics. January4/5 remains an excluded two-close tail even
+though its BMCH conversion cleared;no December BMCH financial application may
+be invented. The next actual refusal is the known original WPX January6 native.
+
+P03 report247 and independent DATA passed for own355 throughMay31,2019:
+83new closes,166raw accountings,four reports and112Decimal metrics. Admit
+e49c8db66e8f579cb75334ff3931b98e78032e35dafee6002fea437457c77544,
+retaining own272 and excluding the June tail. Nineteen reader tests include
+12guard-removal falsifiers and five import fences. The actual inherited
+SEND/TWLO roles and new LOXO/AHL2 contexts are unheld with zero settlement;
+no synthetic observer or financial application is asserted. The next KEYW
+source scope must qualify its original June11 native and June12 cash terms.
