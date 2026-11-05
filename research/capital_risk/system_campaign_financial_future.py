@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28'
+OWN_CASH_SHA = '677c0bd781406b4fbfb9871ce14707250168526ef9f07162b4bde8c992423cc6'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -147,6 +147,9 @@ CASH_GENERATION_LENGTHS['P03', '2019-05-31'] = 24
 CLOSED_CASH_GENERATIONS['ad124c0b56755fe08d035d35d6a27665ccd5e2049bd7293cfae2ee6cb4188be7'] = 24
 OWN_CASH_PHASES['P06', '2020-06-30'] = 'LM'
 CASH_GENERATION_LENGTHS['P06', '2020-06-30'] = 25
+CLOSED_CASH_GENERATIONS['712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28'] = 25
+OWN_CASH_PHASES['P11', '2025-06-30'] = 'TGI'
+CASH_GENERATION_LENGTHS['P11', '2025-06-30'] = 26
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
@@ -394,6 +397,7 @@ OWN_CASH_SOURCE_CLOCKS['P06', '2020-02-28'] = (41950496055, '4447cb10993eb7a7069
 OWN_CASH_SOURCE_CLOCKS['P05', '2020-11-30'] = (41950496055, '4447cb10993eb7a7069a389615d25500dc180a95', 13380652339)
 OWN_CASH_SOURCE_CLOCKS['P03', '2019-05-31'] = (41961189857, 'a766451be5a7fdcdad6f1cc755244f7ab5bbd8be', 13384628988)
 OWN_CASH_SOURCE_CLOCKS['P06', '2020-06-30'] = (41966300662, '9f73b5fa7ab5102b079313b6715f030e70419c7a', 13388235253)
+OWN_CASH_SOURCE_CLOCKS['P11', '2025-06-30'] = (41971859824, 'f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6', 13390656184)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -646,6 +650,7 @@ EXTRA_WITNESS_SCOPES[('P05', '2020-11-30')] = {'additional_rows': [{'parent_posi
 EXTRA_WITNESS_SCOPES[('P06', '2020-02-28')] = {'parent_cursor': '2020-02-28', 'parent_outer_sha256': '129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194', 'terms': [{'native_session': '2020-03-27', 'native_term_sha256': '9a5c400fd2d72a73e3a4765f8e76b2cca33a5d10d8aefe9357a6b0b323b7dc83', 'parent_positions': [], 'security_id': '879124841538592826', 'session': '2020-03-26', 'ticker': 'WAAS'}]}
 EXTRA_WITNESS_SCOPES[('P03', '2019-05-31')] = {'parent_cursor': '2019-05-31', 'parent_outer_sha256': '4fc061018ff0ea13600136b4ca24351e82bc20aed894a32c417a9f696a3339da', 'terms': [{'native_session': '2019-06-11', 'native_term_sha256': '505e48955faf2f4b469b28a92d3aa1c9027fe340f231f2de0ecf34942d2c8eb6', 'parent_positions': [], 'security_id': '1113120724624398950', 'session': '2019-06-10', 'ticker': 'KEYW'}]}
 EXTRA_WITNESS_SCOPES[('P03', '2019-05-31-seven-ordinary')] = {'additional_rows': [{'parent_positions': [], 'security_id': '821698168806940222', 'session': '2019-07-01', 'source_observation_sha256': 'f4ae045ec2ef53ceba3ca9e1c6d581f9bb73f8dfa758b9381b83884addf3be79', 'ticker': 'LHX'}, {'parent_positions': [], 'security_id': '344177561147922007', 'session': '2019-08-01', 'source_observation_sha256': 'a181e7804abf0e7bf89e15659da8a91facd0c0c38515c70fd00c7f1e84c02dc0', 'ticker': 'CRM'}, {'parent_positions': [], 'security_id': '707661213264749628', 'session': '2019-08-01', 'source_observation_sha256': 'b915d775f6a2f7f1db61a13bdc8c36ff43f2af4de44ff98473259947f884c79d', 'ticker': 'TCF'}], 'parent_cursor': '2019-05-31', 'parent_outer_sha256': '4fc061018ff0ea13600136b4ca24351e82bc20aed894a32c417a9f696a3339da', 'terms': [{'native_session': '2019-06-28', 'native_term_sha256': '5d5d2d1fa84cd9783e53ed4308d182d04cd259136439c271abd0219fbcb20a50', 'parent_positions': [], 'security_id': '149209101404250271', 'session': '2019-06-27', 'ticker': 'LLL1'}, {'native_session': '2019-07-30', 'native_term_sha256': 'a41cf151c67df6b11edc3229d57f7e209a0ceb9d214f0cd6a0a2cf50698c39aa', 'parent_positions': [], 'security_id': '331866698645518730', 'session': '2019-07-29', 'ticker': 'ARRY1'}, {'native_session': '2019-07-31', 'native_term_sha256': '1cbaa93baf604a9c04c0c15ce0d82c14bc8ee0c8e0f94ee1fd2bd2b767af2243', 'parent_positions': [], 'security_id': '1043452212170571060', 'session': '2019-07-30', 'ticker': 'DATA'}, {'native_session': '2019-07-31', 'native_term_sha256': 'a643cdb5e4484ea5cd816b365bc7b3278854fa0e3d9920c3c3d72bce169578c3', 'parent_positions': [], 'security_id': '216684274153477700', 'session': '2019-07-30', 'ticker': 'TCF1'}, {'native_session': '2019-07-31', 'native_term_sha256': '420af78438f9dd3a4f88e776c83ab59350468fa92fdd7e09ca1d68813e08c0ac', 'parent_positions': [], 'security_id': '261788311002817744', 'session': '2019-07-30', 'ticker': 'CTRL'}, {'native_session': '2019-07-31', 'native_term_sha256': '4511b20717491d24a41ead44087815477a69bf4ce95f50dee21be5a0c6c42be8', 'parent_positions': [], 'security_id': '3393863893051950', 'session': '2019-07-30', 'ticker': 'UQM'}, {'native_session': '2019-08-06', 'native_term_sha256': '01b5eec64d7faee41d44f16ac01d7324652b8e8ad20fbe4f9de5093e721c9c4a', 'parent_positions': [], 'security_id': '268110096969655215', 'session': '2019-08-05', 'ticker': 'BKS'}]}
+EXTRA_WITNESS_SCOPES[('P03', '2019-09-30-CBLK-MDCO-ARQL')] = {'parent_cursor': '2019-09-30', 'parent_outer_sha256': 'a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0', 'terms': [{'native_session': '2019-10-07', 'native_term_sha256': 'bc11617318adfe6fa2f2b9d4d5fa2fdf1b302adc31bfe89ef0191d08dc25ab9b', 'parent_positions': [], 'security_id': '325066623134917949', 'session': '2019-10-04', 'ticker': 'CBLK'}, {'native_session': '2020-01-03', 'native_term_sha256': 'ca502fd6aa774d0e1c671f4d1996c82335eedd337d69e97c72fe78806f6ee4ff', 'parent_positions': [], 'security_id': '1000604417782241778', 'session': '2020-01-02', 'ticker': 'MDCO'}, {'native_session': '2020-01-15', 'native_term_sha256': 'f3ed4f220db858a202c05a3efc4b1e16a55ee6be33ff580a23fb2a28129a8e1c', 'parent_positions': [], 'security_id': '37487278358102709', 'session': '2020-01-14', 'ticker': 'ARQL'}]}
 _distribution_scope_raw = (HERE / 'system-campaign-compound-source-witness-scopes.json').read_bytes()
 need(sha(_distribution_scope_raw) == '558d3b70ec1ed24ad349ebc1d126f05b40fcb47acb44d690b982c4b382f21925',
      'SOURCE_DISTRIBUTION_EXACT_REGISTERED_SCOPE_CATALOG')
@@ -675,7 +680,7 @@ ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES[('P05', '2020-11-30')
 ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES['P05', '2021-03-31'])
 ACTIVE_WITNESS_SCOPES['P06'] = digest(EXTRA_WITNESS_SCOPES['P06', '2020-06-30'])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(DISTRIBUTION_WITNESS_SCOPES['P11'])
-ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES[('P03', '2019-05-31-seven-ordinary')])
+ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES[('P03', '2019-09-30-CBLK-MDCO-ARQL')])
 ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES['P11', '2025-06-30'])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 

@@ -1927,6 +1927,80 @@
       },
       "ticker": "LM",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
+    },
+    {
+      "actual_completion_date": "2025-07-24",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm | Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+        "security_id": "498918945550351909",
+        "session": "2025-07-25"
+      },
+      "arm": "P11",
+      "description": "Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1021162",
+        "listing_first_session": "1997-12-31",
+        "security_id": "498918945550351909",
+        "security_type_eligible": "1",
+        "session": "2025-07-23",
+        "source_observation_sha256": "bd4a13da698350ab8f143ebaf651a0b83c6829a0660169039d2e33c05eccf3ef",
+        "ticker": "TGI"
+      },
+      "last_trading_session": "2025-07-24",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2021.4",
+        "security_id": "498918945550351909",
+        "session": "2025-07-24"
+      },
+      "native_session": "2025-07-24",
+      "native_term_sha256": "d64927eb0e80aa8e0a5e596cb60a510b45896548ea33f082442ae8a7a9a40580",
+      "parent_cursor": "2025-06-30",
+      "parent_outer_sha256": "1544d979c23b8827783bbccf6dbf5b4184f1df0fcaded5f630fcd18109737c7c",
+      "parent_positions": [
+        {
+          "entry_date": "2025-04-04",
+          "quantity": 206,
+          "slot_id": 3,
+          "ticker": "TGI"
+        }
+      ],
+      "parent_root_admission_sha256": "ab8b38df9778710adafbeabdd6deea6491d498a55138be00da5cce11da8b94be",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm",
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "retained_primary_catalog": {
+        "filename": "system-campaign-tgi-cash-facts.json",
+        "sha256": "e485e0998e487cbfa39d6d9ed9a2f0efb1317f7098d5b1462977e00cd8dd6f5f",
+        "term_sha256": "ed27a9d019c8c3e7c1e7ffd73f3a3043980d65c679f593ebdf15b4cab6c42369"
+      },
+      "security_id": "498918945550351909",
+      "source_capture": {
+        "artifact_id": 13390656184,
+        "head": "f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6",
+        "independent_data_review_sha256": "5fdd2470743ad828195466ec48ebc3f3a1b8f3f3113a7fce06f8cb967893b5ea",
+        "payload_sha256": "7fcf59fa10e8eecf236347598319d306f3dc16fd030fdc449225f39b67b46c3b",
+        "run_id": 41971859824,
+        "scope_sha256": "bebe45db4dcf8f61e2b1d7b28e9f7f1b5353f3d4858cb6b3fdfa588b285b1536"
+      },
+      "ticker": "TGI",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm"
     }
   ]
 }

@@ -2576,3 +2576,43 @@ October8 completion/trading cessation;preopen legal completion is unproven.
 After own439 admission and source qualification,use the existing explicit
 research-opening convention,not an assertion of historical preopen knowledge.
 No new wrapper or canonical financial source change is needed.
+
+Report264 and independent DATA admit P03 own439 through September30,2019 as
+bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f.
+Preserve own355 and exclude every October tail. Query source265 once for the
+three known native boundaries CBLK October4/7, MDCO January2/3,2020 and ARQL
+January14/15,2020. Bind their freshly observed own439 held/pending roles;
+empty roles at this checkpoint do not imply future holdings. Use a distinct
+scope registry key (P03,2019-09-30-CBLK-MDCO-ARQL), preserving every previous
+scope and input byte. This source request carries no new economic terms or
+financial authority. Retain the existing MDCO/ARQL fact and validator closures;
+after independent source DATA, the CBLK cash record may use the already
+documented26USD October8 research-opening convention with preopen unconfirmed.
+
+Source263 independent DATA closed both arms: P05 passed45 source cases and
+P11 passed35. Their review pins are7713d40d4c9a9234603be70d13cf07d037881837f66c2d911a20bc37465f2822
+and5fdd2470743ad828195466ec48ebc3f3a1b8f3f3113a7fce06f8cb967893b5ea.
+Append P11's qualified TGI record as catalog26
+677c0bd781406b4fbfb9871ce14707250168526ef9f07162b4bde8c992423cc6,
+retaining the exact25-record generation712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28
+and every earlier generation. This reuses the existing26USD July25 next-session
+research convention with fresh own1883/206-share evidence. It adds no new
+settlement or information-availability claim. All financial-future function
+and class ASTs remain unchanged; source265 still launches no financial worker.
+
+P07 financial261's February23,2022 refusal is an observer-routing defect:
+the retained VCRA observer records41shares at79.25, but a newer foreign-term
+observer delegates the call and hides the canonical caller from the retained
+direct-caller predicate. Preserve that predicate and the protected observer
+source. A generic outer adapter may recognize only a complete, source-qualified
+chain of foreign terminal-delegation frames, with identical state, terms,
+ledger and keyword arguments; each forwarding observer must exclude the event
+key from its own selected terms. The adapter must apply the original caller
+predicate to the actual canonical caller beyond that verified chain. Bind
+exact installed code/owner identities and restore all scoped hooks on exit.
+Reject arbitrary callers, selected-key forwarding, altered arguments, broken
+or foreign frame identities and missing canonical callers. Do not insert cash
+records, synthesize caller flags or bypass the economic postconditions.
+Qualify the actual retained source composition with a failing-before and
+passing-after synthetic reproduction and guard-removal falsifiers before any
+hosted continuation. No frozen financial or observer source changes are allowed.

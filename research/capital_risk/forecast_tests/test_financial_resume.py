@@ -43,8 +43,10 @@ def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinishe
     assert r['arms'] == ['P03']
     assert r['maximum_parallel_financial_workers'] == 0
     assert r['maximum_parallel_readonly_workers'] == 1
-    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
-    assert r['readonly_source_witnesses'] is False and r['source_witness_scopes']=={} and m.request_authority(r)
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
+    from system_campaign_financial_future import WITNESS_SCOPES
+    assert r['readonly_source_witnesses'] is True and r['source_witness_scopes']=={
+        a: WITNESS_SCOPES[a] for a in r['arms']} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
     assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False)for a in r['arms']}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256']for a in r['arms']}
