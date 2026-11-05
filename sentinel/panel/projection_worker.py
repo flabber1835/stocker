@@ -52,7 +52,14 @@ def _serve(channel, function, args, parent_pid):
             result = _result(value)
             channel.send_bytes(result)
     finally:
-        channel.close()
+        try:
+            # Stateful collector callables explicitly own their dependency
+            # observers. A forced outer exit is covered by parent-death guards.
+            close = getattr(function, 'close', None)
+            if close is not None:
+                close()
+        finally:
+            channel.close()
 
 
 class Worker:

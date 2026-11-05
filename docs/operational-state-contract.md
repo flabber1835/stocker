@@ -298,6 +298,79 @@ Keep all prior predecessor, economic and historical maps unchanged. The 450
 mapped candidate modules plus separately normalized checker remain the same
 inventory; the patch adds no runtime module or financial authority.
 
+### Follow-up after the extended observation
+
+Decision, 2026-11-05, before follow-up implementation. The first ten-minute
+window did not establish sustained stability. A later immutable review event
+at 23:35:02.610 UTC recorded another worker-observation `TimeoutError`, followed
+by recovery at 23:35:04.762 UTC. A separate six-row negative SHADOW observation
+at 23:23:38 must retain its own cause and history; it is not attributed to the
+worker probe. Do not merge the candidate on the strength of the short window.
+
+The installed verifier shares its 0.5-CPU quota between the financial observer,
+operational collector and native probes. A ten-second process sample measured
+3.21 CPU-seconds in the financial child and at least 1.15 in the operational
+collector and its probes. That sample overlapped diagnostic processes and is
+not a clean production benchmark. Six bounded diagnostic reads subsequently
+spent 0.689--1.207 seconds each and approximately 0.16 child CPU-seconds per
+read; the receive/child-exit phase dominated. All scheduling periods sampled
+during those reads were throttled. These measurements establish avoidable
+per-read process/import cost under contention, not the historical timeout's
+precise internal phase or a guarantee that host stalls can be eliminated.
+
+Supersede the one-process-per-observation choice above with one explicitly
+owned, credential-free filesystem observer inside the existing reusable
+operational collector. This is not a new Compose role or an independent
+background publisher. Create it lazily in the spawned collector, never in its
+threaded parent. Each request carries a fresh nonce and performs the original
+critical/pending/status/critical/latest-pending reads. A bounded response must
+echo that nonce; unsolicited, previous-request, malformed, oversized, partial,
+late or dead-child responses refuse. No status bytes or positive result are
+cached between requests. Parent authentication and all original evidence clocks
+remain unchanged. Standalone callers may retain the one-shot reader.
+
+The same two-second absolute observation budget covers admission, first launch,
+request transmission, response framing and decoding. Do not warm up outside
+that budget, retry within a failed observation, extend it, change process
+priorities or enlarge resource quotas. A failed exchange kills and reaps its
+exact child before any replacement; an unreaped child refuses replacement.
+The collector closes the observer explicitly on normal exit, and kernel
+parent-death supervision covers collector death, including its outer deadline.
+Every actual timeout remains UNKNOWN and produces ordinary durable failure and
+recovery history. Add bounded closed stage diagnostics to the existing
+nonfinancial snapshot/review metadata so the next failure is distinguishable
+without persisting credentials, paths, arbitrary exception text or worker bytes.
+
+Qualification must compare repeated fresh observations under a shared
+half-core contention workload, exercise first-launch and per-request deadlines,
+and detect cached bytes, stale/foreign nonces, blocked request/response,
+oversized/partial frames, parent death, explicit close and unreaped-child
+replacement. Include executed removed-guard falsifiers and the real collector
+lifecycle. Requalify and install the new local candidate through a new backed
+operation, then observe beyond multiple financial-refresh/maintenance cycles
+before updating the PR. Preserve the original failed candidate and evidence.
+The next complete source seal retains installed local `4a395bfb4f13ba0f34fa0121fa62991fe7b38fed`
+as an additional independently pinned predecessor, alongside `35e3a118` and all
+older maps. It authenticates the full unchanged module inventory, grants no
+financial authority and never substitutes the old bytes for current identity.
+
+The extended review also found a diagnostic handoff defect: a financial reader
+can classify a completed negative result, immediately admit its due retry, and
+replace the failed attempt identity before the owning verifier persists it.
+Restore the existing failed-attempt-history contract. In the background-owned
+reader only, retain one closed failed attempt before replacement; publish it
+through the existing owner-fenced diagnostic/review transaction and discard it
+only after that transaction commits. A refused/rolled-back write retains it for
+the next ordinary retry. Do not admit another replacement while that bounded
+slot is occupied. Keep current attempt and current financial rows distinct from
+this historical diagnostic, preserve original attempt clocks and failure
+identity, and retain existing non-background reader behavior. This does not turn
+a completed negative result into a positive or alter financial work/retry
+deadlines. Qualify same-call retry, transaction failure/retry, restart deduplication
+and first-failure history with real PostgreSQL; removing the handoff guard must
+make a behavioral assertion fail. The old incident's missing message cannot be
+reconstructed by this correction.
+
 ## Qualification and delivery
 
 ### Typed row facts and producer ownership

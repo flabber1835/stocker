@@ -19,6 +19,7 @@ TOKEN_SECONDS = 30
 
 def condition_evidence(panel, keys):
     """Diagnostic metadata only; never persist raw prose or change a verdict."""
+    from sentinel.panel.model import UNKNOWN
     from sentinel.panel.presentation import _row_boundary
     result = {}
     for key in sorted(set(keys))[:32]:
@@ -55,6 +56,17 @@ def condition_evidence(panel, keys):
             'recovery_phase': phase if phase is not None and re.fullmatch('[A-Z0-9_]{1,64}', phase) else None,
             'value_sha256': hashlib.sha256(row.value.encode('utf-8')).hexdigest(),
             'detail_sha256': hashlib.sha256(row.detail.encode('utf-8')).hexdigest()}
+        failure = panel.trial_details.get('worker_observation_failure')
+        if (key == 'shadow_worker' and row.status == UNKNOWN
+                and isinstance(failure, dict)
+                and set(failure) == {'schema', 'code', 'stage'}
+                and failure.get('schema') == 'sentinel.worker-observation-failure/1'
+                and failure.get('code') == 'TIMEOUT'
+                and isinstance(failure.get('stage'), str)
+                and failure.get('stage') in {
+                    'ADMISSION', 'LAUNCH', 'SEND', 'RECEIVE', 'DECODE', 'REAP'}):
+            result[key].update(code='WORKER_OBSERVATION_TIMEOUT',
+                               probe_stage=failure['stage'])
     if len(set(keys)) > 32:
         result['_limit'] = {'code': 'DIAGNOSTIC_LIMIT', 'condition_count': len(set(keys))}
     return result

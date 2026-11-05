@@ -57,13 +57,15 @@ def lock_inputs(conn):
                  "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
 
 
-def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False):
+def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
+                 *, shadow_observer=None):
     from sentinel.feed import store
     from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources
 
     context, subjects = _coordinates(database_url)
     panel = segment_disclosure.disclose(sources.build_panel(
-        state_dir=Path(state_dir), database_url=database_url), database_url)
+        state_dir=Path(state_dir), database_url=database_url,
+        shadow_observer=shadow_observer), database_url)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
@@ -153,11 +155,13 @@ def publish_failure(database_url, owner_id, instance, diagnostic):
         conn.close()
 
 
-def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False):
+def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
+                   *, shadow_observer=None):
     """Classify child refusals before the generic process wrapper loses type."""
     try:
         return {'outcome':'PUBLISHED', **publish_once(
-            database_url, owner_id, state_dir, instance, prior_failed)}
+            database_url, owner_id, state_dir, instance, prior_failed,
+            shadow_observer=shadow_observer)}
     except CollectionSuperseded:
         return {'outcome':'SUPERSEDED'}
     except Exception as exc:
@@ -167,6 +171,28 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             return {'outcome':'PUBLISHED', **publish_failure(database_url, owner_id, instance, diagnostic)}
         except Exception:
             return {'outcome':'FAILED', 'type':type(exc).__name__}
+
+
+class Collector:
+    """Own the reusable filesystem observer only inside the spawned collector."""
+
+    def __init__(self):
+        # This object is pickled by spawn. Allocate no child or descriptor here.
+        self.observer = None
+
+    def __call__(self, database_url, owner_id, state_dir, instance, prior_failed=False):
+        if self.observer is None:
+            from sentinel.shadow_service_probe import Observer
+            self.observer = Observer(Path(state_dir))
+        elif self.observer.state_dir != Path(state_dir):
+            raise ValueError('collector observer state directory changed')
+        return collect_result(database_url, owner_id, state_dir, instance, prior_failed,
+                              shadow_observer=self.observer)
+
+    def close(self):
+        if self.observer is not None:
+            self.observer.close()
+            self.observer = None
 
 
 class Publisher:
@@ -180,7 +206,7 @@ class Publisher:
         self.stopped = stopped or Event()
         self.runner = runner
         from sentinel.panel.projection_worker import Worker
-        self.worker = Worker(collect_result, self.database_url, self.owner_id,
+        self.worker = Worker(Collector(), self.database_url, self.owner_id,
                              self.state_dir, self.instance) if runner is None else None
         self.thread = Thread(target=self.run, name='sentinel-operational-projection', daemon=True)
         self.started = False

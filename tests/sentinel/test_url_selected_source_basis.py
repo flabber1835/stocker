@@ -27,7 +27,8 @@ OPERATIONAL_ADDITIONS = {
 }
 PATCH_CHANGES = {
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
-    'url_selected_source_basis.py',
+    'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
+    'panel/verification_service.py', 'url_selected_source_basis.py',
 }
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
@@ -180,6 +181,17 @@ def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_chan
     saved = deepcopy(previous)
     assert len(previous) == 451
     assert admission.source_closure(previous) == 'ea3e4e163241a2075bf5b49fa965b384e65bf2f8456a7e346e0fe8bba38978f8'
+    actual = _actual()
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes():
+    previous = basis._profile()['retained_predecessors'][basis.LOCAL_PROBE_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    assert len(previous) == 451
+    assert admission.source_closure(previous) == '2778b44660897768e9f808e4f26ac16847e158feba06f3b5187a3ab9defb8552'
     actual = _actual()
     assert set(actual) == set(previous)
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES

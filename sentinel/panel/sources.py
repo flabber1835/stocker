@@ -3340,10 +3340,11 @@ def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
                     'background verification monitor is not initialized; no current verification is claimed')
 
 
-def _shadow_worker_row(state_dir, database_url):
+def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=None):
     from sentinel import shadow_service_status as status, shadow_service_probe as probe
     try:
-        snapshot = probe.read(Path(state_dir), timeout=2)
+        snapshot = (probe.read(Path(state_dir), timeout=2) if observer is None
+                    else observer.read(timeout=2))
         value = status.decode_probe(snapshot, database_url)
         reason = value['reason']
         running = value['state'] == 'RUNNING'
@@ -3363,8 +3364,16 @@ def _shadow_worker_row(state_dir, database_url):
                 value['observed_at']+timedelta(seconds=status.MAX_AGE_SECONDS)
                 if value.get('observed_at') is not None else None))
     except Exception as exc:
+        stage = getattr(exc, 'probe_stage', None)
+        if (isinstance(exc, TimeoutError) and isinstance(stage, str) and stage in {
+                'ADMISSION', 'LAUNCH', 'SEND', 'RECEIVE', 'DECODE', 'REAP'}
+                and diagnostics is not None):
+            diagnostics['worker_observation_failure'] = {
+                'schema': 'sentinel.worker-observation-failure/1',
+                'code': 'TIMEOUT', 'stage': stage}
         return model.Row('shadow_worker', 'Strategy worker', 'WORKER STATUS UNREADABLE',
-            model.UNKNOWN, 'No current worker-liveness proof: '+type(exc).__name__,
+            model.UNKNOWN, 'No current worker-liveness proof: '+(
+                'TimeoutError' if isinstance(exc, TimeoutError) else type(exc).__name__),
             required_current=True)
 
 
@@ -3385,7 +3394,7 @@ def trading_environment_row(base_url: str) -> model.Row:
 
 
 def build_panel(*, state_dir: Path, database_url: str,
-                now: Optional[datetime] = None) -> model.Panel:
+                now: Optional[datetime] = None, shadow_observer=None) -> model.Panel:
     """Assemble the whole page.
 
     Runtime rows project only durable PostgreSQL facts. Their absence is named;
@@ -3410,7 +3419,9 @@ def build_panel(*, state_dir: Path, database_url: str,
     own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership binding")
-    worker = (_shadow_worker_row(state_dir, database_url)
+    worker_diagnostics = {}
+    worker = (_shadow_worker_row(state_dir, database_url, observer=shadow_observer,
+                                diagnostics=worker_diagnostics)
               if mode in {'dual', 'shadow'} else None)
     from sentinel.panel import postclose_feed_wait
     feed_now = fixed_now or datetime.now(timezone.utc)
@@ -3452,7 +3463,7 @@ def build_panel(*, state_dir: Path, database_url: str,
     except (RuntimeError, ValueError):
         local_mode = False  # Existing runtime/account error rows remain visible.
     return model.Panel(rows=rows, now=completed_at, source_errors=errors,
-                       trial_details=trial_details,
+                       trial_details={**trial_details, **worker_diagnostics},
                        trial_history=trial_history,
                        local_paper_mode=local_mode)
 
