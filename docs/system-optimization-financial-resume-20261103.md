@@ -2375,3 +2375,30 @@ original catalog/compiler and frozen COR2 issuer identity;do not introduce
 new cash or timing facts. Preserve all retained v2/branch/APHA activation
 bytes and the future VCRA term. Per-batch matrix limits and per-arm writer
 concurrency permit this independent P07 run alongside the existing variants.
+
+KEYW source254 and independent DATA confirm the exact June11 incomplete
+native and June10 frozen identity for P03 own355,with no parent holdings or
+pending claims. Reuse the existing generic research cash-opening convention:
+11.25USD mandatory consideration recognizedJune12,2019. The legal completion
+is supported;the exact preopen time is unconfirmed and the opening recognition
+is an explicit research assumption. Append catalog24 after the exact23-record
+prefix,retain all prior generations and the original native preimage,then
+select financial257 from own355. No new wrapper,settlement-accuracy claim or
+canonical financial source change is introduced.
+
+P05 financial255 passed WPX's January7 event but stopped at the original PE
+January12 native before another month-end. Its neutral input-adoption756
+checkpoint and six January tail closes are not admitted. Restart from own756
+b2377e95 only after completing the known original Parsley input.
+
+Normalize both canonical delivery kinds,CASH_PLUS_STOCK and CONVERSION,in
+the existing original-delivery input route. Preserve CONVERSION's cash=None,
+ratio,primary/proxy source and canonical parser/notional behavior. Reuse the
+original ParsleyFacts catalog and its exact frozen January13 PXD full row;
+derive and verify parent identity on the frozen pre-native row,verify delivered
+identity/full-row hash,and fill only the existing CIL raw-open proxy field.
+Extend the same kind predicate for inherited delivery comparison and raw-proxy
+collection. Compose this source with the existing original2021 eight primary
+terms;delivery-selector priority must not replace them. Bind the additional
+original catalog and validator in the request closure. This generic layout
+extension adds no financial arithmetic,timing fact or per-symbol wrapper.

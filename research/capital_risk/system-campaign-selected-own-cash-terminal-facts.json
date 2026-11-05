@@ -1780,6 +1780,76 @@
       },
       "ticker": "BMCH",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm"
+    },
+    {
+      "actual_completion_date": "2019-06-12",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 11.25,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/52988/000114036119010907/nc10002532x1_8k.htm | Mandatory remaining common shares convert at11.25USD on confirmed June12 completion. Research assumes opening availability; no preopen minute or actual payment/settlement time is established. Preserve June11 trading and frozen identity.",
+        "security_id": "1113120724624398950",
+        "session": "2019-06-12"
+      },
+      "arm": "P03",
+      "description": "Mandatory remaining common shares convert at11.25USD on confirmed June12 completion. Research assumes opening availability; no preopen minute or actual payment/settlement time is established. Preserve June11 trading and frozen identity.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1487101",
+        "listing_first_session": "2010-10-01",
+        "security_id": "1113120724624398950",
+        "security_type_eligible": "1",
+        "session": "2019-06-10",
+        "source_observation_sha256": "7ec96df826e5f4ce27cfd385c6a7e2cec520e068d1f0efd231d9b00523115b90",
+        "ticker": "KEYW"
+      },
+      "last_trading_session": "2019-06-11",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=563.4",
+        "security_id": "1113120724624398950",
+        "session": "2019-06-11"
+      },
+      "native_session": "2019-06-11",
+      "native_term_sha256": "505e48955faf2f4b469b28a92d3aa1c9027fe340f231f2de0ecf34942d2c8eb6",
+      "parent_cursor": "2019-05-31",
+      "parent_outer_sha256": "4fc061018ff0ea13600136b4ca24351e82bc20aed894a32c417a9f696a3339da",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "e49c8db66e8f579cb75334ff3931b98e78032e35dafee6002fea437457c77544",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/52988/000114036119010907/nc10002532x1_8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "11.25",
+        "recognition_session": "2019-06-12",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "1113120724624398950",
+      "source_capture": {
+        "artifact_id": 13384628988,
+        "head": "a766451be5a7fdcdad6f1cc755244f7ab5bbd8be",
+        "independent_data_review_sha256": "1ca7f618a0769ba13cb1c92e6d410b0bbe2b5ca1420eb63a2365e3e02cc1daaf",
+        "payload_sha256": "104e5d16f35a7e2ce5564ac383fef40c3765cb9ceb3d7b36d40168d3124acad7",
+        "run_id": 41961189857,
+        "scope_sha256": "a9865a633d512b2f66b9901c02306123099e747e58a41c2d6808ea8f13dafd2f"
+      },
+      "ticker": "KEYW",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/52988/000114036119010907/nc10002532x1_8k.htm"
     }
   ]
 }
