@@ -17,11 +17,12 @@ DATE_ADOPTION = 'date-input-adoption'
 MODEL_ADOPTION = 'input-adoption'
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
-POINT_RETURN_SEEDS = frozenset({'99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b', '8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998', '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
+POINT_RETURN_SEEDS = frozenset({'6abf375981b345fcdfebc5db1f68664a1f401783a7e13f6a3cf2e9c8bd6a2a22', '99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b', '8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998', '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3', 'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 POINT_WITNESS_SHA = '177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
 UNCHANGED_INPUT_SEEDS = frozenset({'f7f86bf917f7d2718c8e360a4e1d1de2c2d90d6dd94406e581c6712201a8b776'})
 UNCHANGED_INPUT = 'retained-proof-admission/unchanged-input.json'
 RETAINED_PROOF_SEEDS = {
+    '6abf375981b345fcdfebc5db1f68664a1f401783a7e13f6a3cf2e9c8bd6a2a22': dict(completed=986, source_cursor='2021-11-30', rows=532, new_rows=148, retained_rows=384),
     '99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b': dict(completed=838, source_cursor='2021-04-30', rows=384, new_rows=21, retained_rows=363),
     '8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998': dict(completed=817, source_cursor='2021-03-31', rows=363, new_rows=42, retained_rows=321),
     '672a0a0a7560d1b3d4658e6c0e79c3f4259391ac4a7f2d3ecb58e505f5132ef3': dict(completed=775, source_cursor='2021-01-29', rows=321, new_rows=19, retained_rows=302),
@@ -186,6 +187,28 @@ def review(cp, evidence_root, out, *, spec=None, old=None):
         root_parent_sha256=cp['sha256'], date_successor_sha256=current['sha256'], model_successor_sha256=model_cp['sha256'],
         both_actual_gzip_boundaries_neutral=True, complete_input_bytes_independently_reconstructed=True,
         no_qualifier_state_adopted=True, financial_sessions_reexecuted=0))
+
+
+def validate_retained_admission_metadata(spec):
+    """Check the existing registered retained root before any hosted work."""
+    cp = dict(sha256=spec['outer_sha256'], completed=spec['measured_closes'],
+              source_cursor=spec['selected_session'], base=spec['base'])
+    retained_contract(cp, spec)
+    phase = RETAINED_PROOF_SEEDS[spec['root_admission_sha256']]
+    proof = spec['root_admission']['branch_uncertainty_proof']
+    need(proof['passed'] is True
+         and type(proof['rows']) is type(proof.get('retained_rows', 0)) is int
+         and proof['rows'] == phase['new_rows']
+         and proof.get('retained_rows', 0) == phase['retained_rows']
+         and phase['rows'] == phase['new_rows'] + phase['retained_rows']
+         and proof['all_comparisons_and_state_sets_verified'] is True
+         and proof['all_math_watch_financial_chains_verified'] is True,
+         'FINANCIAL_RETAINED_ADMISSION_EXACT_CURRENT_SUFFIX_PROOF_COUNTS')
+    # Existing point-return proof epochs start at own756; earlier registered
+    # interval epochs retain their unchanged path.
+    need(phase['completed'] < 756 or point_return_phase(spec),
+         'FINANCIAL_RETAINED_ADMISSION_EXACT_POINT_RETURN_REGISTRATION')
+    return phase
 
 
 def retained_contract(cp, spec):

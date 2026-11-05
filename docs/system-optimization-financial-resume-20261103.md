@@ -2411,3 +2411,47 @@ slot21 sinceApril2 with no pending claim;another variant's held-role proof
 must not substitute for this own source scope. Reuse existing50USD primary
 and explicit research-opening convention only after own628 admission and
 fresh source-witness DATA qualification. No diagnostic tail is admitted.
+
+P07 financial256 advanced zero closes:the admission writer copied the prior
+branch proof and omitted the new root from retained/point-return seed tables.
+Correct the metadata from DATA253's complete branch_uncertainty proof,retain
+the prior immutable9524 admission as history,and publish a new metadata pin
+for the same own986 financial checkpoint. Register completed986,cursorNov30,
+532total rows,148new and384retained in both existing seed paths;preserve the
+frozen witness and every prior seed. Request generation must validate this
+existing retained-root contract and proof counts before dispatch,so missing
+registration or a stale copied proof fails locally. Economic and reviewer
+guards remain the source of truth and continue to check actual certificate
+bytes and state on the hosted worker. This corrects admission orchestration;
+it supplies no financial transition or substitute checkpoint.
+
+The corrected P07 metadata pin is
+6abf375981b345fcdfebc5db1f68664a1f401783a7e13f6a3cf2e9c8bd6a2a22.
+Its committed532-certificate prefix is6898206bytes with SHA
+d19b0444aa74077e37934179efb78b3a709f90351c2dbe0f4792fdfc8346f657;
+exclude17tail certificates. Fifteen private metadata/request tests passed.
+The request guard has portable removal falsifiers against the actual archived
+9524 admission. Future local admission orchestration also copies the fresh
+branch proof and registers both seed paths before request construction.
+
+P06 own628 is independently admitted as
+c83fbf2782f14d67bbdc82e687ef34c5c9e1dfd9769c0381dee1b3198c8d323e,
+retaining own565 and excluding the21July tail closes. Select financial259 for
+P05 own756 with all nine original delivery terms and P07 corrected own986
+with the eight December calendar terms. The new generic CONVERSION route
+passed25 portable input tests,including11 predicate/guard-removal falsifiers
+and five import fences. Bind the unchanged Parsley catalog and validator in
+the429-file closure before dispatch. Select the own-P06 LM source scope next.
+
+Batch P03's nearby known2019 source inputs in source260 alongside P06's LM
+scope:LLL1,ARRY1,DATA,TCF1,CTRL,UQM,BKS and the three exact delivered rows
+for LHX,CRM,TCF. Bind each original native preimage,pre-native identity and
+own355 role;source-only qualification does not assert future holdings.
+For subsequent delivery inputs,allow an explicitly declared generic subset
+of an original phase catalog,requiring every declared member to exist exactly
+once and to satisfy the original delivery-kind/date predicates. Select LLL1
+from the original distribution catalog and preserve its cash=None/1.3ratio;
+leave the separate APHA fixed-zero-CIL term and original spins unselected.
+Do not send that whole catalog through a raw-open CIL fill or alter the
+original APHA policy. Preserve all existing default/phase selections and
+qualify the whole batch before adopting any resulting input.

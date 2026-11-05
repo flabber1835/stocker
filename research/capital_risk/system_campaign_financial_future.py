@@ -181,6 +181,9 @@ ORIGINAL_ORDINARY_SOURCES['P03'] = (
      'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),
 )
 ORIGINAL_DELIVERY_SOURCES['P03'] = ORIGINAL_ORDINARY_SOURCES['P03']
+ORIGINAL_DELIVERY_PHASES = {('P05', '2020-12-31'): (
+    ('system_campaign_parsley_facts', 'ParsleyFacts', 'system-campaign-parsley-terminal-facts.json',
+     '1983dd966359020fff66eccf6d6d3c22de12190c11f5a3019cafcbf80af0478d'),)}
 SUPPLEMENTAL_PHASES = {
     ('P05', '2018-11-30'): (
         ('system_campaign_yearend_facts', 'YearendFacts', 'PATH',
@@ -1621,14 +1624,15 @@ def merge_selected_terms(primary, extra):
 
 
 def original_delivery_selection(arm, cursor):
-    """Future mixed terms from unchanged literal validators; cash selection is separate."""
+    """Future delivery terms from unchanged literal validators; cash selection is separate."""
     import importlib
-    for module_name, class_name, catalog, expected_sha in ORIGINAL_DELIVERY_SOURCES.get(arm, ()):
+    plans = ORIGINAL_DELIVERY_PHASES.get((arm, cursor), ORIGINAL_DELIVERY_SOURCES.get(arm, ()))
+    for module_name, class_name, catalog, expected_sha in plans:
         raw = (HERE / catalog).read_bytes()
         need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES')
         module = importlib.import_module(module_name)
         codec = getattr(module, class_name)(HERE / catalog)
-        mixed = [t for t in codec.catalog['terms'] if t['added']['kind'] == 'CASH_PLUS_STOCK']
+        mixed = [t for t in codec.catalog['terms'] if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')]
         need(not any(t['native_session'] <= cursor < t['added']['session'] for t in mixed),
              'FUTURE_ORIGINAL_DELIVERY_NO_CONSUMED_PENDING_NATIVE')
         source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
@@ -1679,7 +1683,7 @@ def inherited_delivery_row(term):
 def inherited_delivery_addition(term, row):
     ordinary_delivery_identity(term, row)
     value = float(row['raw_open'])
-    need(term['added']['kind'] == 'CASH_PLUS_STOCK'
+    need(term['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')
          and term['added']['cash_in_lieu_price_per_delivered_share'] is None
          and math.isfinite(value) and value > 0, 'FUTURE_INHERITED_DELIVERY_EXACT_POSITIVE_RAW_OPEN')
     return dict(deepcopy(term['added']), cash_in_lieu_price_per_delivered_share=value)
@@ -1714,7 +1718,7 @@ def remaining_ordinary_terms(cp, terms, root):
         expected = dict(session=term['native_session'], security_id=sid, term_sha256=term['native_term_sha256'])
         comparison = term['added']
         delivery_row = None
-        if (len(suppress) == len(added) == 1 and comparison['kind'] == 'CASH_PLUS_STOCK'
+        if (len(suppress) == len(added) == 1 and comparison['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')
                 and comparison['cash_in_lieu_price_per_delivered_share'] is None):
             delivery_row = inherited_delivery_row(term)
             comparison = inherited_delivery_addition(term, delivery_row)
@@ -1768,8 +1772,10 @@ def selected(arm, *, cursor=None):
     if ordinary is not None:
         return ordinary
     delivery = original_delivery_selection(arm, cursor)
-    if delivery is not None:
+    if delivery is not None and (arm, cursor) not in ORIGINAL_DELIVERY_PHASES:
         return delivery
+    if (arm, cursor) in ORIGINAL_DELIVERY_PHASES:
+        need((arm, cursor) in FUTURE_LITERAL_PHASES, 'FUTURE_COMPOSED_DELIVERY_REQUIRES_DECLARED_PRIMARY')
     if arm == 'P07':
         need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES
              or (arm, cursor) in FUTURE_LITERAL_PHASES or (arm, cursor) in CASH_PHASES,
@@ -1958,7 +1964,7 @@ def hydrate(cp, arm, *, source_root=None):
             need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_WITNESS')
             wanted[key] = None
             ordinary_rows[key] = t
-            if t['added']['kind'] == 'CASH_PLUS_STOCK':
+            if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION'):
                 proxy = t['proxy']
                 key = proxy['session'], proxy['security_id']
                 need(key not in wanted, 'FUTURE_UNIQUE_DECLARED_DELIVERY_WITNESS')
