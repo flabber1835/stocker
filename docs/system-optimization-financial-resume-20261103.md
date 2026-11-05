@@ -3049,3 +3049,16 @@ The two earlier P07 staging failures remain evidence only and grant no source
 or financial authority. The new combined request still starts zero financial
 workers; its actual authenticated source output and independent DATA remain
 the next required gates.
+
+Select readonly report280 for financial275 P11's authenticated saved2093
+through April30,2026, seeded by admitted2050/4a8d. Verify43 new daily rows,
+86 raw accountings,two exact monthly reports and56 Decimal metrics. Retain
+all12 prior input documents, the thirteenth EXAS overlay and its exact neutral
+March20 boundary/March23 recognition. The genuine canonical event reports79
+EXAS shares and8295 cash; the independent oracle derives that quantity from
+recorded accounting and passes an83-share counterfactual, rather than assuming
+the parent quantity. Exclude the two May tails (173407 daily and1274 watch
+bytes). The next actual blocker is TERN's incomplete May4 cash-merger native
+and missing May5 causal bar, with157 shares in slot19 since April29. Do not
+override volatility or infer consideration from deal value. This readonly
+request performs zero financial transitions and grants no root admission.
