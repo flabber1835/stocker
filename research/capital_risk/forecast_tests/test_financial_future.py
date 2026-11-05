@@ -16,13 +16,23 @@ import system_campaign_financial_future as f
 import system_campaign_financial_uncertainty as u
 
 
-def entry(arm='P10'):
-    return json.loads((p.HERE / p.ROOTS).read_bytes())['arms'][arm]
+def entry(arm='P10', admission_sha256=None):
+    bundle = json.loads((p.HERE / p.ROOTS).read_bytes())
+    if admission_sha256 is None or bundle['arms'][arm]['admission_sha256'] == admission_sha256:
+        return bundle['arms'][arm]
+    return bundle['historical_roots'][admission_sha256]
 
 
 def test_actual_root_admissions_preserve_historical_transport_flags():
-    for arm, count in [('P03',439),('P04',1970),('P05',965),('P06',817),('P07',1028),('P10',1592),('P11',2050)]:
-        value = entry(arm); before = deepcopy(value)
+    for arm, count, admission in [
+        ('P03',439,'bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f'),
+        ('P04',1970,'c43253a987d6e930f3a60b14e85a52fd0c05f768c6113132d0448d1fc8d99a9a'),
+        ('P05',965,'798631a219bbd2926c6e2a6633bdf71ab1cc5e013094c343bdfc86deee9045b7'),
+        ('P06',817,'f8be3c331ac12f211c630078d128278c155eb99a98afaff81bc8219e435094aa'),
+        ('P07',1028,'ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95'),
+        ('P10',1592,'3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9'),
+        ('P11',2050,'4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a')]:
+        value = entry(arm, admission); before = deepcopy(value)
         spec = p.authorized_spec(value, arm)
         p.validate_root_spec(spec)
         assert value == before and spec['measured_closes'] == count

@@ -50,25 +50,27 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P11',)
+SELECTED_ARMS = ('P03', 'P05', 'P06')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/147'
-EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/148'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
 def factual_overlay_needed(spec):
-    from system_campaign_financial_uncertainty import unchanged_input_phase
+    from system_campaign_financial_uncertainty import unchanged_input_phase, own_unchanged_input_phase
+    if own_unchanged_input_phase(spec):
+        return False
     return not (spec['arm'] == 'P07' and unchanged_input_phase(spec)) and (
         'root_admission' in spec or spec['arm'] in ('P07', 'P10'))
 
 
 def expected_request():
     from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, ORIGINAL_DELIVERY_PHASES, ORIGINAL_ORDINARY_PHASES, COMBINED_PHASES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_PHASES
-    from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata
+    from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata, own_policy_source_names, own_policy_phase, own_model_declaration, own_unchanged_input_phase
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
@@ -80,6 +82,11 @@ def expected_request():
         retained = root_spec('P07')
         if retained['measured_closes'] >= 503:
             validate_retained_admission_metadata(retained)
+    if financial:
+        for arm in SELECTED_ARMS:
+            own = own_policy_phase(root_spec(arm))
+            if own is not None and own['mode'] == 'RETAINED':
+                validate_retained_admission_metadata(root_spec(arm))
     origins = {}
     if reporting:
         targets = json.loads((HERE / PARTIALS).read_bytes())['arms']
@@ -124,6 +131,7 @@ def expected_request():
              'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
+             *own_policy_source_names(),
              *(term['retained_original_legal_record']['catalog_file']
                for term in json.loads((HERE / OWN_CASH_CATALOG).read_bytes())['terms']
                if 'retained_original_legal_record' in term),
@@ -131,6 +139,14 @@ def expected_request():
                for plans in registry.values() for plan in plans for name in (plan[0]+'.py',plan[2])),
              *(plan[2] for plan in FUTURE_LITERAL_PHASES.values()), *(plan[0] for plan in CASH_PHASES.values()),
              *(plan[3] for plans in SUPPLEMENTAL_PHASES.values() for plan in plans))
+    models = {'P07': dict(input_schema='research.leadership-branch-uncertainty-input/1',
+        contract_sha256=sha256_file(HERE / 'system-campaign-financial-branch-contract.json'),
+        every_reachable_canonical_decision_must_match=True, original_strict_guard_unchanged=True)}
+    if financial:
+        for arm in SELECTED_ARMS:
+            own = own_policy_phase(root_spec(arm))
+            if own is not None:
+                models[arm] = own_model_declaration(own)
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode=EXECUTION_MODE, new_origin=False,
                 financial_resume_authorized=financial, readonly_partial_review=reporting,
@@ -138,7 +154,7 @@ def expected_request():
                 source_witness_scopes={a: deepcopy(WITNESS_SCOPES[a]) for a in SELECTED_ARMS} if witnesses else {},
                 diagnostic_state_adopted=False,
                 arm_inputs={a: dict(new_factual_overlay=financial and not (
-                    a == 'P07' and unchanged_input_phase(root_spec(a))), restored_correlation=False) for a in SELECTED_ARMS},
+                    a == 'P07' and unchanged_input_phase(root_spec(a)) or own_unchanged_input_phase(root_spec(a))), restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -146,9 +162,7 @@ def expected_request():
                 admitted_financial_parents_sha256=sha256_file(HERE / ROOTS),
                 admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS if a not in origins},
                 initial_reporting_origins=origins,
-                selected_research_models={'P07': dict(input_schema='research.leadership-branch-uncertainty-input/1',
-                    contract_sha256=sha256_file(HERE / 'system-campaign-financial-branch-contract.json'),
-                    every_reachable_canonical_decision_must_match=True, original_strict_guard_unchanged=True)},
+                selected_research_models=models,
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
@@ -661,6 +675,7 @@ def verify_originals(old, evidence):
 
 def economic(old, out, spec):
     hosted()
+    from system_campaign_financial_uncertainty import uncertainty_phase
     need(EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION' and not full_target(spec),
          'RESUME_ECONOMIC_ENTRY_REQUIRES_UNFINISHED_FINANCIAL_MODE')
     if 'root_admission' in spec:
@@ -708,7 +723,7 @@ def economic(old, out, spec):
         observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', rows)
         execution = Execution('FAST', signal_closes=keep)
         try:
-            if 'root_admission' in spec and spec['arm'] == 'P07':
+            if 'root_admission' in spec and uncertainty_phase(spec):
                 from system_campaign_financial_uncertainty import run
                 code = run(cp, out, args, rows, observation, execution, spec=spec, old=old)
             else:
@@ -737,12 +752,13 @@ def economic(old, out, spec):
 
 def review(evidence, out, spec):
     hosted()
+    from system_campaign_financial_uncertainty import uncertainty_phase
     old = Path('/old')
     cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
     if spec['arm'] == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
         need(seed_rows(old, cp, spec) == seed_rows(old, cp, spec, evidence / 'restored-correlation-prefix'),
              'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
-    if 'root_admission' in spec and spec['arm'] == 'P07':
+    if 'root_admission' in spec and uncertainty_phase(spec):
         from system_campaign_financial_uncertainty import review as review_uncertainty
         review_uncertainty(cp, evidence, out, spec=spec, old=old)
     elif 'root_admission' in spec or spec['arm'] in ('P07', 'P10'):

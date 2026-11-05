@@ -3062,3 +3062,80 @@ bytes). The next actual blocker is TERN's incomplete May4 cash-merger native
 and missing May5 causal bar, with157 shares in slot19 since April29. Do not
 override volatility or infer consideration from deal value. This readonly
 request performs zero financial transitions and grants no root admission.
+
+For P07's next own1047 ZGNX design, retain the existing26–28 Zogenix contract
+and its original codec/facts/sensor. Do not relabel P03's ALDR_INITIAL18–20
+record or substitute P02's single-state certified_recovery format for P07's
+retained B19 possible_after cloud. A new explicit proof-only dispatch may
+delegate unchanged point inputs to the original P07 point-growth scope and
+nonpoint inputs to B19's original outward interval growth. Preserve the point
+helper and B19 source bytes, all comparison/cloud/own-state guards and every
+one of593 prior certificates. Never coerce an interval to a point, fabricate
+a point witness or turn the contingent right into upfront maximum cash.
+Prepare the exact original-method composition and own-root source binding
+before implementing another phase; any further sequencing or schema choice
+must be recorded here first.
+
+P03's initial15-term batch includes Sprint and therefore must stage the exact
+frozen SHARADAR_ACTIONS.zip required by the unchanged alias parser before its
+offline hydration. The candidate already registers its phase in SINGLE_PHASES;
+qualify that staging route with an explicit P03 own439/bd698 root binding and
+an actual host-stage-to-hydration test, rather than relying on phase alone or
+a hydrated-row substitute. Reuse and verify a retained identical object when present,
+otherwise fetch only the already pinned original ALIAS_URL/ALIAS_BYTES/
+ALIAS_SHA on the host, preserving the original response, hash, selected-row,
+context and attempt1 guards. Copy it into the existing provider-source output
+and preserve it with the sealed evidence. Existing FOLLOWING phases must still
+require their retained source and every legacy route must keep its behavior.
+Do not fetch a revised provider archive, upgrade metadata or perform network
+access inside a worker. Test missing/retained/foreign-root paths and that the
+new host staging occurs before the actual batch hydration; a hydrated-row
+substitute alone does not prove that prerequisite.
+
+For P06 own1090/492d, SOURCE279 DATA closes ten natives,15 rows and all22
+native-date actions with MIME's actual38-share parent context preserved.
+Select the existing ordinary PREOPEN cash path for XENT28.25USD/common share
+on May13,2022, preserving May12 trading and the fresh May11 identity. The
+issuer's completed8-K (SEC1271214/000114036122018976) and OCC50411 establish
+the mandatory amount and explicit completion before that open. No payment-
+availability or exact-minute claim is added. Append only this own-source term
+as catalog31 after the separately qualified P05 catalog30, retaining all30
+earlier records and envelope bytes. Compose the nine original SOURCE279 terms
+from their exact December, cash-calendar and October catalogs/validators;
+add only this P06 phase to the documented same-day supplemental opt-in for
+the original confirmed-preopen terms. Preserve all seven input documents and
+exclude adopted MYOV/AZPN1/REGI/PLAN. Actual event quantities come only from
+the resumed canonical book; MIME38 is a parent witness, not a future cash
+quantity. No new financial algorithm or source-successor allocation is used.
+
+P06's three original cash calendars share the same immutable validator file.
+For this explicitly opted-in supplemental phase, require distinct catalog
+files and permit a reused validator filename only with the identical pinned
+validator hash. Reject any different hash under the same validator name and
+retain all original constructor, source-byte, native/date and disjointness/
+collision guards. Every phase without that opt-in keeps the original strict
+unique-validator branch. This permits independent original catalogs to reuse
+their actual common parser; it does not permit duplicate catalogs, changed
+validators or interleaved ordinary aggregation outside the qualified route.
+
+Select financial281/request148 for P03 own439/bd698, P05 own965/798631 and
+P06 own1090/492d with439 exact source files and three financial workers.
+Publish the independently reviewed P11 own2093/01d9 admission in the same
+delivery; its43 new closes remain distinct from these three continuations.
+The combined P03/P05 input composition passes123 portable cases and18 actual
+frozen-alias staging cases; the P06 catalog31 composition passes148 cases.
+The final historical compatibility cohort passes234 cases, retaining old
+fixture pins and explicit legacy AST comparisons. Its exact command is:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/financial281-compatibility-tests-20261105-recovered
+forecast_tests/test_financial_future.py forecast_tests/test_financial_own_cash.py
+forecast_tests/test_financial_exact_mixed.py forecast_tests/test_financial_retained_proof.py
+forecast_tests/original_contract_delivery/test_original_contract_delivery.py
+forecast_tests/catalog28_mixed/test_catalog28_mixed.py
+forecast_tests/catalog29_cash/test_catalog29_cash.py` from research/capital_risk.
+The broader integration pass had550 passing cases and18 historical-fixture
+failures before these test-only compatibility corrections; all failing files
+are included in the final234-case pass. No golden source fixture was re-pinned.
+All383 original financial sources and B19 remain byte-exact. These checks
+execute synthetic input/proof qualification, never local canonical finance.
+Admission still carries the historical-data/PIT limitations stated above.

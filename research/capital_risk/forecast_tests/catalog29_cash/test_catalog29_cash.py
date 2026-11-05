@@ -87,13 +87,17 @@ def test_original_cash_validator_rejects_invalid_new_term(change):
 
 @pytest.mark.parametrize('change',['source_clock','source_scope','parent_position','root','native'])
 def test_current_generic_selector_refuses_foreign_bindings(tmp_path,monkeypatch,change):
-    catalog=json.loads((BASE/f.OWN_CASH_CATALOG).read_bytes());t=catalog['terms'][-1]
+    catalog=json.loads((BASE/f.OWN_CASH_CATALOG).read_bytes())
+    t,=[v for v in catalog['terms']if(v['arm'],v['parent_cursor'],v['ticker'])==('P11','2026-02-27','EXAS')]
     if change=='source_clock':t['source_capture']['artifact_id']+=1
     elif change=='source_scope':t['source_capture']['scope_sha256']='0'*64
     elif change=='parent_position':t['parent_positions'][0]['quantity']+=1
     elif change=='root':t['parent_outer_sha256']='0'*64
     else:t['native_term_sha256']='0'*64
-    for name in {v['retained_primary_catalog']['filename']for v in catalog['terms']if 'retained_primary_catalog'in v}:
+    names={v[field][key]for v in catalog['terms']
+           for field,key in (('retained_primary_catalog','filename'),('retained_original_legal_record','catalog_file'))
+           if field in v}
+    for name in names:
         (tmp_path/name).write_bytes((BASE/name).read_bytes())
     raw=enc(catalog);(tmp_path/f.OWN_CASH_CATALOG).write_bytes(raw)
     monkeypatch.setattr(f,'HERE',tmp_path);monkeypatch.setattr(f,'OWN_CASH_SHA',sha(raw))

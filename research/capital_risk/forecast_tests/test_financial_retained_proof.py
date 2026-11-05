@@ -242,7 +242,8 @@ def test_retained_run_wires_one_future_adoption_and_the_entire_seed(tmp_path,mon
     (old/'hydrated-alder-unresolved-date.json').write_bytes(b'{"unchanged_native":true}\n')
     (old/'hydrated-uncertainty-event.json').write_bytes(b'{"unchanged_event":true}\n')
     cp=dict(sha256='c'*64,completed=756,source_cursor='2020-12-31',repairs=[],run=dict(input_sha256='e'*64))
-    spec=dict(root_admission_sha256=next(iter(u.UNCHANGED_INPUT_SEEDS))) if unchanged else object()
+    spec=dict(arm='P07')
+    if unchanged:spec['root_admission_sha256']=next(iter(u.UNCHANGED_INPUT_SEEDS))
     calls=[];active=[]
     class Context:
         def __init__(self,name):self.name=name

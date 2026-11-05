@@ -26,6 +26,43 @@ def extract(name,*,file='system_campaign_financial_future.py',strip=False):
 
 def run(nodes,ns):exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),'<source-bound-pure-input-AST>','exec'),ns)
 
+def historical_raw_proxy_AST(node):
+    """Invert only the qualified S2 single-catalog layout; retain every guard."""
+    expected=ast.parse("""declared = ORIGINAL_DELIVERY_SUBSETS.get((arm, cursor, catalog))
+if 'terms' in codec.catalog:
+    candidates = [t for t in codec.catalog['terms'] if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')]
+else:
+    need(declared is not None, 'FUTURE_ORIGINAL_SINGLE_LAYOUT_REQUIRES_EXPLICIT_SUBSET')
+    candidates = catalog_terms(codec, declared)
+""").body
+    node=deepcopy(node);matches=[]
+    for loop in ast.walk(node):
+        if not isinstance(loop,ast.For):continue
+        for i in range(len(loop.body)-1):
+            if [ast.dump(n,include_attributes=False)for n in loop.body[i:i+2]]==[ast.dump(n,include_attributes=False)for n in expected]:
+                matches.append((loop,i))
+    assert len(matches)==1,'Only the exact documented S2 normalization may differ'
+    loop,i=matches[0]
+    loop.body[i:i+2]=[deepcopy(expected[1].body[0]),deepcopy(expected[0])]
+    return node
+
+
+def install_unselected_own_batch(ns,cp,arm):
+    """Use the real pure policy selector and prove this historical phase is absent."""
+    raw=(BASE/'system_campaign_financial_uncertainty.py').read_bytes()
+    policy=dict(HERE=BASE,Path=Path,json=json,sha=sha,need=need,deepcopy=deepcopy)
+    for n in ast.parse(raw).body:
+        if isinstance(n,ast.Assign)and isinstance(n.targets[0],ast.Name)and n.targets[0].id in(
+                'OWN_POLICY_CATALOG','OWN_POLICY_SHA','OWN_POLICY_CLOSED_GENERATIONS'):
+            policy[n.targets[0].id]=ast.literal_eval(n.value)
+    run([extract(name,file='system_campaign_financial_uncertainty.py',strip=True)
+         for name in ('policy_encoded','own_policy_catalog','own_initial_for_parent')],policy)
+    assert policy['own_initial_for_parent'](cp,arm)is None
+    ns.update(own_initial_for_parent=policy['own_initial_for_parent'],OWN_POLICY_SHA=policy['OWN_POLICY_SHA'],
+              OWN_POLICY_CATALOG=policy['OWN_POLICY_CATALOG'])
+    run([extract('qualified_own_batch_selection',strip=True)],ns)
+    assert ns['qualified_own_batch_selection'](cp,arm)==([],[])
+
 def setup():
     fixture=json.loads((FIXTURES/'source263-original-inputs.json').read_bytes());scope=fixture['scope']
     raw=(BASE/'system_campaign_distribution_facts.py').read_bytes()
@@ -45,9 +82,10 @@ def setup():
         'completion_session','contractual_delivery_addition','contractual_delivery_selection')
     run([extract(n,strip=True)for n in names],ns)
     for n in ast.parse((BASE/'system_campaign_financial_future.py').read_bytes()).body:
-        if isinstance(n,ast.Assign)and isinstance(n.targets[0],ast.Name)and n.targets[0].id in('PRIOR_STOCK','PREOPEN_STOCK','RESEARCH_MIXED','RESEARCH_SOURCE_EXIT','RESEARCH_TENDER','RESEARCH_CASH','NEXT_COMPLETION','SOURCE_CLOSE'):
+        if isinstance(n,ast.Assign)and isinstance(n.targets[0],ast.Name)and n.targets[0].id in('PRIOR_STOCK','PREOPEN_STOCK','RESEARCH_MIXED','RESEARCH_SOURCE_EXIT','RESEARCH_TENDER','RESEARCH_CASH','RESEARCH_UNHELD_CASH','NEXT_COMPLETION','SOURCE_CLOSE'):
             ns[n.targets[0].id]=ast.literal_eval(n.value)
     cp=dict(sha256=scope['parent_outer_sha256'],source_cursor=scope['parent_cursor'],run=dict(state=dict(wealth_core=dict(episodes={}),pending=[])))
+    install_unselected_own_batch(ns,cp,'P05')
     return SimpleNamespace(ns=ns,cp=cp,fixture=fixture,module=module,plan=ns['ORIGINAL_CONTRACT_DELIVERY_PHASES']['P05','2021-03-31'])
 
 def term(s):
@@ -102,11 +140,23 @@ def test_unselected_phase_has_no_contract_route():
 
 def test_original_raw_proxy_phase_guard_is_unchanged_and_still_refuses_APHA():
     s=setup();fn=extract('original_phase_delivery_selection',strip=True)
-    assert sha(ast.dump(extract('original_phase_delivery_selection'),include_attributes=False).encode())==s.fixture['raw_proxy_phase_function_AST_sha256']
+    assert sha(ast.dump(historical_raw_proxy_AST(extract('original_phase_delivery_selection')),include_attributes=False).encode())==s.fixture['raw_proxy_phase_function_AST_sha256']
     s.ns.update(ORIGINAL_DELIVERY_PHASES={('P05','2021-03-31'):[('system_campaign_distribution_facts','DistributionFacts','system-campaign-distribution-facts.json',s.plan['catalog_sha256'])]},
         ORIGINAL_DELIVERY_SUBSETS={('P05','2021-03-31','system-campaign-distribution-facts.json'):('APHA',)})
     run([fn],s.ns)
     with pytest.raises(ValueError,match='UNCONSUMED_PROXY_DELIVERIES_ONLY'):s.ns['original_phase_delivery_selection']('P05','2021-03-31')
+
+
+@pytest.mark.parametrize('change',['legacy_guard','single_catalog_guard'])
+def test_historical_raw_proxy_comparator_refuses_guard_changes(change):
+    s=setup();node=extract('original_phase_delivery_selection')
+    label=('FUTURE_ORIGINAL_PHASE_UNCONSUMED_PROXY_DELIVERIES_ONLY'if change=='legacy_guard'
+           else'FUTURE_ORIGINAL_SINGLE_LAYOUT_REQUIRES_EXPLICIT_SUBSET')
+    call,=[n for n in ast.walk(node)if isinstance(n,ast.Call)and isinstance(n.func,ast.Name)and n.func.id=='need'
+           and isinstance(n.args[-1],ast.Constant)and n.args[-1].value==label]
+    call.args[0]=ast.Constant(True)
+    with pytest.raises(AssertionError):
+        assert sha(ast.dump(historical_raw_proxy_AST(node),include_attributes=False).encode())==s.fixture['raw_proxy_phase_function_AST_sha256']
 
 def removed(s,name,label):
     fn=extract(name,strip=True);call,=[n for n in ast.walk(fn)if isinstance(n,ast.Call)and isinstance(n.func,ast.Name)and n.func.id=='need'and isinstance(n.args[-1],ast.Constant)and n.args[-1].value==label]

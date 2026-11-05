@@ -65,6 +65,13 @@ def changed_catalog(tmp_path,monkeypatch):
     monkeypatch.setattr(f,'HERE',tmp_path)
 
 
+def copy_referenced_original_inputs(catalog,source,destination):
+    names={term[field][key]for term in catalog['terms']
+           for field,key in (('retained_primary_catalog','filename'),('retained_original_legal_record','catalog_file'))
+           if field in term}
+    for name in names:(destination/name).write_bytes((source/name).read_bytes())
+
+
 def test_any_changed_literal_cash_catalog_refuses_before_use(tmp_path,monkeypatch):
     changed_catalog(tmp_path,monkeypatch)
     with pytest.raises(ValueError,match='EXACT_REVIEWED_LITERAL_CATALOG'):f.own_cash_selection('P04','2022-06-30')
@@ -75,10 +82,7 @@ def test_literal_fact_digest_guard_removal_falsifier(tmp_path,monkeypatch):
     value['terms'][-1]['source_capture']['payload_sha256']='0'*64
     phase=value['terms'][-1]['arm'],value['terms'][-1]['parent_cursor']
     (tmp_path/f.OWN_CASH_CATALOG).write_bytes((json.dumps(value,sort_keys=True,indent=2)+'\n').encode())
-    for t in value['terms']:
-        if 'retained_primary_catalog' in t:
-            primary=t['retained_primary_catalog']['filename']
-            (tmp_path/primary).write_bytes((original/primary).read_bytes())
+    copy_referenced_original_inputs(value,original,tmp_path)
     monkeypatch.setattr(f,'HERE',tmp_path)
     with pytest.raises(ValueError):f.own_cash_selection(*phase)
     fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='own_cash_selection')
@@ -102,10 +106,7 @@ def test_historical_cash_phases_keep_original_full_catalog_generation():
 
 def test_reviewed_append_cannot_silently_edit_a_closed_generation(tmp_path,monkeypatch):
     original=f.HERE;changed_catalog(tmp_path,monkeypatch)
-    for term in json.loads((original/f.OWN_CASH_CATALOG).read_bytes())['terms']:
-        if 'retained_primary_catalog' in term:
-            primary=term['retained_primary_catalog']['filename']
-            (tmp_path/primary).write_bytes((original/primary).read_bytes())
+    copy_referenced_original_inputs(json.loads((original/f.OWN_CASH_CATALOG).read_bytes()),original,tmp_path)
     monkeypatch.setattr(f,'OWN_CASH_SHA',f.sha((tmp_path/f.OWN_CASH_CATALOG).read_bytes()))
     with pytest.raises(ValueError,match='CLOSED_CATALOG_GENERATION_BYTES'):
         f.own_cash_selection('P10','2024-04-30')

@@ -166,6 +166,15 @@ def test_original_model_and_unrelated_validator_asts_unchanged():
     assert isinstance(timing, ast.If) and ast.dump(timing.test, include_attributes=False) == ast.dump(expected, include_attributes=False)
     assert len(timing.orelse) == 1
     mixed.body = timing.orelse + mixed.body[1:]
+    # Exclude only the separately qualified unheld-source recognition branch;
+    # the remaining original branches still undergo the exact AST comparison.
+    unheld_test = ast.parse("term.get('recognition_rule') == RESEARCH_UNHELD_CASH", mode='eval').body
+    unheld, = [n for n in after.body if isinstance(n, ast.If)
+               and ast.dump(n.test, include_attributes=False) == ast.dump(unheld_test, include_attributes=False)]
+    assert ast.dump(unheld.body[0], include_attributes=False) == ast.dump(
+        ast.parse('research_unheld_cash_term(term)').body[0], include_attributes=False)
+    assert not unheld.orelse and isinstance(unheld.body[-1], ast.Return) and unheld.body[-1].value is None
+    after.body.remove(unheld)
     # Only the final NEXT_COMPLETION predicate now permits a nontrading
     # completion date; every earlier original recognition predicate remains exact.
     assert ast.dump(ast.Module(body=before.body[:-1],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=after.body[:-2],type_ignores=[]),include_attributes=False)

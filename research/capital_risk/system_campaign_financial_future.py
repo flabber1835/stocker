@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '51674fc83cb9240168b27c2566edff62f44089cb4e00e57ce2e8f06b8a50277e'
+OWN_CASH_SHA = '7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -159,6 +159,10 @@ CASH_GENERATION_LENGTHS['P06', '2021-03-31'] = 28
 CLOSED_CASH_GENERATIONS['b199b6df1b4e34e1b98336795dc3eeb62caa9981f3f9a96b2b1edb1704aa6581'] = 28
 OWN_CASH_PHASES['P11', '2026-02-27'] = 'EXAS'
 CASH_GENERATION_LENGTHS['P11', '2026-02-27'] = 29
+CLOSED_CASH_GENERATIONS['51674fc83cb9240168b27c2566edff62f44089cb4e00e57ce2e8f06b8a50277e'] = 29
+OWN_CASH_PHASES['P05', '2021-10-29'] = 'UFS'
+CASH_GENERATION_LENGTHS['P05', '2021-10-29'] = 30
+RESEARCH_UNHELD_CASH = 'RESEARCH_COMPLETION_DATE_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
@@ -288,6 +292,28 @@ SUPPLEMENTAL_PHASES['P03', '2019-09-30'] = (
 SUPPLEMENTAL_PHASES['P06', '2021-03-31'] = (('system_campaign_2021_completions_facts', 'CompletionFacts', 'PATH', 'system-campaign-2021-completions-terminal-facts.json', 'de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb', 'c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2', ('MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1')), ('system_campaign_following_completions_facts', 'FollowingFacts', 'PATH', 'system-campaign-following-completions-terminal-facts.json', 'bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d', '2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e', ('CATM', 'AZPN1', 'REGI', 'PLAN')))
 
 
+ORIGINAL_ORDINARY_AGGREGATE_PHASES = {('P03', '2019-09-30')}
+ORIGINAL_ORDINARY_SUBSETS = {
+    ('P03', '2019-09-30', 'system-campaign-spring2020-cash-terminal-facts.json'): ('CY', 'MLNX', 'WBC'),
+    ('P03', '2019-09-30', 'system-campaign-autumn2020-cash-terminal-facts.json'): ('MNTA', 'AIMT', 'IMMU', 'MYOK'),
+}
+ORIGINAL_ORDINARY_PHASES['P03', '2019-09-30'] = (
+    ('system_campaign_spring2020_cash_facts', 'CashCompletionFacts', 'system-campaign-spring2020-cash-terminal-facts.json', '923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122'),
+    ('system_campaign_autumn2020_cash_facts', 'CashCompletionFacts', 'system-campaign-autumn2020-cash-terminal-facts.json', 'bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7'),
+)
+ORIGINAL_DELIVERY_PHASES['P03', '2019-09-30'] = (
+    ('system_campaign_sprint_facts', 'SprintFacts', 'system-campaign-sprint-terminal-facts.json', 'd30f52b302557445f8ed85e6314b7deb16e04f77009c5491c9de6287515116fe'),
+)
+ORIGINAL_DELIVERY_SUBSETS['P03', '2019-09-30', 'system-campaign-sprint-terminal-facts.json'] = ('S2',)
+SINGLE_PHASES['P03', '2019-09-30'] = ('system_campaign_sprint_facts', 'SprintFacts', 'system-campaign-sprint-terminal-facts.json', ('S2',))
+ROOT_BOUND_ALIAS_SOURCE_PHASES = {('P03', '2019-09-30'): (
+    'bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f',
+    'a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0', 439)}
+
+SUPPLEMENTAL_PHASES['P05', '2021-10-29'] = (('system_campaign_cash_calendar', 'CashCalendar', 'JSON', 'system-campaign-december-cash-calendar-terminal-facts.json', 'f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6', '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f', ('COR2', 'DRNA', 'ARNA', 'EPAY', 'CCXI1', 'NEWR', 'IMGN', 'CTLT')),)
+SUPPLEMENTAL_SAME_DAY_PHASES = frozenset({('P05', '2021-10-29')})
+
+
 class ResearchCashAssumption(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
     schema_id: Literal['research.daily-economic-cash-assumption/1'] = Field(alias='schema')
@@ -296,6 +322,18 @@ class ResearchCashAssumption(BaseModel):
     opening_availability_assumed: Literal[True]
     actual_settlement_claimed: Literal[False]
     settlement_fees: Literal['IGNORED_FOR_RESEARCH']
+
+
+class ResearchUnheldCashAssumption(BaseModel):
+    """Explicit closing-source assumption with no held-completion authority."""
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.daily-unheld-source-cash-assumption/1'] = Field(alias='schema')
+    published_cash_per_share: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    closing_availability_assumed: Literal[True]
+    completion_confirmed_by_close: Literal[False]
+    actual_settlement_claimed: Literal[False]
+    portfolio_completion_authorized: Literal[False]
 
 
 class ResearchMixedAssumption(BaseModel):
@@ -434,6 +472,7 @@ OWN_CASH_SOURCE_CLOCKS['P11', '2025-06-30'] = (41971859824, 'f304f01185feadb9ab9
 OWN_CASH_SOURCE_CLOCKS['P03', '2019-09-30'] = (41974204844, '51a1d68b1a615af2e80937f11e22a60510802185', 13391196722)
 OWN_CASH_SOURCE_CLOCKS['P06', '2021-03-31'] = (41978263810, 'a0a06b71157b91557bf30951ac4dc7a2aba243ca', 13392737266)
 OWN_CASH_SOURCE_CLOCKS['P11', '2026-02-27'] = (41992111094, 'e0272a24fc706b2f35c5310f89718cc418b49c37', 13398956926)
+OWN_CASH_SOURCE_CLOCKS['P05', '2021-10-29'] = (41992111094, 'e0272a24fc706b2f35c5310f89718cc418b49c37', 13397614792)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1131,6 +1170,15 @@ def qualify_selected_query_resolution(term, query, scope):
     need(digest(selected_query_scope(term, query)) == digest(scope),
          'OWN_CASH_EXACT_QUERY_RESOLUTION_NATIVE_PREIMAGE')
 
+# Qualified own1090 source279: original date/amount/identity contracts remain exact.
+CLOSED_CASH_GENERATIONS['5951b1ffa420910291a756b31b0a9a324ace68f4af77c854a9cc71a71b3115a5'] = 30
+OWN_CASH_PHASES[('P06', '2022-04-29')] = 'XENT'
+CASH_GENERATION_LENGTHS[('P06', '2022-04-29')] = 31
+OWN_CASH_SOURCE_CLOCKS[('P06', '2022-04-29')] = (42006075396, '7c9f35d4a7a39f02fef82269466f5064780742f8', 13404817664)
+SUPPLEMENTAL_PHASES[('P06', '2022-04-29')] = (('system_campaign_cash_calendar', 'CashCalendar', 'JSON', 'system-campaign-december-cash-calendar-terminal-facts.json', 'f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6', '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f', ('EPAY', 'CCXI1')), ('system_campaign_cash_calendar', 'CashCalendar', 'JSON', 'system-campaign-cash-calendar-terminal-facts.json', 'd296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6', '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f', ('MIME', 'CYBE')), ('system_campaign_cash_calendar', 'CashCalendar', 'JSON', 'system-campaign-october-cash-calendar-terminal-facts.json', '225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53', '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f', ('AVLR', 'FMTX', 'PING', 'Y', 'ZEN')))
+SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P06', '2022-04-29')})
+SUPPLEMENTAL_SHARED_VALIDATOR_PHASES = frozenset({('P06', '2022-04-29')})
+
 
 def own_cash_selection(arm, cursor):
     from system_campaign_cash_calendar import validate_term
@@ -1160,6 +1208,8 @@ def own_cash_selection(arm, cursor):
             research_tender_term(term)
         elif term['recognition_rule'] == RESEARCH_CASH:
             research_cash_term(term)
+        elif term['recognition_rule'] == RESEARCH_UNHELD_CASH:
+            research_unheld_cash_term(term)
         elif term['recognition_rule'] == SOURCE_CLOSE:
             source_cash_term(term)
         elif term['recognition_rule'] == NEXT_COMPLETION:
@@ -1229,6 +1279,9 @@ def own_cash_selection(arm, cursor):
     elif chosen['recognition_rule'] == NEXT_COMPLETION:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.'
+    elif chosen['recognition_rule'] == RESEARCH_UNHELD_CASH:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Original unheld-source cash amount with explicit research closing availability, no confirmed-by-close or held-completion claim; actual canonical absence, no-op and source delegation are mandatory.'
     elif chosen['recognition_rule'] == SOURCE_CLOSE:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared closing source valuation; actual unowned/unordered and canonical no-op proofs are mandatory, with no portfolio completion authority.'
@@ -1395,6 +1448,49 @@ def research_mixed_term(term):
     return result
 
 
+def research_unheld_cash_term(term):
+    """Validate one original source-only amount without inventing a clock fact."""
+    model = ResearchUnheldCashAssumption.model_validate(term['research_assumption'])
+    reference = term['retained_original_legal_record']
+    name = reference['catalog_file']
+    need(Path(name).name == name and name.endswith('.json'), 'OWN_INPUT_UNHELD_SINGLE_ORIGINAL_CATALOG')
+    raw = (HERE / name).read_bytes()
+    need(sha(raw) == reference['sha256'], 'OWN_INPUT_UNHELD_EXACT_ORIGINAL_CATALOG_BYTES')
+    originals = [v for v in json.loads(raw)['records'] if digest(v) == reference['record_sha256']]
+    need(len(originals) == 1, 'OWN_INPUT_UNHELD_EXACT_ORIGINAL_RECORD')
+    original, = originals
+    a, w = term['added'], term['identity_witness']
+    need(original['kind'] == 'CASH_MERGER'
+         and original['clock_scope'] == 'DAILY_MARKET_UNHELD_SOURCE'
+         and original['held_representation_scope'] == 'SOURCE_UNHELD'
+         and original['source_pending_scope'] == 'REFUSE_ALL_SOURCE_INTENTS'
+         and original['exact_legal_effective_minute_proven'] is False
+         and original['entitlement_aggregation'] == 'HOLDER'
+         and original['native_events'] == [dict(session=term['native_session'], sha256=term['native_term_sha256'])],
+         'OWN_INPUT_UNHELD_ORIGINAL_RECORD_AND_SCOPE')
+    need(term['recognition_rule'] == RESEARCH_UNHELD_CASH
+         and term['parent_cursor'] < w['session'] < term['native_session'] == term['last_trading_session']
+             < a['session'] == term['actual_completion_date'] == original['legal_calendar_day']
+             == original['economic_session'] == model.recognition_session
+         and a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and a['cash_per_share'] > 0
+         and Fraction(str(a['cash_per_share'])) == Fraction(original['cash_per_share'])
+             == Fraction(model.published_cash_per_share)
+         and a['security_id'] == term['security_id'] == w['security_id'] == original['source_security_id']
+         and term['ticker'] == w['ticker'] == original['source_ticker']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and term['primary_source'] == original['primary_reference']
+         and a['reference'] == term['primary_source'] + ' | ' + term['description'],
+         'OWN_INPUT_UNHELD_RESEARCH_CLOSING_CASH_AND_IDENTITY')
+    need(term['source_valuation_phase'] == 'CLOSE' and term['parent_positions'] == []
+         and term['preopen_completion_confirmed'] is term['mandatory_common_share_completion_confirmed'] is False
+         and term['completion_confirmed_by_close'] is False
+         and term['portfolio_completion_authorized'] is False and term['require_unowned_and_unordered'] is True,
+         'OWN_INPUT_UNHELD_NO_PORTFOLIO_COMPLETION_AUTHORITY')
+
+
 def source_cash_term(term):
     a, w, primary = term['added'], term['identity_witness'], term['primary_extraction']
     need(term['recognition_rule'] == SOURCE_CLOSE
@@ -1475,6 +1571,15 @@ def completion_session(term, dates):
                  and dates.index(term['native_session']) + 1 < len(dates)
                  and dates[dates.index(term['native_session']) + 1] == term['added']['session'] == term['actual_completion_date'],
                  'OWN_INPUT_RESEARCH_MIXED_NEXT_FROZEN_DAILY_BOUNDARY')
+        return
+    if term.get('recognition_rule') == RESEARCH_UNHELD_CASH:
+        research_unheld_cash_term(term)
+        native = term['native_session']
+        need(dates == sorted(set(dates)) and native in dates and dates.index(native) > 0
+             and dates.index(native) + 1 < len(dates)
+             and dates[dates.index(native) - 1] == term['identity_witness']['session']
+             and dates[dates.index(native) + 1] == term['added']['session'],
+             'OWN_INPUT_UNHELD_RESEARCH_EXACT_NEXT_FROZEN_BOUNDARY')
         return
     if term.get('recognition_rule') == RESEARCH_SOURCE_EXIT:
         model = ResearchSourceExitAssumption.model_validate(term['research_assumption'])
@@ -1694,6 +1799,8 @@ def original_ordinary_selection(arm, cursor):
          and all(max(t['added']['session'] for t in left[3]) < min(t['native_session'] for t in right[3])
                  for left, right in zip(sources, sources[1:])),
          'FUTURE_ORIGINAL_ORDINARY_ORDERED_DISJOINT_CASH_CATALOGS')
+    if (arm, cursor) in ORIGINAL_ORDINARY_AGGREGATE_PHASES:
+        return aggregate_original_ordinary(arm, cursor, sources)
     for codec, catalog, source, cash in sources:
         terms = []
         for original in cash:
@@ -1721,14 +1828,29 @@ def supplemental_selection(arm, cursor):
         need(constructor in ('PATH', 'JSON'), 'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')
         codec = getattr(module, class_name)(HERE / catalog if constructor == 'PATH' else json.loads(raw))
         selected_terms = catalog_terms(codec, tickers)
-        need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')
-             and cursor < t['native_session'] < t['added']['session'] for t in selected_terms),
-             'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_TERMS')
+        if (arm, cursor) in SUPPLEMENTAL_SAME_DAY_PHASES:
+            need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')
+                 and cursor < t['native_session'] <= t['added']['session']
+                 and (t['native_session'] < t['added']['session'] or
+                      (t['added']['kind'] == 'CASH_MERGER'
+                       and t['recognition_rule'] == 'CONFIRMED_PREOPEN_COMPLETION'
+                       and t['preopen_completion_confirmed'] is True)) for t in selected_terms),
+                 'FUTURE_SUPPLEMENT_EXPLICIT_ORIGINAL_SAME_DAY_PREOPEN_CASH_ONLY')
+        else:
+            need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')
+                 and cursor < t['native_session'] < t['added']['session'] for t in selected_terms),
+                 'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_TERMS')
         source = dict(catalog_file=catalog, catalog_sha256=catalog_sha,
                       validator_file=Path(module.__file__).name, validator_sha256=validator_sha,
                       selected_tickers=list(tickers))
-        need(not any(s['catalog_file'] == catalog or s['validator_file'] == source['validator_file'] for s in sources),
-             'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')
+        if (arm, cursor) in SUPPLEMENTAL_SHARED_VALIDATOR_PHASES:
+            need(not any(s['catalog_file'] == catalog for s in sources)
+                 and all(s['validator_file'] != source['validator_file']
+                         or s['validator_sha256'] == source['validator_sha256'] for s in sources),
+                 'FUTURE_SUPPLEMENT_OPT_IN_UNIQUE_CATALOG_AND_IDENTICAL_SHARED_VALIDATOR')
+        else:
+            need(not any(s['catalog_file'] == catalog or s['validator_file'] == source['validator_file'] for s in sources),
+                 'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')
         sources.append(source)
         for term in selected_terms:
             term['original_ordinary_source'] = dict(source, term_sha256=digest(term))
@@ -1855,8 +1977,12 @@ def original_phase_delivery_selection(arm, cursor):
         need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES')
         module = importlib.import_module(module_name)
         codec = getattr(module, class_name)(HERE / catalog)
-        candidates = [t for t in codec.catalog['terms'] if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')]
         declared = ORIGINAL_DELIVERY_SUBSETS.get((arm, cursor, catalog))
+        if 'terms' in codec.catalog:
+            candidates = [t for t in codec.catalog['terms'] if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')]
+        else:
+            need(declared is not None, 'FUTURE_ORIGINAL_SINGLE_LAYOUT_REQUIRES_EXPLICIT_SUBSET')
+            candidates = catalog_terms(codec, declared)
         if declared is not None:
             need(type(declared) is tuple and declared and len(set(declared)) == len(declared),
                  'FUTURE_ORIGINAL_PHASE_UNIQUE_DECLARED_DELIVERY_SUBSET')
@@ -2074,6 +2200,10 @@ def selected(arm, *, cursor=None):
 def stage_selected_sources(spec, old, out):
     """Host-only bounded fetch of one pinned source; workers remain offline."""
     phase = spec['arm'], spec['selected_session']
+    bound = ROOT_BOUND_ALIAS_SOURCE_PHASES.get(phase)
+    if bound is not None:
+        need((spec.get('root_admission_sha256'), spec.get('outer_sha256'), spec.get('measured_closes')) == bound,
+             'FUTURE_ALIAS_SOURCE_EXACT_QUALIFIED_OWN_ROOT')
     if phase not in SINGLE_PHASES and phase not in FOLLOWING_PHASES:
         return
     import os
@@ -2192,7 +2322,10 @@ def hydrate(cp, arm, *, source_root=None):
             terms = merge_selected_terms(terms, original_terms)
         else:
             terms = original_terms
-        ordinary_components.append(deepcopy(original_codec.ordinary_source))
+        original_sources = original_codec.ordinary_sources if hasattr(original_codec, 'ordinary_sources') else [original_codec.ordinary_source]
+        for source in original_sources:
+            if source not in ordinary_components:
+                ordinary_components.append(deepcopy(source))
     delivery = original_delivery_selection(arm, cp['source_cursor'])
     if delivery is not None:
         delivery_codec, delivery_catalog, delivery_terms = delivery
@@ -2215,6 +2348,15 @@ def hydrate(cp, arm, *, source_root=None):
         for source in components:
             if source not in ordinary_components:
                 ordinary_components.append(deepcopy(source))
+    own_terms, own_sources = qualified_own_batch_selection(cp, arm)
+    if own_terms:
+        need(source_root is not None, 'FUTURE_OWN_BATCH_EXPLICIT_REPAIR_ROOT')
+        own_terms, inherited = remaining_ordinary_terms(cp, own_terms, source_root)
+        inherited_ordinary.extend(inherited)
+        terms = merge_selected_terms(terms, own_terms)
+        for source in own_sources:
+            if source not in ordinary_components:
+                ordinary_components.append(deepcopy(source))
     contracts, contract_sources = contractual_delivery_selection(cp, arm)
     if contracts:
         terms = merge_selected_terms(terms, contracts)
@@ -2223,7 +2365,7 @@ def hydrate(cp, arm, *, source_root=None):
             ordinary_components.append(deepcopy(source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT, PREOPEN_STOCK, PRIOR_STOCK) for t in terms):
+    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT, PREOPEN_STOCK, PRIOR_STOCK) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:
@@ -2502,13 +2644,16 @@ def hydration_name(cp):
 def source_scopes(cp, material, overlay_sha, hydrated_sha):
     from system_campaign_financial_partial import root_spec
     expected = [t for t in selected(material['arm'], cursor=cp['source_cursor'])[2]
-                if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_SOURCE_EXIT)]
-    actual = [t for t in material['terms'] if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_SOURCE_EXIT)]
+                if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT)]
+    actual = [t for t in material['terms'] if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT)]
     need(digest(actual) == digest(expected), 'FUTURE_SOURCE_ONLY_SCOPE_CANNOT_BE_OMITTED_OR_RECLASSIFIED')
     result = []
     for term in actual:
         source_exit = term['recognition_rule'] == RESEARCH_SOURCE_EXIT
-        (research_source_exit_term if source_exit else source_cash_term)(term)
+        if term['recognition_rule'] == RESEARCH_UNHELD_CASH:
+            research_unheld_cash_term(term)
+        else:
+            (research_source_exit_term if source_exit else source_cash_term)(term)
         parent = root_spec(term['arm'], term['parent_root_admission_sha256'])
         need(cp['sha256'] == term['parent_outer_sha256'] == parent['outer_sha256']
              and material['parent_outer_sha256'] == cp['sha256']
@@ -2870,3 +3015,87 @@ class ActualEvents:
             raise
         finally:
             self.current = None
+
+
+def aggregate_original_ordinary(arm, cursor, sources):
+    terms, records = [], []
+    for codec, catalog, source, cash in sources:
+        declared = ORIGINAL_ORDINARY_SUBSETS[arm, cursor, catalog]
+        need(type(declared) is tuple and declared and len(set(declared)) == len(declared),
+             'FUTURE_ORIGINAL_CASH_UNIQUE_EXPLICIT_BATCH_SUBSET')
+        selected_terms = [deepcopy(t) for t in cash if t['ticker'] in declared]
+        need(tuple(t['ticker'] for t in selected_terms) == declared
+             and all(cursor < t['native_session'] <= t['added']['session'] for t in selected_terms),
+             'FUTURE_ORIGINAL_CASH_EXACT_UNCONSUMED_BATCH_SUBSET')
+        source = dict(source, selected_tickers=list(declared))
+        need(not any(r['catalog_file'] == catalog or r['validator_file'] == source['validator_file'] for r in records),
+             'FUTURE_ORIGINAL_CASH_UNIQUE_AGGREGATE_SOURCES')
+        for term in selected_terms:
+            term['original_ordinary_source'] = dict(source, term_sha256=digest(term))
+            term['timing_source'] = term['primary_source']
+        terms = merge_selected_terms(terms, selected_terms)
+        records.append(source)
+    manifest = dict(schema=COMPOSITION, sources=records)
+    codec = SimpleNamespace(catalog=dict(terms=deepcopy(terms)), catalog_sha=digest(manifest),
+        compiler_sha=digest([{r['validator_file']: r['validator_sha256']} for r in records]),
+        ordinary_sources=records, composition=manifest)
+    return codec, 'EXPLICIT_ORDERED_ORIGINAL_CASH_COMPOSITION', terms
+
+
+def qualified_own_batch_selection(cp, arm):
+    from system_campaign_financial_uncertainty import own_initial_for_parent, OWN_POLICY_SHA, OWN_POLICY_CATALOG
+    selected = own_initial_for_parent(cp, arm)
+    if selected is None:
+        return [], []
+    phase, payload = selected
+    raw = (HERE / OWN_CASH_CATALOG).read_bytes()
+    catalog = json.loads(raw)
+    records = phase['ordinary_model_terms']
+    need(records and len({r['term']['security_id'] for r in records}) == len(records),
+         'FUTURE_OWN_BATCH_UNIQUE_QUALIFIED_MODEL_TERMS')
+    source = dict(catalog_file=OWN_CASH_CATALOG, catalog_sha256=sha(raw),
+        validator_file=Path(__file__).name, validator_sha256=sha(Path(__file__).read_bytes()),
+        qualified_input_catalog=OWN_POLICY_CATALOG, qualified_input_sha256=OWN_POLICY_SHA,
+        selected_tickers=[r['term']['ticker'] for r in records],
+        original_generation_term_pins=[dict(generation_sha256=r['original_generation_sha256'],
+            generation_length=r['original_generation_length'], term_sha256=r['original_term_sha256']) for r in records])
+    terms = []
+    for plan in records:
+        prefix = dict(deepcopy(catalog), terms=deepcopy(catalog['terms'][:plan['original_generation_length']]))
+        need(sha((json.dumps(prefix, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()) == plan['original_generation_sha256'],
+             'FUTURE_OWN_BATCH_EXACT_ORIGINAL_CATALOG_GENERATION')
+        original, = [t for t in prefix['terms'] if t['arm'] == plan['original_arm'] and t['parent_cursor'] == plan['original_cursor']
+                     and digest(t) == plan['original_term_sha256']]
+        term = deepcopy(plan['term'])
+        permitted = {'arm', 'parent_cursor', 'parent_outer_sha256', 'parent_root_admission_sha256',
+                     'parent_positions', 'source_capture', 'description', 'added'}
+        need(term.keys() == original.keys()
+             and all(term[k] == v for k, v in original.items() if k not in permitted)
+             and {k: v for k, v in term['added'].items() if k != 'reference'}
+                 == {k: v for k, v in original['added'].items() if k != 'reference'}
+             and term['arm'] == arm and term['parent_outer_sha256'] == cp['sha256']
+             and term['parent_cursor'] == cp['source_cursor']
+             and term['parent_root_admission_sha256'] == phase['root_admission_sha256'],
+             'FUTURE_OWN_BATCH_ONLY_EXACT_OWN_SOURCE_REBINDING_NO_ECONOMIC_CHANGE')
+        native, = [t for t in payload['terms'] if t['native_term']['security_id'] == term['security_id']]
+        expected_capture = dict(phase['source_clock'], payload_sha256=phase['source_payload_sha256'],
+            scope_sha256=phase['source_scope_sha256'], independent_data_review_sha256=phase['source_review_sha256'],
+            independent_qualification_sha256=phase['source_qualification_sha256'])
+        need(term['identity_witness'] == native['identity_witness'] and term['native'] == native['native_term']
+             and term['native_term_sha256'] == digest(native['native_term'])
+             and term['parent_positions'] == native['parent_positions']
+             and term['source_capture'] == expected_capture,
+             'FUTURE_OWN_BATCH_EXACT_FRESH_NATIVE_IDENTITY_ROLE_AND_DATA_CLOCK')
+        if 'delivered_identity_witness' in term:
+            child, = [t for t in payload['additional_rows'] if t['identity_witness'] == term['delivered_identity_witness']]
+            need(child['identity_witness']['source_observation_sha256'] == term['proxy']['source_observation_sha256'],
+                 'FUTURE_OWN_BATCH_EXACT_DELIVERED_RAW_ROW_PROXY')
+        if term['recognition_rule'] == RESEARCH_MIXED:
+            term = research_mixed_term(term)
+        elif term['recognition_rule'] == RESEARCH_CASH:
+            research_cash_term(term)
+        else:
+            term = selected_stock_term(term)
+        term['original_ordinary_source'] = dict(source, term_sha256=plan['original_term_sha256'])
+        terms.append(term)
+    return terms, [source]
