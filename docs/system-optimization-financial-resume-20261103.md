@@ -3833,3 +3833,67 @@ forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualifie
 forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished`.
 The exact launcher probe passes. Original383/B19 and the admitted P05 root are
 unchanged; this request only reviews already committed financial rows.
+
+
+REPORT297 hosted readonly review succeeds (run42063242108, artifact13432925569,
+122588bytes/SHA87fd69f057fb895afe328e3c81c2fb49e8611beca30f0bb84d1c5f224d30d552).
+Independent DATA verifies all84 new daily rows,168 accounting snapshots, four
+monthly reports and112 Decimal metrics, all13 input bytes and the one neutral
+boundary. MDP is never held/ordered and has only the original zero-cash source
+no-op/delegation; all seven ordinary cash events are also actually unheld and
+zero-cash in this suffix. This actual result grants no future holding assumption.
+The21 input controls pass in11.12seconds, including14 mutations, one meaningful
+no-payment guard removal and five import fences. Initial reader attempts refused
+incorrect assumptions about metadata booleans, suppression-key spelling and the
+source-only marker; they were corrected to the authenticated versioned schemas.
+Review c841057cd138efc245b0151a32f29f61ae0b5849e43402cdff6ae8e4b5549a6e and
+validation00a8f1180ec840da04f2f686d0f32652cb158be7e65eb1d062250a714800477f
+close the independent DATA gate. The unchanged root-writer logic (only workspace
+and evidence roots relocated) admits c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f,
+own1070 through2022-03-31, preserving own986/bb544 in historical roots. The four
+uncommitted April daily rows and1274watch bytes remain excluded. Exact tests:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/report297-independent-input-tests-20261105-001
+C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/report297-source-snapshot/test_p05_eight_inputs.py`.
+
+Select SOURCE298 for P05 from admitted own1070. Capture HMHC and ANAT (currently
+held, with no consideration model in the inventory) plus129 other future
+incomplete native identities carrying original model evidence through2026-07-31.
+MIME is included in the129 and is actually held at this parent. Bind every current
+position to own1070; prior inventory role annotations from own986 are stale and
+must be recomputed. Future roles remain unknown. Preserve all56 earlier source
+scopes and every input byte. This131-term request is source identity/native DATA
+only, with zero financial workers and one readonly worker while FIN296 runs.
+No HMHC/ANAT amount, completion clock or settlement is selected by this query.
+
+Private generic DOVA commitment/binding preparation passes35 synthetic cases
+in6.77seconds, including two parser guard removals and five import fences:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/bounded-sensor-synthetic-tests-20261105-001
+C:/GitHub/stocker/.codex-tmp/dova-bounded-input-prep-20261105/test_bounded_sensor.py`.
+The files remain private and undispatched; full hosted adoption/review/restart
+integration is still required. No local historical financial runtime ran.
+
+SOURCE298 binds131 unique identities and288 raw native-date action rows to
+scopeec82450c3249c86761c5b4eb4f58a60dc10a02499f68b055dfd65f626e374322.
+All56 older scope values remain exact (registry digest without the appended
+scope d80cd80c7f5676981c2f2632ab0c716cd4985cf2cfad1a730867e359110a0e4c).
+Actual own1070 holdings in this query are HMHC103, MIME27, ANAT11 and LSI16;
+these are parent observations, not later event quantities. All future.py function
+and class ASTs are unchanged. The original13 input descriptors are preserved.
+
+Targeted source/root/report checks initially report83passed/6refused in45.20s
+because the selector generation command was accidentally invoked from the
+capital_risk subdirectory and the process still had the prior report mode loaded.
+Generation was corrected from the worktree root; all six affected checks plus
+the workflow check then pass7 in5.89s, with136deselected. Commands:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source298-root-and-scope-tests-20261105-001
+forecast_tests/test_financial_source_witnesses.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished`;
+then `python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source298-refreshed-selector-tests-20261105-001
+forecast_tests/test_financial_source_witnesses.py forecast_tests/test_financial_resume.py
+-k "stopped_source_capture_never_launches_financial_workers or corrupt_source_payload_cannot_trigger_finance_or_report_success or unknown_source_worker_has_no_export or different_actual_worker_request_cannot_be_accepted or actual_worker_request_byte_guard_removal_falsifier or actual_request_preserves_every_frozen_driver_and_selects_only_unfinished or existing_workflow_selects_qualified_job_without_overlapping_own_arm"`.
+The exact launcher/source-closure probe passes with446 sources and no finance.

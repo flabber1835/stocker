@@ -337,7 +337,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==56
+    assert len(f.WITNESS_SCOPE_REGISTRY)==57
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -355,11 +355,11 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
 
 def test_p05_seven_query_append_preserves_all54_prior_scopes_and_own986_roles():
     key='7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239'
-    appended={key,'55a9b328fa1c46f6c2db7282f69163ece866062699b5d4f8a1b4a77a8c61b8ff'}
+    appended={key,'55a9b328fa1c46f6c2db7282f69163ece866062699b5d4f8a1b4a77a8c61b8ff','ec82450c3249c86761c5b4eb4f58a60dc10a02499f68b055dfd65f626e374322'}
     prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k not in appended}
     assert len(prior)==54 and f.digest(prior)=='d019c20189ecd45404e19ec5c2875308855e8e3e3fe0fd65ed3d8016271a76aa'
-    scope=f.registered_scope(key);root=m.root_spec('P05')
-    assert f.WITNESS_SCOPES['P05']==scope
+    scope=f.registered_scope(key);root=m.root_spec('P05','bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5')
+    assert f.registered_scope(f.digest(scope))==scope
     assert root['root_admission_sha256']=='bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5'
     assert scope['parent_outer_sha256']==root['outer_sha256']
     assert scope['parent_cursor']==root['selected_session']=='2021-11-30'
@@ -371,7 +371,7 @@ def test_p05_seven_query_append_preserves_all54_prior_scopes_and_own986_roles():
 
 def test_p06_forward_cash_query_preserves_all55_prior_scopes_without_model_authority():
     key='55a9b328fa1c46f6c2db7282f69163ece866062699b5d4f8a1b4a77a8c61b8ff'
-    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k!=key}
+    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k not in {key,'ec82450c3249c86761c5b4eb4f58a60dc10a02499f68b055dfd65f626e374322'}}
     assert len(prior)==55 and f.digest(prior)=='624a1bdf3e9df2e8fcc36a3873c1bf7912bc8127f060806ac954c95c5103abcd'
     scope=f.registered_scope(key);root=m.root_spec('P06')
     assert scope==f.WITNESS_SCOPES['P06']
@@ -472,3 +472,19 @@ def test_registered_scope_digest_guard_removal_falsifier(monkeypatch):
     ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
         '<removed-registered-scope-digest>','exec'),ns)
     assert ns['registered_scope'](key)['parent_cursor']=='2022-08-30'
+
+
+def test_p05_own1070_forward_query_preserves_all56_scopes_and_actual_parent_roles():
+    key='ec82450c3249c86761c5b4eb4f58a60dc10a02499f68b055dfd65f626e374322'
+    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items()if k!=key}
+    assert len(prior)==56 and f.digest(prior)=='d80cd80c7f5676981c2f2632ab0c716cd4985cf2cfad1a730867e359110a0e4c'
+    scope=f.registered_scope(key);root=m.root_spec('P05')
+    assert scope==f.WITNESS_SCOPES['P05']
+    assert root['root_admission_sha256']=='c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f'
+    assert scope['parent_outer_sha256']==root['outer_sha256']
+    assert scope['parent_cursor']==root['selected_session']=='2022-03-31'
+    assert len(scope['terms'])==len({t['security_id']for t in scope['terms']})==131
+    assert scope['terms'][0]['ticker']=='HMHC' and scope['terms'][-1]['ticker']=='ORLA'
+    assert scope['additional_rows']==[]
+    assert all(scope['parent_cursor']<t['native_session']<='2026-07-31' and t['session']<t['native_session']for t in scope['terms'])
+    assert {t['ticker']:sum(p['quantity']for p in t['parent_positions'])for t in scope['terms']if t['parent_positions']}=={'HMHC':103,'MIME':27,'ANAT':11,'LSI':16}
