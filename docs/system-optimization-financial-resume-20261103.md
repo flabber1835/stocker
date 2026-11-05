@@ -4769,3 +4769,32 @@ query checks pass1.98s after adding the complete preflight/economic/review/launc
 AST equality check against FIN310's prior source. All four worker function
 bodies are unchanged. The exact source-only request probe and binding check
 pass with zero local financial sessions.
+
+FIN310 positively stops0/1/0, non-OOM, with P05 own1111/May31,2022:41 new
+committed closes and two new monthly reports. Artifact13457660873 is146241964
+bytes, ZIP4b173c3ebe960bb9890829a2e90becd53f34a09ebb2c108eafbb28368d446a5a.
+Its192 authenticated members total223755771 logical bytes. The neutral14th
+input isfefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560;
+the saved outer is115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9.
+The worker refuses MSP's incomplete June22 terminal. All14 June tail closes
+through June21 are excluded from admission. Keep the saved root1070 until
+independent accounting, input/event and Linux monthly/retry DATA admission.
+
+REPORT312/request178 design selects only the authenticated positive1111
+checkpoint for readonly reporting from rootc3cb/own1070. Target metadata is
+cd5eb84c48aecf9b4496c771742ad426be3f1cbb3540258a0581293288143a6e. Reuse the
+existing reporting body without a financial worker or replay. Then independently
+verify41 rows,82 opening/closing accounting snapshots, two reports,56 Decimal
+metrics, the exact26 selected input terms, four committed cash events and all13
+old input descriptors. Exclude June tail records, including MSP's refusal. The
+old MSP source-unheld-only record cannot grant held cash-settlement authority.
+
+REPORT312 validation: `pytest -q -p no:cacheprovider --tb=short
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_retention.py forecast_tests/explicit_source_queries
+forecast_tests/ordinary_augmentation/test_archive_limit.py
+forecast_tests/qualified_cash_subset/test_selected_phase.py` passes164 in24.66s.
+The exact request probe and frozen original-source checks pass. Request178
+authorizes zero financial workers and one readonly worker; root admissions are
+unchanged. SOURCE311 has already positively completed its separate readonly
+parent preflight before this reporting request is issued.
