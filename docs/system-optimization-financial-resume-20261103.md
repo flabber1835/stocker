@@ -3168,3 +3168,48 @@ preserves all current function/class ASTs, all50 prior scopes and original
 383/B19, with two tests passing. Nine narrow reader-count tests pass with a
 meaningful count-guard removal; the prior45 raw prechecks remain preserved.
 The preparation is bound to439 actual producer sources before dispatch.
+
+SOURCE282 run42020159295 at6d0abbb92a2647a93112cecad78b8c1397c2c467
+and artifact13411242209 closed independent DATA: one incomplete TERN native,
+two full rows and all two May4 raw actions, with all13 own2093 input documents
+unchanged. Its reader rehashed the original archive and scanned904798 rows;
+53 checks, seven meaningful removals and five import fences passed. Source
+identity qualification remains separate from consideration/timing evidence.
+
+Select TERN for P11 own2093/01d9 through the existing ordinary confirmed-
+preopen cash path, appending only catalog32 after the exact31-record prefix.
+The official Merck May5 08:45EDT completion announcement establishes mandatory
+53USD/common-share consideration; Nasdaq ECA2026-286 establishes May4 last
+trading and May5 preopen completion (May6 suspension is separate). Retain
+the primary extraction's explicit limits: no observed actual payment, exact
+legal minute or publication time of the updated alert. Suppress only the
+exact May4 native and recognize the existing cash model on May5; do not
+override the missing bar/volatility rule. Future event quantities derive
+from the resumed canonical accountings, not the157-share parent witness.
+Preserve all13 inherited inputs, all31 previous catalog records and their
+closed-generation envelope. This selects a research input, not live authority
+or new point-in-time certification.
+
+FIN281 P05 saved986 through November30,2021, advancing21 closes beyond own965;
+the hosted core reviewer passed with no uncommitted tails. The December1
+refusal is the previously unqualified MDP native SID1072510367992802359,
+not UFS's source-only term. Select readonly report283 for its exact new
+21 daily rows,42 raw accountings, one November monthly report and28 Decimal
+metrics before independent DATA/root admission. Keep the neutral October29
+adoption and all11 previous input documents plus the twelfth overlay exact.
+Only after admission may a fresh MDP own-source query bind actual current
+roles; P01's unheld multileg research input grants no P05 held authority.
+
+The exact saved986 selector passes54 pure capture/input cases including seven
+meaningful guard removals, and is applied only to P05's reporting transport.
+It verifies all156 authenticated members,196380258 logical bytes and every
+neutral/input/source-only UFS condition without root admission. Select
+report283/request150 with439 source files and zero financial workers.
+Request/partial/metadata checks pass94 cases in19.79s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/report283-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py` from research/capital_risk.
+The actual saved986 role for MDP is unheld/unordered, with no claims or terminal
+maps, but selected in median5 history. Preserve that selection disclosure;
+it is not a never-selected source. Fresh SOURCE DATA is still required.
