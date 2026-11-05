@@ -2256,6 +2256,13 @@ synthetic fixture missing source_cursor. With that field supplied,all134
 affected retention/source/preparation tests passed. No production guard or
 source mount was relaxed.
 
+P06 financial246 saved565 throughMarch31,2020,22closes beyond its own543
+parent;hosted prefix review passed. Select readonly report250 for22daily rows,
+44accountings,one report and28metrics. Exclude the11April diagnostic-tail
+closes. The next actual blocker is CY's April16 native and April17 refusal;
+its exact original Spring cash fact is already available. S2's March31 native
+is consumed at this saved boundary and does not require a new Sprint phase.
+
 For the generic P11 standard-book route,select all future,unconsumed,disjoint
 mandatory cash terms from the same unchanged original2024 CashCalendar when
 their source predicates qualify. SWAV remains a genuine nonempty activation
@@ -2263,3 +2270,17 @@ term;the selected set must be proved absent from all10 inherited repair bytes.
 Preserve consumed/past terms as history and reject collisions. This batches
 existing qualified cash facts without adding economic assumptions or changing
 the canonical GE primitive and floor-rebase proof.
+
+The unchanged ordinary registry lacks the original2024 catalog's commitment
+group. Preserve its protected bytes and constructor guard. For this qualified
+standard-book input,use a scoped additive registry view:delegate the original
+registrations,verify all seven inherited entries unchanged,and append only the
+exact source-bound2024 group/canonical catalog+validator references. Reject
+duplicate,shadowed,unknown or changed entries. Record the old registry hash and
+complete extension in the input proof. Apply the same qualified context during
+prepare,initial use,review and retained restart whenever this input is active;
+constructor-only scoping would leave later restarts incomplete. Restore the
+original function on exit and never serialize/adopt a replacement checkpoint
+or edit the protected registry. Test original constructor refusal before the
+view,all-five construction/hydration under it,collision guards and restart
+recognition before hosted financial execution.

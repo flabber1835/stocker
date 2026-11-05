@@ -1,40 +1,40 @@
 {
   "admitted_checkpoints": {
-    "P07": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391"
+    "P06": "129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194"
   },
   "admitted_financial_parents_sha256": "61e6bda967bb1b3fd25d2df049d5fb7ad355c06e6dd10fe4096d153199f266b5",
   "arm_inputs": {
-    "P07": {
-      "new_factual_overlay": true,
+    "P06": {
+      "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P07"
+    "P06"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "OWN_ADMITTED_FINANCIAL_CONTINUATION",
-  "financial_resume_authorized": true,
+  "execution_mode": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
+  "financial_resume_authorized": false,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
   "full_measured_closes": 2156,
   "full_measurement_end": "2026-07-31",
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
-  "maximum_parallel_financial_workers": 1,
-  "maximum_parallel_readonly_workers": 0,
+  "maximum_parallel_financial_workers": 0,
+  "maximum_parallel_readonly_workers": 1,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "readonly_partial_review": false,
+  "readonly_partial_review": true,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/116",
-  "selected_partials_sha256": "2560ba4651b3c25d33c9896b7bdb1899f49dd656eee02458ed77577aea71cbf9",
+  "schema": "research.system-campaign-accurate-resume-request/117",
+  "selected_partials_sha256": "a03571090a46c87e9136c3b12d669e752cfef4066f5ea46c78e6fcb7d60c8166",
   "selected_research_models": {
     "P07": {
       "contract_sha256": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
@@ -90,7 +90,7 @@
     "system-campaign-financial-admitted-parents.json": "61e6bda967bb1b3fd25d2df049d5fb7ad355c06e6dd10fe4096d153199f266b5",
     "system-campaign-financial-branch-contract.json": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
     "system-campaign-financial-correlation-prefix.json": "db34a12dc699680a3f89cc3d08f0107ee1d041fdfe427a86f6b3cffc6f05f32c",
-    "system-campaign-financial-partials.json": "2560ba4651b3c25d33c9896b7bdb1899f49dd656eee02458ed77577aea71cbf9",
+    "system-campaign-financial-partials.json": "a03571090a46c87e9136c3b12d669e752cfef4066f5ea46c78e6fcb7d60c8166",
     "system-campaign-following-completions-terminal-facts.json": "bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d",
     "system-campaign-followon-terminal-facts.json": "7ed27c0e6d9a7b79192b026a2d02036a0e6360c8a7e49f1069435cf537477822",
     "system-campaign-followup-terminal-facts.json": "046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222",
@@ -247,7 +247,7 @@
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
     "system_campaign_financial_partial.py": "e3867c282f5f4424f056ba173fe5129330bb0a1f53d6686398030be1572dcb6b",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
-    "system_campaign_financial_resume.py": "a990629facb70253d5224f0d775e5e375006473443ad1f11402f7a4968792688",
+    "system_campaign_financial_resume.py": "0c6768cb4e0a86b3a07dffc9b87ee15feff257afdecae2ede6cbfd0ddde2e73b",
     "system_campaign_financial_uncertainty.py": "c95b3b4d91a5a7551f8ceaa3a05ede6fb678ead80d9961e2ba31e8673c2d1d3b",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
@@ -471,5 +471,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "0c0c46b198c6139d5ba6d2f3616c4c1329acf8ac39d703068f0a1bcca60177b3"
+  "workflow_sha256": "4c9acd7b4897d52fa7d44b56804d20d0333e2483ad856960ab3104737aa40f64"
 }
