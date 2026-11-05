@@ -4798,3 +4798,39 @@ The exact request probe and frozen original-source checks pass. Request178
 authorizes zero financial workers and one readonly worker; root admissions are
 unchanged. SOURCE311 has already positively completed its separate readonly
 parent preflight before this reporting request is issued.
+
+REPORT312 completes with a positive stopped readonly worker and exact monthly/
+retry-state reproduction. Its artifact13456668792 is130655bytes, ZIP
+5c71a0bb2f115060383410f8bb56b75b38ea03410796cfacfe1046a2361fab58.
+The complete independent DATA review verifies41 daily records,82 accounting
+snapshots, two reports and56 Decimal metrics;26 falsifiers/checks pass14.10s,
+including two meaningful guard removals and complete financial/reporting AST
+undo. The review digest isc02b8ff32dbc5367087bef80006720f46fa7dd2494959d3cdba5f1ba7128651f;
+qualification is562fc52c9e34c86704ecbb3857276d8304afb3e5215cd04919b4fc8bf2eef425.
+
+Admission design: append exact P05 own1111 as the active independently admitted
+root and retain rootc3cb/own1070 unchanged in historical_roots. Update only the
+P05 admission pointer/readonly clock and its exact positive transport/proofs.
+Its new cash-input proof retains all13 prior descriptors, the new14th descriptor
+and four actual dynamic cash events. No branch-model seed or policy changes are
+needed for this arm. The old March source/input history remains provenance;
+June tails and MSP completion authority remain excluded.
+
+P05 own1111 admission is402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d.
+SOURCE313 design appends one explicit source-only query for this exact root:
+MSP's incomplete June22 native, June21 identity and June22 final-trading row.
+Keep the existing P07 ABMD query byte-identical. Both native and additional
+source query roles are empty at the saved May31 root, valid only at that root;
+neither future ownership nor held cash authority is inferred. The existing
+typed source driver and all four worker bodies remain unchanged. The original
+MSP record's SOURCE_UNHELD restriction is preserved. This query grants no input,
+CVR, cash or root authority and launches zero financial workers.
+
+SOURCE313/request179 keeps462 sources and one readonly worker. The expanded
+query catalog is966155f09db389f6fdf6467665ff279bb4a382cd33b0afa60eded42737fe2be2.
+The targeted launcher/partial/retention/query/augmentation/cash tests pass248
+in32.13s with one old "unselected P05" fixture; P05 is now explicitly selected,
+so that fixture uses still-unselected P03. All27 affected query/root checks
+then pass2.82s, including positive May-root admission/count/old-March-history
+conformance. The exact request probe and source binding check pass. No financial
+worker, new ordinary input, MSP payout or future holding claim is selected.

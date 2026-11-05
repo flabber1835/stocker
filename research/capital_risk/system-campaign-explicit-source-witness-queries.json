@@ -28,6 +28,33 @@
           }
         ]
       }
+    },
+    {
+      "arm": "P05",
+      "root_admission_sha256": "402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d",
+      "scope": {
+        "additional_rows": [
+          {
+            "parent_positions": [],
+            "security_id": "892733995247202485",
+            "session": "2022-06-22",
+            "source_observation_sha256": "52fdd580704a1abb332d3563ccceae897d1a2385a8e0037a6d8bee6502fc6361",
+            "ticker": "MSP"
+          }
+        ],
+        "parent_cursor": "2022-05-31",
+        "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+        "terms": [
+          {
+            "native_session": "2022-06-22",
+            "native_term_sha256": "5018fbc936ffda49edf56862746b3be103144fd0b7b400c46e7e6ac4dfca71f7",
+            "parent_positions": [],
+            "security_id": "892733995247202485",
+            "session": "2022-06-21",
+            "ticker": "MSP"
+          }
+        ]
+      }
     }
   ],
   "schema": "research.explicit-own-source-witness-queries/1"

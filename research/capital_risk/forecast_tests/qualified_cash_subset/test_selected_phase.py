@@ -27,7 +27,7 @@ def test_selected_cash_terms_are_exact_and_disjoint_with_supported_same_day_scop
     assert all(t['recognition_rule']=='CONFIRMED_PREOPEN_COMPLETION' and t['preopen_completion_confirmed'] is True
                for t in extra if t['native_session']==t['added']['session'])
     assert {t['security_id'] for t in primary}.isdisjoint(t['security_id'] for t in extra)
-    assert codec.catalog['parent_root_admission_sha256']==partial.root_spec('P05')['root_admission_sha256']
+    assert codec.catalog['parent_root_admission_sha256']==partial.root_spec('P05','c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f')['root_admission_sha256']
 
 def test_positive_p07_root_retains_initial_provenance_full23_and784_proof_seed():
     spec=partial.root_spec('P07');partial.validate_root_spec(spec)
@@ -68,3 +68,15 @@ def test_selected_batch_keeps_every_term_evidence_inside_original_repair_limit()
     all_terms=future.catalog_terms(codec,tuple(t['ticker'] for t in codec.catalog['terms']))
     expanded=future.document(cp,dict(material,terms=all_terms),'0'*64)
     assert len(expanded['source_evidence'])==370>128
+
+def test_positive_p05_may_root_retains_march_history_and_exact_review_counts():
+    spec=partial.root_spec('P05');partial.validate_root_spec(spec)
+    old=partial.root_spec('P05','c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f')
+    assert spec['measured_closes']==1111 and spec['selected_session']=='2022-05-31'
+    assert old['measured_closes']==1070 and old['selected_session']=='2022-03-31'
+    assert spec['repairs'][:-1]==old['repairs'] and len(spec['repairs'])==14
+    a=spec['root_admission'];proof=a['source_input_proof']
+    assert a['parent_root_admission_sha256']==old['root_admission_sha256']
+    assert a['new_daily_records']==41 and a['independent_accounting_snapshots']==82 and a['new_monthly_reports']==2
+    assert proof['passed'] and proof['selected_input_terms']==26 and len(proof['actual_cash_events'])==4
+    assert proof['June_uncommitted_tail_excluded'] and partial.reviewed_archive_limit(spec)==512*1024**2

@@ -25,7 +25,7 @@ def test_actual_scope_has_one_native_and_last_trading_day_without_financial_auth
 def test_financial_mode_and_unselected_arm_keep_original_scopes_unchanged():
     old={'P07':{'original':True}}
     assert data.selected_scopes(old,['P07'],enabled=False,root_lookup=lambda arm:(_ for _ in ()).throw(AssertionError()))==old
-    assert data.selected_scopes(old,['P05'],enabled=True,root_lookup=lambda arm:(_ for _ in ()).throw(AssertionError()))==old
+    assert data.selected_scopes(old,['P03'],enabled=True,root_lookup=lambda arm:(_ for _ in ()).throw(AssertionError()))==old
     assert old=={'P07':{'original':True}}
 
 def test_historical_root_keeps_its_original_scope():

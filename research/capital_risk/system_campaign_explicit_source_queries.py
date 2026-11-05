@@ -8,7 +8,7 @@ from pydantic import BaseModel,ConfigDict,Field,StrictBool,model_validator
 
 HERE=Path(__file__).parent
 CATALOG='system-campaign-explicit-source-witness-queries.json'
-CATALOG_SHA='b9a2f9e47c4899ae36efd6ef813a2c02337ea84ef70dede39d3e4f6d228a3dcb'
+CATALOG_SHA='966155f09db389f6fdf6467665ff279bb4a382cd33b0afa60eded42737fe2be2'
 Digest=Annotated[str,Field(pattern=r'^[0-9a-f]{64}$')]
 Session=Annotated[str,Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
 Security=Annotated[str,Field(pattern=r'^[1-9][0-9]*$')]
