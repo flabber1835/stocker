@@ -4697,3 +4697,31 @@ now explicitly select their original INITIAL phase and own1196 root; the old
 P07-only source assertion follows the already documented generic arm parameter.
 No financial code or golden fixture is changed by those test corrections.
 The exact-request import probe passes under all five financial import fences.
+
+FIN309 positively stops preflight0/economic1/reviewer1, non-OOM, with the
+unchanged own1070 checkpoint and zero new committed closes. Its authenticated
+142-member archive is115743020bytes, ZIP9930b7c3d8762fe46268ab1686bf2c62ea42824769e7f5cba83e68d5b2bb0edd.
+The original Repair schema refuses370 evidence entries against its128-item
+bound before adoption. The reviewer explicitly refuses the absent adoption
+boundary. Preserve both refusals; no root or date advances from this attempt.
+
+FIN310 design keeps the original128-evidence limit and the same qualified
+91-member catalog. Select only primary HMHC/ANAT plus the first24 supplemental
+source-ordered terms for this continuation; later catalog members stay
+unselected. The unchanged document builder then emits110 evidence entries for
+26 terms, within the original bound. No citation is omitted from a selected
+term and no event is relabeled. Requalify the exact reversible P05 registry
+extension with its new24-member selection; the original P07 source/catalog
+commitments and all financial functions remain unchanged. Add an actual
+DATA document-size check and a26-versus91-member evidence-capacity falsifier,
+then issue request176; do not rerun FIN309.
+
+FIN310 validation: the targeted launcher/partial/retention/subset/augmentation
+command passes225 tests in36.31s, with one capacity-test fixture initially
+expecting a canonical module outside the sparse research checkout. That fixture
+now binds the authenticated FIN309 at-use diagnostic and its original frozen
+schema source SHA, without importing the module. The12 affected phase/capacity/
+source-generation checks pass in4.03s. The actual selected DATA document has26
+additions and110 evidence entries; expanding to all91 reproduces370 entries.
+All13 original input descriptors and the actual own1070 seed remain unchanged.
+Exact request176 probe passes with zero local financial sessions.

@@ -20,10 +20,10 @@ def test_selected_cash_terms_are_exact_and_disjoint_with_supported_same_day_scop
     extra,sources=future.supplemental_selection('P05','2022-03-31')
     assert name=='system-campaign-p05-own1070-supported-cash-inputs.json'
     assert [t['ticker'] for t in primary]==['HMHC','ANAT']
-    assert len(extra)==89 and len(sources)==1
-    assert len(future.merge_selected_terms(primary,extra))==91
+    assert len(extra)==24 and len(sources)==1
+    assert len(future.merge_selected_terms(primary,extra))==26
     assert all(t['native_session']>'2022-03-31' and t['added']['kind']=='CASH_MERGER' for t in primary+extra)
-    assert [t['ticker'] for t in extra if t['native_session']==t['added']['session']]==['ONEM','PRVB','MORF']
+    assert [t['ticker'] for t in extra if t['native_session']==t['added']['session']]==['ONEM','PRVB']
     assert all(t['recognition_rule']=='CONFIRMED_PREOPEN_COMPLETION' and t['preopen_completion_confirmed'] is True
                for t in extra if t['native_session']==t['added']['session'])
     assert {t['security_id'] for t in primary}.isdisjoint(t['security_id'] for t in extra)
@@ -47,3 +47,24 @@ def test_positive_p07_root_retains_initial_provenance_full23_and784_proof_seed()
     catalog=uncertainty.own_policy_catalog()
     closed=uncertainty.OWN_POLICY_CLOSED_GENERATIONS['54e98d2adf23bf9b51e8561e66375f991f9d5faeb138dfa439cc3d2f250f3158']
     assert set(closed)==set(catalog['phases'])-{spec['root_admission_sha256']}
+
+def test_selected_batch_keeps_every_term_evidence_inside_original_repair_limit():
+    codec,name,primary=future.selected('P05',cursor='2022-03-31')
+    extra,sources=future.supplemental_selection('P05','2022-03-31')
+    cp=dict(source_cursor='2022-03-31',run=dict(checkpoint_sha256=codec.catalog['parent_outer_sha256']))
+    material=dict(catalog_sha256=codec.catalog_sha,original_validator_sha256=codec.compiler_sha,
+                  selector_sha256=future.sha(Path(future.__file__).read_bytes()),terms=primary+extra,ordinary_components=sources)
+    document=future.document(cp,material,'0'*64)
+    assert len(document['source_evidence'])==110 and len(document['add'])==26
+    # The canonical module is in the frozen image. Read its authenticated
+    # at-use diagnostic commitment as DATA; never import or instantiate it.
+    raw=(Path(__file__).parent/'fixtures/repair-evidence-capacity-fin309.json').read_bytes()
+    assert future.sha(raw)=='ba22ea360a8da9d9e6686ec4ca7fe4fb2c7ad15a1e8a0595edee309ab60246ea'
+    capacity=json.loads(raw)
+    assert capacity['financial_authority'] is False
+    assert partial.root_spec('P05')['base']['sources'][capacity['canonical_schema_source']]==capacity['canonical_schema_source_sha256']
+    assert capacity['maximum_items']==128 and capacity['actual_refused_items']==370
+    assert len(document['source_evidence'])<=capacity['maximum_items']
+    all_terms=future.catalog_terms(codec,tuple(t['ticker'] for t in codec.catalog['terms']))
+    expanded=future.document(cp,dict(material,terms=all_terms),'0'*64)
+    assert len(expanded['source_evidence'])==370>128

@@ -44,6 +44,7 @@ def source_matches(name, pin):
     other = tuple(t['ticker'] for t in value['terms'] if t['ticker'] not in primary)
     if primary != ('HMHC', 'ANAT') or len(other) != 89:
         return False
+    other = other[:24]
     addition = ("FUTURE_LITERAL_PHASES['P05', '2022-03-31'] = " + repr((module, 'QualifiedCashSubset', catalog_name, primary)) + '\n'
         + "SUPPLEMENTAL_PHASES['P05', '2022-03-31'] = " + repr(((module, 'QualifiedCashSubset', 'PATH', catalog_name, sha(catalog_raw), sha(module_raw), other),)) + '\n'
         + "SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P05', '2022-03-31')})\n\n")
