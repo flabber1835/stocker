@@ -2546,3 +2546,14 @@ native. Reuse the existing26USD/July25 next-session factual convention after
 fresh source DATA;do not reuse P00's234-share role. Append both scopes and
 retain all41 earlier registry objects. This source request starts no financial
 workers and grants no financial/PIT authority.
+
+P03 financial261 saved439 throughSeptember30,2019,84new closes after its
+qualified eight-input batch. Hosted prefix review passed. Select report264
+for84daily rows,168accountings,four reports and112Decimal metrics;exclude
+the four October tail closes. The next actual native is CBLK October7,not
+ALDR. The frozen native and October4 full row are independently identified.
+Official Carbon Black and VMware completion8-Ks support mandatory26USD and
+October8 completion/trading cessation;preopen legal completion is unproven.
+After own439 admission and source qualification,use the existing explicit
+research-opening convention,not an assertion of historical preopen knowledge.
+No new wrapper or canonical financial source change is needed.
