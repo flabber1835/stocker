@@ -2659,3 +2659,42 @@ For own439, compose the already qualified original MedicinesFacts MDCO and
 ArQuleFacts ARQL through generic supplemental selection, preserving all12
 inherited input documents and unrelated ZAYO. No wrapper, new economic policy
 or canonical financial source change is authorized by this selection extension.
+
+Report268 and independent DATA admit P06 own817 throughMarch31,2021 as
+f8be3c331ac12f211c630078d128278c155eb99a98afaff81bc8219e435094aa,
+and P07 own1028 throughJanuary31,2022 as
+3cbfc7cce74b9c9401b4ca06ca685f7fc1b2fd19e4a6ae16fc4829c4d6ba1ec0.
+P06 passed189/378/9/252 and24input cases; P07 passed42/84/2/56 and49
+input/branch cases. Retain both older roots and all excluded tails. P07's whole
+fresh574-certificate proof preserves532 prior rows; register both seed tables.
+Query source269 from P06's newly admitted817 for IPHI plus six unconsumed2021
+originals and five Following originals, with four exact frozen delivery rows
+MRVL,CRM,TLRY,AZPN. Preserve IPHI's committed23-share role, MIK's selected but
+unheld role and all other observed empty roles without asserting future holdings.
+Keep every prior scope and all source bytes. The frozen MRVL issuer/eligibility
+remain unchanged even though the public merger documents identify the new legal
+issuer differently. This source-only request introduces no economic terms.
+The bounded official IPHI extraction supports66USD plus2.323 new shares and
+April20 after-close effectiveness; any later mixed-consideration input still
+requires independent source DATA and an explicit fractional-cash convention.
+
+For P07's next financial continuation, select the existing unchanged-input
+route for exact own1028/ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95.
+Register only this admission pin in the unchanged-input seed set. VCRA and the
+six later December-batch terms are already adopted; do not create another
+repair or rehydrate a consumed cash phase. Retain all20 input descriptors and
+the fresh574-row proof. The separately qualified caller-routing adapter must
+be installed before the canonical February23 transition; it supplies routing
+verification without changing consideration or financial state.
+
+The current own1028 admission is the metadata correctionad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95.
+Retain the original3cb admission in history. Its inherited cash_input_proof
+incorrectly described an older unchanged-input prefix, while its current
+source_input_proof and independently reviewed financial values were correct.
+Replace only that stale proof with the exact closed DATA268 input_proof;
+preserve the financial checkpoint, actual6ab predecessor, all20 descriptors,
+all counters and the574-row branch proof. Register both seed paths for the
+corrected admission. The generic admission helper now replaces this legacy
+field from current DATA whenever it exists; it must not copy a prior-prefix
+summary. The separate next-run unchanged-input choice concerns continuation
+after this admitted checkpoint and does not describe the preceding42 closes.
