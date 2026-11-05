@@ -48,6 +48,14 @@ def source_matches(name, pin):
     addition = ("FUTURE_LITERAL_PHASES['P05', '2022-03-31'] = " + repr((module, 'QualifiedCashSubset', catalog_name, primary)) + '\n'
         + "SUPPLEMENTAL_PHASES['P05', '2022-03-31'] = " + repr(((module, 'QualifiedCashSubset', 'PATH', catalog_name, sha(catalog_raw), sha(module_raw), other),)) + '\n'
         + "SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P05', '2022-03-31')})\n\n")
+    new_catalog = 'system-campaign-p05-own1111-msp-explicit-cash-input-v3.json'
+    new_module = 'system_campaign_qualified_explicit_cash'
+    if sha((HERE/new_catalog).read_bytes()) != 'b409c5c0d871f5707cf084a93f0ae9e2ddecab42409541f7be82aadbfa5cc3aa' or sha((HERE/(new_module+'.py')).read_bytes()) != 'fce100b6c4ad102f1a84cb443038cfdd271c57a549a7f42bda111e673d59130d':
+        return False
+    new_block = ("\nFUTURE_LITERAL_PHASES['P05', '2022-05-31'] = " + repr((new_module,'QualifiedExplicitCash',new_catalog,('MSP',))) + '\n\n').encode()
+    if raw.count(new_block) != 1:
+        return False
+    raw = raw.replace(new_block,b'',1)
     block = b'\n' + addition.encode()
     return raw.count(block) == 1 and sha(raw.replace(block, b'', 1)) == pin
 

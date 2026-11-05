@@ -1,0 +1,40 @@
+{
+  "canonical_financial_source_changed": false,
+  "financial_authority": false,
+  "plans": [
+    {
+      "all_cash_terms_standard_no_source_only": true,
+      "arm": "P05",
+      "current_parent_inputs": 14,
+      "descriptor": {
+        "filename": "fefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560.json",
+        "predecessor_checkpoint_sha256": "8e70c96910863f2943df4f9985b1c3b5a15a41c357db8e907a426f6a81c9654b",
+        "resume_session": "2022-03-31",
+        "sha256": "fefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560"
+      },
+      "material_file": "hydrated-future-financial-terminal-catalog-feef2cdb81f4a469b69f381f9e5fc398c2bdbe24c709d05ab49157e3df971ff4.json",
+      "material_sha256": "808e00621739b604f18779b1d7935e5481c977a5f74fcf9d4fac566aa5722329",
+      "ordinary_overlay": "future-financial-overlay.json",
+      "origin_outer_sha256": "feef2cdb81f4a469b69f381f9e5fc398c2bdbe24c709d05ab49157e3df971ff4",
+      "origin_root_admission_sha256": "c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f",
+      "original_observer_ast": {
+        "ActualEvents": "f9f55b1c12791ca118d18a628940527144644072dfab059333ed9aa6b40f591c",
+        "actual_cash_phase": "91a1e56fbbdb3be1ad07a94a13419feede81e65a7c2e69a3d9afce461a680d37",
+        "actual_source_phase": "478e07ebced2b8a5f06e16ed5b90f10f7f53d72789f27ac0215f37052a97e736",
+        "actual_stock_phase": "d25c22ea78250b59c3e545ac37eebf60cd90fc1b7594b9cb4ff9679b9a652d9a",
+        "actual_terminal_call": "0a2bdc489a56bde4d05bb65f33c89b8870278648f44bc5253196957749d1a74c",
+        "cash_postcondition": "afbcf39bb0d961197d4e9d83d07e982960b16c853134e8c512afbde9225d70f1",
+        "hydration_name": "e1d96f1d7136a023d87971771b5fbcacc24c4f7c9915adfbc636462ea9fd26af",
+        "require_source_absent": "1207fa36f57db3f5300e5eadeba74ac123e721655f1d55cc84ed801d2234dc43",
+        "source_scopes": "0e3dab8de25310dcaeed868737dee54328ca308ce13ba1c90567b84b20f5ea98",
+        "unheld_stock_postcondition": "d6948adf4d1e4def8e3c185e1c2b2ebbebdc28fe36d0e4bd9435c7ec0af8151a"
+      },
+      "parent_gzip": {
+        "bytes": 1465532,
+        "sha256": "f5e81eddfc256b3910061bd3284efe38b6c37c24cfdaeee9dc9d34c60d736696"
+      },
+      "terms_count": 26
+    }
+  ],
+  "schema": "research.retained-ordinary-cash-observer-plans/1"
+}

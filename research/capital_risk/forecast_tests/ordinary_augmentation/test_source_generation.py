@@ -15,7 +15,8 @@ PIN='8cd57c08782d33183c988c75bf3a945a9153316d4ed1479bf506830aa4dc6dec'
 
 @pytest.fixture
 def inputs(tmp_path,monkeypatch):
-    for name in (NAME,'system_campaign_qualified_cash_subset.py','system-campaign-p05-own1070-supported-cash-inputs.json'):
+    for name in (NAME,'system_campaign_qualified_cash_subset.py','system-campaign-p05-own1070-supported-cash-inputs.json',
+                 'system_campaign_qualified_explicit_cash.py','system-campaign-p05-own1111-msp-explicit-cash-input-v3.json'):
         shutil.copyfile(data.HERE/name,tmp_path/name)
     monkeypatch.setattr(data,'HERE',tmp_path)
     return tmp_path
@@ -24,7 +25,7 @@ def test_exact_registry_extension_recovers_entire_old_source(inputs):
     assert data.sha((inputs/NAME).read_bytes())!=PIN
     assert data.source_matches(NAME,PIN)
 
-@pytest.mark.parametrize('change',['registry','function','extra_statement','catalog','loader','wrong_pin','foreign_name'])
+@pytest.mark.parametrize('change',['registry','function','extra_statement','catalog','loader','new_catalog','new_loader','new_registry','wrong_pin','foreign_name'])
 def test_new_generation_rejects_any_other_source_or_binding_change(inputs,change):
     name=NAME;pin=PIN
     if change in ('registry','function','extra_statement'):
@@ -37,6 +38,12 @@ def test_new_generation_rejects_any_other_source_or_binding_change(inputs,change
         p=inputs/'system-campaign-p05-own1070-supported-cash-inputs.json';p.write_bytes(p.read_bytes()+b' ')
     elif change=='loader':
         p=inputs/'system_campaign_qualified_cash_subset.py';p.write_bytes(p.read_bytes()+b'\n')
+    elif change=='new_catalog':
+        p=inputs/'system-campaign-p05-own1111-msp-explicit-cash-input-v3.json';p.write_bytes(p.read_bytes()+b' ')
+    elif change=='new_loader':
+        p=inputs/'system_campaign_qualified_explicit_cash.py';p.write_bytes(p.read_bytes()+b'\n')
+    elif change=='new_registry':
+        p=inputs/NAME;p.write_bytes(p.read_bytes().replace(b"FUTURE_LITERAL_PHASES['P05', '2022-05-31']",b"FUTURE_LITERAL_PHASES['P05', '2022-06-30']",1))
     elif change=='wrong_pin':pin='0'*64
     else:name='system_campaign_qualified_cash_subset.py'
     assert data.source_matches(name,pin) is False

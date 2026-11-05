@@ -4834,3 +4834,71 @@ so that fixture uses still-unselected P03. All27 affected query/root checks
 then pass2.82s, including positive May-root admission/count/old-March-history
 conformance. The exact request probe and source binding check pass. No financial
 worker, new ordinary input, MSP payout or future holding claim is selected.
+
+FIN314 input and observation design (2026-11-05): SOURCE313 is independently
+DATA closed without changing its schema2, additional final-trading row or
+unheld-at-May31 scope. Its independent review is
+ae42accf72facd141fc87fec665baab3bcf6984b76df71372d337d6b8e9c0fb3;
+qualification is ae3b14a52cb18ed4701e21a9c59d06b7fce5be0508ff16c6245d681845fc76ca.
+SOURCE311's ABMD identity-only review is likewise closed, c7d51f4a387190c4b883365317c708c599cc435124efccff27b3486e6de5e44d,
+qualification97fca41a1f66d9abaec1e064b6dca68c34ffb0403f9b4fba29f804eeb842e472.
+Neither closure supplies future holdings or consideration authority.
+
+A separate fresh extraction of SEC accession0001193125-22-179443 Items2.01
+and3.01 supplies eligible-common cash35.50USD and suspension before the June23
+open. The older MSP SOURCE_UNHELD record stays immutable. The new explicit cash
+input retains the entire original cash validator and dictionary constructor;
+only its source-binding schema1-to2 predicate, exact own-query resolver and full
+additional-row predicate are adapted. Whole source-binding AST undo and semantic
+falsifiers qualify those three source-format sites. The ordinary compiler
+suppresses the incomplete June22 native and adds the separately sourced cash
+on June23, retaining the actual June22 quote. This remains research economic
+availability; actual broker settlement and historical causality are unverified.
+
+The prior14th descriptor fefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560
+already adopts26 ordinary cash inputs,22 still forward of May31. Preserve all
+26, their original overlay/material/original1070 gzip and their ten original
+observer/helper ASTs, in an authenticated retained-forward-cash namespace.
+Do not readopt, rewrite, truncate or shadow the canonical input list.
+
+Observation uses one original ActualEvents instance whose constructor first
+validates the new overlay as before, then unions the authenticated, disjoint
+retained cash terms. Its terminal/advance methods and actual-caller check remain
+the original code objects. Nested terminal wrappers are deliberately avoided:
+they would move the direct adapter caller frame and invalidate the original
+actual-context predicate. This is an observation-only term union; canonical
+loaders still receive each independently adopted original document. Install
+the constructor binding only inside the existing retained-input context and
+restore it exactly on exit. Copy actual resources only in a hosted worker.
+
+Carry only committed observation logs. At review entry, execute the complete
+unchanged legacy review, then require all committed retained and new cash logs
+and independently compare actual quantities/cash/clearance with the prior-close
+and opening accounting. For two cash actions on the same day, validate the
+complete exact call set once before projecting each unchanged original cash
+review; never silently overwrite a date-keyed term. Missing, duplicate, foreign
+or altered logs refuse. Keep all four worker function bodies unchanged.
+
+Append only the P05May31 literal selector. Removing the exact two declared
+P05 registry additions must recover the whole original P07 compiler source;
+keep catalog8d and all383/B19 financial sources unchanged. Fresh request180
+will select one financial worker only after targeted DATA qualification and
+exact source/request closure; no root advancement is implied by preparation.
+
+FIN314 qualification: the actual FIN31026-term resources/original1070 gzip,
+whole original observer ASTs, all four committed dynamic cash records and the
+new SOURCE313/schema2 primary adapter pass62 focused DATA tests in26.85s,
+including four observation guard removals, three cash-source/primary guard
+removals and five financial import fences in each family. No actual checkpoint
+is copied or restored locally. Repository tests use portable, explicitly
+noncanonical observation DTOs. The integrated targeted command
+`pytest -q -p no:cacheprovider --tb=short forecast_tests/test_financial_resume.py
+forecast_tests/test_financial_partial.py forecast_tests/test_financial_retention.py
+forecast_tests/explicit_source_queries forecast_tests/ordinary_augmentation
+forecast_tests/qualified_cash_subset forecast_tests/retained_forward_cash`
+passes311 tests in35.67s with one prior source-only request expectation;
+after updating that expectation to this one-worker financial request, the
+149 affected launcher/source-generation/new-family tests pass20.59s. The exact
+request probe and staged index snapshot verify467 sources, all383 original
+driver bytes and immutable B19. New input selection remains one MSP term; all
+26 old terms retain their original adopted descriptor and observation methods.

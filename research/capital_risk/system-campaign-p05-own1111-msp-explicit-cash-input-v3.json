@@ -1,0 +1,402 @@
+{
+  "arm": "P05",
+  "canonical_financial_source_changed": false,
+  "historical_causality": "UNVERIFIED",
+  "loader_sha256": "fce100b6c4ad102f1a84cb443038cfdd271c57a549a7f42bda111e673d59130d",
+  "parent_cursor": "2022-05-31",
+  "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+  "parent_root_admission_sha256": "402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.qualified-explicit-own-cash-input/1",
+  "source_data": {
+    "payload": {
+      "additional_rows": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1724570",
+            "listing_first_session": "2020-10-21",
+            "security_id": "892733995247202485",
+            "security_type_eligible": "1",
+            "session": "2022-06-22",
+            "source_observation_sha256": "52fdd580704a1abb332d3563ccceae897d1a2385a8e0037a6d8bee6502fc6361",
+            "ticker": "MSP"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1724570",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2020-10-21",
+            "metadata_admitted": "1",
+            "raw_close": "35.18",
+            "raw_compatible_volume": "794981",
+            "raw_open": "34.960000000000001",
+            "reported_volume": "794981",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "892733995247202485",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-22",
+            "sic": "7372",
+            "signal_close": "35.18",
+            "split_ratio": "1",
+            "ticker": "MSP",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "arm": "P05",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "input_adopted": false,
+      "parent_cursor": "2022-05-31",
+      "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+      "producer_sha256": "be20544b111e9b1ba3659bc466ef9713ce456da4fc2c207b688bf6bd7b3fbc5c",
+      "production_contacted": false,
+      "provider_metadata_upgraded": false,
+      "schema": "research.own-parent-frozen-source-witnesses/2",
+      "scope": {
+        "additional_rows": [
+          {
+            "parent_positions": [],
+            "security_id": "892733995247202485",
+            "session": "2022-06-22",
+            "source_observation_sha256": "52fdd580704a1abb332d3563ccceae897d1a2385a8e0037a6d8bee6502fc6361",
+            "ticker": "MSP"
+          }
+        ],
+        "parent_cursor": "2022-05-31",
+        "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+        "terms": [
+          {
+            "native_session": "2022-06-22",
+            "native_term_sha256": "5018fbc936ffda49edf56862746b3be103144fd0b7b400c46e7e6ac4dfca71f7",
+            "parent_positions": [],
+            "security_id": "892733995247202485",
+            "session": "2022-06-21",
+            "ticker": "MSP"
+          }
+        ]
+      },
+      "scope_sha256": "87e9663ff36fce05a2844895f94d82af3a03dda0ce848cf398d5aa3c46667e7b",
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1724570",
+            "listing_first_session": "2020-10-21",
+            "security_id": "892733995247202485",
+            "security_type_eligible": "1",
+            "session": "2022-06-21",
+            "source_observation_sha256": "3a9dea4c1832b888841fe481619350594236afc6d4b610e67b808f6c7aa61507",
+            "ticker": "MSP"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=5812.1",
+            "security_id": "892733995247202485",
+            "session": "2022-06-22"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1724570",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2020-10-21",
+            "metadata_admitted": "1",
+            "raw_close": "34.990000000000002",
+            "raw_compatible_volume": "1342145",
+            "raw_open": "34.810000000000002",
+            "reported_volume": "1342145",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "892733995247202485",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-21",
+            "sic": "7372",
+            "signal_close": "34.990000000000002",
+            "split_ratio": "1",
+            "ticker": "MSP",
+            "tradeable": "1"
+          }
+        }
+      ]
+    },
+    "qualification": {
+      "actual_current_root_roles_verified": true,
+      "arm": "P05",
+      "design_sha256": "235ff23ef92678d28c83908fbbb98044813e2c56b77709691938f8a952c5679e",
+      "financial_authority": false,
+      "financial_root_admitted": false,
+      "financial_workers_launched": 0,
+      "future_roles_not_predicted": true,
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "model_activated": false,
+      "native_action_rows_this_case": 2,
+      "original_input_count": 14,
+      "parent_root_admission_sha256": "402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d",
+      "passed": true,
+      "payload_sha256": "7fc427b02d32422c2ee581588e1067f71322119a47afe17cc760d14628c2bc7f",
+      "review_sha256": "ae42accf72facd141fc87fec665baab3bcf6984b76df71372d337d6b8e9c0fb3",
+      "schema": "research.independent-frozen-source-data-validation/1",
+      "scope_sha256": "87e9663ff36fce05a2844895f94d82af3a03dda0ce848cf398d5aa3c46667e7b",
+      "shared_reader_sha256": "4340daab6db1d102fcd062c23649c4ea1e78ccc8f9c37e467bd06d6aa458e5b7",
+      "shared_tests_sha256": "6eeb365cb9a44201156714089934181475865878834fb6172d771e9665f9282d",
+      "source2_schema_preserved": true,
+      "source_identity_only": true,
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_rows_this_case": 2,
+      "source_value_or_settlement_timing_qualified": false,
+      "tests": {
+        "command": "python -B -m pytest -q -p no:cacheprovider --tb=short test_focused_source_DATA.py",
+        "corrected_parent_namespace_fence_cases_passed": 5,
+        "fence_seconds": 0.1,
+        "financial_import_fences": 5,
+        "initial_passed": 46,
+        "meaningful_guard_removals": 8,
+        "seconds": 7.02,
+        "semantic_mutations": 32,
+        "total_cases": 47
+      },
+      "utc": "2026-11-05T22:31:00.828529+00:00"
+    },
+    "review": {
+      "actual_worker_request_bytes_verified": true,
+      "additional_rows": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1724570",
+            "listing_first_session": "2020-10-21",
+            "security_id": "892733995247202485",
+            "security_type_eligible": "1",
+            "session": "2022-06-22",
+            "source_observation_sha256": "52fdd580704a1abb332d3563ccceae897d1a2385a8e0037a6d8bee6502fc6361",
+            "ticker": "MSP"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1724570",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2020-10-21",
+            "metadata_admitted": "1",
+            "raw_close": "35.18",
+            "raw_compatible_volume": "794981",
+            "raw_open": "34.960000000000001",
+            "reported_volume": "794981",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "892733995247202485",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-22",
+            "sic": "7372",
+            "signal_close": "35.18",
+            "split_ratio": "1",
+            "ticker": "MSP",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "arm": "P05",
+      "artifact_id": 13457609289,
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_raw_row_digest_verified": true,
+      "head": "3eb050547803b410bd0d48bed0bb3219dbf78c13",
+      "independent_raw_source_proof": {
+        "all_observation_and_action_fields_checked": true,
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+        "fresh_whole_archive_rehash_at_DATA_use": true,
+        "full_observation_rows": 4,
+        "native_raw_action_rows": 4,
+        "passed": true,
+        "rows_scanned": {
+          "2022": 2080223
+        }
+      },
+      "independent_reader_sha256": "4340daab6db1d102fcd062c23649c4ea1e78ccc8f9c37e467bd06d6aa458e5b7",
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "old_financial_rows_reaudited": 0,
+      "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+      "parent_pending_context": {
+        "892733995247202485": []
+      },
+      "parent_root_admission_sha256": "402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d",
+      "parent_selected": {
+        "892733995247202485": false
+      },
+      "passed": true,
+      "payload_sha256": "7fc427b02d32422c2ee581588e1067f71322119a47afe17cc760d14628c2bc7f",
+      "run_id": 42119724646,
+      "schema": "research.independent-frozen-source-data-review/1",
+      "scope_sha256": "87e9663ff36fce05a2844895f94d82af3a03dda0ce848cf398d5aa3c46667e7b",
+      "source_closure": {
+        "all_selected_sources_exact": true,
+        "original383_exact": true,
+        "producer_source_count": 462
+      },
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1724570",
+            "listing_first_session": "2020-10-21",
+            "security_id": "892733995247202485",
+            "security_type_eligible": "1",
+            "session": "2022-06-21",
+            "source_observation_sha256": "3a9dea4c1832b888841fe481619350594236afc6d4b610e67b808f6c7aa61507",
+            "ticker": "MSP"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=5812.1",
+            "security_id": "892733995247202485",
+            "session": "2022-06-22"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1724570",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2020-10-21",
+            "metadata_admitted": "1",
+            "raw_close": "34.990000000000002",
+            "raw_compatible_volume": "1342145",
+            "raw_open": "34.810000000000002",
+            "reported_volume": "1342145",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "892733995247202485",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-21",
+            "sic": "7372",
+            "signal_close": "34.990000000000002",
+            "split_ratio": "1",
+            "ticker": "MSP",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "utc": "2026-11-05T22:27:10.233799+00:00"
+    }
+  },
+  "terms": [
+    {
+      "actual_completion_date": "2022-06-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 35.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm | Fresh SEC common-share cash extraction under confirmed-preopen June23 recognition. Original source-unheld MSP record remains provenance and grants no held authority; this separate research input uses the complete SOURCE313 evidence. Actual broker settlement is not asserted.",
+        "security_id": "892733995247202485",
+        "session": "2022-06-23"
+      },
+      "arm": "P05",
+      "description": "Fresh SEC common-share cash extraction under confirmed-preopen June23 recognition. Original source-unheld MSP record remains provenance and grants no held authority; this separate research input uses the complete SOURCE313 evidence. Actual broker settlement is not asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1724570",
+        "listing_first_session": "2020-10-21",
+        "security_id": "892733995247202485",
+        "security_type_eligible": "1",
+        "session": "2022-06-21",
+        "source_observation_sha256": "3a9dea4c1832b888841fe481619350594236afc6d4b610e67b808f6c7aa61507",
+        "ticker": "MSP"
+      },
+      "last_trading_session": "2022-06-22",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=5812.1",
+        "security_id": "892733995247202485",
+        "session": "2022-06-22"
+      },
+      "native_session": "2022-06-22",
+      "native_term_sha256": "5018fbc936ffda49edf56862746b3be103144fd0b7b400c46e7e6ac4dfca71f7",
+      "parent_cursor": "2022-05-31",
+      "parent_outer_sha256": "115a4306c41af36c9ab98f4493b50861f73364821dd2c6bfe43c63884197e4b9",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_currency": "USD",
+        "cash_per_share": "35.50",
+        "completion_date": "2022-06-23",
+        "mandatory_common_cash": true,
+        "no_stock_or_contingent_rights_in_common_consideration": true,
+        "preopen_completion_confirmed": true,
+        "qualified_cash_only_primary_fact_sha256": "50dfe8b4abe77fdb2b9679698fa95d1dd8b9792b575052a38c54d82d25dfbf3b",
+        "source": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "892733995247202485",
+      "source_capture": {
+        "artifact_id": 13457609289,
+        "head": "3eb050547803b410bd0d48bed0bb3219dbf78c13",
+        "independent_data_review_sha256": "ae42accf72facd141fc87fec665baab3bcf6984b76df71372d337d6b8e9c0fb3",
+        "independent_qualification_sha256": "ae3b14a52cb18ed4701e21a9c59d06b7fce5be0508ff16c6245d681845fc76ca",
+        "payload_sha256": "7fc427b02d32422c2ee581588e1067f71322119a47afe17cc760d14628c2bc7f",
+        "run_id": 42119724646,
+        "scope_sha256": "87e9663ff36fce05a2844895f94d82af3a03dda0ce848cf398d5aa3c46667e7b"
+      },
+      "ticker": "MSP",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm"
+    }
+  ]
+}

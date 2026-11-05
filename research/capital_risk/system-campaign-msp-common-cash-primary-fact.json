@@ -1,0 +1,30 @@
+{
+  "actual_broker_settlement_asserted": false,
+  "cash_per_eligible_common_share": "35.50",
+  "cash_source_section": "Item 2.01",
+  "clock_source_section": "Item 3.01",
+  "common_consideration_components": [
+    {
+      "amount_per_share": "35.50",
+      "currency": "USD",
+      "kind": "CASH"
+    }
+  ],
+  "completion_date": "2022-06-23",
+  "corroborating_source": "https://www.kaseya.com/press-release/kaseya-closes-acquisition-of-datto/",
+  "currency": "USD",
+  "excluded_shares": [
+    "TREASURY_OR_PARENT_OWNED",
+    "PROPERLY_EXERCISED_APPRAISAL"
+  ],
+  "extraction": "Eligible issued common shares convert to35.50cash; company reports completion and requests suspension beforeJune23 opening. No other common-share consideration component is identified in Item2.01.",
+  "financial_input_selected": false,
+  "historical_causality": "UNVERIFIED",
+  "mandatory_eligible_common_cash": true,
+  "preopen_completion_confirmed": true,
+  "schema": "research.explicit-common-cash-primary-fact/1",
+  "security_id": "892733995247202485",
+  "source": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm",
+  "stock_or_contingent_rights_in_common_consideration": [],
+  "ticker": "MSP"
+}

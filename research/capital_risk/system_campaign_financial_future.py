@@ -1390,6 +1390,9 @@ SUPPLEMENTAL_PHASES['P05', '2022-03-31'] = (('system_campaign_qualified_cash_sub
 SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P05', '2022-03-31')})
 
 
+FUTURE_LITERAL_PHASES['P05', '2022-05-31'] = ('system_campaign_qualified_explicit_cash', 'QualifiedExplicitCash', 'system-campaign-p05-own1111-msp-explicit-cash-input-v3.json', ('MSP',))
+
+
 def own_cash_selection(arm, cursor):
     from system_campaign_cash_calendar import validate_term
     import system_campaign_cash_calendar as calendar
