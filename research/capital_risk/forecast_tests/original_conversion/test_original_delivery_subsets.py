@@ -34,8 +34,14 @@ def ns(monkeypatch):
     n=dict(Path=Path,__file__=str(C/'system_campaign_financial_future.py'),need=need,sha=sha,digest=digest,json=json,deepcopy=deepcopy,SimpleNamespace=SimpleNamespace,math=math)
     first=min(x.lineno for x in TREE.body if isinstance(x,ast.ClassDef));nodes=[x for x in TREE.body if isinstance(x,ast.Assign)and x.lineno<first]
     exec(compile(ast.Module(body=deepcopy(nodes),type_ignores=[]),'<literal-batch-source-configuration>','exec'),n);n['HERE']=C
-    names=['original_phase_delivery_selection','original_delivery_selection','original_ordinary_selection','supplemental_selection','merge_selected_terms','catalog_terms','selected','suppressions','ordinary_term_dates','ordinary_identity','ordinary_delivery_identity','inherited_delivery_addition','remaining_ordinary_terms']
-    exec(compile(ast.Module(body=[deepcopy(FN[x])for x in names],type_ignores=[]),'<generic-original-source-functions>','exec'),n)
+    contract=next(x for x in TREE.body if isinstance(x,ast.Assign)and isinstance(x.targets[0],ast.Name)and x.targets[0].id=='ORIGINAL_CONTRACT_DELIVERY_PHASES')
+    n['ORIGINAL_CONTRACT_DELIVERY_PHASES']=ast.literal_eval(contract.value)
+    names=['original_phase_delivery_selection','original_delivery_selection','original_ordinary_selection','supplemental_selection','merge_selected_terms','catalog_terms','selected','suppressions','ordinary_term_dates','ordinary_identity','ordinary_delivery_identity','inherited_delivery_addition','remaining_ordinary_terms','contractual_delivery_selection']
+    functions=[deepcopy(FN[x])for x in names]
+    for fn in functions:
+        if fn.name=='contractual_delivery_selection':
+            fn.body=[x for x in fn.body if not isinstance(x,(ast.Import,ast.ImportFrom))]
+    exec(compile(ast.Module(body=functions,type_ignores=[]),'<generic-original-source-functions>','exec'),n)
     constructors={'system_campaign_array_facts':'ArrayFacts','system_campaign_tableau_facts':'TableauFacts','system_campaign_distribution_facts':'DistributionFacts','system_campaign_parsley_facts':'ParsleyFacts'}
     modules={name:SimpleNamespace(**{cls:ctor(name,cls),'__file__':str(C/(name+'.py'))})for name,cls in constructors.items()}
     class Literal2021:

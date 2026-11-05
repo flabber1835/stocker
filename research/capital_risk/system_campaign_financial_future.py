@@ -1662,6 +1662,103 @@ def merge_selected_terms(primary, extra):
     return terms
 
 
+ORIGINAL_CONTRACT_DELIVERY_PHASES = {('P05', '2021-03-31'): {'module': 'system_campaign_distribution_facts', 'class_name': 'DistributionFacts', 'catalog_file': 'system-campaign-distribution-facts.json', 'catalog_sha256': 'db0e6498224929c322c1a73a0e5b7942110e7a1c645db8f6b21bd329f22d41ae', 'validator_file': 'system_campaign_distribution_facts.py', 'validator_sha256': 'c83a3ed96b2334333fde7f8f2d05ef9e4c2b98d7a52c4be5e437a6b954aa88bb', 'selected_tickers': ('APHA',), 'parent_outer_sha256': '57fc54933459d897d290094c7cb3b9c1c5d1195ff2dd1eea182284941302070a', 'parent_root_admission_sha256': 'b1b4db73909f584bf7704cf33158eacc9ce1f8a8cbe212785d8f9b3404e6dede', 'source_capture': {'run_id': 41971859824, 'head': 'f304f01185feadb9ab9ecd2509d9f9a57b3f2ee6', 'artifact_id': 13390251892, 'payload_sha256': '90d3c08c6010986bfb852984645e262ad623b9ba4221510e8b8e8c1fcf49a667', 'scope_sha256': 'b3cec0ea35dd39cd8a6ea16e2e1366c01783d507ebd85d2514b5278d269a885d', 'independent_data_review_sha256': '7713d40d4c9a9234603be70d13cf07d037881837f66c2d911a20bc37465f2822', 'independent_qualification_sha256': 'e0f57b8f67e0c89207980ed17a3f09ef20fb72ee45ad9b4781167c67c7df8185'}}}
+FUTURE_LITERAL_PHASES['P05', '2021-03-31'] = ('system_campaign_following_completions_facts', 'FollowingFacts', 'system-campaign-following-completions-terminal-facts.json', ('CATM', 'AZPN1', 'REGI', 'PLAN'))
+
+
+def contractual_delivery_addition(term, row):
+    """Preserve a pinned original contractual zero; a quote cannot price it."""
+    plan = ORIGINAL_CONTRACT_DELIVERY_PHASES[term['arm'], term['parent_cursor']]
+    source = term['original_contract_source']
+    raw = (HERE / plan['catalog_file']).read_bytes()
+    need(sha(raw) == plan['catalog_sha256']
+         and sha((HERE / plan['validator_file']).read_bytes()) == plan['validator_sha256'],
+         'FUTURE_CONTRACT_EXACT_ORIGINAL_CATALOG_AND_VALIDATOR')
+    originals = [t for t in json.loads(raw)['terms'] if t['ticker'] in plan['selected_tickers']
+                 and digest(t) == source['term_sha256']]
+    need(len(originals) == 1, 'FUTURE_CONTRACT_EXACT_ONE_ORIGINAL_LITERAL_TERM')
+    original = originals[0]
+    expected = dict(catalog_file=plan['catalog_file'], catalog_sha256=plan['catalog_sha256'],
+        validator_file=plan['validator_file'], validator_sha256=plan['validator_sha256'],
+        selected_tickers=list(plan['selected_tickers']), term_sha256=digest(original))
+    need(source == term['original_ordinary_source'] == expected
+         and term['source_capture'] == plan['source_capture']
+         and term['parent_outer_sha256'] == plan['parent_outer_sha256']
+         and term['parent_root_admission_sha256'] == plan['parent_root_admission_sha256']
+         and term['added'] == original['added'] and term['proxy'] == original['proxy']
+         and term['native_session'] == original['native_session']
+         and term['native_term_sha256'] == original['native_term_sha256']
+         and original['added']['kind'] in ('CONVERSION', 'CASH_PLUS_STOCK')
+         and original['proxy']['convention'] == 'CONTRACTUAL_ZERO_FRACTIONAL_CONSIDERATION'
+         and type(original['added']['cash_in_lieu_price_per_delivered_share']) is float
+         and original['added']['cash_in_lieu_price_per_delivered_share'] == 0.0,
+         'FUTURE_CONTRACT_EXACT_SOURCE_LITERAL_ZERO_NOT_RESEARCH_PROXY')
+    need(ordinary_delivery_identity(term, row) == term['delivered_identity_witness'],
+         'FUTURE_CONTRACT_EXACT_FROZEN_DELIVERED_IDENTITY')
+    return deepcopy(original['added'])
+
+
+def contractual_delivery_selection(cp, arm):
+    """Select only explicit original contract facts from this exact own root."""
+    import importlib
+    from system_campaign_financial_partial import root_spec
+    plan = ORIGINAL_CONTRACT_DELIVERY_PHASES.get((arm, cp['source_cursor']))
+    if plan is None:
+        return [], []
+    raw = (HERE / plan['catalog_file']).read_bytes()
+    module = importlib.import_module(plan['module'])
+    need(sha(raw) == plan['catalog_sha256'] and Path(module.__file__).name == plan['validator_file']
+         and sha(Path(module.__file__).read_bytes()) == plan['validator_sha256'],
+         'FUTURE_CONTRACT_EXACT_PINNED_ORIGINAL_SOURCE_BYTES')
+    codec = getattr(module, plan['class_name'])(HERE / plan['catalog_file'])
+    candidates = catalog_terms(codec, plan['selected_tickers'])
+    need(tuple(t['ticker'] for t in candidates) == plan['selected_tickers']
+         and codec.catalog_sha == plan['catalog_sha256'] and codec.compiler_sha == plan['validator_sha256']
+         and all(cp['source_cursor'] < t['native_session'] < t['added']['session']
+                 and t['added']['kind'] in ('CONVERSION', 'CASH_PLUS_STOCK')
+                 and t['proxy']['convention'] == 'CONTRACTUAL_ZERO_FRACTIONAL_CONSIDERATION'
+                 and type(t['added']['cash_in_lieu_price_per_delivered_share']) is float
+                 and t['added']['cash_in_lieu_price_per_delivered_share'] == 0.0 for t in candidates),
+         'FUTURE_CONTRACT_ONLY_DECLARED_UNCONSUMED_ORIGINAL_ZERO_VALUES')
+    source_capture = plan['source_capture']
+    need(all(type(source_capture[k]) is str and len(source_capture[k]) == 64
+             and all(c in '0123456789abcdef' for c in source_capture[k]) for k in
+             ('payload_sha256', 'scope_sha256', 'independent_data_review_sha256', 'independent_qualification_sha256'))
+         and type(source_capture['run_id']) is int and source_capture['run_id'] > 0
+         and type(source_capture['artifact_id']) is int and source_capture['artifact_id'] > 0
+         and type(source_capture['head']) is str and len(source_capture['head']) == 40,
+         'FUTURE_CONTRACT_REQUIRES_CLOSED_SOURCE_DATA_AND_QUALIFICATION')
+    scope = registered_scope(source_capture['scope_sha256'])
+    parent = root_spec(arm, plan['parent_root_admission_sha256'])
+    need(cp['sha256'] == plan['parent_outer_sha256'] == scope['parent_outer_sha256'] == parent['outer_sha256']
+         and cp['source_cursor'] == scope['parent_cursor'] == parent['selected_session'],
+         'FUTURE_CONTRACT_EXACT_OWN_SOURCE_AND_ADMITTED_PARENT')
+    source = dict(catalog_file=plan['catalog_file'], catalog_sha256=codec.catalog_sha,
+        validator_file=plan['validator_file'], validator_sha256=codec.compiler_sha,
+        selected_tickers=list(plan['selected_tickers']))
+    terms = []
+    for original in candidates:
+        declared, = [t for t in scope['terms'] if t['security_id'] == original['security_id']]
+        child, = [t for t in scope['additional_rows'] if t['security_id'] == original['added']['delivered_security_id']
+                    and t['session'] == original['added']['session']]
+        positions = lambda sid: [dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'], entry_date=e['entry_date'])
+            for _, e in sorted(cp['run']['state']['wealth_core']['episodes'].items(), key=lambda pair: int(pair[0])) if e['security_id'] == sid]
+        need(declared['native_session'] == original['native_session']
+             and declared['native_term_sha256'] == original['native_term_sha256']
+             and child['source_observation_sha256'] == original['proxy']['source_observation_sha256']
+             and positions(original['security_id']) == declared['parent_positions']
+             and positions(child['security_id']) == child['parent_positions']
+             and not any(p['security_id'] in (original['security_id'], child['security_id']) for p in cp['run']['state']['pending']),
+             'FUTURE_CONTRACT_EXACT_NATIVE_DELIVERY_AND_ACTUAL_PARENT_CHILD_ROLES')
+        term = deepcopy(original)
+        term.update(arm=arm, parent_cursor=cp['source_cursor'], parent_outer_sha256=cp['sha256'],
+            parent_root_admission_sha256=plan['parent_root_admission_sha256'], source_capture=deepcopy(source_capture),
+            original_ordinary_source=dict(source, term_sha256=digest(original)),
+            original_contract_source=dict(source, term_sha256=digest(original)), timing_source=original['primary_source'])
+        terms.append(term)
+    return terms, [source]
+
+
 def original_phase_delivery_selection(arm, cursor):
     """Aggregate explicit original delivery subsets without changing their facts."""
     import importlib
@@ -2033,6 +2130,12 @@ def hydrate(cp, arm, *, source_root=None):
         for source in components:
             if source not in ordinary_components:
                 ordinary_components.append(deepcopy(source))
+    contracts, contract_sources = contractual_delivery_selection(cp, arm)
+    if contracts:
+        terms = merge_selected_terms(terms, contracts)
+        for source in contract_sources:
+            need(source not in ordinary_components, 'FUTURE_CONTRACT_UNIQUE_SOURCE_COMPONENT')
+            ordinary_components.append(deepcopy(source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
     if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT, PREOPEN_STOCK, PRIOR_STOCK) for t in terms):
@@ -2099,14 +2202,18 @@ def hydrate(cp, arm, *, source_root=None):
             continue
         w = t['delivered_identity_witness']
         row = seen[w['session'], w['security_id']]
-        price = float(row['raw_open'])
-        need(math.isfinite(price) and price > 0, 'FUTURE_POSITIVE_DECLARED_RAW_OPEN_CIL_PROXY')
-        t['added']['cash_in_lieu_price_per_delivered_share'] = price
+        if 'original_contract_source' in t:
+            t['added'] = contractual_delivery_addition(t, row)
+        else:
+            price = float(row['raw_open'])
+            need(math.isfinite(price) and price > 0, 'FUTURE_POSITIVE_DECLARED_RAW_OPEN_CIL_PROXY')
+            t['added']['cash_in_lieu_price_per_delivered_share'] = price
         delivered[t['security_id']] = row
     material = dict(schema=REFERENCE, arm=arm, catalog=catalog, catalog_sha256=codec.catalog_sha,
         original_validator_sha256=codec.compiler_sha, selector_sha256=sha(Path(__file__).read_bytes()),
         parent_outer_sha256=cp['sha256'], terms=terms,
-        cil_convention=codec.catalog.get('cil_convention', CIL) if delivered else None,
+        cil_convention=('PER_TERM_DECLARED_ORIGINAL_CONTRACT_OR_RESEARCH_PROXY'
+                        if contracts else codec.catalog.get('cil_convention', CIL)) if delivered else None,
         native_and_delivery_witnesses_verified=len(seen),
         consumed_native_preserved=[t['security_id'] for t in terms if t['native_session'] <= cp['source_cursor']],
         financial_source_changed=False, provider_metadata_upgraded=False)

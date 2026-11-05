@@ -2623,3 +2623,12 @@ using qualified catalog26 and the unchanged canonical financial engines.
 Keep source265 P03 independent and preserve per-arm non-cancelling hosted
 concurrency. No P05 contract proposal or P07 caller-routing proposal is selected
 by this request. Retain all own1883 input/repair lineage and reject later tails.
+
+The generic original-contract input policy qualified in28 portable input cases,
+including five guard removals. Its exact original APHA0.8381/literal0 values
+and the ordinary AZPN raw-open proxy both survive the full hydration input
+composition. Keep the unchanged source-qualified DistributionFacts constructor
+and raw-proxy phase guard. Dispatch financial267 for P05 own817/b1b4 only,
+selecting this explicit original APHA contract alongside four qualified known
+Following terms. The hosted packet/notional checks remain mandatory; local
+synthetic input qualification grants no financial admission or full-score claim.
