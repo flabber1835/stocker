@@ -67,7 +67,7 @@ def scheduled_page(*, history=False, notices=False, clean=False, recovered=False
     panel = replace(panel, observation_valid_until=operational_snapshot.original_boundary(panel))
     page = public_payload(panel)
     assert page['dashboard_health']['active_conditions'] == []
-    if undated_open and (history or notices):
+    if notices and not history or undated_open and history:
         assert 'automation_step_open' in page['dashboard_health']['review_conditions']
     else:
         assert page['dashboard_health']['review_conditions'] == []
@@ -95,7 +95,7 @@ def execute_reader(monkeypatch, page, expected, *, header='CURRENT', code=None):
 
 
 @pytest.mark.parametrize('history,notices,recovered', [
-    (False, False, False), (False, True, False), (False, False, True),
+    (False, False, False), (False, False, True),
     (True, False, False), (True, True, True),
 ])
 def test_current_review_is_recorded_as_actual_amber_software_only_without_ack(
@@ -136,6 +136,13 @@ def test_pure_review_can_keep_a_native_undated_wait_without_historical_exception
     assert execute_reader(monkeypatch, page, expected)['operator_review']['status'] == 'REVIEW'
 
 
+def test_plain_scheduled_notification_warning_remains_a_current_review_condition(monkeypatch):
+    page, expected = scheduled_page(notices=True)
+    assert keyed(page, 'automation_step_open')['as_of'] is not None
+    with pytest.raises((AssertionError, KeyError, TypeError, ValueError)):
+        execute_reader(monkeypatch, page, expected)
+
+
 @pytest.mark.parametrize('history,notices', [(True, False), (False, True), (True, True)])
 def test_undated_wait_does_not_waive_current_history_or_notification_warnings(
         monkeypatch, history, notices):
@@ -160,7 +167,8 @@ def test_undated_wait_does_not_waive_current_history_or_notification_warnings(
     'notification_unknown', 'notification_required',
 ])
 def test_current_review_never_waives_missing_failed_changed_or_expired_facts(monkeypatch, fault):
-    page, expected = scheduled_page(notices=fault == 'notification_required')
+    page, expected = scheduled_page(history=fault == 'notification_required',
+        notices=fault == 'notification_required')
     header = 'CURRENT'
     past = (datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
     if fault == 'partial_header': header = 'PARTIAL'

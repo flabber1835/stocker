@@ -806,10 +806,11 @@ output=dict(as_of=page['as_of'],color=page['color'],source_errors=page['source_e
  sender={key:rows['alert_dispatcher'][key] for key in ('status','value','detail')},
  alerts={key:rows['automation_alerts'][key] for key in ('status','value','detail')},
  attention=[dict(key=row['key'],status=row['status'],value=row['value'])
-  for row in page['rows'] if row.get('color')=='red'],
- **({'retained_history_warning':history_warning,'operational_ready':False,
-     'installation_scope':'PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_HISTORY_WARNING'}
-    if history_warning is not None else {}),**(review_amber or {}))
+  for row in page['rows'] if row.get('color')=='red'])
+if history_warning is not None:
+ output.update(retained_history_warning=history_warning,operational_ready=False,
+  installation_scope='PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_HISTORY_WARNING')
+output.update(review_amber or {})
 if not post_trade: current_boundaries(datetime.now(timezone.utc))
 print(json.dumps(output,sort_keys=True))
 '''
