@@ -2173,3 +2173,11 @@ as a financial checkpoint,alter original analyzer/schema rules,omit unknown
 schemas or filter any ordinary descriptor. Test the real18-document refusal
 before the bridge,and exact17-document analysis after it,including collisions,
 wrong branch,changed bytes and source-clock falsifiers before another retry.
+
+For P03 own272,reuse the unchanged Early2019Facts catalog/compiler through a
+generic ordinary-phase lookup. Select only its unconsumed LOXO235USD and AHL2
+42.75USD terms;the consumed DM2 conversion stays excluded. Preserve all10 own
+repair documents and the already-adopted future SEND0.485TWLO/111.31proxy term
+at February1. Add only the new disjoint February14/15 native/effective inputs
+through the existing hydration,original packet qualification and neutral gate.
+Do not replace January's checkpoint or infer any February holdings from it.

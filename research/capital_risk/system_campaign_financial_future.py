@@ -145,6 +145,10 @@ ORIGINAL_ORDINARY_SOURCES = {
            '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7'))
     for arm in ('P05', 'P06', 'P11')
 }
+ORIGINAL_ORDINARY_PHASES = {('P03', '2019-01-31'): (
+    ('system_campaign_early2019_facts', 'Early2019Facts',
+     'system-campaign-early2019-terminal-facts.json',
+     '740b0e937067d3cf45a371e51cfd02c59821e9fdb5232714d449d302cda6b4ac'),)}
 ORIGINAL_DELIVERY_SOURCES = {
     arm: (('system_campaign_midyear_facts', 'MidyearFacts',
            'system-campaign-midyear-terminal-facts.json',
@@ -1474,7 +1478,7 @@ def compose(plans):
 def original_ordinary_selection(arm, cursor):
     """Select future terms from an unchanged original ordinary cash validator."""
     import importlib
-    plans = ORIGINAL_ORDINARY_SOURCES.get(arm)
+    plans = ORIGINAL_ORDINARY_PHASES.get((arm, cursor), ORIGINAL_ORDINARY_SOURCES.get(arm))
     if plans is None:
         return None
     sources = []

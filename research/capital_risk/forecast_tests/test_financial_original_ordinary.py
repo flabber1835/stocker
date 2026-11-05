@@ -13,6 +13,29 @@ def selection(cursor='2018-01-31'):
 
 def scmp():return next(t for t in selection()[2] if t['ticker']=='SCMP')
 
+
+def test_original_phase_reuses_exact_unconsumed_early2019_terms_and_preserves_SEND():
+    codec,name,terms=f.original_ordinary_selection('P03','2019-01-31')
+    assert [(t['ticker'],t['native_session'],t['added']['session'],t['added']['cash_per_share'])for t in terms]==[
+        ('LOXO','2019-02-15','2019-02-15',235.),('AHL2','2019-02-14','2019-02-15',42.75)]
+    assert codec.catalog_sha=='740b0e937067d3cf45a371e51cfd02c59821e9fdb5232714d449d302cda6b4ac'
+    assert codec.compiler_sha=='2765fb5b3afd485f50fcd7229680279eba76c9c100699b2f878835b628e68117'
+    assert all(t['ticker']!='DM2'for t in terms)
+    inherited=f.selected('P03',cursor='2018-12-31')[2]
+    assert len(inherited)==1 and inherited[0]['ticker']=='SEND' and inherited[0]['added']['session']=='2019-02-01'
+    assert f.original_ordinary_selection('P03','2019-01-30')is None
+    import system_campaign_financial_resume as resume
+    request=resume.expected_request()
+    assert request['sources'][name]==codec.catalog_sha
+    assert request['sources']['system_campaign_early2019_facts.py']==codec.compiler_sha
+
+
+def test_original_phase_catalog_guard_has_removal_falsifier(monkeypatch):
+    plans=deepcopy(f.ORIGINAL_ORDINARY_PHASES);plan=list(plans['P03','2019-01-31'][0]);plan[-1]='0'*64
+    plans['P03','2019-01-31']=(tuple(plan),);monkeypatch.setattr(f,'ORIGINAL_ORDINARY_PHASES',plans)
+    with pytest.raises(ValueError,match='ORIGINAL_ORDINARY_CATALOG_BYTES'):f.original_ordinary_selection('P03','2019-01-31')
+    assert [t['ticker']for t in removed_guard('original_ordinary_selection','FUTURE_ORIGINAL_ORDINARY_CATALOG_BYTES')('P03','2019-01-31')[2]]==['LOXO','AHL2']
+
 def test_existing_catalog_and_validator_supply_all_five_exact_cash_terms():
     codec,name,terms=selection()
     assert [(t['ticker'],t['added']['cash_per_share']) for t in terms]==[
