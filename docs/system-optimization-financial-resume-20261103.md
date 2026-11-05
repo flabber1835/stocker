@@ -2632,3 +2632,13 @@ and raw-proxy phase guard. Dispatch financial267 for P05 own817/b1b4 only,
 selecting this explicit original APHA contract alongside four qualified known
 Following terms. The hosted packet/notional checks remain mandatory; local
 synthetic input qualification grants no financial admission or full-score claim.
+
+Select readonly report268 for financial261's saved P06 own817 and P07 own1028
+prefixes from their own628/c83f and986/6abf admissions. Verify189/378/9/252
+and42/84/2/56 new daily/accounting/report/Decimal counts respectively, with
+no financial replay. The exact selector authenticated all325 financial packet
+members and both distinct per-arm selections;20 selector tests including two
+guard removals passed. Exclude all April P06 and February P07 tails and retain
+the complete committed P07 branch-certificate prefix. P06's actual next pending
+identity is IPHI, with23shares already present in the committed March31 book;
+the April20 native and later diagnostic tail grant no root-admission authority.
