@@ -2341,3 +2341,16 @@ closes. The May25 distribution's actual event proof is retained. The next
 refusal identifies COR2,whose unchanged December CashCalendar term already
 provides the nativeDecember27/recognitionDecember28 cash170 research input.
 Independent DATA and root admission remain required before continuation.
+
+P05 report251 and independent DATA admit own756 throughDecember31,2020 as
+b2377e959fb5351f80b80ad4e045a93b7495bc52c323fa5ef6ddcc770ac3e5bf.
+Twenty-two new days,44accountings,one report and28metrics passed. The23
+reader tests include15guard-removal falsifiers and five import fences. Keep
+BMCH January4 and VRTU February11 as future inputs;no December settlement
+or January tail is asserted.
+
+Select source254 for P03 own355's KEYW nativeJune11 row and June10 identity.
+The exact SEC record supports mandatory11.25USD conversionJune12;preopen
+timing is unconfirmed and remains explicit in any later research input.
+This adds one source-only scope without altering earlier scopes or financial
+logic. Thirty-three private DATA/selector tests passed before integration.
