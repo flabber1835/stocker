@@ -138,6 +138,9 @@ button.secondary{background:transparent;color:#f7d78c}button[hidden]{display:non
 .refreshing-status .overview-card{border-color:var(--muted)}
 .refreshing-status .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
 .retained-overview .overview-card{border-color:var(--muted)}
+.overview-card.scope-not-current{border-color:var(--muted)}
+.overview-card.scope-not-current h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
+.scope-not-current .overview-tag,.scope-not-current .run-progress{color:var(--muted)}
 .retained-overview .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
 .refreshing-status .slot-tile,.refreshing-status .slot-tile.occupied,.refreshing-status .slot-tile.ready,
  .retained-overview .slot-tile,.retained-overview .slot-tile.occupied,.retained-overview .slot-tile.ready{border-color:var(--muted)}

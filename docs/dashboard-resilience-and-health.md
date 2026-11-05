@@ -1,5 +1,10 @@
 # Dashboard resilience, history and current health
 
+The November 5 [independent operational state contract](operational-state-contract.md)
+supersedes the page-build ownership and text-based workflow interpretation below.
+The selected colour, acknowledgement, original-clock and browser freshness rules
+remain in force. Earlier qualification retains its original scope.
+
 Owner decision, November 3 2026, before implementation: perform a full dashboard
 pass after weeks of brittle refreshes, slow page loads and ambiguous red states.
 This work changes operator presentation and nonfinancial acknowledgement only.

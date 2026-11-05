@@ -84,7 +84,7 @@ class RecoveryAutomationService(AutomationService):
     def _handle_callback_failure(
             self, conn, *, now: datetime, cycle, permit,
             phase: str, exc: BaseException,
-            recovery_transition: bool = False) -> TickResult:
+            recovery_transition: bool = False, source_completion_hint=None) -> TickResult:
         if phase == "EXECUTE" and isinstance(exc, CallbackDeadlineExceeded):
             # The supervisor killed the executor at a point where Alpaca may or
             # may not have accepted transport.  The command journal was durable
@@ -119,7 +119,8 @@ class RecoveryAutomationService(AutomationService):
         return super()._handle_callback_failure(
             conn, now=now, cycle=cycle, permit=permit,
             phase=phase, exc=exc,
-            recovery_transition=recovery_transition)
+            recovery_transition=recovery_transition,
+            source_completion_hint=source_completion_hint)
 
 
 __all__ = ["RecoveryAutomationService"]

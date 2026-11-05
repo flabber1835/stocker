@@ -25,7 +25,8 @@ const document = {
   body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
-      refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false' } },
+      refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false',
+      observationCurrent: 'true' } },
   documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
   visibilityState: input.wake === 'initial-hidden' || input.wake.startsWith('hidden-initial-') ? 'hidden' : 'visible',
   getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
@@ -45,7 +46,8 @@ class Parser {
         new Date(html === 'stale' ? now - 120000 : html === 'future' ? now + 10000 : now).toISOString(),
         maxAgeSeconds: ({'invalid-budget': 'invalid', 'zero-budget': '0',
           'infinite-budget': 'Infinity', 'oversized-budget': '99999'})[html] ?? input.budget,
-        refreshPending: html === 'pending' ? 'true' : 'false' } } };
+        refreshPending: html === 'pending' ? 'true' : 'false',
+        observationCurrent: ['partial','wrong-current-marker'].includes(html)?'false':html==='missing-marker'?undefined:'true' } } };
   }
 }
 function assertFreshness(phase, message) {
@@ -90,6 +92,19 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (['partial','wrong-current-marker','wrong-partial-marker','missing-marker'].includes(input.failure)) {
+    now += 30000; fireDelay(30000);
+    const status = ['partial','wrong-partial-marker'].includes(input.failure) ? 'PARTIAL' : 'CURRENT';
+    reads[0].resolve({ok:true,status:200,headers:{get:()=>status},text:async()=>input.failure});
+    await settled();
+    if (input.failure==='partial') {
+      assert.deepEqual(writes,['open','partial','close'],'a fresh partial document is successful transport');
+      assert.equal(timers.size,0,'partial replacement cancels the old lifecycle');
+    } else {
+      assert.equal(writes.length,0,'header/body currentness mismatch installed authority');
+    }
+    process.stdout.write('PASS\n'); return;
+  }
   if (input.wake.startsWith('transport-')) {
     const config = input.case || {};
     const budget = Number(input.budget) * 1000;

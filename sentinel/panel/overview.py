@@ -342,10 +342,24 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     selection = panel.row('trading_environment')
     selected = ('<p class="overview-mode" role="status">Selected trading environment: <strong>'
                 +_esc(selection.value)+'</strong></p>' if selection is not None else '')
+    from sentinel.panel import delivery
+    safe = delivery.payload_panel(panel)
+    def section(html, keys):
+        current = not refresh_pending and all(delivery.row_current(panel, row)
+            for key in keys if (row := panel.row(key)) is not None)
+        marker = 'data-current="'+str(current).lower()+'" '
+        if not current:
+            html = html.replace('class="overview-card ', 'class="overview-card scope-not-current ', 1)
+        return html.replace('<section ', '<section '+marker, 1)
+    plan = section(_plan_html(safe), ('paper_plan', 'trading_run', 'completed_trading_run'))
+    runs = (_run_html(safe) if safe.row('paper_plan') is not None
+            and safe.row('paper_plan').can_show_paper_plan(safe.now) else '')
+    account = section(_account_html(panel), ('alpaca_account',))
+    if panel.row('alpaca_account') is not None and not delivery.row_current(panel, panel.row('alpaca_account')):
+        account = account.replace('</h2>', '</h2><p class="overview-retained">Last known account · original snapshot time below.</p>', 1)
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
             +selected+retained+_plan_readiness_html(panel, refresh_pending=refresh_pending)
-            +_preparation_html(panel, refresh_pending=refresh_pending)+_plan_html(panel)
-            +(_run_html(panel) if panel.row('paper_plan') is not None
-              and panel.row('paper_plan').can_show_paper_plan(panel.now) else '')
-            +_account_html(panel)+_slots_html(panel)+'</main>')
+            +section(_preparation_html(safe, refresh_pending=refresh_pending), ('ingest',))
+            +plan+section(runs, ('trading_run', 'completed_trading_run'))
+            +account+section(_slots_html(safe), ('book', 'exposure'))+'</main>')

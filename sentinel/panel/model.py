@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from sentinel.panel.review_model import OperatorReview
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
@@ -52,6 +52,60 @@ def _bounded_display_decimal(value):
     if value is not None and (value.as_tuple().exponent < -30 or value.adjusted() > 18):
         raise ValueError('display number exceeds finite formatting bounds')
     return value
+
+
+class OperationalFact(BaseModel):
+    """Closed producer facts for human workflow health, independent of copy."""
+    model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
+    kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
+                  'MARKET_DATA', 'SHADOW_VERIFICATION', 'PAPER_VERIFICATION']
+    state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
+                   'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
+                   'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
+                   'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED',
+                   'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'READY', 'NOT_READY',
+                   'AWAITING_VERDICT', 'VERIFIED', 'PENDING', 'CHECKING']
+    session: date | None = None
+    sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
+    exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode='after')
+    def coherent_fact(self):
+        states = {
+            'AUTOMATION_POLICY': {'ENABLED_RELEASED', 'INERT', 'KILLED'},
+            'AUTOMATION_CYCLE': {'DISCOVERY_WAIT', 'DISCOVERED', 'REFRESHING_DATA',
+                'PREPARING', 'PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING',
+                'RETRY_WAIT', 'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'},
+            'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED'},
+            'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
+            'SHADOW_VERIFICATION': {'VERIFIED'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING'},
+        }
+        if self.state not in states[self.kind]:
+            raise ValueError('operational state belongs to another producer')
+        if ((self.kind == 'MARKET_DATA') != (self.sessions_behind is not None)
+                or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
+                or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
+                    and self.session is None)
+                or (self.kind in {'AUTOMATION_POLICY', 'PAPER_VERIFICATION'}
+                    and self.session is not None)):
+            raise ValueError('operational fact fields do not match their producer')
+        if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
+            raise ValueError('controller exposure exceeds its display precision')
+        return self
+
+    def require_key(self, key: str) -> None:
+        owned = {
+            'AUTOMATION_POLICY': {'automation'},
+            'AUTOMATION_CYCLE': {'automation_cycle', *(
+                'automation_step_'+name for name in
+                ('discovery', 'data', 'prepare', 'open', 'transport', 'reconcile', 'complete'))},
+            'CONTROLLER_DECISION': {'exposure'}, 'MARKET_DATA': {'feed'},
+            'SHADOW_VERIFICATION': {'shadow_verification'},
+            'PAPER_VERIFICATION': {'paper_reconciliation'},
+        }
+        if key not in owned[self.kind]:
+            raise ValueError('operational fact belongs to another row')
 
 
 class PreparationWork(BaseModel):
@@ -371,6 +425,12 @@ class Row:
     source_publication_version: Optional[int] = None
     source_session: Optional[str] = None
     feed_readiness: Optional[Literal['AWAITING_VERDICT']] = None
+    operational_fact: OperationalFact | None = None
+
+    def __post_init__(self):
+        if self.operational_fact is not None:
+            object.__setattr__(self, 'operational_fact', OperationalFact.model_validate(self.operational_fact))
+            self.operational_fact.require_key(self.key)
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -475,6 +535,13 @@ class Panel:
     local_paper_mode: bool = False
     #: Nonfinancial, durable operator review. It never changes row verdicts.
     operator_review: Optional['OperatorReview'] = None
+    #: Nonfinancial snapshot delivery. Independent financial row clocks remain
+    #: authoritative when another scope needs a fresh operational collection.
+    observation_current: bool = True
+    observation_changed_scopes: tuple[Literal['SHADOW', 'PAPER'], ...] = ()
+    observation_revalidated_keys: tuple[Literal['shadow_verification', 'shadow_nav',
+        'shadow_return', 'exposure', 'book', 'terminals', 'paper_reconciliation'], ...] = ()
+    observation_valid_until: Optional[datetime] = None
 
     @property
     def overall(self) -> str:
@@ -507,7 +574,9 @@ class Panel:
             for r in self.rows)
         live = [
             (OK if scheduled and r.key in {'automation_cycle', 'automation_step_open'}
-                and r.value == 'WAITING_OPEN' and r.effective_status(self.now) == WARN
+                and r.operational_fact is not None
+                and r.operational_fact.kind == 'AUTOMATION_CYCLE'
+                and r.operational_fact.state == 'WAITING_OPEN' and r.effective_status(self.now) == WARN
                 else r.effective_status(self.now)) for r in self.rows
             if (r.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
                 and (r.status != PENDING or r.required_current))
@@ -595,7 +664,8 @@ def shadow_verification_row(
         "shadow_verification", "Certified shadow strategy",
         f"SHADOW VERIFIED THROUGH {session}", OK,
         "sole strategy-performance authority · canonical Wealth Core plus "
-        "accepted market inputs · independent of Alpaca PAPER accounting")
+        "accepted market inputs · independent of Alpaca PAPER accounting",
+        operational_fact=OperationalFact(kind='SHADOW_VERIFICATION', state='VERIFIED', session=session))
 
 
 def shadow_metric_row(
@@ -665,7 +735,7 @@ def paper_reconciliation_row(
         "paper_reconciliation", "Alpaca PAPER mirror",
         "PAPER NOT VERIFIED · PENDING", WARN,
         (detail or "ordinary order/fill or post-close unit evidence is pending")
-        + suffix)
+        + suffix, operational_fact=OperationalFact(kind='PAPER_VERIFICATION', state='PENDING'))
 
 def ownership_row(*, state: Optional[str], at: Optional[datetime],
                   error: Optional[str] = None) -> Row:
@@ -748,24 +818,32 @@ def exposure_row(*, exposure: Optional[float],
         return Row("exposure", "Exposure", "UNKNOWN", UNKNOWN,
                    error or "no durable controller/plan exposure", as_of)
     where = f" · decision {session}" if session else ""
+    fact = None
+    if session:
+        try:
+            fact = OperationalFact(kind='CONTROLLER_DECISION',
+                state=('ADOPTED' if adopted else 'NOT_ADOPTED') if controller_active else 'PINNED',
+                session=session, exposure=Decimal(str(exposure)))
+        except ValueError:
+            pass  # Invalid evidence cannot earn a normal-work exception.
     if controller_active and adopted:
         return Row("exposure", "Exposure", f"{exposure:.2f}", OK,
                    f"durable current controller plan{where}", as_of,
                    freshness=timedelta(minutes=10), required_current=True,
-                   recovery=recovery, valid_until=valid_until)
+                   recovery=recovery, valid_until=valid_until, operational_fact=fact)
     if controller_active:
         return Row("exposure", "Exposure", f"{exposure:.2f} NOT ADOPTED", WARN,
                    f"canonical controller decision has no current plan{where}",
                    as_of, freshness=timedelta(minutes=10),
                    required_current=True, recovery=recovery,
-                   valid_until=valid_until)
+                   valid_until=valid_until, operational_fact=fact)
     status = PENDING if adopted else WARN
     detail = ("durable current rollout pins exposure at 1.00"
               if adopted else "pinned rollout has no current plan")
     return Row("exposure", "Exposure", f"{exposure:.2f} PINNED", status,
                detail + where, as_of, freshness=timedelta(minutes=10),
                required_current=True, recovery=recovery,
-               valid_until=valid_until)
+               valid_until=valid_until, operational_fact=fact)
 
 
 #: A verdict older than this describes a corpus that has since been through a
@@ -838,7 +916,9 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
                    feed_readiness=('AWAITING_VERDICT' if sessions_behind == 0
                        and checks_passed == checks_total == 0 and checked_at is None
                        and type(publication_version) is int and publication_version > 0
-                       else None))
+                       else None),
+                   operational_fact=OperationalFact(kind='MARKET_DATA', state='AWAITING_VERDICT',
+                       session=frontier, sessions_behind=sessions_behind))
     verdict = ("contract READY" if ready else "contract NOT READY")
 
     # WHEN IT WAS MEASURED, always, and an explicit warning once it is old.
@@ -861,7 +941,10 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
                              if ingest_updated_at else None))
                          if ingest_running and sessions_behind > 0 else None),
                valid_until=(checked_at + VERDICT_STALE_AFTER
-                            if checked_at else None))
+                            if checked_at else None),
+               operational_fact=OperationalFact(kind='MARKET_DATA',
+                   state='READY' if ready else 'NOT_READY', session=frontier,
+                   sessions_behind=sessions_behind))
 
 
 def ingest_row(*, kind: Optional[str], status: Optional[str],
@@ -1123,14 +1206,17 @@ def automation_row(*, installed: Optional[bool] = False,
         kill = "kill engaged" if killed else "kill released"
         return Row("automation", "Automation", "DISABLED", WARN,
                    f"supervisor-healthy and operationally inert · {kill} · "
-                   f"{suffix}", updated_at)
+                   f"{suffix}", updated_at, operational_fact=OperationalFact(
+                       kind='AUTOMATION_POLICY', state='INERT'))
     if killed:
         return Row("automation", "Automation", "ENABLED · KILLED", FAIL,
                    f"operator action required; broker access is blocked · "
-                   f"{suffix}", updated_at)
+                   f"{suffix}", updated_at, operational_fact=OperationalFact(
+                       kind='AUTOMATION_POLICY', state='KILLED'))
     return Row("automation", "Automation", "ENABLED · KILL RELEASED", OK,
                f"operational policy permits leader election · {suffix}",
-               updated_at)
+               updated_at, operational_fact=OperationalFact(
+                   kind='AUTOMATION_POLICY', state='ENABLED_RELEASED'))
 
 
 def automation_leader_row(*, installed: Optional[bool],
@@ -1224,7 +1310,8 @@ def automation_cycle_row(*, installed: Optional[bool],
                        WARN if enabled else PENDING), detail,
                    required_current=bool(enabled),
                    recovery=(discovery_recovery
-                             if not failure_code and not failure_detail else None))
+                             if not failure_code and not failure_detail else None),
+                   operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state='DISCOVERY_WAIT'))
     normalized = str(state or "").upper()
     submitted_progress = submitted_commands_progress(dict(
         state=state, plan_id=plan_id, failure_code=failure_code,
@@ -1306,7 +1393,11 @@ def automation_cycle_row(*, installed: Optional[bool],
                 else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
                required_current=bool(enabled), recovery=recovery,
                valid_until=(recovery.deadline if recovery is not None
-                            and recovery.phase == 'AUTOMATION_CLOSING_DATA' else None))
+                            and recovery.phase == 'AUTOMATION_CLOSING_DATA' else None),
+               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized)
+                   if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
+                       'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
+                       'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'} else None))
 
 
 _AUTOMATION_STEP_DEFINITIONS = (
@@ -1377,7 +1468,9 @@ def automation_step_rows(
                     WARN if index == 0 else PENDING,
                     "current leader is polling; no daily cycle is armed",
                     required_current=index == 0,
-                    recovery=discovery_recovery if index == 0 else None)
+                    recovery=discovery_recovery if index == 0 else None,
+                    operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state='DISCOVERY_WAIT')
+                                      if index == 0 else None))
                 for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS)
             ]
         return [
@@ -1556,6 +1649,11 @@ def automation_step_rows(
             row_key, label, "NOT REACHED", PENDING,
             "future step in the current durable cycle; pending completion of "
             + (_AUTOMATION_STEP_DEFINITIONS[index-1][1] if index else 'cycle discovery')))
+    if state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
+                 'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
+                 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'}:
+        rows = [replace(row, operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state=state))
+                for row in rows]
     return rows
 
 
@@ -2052,7 +2150,7 @@ def execution_authority_row(
 
 __all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS",
            "OPERATIONAL_INFORMATIONAL_ROW_KEYS", "NO_PERFORMANCE_HERE",
-           "OK", "PENDING", "Panel", "Row", "SHADOW_ROW_KEYS",
+           "OK", "PENDING", "Panel", "Row", "OperationalFact", "SHADOW_ROW_KEYS",
            "TRIAL_ROW_KEYS", "UNKNOWN", "WARN", "automation_alerts_row",
            "alert_dispatcher_row",
            "automation_cycle_row", "automation_leader_row", "automation_row",

@@ -24,6 +24,7 @@ def execute(target, kind, *, broken=False, mutation=None):
             'origin': ('new URL(response.url || location.href, location.href).origin !== location.origin', 'false'),
             'late': ('active.signal.aborted || !visible()', 'false'),
             'single': ('if (busy) { again = true; return; }', 'if (false) { again = true; return; }'),
+            'currentness': ('next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")', 'false'),
         }[mutation]
         assert source.count(guard)==1
         source=source.replace(guard,replacement)
@@ -45,7 +46,8 @@ def test_removed_worker_launch_guard_reproduces_network_gated_first_paint():
     assert result.returncode!=0 and 'first document must not wait' in result.stderr
 
 
-@pytest.mark.parametrize('kind', ['fresh', 'busy', 'cached', 'incomplete', 'pending',
+@pytest.mark.parametrize('kind', ['fresh', 'partial', 'wrong-current-marker',
+                                 'wrong-partial-marker', 'missing-marker', 'busy', 'cached', 'incomplete', 'pending',
                                  'stale', 'future', 'invalid-date', 'budget', 'foreign',
                                  'hidden', 'deadline', 'offline'])
 def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind):
@@ -55,7 +57,7 @@ def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind)
 
 @pytest.mark.parametrize('mutation,kind', [('expiry','stale'), ('origin','foreign'),
                                         ('late','hidden'), ('late','deadline'),
-                                        ('single','fresh')])
+                                        ('single','fresh'), ('currentness','wrong-current-marker')])
 def test_broken_launch_guards_are_detected(mutation,kind):
     result=execute('launch',kind,mutation=mutation)
     assert result.returncode!=0

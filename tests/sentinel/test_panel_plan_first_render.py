@@ -400,7 +400,8 @@ def test_composed_closing_run_has_healthy_acquisition_without_claiming_financial
         model.Row('automation_step_data','Data','WAITING FOR CLOSING DATA',model.WARN,
             as_of=NOW,required_current=True,valid_until=deadline,recovery=cycle),
         model.Row('paper_reconciliation','Paper','CHECK IN PROGRESS',model.WARN,
-            as_of=NOW,required_current=True,valid_until=deadline,recovery=verify),
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=verify,
+            operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING')),
         model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING),
         *[model.Row('automation_step_'+key,key,'NOT REACHED',model.PENDING)
           for key in ('prepare','open','transport','reconcile','complete')]]
@@ -418,13 +419,16 @@ def test_normal_discovery_wait_needs_current_policy_and_live_worker_proof(fault)
     from sentinel.panel.presentation import dashboard_health
     deadline = NOW+timedelta(seconds=20)
     recovery = RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=True,deadline=deadline)
-    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK),
+    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_POLICY',state='ENABLED_RELEASED')),
         model.Row('automation_leader','Leader','ACTIVE',model.OK,as_of=NOW,
             required_current=True,valid_until=deadline),
         model.Row('automation_cycle','Cycle','WAITING FOR NEXT DECISION',model.WARN,
-            required_current=True,recovery=recovery)]
+            required_current=True,recovery=recovery,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='DISCOVERY_WAIT'))]
     if fault == 'missing_leader': rows.pop(1)
-    elif fault == 'disabled': rows[0] = replace(rows[0],value='DISABLED')
+    elif fault == 'disabled': rows[0] = replace(rows[0],value='DISABLED',
+        operational_fact=model.OperationalFact(kind='AUTOMATION_POLICY',state='INERT'))
     elif fault == 'bare_wait': rows[-1] = replace(rows[-1],required_current=False,recovery=None)
     panel = reviewed_panel(now=deadline+timedelta(seconds=1) if fault == 'expired' else NOW,rows=rows)
     if fault is None:
@@ -435,14 +439,15 @@ def test_normal_discovery_wait_needs_current_policy_and_live_worker_proof(fault)
 
 
 @pytest.mark.parametrize('change',[
-    {'key':'other'}, {'value':'WAITING'}, {'required_current':False},
+    {'key':'other','operational_fact':None}, {'value':'WAITING','operational_fact':None}, {'required_current':False},
     {'valid_until':NOW+timedelta(minutes=2)}, {'recovery':None}])
 def test_only_the_exact_bounded_financial_check_is_a_normal_health_wait(change):
     from sentinel.panel.presentation import dashboard_health
     deadline = NOW+timedelta(minutes=1)
     row = model.Row('paper_reconciliation','Paper','CHECK IN PROGRESS',model.WARN,
         required_current=True,valid_until=deadline,recovery=RecoveryEvidence(
-            phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+            phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline),
+        operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'))
     assert dashboard_health(reviewed_panel(now=NOW,rows=[row]))['label'] == 'Healthy · Checking paper account'
     assert dashboard_health(reviewed_panel(now=NOW,rows=[replace(row,**change)]))['status'] != 'ok'
 
@@ -522,11 +527,13 @@ def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal()
     from sentinel.panel.render import render
     recovery = RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=True,
         deadline=NOW+timedelta(minutes=1))
-    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK),
+    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_POLICY',state='ENABLED_RELEASED')),
         model.Row('automation_leader','Leader','ACTIVE',model.OK,as_of=NOW,
             required_current=True,valid_until=NOW+timedelta(seconds=8)),
         model.Row('automation_cycle','Cycle','WAITING FOR NEXT DECISION',model.WARN,
-            required_current=True,recovery=recovery)]
+            required_current=True,recovery=recovery,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='DISCOVERY_WAIT'))]
     idle = reviewed_panel(now=NOW,rows=rows)
     assert dashboard_health(idle)['label'] == 'Healthy · Waiting for next decision'
     assert dashboard_health(idle)['valid_until'] == (NOW+timedelta(seconds=8)).isoformat()

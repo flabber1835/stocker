@@ -423,7 +423,7 @@ def test_operational_health_uses_exact_panel_status(monkeypatch) -> None:
     app_module = importlib.import_module("sentinel.panel.app")
     red = model.Panel(
         rows=[model.Row("account", "Account", "BLOCKED", FAIL)], now=NOW)
-    monkeypatch.setattr(app_module, "build_panel", lambda **_kwargs: red)
+    monkeypatch.setattr(app_module, "_read_panel", lambda: red)
     monkeypatch.setattr(
         app_module, "_shadow_segment_disclosure", lambda panel, _dsn: panel)
 
@@ -437,7 +437,7 @@ def test_operational_health_uses_exact_panel_status(monkeypatch) -> None:
     amber = model.Panel(rows=[model.Row(
         "retry", "Retry", "1/8", WARN, required_current=True,
         recovery=recovery())], now=NOW)
-    monkeypatch.setattr(app_module, "build_panel", lambda **_kwargs: amber)
+    monkeypatch.setattr(app_module, "_read_panel", lambda: amber)
     response = app_module.operational_health()
     assert response.status_code == 200
     assert json.loads(response.body)["color"] == "amber"

@@ -131,7 +131,8 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
         model.Row('shadow_worker','Worker','RUNNING',model.OK,as_of=now,
             required_current=True,valid_until=now+timedelta(seconds=60)),
         model.Row('shadow_verification','Shadow','SHADOW VERIFIED THROUGH '+str(decision),model.OK,
-            as_of=now,freshness=timedelta(minutes=10),required_current=True),
+            as_of=now,freshness=timedelta(minutes=10),required_current=True,
+            operational_fact=model.OperationalFact(kind='SHADOW_VERIFICATION',state='VERIFIED',session=decision)),
         model.Row('authority','Authority','PASS · active-certificate',model.OK,as_of=now,
             freshness=timedelta(minutes=5),required_current=True),
         model.Row('runtime_identity','Runtime','LOCAL PAPER 7da48b22',model.OK,
@@ -145,7 +146,8 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
     rows += [model.Row(key,key,'WAITING_OPEN',model.WARN,
         as_of=now-timedelta(minutes=2),required_current=True,
         recovery=model.RecoveryEvidence(phase=phase,automatic=True,
-            next_attempt_at=execute_at,deadline=execute_at+timedelta(hours=6)))
+            next_attempt_at=execute_at,deadline=execute_at+timedelta(hours=6)),
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='WAITING_OPEN'))
         for key,phase in (('automation_cycle','AUTOMATION_WAITING_OPEN'),
                           ('automation_step_open','AUTOMATION_OPEN'))]
     rows.append(model.Row('automation_step_transport','Transport','NOT REACHED',model.PENDING))
@@ -161,7 +163,8 @@ def checking_schedule_panel(*, now=LIVE_NOW, check_seconds=120):
     deadline = now+timedelta(seconds=check_seconds)
     checking = model.Row('paper_reconciliation','Paper alignment','CHECK IN PROGRESS',model.WARN,
         'No current financial verification is claimed.',required_current=True,valid_until=deadline,
-        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline),
+        operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'))
     return replace(page,rows=[checking if row.key=='paper_reconciliation' else row for row in page.rows])
 
 
@@ -261,9 +264,11 @@ def test_present_current_restrictions_and_scope_faults_are_never_historical_audi
         page = changed_history_panel(page,'paper_reconciliation',valid_until=page.now-timedelta(seconds=1))
     elif fault=='missing_flag': page = changed_history_panel(page,'paper_reconciliation',paper_alignment=None)
     elif fault=='wrong_boundary': page = changed_history_panel(page,'paper_reconciliation',valid_until=LIVE_OPEN)
-    elif fault=='wrong_frontier': page = changed_history_panel(page,'feed',value='2026-10-29 · 0 sessions behind')
+    elif fault=='wrong_frontier': page = changed_history_panel(page,'feed',value='2026-10-29 · 0 sessions behind',
+        operational_fact=page.row('feed').operational_fact.model_copy(update={'session':date(2026,10,29)}))
     elif fault=='wrong_shadow':
-        page = changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-29')
+        page = changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-29',
+            operational_fact=page.row('shadow_verification').operational_fact.model_copy(update={'session':date(2026,10,29)}))
     elif fault=='duplicate': page = replace(page,rows=[*page.rows,page.row('authority')])
     elif fault=='normal_release': page = replace(page,local_paper_mode=False)
     assert presentation.dashboard_health(page)['color']!='green'
@@ -347,11 +352,12 @@ def test_only_current_owned_bounded_paper_checks_can_explain_a_scheduled_wait(fa
     elif fault=='other_warning':
         page = replace(page,rows=[*page.rows,model.Row('other','Other','UNEXPECTED',model.WARN)])
     elif fault=='restriction_retry':
-        page = changed_history_panel(page,'automation_cycle',value='RETRY_WAIT')
+        page = changed_history_panel(page,'automation_cycle',value='RETRY_WAIT',
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='RETRY_WAIT'))
     elif fault=='missing_account': page = replace(page,rows=[row for row in page.rows if row.key!='alpaca_account'])
     elif fault=='stale_source':
         page = changed_history_panel(page,'feed',valid_until=page.now-timedelta(seconds=1))
-    elif fault=='wrong_value': check = replace(check,value='WAITING')
+    elif fault=='wrong_value': check = replace(check,value='WAITING',operational_fact=None)
     page = replace(page,rows=[check if row.key=='paper_reconciliation' else row for row in page.rows])
     assert presentation.dashboard_health(page)['color']!='green'
 

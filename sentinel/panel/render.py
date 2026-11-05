@@ -181,14 +181,15 @@ PUSH_SCRIPT = r"""
 """.strip()
 
 
-def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False) -> str:
+def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
-    display_status = 'neutral' if refresh_pending and st == OK else st
+    display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
+                      else st)
     detail = r.detail
-    if refresh_pending:
+    if refresh_pending or not current:
         value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
         explanation = 'LAST KNOWN · not current · ' + explanation
         detail = 'LAST KNOWN · not current · ' + detail
@@ -200,12 +201,12 @@ def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False) -> str:
         suffix = " · STALE" if stale else ""
         age_html = f'<div class="{cls}">{_esc(age)}{suffix}</div>'
     return (
-        f'<div class="row {display_status}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{display_status}">'
+        f'<div class="row {display_status}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{display_status}" data-current="{str(current and not refresh_pending).lower()}" data-original-status="{st}">'
         f'<div class="dot {display_status}">{_DOT.get(display_status, "?")}</div>'
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
         f'<div class="detail">{_esc(explanation)}{age_html}</div>'
-        + _holdings_html(r, now) + _paper_plan_html(r, now) +
+        + (_holdings_html(r, now) + _paper_plan_html(r, now) if current else '') +
         f'<details class="technical" data-detail-key="{_esc(r.key)}"><summary>Technical details</summary>'
         f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(detail)}</div></details>'
         f"</div>"
@@ -410,6 +411,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
     health = dashboard_health(panel)
+    from sentinel.panel import delivery
     document_age = PRESENTATION_MAX_AGE_SECONDS
     worker = panel.row('shadow_worker')
     if worker is not None and worker.effective_status(now) == OK and worker.valid_until is not None:
@@ -421,7 +423,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         refresh_seconds = min(refresh_seconds, max(5, int(document_age/2)))
     overall = panel.overall
     operational = panel.operational
-    if health['status'] == OK:
+    if health['color'] == 'neutral':
+        headline_status = 'neutral'
+        operational_headline = 'PARTIAL CURRENT EVIDENCE — CHANGED SCOPES ARE REFRESHING'
+    elif health['status'] == OK:
         headline_status = OK
         operational_headline = "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"
     elif health['status'] == WARN:
@@ -487,14 +492,15 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if refresh_pending:
         headline_status = 'neutral'
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
-    rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
+    rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
+                             current=delivery.row_current(panel, r)) for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
     from sentinel.panel.review_controls import render as review_controls
-    review_html = review_controls(panel.operator_review, current=not refresh_pending)
+    review_html = review_controls(panel.operator_review, current=panel.observation_current and not refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)
-        if status in {FAIL, UNKNOWN}:
+        if status in {FAIL, UNKNOWN} and delivery.row_current(panel, row):
             label, value, _ = describe(row, status)
             reasons.append(f'<li><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
@@ -523,6 +529,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
+             data-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
@@ -617,13 +624,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var transportDelay = true;
     try {{
       var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
-      if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT"){{
+      var status = response.headers.get("X-Sentinel-Panel-Status");
+      if (!response.ok || !["CURRENT", "PARTIAL"].includes(status)){{
         transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
         throw new Error("Current dashboard is not ready");
       }}
       var html = await response.text();
       transportDelay = false;
-      currentDocument(html);
+      currentDocument(html, status);
       // Keep the foreground lifecycle and original clocks while the tab is hidden.
       if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearInterval(ageTimer);

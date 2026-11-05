@@ -14,6 +14,8 @@ def pack(rows, errors, *, observed_at):
              'observed_at': observed_at}
     for raw, row in zip(value['rows'], rows):
         raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
+        raw['operational_fact'] = (row.operational_fact.model_dump(mode='json')
+                                   if row.operational_fact else None)
     if (len(json.dumps(value, default=str, allow_nan=False).encode()) > MAX_BYTES
             or len(pickle.dumps(value)) > MAX_BYTES):
         raise ValueError('financial observer result exceeds bound')
@@ -45,6 +47,9 @@ def validate_envelope(value, expected_keys):
 def row_from_observation(value):
     """Materialize nested dataclass evidence before public projection."""
     row = dict(value)
+    if row.get('operational_fact') is not None:
+        row['operational_fact'] = model.OperationalFact.model_validate(row['operational_fact'])
+        row['operational_fact'].require_key(row.get('key'))
     if row.get('shadow_book') is not None:
         if row.get('key') != 'book':
             raise ValueError('holdings are only permitted on the canonical book')

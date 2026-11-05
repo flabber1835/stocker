@@ -16,7 +16,8 @@ function serverDocument(body) {
   const badge = body.match(/<span id="operational-state" class="([^"]+)"[^>]*>([\s\S]*?)<\/span>/);
   return {
     generated_at:field('data-generated-at'), max_age_seconds:Number(field('data-max-age-seconds')),
-    refresh_pending:field('data-refresh-pending'), headline_class:badge?.[1] ?? null,
+    refresh_pending:field('data-refresh-pending'), observation_current:field('data-observation-current'),
+    headline_class:badge?.[1] ?? null,
     headline_label:badge ? plain(badge[2]) : null,
     warning_ids:[...body.matchAll(/href="#status-([^"<>]+)"/g)].map(match => match[1]).slice(0, 80),
     banner_required:/<img\b[^>]*(?:data-banner-src|src)="\/static\/caesars-palace-512\.png(?:[?][^"]*)?"/i.test(body),
@@ -173,10 +174,13 @@ function assessCapture(report) {
   if (responses.length<3) add('MISSING_REFRESH_RESPONSES','One initial HTML document and two actual refresh responses are required.');
   for (const response of responses) {
     const doc = response.document;
-    if (response.http_status!==200 || response.panel_status!=='CURRENT' || !doc ||
+    if (response.http_status!==200 || !['CURRENT','PARTIAL'].includes(response.panel_status) || !doc ||
+        doc.observation_current!==(response.panel_status==='CURRENT'?'true':'false') ||
+        doc.refresh_pending!=='false' ||
         !Number.isFinite(Date.parse(doc.generated_at)) || !Number.isFinite(doc.max_age_seconds) || doc.max_age_seconds<=0) {
       add('NON_CURRENT_SERVER_DOCUMENT','An original response did not contain complete CURRENT evidence.',{request_id:response.request_id});
     }
+    if (response.panel_status==='PARTIAL') add('PARTIAL_SERVER_DOCUMENT','Transport delivered a partial observation; complete operational health was not established.',{request_id:response.request_id});
     if (doc && doc.headline_class!=='state ok') add('BACKEND_NOT_HEALTHY','Original server health was not green.',{request_id:response.request_id,warning_ids:doc.warning_ids});
     if (doc?.banner_required) {
       const states=events.filter(item=>item.generated_at===doc.generated_at &&

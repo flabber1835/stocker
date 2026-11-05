@@ -7,7 +7,7 @@ const generation=index=>new Date(Date.parse('2026-10-31T00:00:00Z')+index*5000).
 function healthy() {
   const responses=[0,1,2].map(index=>({request_id:index+1,kind:index ? 'refresh' : 'navigation',
     request_started_ms:index*5000,completed_ms:index*5000+500,http_status:200,panel_status:'CURRENT',
-    document:{generated_at:generation(index),max_age_seconds:9,headline_class:'state ok',warning_ids:[]}}));
+    document:{generated_at:generation(index),max_age_seconds:9,observation_current:'true',refresh_pending:'false',headline_class:'state ok',warning_ids:[]}}));
   return {capture:{complete:true,status:'COMPLETE',event_overflow:false},responses,events:[
     {type:'paint',start_ms:600},{type:'navigation-timing',document_time_origin_ms:100000,timing:{startTime:0,responseEnd:500}},
     ...responses.map(item=>({type:'meaningful-content',generated_at:item.document.generated_at,
@@ -49,6 +49,15 @@ test('unattributed status, expired green and a blank document cannot pass',()=>{
 });
 test('malformed original generation cannot pass the source identity check',()=>{
   const report=healthy();report.responses[1].document.generated_at='not-a-date';
+  assert.ok(assessCapture(report).findings.some(item=>item.code==='NON_CURRENT_SERVER_DOCUMENT'));
+});
+test('partial is valid transport evidence but cannot qualify complete healthy operation',()=>{
+  const report=healthy();report.responses[1].panel_status='PARTIAL';
+  Object.assign(report.responses[1].document,{observation_current:'false',headline_class:'state neutral'});
+  const codes=assessCapture(report).findings.map(item=>item.code);
+  assert.ok(codes.includes('PARTIAL_SERVER_DOCUMENT'));
+  assert.ok(!codes.includes('NON_CURRENT_SERVER_DOCUMENT'));
+  report.responses[1].document.observation_current='true';
   assert.ok(assessCapture(report).findings.some(item=>item.code==='NON_CURRENT_SERVER_DOCUMENT'));
 });
 test('server document summary keeps original identity and warning IDs without account payload',()=>{

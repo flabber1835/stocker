@@ -31,18 +31,26 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from sentinel import shadow_segments
 from sentinel.operational_status import color
 from sentinel.panel import last_known, model, singleflight
+from sentinel.panel import operational_snapshot, projection_service
 from sentinel.panel.review import recorder
 from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
-from sentinel.panel.sources import build_panel
+from sentinel.panel.segment_disclosure import disclose as _shadow_segment_disclosure
+from sentinel.panel.serialization import public_payload
 
 @asynccontextmanager
 async def _verification_lifespan(_app):
-    # The independent verifier owns heavy reads. HTTP startup and requests
-    # consume finite durable receipts and cannot create a competing observer.
+    # Explicit incarnation metadata is separate from GET observation. Startup
+    # cannot perform collection or acquire financial authority.
+    database_url = _config()[1]
+    if database_url:
+        try:
+            projection_service.register_panel_incarnation(database_url, recorder.instance)
+        except Exception:
+            raise RuntimeError('Dashboard startup requires durable incarnation registration.') from None
     yield
 
 
@@ -86,15 +94,27 @@ def _one_panel_build(function):
 
 def _read_panel():
     configuration = _config()
-    state_dir, dsn = configuration
+    _state_dir, dsn = configuration
+    if not dsn:
+        detail = 'SENTINEL_DATABASE_URL is unset.'
+        return model.Panel(rows=[model.Row(key=key, label=label, value='UNAVAILABLE',
+            status=model.UNKNOWN, detail=detail)
+            for key, label in (('ownership', 'Account ownership'), ('book', 'Wealth Core'),
+                ('exposure', 'Controller exposure'), ('broker', 'Broker evidence'),
+                ('paper_plan', 'Next trading plan'), ('authority', 'Execution authority'),
+                ('automation', 'Automation'), ('automation_leader', 'Automation leader'),
+                ('automation_cycle', 'Automation cycle'), ('automation_alerts', 'Automation alerts'),
+                ('alert_dispatcher', 'Alert dispatcher'), ('alpaca_account', 'Recorded paper account'),
+                ('backup_restore', 'Backup and restore'), ('runtime_identity', 'Runtime identity'),
+                ('issuer_reference', 'SEC issuer reference'), ('feed', 'Market data'),
+                ('ingest', 'Data acquisition'), ('trial_verification', 'Trial verification'))]
+            +[replace(row, value='UNAVAILABLE') for row in model.automation_step_rows(
+                installed=None, error=detail)], source_errors=[detail])
     def build():
         try:
-            panel = _shadow_segment_disclosure(
-                build_panel(state_dir=state_dir, database_url=dsn), dsn)
-        except Exception:
-            recorder.read_failed()
-            raise
-        return replace(panel, operator_review=recorder.observe(panel, dsn))
+            return projection_service.read(dsn)
+        except operational_snapshot.SnapshotUnavailable as exc:
+            raise singleflight.BuildUnavailable('current operational snapshot unavailable') from exc
     result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)
     if _config() != configuration:
         raise singleflight.BuildUnavailable('dashboard configuration changed during refresh')
@@ -168,107 +188,6 @@ def _config() -> tuple[Path, str]:
             os.environ.get("SENTINEL_DATABASE_URL", "").strip())
 
 
-def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.Panel:
-    """Make an economic re-genesis impossible to mistake for trial-to-date P/L."""
-    if not database_url or str(os.environ.get(
-            "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower() != "dual":
-        return panel
-    from sentinel.feed import store as feed_store
-    from sentinel.panel.sources import (
-        STATEMENT_TIMEOUT_MS, _bounded_dsn, _set_statement_timeout)
-
-    observation_id = str(os.environ.get(
-        "SENTINEL_SHADOW_OBSERVATION_ID", "primary")).strip()
-    if not observation_id:
-        return panel
-    conn = None
-    try:
-        conn = feed_store.connect(_bounded_dsn(database_url))
-        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
-        segment = shadow_segments.active_segment(conn, observation_id)
-    except Exception as exc:                              # noqa: BLE001
-        return model.Panel(
-            rows=list(panel.rows), now=panel.now,
-            source_errors=[
-                *panel.source_errors,
-                f"shadow segment disclosure: {type(exc).__name__}: {exc}",
-            ],
-            trial_details=dict(panel.trial_details),
-            trial_history=list(panel.trial_history),
-        )
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:                             # noqa: BLE001
-                pass
-    if segment.index == 0:
-        return panel
-
-    marker = str(segment.marker_sha256 or "")
-    detail = (
-        f"causal outage broke performance and strategy-state continuity; "
-        f"segment {segment.index} starts {segment.first_session} after "
-        f"{segment.reason}; predecessor {segment.predecessor_session}; "
-        "this is NOT trial-to-date return. Exact marker approval is necessary "
-        "but NOT sufficient for broker transport: "
-        "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256 must equal the marker "
-        f"{marker}, and PAPER must also prove a fresh COMPLETE/RUNNING flat "
-        "broker reconciliation with no working orders or durable in-flight "
-        "commands before the one-time segment handover can be recorded")
-    rows: list[model.Row] = []
-    inserted = False
-    for row in panel.rows:
-        if row.key == "shadow_verification" and not inserted:
-            rows.append(row)
-            rows.append(model.Row(
-                key="shadow_segment",
-                label="Shadow economic performance segment",
-                value=f"SEGMENT {segment.index} · START {segment.first_session}",
-                status=model.WARN,
-                detail=detail,
-            ))
-            inserted = True
-            continue
-        if row.key == "shadow_return":
-            rows.append(model.Row(
-                key=row.key,
-                label="Certified segment return",
-                value=row.value,
-                status=row.status,
-                detail=detail,
-                as_of=row.as_of,
-                freshness=row.freshness,
-            ))
-            continue
-        if row.key == "shadow_nav":
-            rows.append(model.Row(
-                key=row.key,
-                label=row.label,
-                value=row.value,
-                status=row.status,
-                detail=f"current segment NAV · {detail}",
-                as_of=row.as_of,
-                freshness=row.freshness,
-            ))
-            continue
-        rows.append(row)
-    if not inserted:
-        rows.append(model.Row(
-            key="shadow_segment",
-            label="Shadow economic performance segment",
-            value=f"SEGMENT {segment.index} · START {segment.first_session}",
-            status=model.WARN,
-            detail=detail,
-        ))
-    return model.Panel(
-        rows=rows, now=panel.now,
-        source_errors=list(panel.source_errors),
-        trial_details=dict(panel.trial_details),
-        trial_history=list(panel.trial_history),
-    )
-
-
 @app.get("/", response_class=HTMLResponse)
 @_one_panel_build
 def panel(request: Request = None) -> HTMLResponse:
@@ -284,7 +203,7 @@ def panel(request: Request = None) -> HTMLResponse:
     last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
                                               refresh_pending=True))
     return HTMLResponse(html, headers={"Cache-Control": "no-store",
-                                       'X-Sentinel-Panel-Status': 'CURRENT'})
+                                       'X-Sentinel-Panel-Status': 'CURRENT' if p.observation_current else 'PARTIAL'})
 
 
 @app.get("/panel.json")
@@ -292,48 +211,9 @@ def panel(request: Request = None) -> HTMLResponse:
 def panel_json() -> JSONResponse:
     p = _read_panel()
     return JSONResponse(
-        {
-            "overall": p.overall,
-            "operational": p.operational,
-            "color": color(p.operational),
-            "dashboard_health": dashboard_health(p),
-            "operator_review": p.operator_review.model_dump(mode='json') if p.operator_review else None,
-            "as_of": p.now.isoformat(),
-            "source_errors": p.source_errors,
-            "rows": [
-                {"key": r.key, "label": r.label, "value": r.value,
-                 "status": r.effective_status(p.now), "detail": r.detail,
-                 "as_of": r.as_of.isoformat() if r.as_of else None,
-                 "stale": r.is_stale(p.now),
-                 "future": r.is_future(p.now),
-                 "required_current": r.required_current,
-                 "shadow_book": (r.shadow_book.model_dump(mode='json')
-                                 if r.can_show_shadow_book(p.now) else None),
-                 "paper_plan": (r.paper_plan.model_dump(mode='json')
-                                if r.can_show_paper_plan(p.now) else None),
-                 "paper_account": (r.paper_account.model_dump(mode='json')
-                                   if r.can_show_paper_account(p.now) else None),
-                 "order_outcomes": [item.model_dump(mode='json')
-                                    for item in r.visible_order_outcomes(p.now)],
-                 "trading_run": (r.trading_run.model_dump(mode='json')
-                                 if r.can_show_trading_run(p.now) else None),
-                 "preparation": (r.preparation.model_dump(mode='json')
-                                 if r.can_show_preparation(p.now) else None),
-                 "source_publication_version": r.source_publication_version,
-                 "source_session": r.source_session,
-                 "feed_readiness": r.feed_readiness,
-                 "paper_alignment": r.paper_alignment,
-                 "valid_until": (
-                     r.valid_until.isoformat() if r.valid_until else None),
-                 "recovery": (
-                     r.recovery.to_dict(p.now) if r.recovery else None),
-                 "color": color(r.effective_status(p.now))}
-                for r in p.rows
-            ],
-            "trial_details": p.trial_details,
-            "trial_history": p.trial_history,
-        },
-        headers={"Cache-Control": "no-store"},
+        public_payload(p),
+        headers={"Cache-Control": "no-store",
+                 'X-Sentinel-Panel-Status': 'CURRENT' if p.observation_current else 'PARTIAL'},
     )
 
 
@@ -342,7 +222,9 @@ def _acknowledge_review(token):
     panel = replace(_read_panel(), now=datetime.now(timezone.utc))
     if _config() != configuration:
         raise ReviewRefused('dashboard configuration changed during review')
-    return recorder.acknowledge(panel, configuration[1], token, actor='dashboard operator')
+    return recorder.acknowledge(panel, configuration[1], token, actor='dashboard operator',
+        snapshot_guard=lambda conn, current: projection_service.guard_acknowledgement(
+            conn, current, configuration[1]))
 
 
 @app.post('/review/acknowledge')
@@ -438,8 +320,9 @@ def operational_health() -> JSONResponse:
     """The same required-fact verdict shown on the operator panel."""
     p = _read_panel()
     body = {
-        "status": p.operational,
-        "color": color(p.operational),
+        "status": p.operational if p.observation_current else model.UNKNOWN,
+        "color": color(p.operational) if p.observation_current else dashboard_health(p)['color'],
+        "current": p.observation_current,
         "as_of": p.now.isoformat(),
         "red_rows": [
             row.key for row in p.rows
@@ -448,7 +331,7 @@ def operational_health() -> JSONResponse:
         ],
         "source_errors": list(p.source_errors),
     }
-    status_code = 503 if body["color"] == "red" else 200
+    status_code = 503 if not p.observation_current or body["color"] == "red" else 200
     return JSONResponse(
         body, status_code=status_code, headers={"Cache-Control": "no-store"})
 

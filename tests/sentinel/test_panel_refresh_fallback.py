@@ -30,6 +30,7 @@ def healthy_panel():
         scheduled_until=NOW+timedelta(hours=9), detail='original scheduled proof'),
         model.Row('automation_cycle', 'Cycle', 'WAITING_OPEN', model.WARN,
             'scheduled cycle', NOW, required_current=True,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE', state='WAITING_OPEN'),
             recovery=RecoveryEvidence(phase='AUTOMATION_WAITING_OPEN', automatic=True,
                 next_attempt_at=NOW+timedelta(hours=9), deadline=NOW+timedelta(hours=16))),
         model.Row('automation_step_transport', 'Transport', 'NOT REACHED', model.PENDING)]
@@ -92,7 +93,7 @@ def test_source_errors_remain_visible_in_retained_screen():
 
 def test_reverting_status_separation_reproduces_the_phone_screenshot():
     source = inspect.getsource(render.render)
-    needle = 'rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)'
+    needle = 'rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,\n                             current=delivery.row_current(panel, r)) for r in rendered_rows)'
     assert source.count(needle) == 1
     mutation = '''if refresh_pending:
         rendered_rows = [replace(row,
@@ -110,6 +111,8 @@ def test_reverting_status_separation_reproduces_the_phone_screenshot():
 @pytest.mark.parametrize('negative', [False, True])
 def test_actual_busy_http_response_retains_facts_without_inventing_failures(monkeypatch, negative):
     app = importlib.import_module('sentinel.panel.app')
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://private-isolated-fixture')
+    monkeypatch.setattr(app.projection_service, 'register_panel_incarnation', lambda *_: None)
     # Exercise the stalled-build fallback after the finite joining wait.
     monkeypatch.setattr(app.singleflight, 'WAIT_SECONDS', 0.02)
     entered, release = Event(), Event()
@@ -124,7 +127,7 @@ def test_actual_busy_http_response_retains_facts_without_inventing_failures(monk
             entered.set()
             assert release.wait(10)
         return panel
-    monkeypatch.setattr(app, 'build_panel', build)
+    monkeypatch.setattr(app.projection_service, 'read', lambda _dsn: build())
     monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda value, _dsn: value)
     app.last_known.clear()
     try:

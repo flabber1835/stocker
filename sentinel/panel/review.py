@@ -136,6 +136,37 @@ def _result(conn, key, state, now, *, subject):
         events=store.recent(conn, key), token=token)
 
 
+def record_verification_failure_owned(conn, *, scope, attempt):
+    """Record a native historical incident; current active facts stay separate."""
+    from sentinel.panel import observer_failure, review_schema
+    store.require(scope in {'SHADOW', 'PAPER'}, 'verification review scope invalid')
+    raw = (attempt.model_dump(mode='json', by_alias=True)
+           if isinstance(attempt, observer_failure.Attempt) else attempt)
+    current = observer_failure.Attempt.model_validate_json(store.canonical(raw))
+    if current.outcome != 'FAILED':
+        return False
+    store.require(current.diagnostic is not None and current.diagnostic.outcome == 'FAILED',
+                  'verification failure diagnostic missing')
+    if not review_schema.require_schema(conn, allow_absent=True):
+        return False
+    key, now = store.scope(conn), store.database_now(conn)
+    state = store.load_locked(conn, key, now)
+    event_key = 'verification-failure:'+scope+':'+current.attempt_id
+    if store.has_event(conn, key, event_key):
+        return False
+    store.append(conn, key, state, kind='REVIEW', event_key=event_key,
+        details={'component': 'verifier', 'reason': 'Verification attempt failed',
+                 'conditions': ['shadow_verification' if scope == 'SHADOW' else 'paper_reconciliation'],
+                 'verification_scope': scope,
+                 'attempt': current.model_dump(mode='json', by_alias=True)}, now=now)
+    if not state['view_sha256']:
+        state['view_sha256'] = hashlib.sha256(store.canonical(
+            {'schema': 'sentinel.unobserved-operational-view/1',
+             'scope': key, 'attempt_id': current.attempt_id})).hexdigest()
+    store.save(conn, key, state, now)
+    return True
+
+
 class Recorder:
     """One process incarnation, retaining a failed observation until DB recovery.
 
@@ -143,8 +174,11 @@ class Recorder:
     an unreviewed incarnation event. This class starts no thread or monitor.
     """
 
-    def __init__(self):
-        self.instance = str(uuid.uuid4())
+    def __init__(self, *, component='dashboard', instance=None):
+        if component not in {'dashboard', 'verifier'}:
+            raise ValueError('unknown operational review component')
+        self.component = component
+        self.instance = instance or str(uuid.uuid4())
         self.lock = threading.Lock()
         self.pending_failure = False
 
@@ -153,6 +187,24 @@ class Recorder:
             self.pending_failure = True
 
     def observe(self, panel, database_url):
+        """Compatibility API; production collection uses observe_owned atomically."""
+        try:
+            with store.transaction(database_url) as conn:
+                result = self.observe_owned(conn, panel, database_url)
+            self.committed()
+            return result
+        except Exception as error:
+            self.read_failed()
+            return OperatorReview(scope='0'*64, head=0, reviewed_head=0, status='UNAVAILABLE',
+                observed_at=panel.now, detail=failure_detail(error))
+
+    def committed(self):
+        """Clear the process latch only after the caller commits its transaction."""
+        with self.lock:
+            self.pending_failure = False
+
+    def observe_owned(self, conn, panel, database_url):
+        """Caller owns fencing, transaction and commit; never open another session."""
         from sentinel.panel.presentation import health_facts
         facts = health_facts(panel)
         required = {'runtime_identity', 'automation', 'automation_leader', 'authority',
@@ -162,67 +214,59 @@ class Recorder:
         facts['active'] = sorted(set(facts['active']) | {'missing:'+key for key in missing})
         with self.lock:
             pending = self.pending_failure
-        try:
-            with store.transaction(database_url) as conn:
-                key, now = store.scope(conn), store.database_now(conn)
-                state = store.load_locked(conn, key, now)
-                incarnation = conn.execute('SELECT pg_postmaster_start_time()').fetchone()[0].isoformat()
-                configuration = hashlib.sha256(store.canonical({
-                    'database': database_url,
-                    'commit': os.environ.get('SENTINEL_GIT_COMMIT', ''),
-                    'image': os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST', ''),
-                })).hexdigest()
-                started = 'panel:'+self.instance+':'+configuration[:24]
-                if not store.has_event(conn, key, started):
-                    store.append(conn, key, state, kind='STARTED', event_key=started,
-                        details={'component':'dashboard', 'reason':'Deployment or restart',
-                                 'commit':os.environ.get('SENTINEL_GIT_COMMIT', '')}, now=now)
-                if state['database_incarnation'] and state['database_incarnation'] != incarnation:
-                    store.append(conn, key, state, kind='STARTED',
-                        event_key='database:'+incarnation,
-                        details={'component':'database', 'reason':'Database restart'}, now=now)
-                state['database_incarnation'] = incarnation
-                if pending:
-                    store.append(conn, key, state, kind='FAILED', event_key='deferred:'+str(state['head']+1),
-                        details={'conditions':['dashboard_read_unavailable'], 'recovered_before_recording':True}, now=now)
-                    store.append(conn, key, state, kind='RECOVERED', event_key='recovered:'+str(state['head']+1),
-                        details={'conditions':['dashboard_read_unavailable']}, now=now)
-                if facts['active'] != state['active']:
-                    kind = 'FAILED' if facts['active'] else 'RECOVERED'
-                    store.append(conn, key, state, kind=kind, event_key='condition:'+str(state['head']+1),
-                        details={'conditions':facts['active'], 'previous':state['active'],
-                                 'evidence':condition_evidence(panel, facts['active']+state['active'])}, now=now)
-                if facts['warnings'] != state['warnings']:
-                    kind = 'REVIEW' if facts['warnings'] else 'RECOVERED'
-                    store.append(conn, key, state, kind=kind, event_key='warning:'+str(state['head']+1),
-                        details={'conditions':facts['warnings'], 'previous':state['warnings'],
-                                 'evidence':condition_evidence(panel, facts['warnings']+state['warnings'])}, now=now)
-                notices = _notices(conn)
-                unseen = sorted(set(notices) - set(state['incidents']))
-                if unseen:
-                    store.append(conn, key, state, kind='REVIEW', event_key='notices:'+str(state['head']+1),
-                                 details={'alert_ids':unseen}, now=now)
-                state.update(active=facts['active'], warnings=facts['warnings'], incidents=notices,
-                             view_sha256=view_subject(panel))
-                store.save(conn, key, state, now)
-                result = _result(conn, key, state, now, subject=state['view_sha256'])
-            with self.lock:
-                self.pending_failure = False
-            return result
-        except Exception as error:
-            with self.lock:
-                self.pending_failure = True
-            return OperatorReview(scope='0'*64, head=0, reviewed_head=0, status='UNAVAILABLE',
-                observed_at=panel.now, active=facts['active'], warnings=facts['warnings'],
-                detail=failure_detail(error))
+        key, now = store.scope(conn), store.database_now(conn)
+        state = store.load_locked(conn, key, now)
+        incarnation = conn.execute('SELECT pg_postmaster_start_time()').fetchone()[0].isoformat()
+        configuration = hashlib.sha256(store.canonical({
+            'database': database_url,
+            'commit': os.environ.get('SENTINEL_GIT_COMMIT', ''),
+            'image': os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST', ''),
+        })).hexdigest()
+        started = self.component+':'+self.instance+':'+configuration[:24]
+        if not store.has_event(conn, key, started):
+            store.append(conn, key, state, kind='STARTED', event_key=started,
+                details={'component':self.component, 'reason':'Deployment or restart',
+                         'commit':os.environ.get('SENTINEL_GIT_COMMIT', '')}, now=now)
+        if state['database_incarnation'] and state['database_incarnation'] != incarnation:
+            store.append(conn, key, state, kind='STARTED',
+                event_key='database:'+incarnation,
+                details={'component':'database', 'reason':'Database restart'}, now=now)
+        state['database_incarnation'] = incarnation
+        if pending:
+            store.append(conn, key, state, kind='FAILED', event_key='deferred:'+str(state['head']+1),
+                details={'conditions':['dashboard_read_unavailable'], 'recovered_before_recording':True}, now=now)
+            store.append(conn, key, state, kind='RECOVERED', event_key='recovered:'+str(state['head']+1),
+                details={'conditions':['dashboard_read_unavailable']}, now=now)
+        if facts['active'] != state['active']:
+            kind = 'FAILED' if facts['active'] else 'RECOVERED'
+            store.append(conn, key, state, kind=kind, event_key='condition:'+str(state['head']+1),
+                details={'conditions':facts['active'], 'previous':state['active'],
+                         'evidence':condition_evidence(panel, facts['active']+state['active'])}, now=now)
+        if facts['warnings'] != state['warnings']:
+            kind = 'REVIEW' if facts['warnings'] else 'RECOVERED'
+            store.append(conn, key, state, kind=kind, event_key='warning:'+str(state['head']+1),
+                details={'conditions':facts['warnings'], 'previous':state['warnings'],
+                         'evidence':condition_evidence(panel, facts['warnings']+state['warnings'])}, now=now)
+        notices = _notices(conn)
+        unseen = sorted(set(notices) - set(state['incidents']))
+        if unseen:
+            store.append(conn, key, state, kind='REVIEW', event_key='notices:'+str(state['head']+1),
+                         details={'alert_ids':unseen}, now=now)
+        state.update(active=facts['active'], warnings=facts['warnings'], incidents=notices,
+                     view_sha256=view_subject(panel))
+        store.save(conn, key, state, now)
+        result = _result(conn, key, state, now, subject=state['view_sha256'])
+        return result
 
-    def acknowledge(self, panel, database_url, raw_token, *, actor):
+    def acknowledge(self, panel, database_url, raw_token, *, actor, snapshot_guard=None):
         from sentinel.panel.presentation import health_facts
         facts = health_facts(panel)
         store.require(not facts['active'] and not facts['warnings'],
                       'resolve active conditions before acknowledging recovery')
         store.require(isinstance(actor, str) and 0 < len(actor) <= 120, 'operator identity missing')
         with store.transaction(database_url) as conn:
+            if snapshot_guard is not None:
+                snapshot_guard(conn, panel)
             key, now = store.scope(conn), store.database_now(conn)
             view = decode_token(raw_token, now)
             store.require(view['scope'] == key and view['subject'] == view_subject(panel),
@@ -252,6 +296,8 @@ class Recorder:
                 details={'actor':actor, 'reviewed_head':view['head'], 'alert_ids':state['incidents']}, now=now)
             state.update(reviewed_head=state['head'], reviewed_at=now.isoformat(), incidents=[])
             store.save(conn, key, state, now)
+            if snapshot_guard is not None:
+                snapshot_guard(conn, panel)
             return _result(conn, key, state, now, subject=view['subject'])
 
 

@@ -124,7 +124,7 @@ def test_restricting_refusal_to_historical_phases_is_detected(monkeypatch):
 
 def payload(monkeypatch, panel):
     monkeypatch.setattr(app, '_config', lambda: (Path('.'), ''))
-    monkeypatch.setattr(app, 'build_panel', lambda **_: panel)
+    monkeypatch.setattr(app, '_read_panel', lambda: panel)
     monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda value, _: value)
     return {row['key']: row for row in json.loads(app.panel_json().body)['rows']}
 

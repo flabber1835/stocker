@@ -1127,7 +1127,7 @@ class TestAutomationRowsAreDurableFacts:
         row = next(row for row in rows if row.key == "automation_cycle")
         panel = model.Panel(rows=[row], now=NOW)
         monkeypatch.setattr(app, "_config", lambda: (Path('/fixture'), ''))
-        monkeypatch.setattr(app, "build_panel", lambda **kwargs: panel)
+        monkeypatch.setattr(app, "_read_panel", lambda: panel)
         document = json.loads(app.panel_json().body)
         status = model.WARN if fault is None else model.FAIL
         assert document["rows"][0]["status"] == status

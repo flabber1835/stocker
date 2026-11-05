@@ -1,7 +1,7 @@
 """Routine next-plan work does not manufacture a PAPER incident."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 import inspect
 import pytest
 
@@ -41,7 +41,8 @@ def test_reproduced_completed_check_does_not_create_new_review():
     page=preparing_panel();deadline=NOW+timedelta(minutes=3)
     check=model.Row('paper_reconciliation','Alignment','CHECK IN PROGRESS',model.WARN,
         required_current=True,valid_until=deadline,
-        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline),
+        operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'))
     checking=replace(page,rows=[check if r.key=='paper_reconciliation' else r for r in page.rows])
     assert presentation.health_facts(checking)==presentation.health_facts(page)=={'active':[],'warnings':[]}
 
@@ -55,8 +56,10 @@ def test_normal_cycle_transitions_do_not_reintroduce_review(state,checking):
         automatic=True,deadline=OPEN if state!='PLAN_READY' else OPEN+timedelta(hours=6))
     rows=[replace(r,status=model.OK,recovery=None,as_of=NOW) if r.recovery and r.key!='automation_cycle' else r for r in page.rows]
     page=replace(page,rows=rows)
-    page=changed_history_panel(page,'feed',value='2026-10-22 · 0 sessions behind')
-    page=changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-22')
+    page=changed_history_panel(page,'feed',value='2026-10-22 · 0 sessions behind',
+        operational_fact=model.OperationalFact(kind='MARKET_DATA',state='READY',session=date(2026,10,22),sessions_behind=0))
+    page=changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-22',
+        operational_fact=model.OperationalFact(kind='SHADOW_VERIFICATION',state='VERIFIED',session=date(2026,10,22)))
     book=page.row('book').shadow_book.model_copy(update={'session':'2026-10-22'})
     page=changed_history_panel(page,'book',shadow_book=book)
     page=changed_history_panel(page,'automation_cycle',value=state,status=model.WARN,recovery=recovery,valid_until=None)
@@ -70,6 +73,7 @@ def test_normal_cycle_transitions_do_not_reintroduce_review(state,checking):
     if checking:
         deadline=NOW+timedelta(minutes=3)
         page=changed_history_panel(page,'paper_reconciliation',value='CHECK IN PROGRESS',as_of=None,
+            operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'),
             required_current=True,valid_until=deadline,recovery=model.RecoveryEvidence(
                 phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
@@ -158,8 +162,10 @@ def verified_calculation_panel():
     page=preparing_panel();rows=[replace(r,status=model.OK,recovery=None,as_of=NOW)
         if r.recovery and r.key!='automation_cycle' else r for r in page.rows]
     page=replace(page,rows=rows)
-    page=changed_history_panel(page,'feed',value='2026-10-22 · 0 sessions behind')
-    page=changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-22')
+    page=changed_history_panel(page,'feed',value='2026-10-22 · 0 sessions behind',
+        operational_fact=model.OperationalFact(kind='MARKET_DATA',state='READY',session=date(2026,10,22),sessions_behind=0))
+    page=changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-22',
+        operational_fact=model.OperationalFact(kind='SHADOW_VERIFICATION',state='VERIFIED',session=date(2026,10,22)))
     page=changed_history_panel(page,'book',shadow_book=page.row('book').shadow_book.model_copy(update={'session':'2026-10-22'}))
     recovery=model.RecoveryEvidence(phase='AUTOMATION_PREPARING',automatic=True,deadline=OPEN)
     for key in ['automation_cycle','automation_step_prepare']:
@@ -179,10 +185,10 @@ def test_native_unadopted_decision_is_expected_only_during_verified_calculation(
 @pytest.mark.parametrize('defect',['decision','actual_failure','unknown','unbounded','expired','future','not_required','fraction','generic_retry','wrong_phase'])
 def test_unadopted_exposure_cannot_borrow_unproved_preparation(defect):
     page=verified_calculation_panel()
-    changes={'decision':{'detail':'canonical controller decision has no current plan · decision 2026-10-21'},
+    changes={'decision':{'operational_fact':page.row('exposure').operational_fact.model_copy(update={'session':date(2026,10,21)})},
         'actual_failure':{'status':model.FAIL},'unknown':{'status':model.UNKNOWN},
         'unbounded':{'freshness':None},'expired':{'valid_until':NOW},'future':{'as_of':NOW+timedelta(seconds=6)},
-        'not_required':{'required_current':False},'fraction':{'value':'1.10 NOT ADOPTED'}}
+        'not_required':{'required_current':False},'fraction':{'value':'1.10 NOT ADOPTED','operational_fact':None}}
     if defect in changes:page=changed_history_panel(page,'exposure',**changes[defect])
     else:
         phase='AUTOMATION_PREPARE_AVAILABILITY' if defect=='generic_retry' else 'AUTOMATION_REFRESHING_DATA'
@@ -192,7 +198,7 @@ def test_unadopted_exposure_cannot_borrow_unproved_preparation(defect):
 
 def test_removed_unadopted_decision_binding_has_executed_falsifier(monkeypatch):
     text=inspect.getsource(presentation._unadopted_preparation_fact)
-    guard="row.detail == 'canonical controller decision has no current plan · decision '+session"
+    guard="fact.session == date.fromisoformat(session)"
     assert text.count(guard)==1
     namespace=dict(vars(presentation));exec(compile(text.replace(guard,'True'),'<removed adoption decision>','exec'),namespace)
     monkeypatch.setattr(presentation,'_unadopted_preparation_fact',namespace['_unadopted_preparation_fact'])

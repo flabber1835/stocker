@@ -1,5 +1,10 @@
 # Independent dashboard verification and background refresh
 
+The November 5 [operational state contract](operational-state-contract.md) extends
+the existing verifier with independently published operational snapshots and
+durable typed attempt diagnostics. HTTP consumes them without collecting native
+financial facts or recording their health transitions.
+
 Current ownership is superseded by the durable independent role in
 [operational architecture](operational-architecture-20261023.md). The original
 scope, finite clocks, failure behavior and historical qualification below remain

@@ -31,7 +31,7 @@ def assert_projection(monkeypatch, lease, instance, now, *, accepted, cycle=None
                                        discovery_recovery=recovery)
     panel = model.Panel(rows=[row, *steps], now=now)
     monkeypatch.setattr(app, "_config", lambda: (Path('/fixture'), ''))
-    monkeypatch.setattr(app, "build_panel", lambda **kwargs: panel)
+    monkeypatch.setattr(app, "_read_panel", lambda: panel)
     document = json.loads(app.panel_json().body)
     by_key = {value['key']: value for value in document['rows']}
     expected = model.WARN if accepted else model.FAIL

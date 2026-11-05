@@ -211,7 +211,8 @@ def test_retry_preserves_original_receipt_and_existing_reader(loop, monkeypatch)
     rows = [model.Row(key, key, 'verified', model.OK, as_of=observed,
                      freshness=timedelta(seconds=600)) for key in sorted(read_projection.SHADOW_KEYS)]
     reader = SimpleNamespace(lock=Lock(), configuration='a'*64,
-                             completed=(rows, [], observed), read=lambda *a, **k: None)
+                             completed=(rows, [], observed), read=lambda *a, **k: None,
+                             attempt_state=lambda: None)
     monkeypatch.setattr(verifier, '_refresh_readers', _ORIGINAL_REFRESH)
     monkeypatch.setattr(read_projection, 'subject', lambda *a: 'a'*64)
     published = []

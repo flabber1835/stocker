@@ -437,7 +437,7 @@ def test_actual_spawned_observer_deadline_kills_and_reaps(tmp_path):
 
 
 def _threaded_fixture_runner(function, *args, **kwargs):
-    assert function is reader._observe
+    assert function is reader.diagnosed_observe
     assert kwargs == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
     # Real thread -> owned spawn -> bounded pipe -> parent validation. Only
     # the financial observation content is a named fixture, never authority.
@@ -590,7 +590,7 @@ def surfaces(monkeypatch, output, now):
     rows, _, _, errors = output
     page = model.Panel(rows=rows, source_errors=errors, now=now)
     monkeypatch.setattr(app, '_config', lambda: (Path('/fixture'), ''))
-    monkeypatch.setattr(app, 'build_panel', lambda **kwargs: page)
+    monkeypatch.setattr(app.projection_service, 'read', lambda _database_url: page)
     actual = json.loads(app.panel_json().body)
     html = render(page)
     for row in actual['rows']:

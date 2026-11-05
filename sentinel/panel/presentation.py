@@ -1,10 +1,11 @@
 """Plain-language display only; never alter a financial or operational verdict."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo
+from typing import Literal
 
 from sentinel.panel.model import (
     Row, FINANCIAL_AUTHORITY_ROW_KEYS,
@@ -137,15 +138,40 @@ def _closing_source_proof(panel) -> bool:
             'SHADOW_ATTESTATION'} for row in panel.rows))
 
 
+def _enabled_policy(row: Row | None) -> bool:
+    fact = row.operational_fact if row is not None else None
+    return fact is not None and fact.kind == 'AUTOMATION_POLICY' and fact.state == 'ENABLED_RELEASED'
+
+
+def _workflow(row: Row | None, state: Literal['DISCOVERY_WAIT', 'WAITING_OPEN', 'SUCCEEDED']) -> bool:
+    fact = row.operational_fact if row is not None else None
+    return fact is not None and fact.kind == 'AUTOMATION_CYCLE' and fact.state == state
+
+
+def _paper_verification(row: Row | None, state: Literal['CHECKING', 'PENDING']) -> bool:
+    fact = row.operational_fact if row is not None else None
+    return fact is not None and fact.kind == 'PAPER_VERIFICATION' and fact.state == state
+
+
+def _current_input_session(panel, session: str) -> bool:
+    feed, shadow = panel.row('feed'), panel.row('shadow_verification')
+    source = feed.operational_fact if feed is not None else None
+    verified = shadow.operational_fact if shadow is not None else None
+    return (source is not None and source.kind == 'MARKET_DATA' and source.state == 'READY'
+            and source.sessions_behind == 0 and source.session == date.fromisoformat(session)
+            and verified is not None and verified.kind == 'SHADOW_VERIFICATION'
+            and verified.state == 'VERIFIED' and verified.session == source.session)
+
+
 def _normal_idle(panel, row: Row) -> bool:
     policy = panel.row('automation')
     return (row.key in {'automation_cycle', 'automation_step_discovery'}
-            and row.value in {'WAITING FOR NEXT DECISION', 'WAITING FOR CYCLE'}
+            and _workflow(row, 'DISCOVERY_WAIT')
             and row.recovery is not None and row.recovery.phase == 'AUTOMATION_DISCOVERY'
             and row.recovery.active(panel.now) and _aware(row.recovery.deadline)
             and panel.now < row.recovery.deadline and policy is not None
             and policy.effective_status(panel.now) == 'ok'
-            and policy.value == 'ENABLED · KILL RELEASED'
+            and _enabled_policy(policy)
             and _fresh_worker(panel, 'automation_leader'))
 
 
@@ -176,7 +202,7 @@ def _current_reconciliation_usable(panel) -> bool:
 def _paper_check_normal(panel, row: Row | None) -> bool:
     recovery = row.recovery if row is not None else None
     return (row is not None and row.key == 'paper_reconciliation'
-            and row.value == 'CHECK IN PROGRESS' and row.paper_alignment is None
+            and _paper_verification(row, 'CHECKING') and row.paper_alignment is None
             and row.status == row.effective_status(panel.now) == 'warn'
             and row.required_current is True and not row.is_future(panel.now)
             and not row.is_stale(panel.now) and recovery is not None
@@ -216,17 +242,16 @@ def _scheduled_work_normal(panel) -> bool:
         return False
     if (any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
             or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
-            or panel.row('automation').value != 'ENABLED · KILL RELEASED'
+            or not _enabled_policy(panel.row('automation'))
             or not panel.row('alpaca_account').can_show_paper_account(panel.now)
-            or panel.row('feed').value != str(plan.decision_session)+' · 0 sessions behind'
-            or panel.row('shadow_verification').value != 'SHADOW VERIFIED THROUGH '+str(plan.decision_session)
+            or not _current_input_session(panel, str(plan.decision_session))
             or not _current_reconciliation_usable(panel)):
         return False
     for key, phase in (('automation_cycle', 'AUTOMATION_WAITING_OPEN'),
                        ('automation_step_open', 'AUTOMATION_OPEN')):
         row = panel.row(key)
         recovery = row.recovery if row is not None else None
-        if (row is None or row.value != 'WAITING_OPEN'
+        if (row is None or not _workflow(row, 'WAITING_OPEN')
                 or row.effective_status(panel.now) != 'warn' or not row.required_current
                 or not _aware(row.as_of) or row.is_future(panel.now) or row.is_stale(panel.now)
                 or recovery is None or recovery.phase != phase
@@ -262,15 +287,14 @@ def _completed_work_normal(panel) -> bool:
             or (not run.orders and any(leg.action != 'HOLD' for leg in run.intent.legs))):
         return False
     if (not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
-            or panel.row('automation').value != 'ENABLED · KILL RELEASED'
+            or not _enabled_policy(panel.row('automation'))
             or not panel.row('alpaca_account').can_show_paper_account(panel.now)
             or not _current_reconciliation_usable(panel)
-            or panel.row('feed').value != str(run.intent.decision_session)+' · 0 sessions behind'
-            or panel.row('shadow_verification').value != 'SHADOW VERIFIED THROUGH '+str(run.intent.decision_session)):
+            or not _current_input_session(panel, str(run.intent.decision_session))):
         return False
     for key in ('automation_cycle', 'automation_step_complete'):
         row = panel.row(key)
-        if (not _current_health_fact(panel, key) or row.value != 'SUCCEEDED'
+        if (not _current_health_fact(panel, key) or not _workflow(row, 'SUCCEEDED')
                 or not row.required_current or row.recovery is not None
                 or row.as_of != run.completed_at):
             return False
@@ -284,13 +308,14 @@ def _unadopted_preparation_fact(panel) -> bool:
     from sentinel.feed import calendar
     session = calendar.latest_closed_session(panel.now)
     row, cycle, plan = (panel.row(key) for key in ('exposure', 'automation_cycle', 'paper_plan'))
+    fact = row.operational_fact if row is not None else None
     return (row is not None and row.status == 'warn' and row.required_current
             and row.recovery is None and _aware(row.as_of)
             and not row.is_future(panel.now) and not row.is_stale(panel.now)
             and (row.valid_until is None or _aware(row.valid_until))
             and _row_boundary(row) is not None and panel.now < _row_boundary(row)
-            and re.fullmatch(r'(?:0(?:\.\d{1,12})?|1(?:\.0{1,12})?) NOT ADOPTED', row.value) is not None
-            and row.detail == 'canonical controller decision has no current plan · decision '+session
+            and fact is not None and fact.kind == 'CONTROLLER_DECISION'
+            and fact.state == 'NOT_ADOPTED' and fact.session == date.fromisoformat(session)
             and cycle is not None and cycle.recovery is not None
             and cycle.recovery.phase == 'AUTOMATION_PREPARING'
             and plan is not None and plan.status == 'pending' and plan.paper_plan is None)
@@ -302,8 +327,7 @@ def _preparation_inputs_current(panel) -> bool:
     return (all(_current_health_fact(panel, key) for key in (
                 'feed', 'shadow_verification', 'book', 'terminals'))
             and (_current_health_fact(panel, 'exposure') or _unadopted_preparation_fact(panel))
-            and panel.row('feed').value == session+' · 0 sessions behind'
-            and panel.row('shadow_verification').value == 'SHADOW VERIFIED THROUGH '+session
+            and _current_input_session(panel, session)
             and panel.row('book').can_show_shadow_book(panel.now)
             and panel.row('book').shadow_book.session == session)
 
@@ -329,7 +353,7 @@ def _preparing_work_normal(panel) -> bool:
     paper, plan, cycle = (panel.row(key) for key in (
         'paper_reconciliation', 'paper_plan', 'automation_cycle'))
     pending = (paper is not None and paper.status == 'warn'
-        and paper.value == 'PAPER NOT VERIFIED · PENDING'
+        and _paper_verification(paper, 'PENDING')
         and paper.paper_alignment is None and paper.recovery is None
         and _aware(paper.as_of) and not paper.is_future(panel.now)
         and (paper.valid_until is None or _aware(paper.valid_until))
@@ -370,7 +394,7 @@ def _preparing_work_normal(panel) -> bool:
                 or row.is_stale(panel.now)):
             return False
     notifications = panel.row('automation_alerts')
-    return (panel.row('automation').value == 'ENABLED · KILL RELEASED'
+    return (_enabled_policy(panel.row('automation'))
             and panel.row('alpaca_account').can_show_paper_account(panel.now)
             and _current_reconciliation_usable(panel)
             and notifications is not None and notifications.effective_status(panel.now) in {'ok', 'warn'}
@@ -418,7 +442,7 @@ def _normal_warning(panel, row: Row) -> bool:
     alignment = panel.row('paper_reconciliation')
     return (panel.local_paper_mode and panel.operational == 'ok'
             and row.key in {'automation_cycle', 'automation_step_open'}
-            and row.value == 'WAITING_OPEN'
+            and _workflow(row, 'WAITING_OPEN')
             and recovery.phase in {'AUTOMATION_WAITING_OPEN', 'AUTOMATION_OPEN'}
             and alignment is not None and alignment.paper_alignment == 'SCHEDULED'
             and alignment.effective_status(panel.now) == 'ok')
@@ -493,7 +517,10 @@ def health_facts(panel) -> dict:
     """Current facts only; old notification severity is not current failure."""
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
+    from sentinel.panel.delivery import row_current
     for row in panel.rows:
+        if not row_current(panel, row):
+            continue
         status = row.effective_status(panel.now)
         if (status == 'fail' and row.key == 'exposure' and row.status == 'warn'
                 and _normal_warning(panel, row)):
@@ -505,8 +532,8 @@ def health_facts(panel) -> dict:
               and not _normal_warning(panel, row)):
             warnings.append(row.key)
     if not active and not warnings and not any(
-            row.effective_status(panel.now) == 'ok'
-            or row.effective_status(panel.now) == 'warn' and _normal_warning(panel,row)
+            row_current(panel, row) and (row.effective_status(panel.now) == 'ok'
+            or row.effective_status(panel.now) == 'warn' and _normal_warning(panel,row))
             for row in panel.rows):
         warnings.append('no_current_operation')
     return {'active': sorted(set(active)), 'warnings': sorted(set(warnings))}
@@ -515,7 +542,9 @@ def health_facts(panel) -> dict:
 def dashboard_health(panel) -> dict:
     """Human system health is separate from unchanged machine readiness."""
     plan = panel.row('paper_plan')
-    plan_readiness = ('ready' if plan is not None and plan.can_show_paper_plan(panel.now)
+    from sentinel.panel.delivery import row_current
+    plan_readiness = ('unavailable' if plan is not None and not row_current(panel, plan)
+                      else 'ready' if plan is not None and plan.can_show_paper_plan(panel.now)
                       else 'unavailable' if plan is not None
                       and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
     statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
@@ -571,6 +600,8 @@ def dashboard_health(panel) -> dict:
         boundaries.append(calendar.session_window(calendar.next_session(
             calendar.latest_closed_session(panel.now)))[0])
     boundaries = [value for value in boundaries if value is not None]
+    if panel.observation_valid_until is not None:
+        boundaries.append(panel.observation_valid_until)
     work = visible_preparation(panel)
     if work is not None:
         boundary = _preparation_boundary(work)
@@ -579,9 +610,15 @@ def dashboard_health(panel) -> dict:
         if work.active_at(panel.now) and not (stage == 'Publishing closing data'):
             boundaries.append(work.active_until)
     boundary = min(boundaries) if boundaries else None
+    if not panel.observation_current and not negative:
+        return dict(status='pending', color='neutral', label='Status not current · refreshing',
+                    valid_until=boundary.isoformat() if boundary is not None else None,
+                    plan_readiness='unavailable', active_conditions=facts['active'],
+                    review_conditions=facts['warnings'])
     return dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
                 label=label, valid_until=boundary.isoformat() if boundary is not None else None,
-                plan_readiness=plan_readiness)
+                plan_readiness=plan_readiness, active_conditions=facts['active'],
+                review_conditions=facts['warnings'])
 
 
 def describe(row: Row, status: str) -> tuple[str, str, str]:

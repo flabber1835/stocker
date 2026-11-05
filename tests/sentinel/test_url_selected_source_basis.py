@@ -20,6 +20,20 @@ def _actual():
     return admission._source_files(Path(basis.__file__).parent)
 
 
+OPERATIONAL_ADDITIONS = {
+    'automation/source_completion.py', 'panel/attempt_store.py', 'panel/delivery.py', 'panel/observer_failure.py',
+    'panel/operational_snapshot.py', 'panel/projection_service.py', 'panel/projection_worker.py',
+    'panel/segment_disclosure.py', 'panel/serialization.py',
+}
+OPERATIONAL_CHANGES = {
+    'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
+    'automation_runtime.py', 'panel/app.py', 'panel/authority_reader.py', 'panel/model.py',
+    'panel/observer_codec.py', 'panel/overview.py', 'panel/presentation.py', 'panel/pwa.py',
+    'panel/read_projection.py', 'panel/render.py', 'panel/styles.py',
+    'panel/review.py', 'panel/verification_service.py', 'url_selected_source_basis.py',
+}
+
+
 def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
     assert basis.PROFILE_SHA256 != '0' * 64
     actual = _actual()
@@ -118,14 +132,15 @@ def test_installed_pr565_source_is_exact_and_only_reviewed_modules_change():
     assert admission.source_closure(previous) == (
         '95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca')
     actual = _actual()
-    assert set(previous) == set(actual)
+    assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
+    assert set(previous) <= set(actual)
     assert basis.predecessor_view(actual, previous=previous) == previous
-    assert {name for name in actual if actual[name] != previous[name]} == {
+    assert {name for name in previous if actual[name] != previous[name]} == {
         'automation/service.py', 'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
         'panel/presentation.py', 'panel/pwa.py', 'panel/render.py', 'panel/review.py',
         'panel/retry_status.py', 'paper_plan_preview.py', 'url_selected_source_basis.py',
         'panel/authority_reader.py', 'panel/sources.py', 'panel/verification_service.py',
-    }
+    } | OPERATIONAL_CHANGES
 
 
 def test_installed_main_verifier_predecessor_has_only_the_exact_display_successor():
@@ -134,14 +149,44 @@ def test_installed_main_verifier_predecessor_has_only_the_exact_display_successo
     assert admission.source_closure(previous) == (
         'db2228d6def65283cb75ac3da8f3250a99fb3f180600f9fd9e52b46cf6da0ee8')
     actual = _actual()
-    assert set(previous) == set(actual)
-    assert {name for name in actual if actual[name] != previous[name]} == {
+    assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
+    assert set(previous) <= set(actual)
+    assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/authority_reader.py', 'panel/sources.py', 'panel/verification_service.py',
-        'url_selected_source_basis.py'}
+        'url_selected_source_basis.py'} | OPERATIONAL_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous
     for name in actual:
         changed = {**actual, name: 'f'*64}
         assert basis.predecessor_view(changed, previous=previous) is changed
+
+
+def test_installed_pr567_remains_exact_for_the_complete_operational_successor():
+    previous = basis._profile()['retained_predecessors'][basis.OPERATIONAL_PREDECESSOR_REVISION]['files']
+    assert len(previous) == 442
+    assert admission.source_closure(previous) == '18de9f4c50f1695aeaa11cdc59081267ab1274f318ab9abc3e470a568ad48e42'
+    actual = _actual()
+    assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
+    assert set(previous) <= set(actual)
+    assert {name for name in previous if actual[name] != previous[name]} == OPERATIONAL_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_operational_predecessor(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.OPERATIONAL_PREDECESSOR_REVISION]
+    if defect == 'changed': prior['files']['panel/verification_service.py'] = 'f'*64
+    elif defect == 'missing': prior['files'].pop('panel/verification_service.py')
+    elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
+    else: prior['files']['url_selected_source_basis.py'] = 'f'*64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path/'changed-operational-predecessor.json'
+    path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])

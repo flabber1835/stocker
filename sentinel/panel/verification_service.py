@@ -12,7 +12,7 @@ import uuid
 
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
-from sentinel.panel import authority_reader as financial, observer_codec, read_projection
+from sentinel.panel import authority_reader as financial, observer_codec, observer_failure, read_projection
 from sentinel.panel import operational_schema as schema
 from sentinel.panel.verification_monitor import paper_unknown
 
@@ -29,7 +29,8 @@ def _identity_key(_database_url, _include_paper, evidence):
 
 def _observe_once(database_url, include_paper, expected_key):
     if read_projection.subject_for(database_url, include_paper) != expected_key:
-        raise ValueError('verification subject changed before observation')
+        raise observer_failure.ObservationSuperseded(
+            'BEFORE_OBSERVATION', 'verification subject changed before observation')
     from sentinel.panel import sources
     if not include_paper:
         rows, details, history, errors = sources._dual_authority_rows(database_url,
@@ -50,7 +51,8 @@ def _observe_once(database_url, include_paper, expected_key):
             conn.rollback(); conn.close()
     result = observer_codec.pack(rows, errors, observed_at=datetime.now(timezone.utc))
     if read_projection.subject_for(database_url, include_paper) != expected_key:
-        raise ValueError('verification subject changed during observation')
+        raise observer_failure.ObservationSuperseded(
+            'AFTER_OBSERVATION', 'verification subject changed during observation')
     return result
 
 
@@ -68,6 +70,10 @@ def observe(database_url, include_paper, expected_key):
         if result is None:
             raise
         return result
+
+
+def diagnosed_observe(database_url, include_paper, expected_key):
+    return observer_failure.capture(observe, database_url, include_paper, expected_key)
 
 
 def snapshot(reader, result, *, scope, now):
@@ -177,26 +183,48 @@ def _require_iteration_time(deadline):
 
 
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
+    from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
             break
         _require_iteration_time(deadline)
         result = reader.read(database_url, include_paper=scope == 'PAPER')
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
+        financial_changed = False
         if value is not None and previous.get(scope) != value:
             # Recheck exact subject in the publishing transaction.
             if read_projection.subject(conn, database_url, scope) == value[0]['subject_sha256']:
                 _require_iteration_time(deadline)
                 read_projection.publish(conn, owner_id=owner_id, value=value[0], signature=value[1])
-                conn.commit()
-                _require_iteration_time(deadline)
-                previous[scope] = value
+                financial_changed = True
             else:
                 conn.rollback()
+        attempt = reader.attempt_state()
+        diagnostic_key = attempt_store.scope_key(scope)
+        diagnostic_changed = False
+        if attempt is not None and previous.get(diagnostic_key) != attempt:
+            _require_iteration_time(deadline)
+            diagnostic_changed = attempt_store.publish_owned(conn, owner_id=owner_id,
+                scope=scope, attempt=attempt, now=datetime.now(timezone.utc))
+        if financial_changed or diagnostic_changed:
+            _require_iteration_time(deadline)
+            conn.commit()
+            _require_iteration_time(deadline)
+            if financial_changed:
+                previous[scope] = value
+            if attempt is not None:
+                previous[diagnostic_key] = attempt
+        elif attempt is not None:
+            # An identical authenticated history can survive a verifier restart.
+            # End the bounded metadata read without refreshing its clocks.
+            conn.rollback()
+            previous[diagnostic_key] = attempt
 
 
-def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline):
+def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
+                    on_first_refresh=None):
     retry_until = None
+    projection_started = False
     while not stopped.is_set():
         started = time.monotonic()
         _require_iteration_time(min(deadline, retry_until) if retry_until is not None else deadline)
@@ -205,6 +233,9 @@ def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, de
             iteration_deadline = min(deadline, retry_until) if retry_until is not None else deadline
             _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)
             _require_iteration_time(iteration_deadline)
+            if on_first_refresh is not None and not projection_started:
+                on_first_refresh()
+                projection_started = True
         except (QueryCanceled, LockNotAvailable):
             conn.rollback()
             # The session lock belongs to this connection. Reconnecting here
@@ -235,6 +266,7 @@ def run(*, stopped=None):
     conn = store.connect(database_url,connect_timeout=3,statement_timeout_ms=3000)
     owner_id = str(uuid.uuid4())
     readers = {}
+    publisher = None
     try:
         schema.require_schema(conn)
         if not conn.execute('SELECT pg_try_advisory_lock(%s,%s)',OWNER_LOCK).fetchone()[0]:
@@ -246,24 +278,37 @@ def run(*, stopped=None):
         conn.commit()
         deadline = _owner_deadline(started, claimed)
         slot = BoundedSemaphore(1)
-        readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=observe,
+        readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
             key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
             for scope in ('SHADOW','PAPER')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
-        _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline)
+        from sentinel.panel.projection_service import Publisher
+        publisher = Publisher(database_url, owner_id, stopped=stopped)
+        # Establish actual queued/running/completed financial receipts before an
+        # operational collector can classify a cold verifier's initial state.
+        _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
+                        on_first_refresh=publisher.start)
     finally:
-        _release_owner(conn,readers)
-        HEARTBEAT.unlink(missing_ok=True)
+        try:
+            if publisher is not None:
+                publisher.close()
+        finally:
+            _release_owner(conn,readers)
+            HEARTBEAT.unlink(missing_ok=True)
     return 0
 
 
 def health():
     try:
+        from sentinel.panel.projection_service import HEARTBEAT as operational_heartbeat
         stamp = datetime.fromisoformat(HEARTBEAT.read_text(encoding='ascii'))
-        return 0 if timedelta(0) <= datetime.now(timezone.utc)-stamp <= timedelta(seconds=45) else 1
-    except (OSError,ValueError):
+        operational = datetime.fromisoformat(operational_heartbeat.read_text(encoding='ascii'))
+        now = datetime.now(timezone.utc)
+        return 0 if all(timedelta(0) <= now-value <= timedelta(seconds=45)
+                        for value in (stamp, operational)) else 1
+    except (OSError,ValueError,TypeError):
         return 1
 
 

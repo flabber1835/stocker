@@ -648,7 +648,26 @@ class ProductionAutomation:
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
-            notify=self.notify, terminal=self.certify_terminal_cycle)
+            notify=self.notify, terminal=self.certify_terminal_cycle,
+            source_completion_hint=self.source_completion_hint)
+
+    def source_completion_hint(self, cycle):
+        """A producer-change hint wakes verification; it grants no authority."""
+        if not self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
+            return None
+        from sentinel.automation import source_completion
+        conn = feed_store.connect(self.sentinel_config.database_url,
+                                  connect_timeout=1, statement_timeout_ms=1000)
+        try:
+            conn.execute("BEGIN TRANSACTION READ ONLY")
+            return source_completion.read(conn,
+                observation_id=self._shadow_observation_id,
+                decision_session=cycle.decision_session)
+        finally:
+            try:
+                conn.rollback()
+            finally:
+                conn.close()
 
     def connect(self):
         connect_timeout = max(

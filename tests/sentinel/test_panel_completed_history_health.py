@@ -36,8 +36,10 @@ def completed_panel():
     rows += [history,model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING),
         model.Row('trading_run','Today',run.state,model.OK,as_of=DONE,
                   valid_until=NOW.replace(hour=23,minute=59),trading_run=run),
-        model.Row('automation_cycle','Cycle','SUCCEEDED',model.OK,as_of=DONE,required_current=True),
-        model.Row('automation_step_complete','Completion','SUCCEEDED',model.OK,as_of=DONE,required_current=True)]
+        model.Row('automation_cycle','Cycle','SUCCEEDED',model.OK,as_of=DONE,required_current=True,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='SUCCEEDED')),
+        model.Row('automation_step_complete','Completion','SUCCEEDED',model.OK,as_of=DONE,required_current=True,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='SUCCEEDED'))]
     return replace(page,rows=rows)
 
 
@@ -61,7 +63,8 @@ def test_reproduced_owned_check_and_completed_history_do_not_flap_material_healt
     page=completed_panel();deadline=NOW+timedelta(minutes=3)
     checking=model.Row('paper_reconciliation','Paper alignment','CHECK IN PROGRESS',model.WARN,
         required_current=True,valid_until=deadline,
-        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline),
+        operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'))
     running=replace(page,rows=[checking if r.key=='paper_reconciliation' else r for r in page.rows])
     assert presentation.health_facts(page)==presentation.health_facts(running)=={'active':[],'warnings':[]}
 
@@ -111,8 +114,9 @@ def test_completion_does_not_waive_current_failure_or_completion_contract(fault)
     elif fault=='untyped_history':page=changed_history_panel(page,'paper_reconciliation',paper_alignment=None)
     elif fault=='wrong_history_type':page=changed_history_panel(page,'paper_reconciliation',paper_alignment='SCHEDULED_WITH_HISTORY')
     elif fault=='expired_history':page=changed_history_panel(page,'paper_reconciliation',valid_until=NOW)
-    elif fault=='wrong_cycle':page=changed_history_panel(page,'automation_cycle',value='RECONCILING')
-    elif fault=='incomplete_step':page=changed_history_panel(page,'automation_step_complete',value='NOT REACHED')
+    elif fault=='wrong_cycle':page=changed_history_panel(page,'automation_cycle',value='RECONCILING',
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='RECONCILING'))
+    elif fault=='incomplete_step':page=changed_history_panel(page,'automation_step_complete',value='NOT REACHED',operational_fact=None)
     elif fault=='wrong_completion_clock':page=changed_history_panel(page,'automation_cycle',as_of=DONE+timedelta(seconds=1))
     elif fault=='run_incomplete':run=run.model_copy(update={'state':'RECONCILING'})
     elif fault=='run_other_date':run=run.model_copy(update={'intent':run.intent.model_copy(update={'effective_session':NOW.date()-timedelta(days=1)})})

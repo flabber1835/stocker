@@ -126,6 +126,10 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         guard = 'if (event.persisted || wentToBackground || !originalCurrent())'
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (event.persisted)')
+    elif mutation == 'currentness':
+        guard = 'next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'false')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':budget,'case':case}),
@@ -137,6 +141,17 @@ def test_failed_refresh_preserves_dashboard_and_recovers_without_duplicate_reads
     result = run_refresh(failure)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('failure', ['partial','wrong-current-marker','wrong-partial-marker','missing-marker'])
+def test_refresh_accepts_partial_only_with_matching_explicit_currentness(failure):
+    result = run_refresh(failure)
+    assert result.returncode == 0, result.stderr
+
+
+def test_removed_header_body_currentness_guard_is_detected():
+    result = run_refresh('wrong-current-marker', mutation='currentness')
+    assert result.returncode != 0 and 'mismatch installed authority' in result.stderr
 
 
 def test_removed_browser_single_request_guard_is_detected():

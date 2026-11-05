@@ -7,7 +7,7 @@ import json
 MAX_DOCUMENT_AGE_SECONDS = 45
 
 CURRENT_DOCUMENT_SCRIPT = r"""
-function currentDocument(html) {
+function currentDocument(html, status) {
   if (typeof html !== "string" || html.length > 2097152) {
     throw new Error("Dashboard response exceeds its document bound");
   }
@@ -15,6 +15,8 @@ function currentDocument(html) {
   var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
   var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
   if (!next.getElementById("operational-state") ||
+      !["CURRENT", "PARTIAL"].includes(status) ||
+      next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false") ||
       next.body.dataset.refreshPending !== "false" ||
       !Number.isFinite(nextAge) || !Number.isFinite(nextBudget) ||
       nextBudget <= 0 || nextBudget > __MAX_AGE_MS__ ||
@@ -70,12 +72,13 @@ button:disabled{opacity:.6}
     var deadline = setTimeout(function(){ active.abort(); }, 15000);
     try {
       var response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", signal:active.signal});
-      if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT" ||
+      var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
+      if (!response.ok || !["CURRENT", "PARTIAL"].includes(documentStatus) ||
           new URL(response.url || location.href, location.href).origin !== location.origin) {
         throw new Error("Current status is not available");
       }
       var html = await response.text();
-      currentDocument(html);
+      currentDocument(html, documentStatus);
       if (active.signal.aborted || !visible()) { return; }
       document.open(); document.write(html); document.close();
     } catch (_error) {
