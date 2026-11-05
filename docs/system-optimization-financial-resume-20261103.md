@@ -2710,3 +2710,44 @@ and independent peer qualified the caller/loader37 cases; twelve additional
 unchanged-input cases bind the corrected root. CBLK input selection passed25
 author and25 independent peer cases including eleven guard removals. Hosted
 packet/notional checks and full financial/DATA admission still govern results.
+
+Source269 independent DATA closed P06's twelve natives, sixteen full rows and
+all29 parent-date actions;41 cases including nine removals passed. After this
+source qualification, prepare catalog28 as an append-only generic mixed IPHI
+record, preserving every catalog27 record. Use the published66USD plus2.323
+new shares, preserve April20 trading and recognize the after-close legal event
+at the next frozen April21 opening boundary. Fractional-share cash uses the
+existing explicitly declared research delivery raw-open proxy, with no actual
+settlement claim. Bind own817/f8be,23shares, the fresh MRVL row and frozen
+issuer/eligibility without upgrading them from the public legal-company CIK.
+Compose the six qualified original2021 terms, four Following cash/mixed terms
+and the separately declared original APHA literal-zero contract through the
+existing generic selectors. Retain all six old inputs and exclude consumed
+WPX,BEAT,PE,ACIA. No symbol wrapper or new financial allocation policy is needed;
+qualify all source bindings, original consideration, delivery identities and
+inherited input bytes before any P06 financial continuation.
+
+Use a separate typed mixed-assumption/3 timing branch for confirmed after-close
+completions. Preserve existing /1 and /2 semantics. The /3 record must retain
+the actual legal date and explicitly sourced New York local completion time;
+require completion strictly after16:00, on the native/last-trading date, and
+recognition on the next frozen market-axis session. IPHI therefore retains
+April20 at16:02 as its legal completion and April21 as modeled opening
+recognition. Never relabel the legal date as April21 to satisfy the older
+same-date branch. Reuse the already declared fractional delivery raw-open proxy,
+preserve frozen identities, and disclaim actual settlement/information timing
+certification. Refuse missing/wrong timing, dates, next-session or source proofs;
+qualify both older branches and new guard-removal cases before activation.
+
+Select readonly report271 for financial267 P05's saved965/October29,2021
+and financial266 P11's saved2050/February27,2026. Their own817/b1b4 and
+1883/ab8 seeds remain authoritative. Verify148/296/7/196 and167/334/8/224
+daily/accounting/report/Decimal counts without financial replay. The qualified
+combined selector authenticates all411 members, preserves all10 and11 prior
+descriptors respectively, and changes only these two transports. P05's input
+boundary is April30 with first contract effect May3; P11's is July24 with TGI
+cash recognition July25. Exclude every November P05 and March P11 tail.
+The actual next identities are UFS in P05's leadership cash-return path and
+EXAS in P11's missing March23 causal-bar path; neither authorizes a formula
+override. Fresh source and independently qualified consideration remain
+required after the newly saved checkpoints are admitted.
