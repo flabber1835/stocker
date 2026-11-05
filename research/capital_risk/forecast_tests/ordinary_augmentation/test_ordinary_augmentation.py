@@ -164,6 +164,9 @@ def test_runtime_ast_undo_restores_every_original_financial_statement():
             if ast.unparse(node)=='review_ordinary(parent, current, evidence, out, spec)':return ast.parse("parent['repairs'] == current['repairs']",mode='eval').body
             return self.generic_visit(node)
     UndoReview().visit(nodes['review']);nodes['inherited_ordinary_observers'].name='ordinary_observers'
+    scan,=[n for n in ast.walk(nodes['preserve']) if isinstance(n,ast.For)
+           and ast.unparse(n.iter)=='ordinary_event_paths(root, p)']
+    scan.iter=ast.parse("Path(root).rglob('actual-future-event-*.json')",mode='eval').body
     expected=ast.Module(body=[n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef)],type_ignores=[])
     assert ast.dump(tree,include_attributes=False)==ast.dump(expected,include_attributes=False)
 
@@ -301,3 +304,46 @@ def test_retained23_never_reprepares_or_readopts(tmp_path,monkeypatch):
     before=deepcopy(cp)
     assert runtime.adopt(cp,tmp_path,None,None,None,None,None,plan,None) is cp
     assert cp==before
+
+
+def test_preservation_uses_actual_observers_and_excludes_colliding_review_caches(tmp_path):
+    name='additional-inherited-ordinary-observation/'+'a'*64
+    for relative in ['actual-future-event-2022-03-04.json',name+'/actual-future-event-2022-05-19.json',
+        'stopped-review/additional-review-codec-retention/actual-future-event-2022-03-04.json',
+        'additional-review-ordinary/actual-future-event-2022-03-04.json']:
+        p=tmp_path/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b'{}\n')
+    actual=runtime.event_paths(tmp_path,[dict(observation_directory=name)])
+    assert {p.relative_to(tmp_path).as_posix() for p in actual}=={
+        'actual-future-event-2022-03-04.json',name+'/actual-future-event-2022-05-19.json'}
+    original=list(tmp_path.rglob('actual-future-event-*.json'))
+    assert any(p.relative_to(tmp_path).parts[0]=='stopped-review' for p in original)
+    with pytest.raises(ValueError,match='ONLY_VALIDATED_ORIGINAL_OBSERVER_DIRECTORIES'):
+        runtime.event_paths(tmp_path,[dict(observation_directory='stopped-review/additional-review-codec-retention')])
+
+
+def test_scratch_stage_reuses_original_descriptor_bound_private_event_stager(tmp_path,monkeypatch):
+    import system_campaign_financial_additional_sensor_runtime as original
+    import system_campaign_financial_additional_sensor_review as scratch
+    root=tmp_path/'authenticated';target=tmp_path/'scratch';root.mkdir()
+    from system_campaign_zogenix_facts import PRIVATE
+    (root/PRIVATE).write_bytes(b'EXACT ZOGENIX PRIVATE EVENT')
+    cp0_raw=b'ORIGINAL AUTHENTICATED CP0 SOURCE DTO'
+    cp0=dict(synthetic_DTO=True,repairs=[])
+    p=root/original.ORIGIN_DIR/'cp0.json.gz';p.parent.mkdir();p.write_bytes(cp0_raw)
+    old_files={PRIVATE:data.sha((root/PRIVATE).read_bytes())}
+    for name in ('future-financial-overlay.json','future-input-qualification.json'):
+        (root/name).write_bytes(b'ORIGINAL ROOT RESOURCE MUST STAY OUT OF NEW OUTPUT NAMESPACE')
+        old_files[name]=data.sha((root/name).read_bytes())
+    (root/data.original.ORIGIN).write_bytes(data.encoded(dict(cp0_gzip_sha256=data.sha(cp0_raw),input_files=old_files)))
+    calls=[]
+    def stage_inputs(root,target,actual,phase):
+        assert actual is cp0 and phase==dict(synthetic_phase=True)
+        calls.append(True);target.mkdir()
+        (target/'hydrated-uncertainty-event.json').write_bytes(b'EXACT ORIGINAL DESCRIPTOR-BOUND ALDR EVENT')
+    monkeypatch.setattr(original,'read_cp',lambda path:cp0)
+    monkeypatch.setattr(scratch,'stage_inputs',stage_inputs)
+    runtime.stage(root,target,dict(repairs=[]),{},dict(synthetic_phase=True))
+    assert calls==[True] and (target/'hydrated-uncertainty-event.json').is_file()
+    assert (target/PRIVATE).read_bytes()==(root/PRIVATE).read_bytes()
+    assert not (target/'future-financial-overlay.json').exists()
+    assert not (target/'future-input-qualification.json').exists()

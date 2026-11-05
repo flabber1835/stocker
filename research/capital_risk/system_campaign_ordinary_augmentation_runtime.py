@@ -23,11 +23,19 @@ def write_exact(path, raw):
         with path.open('xb') as stream:stream.write(raw)
 
 
-def stage(root, target, cp, plan):
+def stage(root, target, cp, plan, phase):
     """Copy authenticated source documents only; no checkpoint construction."""
     root, target = Path(root), Path(target)
     origin = json.loads((root/data.original.ORIGIN).read_bytes())
-    names = dict(origin['input_files'])
+    from system_campaign_financial_additional_sensor_review import stage_inputs
+    import system_campaign_financial_additional_sensor_runtime as original
+    checkpoint=root/original.ORIGIN_DIR/'cp0.json.gz'
+    data.need(data.sha(checkpoint.read_bytes()) == origin['cp0_gzip_sha256'],
+              'AUGMENTATION_AUTHENTICATED_ORIGINAL_CP0_GZIP')
+    cp0 = original.read_cp(checkpoint)
+    stage_inputs(root,target,cp0,phase)
+    from system_campaign_zogenix_facts import PRIVATE
+    names = {PRIVATE:origin['input_files'][PRIVATE]}
     names[data.original.ORIGIN] = data.sha((root/data.original.ORIGIN).read_bytes())
     for d in cp['repairs']:names['book/repairs/'+d['filename']] = d['sha256']
     for name, pin in names.items():
@@ -77,7 +85,7 @@ def prepare(cp, root, out, plan, phase, validate):
     target = out/data.DIRECTORY
     data.need(not target.exists(), 'AUGMENTATION_FRESH_PREPARATION_NAMESPACE')
     target.mkdir()
-    stage(root,target,cp,plan)
+    stage(root,target,cp,plan,phase)
     api = future_api(plan, validate, phase)
     path, loaded = api['prepare'](cp,target,plan['arm'])
     material = json.loads((target/api['hydration_name'](cp)).read_bytes())
@@ -170,7 +178,7 @@ def review_ordinary(parent, current, evidence, out, spec, plan, phase, validate)
                   'AUGMENTATION_REVIEW_NO_ADOPTION_OBSERVATIONS')
     scratch = out/'independent-ordinary-augmentation'
     scratch.mkdir()
-    stage(evidence,scratch,original_parent,plan)
+    stage(evidence,scratch,original_parent,plan,phase)
     api = future_api(plan,validate,phase)
     path, loaded = api['prepare'](original_parent,scratch,plan['arm'])
     for name in (api['OVERLAY'],api['hydration_name'](original_parent),'future-input-qualification.json'):
@@ -223,6 +231,9 @@ def api(root, cp, spec):
     namespace['original_boundary_hash'] = original_boundary_hash
     namespace['adopt_ordinary'] = lambda *args:adopt(*args,plan,validate)
     namespace['review_ordinary'] = lambda *args:review_ordinary(*args,plan,phase,validate)
+    def ordinary_event_paths(root,p):
+        return event_paths(root,namespace['observer_bindings'](root,p))
+    namespace['ordinary_event_paths'] = ordinary_event_paths
     exec(compile(data.runtime_tree(raw),'<source-qualified-retained-ordinary-augmentation>','exec'),namespace)
     reconstruction = scratch.reconstruction(phase)
     namespace['ordinary_reconstruction'] = FunctionType(reconstruction.__code__,
@@ -259,3 +270,14 @@ def api(root, cp, spec):
             yield bound
     namespace['ordinary_observers'] = observers
     return SimpleNamespace(**namespace)
+
+
+def event_paths(root,bindings):
+    root=Path(root)
+    directories=[root]
+    for binding in bindings:
+        name=data.safe(binding['observation_directory'])
+        data.need(name.startswith('additional-inherited-ordinary-observation/')
+             and len(Path(name).parts)==2, 'AUGMENTATION_ONLY_VALIDATED_ORIGINAL_OBSERVER_DIRECTORIES')
+        directories.append(root/name)
+    return [p for directory in directories for p in directory.glob('actual-future-event-20*.json')]

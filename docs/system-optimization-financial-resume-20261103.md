@@ -4416,3 +4416,90 @@ financial_runtime_executed=false and zero advanced sessions. The next financial
 execution occurs only in the offline hosted worker, after its own parent
 preflight and canonical neutral adoption. Any unsupported later event stops
 normally; no expected completion or new admitted date is assumed.
+
+## Generic bounded contingent sensor: P03 DOVA lifecycle design
+
+Continue the previously qualified generic bounded input/binding preparation with
+a separate own462 catalog. Do not rewrite P03's retained ALDR policy (including
+its explicit unqualified-next-input flags), the15 existing descriptors or its
+eight committed B19 certificates. DOVA uses the native/effective November12,
+2019 clock and November11 prior session. The selected legal model keeps27.50USD
+upfront plus a0..1.50 contingent-right interval, with no chosen probability,
+right price or cash settlement. The SEC completion filing and Nasdaq notice
+confirm the consideration and preopen closing respectively:
+https://www.sec.gov/Archives/edgar/data/1685071/000095015719001299/form8k.htm
+https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-228 .
+The frozen November12 source bar remains present and unchanged; historical
+causality remains UNVERIFIED.
+
+Select this generic family separately from the frozen Zogenix-specific schema.
+Adopt exactly one16th typed input through a distinct original paused canonical
+neutral boundary. Keep original B19 loaded first and the new codec outside it;
+require actual unowned/unordered state before and after the event. The generic
+certificate reuses original B19 recovery/cloud/append and rolling math, binding
+only the new event's return-material witness and exact raw/signal/split basis.
+Review its independently archived event preimage, all eight old rows and every
+new math/watch/financial transition. Retain the complete inherited ordinary
+observer generation and future event inputs; source qualification of future
+identities alone does not add consideration. Full-checkpoint model visitors,
+retained restarts and readonly review must be qualified before selection. P06's
+ABMD family requires a separate initial certificate without a prior B19 seed;
+the P03 seeded implementation must not silently admit that case.
+
+FIN305 preflight passes0/non-OOM; its economic worker stops1 before the ordinary
+adoption because the isolated input preparation omitted the original ALDR private
+event file. The exact original B19 descriptor already binds that file. Reuse the
+qualified scratch stager to copy the20 original input resources (including that
+descriptor-bound private witness), then append the authenticated21st/22nd input
+and exact origin resources. Do not copy any financial checkpoint into scratch.
+
+The launcher additionally refuses to copy its new reviewer output because the
+financial output already contains stopped-review/additional-review-codec-retention.
+Frozen preserve's recursive event-proof scan copied an old review cache into that
+reserved destination. In the private augmentation adapter only, retain actual
+ordinary proofs from the root and the three validated inherited observer
+directories. Do not traverse reviewer/reconstruction caches. Their original
+artifact remains immutable and authenticated; they grant no financial authority.
+Require full AST undo of this single scan-expression adaptation and a regression
+with a colliding old stopped-review cache. Keep the original preservation body,
+origin files, actual committed proofs, stop evidence and financial guards intact.
+The absent exported reviewer inspection is explicit; FIN305 cannot be admitted.
+
+Keep new compiler output basenames free inside the augmentation namespace.
+The scratch stager supplies its authenticated inherited descriptors, private
+ALDR witness and original provider/projection resources. Append the21st/22nd
+descriptors, the descriptor-bound Zogenix private event and origin metadata.
+Do not copy the old current future-financial-overlay or old packet-qualification
+output into the fresh compiler output directory. They remain byte-preserved at
+the financial root. Add a regression that distinguishes those reserved outputs
+from required typed-input resources before the next hosted request.
+
+FIN305 artifact13448580665 is317450371bytes, SHA
+b9bc8e4d28e6ee8f62aece8e2b20e97547c6d5a92b18400e03eacfbde17302d9.
+The diagnostic capture authenticates332 members/446339094 logical bytes with
+the entire original crypto/manifest/request/source guards intact. It verifies
+actual preflight0 and economic1 non-OOM inspections, the exact unchanged1196
+checkpoint and22 descriptors, zero new closes and no augmentation adoption.
+The reviewer inspection was not exported and is explicitly UNQUALIFIED. The
+first capture's refusal and failed run remain preserved; no root is admitted.
+
+The staging fix and isolated observer-path scan pass102 targeted checks in7.25s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/ordinary-augmentation-fixes-tests-20261105-001
+forecast_tests/ordinary_augmentation/test_ordinary_augmentation.py
+forecast_tests/additional_sensor/test_review_scratch_inputs.py
+forecast_tests/additional_sensor/test_requalified_parent.py`.
+The additional launcher/retention/source checks pass150 in27.26s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/ordinary-augmentation-fixes-launcher-tests-20261105-001
+forecast_tests/ordinary_augmentation/test_ordinary_augmentation.py
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_retention.py
+forecast_tests/additional_sensor/test_additional_source_stage.py`.
+An independent DATA-only staging check on the authenticated actual artifact
+verifies all32 required input resources and all22 descriptors, with the ALDR
+witness present, both reserved compiler outputs absent and no checkpoint copied.
+Its full actual-origin JSON read is fenced from every canonical runtime import.
+The first local check encountered a Windows long-path limit; a fresh long-path
+qualification directory passed. Select fresh FIN306/request172 only, still one
+financial worker/458 sources from the same independently admitted own1196 root.
+The exact launcher probe again passes with zero local financial sessions.

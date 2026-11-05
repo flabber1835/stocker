@@ -177,6 +177,9 @@ def runtime_tree(raw):
     # Freeze the old observer manager under its own name before adding a new cash observer.
     observer = by_name['ordinary_observers']
     observer.name = 'inherited_ordinary_observers'
+    scan, = [n for n in ast.walk(by_name['preserve']) if isinstance(n,ast.For)
+             and ast.unparse(n.iter) == "Path(root).rglob('actual-future-event-*.json')"]
+    scan.iter = ast.parse('ordinary_event_paths(root, p)',mode='eval').body
     return ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
 
 
