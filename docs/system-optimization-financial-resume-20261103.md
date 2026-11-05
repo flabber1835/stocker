@@ -2890,3 +2890,36 @@ donor parent/holding/admission authority is never portable. Preserve original
 amounts, dates, model predicates, fractional proxies, input collision guards
 and cumulative packet qualification. This is input composition within the
 existing selector, with no new financial book or symbol-specific wrapper.
+
+Select readonly report277 for financial272 P06's saved1090 through April29,
+2022, using exact own817/f8be as its reporting seed. The qualified selector
+verifies all169 authenticated members,273 new daily rows,546 raw accountings
+and13 committed monthly rows; independent reporting must verify364 Decimal
+metrics. Its neutral adoption preserves817/March31,2021 and all financial
+state/journals, adding only one exact watch event and changing six input
+descriptors to seven. All six old descriptor bytes remain exact. Exclude all
+eight May tail rows and leave the newly observed May12 XENT terminal outside
+financial admission. This request performs zero financial transitions and
+grants no root admission. It may run while P11 financial275 continues under
+the existing per-arm concurrency groups.
+
+For P05's fresh own965 UFS source, select an explicitly assumed completion-day
+closing controller-source valuation, preserving the original55.50USD amount
+and November30,2021 calendar day. The retained source does not prove completion
+before the market close; never manufacture completion_confirmed_by_close or
+preopen evidence. Introduce a separately typed generic research unheld-source
+cash assumption and recognition rule, leaving SOURCE_CLOSE and its original
+confirmed-by-close predicate unchanged. Declare closing availability assumed,
+actual by-close timing unconfirmed, no actual settlement claim, and no
+portfolio-completion authority. Bind the full original fact, its literal
+DAILY_MARKET_UNHELD_SOURCE/SOURCE_UNHELD/REFUSE_ALL_SOURCE_INTENTS limits and
+the fresh SOURCE274 own-root identity/native/role evidence. Reuse the existing
+closing SourceOnlyScope, actual canonical no-op and source-delegation observer;
+require zero source episodes, occupied/reserved slots, pending intents and
+claims at recognition, and refuse any held case. Do not assert never-held or
+future-unheld status from the parent witness. Batch the eight remaining
+December-calendar terms through the existing original supplemental selector,
+with all11 inherited input documents exact. Qualify the new assumption, source
+binding, axis, actual absence/no-op and older SOURCE_CLOSE guards before any
+P05 financial continuation. No broker or canonical financial-source change is
+authorized by this research recognition assumption.
