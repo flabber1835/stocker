@@ -2081,3 +2081,11 @@ passed. Independent report/DATA/root admission is still required;exclude the
 native,not a failure of the compound event. Investigate that exact own source
 after the new monthly root is admitted;no inferred cash input or replay tail
 may receive authority.
+
+Select readonly report240 for P05 saved734 through November30,2020 and P06
+saved543 through February28,2020. Their financial producer requests are104/415
+and103/415 respectively;reporting code423 must not replace those producer
+bindings in independent DATA. Retain independently admitted own628/291 as the
+monthly seed roots,and change only the exact financial transport targets. The
+P05/P06 uncommitted daily tails1424490/2218554bytes remain excluded. No root
+admission or financial transition is granted by reporting selection.

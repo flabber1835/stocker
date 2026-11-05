@@ -84,6 +84,9 @@ def test_reporting_contract_uses_targets_exact_admitted_seed_without_financial_w
     assert value['financial_resume_authorized'] is False and value['readonly_partial_review'] is True
     assert set(value['admitted_checkpoints'])=={'P03'} and value['initial_reporting_origins']=={}
     monkeypatch.setattr(m,'SELECTED_ARMS',('P06',))
+    already_reported=deepcopy(original('P06'))
+    already_reported['measured_closes']=targets['P06']['measured_closes']
+    monkeypatch.setattr(m,'root_spec',lambda arm:already_reported if arm=='P06' else original(arm))
     with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
 
 
