@@ -2359,3 +2359,19 @@ Select financial255 for P05 own756 using the eight original2021 completion
 terms. The regenerated private proposal preserves all nine inherited repairs,
 including future BMCH/VRTU,and passed seven constructor/selection/guard checks.
 Its selector correction restores the explicit-phase-before-fallback contract.
+
+P07 report253 and independent DATA admit own986 throughNovember30,2021 as
+9524b5ab97174248bd1171b00b6e5ac667546171f176a1d2b87ecd4f8cea23b4.
+All148new closes,296accountings,seven reports,196Decimal metrics and148new
+branch rows/leaves passed;all384 inherited certificates remain byte-identical.
+The actual May25 PPLI/VMEO event and original float fee/fraction convention
+passed,with parent retained and zero duplicated proxy cash. Preserve genuine
+VCRA as already-adopted future input and exclude17December diagnostic closes.
+Forty-three DATA checks include five meaningful guard-removal falsifiers.
+
+For financial256,select the disjoint unconsumed original December CashCalendar
+terms together,including COR2's December28 recognition. Preserve the exact
+original catalog/compiler and frozen COR2 issuer identity;do not introduce
+new cash or timing facts. Preserve all retained v2/branch/APHA activation
+bytes and the future VCRA term. Per-batch matrix limits and per-arm writer
+concurrency permit this independent P07 run alongside the existing variants.

@@ -21,7 +21,7 @@ def local_registered_catalog_path(monkeypatch):
 
 
 def test_both_generations_resolve_by_exact_own_admission_hash():
-    for arm,old,new in [('P04',817,1970),('P07',439,838),('P10',692,1592)]:
+    for arm,old,new in [('P04',817,1970),('P07',439,986),('P10',692,1592)]:
         latest=p.root_spec(arm);prior=p.root_spec(arm,p.PRIOR_ADMISSIONS[arm])
         assert (prior['measured_closes'],latest['measured_closes'])==(old,new)
         parent=p.root_spec(arm,latest['root_admission']['parent_root_admission_sha256'])

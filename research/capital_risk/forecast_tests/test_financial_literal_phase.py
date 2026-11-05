@@ -80,3 +80,16 @@ def test_p05_explicit_2021_phase_uses_original_constructor_without_default_plan(
     assert terms==original['terms']==codec.catalog['terms']
     assert [t['ticker']for t in terms]==['WPX','BEAT1','MIK','VAR','NAV','WORK','HOME','TRIL1']
     assert all(t['native_session']>'2020-12-31'and t['added']['session']>'2020-12-31'for t in terms)
+
+
+def test_p07_explicit_cash_phase_keeps_original_calendar_and_rejects_unknown_phase(monkeypatch):
+    import pytest
+    import system_campaign_ordinary_registry as registry
+    original=registry.registrations
+    monkeypatch.setattr(registry,'registrations',lambda:original(f.HERE))
+    codec,name,terms=f.selected('P07',cursor='2021-11-30')
+    assert name=='system-campaign-december-cash-calendar-terminal-facts.json'
+    assert [t['ticker']for t in terms]==['COR2','DRNA','ARNA','EPAY','CCXI1','NEWR','IMGN','CTLT']
+    assert terms==codec.catalog['terms']
+    with pytest.raises(ValueError,match='EXACT_ADMITTED_MDCO_PHASE'):
+        f.selected('P07',cursor='2021-10-29')

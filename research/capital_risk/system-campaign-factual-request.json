@@ -1,16 +1,16 @@
 {
   "admitted_checkpoints": {
-    "P05": "93e753f19c8ffbb25db4852e60b38d8426ccfe21669652737f9239c18e6fdaa8"
+    "P07": "55174c2fd0b8737014267eb7e77a782dc1d3ba0536c8516c42c98f9a8a497956"
   },
-  "admitted_financial_parents_sha256": "a35d7437b5198e30153f349f57e92a548f885faff214c9f4a27d8e2428b9e2bd",
+  "admitted_financial_parents_sha256": "963cc7471d91dd99ff5461184d499f487da7070c16222b60aa2e1fc7e3db5ba7",
   "arm_inputs": {
-    "P05": {
+    "P07": {
       "new_factual_overlay": true,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P05"
+    "P07"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
@@ -33,7 +33,7 @@
   "readonly_partial_review": false,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/122",
+  "schema": "research.system-campaign-accurate-resume-request/123",
   "selected_partials_sha256": "7f584378d898b3cec694f444a7a1da914a13b1c96f59c2c303383d9baecf2875",
   "selected_research_models": {
     "P07": {
@@ -87,7 +87,7 @@
     "system-campaign-december-cash-calendar-terminal-facts.json": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
     "system-campaign-early2019-terminal-facts.json": "740b0e937067d3cf45a371e51cfd02c59821e9fdb5232714d449d302cda6b4ac",
     "system-campaign-february-cash-calendar-terminal-facts.json": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
-    "system-campaign-financial-admitted-parents.json": "a35d7437b5198e30153f349f57e92a548f885faff214c9f4a27d8e2428b9e2bd",
+    "system-campaign-financial-admitted-parents.json": "963cc7471d91dd99ff5461184d499f487da7070c16222b60aa2e1fc7e3db5ba7",
     "system-campaign-financial-branch-contract.json": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
     "system-campaign-financial-correlation-prefix.json": "db34a12dc699680a3f89cc3d08f0107ee1d041fdfe427a86f6b3cffc6f05f32c",
     "system-campaign-financial-partials.json": "7f584378d898b3cec694f444a7a1da914a13b1c96f59c2c303383d9baecf2875",
@@ -246,11 +246,11 @@
     "system_campaign_financial_distribution_source_v2.py": "820be270c8c84aa40e81c18cc92aed4e24f1f45d414f04f6f4b514464ab6de17",
     "system_campaign_financial_distribution_standard.py": "8835ef36a70ac54acf4e96cb70e1de2598460544013dcb6e72d24e09b27b88af",
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
-    "system_campaign_financial_future.py": "525d77c98c3e9e7125d43d6beb837bd11cd89c04d5da8ffb01f73491ea24c590",
+    "system_campaign_financial_future.py": "814aa9ae2e87d75c2a476e07af6538846d2692f63a0e456afb0a2456e256d636",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
-    "system_campaign_financial_partial.py": "d90e2232a6899b933f5ad8db688f6f2d0f9d7260485ed0bfde8222b3bfa04eb2",
+    "system_campaign_financial_partial.py": "3b9ec5142477dbd6295e8c31eeabb1115336a0937b91ae5c6ae6b24a25d9be38",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
-    "system_campaign_financial_resume.py": "2c83c61eaeef08c4b3e09449f8e9608d5c304e485ab7d79bcb95ee5d4ccc1570",
+    "system_campaign_financial_resume.py": "c5da4d314f0cb7d658beb06949205b7ac63725365cbec5e5ea647e3c95e69fb7",
     "system_campaign_financial_uncertainty.py": "c95b3b4d91a5a7551f8ceaa3a05ede6fb678ead80d9961e2ba31e8673c2d1d3b",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
@@ -474,5 +474,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "507fa2278681deabde2875bd1714be85d1cc6cc4ea616266f1345d45fae204ce"
+  "workflow_sha256": "6a932c9fd84d6456b188bf2c1979a57144fc869892b394318025fedd980b4a6c"
 }

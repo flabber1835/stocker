@@ -37,6 +37,9 @@ CASH_PHASES = {
     ('P04', '2022-04-29'): ('system-campaign-december-cash-calendar-terminal-facts.json', ('EPAY',)),
     ('P10', '2022-01-31'): ('system-campaign-february-cash-calendar-terminal-facts.json', ('VCRA',)),
 }
+CASH_PHASES['P07', '2021-11-30'] = (
+    'system-campaign-december-cash-calendar-terminal-facts.json',
+    ('COR2', 'DRNA', 'ARNA', 'EPAY', 'CCXI1', 'NEWR', 'IMGN', 'CTLT'))
 COMPOSITION = 'research.selected-future-catalog-composition/1'
 COMBINED_PHASES = {
     ('P07', '2019-12-31'): (
@@ -1765,7 +1768,7 @@ def selected(arm, *, cursor=None):
         return delivery
     if arm == 'P07':
         need(cursor == '2019-12-31' or (arm, cursor) in SINGLE_PHASES or (arm, cursor) in FOLLOWING_PHASES
-             or (arm, cursor) in FUTURE_LITERAL_PHASES,
+             or (arm, cursor) in FUTURE_LITERAL_PHASES or (arm, cursor) in CASH_PHASES,
              'FUTURE_EXACT_ADMITTED_MDCO_PHASE')
     if (arm, cursor) in COMBINED_PHASES:
         return compose(COMBINED_PHASES[arm, cursor])
