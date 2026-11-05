@@ -4503,3 +4503,81 @@ The first local check encountered a Windows long-path limit; a fresh long-path
 qualification directory passed. Select fresh FIN306/request172 only, still one
 financial worker/458 sources from the same independently admitted own1196 root.
 The exact launcher probe again passes with zero local financial sessions.
+
+P03's source-bound catalog preparation validates the exact own462/15-input root,
+SOURCE290's closed payload/review/qualification, unowned/unordered source role,
+the primary legal endpoints, and actual November11/12 raw rows. All28 private
+checks pass3.33s with19 semantic mutations, three meaningful guard removals and
+five import fences. The initial test-only import-path and repinning helper
+defects were corrected; the input is still not financially selected.
+
+The complete inherited inventory contains four forward-input descriptors and17
+future terms, not just the current ordinary descriptor. The selected ordinary
+descriptor has14 future terms (15 total including consumed CBLK); three legacy
+FactualInputs cash events remain. The ordinary input includes a CONVERSION and
+two CASH_PLUS_STOCK events. Preserve original FactualInputs/DistributionFacts
+codecs and qualify conversion review separately. The current ActualEvents class
+AST matches the original financial281 producer, and DATA-only initialization of
+its exact original439 checkpoint/material proves15 terms and no source-only
+scopes without entering any canonical context.
+
+For the generic lifecycle, use a separate retained declaration and origin
+receipt; do not alter the historical ALDR policy's false next-input flags.
+Keep original B19 first, then the generic codec, and require the exact installed
+loader identities. Add one16th input through a distinct paused boundary, retain
+the eight prior proofs, and keep original interval growth/recovery/cloud/append.
+The full-checkpoint B19 semantic visitor may skip only the independently parsed
+new descriptor; every other descriptor and the full canonical hash stay checked.
+Preserve actual old439 checkpoint bytes only for observer input metadata, never
+for a financial restart. Always restart finance from the admitted current root.
+
+Route generic readonly review at the worker entrypoint so the existing resume
+review function AST remains unchanged. Reuse the already qualified complete
+legacy-review-body/codecs-lifetime driver inside financial_inputs; the uncertainty
+review dispatch selects the new generic event review. Independently validate its
+archived actual pre-event state and raw/signal/split basis before permitting the
+single additional varying row. Retained16 restarts preserve the receipt and all
+input resources, with no readoption. All generic lifecycle work remains private
+until parser/packet/neutral/caller/review/restart falsifiers pass; P06 without an
+old seed is explicitly outside this seeded route.
+
+FIN306 authenticates545 members/731251188 logical bytes from artifact13451345162,
+576040524bytes, SHA
+6113900f2daf3320954dd042b51c78057c0e98abfea51270284b5705eac47c12.
+Actual stops are preflight0/economic1/review0, all non-OOM. It saves own1238 through
+November30,2022, outerefc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277:
+42 new committed closes after the actual neutral23rd-input adoption. The worker
+stops at ABMD's December21 incomplete leadership terminal. Fourteen December
+tail closes remain excluded. The committed GBT October5 event is an actual
+unheld zero-cash noop; TRQ December16 is in the excluded tail, not financial
+authority for the saved November checkpoint. No new root is admitted yet.
+
+Select a separate readonly reporting target for exactly this saved1238 checkpoint
+and its original admitted1196 seed. Preserve all22 old descriptors, the actual
+23rd descriptor, original adoptions/742 certificates and the new neutral receipt.
+Remove only the obsolete FIN296 failed-review quarantine metadata from the new
+positive-review target; the original failed artifact and admitted root stay exact.
+Carry an explicit ordinary-augmentation catalog reference for later retained
+restarts. Reproduce Linux monthly/retry state without financial replay, then
+independently DATA-review all42 new rows/84 accountings, the two new reports,
+every branch/math/watch chain, full raw23-input list, the new zero-state boundary
+and committed GBT event before another root can be admitted.
+
+The saved-prefix selector authenticates every545 member, all source/request and
+positive stopped-worker metadata, exact23-input parent/successor boundaries and
+watch append. It reuses the entire unchanged zero-adoption DATA validator,
+including the canonical input-successor chain; neutral adoption preserves
+financial state while extending that chain. An initial manual chain-equality
+assumption was rejected before any target write and corrected by using the
+whole original validator. The selected transport is
+e2b2b6ae29fccf1030760e34d41c89ec81e83f49a9db79df91d88781904922ff;
+the admitted-root file remains unchanged.
+
+Select REPORT307/request173 with458 sources, zero financial workers and one
+readonly worker. Initial228 targeted checks pass224/fail4 on historical fixture
+coupling to the newly selected positive target. Keep those quarantine tests tied
+to their independently authenticated historical75e root and supply the failed
+target only to synthetic repair scenarios; no runtime guard changes. All142
+affected launcher/quarantine/requalified-parent checks then pass29.01s. The
+remaining86 cases had already passed. The exact launcher probe passes with
+zero financial sessions. No root admission or new completion is claimed.

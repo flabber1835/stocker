@@ -20,10 +20,10 @@ sys.meta_path.insert(0, Fence())
 import system_campaign_financial_requalified_parent as data
 import system_campaign_financial_partial as partial
 
+HISTORICAL_TARGET=data.validated(partial.root_spec('P07','75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719'))[0]
 
 def target():
-    p = Path(data.__file__).parent/'system-campaign-financial-partials.json'
-    return json.loads(p.read_bytes())['arms']['P07']
+    return deepcopy(HISTORICAL_TARGET)
 
 
 def rooted(monkeypatch):
@@ -53,7 +53,7 @@ def test_exact_two_artifacts_are_separate_from_root_authority(monkeypatch):
 
 def test_actual_root1196_has_separate_authority_and_preserves_initial_policy():
     import system_campaign_financial_additional_sensor as sensor
-    spec = partial.root_spec('P07')
+    spec = partial.root_spec('P07','75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719')
     old, review = data.validated(spec)
     phase = sensor.phase(spec)
     assert spec['root_admission_sha256'] == '75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719'

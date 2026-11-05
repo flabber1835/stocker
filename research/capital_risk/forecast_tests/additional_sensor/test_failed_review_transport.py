@@ -23,7 +23,9 @@ import system_campaign_financial_resume as resume
 
 
 def target():
-    return deepcopy(json.loads((partial.HERE / 'system-campaign-financial-partials.json').read_bytes())['arms']['P07'])
+    from system_campaign_financial_requalified_parent import validated
+    # The failed target remains authenticated through its historical admitted root.
+    return validated(partial.root_spec('P07','75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719'))[0]
 
 
 def test_actual_quarantine_target_has_no_financial_or_root_authority():

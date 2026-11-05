@@ -41,16 +41,14 @@ def proof():
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
     assert r['arms'] == ['P07']
-    assert r['maximum_parallel_financial_workers'] == 1
-    assert r['maximum_parallel_readonly_workers'] == 0
-    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
+    assert r['maximum_parallel_financial_workers'] == 0
+    assert r['maximum_parallel_readonly_workers'] == 1
+    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
     assert r['readonly_source_witnesses'] is False and m.request_authority(r)
     assert r['source_witness_scopes'] == {}
-    ordinary = r['selected_ordinary_augmentations']['P07']
-    assert ordinary['adoption_required'] is True
-    assert ordinary['origin_root_admission_sha256'] == m.root_spec('P07')['root_admission_sha256']
+    assert r['selected_ordinary_augmentations'] == {}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=True,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {}
     assert set(r['selected_research_models']) == {'P07'}
@@ -231,6 +229,14 @@ def launch_fixture(tmp_path, monkeypatch, event):
         scope.update(parent_outer_sha256=cp['sha256'],parent_cursor=cp['source_cursor'])
         request['source_witness_scopes']={'P07':scope}
     request_path = tmp_path / 'request.json'
+    if event.startswith('readonly-repair'):
+        from system_campaign_financial_requalified_parent import validated
+        historical=validated(m.root_spec('P07','75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719'))[0]
+        fixture_parts=json.loads((CAP/m.PARTIALS).read_bytes())
+        fixture_parts['arms']['P07']=historical
+        fixture_path=tmp_path/'historical-failed-review-partials.json'
+        fixture_path.write_text(json.dumps(fixture_parts))
+        monkeypatch.setattr(m,'PARTIALS',str(fixture_path))
     request_path.write_text(json.dumps(request))
     stage_path, cap_path = tmp_path / 'stage.json', tmp_path / 'capacity.json'
     stage_path.write_text('{}'); cap_path.write_text('{}')
