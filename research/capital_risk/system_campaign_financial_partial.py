@@ -502,6 +502,9 @@ def admission_tree(review_file='stopped-review/core-review.json'):
 
 
 def admit(spec, root, key, inspector):
+    from system_campaign_financial_review_repair import applies, admit as repair_admit
+    if applies(spec):
+        return repair_admit(spec, root, key, inspector)
     need(spec['archive_format'] in (FORMAT, FRESH_FORMAT) and spec['financial_authority'] is False
          and spec['financial_predecessor_admitted'] is False
          and spec['manifest']['raw_member_bytes'] < 1024**3,

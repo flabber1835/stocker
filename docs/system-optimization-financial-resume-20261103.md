@@ -3897,3 +3897,152 @@ C:/GitHub/stocker/.codex-tmp/source298-refreshed-selector-tests-20261105-001
 forecast_tests/test_financial_source_witnesses.py forecast_tests/test_financial_resume.py
 -k "stopped_source_capture_never_launches_financial_workers or corrupt_source_payload_cannot_trigger_finance_or_report_success or unknown_source_worker_has_no_export or different_actual_worker_request_cannot_be_accepted or actual_worker_request_byte_guard_removal_falsifier or actual_request_preserves_every_frozen_driver_and_selects_only_unfinished or existing_workflow_selects_qualified_job_without_overlapping_own_arm"`.
 The exact launcher/source-closure probe passes with446 sources and no finance.
+
+
+For the wide source capture, select a separate versioned cash-input subset
+catalog. Its full original source payload/review/qualification remain unchanged
+and authenticated; an explicit sorted unique list of strict integer indices
+selects the input members in source order. Reuse the existing qualified cash
+batch validator with only its typed subset schema and the three selected member
+lists bound to those indices. Every per-term native/identity/parent role, legal
+cash/date policy, primary extraction and no-double-payment predicate remains
+unchanged. Keep the original96c976... validator byte-identical for historical
+inputs. This is an input selection adapter, not an accounting implementation.
+Non-cash/CVR, delivery and source-only records in the wide payload are excluded
+until their separate existing or newly qualified models are bound.
+
+Primary HMHC completion evidence is the April7,2022 SEC8-K:
+https://www.sec.gov/Archives/edgar/data/1580156/000119312522098302/d512024d8k.htm
+confirming mandatory common conversion to21USD cash after the April6 tender
+expiration. NasdaqECA2022-60 gives the anticipated April7 preopen clock, but is
+not an updated actual-close confirmation. Select the already documented explicit
+research opening recognition on April7 without claiming actual opening cash
+availability, settlement or strict archival causality. ANAT's updated actual
+NasdaqECA2022-114 confirms190USD cash and May25 preopen completion after May24
+last trading: https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-114.
+Use the existing confirmed-preopen input policy for ANAT, still without claiming
+actual cash settlement or strict archival availability. SOURCE298 identity DATA
+and typed subset qualification must close before either becomes a financial input.
+
+
+SOURCE298 independent DATA now closes all131 identities/288 raw action rows,
+using a fresh archive rehash and complete2022--2026 scans. Review611f492f4affd35c27bcddf3ee107b188b818094bb49f0c63473bf6b20e1ff25
+and qualification6974e391728808898e8b5dcc4435470352ca13a09057241562f8eddffea303a3
+retain source-only authority and13 original descriptors.26 cases pass in3.71s,
+including one guard removal/five fences. An initial adaptation exposed three
+missing pending/slot/receivable predicates; the final reader binds these to a
+separate authenticated own1070 JSON role preimage (c7f64958e42a4d8152be41b771170a5104e0a6a8833451da6f9c7adf6fbbfa05).
+The source review does not infer that the currently held names stay held.
+
+Integrate the separately versioned typed cash subset for HMHC and ANAT with
+full SOURCE298 evidence. Its PATH constructor records exact catalog and compiler
+hashes for the existing ordinary selector; JSON construction remains available.
+Use one primary literal phase for these two terms. Further source-captured
+ordinary completions may be composed only via their unchanged qualified original
+constructors and source hashes, with disjoint native/effective keys. CVR, stock,
+source-only and unsupported consideration records remain outside this cash batch.
+
+The own1070 cash subset may also reuse source-captured original literal ordinary
+cash terms whose existing policy is CONFIRMED_PREOPEN_COMPLETION or the explicit
+RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY convention. Bind each reused term to
+its immutable original catalog/record hash and compare every economic/timing/
+consideration field before reparenting only its fresh identity/native/role/source
+capture fields. Old root books are never imported. NEXT-session, contingent,
+source-only and stock/mixed records are not silently coerced into either cash
+policy. The original terms' held/unheld authority limitations remain enforced.
+Original stock calendar terms may be composed using the unchanged stock compiler
+and its original fractional-delivery/CIL limits, separately from the cash subset.
+
+Prepare SOURCE299 from admitted P03 own462 for161 unconsumed future native
+identities: DOVA, HMHC, ANAT and158 remaining original-model records through2026.
+Exclude all native identities already covered by the15 adopted P03 descriptors.
+All current roles must be recomputed from own462. This is a useful future-source
+batch while FIN296 runs, with zero finance; DOVA's closed SOURCE290 proof and
+selected bounded27.50+0..1.50 model remain separate and unchanged.
+
+
+FIN296 stops at a149-close new committed prefix, own1196/2022-09-30,
+outer6e3e15d25a055f5025e51b08712b56cadf8e396eb5866918d43ec4fe08fb4917.
+Artifact13433939196 is341939703bytes, SHAafc984b1e14d9b8d5882e6e27bda3ede9d98804a4234c153f4b0c423b61aa2d6;
+authentication verifies301 members/484226706 logical bytes and positive stopped
+non-OOM worker1/reviewer1. One October3 daily tail remains excluded. The worker
+refuses the original incomplete GBT leadership terminal on October4, security
+827416728546053456. The corrected caller guard therefore allowed actual finance.
+No completion or root admission is inferred from this evidence.
+
+The reviewer separately fails in ordinary_reconstruction: its fresh scratch
+root has no book/repairs for the20 original descriptors. Restore the documented
+original input reconstruction contract by staging exact hash-checked descriptor
+bytes and required immutable origin resources into that scratch root immediately
+after its exclusive directory creation. Preserve the frozen additional runtime
+file and INITIAL policy record bytes; use a new source-qualified private function
+binding that inserts only this I/O preparation, and route only the uncertainty
+review dispatcher to it. Original reconstruction, boundary, model, financial and
+B19 predicates remain intact, and no financial checkpoint/state is copied as a
+new book. Add falsifiers for missing/tampered/foreign input/resource generations.
+
+Select a separate narrow readonly repair protocol for this exact failed-review
+artifact. Authentication may transport the positively stopped immutable evidence
+without granting financial authority or pretending a prior canonical review
+passed. The hosted corrected original reviewer must qualify the whole committed
+prefix, both neutral adoptions, old593 proof rows,149 new branch rows and the
+original/new sensor event. Reproduce monthly reports without advancing sessions.
+Only after this succeeds may independent DATA and a separate root writer admit
+own1196. Never replay the149 financial closes to work around a review I/O defect,
+rerun an old Actions request, relabel the failed stop, or adopt the October tail.
+
+
+Prioritize REVIEW299/request165 for only the exact FIN296 own1196 artifact;
+the previously planned P03 wide source batch is deferred, not launched. The new
+transport accepts only FIN296/P07/artifact13433939196/81a96ab, exact1196/September30,
+original failed0/1/1 stops, exact missing-input log and retained old1047 accounting
+review. All original archive/GCM/manifest/member/inspection/source/prefix guards
+remain unchanged. The transport is quarantine with financial authority false;
+no passed current-prefix review is invented. It is refused for a financial request.
+
+Run a full readonly preflight/monthly reproduction of the quarantined prefix,
+then run the corrected original review with separately authenticated admitted
+own1047 mounted as its original /old and immutable FIN296 as /evidence. Both
+workers are sequential, offline and readonly except their own output; no economic
+worker may launch from this request. Require positive zero/non-OOM stops and
+both original core1196 review and complete old593+new149 B19 review before reporting
+success. Export the fresh requalified review separately; preserve the original
+failed receipt/logs unchanged. The original financial root remains1047 pending
+independent DATA/root admission. This restores the existing review contract.
+
+The P05 input preparation now contains91 supported cash members (HMHC/ANAT plus
+89 unchanged original legal terms), bound to the full131-member source DATA.
+Catalog02cdb6bd775fb3315bda17d0c7202292605389041330c01a6fd1fd8c6d00d7b2
+and validator1de98099b45b4fa2fb8727fd82fb5dcf1ed29ad371f3f4199954be7e088f1228
+remain input preparation for separate review; no P05 financial phase is selected.
+Remaining40 records retain their separate NEXT/source-only/stock/CVR/unsupported
+policies and are not coerced into this batch.
+
+
+REVIEW299 verification: initial focused repair/input checks pass76 in8.16s.
+Integrated additional-sensor, retained caller, partial transport, resume and cash
+subset checks pass324 with two setup failures in85.37s. The isolated launcher
+correctly refused a stale request-source hash; the ordinary readonly fixture
+inadvertently selected the new real repair target. Regenerate exact request448
+sources and explicitly isolate ordinary fixtures from the extra recovery gate.
+All66 final affected checks then pass in16.01s, including the isolated launcher,
+ordinary readonly path, sequential preflight/review-only repair, negative/UNKNOWN
+repair outcomes, original public-guard AST undo equivalence, two scratch input
+guard removals, the readonly request guard removal and the economic-launch guard
+removal. No financial or Wealth Core test suite was run. Exact commands:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/p07-readonly-repair-integrated-tests-20261105-001
+forecast_tests/additional_sensor forecast_tests/retained_callers
+forecast_tests/test_financial_partial.py forecast_tests/test_financial_resume.py
+forecast_tests/qualified_cash_subset`;
+then `python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/p07-readonly-repair-final-targeted-tests-20261105-001
+forecast_tests/additional_sensor/test_review_scratch_inputs.py
+forecast_tests/additional_sensor/test_failed_review_transport.py
+forecast_tests/test_financial_resume.py::test_isolated_host_import_reproduces_missing_schema_dependency_and_then_passes
+forecast_tests/test_financial_resume.py::test_readonly_success_exports_only_stopped_review_and_never_launches_finance
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm`.
+The exact launcher probe passes with448 source files, original383/B19 unchanged,
+zero financial workers and one sequential readonly worker. The scratch repair
+preserves every INITIAL policy source byte; no failed checkpoint is a resume seed.

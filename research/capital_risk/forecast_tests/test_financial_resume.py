@@ -40,13 +40,13 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P05']
+    assert r['arms'] == ['P07']
     assert r['maximum_parallel_financial_workers'] == 0
     assert r['maximum_parallel_readonly_workers'] == 1
-    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
-    assert r['readonly_source_witnesses'] is True and set(r['source_witness_scopes']) == {'P05'} and m.request_authority(r)
+    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
+    assert r['readonly_source_witnesses'] is False and r['source_witness_scopes'] == {} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P05':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {}
     assert set(r['selected_research_models']) == {'P07'}
@@ -201,6 +201,11 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 def launch_fixture(tmp_path, monkeypatch, event):
     import ephemeral_runner_capacity as capacity
     import system_campaign_financial_future as future
+    import system_campaign_financial_review_repair as repair
+    if not event.startswith('readonly-repair'):
+        # Keep ordinary launch fixtures independent of the currently selected
+        # real failed-review target; dedicated cases exercise that extra gate.
+        monkeypatch.setattr(repair, 'applies', lambda spec: False)
     monkeypatch.setattr(future, 'stage_selected_sources', lambda *args: None)
     request = dict(m.expected_request())
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
@@ -247,6 +252,8 @@ def launch_fixture(tmp_path, monkeypatch, event):
         mode = values[values.index('--mode') + 1]; calls.append(mode)
         if event == 'unknown-' + mode:
             raise m.StopUnknown('synthetic unknown')
+        if mode == 'review' and event == 'readonly-repair-unknown':
+            raise m.StopUnknown('synthetic readonly repair review unknown')
         if mode == 'preflight':
             for filename in ['strict-parent-preflight.json', 'old-prefix-canonical-review.json']:
                 (output / filename).write_text('{}')
@@ -263,7 +270,9 @@ def launch_fixture(tmp_path, monkeypatch, event):
                 (output/'source-witness-request.json').write_bytes(b'changed' if event=='witness-wrong-request' else request_path.read_bytes())
                 if event=='witness-unknown-preflight':raise m.StopUnknown('synthetic source stop unknown')
             if event == 'failed-preflight': return dict(stop(), exit_code=1)
-        if mode == 'review': (output / 'core-review.json').write_text(json.dumps(proof()))
+        if mode == 'review':
+            (output / 'core-review.json').write_text(json.dumps(proof()))
+            if event == 'readonly-repair-refused': return dict(stop(), exit_code=1)
         return stop()
     monkeypatch.setattr(m, 'stopped_run', worker)
     def seal(root, *args, **kwargs):

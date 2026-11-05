@@ -50,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P05',)
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/164'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/165'
+EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -118,6 +118,7 @@ def expected_request():
              'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py',
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
              'system_campaign_financial_additional_sensor.py', 'system_campaign_financial_additional_sensor_runtime.py',
+             'system_campaign_financial_additional_sensor_review.py', 'system_campaign_financial_review_repair.py',
              'system_campaign_financial_projection.py', 'system-campaign-own-future-projection.json',
              'system_campaign_financial_distribution_source.py', 'system-campaign-compound-source-witness-scopes.json',
              'system_campaign_financial_distribution_source_v1.py', 'system_campaign_financial_compound_input.py',
@@ -897,6 +898,14 @@ def launch(args):
         need(shutil.disk_usage(temp).free >= 12 * 1024**3, 'RESUME_INITIAL_DISK_RESERVE')
         transfer = temp / ('campaign-factual-transfer-financial-' + args.arm.lower())
         old = admit_partial(spec, transfer, key, inspect)
+        from system_campaign_financial_review_repair import applies as repair_applies, ORIGIN as repair_origin
+        repair_origin_spec, repair_origin_root = None, None
+        if repair_applies(spec):
+            repair_origin_spec = root_spec(args.arm, repair_origin)
+            repair_origin_root = admit_partial(repair_origin_spec,
+                temp / ('campaign-factual-transfer-review-origin-' + args.arm.lower()), key, inspect)
+            need((old / 'source-bindings.json').read_bytes() == (repair_origin_root / 'source-bindings.json').read_bytes(),
+                 'RESUME_REVIEW_REPAIR_EXACT_UNCHANGED_ORIGINAL_SOURCE_EPOCH')
         capsule = None
         if args.arm == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
             auxiliary = crypto.admit(prefix_descriptor()['transport'],
@@ -908,7 +917,8 @@ def launch(args):
         binding = json.loads((old / 'source-bindings.json').read_bytes())
         need(build(frozen / 'source-fixed', source, binding['parameters']) == binding,
              'RESUME_WHOLE_ORIGINAL_FINANCIAL_SOURCE_IDENTICAL')
-        for directory in (source, old, *((capsule,) if capsule is not None else ())):
+        for directory in (source, old, *((capsule,) if capsule is not None else ()),
+                          *((repair_origin_root,) if repair_origin_root is not None else ())):
             for path in directory.rglob('*'):
                 os.chmod(path, 0o555 if path.is_dir() else 0o444)
             os.chmod(directory, 0o555)
@@ -917,6 +927,8 @@ def launch(args):
         save(out / 'spec.json', spec)
 
         def worker(mode, output, evidence=None):
+            need(request['financial_resume_authorized'] is True or mode in ('preflight', 'review'),
+                 'RESUME_READONLY_REQUEST_CANNOT_LAUNCH_ECONOMIC_WORKER')
             need(memory_bytes()['MemAvailable'] >= 10 * 1024**3
                  and shutil.disk_usage(temp).free >= 10 * 1024**3, 'RESUME_ONE_WORKER_CAPACITY')
             role = 'worker' if mode == 'economic' else mode
@@ -967,6 +979,23 @@ def launch(args):
                  and monthly['financial_transitions_reexecuted'] == 0,
                  'RESUME_COMPLETE_STOPPED_MONTHLY_REPRODUCTION_REQUIRED')
             shutil.copyfile(parent_review / 'monthly-reproduction.json', out / 'monthly-reproduction.json')
+            if repair_applies(spec):
+                need(repair_origin_spec is not None and repair_origin_root is not None,
+                     'RESUME_REVIEW_REPAIR_REQUIRES_ORIGINAL_ADMITTED_PARENT')
+                audit = temp / ('financial-resume-requalified-review-' + args.arm)
+                audit.mkdir(mode=0o700)
+                save(audit / 'spec.json', repair_origin_spec)
+                evidence = old
+                old = repair_origin_root
+                try:
+                    receipt['repair_reviewer'] = worker('review', audit, evidence)
+                finally:
+                    old = evidence
+                shutil.copytree(audit, out / 'requalified-review')
+                need(successful_stop(receipt['repair_reviewer']),
+                     'RESUME_READONLY_ORIGINAL_REVIEW_REQUALIFICATION_MUST_PASS')
+                from system_campaign_financial_review_repair import require_requalified_review
+                save(out / 'failed-review-requalification.json', require_requalified_review(audit, spec))
             receipt['status'] = 'READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT'
         else:
             need(request['financial_resume_authorized'] is True, 'RESUME_FINANCIAL_AUTHORITY_REQUIRED')
