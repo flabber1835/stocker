@@ -76,7 +76,7 @@ def inherited(root,*,adopted=False,branch_count=1):
     root.mkdir();(root/'book/repairs').mkdir(parents=True)
     rows=[dict(schema='terminal-repair/1',add=[],suppress=[])]
     if adopted:rows[0]['add']=[dict(security_id='576374012507208201',session='2022-02-23')]
-    rows += [dict(schema='research.leadership-uncertainty-input/1',independent_branch=i) for i in range(branch_count)]
+    rows += [dict(schema='research.leadership-branch-uncertainty-input/1',independent_branch=i) for i in range(branch_count)]
     descriptors=[]
     for v in rows:
         raw=m.encoded(v);h=m.sha(raw);(root/'book/repairs'/(h+'.json')).write_bytes(raw)

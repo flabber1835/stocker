@@ -2181,3 +2181,14 @@ repair documents and the already-adopted future SEND0.485TWLO/111.31proxy term
 at February1. Add only the new disjoint February14/15 native/effective inputs
 through the existing hydration,original packet qualification and neutral gate.
 Do not replace January's checkpoint or infer any February holdings from it.
+
+For source-qualified mandatory stock-only completions on a prior date,extend
+the generic zero-cash selector with first-frozen-session-after-completion
+recognition. Require exact zero fixed cash,ratio,delivered identity and declared
+raw-open fractional proxy;bind the confirmed legal completion separately from
+the recognition session. Validate the frozen session axis rather than requiring
+a weekend weekday number,so holidays remain valid. Preserve the existing
+preopen and positive-cash predicate statements. BMCH's January1/January4 case
+may use this rule only after source243 DATA,with the original1.3125 ratio and
+legal record retained and an explicit41.25 fractional research proxy. Do not
+reuse the old integral-only record as authority for nonintegral settlement.

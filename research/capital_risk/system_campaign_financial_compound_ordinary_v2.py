@@ -63,15 +63,39 @@ def inherited_proof(cp,root,subset,*,branch_validator):
     for descriptor in cp['repairs']:
         raw=(root/'book/repairs'/descriptor['filename']).read_bytes();value=json.loads(raw)
         need(descriptor['filename']==descriptor['sha256']+'.json' and sha(raw)==descriptor['sha256']
-             and value['schema'] in ('terminal-repair/1','research.leadership-uncertainty-input/1'),
+             and value['schema'] in ('terminal-repair/1','research.leadership-branch-uncertainty-input/1'),
              'COMPOUND_V2_ALL_INHERITED_ORDINARY_AND_BRANCH_BYTES')
         need(not selected(value),'COMPOUND_V2_GENUINE_ORDINARY_TARGET_NOT_PREVIOUSLY_ADOPTED')
         rows.append(dict(descriptor=deepcopy(descriptor),schema=value['schema']))
-        if value['schema']=='research.leadership-uncertainty-input/1':branches.append(descriptor['sha256'])
+        if value['schema']=='research.leadership-branch-uncertainty-input/1':branches.append(descriptor['sha256'])
     need(len(branches)==1 and branch_validator(root,cp)==branches[0],
          'COMPOUND_V2_EXACT_B19_VALIDATED_BEFORE_ORIGINAL_COLLISION_SKIP')
     return dict(all_original_input_bytes_verified=True,ordinary_targets_unadopted=True,
         original_branch_validated=True,original_branch_source_sha256=BRANCH_SHA,retained_inputs=rows)
+
+
+def qualified_collision_parent(origin,inherited):
+    """A descriptor view for original collision analysis, never a checkpoint."""
+    rows=inherited['retained_inputs']
+    branch=[v for v in rows if v['schema']=='research.leadership-branch-uncertainty-input/1']
+    ordinary=[deepcopy(v['descriptor']) for v in rows if v['schema']=='terminal-repair/1']
+    need(inherited['all_original_input_bytes_verified'] is inherited['original_branch_validated'] is True
+         and inherited['ordinary_targets_unadopted'] is True
+         and inherited['original_branch_source_sha256']==BRANCH_SHA
+         and [v['descriptor'] for v in rows]==origin['repairs']
+         and len(branch)==1 and len(ordinary)+1==len(rows),
+         'COMPOUND_V2_COLLISION_VIEW_ONLY_AFTER_COMPLETE_EXACT_B19_VALIDATION')
+    view=dict(deepcopy(origin),repairs=ordinary)
+    proof=dict(schema='research.qualified-ordinary-collision-descriptor-view/1',
+        parent_outer_sha256=origin['sha256'],parent_cursor=origin['source_cursor'],
+        parent_inner_sha256=origin['run']['checkpoint_sha256'],parent_input_sha256=origin['run']['input_sha256'],
+        parent_base_sha256=digest(origin['base']),all_original_descriptors_sha256=digest(origin['repairs']),
+        retained_ordinary_descriptors_sha256=digest(ordinary),retained_ordinary_count=len(ordinary),
+        omitted_validated_branch_sha256=branch[0]['descriptor']['sha256'],original_branch_source_sha256=BRANCH_SHA,
+        collision_analysis_only=True,financial_authority=False,input_adopted=False)
+    need({k:v for k,v in view.items() if k!='repairs'}=={k:v for k,v in origin.items() if k!='repairs'},
+         'COMPOUND_V2_COLLISION_VIEW_PRESERVES_EVERY_OTHER_PARENT_FIELD')
+    return view,proof
 
 
 def ordinary_document(material):
@@ -109,14 +133,15 @@ def ordinary_input(cp,record,root):
          and sha(Path(calendar.__file__).read_bytes())==record['ordinary_activation']['validator_sha256'],
          'COMPOUND_V2_ACTUAL_ORIGINAL_ORDINARY_VALIDATOR_MODULE')
     inherited=inherited_proof(origin,root,subset,branch_validator=branch.validate_input)
+    collision_parent,collision_view=qualified_collision_parent(origin,inherited)
     # The unchanged original hydrator verifies native, axis, collisions and fullrow.
     with tempfile.TemporaryDirectory(prefix='compound-ordinary-source-',dir='/variant') as temp:
-        private=codec.hydrate(origin,Path(root),Path(temp))
+        private=codec.hydrate(collision_parent,Path(root),Path(temp))
         collision=json.loads((Path(temp)/'cash-calendar-collision-preflight.json').read_bytes())
     material=dict(schema=SCHEMA,arm=record['arm'],record_sha256=digest(record),
         ordinary_activation=deepcopy(record['ordinary_activation']),selected_catalog=subset,
         full_catalog_sha256=sha(encoded(full)),original_private_payload=private,original_parent=origin,
-        inherited_input_proof=inherited,original_collision_preflight=collision,terms=deepcopy(subset['terms']),
+        inherited_input_proof=inherited,ordinary_collision_view=collision_view,original_collision_preflight=collision,terms=deepcopy(subset['terms']),
         original_observer_sha256=OBSERVER_SHA,financial_sessions_advanced=0,financial_authority=False,
         source_metadata_unchanged=True)
     return material,ordinary_document(material),inputs.load_actions(Path('/frozen/bundle'))
