@@ -1,0 +1,114 @@
+{
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "records": [
+    {
+      "arm": "P07",
+      "child_security_id": "211901312635613499",
+      "input_kind": "DISTRIBUTION_ONLY",
+      "ordinary_activation": {
+        "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
+        "catalog_sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
+        "selected_tickers": [
+          "VCRA"
+        ],
+        "validator_file": "system_campaign_cash_calendar.py",
+        "validator_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f"
+      },
+      "parent_cursor": "2021-04-30",
+      "parent_inner_sha256": "2874cdc3db6fc9bf951b2ac324a030ed0578a0a6c8c018d863ec271ee19cfd6c",
+      "parent_input_sha256": "67ec7b81593570695a90b612f684e41d3e701b1bf731363c482af731c376ded8",
+      "parent_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
+      "parent_root_admission_sha256": "99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1800227/000110465921074131/tm2116546d5_8k.htm | OneVMEOdistribution1.6235perPPLIoriginalshare; parentcontinues1:1; suppress84.55nativein-kindcashproxy; originalcanonicalchildsaleandfrozen47.15fractionalproxy; noactualsettlementclaim.",
+      "research_assumption": {
+        "actual_distribution_session": "2021-05-25",
+        "actual_settlement_claimed": false,
+        "child_liquidation_cost_bps": "10",
+        "child_policy": "LIQUIDATE_CHILD_AT_OPEN",
+        "child_shares_per_original_parent": "1.6235",
+        "continuing_parent_ratio": "1",
+        "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+        "native_relationship": "SPINOFF_AND_SPINOFFDIVIDEND_ONE_IN_KIND_DISTRIBUTION",
+        "opening_availability_assumed": true,
+        "recognition_session": "2021-05-25",
+        "schema": "research.daily-equivalent-native-distribution-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH",
+        "source_cash_proxy_semantics": "IN_KIND_CHILD_DISTRIBUTION_NOT_ADDITIONAL_CASH"
+      },
+      "source_bindings_sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b",
+      "source_module_file": "system_campaign_financial_distribution_source_v2.py",
+      "source_proof": null,
+      "source_scope": {
+        "additional_rows": [
+          {
+            "parent_positions": [
+              {
+                "entry_date": "2021-04-13",
+                "quantity": 13,
+                "slot_id": 7,
+                "ticker": "PPLI"
+              }
+            ],
+            "security_id": "517224929580411308",
+            "session": "2021-05-24",
+            "source_observation_sha256": "3175a384f80a22d6700be1384c912d2bc63a0c719ef53b209ce69b7a9278dda4",
+            "ticker": "PPLI"
+          },
+          {
+            "parent_positions": [
+              {
+                "entry_date": "2021-04-13",
+                "quantity": 13,
+                "slot_id": 7,
+                "ticker": "PPLI"
+              }
+            ],
+            "security_id": "517224929580411308",
+            "session": "2021-05-25",
+            "source_observation_sha256": "bb161b248ecf7667676b6d8c8ef60363ebda7c7216d04b038ee75d3839d634db",
+            "ticker": "PPLI"
+          },
+          {
+            "parent_positions": [],
+            "security_id": "211901312635613499",
+            "session": "2021-05-25",
+            "source_observation_sha256": "9f7d1b38a75f633d3730ef7888811f98adcfaaad6af03df39f07a9f5ebee2ef5",
+            "ticker": "VMEO"
+          }
+        ],
+        "expected_native_distribution_count": 2,
+        "native_distribution_queries": [
+          {
+            "financial_use_authorized": false,
+            "maximum_records": 1,
+            "native_term_sha256": "3914e13e84d7d6343457b60337e01a7ea3182e8ea98c4cf4af44a1ef8e231160",
+            "parent_security_id": "517224929580411308",
+            "parent_ticker": "PPLI",
+            "raw_source_row_sha256": "d257abca61e39c0874f6f9b2cd178a5f433aa2505d9b3785dcd227851b95b6e7",
+            "schema": "research.exact-native-distribution-query/1",
+            "session": "2021-05-25",
+            "source_row_id": "af436740257199b839d5d542cad40b27322a6c4c8a5e25b8236ab7e02e67288b"
+          },
+          {
+            "financial_use_authorized": false,
+            "maximum_records": 1,
+            "native_term_sha256": "7697611c1a87ad9bf61c7a17a0b1562c091bb3c36e17a53835d46d83f1055acc",
+            "parent_security_id": "517224929580411308",
+            "parent_ticker": "PPLI",
+            "raw_source_row_sha256": "8050e97450c576d6bf6df5e08ca34f4571492ae2e2362a90a296c8e269e4b309",
+            "schema": "research.exact-native-distribution-query/1",
+            "session": "2021-05-25",
+            "source_row_id": "fe2ab4f5f5c9f5c728a220a686e386b3b2149888586239f1d6f003c23ed208ee"
+          }
+        ],
+        "parent_cursor": "2021-04-30",
+        "parent_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
+        "schema": "research.distribution-only-source-scope/1",
+        "terms": []
+      },
+      "status": "PENDING_HOSTED_SOURCE_DATA_NOT_SELECTABLE"
+    }
+  ],
+  "schema": "research.selected-compound-distribution-input/2"
+}

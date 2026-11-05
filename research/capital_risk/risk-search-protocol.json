@@ -1,0 +1,166 @@
+{
+  "schema": "research.bounded-risk-search-protocol/1",
+  "id": "bounded-risk-search-001",
+  "budget": 12,
+  "capital": "50000",
+  "formation_records": 126,
+  "measured_closes": 4639,
+  "start": "2008-02-22",
+  "end": "2026-07-31",
+  "development_end": "2017-12-31",
+  "development_blocks": [
+    [
+      "2008-02-22",
+      "2012-12-31"
+    ],
+    [
+      "2013-01-01",
+      "2017-12-31"
+    ]
+  ],
+  "validation_blocks": [
+    [
+      "2018-01-01",
+      "2022-12-31"
+    ],
+    [
+      "2023-01-01",
+      "2026-07-31"
+    ]
+  ],
+  "shortlist": 2,
+  "ranking": "WORST_DEVELOPMENT_JOINT_LOSS_THEN_FEE_BURDEN_THEN_ID",
+  "objective": {
+    "growth_scale": ".01",
+    "drawdown_scale": ".05",
+    "strict_joint_tolerance": "1e-10"
+  },
+  "profiles": [
+    {
+      "id": "L1_KEEP0",
+      "family": "LOCAL_RED",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "0",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L1_KEEP55",
+      "family": "LOCAL_RED",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L3_KEEP0",
+      "family": "LOCAL_RED",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "0",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L3_KEEP55",
+      "family": "LOCAL_RED",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B02_C1",
+      "family": "BOOK_DAMAGE",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".02",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B02_C3",
+      "family": "BOOK_DAMAGE",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".02",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B04_C1",
+      "family": "BOOK_DAMAGE",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".04",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B04_C3",
+      "family": "BOOK_DAMAGE",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".04",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "C10_C1",
+      "family": "CONCENTRATION_BAND",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".10",
+      "release": ".08",
+      "rebalance": 21
+    },
+    {
+      "id": "C10_C3",
+      "family": "CONCENTRATION_BAND",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".10",
+      "release": ".08",
+      "rebalance": 21
+    },
+    {
+      "id": "C15_C1",
+      "family": "CONCENTRATION_BAND",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".15",
+      "release": ".12",
+      "rebalance": 21
+    },
+    {
+      "id": "C15_C3",
+      "family": "CONCENTRATION_BAND",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".15",
+      "release": ".12",
+      "rebalance": 21
+    }
+  ],
+  "validation_used_for_selection": false,
+  "known_history_not_unseen_OOS": true,
+  "worker_deadline_seconds": 900,
+  "review_deadline_seconds": 900,
+  "workflow_minutes": 90,
+  "production_contacted": false
+}

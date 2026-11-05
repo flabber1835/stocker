@@ -1,0 +1,29 @@
+{
+  "arms": {
+    "P10": {
+      "actual_error": "PublishedSession is not JSON serializable",
+      "artifact_id": 13105022904,
+      "encrypted_output_sha256": "b3374bd314bc60743ef6da3fa13e9df31f3acd53ba60cbe99e0fb84b486109e6",
+      "manifest_sha256": "ee615e2304076c9d4fda56e53792698dcba386b726ebb4e1ba1c7295be60bf67",
+      "no_diagnostic_origin_or_worker": true,
+      "qualifier_exit_code": 1,
+      "receipt_sha256": "ecd7a10e8fed83c53601139efc74f295a71accef69c5f7db1e282606eb708976",
+      "zip_sha256": "796788e968f599e8988821afbfd1ca72a09ac45f4df0034569dd7009e9ae368b"
+    },
+    "P11": {
+      "actual_error": "PublishedSession is not JSON serializable",
+      "artifact_id": 13105076620,
+      "encrypted_output_sha256": "e4e63747f8d8b9942c8957090aa75a54c8e168a6f5312737cde0b3337035cfe4",
+      "manifest_sha256": "ead3135a70f716a3f51d0b9963de222991cf1a732425f8d3d25ed364f22e6de0",
+      "no_diagnostic_origin_or_worker": true,
+      "qualifier_exit_code": 1,
+      "receipt_sha256": "c544cee3a149859bad4ac25fad05e25e7e8c3a82c162470f75e90a241c9fed3c",
+      "zip_sha256": "5dea89af50cc71e0517dff41d46e798f9e4088b1777c2da309b9eb68f453683a"
+    }
+  },
+  "correction": "Use existing typed discovery material digest for the one PublishedSession recorder value.",
+  "financial_source_or_rule_changed": false,
+  "head": "6dcb0e3e827eeb30c9ed2152dfd952ddb1066c19",
+  "run_id": 41360218956,
+  "schema": "research.volatility-publication-recorder-failure/1"
+}

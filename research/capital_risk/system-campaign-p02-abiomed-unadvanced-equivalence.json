@@ -1,0 +1,59 @@
+{
+  "actual_reviewer_exit_code": 0,
+  "actual_stopped_fences_verified": true,
+  "actual_worker_exit_code": 1,
+  "all_driver_git_blobs_verified": 177,
+  "all_inventory_members_authenticated": 123,
+  "economic_worker_log_sha256": "8e9441c87b9af3783281de25a1b04f025f63e1fdf0da216e52508800e15ae6d3",
+  "exact_unchanged_members": {
+    "book/checkpoint.json.gz": {
+      "bytes": 1078879,
+      "sha256": "7c1c83cbd5d10594b78d0cfedbe5e513bbf0b284e3e9d74ff95bf3c9d607c368"
+    },
+    "book/daily.jsonl": {
+      "bytes": 43368471,
+      "sha256": "0fc2a990e99242fa2ba1938dd171b1a617ca9b83fce4b7ec9879bd54d13cbfca"
+    },
+    "book/formation.jsonl": {
+      "bytes": 4074394,
+      "sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
+    },
+    "book/identity.json": {
+      "bytes": 30117,
+      "sha256": "67ffc8f6e5522b757029152203ea2eff87f90c2ceebc9950101317094eba8e90"
+    },
+    "book/monthly.jsonl": {
+      "bytes": 215830,
+      "sha256": "1e8fae2424353a4d00dd37c5db988e51a573eef2f6375add84a9949f48ccf0be"
+    },
+    "book/watch.jsonl": {
+      "bytes": 360716,
+      "sha256": "111ed783dd18f9e3d68fe28886860bed6aa7496f38db3c2f5626cade43d0d8e0"
+    },
+    "source-bindings.json": {
+      "bytes": 61203,
+      "sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289"
+    }
+  },
+  "failed_artifact_id": 13030574848,
+  "failed_attempt_preserved": true,
+  "failed_cipher_sha256": "6ad991343545d92d892be3b7268da4cc2082aed7d12d7d183ff67527bddb96a9",
+  "failed_head": "65dc046a7a802ed6f52150742b528a106cf528bc",
+  "failed_manifest_sha256": "3f54d724142f20ef19a5b334543f8ba20a1ec21f1ccba12ffaf15342009a9396",
+  "failed_receipt_sha256": "1d11b72f2c4997c495feeabd144d31d19660e615c5733b5064ebfab5f40f67bb",
+  "failed_run_id": 41171548427,
+  "failed_zip_sha256": "bae35a4255afde211f51a49d709a94bb1dc1a3cc84fcc3b14fe7c6bb9b096775",
+  "failure": "ABIOMED_ALL_ORIGINAL_PROVIDER_ROWS",
+  "financial_entry_not_reached": true,
+  "financial_parent_head": "8bce57313e15f3fd5f9c9a7506e2d53d39f13e72",
+  "financial_parent_outer_sha256": "210531c3a3ad25e903ecb6601efd28ce4114ff33c54bc216ac9ba092ed7e682e",
+  "financial_parent_run_id": 41166283025,
+  "financial_parent_session": "2022-11-30",
+  "measured_closes": 1238,
+  "new_model_not_adopted": true,
+  "no_checkpoint_rollback_or_new_origin": true,
+  "production_contacted": false,
+  "retained_input_descriptors": 28,
+  "schema": "research.abiomed-unadvanced-financial-equivalence/1",
+  "status": "EXACT_SAME_FINANCIAL_PARENT_NO_REPLAY_ENTRY"
+}

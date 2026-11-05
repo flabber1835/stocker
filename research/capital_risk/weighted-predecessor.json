@@ -1,0 +1,22 @@
+{
+  "schema": "research.capital-weighted-predecessor/1",
+  "run_id": 40604741645,
+  "source_commit": "ddcbe918c71d37c0e6c035784a1e7a39ae6710df",
+  "artifact_id": 12780412675,
+  "artifact_name": "capital-risk-weighted-exposure-ddcbe918c71d37c0e6c035784a1e7a39ae6710df",
+  "receipt_sha256": "9b7a4c7b381c3e61f995b29f64ca04e209a73053dfe21e5c202f6495792571c6",
+  "ciphertext": {
+    "name": "weighted-screen.tar.crseal",
+    "bytes": 11089956,
+    "sha256": "5bd6655ceb8ef57b17317f19bad7f664c622cced6082441f2b14845f335259f3"
+  },
+  "manifest_sha256": "c61a17d123cb508b3346d8ea740d02009edfbc248ce3ac7d63edcd3e45ae4334",
+  "driver_identities_sha256": "dcb6f9e1893e94aec6b594d26245c1c3f2eb07f93ef382fa440bbb41bd3abd77",
+  "features_sha256": "f2d33b1c1dcd446bac4819459effb1144ca07293588d998ceaf1ed152be0dd41",
+  "prefix_sha256": "32a92125409aa6d77072ca9f1af246140b21540c600f0123deff26feca96786b",
+  "prefix_bytes": 8036,
+  "committed_records": 2,
+  "last_session": "2008-02-25",
+  "next_session": "2008-02-26",
+  "contract_sha256": "da55232c2530ddfc312e25ad81536d9deb9d9f972eaef7250a1272e6c96dd0a2"
+}

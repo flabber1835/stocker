@@ -1,0 +1,18 @@
+{
+  "financial_runtime_code": false,
+  "functions": {
+    "acquire": {
+      "ast_sha256": "d1b10c686d5f202dfa29072f0b6ca7279cbf4061a81568f060c7f48c7a6e0dc9",
+      "source": "def acquire(name, spec, root):\n    path = root / name\n    parts=spec.get(\"parts\",[dict(name=name,**spec)])\n    with path.open(\"xb\") as output:\n        for part in parts:\n            url = f\"https://github.com/flabber1835/stocker/releases/download/{RELEASE}/{part['name']}\"\n            with urllib.request.urlopen(url, timeout=60) as response:\n                if response.headers.get(\"Content-Length\") and int(response.headers[\"Content-Length\"]) != part[\"bytes\"]:\n                    raise ValueError(\"REFUSED_DOWNLOAD_LENGTH\")\n                total,digest = 0,hashlib.sha256()\n                while block := response.read(1024*1024):\n                    total += len(block)\n                    if total > part[\"bytes\"]: raise ValueError(\"REFUSED_DOWNLOAD_SIZE\")\n                    output.write(block);digest.update(block)\n                if total != part[\"bytes\"] or digest.hexdigest()!=part[\"sha256\"]:\n                    raise ValueError(\"REFUSED_DOWNLOAD_PART_OR_LENGTH\")\n    return path",
+      "source_sha256": "ae5b97e4a355fbd85f12042fd4384f136551c6dfff20024aa5910ebf1445d5ac"
+    },
+    "validate_request": {
+      "ast_sha256": "1c209a9534f1754864be885b8e84f27d3ade22be2e2e132965810d0e7fc29e04",
+      "source": "def validate_request(request):\n    if (set(request) != {\"schema\", \"request_id\", \"stage\", \"protocol_sha256\", \"release\",\n                         \"expected_image\", \"manifest_sha256\", \"assets\"}\n            or request[\"schema\"] != \"research.capital-risk-stage-request/1\"\n            or request[\"stage\"] != \"stage\" or request[\"request_id\"] not in {\"stage-001\",\"stage-002\"}\n            or request[\"protocol_sha256\"] != PROTOCOL or request[\"expected_image\"] != IMAGE\n            or request[\"release\"] != RELEASE\n            or not re.fullmatch(r\"[a-f0-9]{64}\", request[\"manifest_sha256\"])\n            or set(request[\"assets\"]) != {\"data.tar.crseal\", \"runtime.tar.crseal\"}):\n        raise ValueError(\"REFUSED_STAGE_REQUEST\")\n    for name,value in request[\"assets\"].items():\n        if (set(value) not in ({\"sha256\", \"bytes\"}, {\"sha256\", \"bytes\", \"parts\"})\n                or not isinstance(value[\"bytes\"], int)\n                or not 36 < value[\"bytes\"] <= MAX_ASSET\n                or not re.fullmatch(r\"[a-f0-9]{64}\", value[\"sha256\"])):\n            raise ValueError(\"REFUSED_ASSET_COMMITMENT\")\n        if \"parts\" in value:\n            parts=value[\"parts\"]\n            if not isinstance(parts,list) or not 1<=len(parts)<=32:\n                raise ValueError(\"REFUSED_PART_COUNT\")\n            for index,part in enumerate(parts):\n                if (set(part)!={\"name\",\"sha256\",\"bytes\"}\n                        or part[\"name\"]!=f\"{name}.part-{index:04d}\"\n                        or not isinstance(part[\"bytes\"],int) or not 0<part[\"bytes\"]<=64*1024**2\n                        or not re.fullmatch(r\"[a-f0-9]{64}\",part[\"sha256\"])):\n                    raise ValueError(\"REFUSED_PART_COMMITMENT\")\n            if sum(p[\"bytes\"] for p in parts)!=value[\"bytes\"]:\n                raise ValueError(\"REFUSED_PART_TOTAL\")",
+      "source_sha256": "873297ffb460d6def432415a9c8e588c893dc03bafc3bffcb04e6848babf92d8"
+    }
+  },
+  "schema": "research.immutable-stage-pure-functions/1",
+  "source_file": "stage.py",
+  "source_sha256": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
+}

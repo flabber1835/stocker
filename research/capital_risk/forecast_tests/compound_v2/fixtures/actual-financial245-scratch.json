@@ -1,0 +1,19 @@
+{
+  "cash_calendar_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "mounts": {
+    "/driver": false,
+    "/frozen": false,
+    "/old": false,
+    "/out": true,
+    "/variant": false
+  },
+  "no_financial_state_or_runtime": true,
+  "original_helper_sha256": "bff7b8fd1f044840cad130660b29fb1cf77bce22956d857c69916150ab6c58f4",
+  "original_ordinary_input_with": "with tempfile.TemporaryDirectory(prefix='compound-ordinary-source-',dir='/variant') as temp:\n        private=codec.hydrate(collision_parent,Path(root),Path(temp))\n        collision=json.loads((Path(temp)/'cash-calendar-collision-preflight.json').read_bytes())",
+  "readonly_rootfs": true,
+  "schema": "research.actual-financial245-filesystem-scratch-fixture/1",
+  "tmpfs": {
+    "/tmp": "rw,noexec,nosuid,size=128m"
+  },
+  "worker_inspection_sha256": "0878de81aace4f21f75a6ecb2cbac4fdb4997b26d9e807df8846fd42ad1b3d7d"
+}

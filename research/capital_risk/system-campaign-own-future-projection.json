@@ -1,0 +1,30 @@
+{
+  "arm": "P07",
+  "bindings": {
+    "CORRECT": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266",
+    "CORRECT_CONTENT": "68eff4aef92ba28e7ddf8aa971343c093908f210a42188036f81ac690c352b00",
+    "CUTOVER": "2021-03-31",
+    "INNER": "ad7dfe3c328fb91d1fd043d6f902dbbb842e93c3a127b6a6a8fd21e49769a400",
+    "INPUT": "99bbee1e0de1134e74135440a6ea3a644d8e782e480117c27511f3cdbea198fa",
+    "OUTER": "996fe19c4b3271aeb3f1af2d5e07e21cf879935fb8ba71701cc130ecc0dad2c9",
+    "PRESERVED_ADD": "129b55a2378559e00d56b810538be6527998ee19da06d5bd1fecd5005a0ab2e1",
+    "RETIRED_ADD": "9e8b247ebedcc4cd74640afef476b81f969bc968ac46524bdb7c59669678e22c",
+    "RETIRED_SUPPRESS": "52b7295c188c199ae419f96d2de150d1f20f88a27c18d3b74b452e5d40ee0635",
+    "SID": "1056418588994492299",
+    "TARGET": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777",
+    "TARGET_CONTENT": "db42c03ad1ae34d3574c3d48de50624fb75664327f3253a0d58b65da24f66c01"
+  },
+  "delivered_identity_witness": {
+    "issuer_id": "SEC_CIK:1731348",
+    "listing_first_session": "2018-07-19",
+    "security_id": "653423826172679659",
+    "security_type_eligible": "1",
+    "session": "2021-05-03",
+    "source_observation_sha256": "73ba6d30c2699f8c1ca3c416aa072f1853fff0dd274a0f3d1fb405e080894984",
+    "ticker": "TLRY"
+  },
+  "original_adapter_sha256": "08c39115736eda1a3b6312be710ee8fd8b479554bddb2a035b81a307723fd187",
+  "original_gate_sha256": "1b524607dcbc7e92bcfa6ad52eb31d7d804acead9fa79004be32a21da531591b",
+  "parent_root_admission_sha256": "8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998",
+  "schema": "research.own-future-projection-binding/1"
+}

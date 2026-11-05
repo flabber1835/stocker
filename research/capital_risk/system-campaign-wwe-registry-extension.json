@@ -1,0 +1,13 @@
+{
+  "base_registry_sha256": "2c1bc3be34ec240a141eca69f5b020dde0f33db28e78e4d720276cc7b7b1d5b7",
+  "groups": [
+    {
+      "catalog_file": "system-campaign-wwe-tko-terminal-facts.json",
+      "loader_file": "system_campaign_stock_calendar.py",
+      "overlay_file": "wwe-tko-overlay.json",
+      "private_file": "hydrated-wwe-tko-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/wwe-tko/1/"
+    }
+  ],
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "research.capital-risk-timing-pilot/1",
+  "trial_id": "baseline-timing-pilot-001",
+  "owner_authorization": "DIRECT_PROCEED_AFTER_INCIDENT_AND_BOUNDED_PILOT_PROPOSAL",
+  "arm": "B",
+  "window_basis": "stress2021",
+  "origin_qualification_run_id": "40568817130",
+  "origin_source_commit": "a5a2fe4c38cf0e95e79974e7b5ea78b171ea48b3",
+  "maximum_formation_transitions": 5,
+  "maximum_measured_closes": 0,
+  "worker_deadline_seconds": 300,
+  "review_deadline_seconds": 120,
+  "job_timeout_minutes": 15,
+  "workers": 1,
+  "worker_cpu": 1,
+  "worker_ram_gib": 2,
+  "swap": false,
+  "network": "none",
+  "profiling": "CLOCK_AND_CODE_IDENTITY_ONLY_NO_FRAME_LOCALS_OR_FINANCIAL_MUTATION",
+  "performance_claims": false,
+  "automatic_followup_financial_trial": false
+}

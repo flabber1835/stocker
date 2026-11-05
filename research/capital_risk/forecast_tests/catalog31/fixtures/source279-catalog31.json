@@ -1,0 +1,2317 @@
+{
+  "base_function_AST_sha256": {
+    "ActualEvents": "f9f55b1c12791ca118d18a628940527144644072dfab059333ed9aa6b40f591c",
+    "NativeDateQuery": "ee9f1a742c324eea1bb1888f9729af89bb0df1774a9eef8b33716ebd66420960",
+    "NativePreimageQuery": "0fa48313f23b6b5b64fea055548afd03dbdfdcd84f640660a4e7b5680a8ed3ea",
+    "NeverHeldSourceExitScope": "e7f8f70648d3b0cabe180ea532fbe1f2a1d01285e6553a8f4f325cd8200504cc",
+    "ObservationIdentityQuery": "e0e2656e65fb2bb30f424fa5915520f2336d1f937b63df481547fdd489fd6684",
+    "ResearchAfterCloseMixedAssumption": "cff249dd2e07f566c5cd4e46467d168512b37b2aca2acc262d1c4a4cdacec746",
+    "ResearchCashAssumption": "70d923753ef6f63379471d65bf7e41b7b1a652ec0c74f85192d27adf009ac625",
+    "ResearchExactCashMixedAssumption": "2a2941cee8819ad439a6767ca1b64ba0f85ca01bc0baadc5765bb33e77a56574",
+    "ResearchMixedAssumption": "e10e7b4c5e61fa3bf988103e3f64cc783c64920843e314d356add71277a88dcf",
+    "ResearchSourceExitAssumption": "451f890eee82f63d858b0d2d0a2ce46bd0a878527878ab95a0dda077673dc4b5",
+    "ResearchTenderAssumption": "3aaf102d0c3f5bcbbe51ae9c2c2479db52cc101f30846f73c8a5dcf94032f652",
+    "ResearchUnheldCashAssumption": "ca6d2e044a93bba76f4a199b90b4d2ce33668d3fa0df772a7145837b26c0aca7",
+    "SourceOnlyScope": "495539bfbee3fc96f1a5ef0a685a76a7d507498660a8082e0f5813cc3939e1a3",
+    "actual_cash_phase": "91a1e56fbbdb3be1ad07a94a13419feede81e65a7c2e69a3d9afce461a680d37",
+    "actual_source_call": "2f5b57bd822c1755ab7f3091076d68dd943a3d0efebf987390a09c860557f14f",
+    "actual_source_phase": "478e07ebced2b8a5f06e16ed5b90f10f7f53d72789f27ac0215f37052a97e736",
+    "actual_stock_phase": "d25c22ea78250b59c3e545ac37eebf60cd90fc1b7594b9cb4ff9679b9a652d9a",
+    "actual_terminal_call": "0a2bdc489a56bde4d05bb65f33c89b8870278648f44bc5253196957749d1a74c",
+    "additional_source_rows": "8ed3ed58e1d985bd030a8c11d3f148c866704b3da2903bf31608cda39d0d3dbb",
+    "aggregate_original_ordinary": "8f209cc18d80fe8c9fd5c6ad6fca07fdac8b9328a44032f1006a4f59d1027cd0",
+    "capture_source_witnesses": "33c8533a04990c1611662a345a291403e8bb273c3457ca033c29b3a025cca7bb",
+    "cash_before_v": "86ba89548ca680f0334f6aee7a7f8f1fbfb026897907bc7446404f5c5d2ae677",
+    "cash_postcondition": "afbcf39bb0d961197d4e9d83d07e982960b16c853134e8c512afbde9225d70f1",
+    "catalog_terms": "a02164889ca1df5e171cbf3357c29e3b0e028e5c0fd3926f5cc1a0cb6c062262",
+    "completion_cash_term": "c7825447142ec000aa5fcfecc63ba51d7265f81366cc1a8cbf1ff0738331ae6a",
+    "completion_session": "b4d0f23dd372d665aa2a7e3d273412d0e6233ff9a936189aa818585fad9f4c79",
+    "compose": "880b9f9e9a5f2959dfcc1df3f5dfd9ae98b1d680ff3645199a43e6b87ae2c9aa",
+    "confirmed_preopen_stock_term": "0c1f882dedd9ac5db297bdc44274938d8aa1c6171efa4a1d93d71365a7fe9e4e",
+    "confirmed_prior_stock_term": "91196a3920aa2b47ab7fcf6f7cd764a2cb884d6f46efb6fa82fde71e39c2847e",
+    "contractual_delivery_addition": "638901986ceb4b1c7462dda94324383028096c3157ba4c617c38da0a4e939c83",
+    "contractual_delivery_selection": "fa3a3753f62a842b1017d3b14dd56cc4d541d6b6187203279014351f69993b94",
+    "document": "4d4c6723263a546ff8520784dfa128500c38282307439b69e1e20d291ec255c0",
+    "hydrate": "c669f67313cb16cee497da5f673a53a6973da6295b0208ab8bb7626e544714db",
+    "hydration_name": "e1d96f1d7136a023d87971771b5fbcacc24c4f7c9915adfbc636462ea9fd26af",
+    "inherited_delivery_addition": "d3004d68b78758586e7c6260402a33db3e7699d2398a4b67f7d8d2271fd510e6",
+    "inherited_delivery_row": "6803b9c7af3735b01fefae74ba528c983060de2e8e4cc5aae6779fcfa6df6959",
+    "mentions_source": "29433ba9892ba8ba92bbccc4929f66cf35d68883f13507773d72daea77348727",
+    "merge_selected_terms": "bf445e83a13cde557f07a4d256cce6bae32c4219b9d4bb14a3521f2de109e4e4",
+    "native_date_candidates": "1e54dae88161c2c4c2c9c8de65ab0bf87540e2fa63927d834fea41dde1cda63a",
+    "native_date_material": "3918960fdf46e862428de36125a55a5af6c1beb7e01630bfc6b1290c0482e20c",
+    "native_date_payload": "6fc9442e9467e3bceca92ff02dae6da16119f5107fcf32f5e84510aef96773f2",
+    "native_date_query": "628b1a055e13f630a5709ec3eaffb545a3a2386a018ec30459a6d6ca59e3788f",
+    "observation_query_matches": "015e9d706017b8836faf39dfc609888c88428cfc663680455e331004915c4ab3",
+    "ordinary_delivery_identity": "9e7237d16cef7a38cf16854ccd65cd90cd80c5d30bf3af18aa037d0c0d54a936",
+    "ordinary_identity": "bb782ca669b30df06a92f6a9dd93fca65ef0ea380ab83d49fef4e92cbe513931",
+    "ordinary_term_dates": "50e52905f16a4b47ecd4fe850559d193ebdcaad72ba8184f2021272798d6192f",
+    "original_delivery_selection": "c4e64bda8c467ffffc8a1bfe95dd0982295f49a9806f707278ff79bf5f09a05e",
+    "original_ordinary_selection": "434b7202bebd300bde2dec64ea8299600719b837ab16a497cbde73d9aeb5174c",
+    "original_phase_delivery_selection": "df2da431fc16c6256089d4dd3f8e3d8867e9bcd7a8ec7ac93cc4a3c331f0f9a0",
+    "own_cash_selection": "fec4b6c8fdb49cfc8adc9f16aef62611bf7b3f09853f4ba255c28dc3aad4cf43",
+    "pending_completion": "82e1f90d312ce5b9032718458e1ffa6ba6144e15a86c966fceca2bda45024e38",
+    "pending_source_completion": "5013875354e732791579869dfb26a978a1bcee25f1e6acc4c4bf0f4a3aa53f45",
+    "prepare": "1521ee70b922ccfb11687c0bc383f4b4de49d90782aa44e5a03492242a599b59",
+    "qualified_own_batch_selection": "8848928a9a7f4e12398c7e526bf337b7427cbdb758ae4c2d01c4524110da4ed2",
+    "qualify": "508677c5937195baab1bccb94a9144a468addb586a32ce617219b52222719a70",
+    "qualify_selected_query_resolution": "87dc579faafe23233ab0a2cbaa0573152a947a3629f6a3f1dda3f4db27eb2385",
+    "registered_scope": "d48678dbfb5f9f39b2695fba75df1059359365e26371e09c1e24f647f4be8b32",
+    "remaining_ordinary_terms": "2a8c36f465544392e4f7b01837aca435bd8f1af31018924d36bcaf24c9e4334d",
+    "require_source_absent": "1207fa36f57db3f5300e5eadeba74ac123e721655f1d55cc84ed801d2234dc43",
+    "require_source_scope": "787e8f4a253c49723e31a7d1d5828c7a04a24f2fd76d0dcf09daf7aeca521fe5",
+    "research_after_close_mixed_timing": "256a8e866a26a411072b5e0980b990fc27240f99fdf96a2b33a14768e6d2f759",
+    "research_cash_term": "b5df87269487b47495c3f4ff318dd7137ae9df849590951cb280f880f2e1d68c",
+    "research_mixed_term": "ae2c27d097690de85ba1256b5fb1da02a8e04f25584282d48f0944f0e3045b4e",
+    "research_source_exit_term": "348f0b5876ff013c6a35adc8d94189c9de0497aafb65b354e041d398d3ab7803",
+    "research_tender_term": "492468dff68f6beb4865aca18b3be3e97d61d22ec93fd923f43cb4c322a61ca7",
+    "research_unheld_cash_term": "f9f928006f7bd940c7278a531e0fdd7a6ccfc8303e06ba45e2a4221701f866bd",
+    "resolved_query_scope": "5f4708a24e0aff087a5106987ce134090a98440412c5cdebfe103949f61ac9e0",
+    "resolved_row_query_scope": "65e9513b2e40d511213ac22f501900a44f728d90aced7d7d1ff031f5dd81b2c7",
+    "retained_own_cash_selection": "9e621e3e46b2c3cf00b5a781ba23d9a9e2a65fc503fd2ddf5a08bc8398304dc9",
+    "retained_primary": "21bfff45c8656471bc902839f852abedbe2e4a964c8caafc2cbc4c69d25e8878",
+    "review_input": "e9867cc5b417dd5dfc95e8c399611cba97671c4973fae707773857657c8ba7a9",
+    "risk_diagnostic_value": "1afa8659500d945e8c9dc0623802b6f0e89b7475c17da886e8a34717d57da04a",
+    "selected": "553114b8851af04d5ede1a5b9cbf84014061250d79a39de1a4a0f4270b045ef0",
+    "selected_query_scope": "fbbbd609766c118ce9c97a5e969a916d2584797ef082545c644316807a8a3248",
+    "selected_stock_term": "4c585486297130baed78893416189289b708e0d87c327e7309a47e66625b91eb",
+    "source_cash_term": "4bdc15e7c0cddc31af7e9c665dee1ea4f4caa82b0d2135af3713854d5a98c865",
+    "source_exit_quote": "a026fa324818faafbbfb3dc3a802377203238234b7a548b1fd29dfb86cc56ce7",
+    "source_schema": "5ac30a36f2c61943714f52c40790c86ab742c56b2eeb3fc3849d35959d4bd0a7",
+    "source_scopes": "7e7060e805d2f351c06f3c583833da94b2891ebfc304a22d252863ebe69968f0",
+    "source_terms": "2fd0bbcfcdc76273d3e452b6314aac9ae6db152f64edf6a126915092a3e36fb2",
+    "stage_selected_sources": "dbf3fd1c6b4568675cb53506c8807d6c1314beb1e592b7a58ad266c94b29db6f",
+    "supplemental_selection": "d5da763f631b5429b0875cb0a8176b5fc740ac255260883dc9b18d97d2dca95b",
+    "suppressions": "5850175850aa55f67524aa1b5fbae3faa6c6a2c15339c5dc40eeebdd7577983a",
+    "unheld_stock_postcondition": "d6948adf4d1e4def8e3c185e1c2b2ebbebdc28fe36d0e4bd9435c7ec0af8151a",
+    "validate_witness_capture": "3da192892846409ffa28bd8805aa1e3eff8d59ee789421928fe8b1260e0ed79b",
+    "witness_payload": "9c9a8fb998ec358ec40e3410b12a99095a8bd313d4919a05f13d9638a7fc7508"
+  },
+  "base_future_sha256": "4f04728d3943d87aa8d5b3694aa0261e02e71022d79ef1ab136228efd5f25b2f",
+  "current_roots": {
+    "P03": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+    "P05": "798631a219bbd2926c6e2a6633bdf71ab1cc5e013094c343bdfc86deee9045b7",
+    "P06": "492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9",
+    "P07": "532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd",
+    "P11": "01d9f480ee14644206c37d7c7c9ed46da55ed000056042e85f59f41d74440ecf"
+  },
+  "financial_authority": false,
+  "inherited_input_commitments": [
+    {
+      "bytes": 14298,
+      "descriptor": {
+        "filename": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0.json",
+        "predecessor_checkpoint_sha256": "67fb4a3a822c09e2f2f81641f7cd6b0c9df49c87255afb650555b54dc2241845",
+        "resume_session": "2017-06-30",
+        "sha256": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0"
+      },
+      "sha256": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0"
+    },
+    {
+      "bytes": 3709,
+      "descriptor": {
+        "filename": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b.json",
+        "predecessor_checkpoint_sha256": "ec5e1751f2722905f2e3ebca99202cd7f38cd2bc7baf5ae47f21981bd2093bc0",
+        "resume_session": "2018-01-31",
+        "sha256": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b"
+      },
+      "sha256": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b"
+    },
+    {
+      "bytes": 2990,
+      "descriptor": {
+        "filename": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6.json",
+        "predecessor_checkpoint_sha256": "577e73ba509c3ec6885b41805910c8f3e2d9b909f815195e872f68e47f59845f",
+        "resume_session": "2019-02-28",
+        "sha256": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6"
+      },
+      "sha256": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6"
+    },
+    {
+      "bytes": 3705,
+      "descriptor": {
+        "filename": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10.json",
+        "predecessor_checkpoint_sha256": "2426bcb4f9424437230b4f7ca7104372dbd64e8cdf24dc25a2d2e7bb82e96d82",
+        "resume_session": "2020-02-28",
+        "sha256": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10"
+      },
+      "sha256": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10"
+    },
+    {
+      "bytes": 13533,
+      "descriptor": {
+        "filename": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead.json",
+        "predecessor_checkpoint_sha256": "54da4da3b4680d87a62391966e6fc5bc243992706840ed7958939774e49fe15f",
+        "resume_session": "2020-03-31",
+        "sha256": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead"
+      },
+      "sha256": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead"
+    },
+    {
+      "bytes": 3762,
+      "descriptor": {
+        "filename": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47.json",
+        "predecessor_checkpoint_sha256": "32372ed7741feeb3a4c0b7a24f6df2de2103023bb762276aa21a4e42d301d12e",
+        "resume_session": "2020-06-30",
+        "sha256": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47"
+      },
+      "sha256": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47"
+    },
+    {
+      "bytes": 21836,
+      "descriptor": {
+        "filename": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3.json",
+        "predecessor_checkpoint_sha256": "5deb1c63c34a3253cf2913ced34b8c16797fa86a6e0b88579308098c241cf1bf",
+        "resume_session": "2021-03-31",
+        "sha256": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3"
+      },
+      "sha256": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3"
+    }
+  ],
+  "new_catalog_sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b",
+  "original_catalog_pins": {
+    "system-campaign-cash-calendar-terminal-facts.json": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+    "system-campaign-december-cash-calendar-terminal-facts.json": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+    "system-campaign-october-cash-calendar-terminal-facts.json": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53"
+  },
+  "original_init_source": "def __init__(self,catalog):\n        self.catalog=catalog;terms=catalog['terms']\n        need(catalog['schema']=='research.factual-cash-calendar-catalog/1'\n             and 1<=len(terms)<=128 and catalog['loader_sha256']==sha(Path(__file__).read_bytes())\n             and catalog['canonical_financial_source_changed'] is False\n             and catalog['provider_metadata_upgraded'] is False and catalog['production_contacted'] is False,\n             'CASH_CALENDAR_DATA_ONLY_DECLARED_LOADER')\n        from system_campaign_ordinary_registry import registrations\n        need(catalog['commitment_group'] in registrations()\n             and catalog['commitment_group']['loader_file']==Path(__file__).name,\n             'CASH_CALENDAR_EXPLICIT_REGISTERED_GROUP')\n        for t in terms:validate_term(t)\n        need(len({t['security_id'] for t in terms})==len(terms),'CASH_CALENDAR_UNIQUE_SECURITIES')\n        self.rows={};self.alias_rows=0",
+  "original_registry50_preserved": true,
+  "original_repair_evidence_predicates": {
+    "classes": {
+      "SourceEvidence": "class SourceEvidence(_Strict):\n    reference: Text\n    description: Text\n    sha256: Digest | None\n\n    @field_validator(\"reference\", \"description\")\n    @classmethod\n    def nonblank(cls, value):\n        if not value.strip():\n            raise ValueError(\"nonblank retained source evidence required\")\n        return value",
+      "_Strict": "class _Strict(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\", strict=True, frozen=True,\n                              allow_inf_nan=False, revalidate_instances=\"always\")"
+    },
+    "module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+    "sparse_unique_AST_sha256": "8fdc7ae6e48ca894e03b530994c1dc513c67b534da8f0d51f07c47dde0b70230",
+    "sparse_unique_source": "@model_validator(mode=\"after\")\ndef sparse_unique(self):\n        if not self.suppress and not self.add:\n            raise ValueError(\"empty terminal repair\")\n        for rows in (self.suppress, self.add):\n            keys = [(row.session, row.security_id) for row in rows]\n            if len(keys) != len(set(keys)):\n                raise ValueError(\"duplicate terminal repair identity\")\n        return self"
+  },
+  "original_supplemental_selection_source": "def supplemental_selection(arm, cursor):\n    \"\"\"Select pinned original terminal catalogs even when their dates interleave.\"\"\"\n    import importlib\n    terms, sources = [], []\n    for module_name, class_name, constructor, catalog, catalog_sha, validator_sha, tickers in SUPPLEMENTAL_PHASES.get((arm, cursor), ()):\n        raw = (HERE / catalog).read_bytes()\n        module = importlib.import_module(module_name)\n        need(sha(raw) == catalog_sha and sha(Path(module.__file__).read_bytes()) == validator_sha,\n             'FUTURE_SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES')\n        need(constructor in ('PATH', 'JSON'), 'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')\n        codec = getattr(module, class_name)(HERE / catalog if constructor == 'PATH' else json.loads(raw))\n        selected_terms = catalog_terms(codec, tickers)\n        if (arm, cursor) in SUPPLEMENTAL_SAME_DAY_PHASES:\n            need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')\n                 and cursor < t['native_session'] <= t['added']['session']\n                 and (t['native_session'] < t['added']['session'] or\n                      (t['added']['kind'] == 'CASH_MERGER'\n                       and t['recognition_rule'] == 'CONFIRMED_PREOPEN_COMPLETION'\n                       and t['preopen_completion_confirmed'] is True)) for t in selected_terms),\n                 'FUTURE_SUPPLEMENT_EXPLICIT_ORIGINAL_SAME_DAY_PREOPEN_CASH_ONLY')\n        else:\n            need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')\n                 and cursor < t['native_session'] < t['added']['session'] for t in selected_terms),\n                 'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_TERMS')\n        source = dict(catalog_file=catalog, catalog_sha256=catalog_sha,\n                      validator_file=Path(module.__file__).name, validator_sha256=validator_sha,\n                      selected_tickers=list(tickers))\n        need(not any(s['catalog_file'] == catalog or s['validator_file'] == source['validator_file'] for s in sources),\n             'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')\n        sources.append(source)\n        for term in selected_terms:\n            term['original_ordinary_source'] = dict(source, term_sha256=digest(term))\n            term.setdefault('timing_source', term['primary_source'])\n        terms = merge_selected_terms(terms, selected_terms)\n    return terms, sources",
+  "original_ten_terms": [
+    {
+      "actual_completion_date": "2022-05-13",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 28.25,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1271214/000114036122018976/brhc10037433_8k.htm | Mandatory28.25USD per eligible Intersect ENT common share; issuer legal completion May13,2022 and OCC50411 explicit before-open completion. Preserve May12trading/native history, May11frozen identity and original issuer/eligibility. Exact legal minute, notice publication minute, actual opening cash availability and actual settlement are not qualified. Actual recognition quantity comes only from the unchanged canonical own book; parent role is context only.",
+        "security_id": "948589239641460025",
+        "session": "2022-05-13"
+      },
+      "arm": "P06",
+      "description": "Mandatory28.25USD per eligible Intersect ENT common share; issuer legal completion May13,2022 and OCC50411 explicit before-open completion. Preserve May12trading/native history, May11frozen identity and original issuer/eligibility. Exact legal minute, notice publication minute, actual opening cash availability and actual settlement are not qualified. Actual recognition quantity comes only from the unchanged canonical own book; parent role is context only.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1271214",
+        "listing_first_session": "2014-07-24",
+        "security_id": "948589239641460025",
+        "security_type_eligible": "1",
+        "session": "2022-05-11",
+        "source_observation_sha256": "1800c4ca7c3137d80703f1effbcc03c636f03364462e73f3cb849b84512c53dd",
+        "ticker": "XENT"
+      },
+      "last_trading_session": "2022-05-12",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=954.9",
+        "security_id": "948589239641460025",
+        "session": "2022-05-12"
+      },
+      "native_session": "2022-05-12",
+      "native_term_sha256": "7ec878d790620777a8e43b53ee60903959627938b58e36397560051d5eacb03f",
+      "parent_cursor": "2022-04-29",
+      "parent_outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_cash_payment_or_settlement_observed": false,
+        "actual_completion_date": "2022-05-13",
+        "actual_opening_cash_availability_proved": false,
+        "cash_per_ordinary_common_share": "28.25",
+        "exact_legal_effective_minute_observed": false,
+        "exchange_preopen_source": "https://infomemo.theocc.com/infomemos?number=50411",
+        "issuer_completion_source": "https://www.sec.gov/Archives/edgar/data/1271214/000114036122018976/brhc10037433_8k.htm",
+        "last_trading_session": "2022-05-12",
+        "mandatory_conversion": true,
+        "preopen_time_established": true,
+        "updated_alert_publication_time_observed": false
+      },
+      "primary_extraction_sha256": "78e8c864fb35cb691ce86c3d493017ce16206e79c05bac2530ff592767876b23",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1271214/000114036122018976/brhc10037433_8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "948589239641460025",
+      "source_capture": {
+        "artifact_id": 13404817664,
+        "head": "7c9f35d4a7a39f02fef82269466f5064780742f8",
+        "independent_data_review_sha256": "18437bb6f56e8a8163b75bd066512eb4958491c8912fb5804a9ef148a25b8620",
+        "independent_qualification_sha256": "3d46a34e8bf8da064796accc2199b61a24c604339cdc0ce89c69a789655b4dfa",
+        "payload_sha256": "aab6c0ced8dc3d334012ce25d86b60b2aef3b7e9904f0f84cd35d16e3edda623",
+        "run_id": 42006075396,
+        "scope_sha256": "4625ef93fd3b35cf69f1e166f68399aacd95ae76c6f4103df14c34a353f4ee3c"
+      },
+      "ticker": "XENT",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50411"
+    },
+    {
+      "actual_completion_date": "2022-05-13",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 57.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1073349/000119312522149601/d193127dex991.htm | Mandatory common-share cash completion before market open on 2022-05-13; confirmed last trade 2022-05-12; frozen metadata unchanged.",
+        "security_id": "302828589827843603",
+        "session": "2022-05-13"
+      },
+      "description": "Mandatory common-share cash completion before market open on 2022-05-13; confirmed last trade 2022-05-12; frozen metadata unchanged.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1073349",
+        "listing_first_session": "1999-02-12",
+        "security_id": "302828589827843603",
+        "security_type_eligible": "1",
+        "session": "2022-05-12",
+        "source_observation_sha256": "02dc300f5b23f02b9e51cd65618de013abb8bc927ce61164e4fb3cb55d824d32",
+        "ticker": "EPAY"
+      },
+      "last_trading_session": "2022-05-12",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-05-13",
+      "native_term_sha256": "5eb674cff87d9baba04ab103475f0bccc7fef9ba1dcfb03d476ae6a7c20a80f4",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1073349/000119312522149601/d193127dex991.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "302828589827843603",
+      "ticker": "EPAY",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50412"
+    },
+    {
+      "actual_completion_date": "2022-10-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 52.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1340652/000119312522265762/d414697d8k.htm | Mandatory common-share cash completion before market open on 2022-10-20; confirmed last trade 2022-10-19; frozen metadata unchanged.",
+        "security_id": "659896685009177378",
+        "session": "2022-10-20"
+      },
+      "description": "Mandatory common-share cash completion before market open on 2022-10-20; confirmed last trade 2022-10-19; frozen metadata unchanged.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:659896685009177378",
+        "listing_first_session": "2012-02-08",
+        "security_id": "659896685009177378",
+        "security_type_eligible": "0",
+        "session": "2022-10-18",
+        "source_observation_sha256": "598f6559411d5f781bcb3ed5ff427a82e1d43c902b1ae65bb25808059536aed1",
+        "ticker": "CCXI1"
+      },
+      "last_trading_session": "2022-10-19",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-10-19",
+      "native_term_sha256": "f1c92007dac927423e7703ac280ca4de869a7b275b323e127b7b6e0c5f9c6dca",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1340652/000119312522265762/d414697d8k.htm",
+      "provider_alias_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "company": "CHEMOCENTRYX INC",
+        "counterparty_name": "AMGEN INC",
+        "counterparty_ticker": "AMGN",
+        "original_ticker": "CCXI",
+        "rows_sha256": "116cbb7d88e7c94839ef8f649b694bd2aa30e51316b10f2423f26446365df022",
+        "selected_row_sha256": [
+          "c72aaafa948e5a518a54e0acdce7b1eeec5878b9ccf4d9dc2306f0ba37668299",
+          "b36202729886d6a61b169a81fc6439c366db371eef53acedcc2ba791728edf1a",
+          "557c9589b5bfb520b9a39ba664ac6b38bd6ffbe89b38b0725408432b9c0b4a4d",
+          "c67c518ada5a706ce2651ad7d32876ba879e06e48d22647b7a0624be82b664ba",
+          "a6da3d0b1a4fbc309ee9076b081c235f029b6a66ed8dcdf4c04138a2f9a6fb97"
+        ],
+        "session": "2022-10-19",
+        "ticker": "CCXI1"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "659896685009177378",
+      "ticker": "CCXI1",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1340652/000119312522265762/d414697d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-05-19",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 80.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1644675/000119312522157539/d302077d8k.htm | Mandatory common-share cash merger; actual completion 2022-05-19; confirmed last trade 2022-05-18; recognition 2022-05-19 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+        "security_id": "988236261397113691",
+        "session": "2022-05-19"
+      },
+      "description": "Mandatory common-share cash merger; actual completion 2022-05-19; confirmed last trade 2022-05-18; recognition 2022-05-19 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1644675",
+        "listing_first_session": "2015-11-19",
+        "security_id": "988236261397113691",
+        "security_type_eligible": "1",
+        "session": "2022-05-17",
+        "source_observation_sha256": "e30276c675917b76f279796edc90ea7b292ede3a844675fae19c2c21b1d486a4",
+        "ticker": "MIME"
+      },
+      "last_trading_session": "2022-05-18",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-05-18",
+      "native_term_sha256": "1ea2abbb8cd4e10bae112ca8aaa7cd87822db91afbcaaa52ad6da417b8c4d0d6",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1644675/000119312522157539/d302077d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "988236261397113691",
+      "ticker": "MIME",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-92"
+    },
+    {
+      "actual_completion_date": "2022-11-03",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 54.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/768411/000110465922114487/tm2229682d1_8k.htm | Mandatory common-share cash merger; actual completion 2022-11-03; confirmed last trade 2022-11-03; recognition 2022-11-04 under RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY. Preserve frozen metadata; no tender participation assumed.",
+        "security_id": "738630690199421979",
+        "session": "2022-11-04"
+      },
+      "description": "Mandatory common-share cash merger; actual completion 2022-11-03; confirmed last trade 2022-11-03; recognition 2022-11-04 under RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY. Preserve frozen metadata; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:768411",
+        "listing_first_session": "1997-12-31",
+        "security_id": "738630690199421979",
+        "security_type_eligible": "1",
+        "session": "2022-11-02",
+        "source_observation_sha256": "3df332c7fe52cf82fea8172855c5627ecc6d99ccbfcd3c51cd65c9eac673d892",
+        "ticker": "CYBE"
+      },
+      "last_trading_session": "2022-11-03",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-11-03",
+      "native_term_sha256": "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/768411/000110465922114487/tm2229682d1_8k.htm",
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "738630690199421979",
+      "ticker": "CYBE",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-318"
+    },
+    {
+      "actual_completion_date": "2022-10-19",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 93.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1348036/000119312522265324/d229813d8k.htm | Mandatory common-share cash conversion on actual completion 2022-10-19; last trading session 2022-10-18; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "security_id": "652370478798714876",
+        "session": "2022-10-19"
+      },
+      "description": "Mandatory common-share cash conversion on actual completion 2022-10-19; last trading session 2022-10-18; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1348036",
+        "listing_first_session": "2018-06-15",
+        "security_id": "652370478798714876",
+        "security_type_eligible": "1",
+        "session": "2022-10-18",
+        "source_observation_sha256": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+        "ticker": "AVLR"
+      },
+      "last_trading_session": "2022-10-18",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-10-18",
+      "native_term_sha256": "10943a680bf8b4a98575225ee89ecabce5e8ed3bf066ed318e8ef5db55d5bc5f",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1348036/000119312522265324/d229813d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "652370478798714876",
+      "ticker": "AVLR",
+      "timing_evidence": {
+        "actual_completion_date": "2022-10-19",
+        "cash_per_common_share": 93.5,
+        "compiler_compatible": true,
+        "filing_accepted_new_york": "2022-10-19T16:41:35-04:00",
+        "filing_accepted_utc": "2022-10-19T20:41:35.000Z",
+        "input_adopted": false,
+        "mandatory_remaining_common_shares": true,
+        "original_provider_identity_unchanged": true,
+        "preopen_proof": "EXPLICIT_PREOPEN",
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1348036/000119312522265324/d229813d8k.htm",
+        "security_id": "652370478798714876",
+        "ticker": "AVLR"
+      },
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1348036/000119312522265324/d229813d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-10-14",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 20.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1538927/000119312522262644/d369766d8k.htm | Mandatory common-share cash conversion on actual completion 2022-10-14; last trading session 2022-10-13; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "security_id": "321650252292096156",
+        "session": "2022-10-14"
+      },
+      "description": "Mandatory common-share cash conversion on actual completion 2022-10-14; last trading session 2022-10-13; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1538927",
+        "listing_first_session": "2020-06-19",
+        "security_id": "321650252292096156",
+        "security_type_eligible": "1",
+        "session": "2022-10-13",
+        "source_observation_sha256": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+        "ticker": "FMTX"
+      },
+      "last_trading_session": "2022-10-13",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-10-13",
+      "native_term_sha256": "520764575d781727341e687841e205e9404aff6726da7de2bc8e58a9864d18d4",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1538927/000119312522262644/d369766d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "321650252292096156",
+      "ticker": "FMTX",
+      "timing_evidence": {
+        "actual_completion_date": "2022-10-14",
+        "cash_per_common_share": 20.0,
+        "compiler_compatible": true,
+        "filing_accepted_new_york": "2022-10-14T08:48:02-04:00",
+        "filing_accepted_utc": "2022-10-14T12:48:02.000Z",
+        "input_adopted": false,
+        "mandatory_remaining_common_shares": true,
+        "original_provider_identity_unchanged": true,
+        "preopen_proof": "EXPLICIT_PREOPEN",
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1538927/000119312522262644/d369766d8k.htm",
+        "security_id": "321650252292096156",
+        "ticker": "FMTX"
+      },
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1538927/000119312522262644/d369766d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-10-18",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 28.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1679826/000110465922109533/tm2228280d2_8k.htm | Mandatory common-share cash conversion on actual completion 2022-10-18; last trading session 2022-10-17; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "security_id": "23427772744584579",
+        "session": "2022-10-18"
+      },
+      "description": "Mandatory common-share cash conversion on actual completion 2022-10-18; last trading session 2022-10-17; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1679826",
+        "listing_first_session": "2019-09-19",
+        "security_id": "23427772744584579",
+        "security_type_eligible": "1",
+        "session": "2022-10-17",
+        "source_observation_sha256": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+        "ticker": "PING"
+      },
+      "last_trading_session": "2022-10-17",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-10-17",
+      "native_term_sha256": "b1481b42046cb67003a896150c6f7f9b28910b29f1b5a53ec35ef219bd4a78f0",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1679826/000110465922109533/tm2228280d2_8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "23427772744584579",
+      "ticker": "PING",
+      "timing_evidence": {
+        "actual_completion_date": "2022-10-18",
+        "cash_per_common_share": 28.5,
+        "compiler_compatible": true,
+        "filing_accepted_new_york": "2022-10-18T09:29:17-04:00",
+        "filing_accepted_utc": "2022-10-18T13:29:17.000Z",
+        "input_adopted": false,
+        "mandatory_remaining_common_shares": true,
+        "original_provider_identity_unchanged": true,
+        "preopen_proof": "EXPLICIT_PREOPEN",
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1679826/000110465922109533/tm2228280d2_8k.htm",
+        "security_id": "23427772744584579",
+        "ticker": "PING"
+      },
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1679826/000110465922109533/tm2228280d2_8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-10-19",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 848.02,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/775368/000119312522265292/d335602d8k.htm | Mandatory common-share cash conversion on actual completion 2022-10-19; last trading session 2022-10-18; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "security_id": "683977592320274232",
+        "session": "2022-10-19"
+      },
+      "description": "Mandatory common-share cash conversion on actual completion 2022-10-19; last trading session 2022-10-18; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:775368",
+        "listing_first_session": "1997-12-31",
+        "security_id": "683977592320274232",
+        "security_type_eligible": "1",
+        "session": "2022-10-18",
+        "source_observation_sha256": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+        "ticker": "Y"
+      },
+      "last_trading_session": "2022-10-18",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-10-18",
+      "native_term_sha256": "a32a8b2e023dedf84185a5b7d3847b546bc29f0ff99b0186c05019dd91d9ab90",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/775368/000119312522265292/d335602d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "683977592320274232",
+      "ticker": "Y",
+      "timing_evidence": {
+        "actual_completion_date": "2022-10-19",
+        "cash_per_common_share": 848.02,
+        "compiler_compatible": true,
+        "filing_accepted_new_york": "2022-10-19T16:24:43-04:00",
+        "filing_accepted_utc": "2022-10-19T20:24:43.000Z",
+        "input_adopted": false,
+        "mandatory_remaining_common_shares": true,
+        "original_provider_identity_unchanged": true,
+        "preopen_proof": "EXPLICIT_PREOPEN",
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/775368/000119312522265292/d335602d8k.htm",
+        "security_id": "683977592320274232",
+        "ticker": "Y"
+      },
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/775368/000119312522265292/d335602d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-11-22",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 77.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1463172/000114036122042681/brhc10044488_8k.htm | Mandatory common-share cash conversion on actual completion 2022-11-22; last trading session 2022-11-21; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "security_id": "870865871230451373",
+        "session": "2022-11-22"
+      },
+      "description": "Mandatory common-share cash conversion on actual completion 2022-11-22; last trading session 2022-11-21; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1463172",
+        "listing_first_session": "2014-05-15",
+        "security_id": "870865871230451373",
+        "security_type_eligible": "1",
+        "session": "2022-11-21",
+        "source_observation_sha256": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0",
+        "ticker": "ZEN"
+      },
+      "last_trading_session": "2022-11-21",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-11-21",
+      "native_term_sha256": "4eb6cbadfb1fd10a87741ed05f2e3d7025700280835e49f4f838d071b0600dd2",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1463172/000114036122042681/brhc10044488_8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "870865871230451373",
+      "ticker": "ZEN",
+      "timing_evidence": {
+        "actual_completion_date": "2022-11-22",
+        "cash_per_common_share": 77.5,
+        "compiler_compatible": true,
+        "filing_accepted_new_york": "2022-11-22T09:07:50-05:00",
+        "filing_accepted_utc": "2022-11-22T14:07:50.000Z",
+        "input_adopted": false,
+        "mandatory_remaining_common_shares": true,
+        "original_provider_identity_unchanged": true,
+        "preopen_proof": "EXPLICIT_PREOPEN",
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1463172/000114036122042681/brhc10044488_8k.htm",
+        "security_id": "870865871230451373",
+        "ticker": "ZEN"
+      },
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1463172/000114036122042681/brhc10044488_8k.htm"
+    }
+  ],
+  "original_validate_term_AST_sha256": "8e303034004a4f22e983385ed9a6fff71a4138df8d8fb46449f37be14991ac92",
+  "original_validate_term_source": "def validate_term(t):\n    a=t['added'];w=t['identity_witness'];sid=t['security_id']\n    need(a['kind']=='CASH_MERGER' and type(a['cash_per_share']) is float\n         and math.isfinite(a['cash_per_share']) and a['cash_per_share']>0\n         and a['security_id']==sid==w['security_id'] and w['ticker']==t['ticker']\n         and w['session']<=t['last_trading_session']<a['session']\n         and t['native_session'] in (t['last_trading_session'],a['session'])\n         and a['entitlement_aggregation']=='HOLDER'\n         and all(a[k] is None for k in ('delivered_security_id','delivered_ticker',\n             'delivered_issuer_id','exchange_ratio','cash_in_lieu_price_per_delivered_share'))\n         and a['reference']==t['primary_source']+' | '+t['description']\n         and t['mandatory_common_share_completion_confirmed'] is True,\n         'CASH_CALENDAR_CONFIRMED_MANDATORY_CASH_ONLY_SCOPE')\n    if t['recognition_rule']==PREOPEN:\n        need(t['preopen_completion_confirmed'] is True\n             and t['actual_completion_date']==a['session'],'CASH_CALENDAR_ACTUAL_PREOPEN_DATE')\n    else:\n        need(t['recognition_rule']==NEXT and t['preopen_completion_confirmed'] is False\n             and t['actual_completion_date']==t['last_trading_session']==t['native_session'],\n             'CASH_CALENDAR_EXPLICIT_RETAINED_NEXT_SESSION_CONVENTION')\n    if 'provider_alias_proof' in t:\n        p=t['provider_alias_proof']\n        need(p['ticker']==t['ticker'] and p['session']==t['native_session']\n             and len(p['selected_row_sha256'])==5 and p['original_ticker']!=t['ticker'],\n             'CASH_CALENDAR_EXPLICIT_FROZEN_PROVIDER_ALIAS')",
+  "original_validator_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "previous_catalog29_sha256": "51674fc83cb9240168b27c2566edff62f44089cb4e00e57ce2e8f06b8a50277e",
+  "previous_catalog_sha256": "5951b1ffa420910291a756b31b0a9a324ace68f4af77c854a9cc71a71b3115a5",
+  "primary_extraction": {
+    "acquirer_completion_corroboration": "https://news.medtronic.com/2022-05-13-Medtronic-completes-acquisition-of-Intersect-ENT",
+    "actual_cash_payment_or_settlement_observed": false,
+    "actual_opening_cash_availability_proved": false,
+    "common_share_price_not_derived_from_deal_value": true,
+    "exact_legal_effective_minute_observed": false,
+    "exact_primary_document_bytes_hashed": false,
+    "exchange_common_share_cash": "28.25",
+    "exchange_explicit_before_open_completion": true,
+    "exchange_notice_date": "2022-05-13",
+    "exchange_notice_number": 50411,
+    "exchange_preopen_source": "https://infomemo.theocc.com/infomemos?number=50411",
+    "excluded_classes": [
+      "treasury",
+      "parent/merger-sub-owned",
+      "proper appraisal dissenters"
+    ],
+    "financial_authority": false,
+    "issuer_common_share_cash": "28.25",
+    "issuer_completion_source": "https://www.sec.gov/Archives/edgar/data/1271214/000114036122018976/brhc10037433_8k.htm",
+    "issuer_legal_completion_date": "2022-05-13",
+    "issuer_requested_Nasdaq_trading_suspension_before_open": "2022-05-13",
+    "issuer_section": "Introductory Note and Items2.01/3.01",
+    "mandatory_remaining_common_shares": true,
+    "notice_publication_minute_observed": false,
+    "retained_evidence": "Structured facts from bounded opened SEC/OCC/issuer pages; URLs and exact sections retained",
+    "schema": "research.private-XENT-primary-fact-extraction/1"
+  },
+  "root_metadata": {
+    "2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543": {
+      "arm": "P07",
+      "outer_sha256": "b4dfd007ce0e9ea454b8a174f7796b3be416620173d85715b24abdbfdb56d9a3",
+      "selected_session": "2020-06-30"
+    },
+    "33320498ba5db684738471b48b0ed3e66ebf78fe5b2b9dc24a34be047cdbf3ed": {
+      "arm": "P11",
+      "outer_sha256": "6674bb20eeac387f06ff53eba3a58046a63e1183b75e01e6c642c99e5c853b1a",
+      "selected_session": "2018-08-31"
+    },
+    "3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9": {
+      "arm": "P10",
+      "outer_sha256": "6ffb77026ee113108e175f22c6aa24c2d68963b24b48100340b9ce9888d58377",
+      "selected_session": "2024-04-30"
+    },
+    "4560175cf063336c5e192a4ffed31c90914e354b30c1d8c806b8dbee47c0ade7": {
+      "arm": "P10",
+      "outer_sha256": "e1c1c823374d10e0cbf62752b0465e39c23165ec80a61e3f357bea13217462e4",
+      "selected_session": "2022-07-29"
+    },
+    "492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9": {
+      "arm": "P06",
+      "outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+      "selected_session": "2022-04-29"
+    },
+    "4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a": {
+      "arm": "P11",
+      "outer_sha256": "29fe6110159e24934ea521d15d72ff6c4d08d2b3e4c7bf904ebd1fb5b377ceb4",
+      "selected_session": "2026-02-27"
+    },
+    "524ad7d5c2ca46bd48d6fdd7066c788ba557e62116246a1fae9b00845a106e58": {
+      "arm": "P11",
+      "outer_sha256": "8e43f75b8686d18f688b6cb35b6292634e525e8b9b979351d3765923e4a0af34",
+      "selected_session": "2022-05-31"
+    },
+    "58036453b01d009fc05f3626e735bc16c0bd1787f2ca951aeeb936ac57a4da45": {
+      "arm": "P04",
+      "outer_sha256": "5ff96b14f5e463494d22816ee6a61464411498324cd8298ec48461e12a5f90ac",
+      "selected_session": "2022-08-31"
+    },
+    "65b4309305ed9a62a6dfd9db12070d124dcc7e5efcc1a582555386ff5c7dbd9c": {
+      "arm": "P03",
+      "outer_sha256": "8b7358f5848b23ac440a9d5da094f17bee39acd46e8ad69526159e23af509f6b",
+      "selected_session": "2018-04-30"
+    },
+    "6d6cb4beb530ba6f26323cc4c988984631639f4439728144e4e6f11c5787128c": {
+      "arm": "P11",
+      "outer_sha256": "527b7d4fcb92d4136195cc0eacf0459b73c368edfb0cdf3e9121f15ed8335e57",
+      "selected_session": "2018-01-31"
+    },
+    "7177334f71ec924d37810189a9c8f94e6f00073f5808a3aa1ec4647801a51986": {
+      "arm": "P04",
+      "outer_sha256": "0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe",
+      "selected_session": "2022-06-30"
+    },
+    "792cbf186292d30e81c370941b97083ce31a5226d19009e40771de16c1250951": {
+      "arm": "P05",
+      "outer_sha256": "2666a9c29c778f499db15c687303d1dd663edc6cb3461d3ba877c615c03a4446",
+      "selected_session": "2020-06-30"
+    },
+    "798631a219bbd2926c6e2a6633bdf71ab1cc5e013094c343bdfc86deee9045b7": {
+      "arm": "P05",
+      "outer_sha256": "f3d33cdafa7e3d8ab1df03c7be59d3f56c69fbdf1b0e063a467dd5a22fcdb848",
+      "selected_session": "2021-10-29"
+    },
+    "84381db5458891e421209047b2933c8182c981ccc106743ab5f9ca946fa135a7": {
+      "arm": "P03",
+      "outer_sha256": "9330b6d44b8dac35d528d18aed2687c5a4609c0cedd2c0872f2b4229f88844d1",
+      "selected_session": "2018-11-30"
+    },
+    "95087a57a75a2747966d9e2afdf5c6c729409381dd8f2d42b011b8218bf37519": {
+      "arm": "P05",
+      "outer_sha256": "8c3f8d3c53b380317fd624e7a55714960cf82ba44f1aaca204f58fbdaed28b38",
+      "selected_session": "2020-01-31"
+    },
+    "98721a1b50ebb8a28c4ca9f7572d0722dcb6091da7b3f2fbba68d3b3ce768004": {
+      "arm": "P11",
+      "outer_sha256": "28f4b89c314c2d9b3fe3256412d83f335bf394708497b638fba9e95cb1cd3895",
+      "selected_session": "2023-06-30"
+    },
+    "9a17edfdacaf8ffe75ead2e0b12bd2650e19b4cbd948526317703a842b89141f": {
+      "arm": "P03",
+      "outer_sha256": "46c576de5f3d5f9ecaabe460bf82ac5d5a184b42f2f4297583324f65dd5f2b54",
+      "selected_session": "2018-08-31"
+    },
+    "a19ff05c0685ab37fc886c3ddcde7b958e083b60af9904087ba1822937a65078": {
+      "arm": "P05",
+      "outer_sha256": "8043fc8fb8915fbd14bb69834f905d0bf217fc06027f0283f816f064235f443c",
+      "selected_session": "2020-11-30"
+    },
+    "a666dc395e4c3d6e84ae7402967e28befa65052d84d6da68d5df52b8bc9970bc": {
+      "arm": "P00",
+      "outer_sha256": "fef5c1fa91e000030d09fe758ec2abd01bf48dbd2b2a3f2c197c4cfa0e32c93c",
+      "selected_session": "2025-06-30"
+    },
+    "a89d9976ab0621b14d921fe9079784d62d835d9634b9ed423d66060d925eb3cd": {
+      "arm": "P03",
+      "outer_sha256": "32b2fb50d0686f057814a7d1950b5bf5a48bd7a46ad7c686e2dcda6cdca1ebf7",
+      "selected_session": "2018-12-31"
+    },
+    "ab8b38df9778710adafbeabdd6deea6491d498a55138be00da5cce11da8b94be": {
+      "arm": "P11",
+      "outer_sha256": "1544d979c23b8827783bbccf6dbf5b4184f1df0fcaded5f630fcd18109737c7c",
+      "selected_session": "2025-06-30"
+    },
+    "b5135e817ef9359ce83922fbe9200cfc32033628d2ff98fec1673e8d9ebd2197": {
+      "arm": "P05",
+      "outer_sha256": "201001331f78634a46ce80509992c04c927ae6304dda28a3f248f3a4393c718b",
+      "selected_session": "2018-01-31"
+    },
+    "b5159227c4bdbaebb7a246062cb73cf5e3190b0805c9f4f3b93e15a6193765ec": {
+      "arm": "P06",
+      "outer_sha256": "129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194",
+      "selected_session": "2020-02-28"
+    },
+    "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f": {
+      "arm": "P03",
+      "outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "selected_session": "2019-09-30"
+    },
+    "c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694": {
+      "arm": "P00",
+      "outer_sha256": "ad12b8a58f00560f1393cccdc0d9718b59d172265fc89f4bc36cb1ec7a4b37d2",
+      "selected_session": "2018-08-31"
+    },
+    "c43253a987d6e930f3a60b14e85a52fd0c05f768c6113132d0448d1fc8d99a9a": {
+      "arm": "P04",
+      "outer_sha256": "f5562177949d371147920b4cbd05bd149559c2840bd2c742ff826ea245b938a8",
+      "selected_session": "2025-10-31"
+    },
+    "c83fbf2782f14d67bbdc82e687ef34c5c9e1dfd9769c0381dee1b3198c8d323e": {
+      "arm": "P06",
+      "outer_sha256": "67f3063f3fd68a79dd83189fb1c29173dda651fe399f235272d019f486c2fbb1",
+      "selected_session": "2020-06-30"
+    },
+    "dfcd3aee60ebd3ea7fdc073454af662170a14960f9b034cae6177431ea6c8e2c": {
+      "arm": "P04",
+      "outer_sha256": "65216f19c6aac8b0c31db34fa40fa4cc63c5875406b0ed2f1aae457181554433",
+      "selected_session": "2022-09-30"
+    },
+    "e49c8db66e8f579cb75334ff3931b98e78032e35dafee6002fea437457c77544": {
+      "arm": "P03",
+      "outer_sha256": "4fc061018ff0ea13600136b4ca24351e82bc20aed894a32c417a9f696a3339da",
+      "selected_session": "2019-05-31"
+    },
+    "f7421f89b0f7af3abac7cec3c475eb19a18b0c3cfe7094929e55248121125e18": {
+      "arm": "P06",
+      "outer_sha256": "55d61959194c0572a9a686a1ace6202255296ec1cae81127a170a7785a5bcb2a",
+      "selected_session": "2018-01-31"
+    },
+    "f8be3c331ac12f211c630078d128278c155eb99a98afaff81bc8219e435094aa": {
+      "arm": "P06",
+      "outer_sha256": "41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246",
+      "selected_session": "2021-03-31"
+    }
+  },
+  "schema": "research.catalog31-pure-source-input-fixture/1",
+  "source_payload": {
+    "additional_rows": [
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1538927",
+          "listing_first_session": "2020-06-19",
+          "security_id": "321650252292096156",
+          "security_type_eligible": "1",
+          "session": "2022-10-13",
+          "source_observation_sha256": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+          "ticker": "FMTX"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "10 Hlth",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1538927",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2020-06-19",
+          "metadata_admitted": "1",
+          "raw_close": "20.010000000000002",
+          "raw_compatible_volume": "739159",
+          "raw_open": "20",
+          "reported_volume": "739159",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "321650252292096156",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-13",
+          "sic": "2836",
+          "signal_close": "20.010000000000002",
+          "split_ratio": "1",
+          "ticker": "FMTX",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1679826",
+          "listing_first_session": "2019-09-19",
+          "security_id": "23427772744584579",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+          "ticker": "PING"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1679826",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2019-09-19",
+          "metadata_admitted": "1",
+          "raw_close": "28.5",
+          "raw_compatible_volume": "3473330",
+          "raw_open": "28.48",
+          "reported_volume": "3473330",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "23427772744584579",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-17",
+          "sic": "7372",
+          "signal_close": "28.5",
+          "split_ratio": "1",
+          "ticker": "PING",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1348036",
+          "listing_first_session": "2018-06-15",
+          "security_id": "652370478798714876",
+          "security_type_eligible": "1",
+          "session": "2022-10-18",
+          "source_observation_sha256": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+          "ticker": "AVLR"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1348036",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2018-06-15",
+          "metadata_admitted": "1",
+          "raw_close": "93.480000000000004",
+          "raw_compatible_volume": "5760069",
+          "raw_open": "93.469999999999999",
+          "reported_volume": "5760069",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "652370478798714876",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-18",
+          "sic": "7372",
+          "signal_close": "93.480000000000004",
+          "split_ratio": "1",
+          "ticker": "AVLR",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:775368",
+          "listing_first_session": "1997-12-31",
+          "security_id": "683977592320274232",
+          "security_type_eligible": "1",
+          "session": "2022-10-18",
+          "source_observation_sha256": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+          "ticker": "Y"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "11 Money",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:775368",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1997-12-31",
+          "metadata_admitted": "1",
+          "raw_close": "847.78999999999996",
+          "raw_compatible_volume": "634034",
+          "raw_open": "847.80999999999995",
+          "reported_volume": "634034",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "683977592320274232",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-18",
+          "sic": "6331",
+          "signal_close": "847.78999999999996",
+          "split_ratio": "1",
+          "ticker": "Y",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1463172",
+          "listing_first_session": "2014-05-15",
+          "security_id": "870865871230451373",
+          "security_type_eligible": "1",
+          "session": "2022-11-21",
+          "source_observation_sha256": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0",
+          "ticker": "ZEN"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1463172",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2014-05-15",
+          "metadata_admitted": "1",
+          "raw_close": "77.480000000000004",
+          "raw_compatible_volume": "3638370",
+          "raw_open": "77.480000000000004",
+          "reported_volume": "3638370",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "870865871230451373",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-11-21",
+          "sic": "7374",
+          "signal_close": "77.480000000000004",
+          "split_ratio": "1",
+          "ticker": "ZEN",
+          "tradeable": "1"
+        }
+      }
+    ],
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "arm": "P06",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "input_adopted": false,
+    "parent_cursor": "2022-04-29",
+    "parent_outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+    "producer_sha256": "410e205d760d0b49578bbc4dec7f0d70beb929bcddcc01f774923a274fe8cfd4",
+    "production_contacted": false,
+    "provider_metadata_upgraded": false,
+    "schema": "research.own-parent-frozen-source-witnesses/2",
+    "scope": {
+      "additional_rows": [
+        {
+          "parent_positions": [],
+          "security_id": "321650252292096156",
+          "session": "2022-10-13",
+          "source_observation_sha256": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+          "ticker": "FMTX"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "23427772744584579",
+          "session": "2022-10-17",
+          "source_observation_sha256": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+          "ticker": "PING"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "652370478798714876",
+          "session": "2022-10-18",
+          "source_observation_sha256": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+          "ticker": "AVLR"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "683977592320274232",
+          "session": "2022-10-18",
+          "source_observation_sha256": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+          "ticker": "Y"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "870865871230451373",
+          "session": "2022-11-21",
+          "source_observation_sha256": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0",
+          "ticker": "ZEN"
+        }
+      ],
+      "parent_cursor": "2022-04-29",
+      "parent_outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+      "terms": [
+        {
+          "native_session": "2022-05-12",
+          "native_term_sha256": "7ec878d790620777a8e43b53ee60903959627938b58e36397560051d5eacb03f",
+          "parent_positions": [],
+          "security_id": "948589239641460025",
+          "session": "2022-05-11",
+          "ticker": "XENT"
+        },
+        {
+          "native_session": "2022-05-13",
+          "native_term_sha256": "5eb674cff87d9baba04ab103475f0bccc7fef9ba1dcfb03d476ae6a7c20a80f4",
+          "parent_positions": [],
+          "security_id": "302828589827843603",
+          "session": "2022-05-12",
+          "ticker": "EPAY"
+        },
+        {
+          "native_session": "2022-05-18",
+          "native_term_sha256": "1ea2abbb8cd4e10bae112ca8aaa7cd87822db91afbcaaa52ad6da417b8c4d0d6",
+          "parent_positions": [
+            {
+              "entry_date": "2022-04-01",
+              "quantity": 38,
+              "slot_id": 26,
+              "ticker": "MIME"
+            }
+          ],
+          "security_id": "988236261397113691",
+          "session": "2022-05-17",
+          "ticker": "MIME"
+        },
+        {
+          "native_session": "2022-10-13",
+          "native_term_sha256": "520764575d781727341e687841e205e9404aff6726da7de2bc8e58a9864d18d4",
+          "parent_positions": [],
+          "security_id": "321650252292096156",
+          "session": "2022-10-12",
+          "ticker": "FMTX"
+        },
+        {
+          "native_session": "2022-10-17",
+          "native_term_sha256": "b1481b42046cb67003a896150c6f7f9b28910b29f1b5a53ec35ef219bd4a78f0",
+          "parent_positions": [],
+          "security_id": "23427772744584579",
+          "session": "2022-10-14",
+          "ticker": "PING"
+        },
+        {
+          "native_session": "2022-10-18",
+          "native_term_sha256": "10943a680bf8b4a98575225ee89ecabce5e8ed3bf066ed318e8ef5db55d5bc5f",
+          "parent_positions": [],
+          "security_id": "652370478798714876",
+          "session": "2022-10-17",
+          "ticker": "AVLR"
+        },
+        {
+          "native_session": "2022-10-18",
+          "native_term_sha256": "a32a8b2e023dedf84185a5b7d3847b546bc29f0ff99b0186c05019dd91d9ab90",
+          "parent_positions": [],
+          "security_id": "683977592320274232",
+          "session": "2022-10-17",
+          "ticker": "Y"
+        },
+        {
+          "native_session": "2022-10-19",
+          "native_term_sha256": "f1c92007dac927423e7703ac280ca4de869a7b275b323e127b7b6e0c5f9c6dca",
+          "parent_positions": [],
+          "security_id": "659896685009177378",
+          "session": "2022-10-18",
+          "ticker": "CCXI1"
+        },
+        {
+          "native_session": "2022-11-03",
+          "native_term_sha256": "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
+          "parent_positions": [],
+          "security_id": "738630690199421979",
+          "session": "2022-11-02",
+          "ticker": "CYBE"
+        },
+        {
+          "native_session": "2022-11-21",
+          "native_term_sha256": "4eb6cbadfb1fd10a87741ed05f2e3d7025700280835e49f4f838d071b0600dd2",
+          "parent_positions": [],
+          "security_id": "870865871230451373",
+          "session": "2022-11-18",
+          "ticker": "ZEN"
+        }
+      ]
+    },
+    "scope_sha256": "4625ef93fd3b35cf69f1e166f68399aacd95ae76c6f4103df14c34a353f4ee3c",
+    "terms": [
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1271214",
+          "listing_first_session": "2014-07-24",
+          "security_id": "948589239641460025",
+          "security_type_eligible": "1",
+          "session": "2022-05-11",
+          "source_observation_sha256": "1800c4ca7c3137d80703f1effbcc03c636f03364462e73f3cb849b84512c53dd",
+          "ticker": "XENT"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=954.9",
+          "security_id": "948589239641460025",
+          "session": "2022-05-12"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "10 Hlth",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1271214",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2014-07-24",
+          "metadata_admitted": "1",
+          "raw_close": "28.239999999999998",
+          "raw_compatible_volume": "915591",
+          "raw_open": "28.239999999999998",
+          "reported_volume": "915591",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "948589239641460025",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-05-11",
+          "sic": "3841",
+          "signal_close": "28.239999999999998",
+          "split_ratio": "1",
+          "ticker": "XENT",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1073349",
+          "listing_first_session": "1999-02-12",
+          "security_id": "302828589827843603",
+          "security_type_eligible": "1",
+          "session": "2022-05-12",
+          "source_observation_sha256": "02dc300f5b23f02b9e51cd65618de013abb8bc927ce61164e4fb3cb55d824d32",
+          "ticker": "EPAY"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=2586.6",
+          "security_id": "302828589827843603",
+          "session": "2022-05-13"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1073349",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1999-02-12",
+          "metadata_admitted": "1",
+          "raw_close": "56.990000000000002",
+          "raw_compatible_volume": "5001541",
+          "raw_open": "56.920000000000002",
+          "reported_volume": "5001541",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "302828589827843603",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-05-12",
+          "sic": "7372",
+          "signal_close": "56.990000000000002",
+          "split_ratio": "1",
+          "ticker": "EPAY",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1644675",
+          "listing_first_session": "2015-11-19",
+          "security_id": "988236261397113691",
+          "security_type_eligible": "1",
+          "session": "2022-05-17",
+          "source_observation_sha256": "e30276c675917b76f279796edc90ea7b292ede3a844675fae19c2c21b1d486a4",
+          "ticker": "MIME"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=5348.4",
+          "security_id": "988236261397113691",
+          "session": "2022-05-18"
+        },
+        "parent_positions": [
+          {
+            "entry_date": "2022-04-01",
+            "quantity": 38,
+            "slot_id": 26,
+            "ticker": "MIME"
+          }
+        ],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1644675",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2015-11-19",
+          "metadata_admitted": "1",
+          "raw_close": "79.890000000000001",
+          "raw_compatible_volume": "1398230",
+          "raw_open": "79.849999999999994",
+          "reported_volume": "1398230",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "988236261397113691",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-05-17",
+          "sic": "7372",
+          "signal_close": "79.890000000000001",
+          "split_ratio": "1",
+          "ticker": "MIME",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1538927",
+          "listing_first_session": "2020-06-19",
+          "security_id": "321650252292096156",
+          "security_type_eligible": "1",
+          "session": "2022-10-12",
+          "source_observation_sha256": "6dc455e906851ab6c5095d87d7b49e7c06f25ce4731131331c9f0e0a7b06ec98",
+          "ticker": "FMTX"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=957.5",
+          "security_id": "321650252292096156",
+          "session": "2022-10-13"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "10 Hlth",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1538927",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2020-06-19",
+          "metadata_admitted": "1",
+          "raw_close": "19.98",
+          "raw_compatible_volume": "391975",
+          "raw_open": "19.98",
+          "reported_volume": "391975",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "321650252292096156",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-12",
+          "sic": "2836",
+          "signal_close": "19.98",
+          "split_ratio": "1",
+          "ticker": "FMTX",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1679826",
+          "listing_first_session": "2019-09-19",
+          "security_id": "23427772744584579",
+          "security_type_eligible": "1",
+          "session": "2022-10-14",
+          "source_observation_sha256": "d6f2412e562659f03143567f510fa640f4b5a05b06ceb46ab9691303b500ac85",
+          "ticker": "PING"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=2448.9",
+          "security_id": "23427772744584579",
+          "session": "2022-10-17"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1679826",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2019-09-19",
+          "metadata_admitted": "1",
+          "raw_close": "28.469999999999999",
+          "raw_compatible_volume": "11381179",
+          "raw_open": "28.5",
+          "reported_volume": "11381179",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "23427772744584579",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-14",
+          "sic": "7372",
+          "signal_close": "28.469999999999999",
+          "split_ratio": "1",
+          "ticker": "PING",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1348036",
+          "listing_first_session": "2018-06-15",
+          "security_id": "652370478798714876",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "de07bcf227cd616c907f14fc1c3d940bdd859e40d3c9bbf050155f91fb64aff6",
+          "ticker": "AVLR"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=8251.1",
+          "security_id": "652370478798714876",
+          "session": "2022-10-18"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1348036",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2018-06-15",
+          "metadata_admitted": "1",
+          "raw_close": "93.450000000000003",
+          "raw_compatible_volume": "4302772",
+          "raw_open": "93.439999999999998",
+          "reported_volume": "4302772",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "652370478798714876",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-17",
+          "sic": "7372",
+          "signal_close": "93.450000000000003",
+          "split_ratio": "1",
+          "ticker": "AVLR",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:775368",
+          "listing_first_session": "1997-12-31",
+          "security_id": "683977592320274232",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "13795d6eed192186e03cff5e12a0246a6cb6f76d19bd3a666c942cc375705d33",
+          "ticker": "Y"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=11407.4",
+          "security_id": "683977592320274232",
+          "session": "2022-10-18"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "11 Money",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:775368",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1997-12-31",
+          "metadata_admitted": "1",
+          "raw_close": "847.77999999999997",
+          "raw_compatible_volume": "234363",
+          "raw_open": "847.74000000000001",
+          "reported_volume": "234363",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "683977592320274232",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-10-17",
+          "sic": "6331",
+          "signal_close": "847.77999999999997",
+          "split_ratio": "1",
+          "ticker": "Y",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_UNKNOWN:659896685009177378",
+          "listing_first_session": "2012-02-08",
+          "security_id": "659896685009177378",
+          "security_type_eligible": "0",
+          "session": "2022-10-18",
+          "source_observation_sha256": "598f6559411d5f781bcb3ed5ff427a82e1d43c902b1ae65bb25808059536aed1",
+          "ticker": "CCXI1"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=3709.8",
+          "security_id": "659896685009177378",
+          "session": "2022-10-19"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "UNKNOWN:659896685009177378",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_UNKNOWN:659896685009177378",
+          "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+          "listing_active": "1",
+          "listing_first_session": "2012-02-08",
+          "metadata_admitted": "0",
+          "raw_close": "51.960000000000001",
+          "raw_compatible_volume": "953000",
+          "raw_open": "51.969999999999999",
+          "reported_volume": "953000",
+          "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+          "security_id": "659896685009177378",
+          "security_type": "unknown",
+          "security_type_eligible": "0",
+          "security_type_source": "NO_STRICT_PRIOR_POSITIVE_EVIDENCE",
+          "session": "2022-10-18",
+          "sic": "",
+          "signal_close": "51.960000000000001",
+          "split_ratio": "1",
+          "ticker": "CCXI1",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:768411",
+          "listing_first_session": "1997-12-31",
+          "security_id": "738630690199421979",
+          "security_type_eligible": "1",
+          "session": "2022-11-02",
+          "source_observation_sha256": "3df332c7fe52cf82fea8172855c5627ecc6d99ccbfcd3c51cd65c9eac673d892",
+          "ticker": "CYBE"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=400.8",
+          "security_id": "738630690199421979",
+          "session": "2022-11-03"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:768411",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1997-12-31",
+          "metadata_admitted": "1",
+          "raw_close": "54",
+          "raw_compatible_volume": "369217",
+          "raw_open": "53.950000000000003",
+          "reported_volume": "369217",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "738630690199421979",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-11-02",
+          "sic": "3827",
+          "signal_close": "54",
+          "split_ratio": "1",
+          "ticker": "CYBE",
+          "tradeable": "1"
+        }
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1463172",
+          "listing_first_session": "2014-05-15",
+          "security_id": "870865871230451373",
+          "security_type_eligible": "1",
+          "session": "2022-11-18",
+          "source_observation_sha256": "5dad6183991bf0eaafa2139e8db7ffe34c98bbe9d69b93305fc35506d95602f2",
+          "ticker": "ZEN"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=9626",
+          "security_id": "870865871230451373",
+          "session": "2022-11-21"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1463172",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2014-05-15",
+          "metadata_admitted": "1",
+          "raw_close": "77.459999999999994",
+          "raw_compatible_volume": "12965219",
+          "raw_open": "77.430000000000007",
+          "reported_volume": "12965219",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "870865871230451373",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-11-18",
+          "sic": "7374",
+          "signal_close": "77.459999999999994",
+          "split_ratio": "1",
+          "ticker": "ZEN",
+          "tradeable": "1"
+        }
+      }
+    ]
+  },
+  "source_payload_sha256": "aab6c0ced8dc3d334012ce25d86b60b2aef3b7e9904f0f84cd35d16e3edda623",
+  "source_qualification": {
+    "all7_inherited_input_bytes_exact": true,
+    "all_unfiltered_native_date_action_rows": 22,
+    "arm": "P06",
+    "artifact_id": 13404817664,
+    "critical_guard_removal_cases": 6,
+    "financial_authority": false,
+    "financial_import_fences": 5,
+    "financial_sessions_advanced": 0,
+    "full_raw_rows": 15,
+    "head": "7c9f35d4a7a39f02fef82269466f5064780742f8",
+    "independent_raw_source_proof": {
+      "all_parent_date_action_rows": 22,
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "fresh_full_archive_rehash_at_DATA_use": true,
+      "full_rows": 15,
+      "native_term_sha256": [
+        "7ec878d790620777a8e43b53ee60903959627938b58e36397560051d5eacb03f",
+        "5eb674cff87d9baba04ab103475f0bccc7fef9ba1dcfb03d476ae6a7c20a80f4",
+        "1ea2abbb8cd4e10bae112ca8aaa7cd87822db91afbcaaa52ad6da417b8c4d0d6",
+        "520764575d781727341e687841e205e9404aff6726da7de2bc8e58a9864d18d4",
+        "b1481b42046cb67003a896150c6f7f9b28910b29f1b5a53ec35ef219bd4a78f0",
+        "10943a680bf8b4a98575225ee89ecabce5e8ed3bf066ed318e8ef5db55d5bc5f",
+        "a32a8b2e023dedf84185a5b7d3847b546bc29f0ff99b0186c05019dd91d9ab90",
+        "f1c92007dac927423e7703ac280ca4de869a7b275b323e127b7b6e0c5f9c6dca",
+        "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
+        "4eb6cbadfb1fd10a87741ed05f2e3d7025700280835e49f4f838d071b0600dd2"
+      ],
+      "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+      "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+      "passed": true,
+      "rows": {
+        "2022-05-11:948589239641460025": "1800c4ca7c3137d80703f1effbcc03c636f03364462e73f3cb849b84512c53dd",
+        "2022-05-12:302828589827843603": "02dc300f5b23f02b9e51cd65618de013abb8bc927ce61164e4fb3cb55d824d32",
+        "2022-05-17:988236261397113691": "e30276c675917b76f279796edc90ea7b292ede3a844675fae19c2c21b1d486a4",
+        "2022-10-12:321650252292096156": "6dc455e906851ab6c5095d87d7b49e7c06f25ce4731131331c9f0e0a7b06ec98",
+        "2022-10-13:321650252292096156": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+        "2022-10-14:23427772744584579": "d6f2412e562659f03143567f510fa640f4b5a05b06ceb46ab9691303b500ac85",
+        "2022-10-17:23427772744584579": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+        "2022-10-17:652370478798714876": "de07bcf227cd616c907f14fc1c3d940bdd859e40d3c9bbf050155f91fb64aff6",
+        "2022-10-17:683977592320274232": "13795d6eed192186e03cff5e12a0246a6cb6f76d19bd3a666c942cc375705d33",
+        "2022-10-18:652370478798714876": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+        "2022-10-18:659896685009177378": "598f6559411d5f781bcb3ed5ff427a82e1d43c902b1ae65bb25808059536aed1",
+        "2022-10-18:683977592320274232": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+        "2022-11-02:738630690199421979": "3df332c7fe52cf82fea8172855c5627ecc6d99ccbfcd3c51cd65c9eac673d892",
+        "2022-11-18:870865871230451373": "5dad6183991bf0eaafa2139e8db7ffe34c98bbe9d69b93305fc35506d95602f2",
+        "2022-11-21:870865871230451373": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0"
+      },
+      "rows_scanned": 2080223
+    },
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "native_terms": 10,
+    "original383_source_bytes_exact": true,
+    "parent_outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+    "parent_root_admission_sha256": "492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9",
+    "passed": true,
+    "payload_sha256": "aab6c0ced8dc3d334012ce25d86b60b2aef3b7e9904f0f84cd35d16e3edda623",
+    "precheck_qualification_sha256": "56c80e5473bb2d60ed1886e6bc4c627413ec5cb79a2a225404af7d9dec440825",
+    "production_contacted": false,
+    "provider_metadata_upgraded": false,
+    "reader_and_preimage_files": {
+      "p06_closed_source238_reader.py": {
+        "bytes": 14902,
+        "sha256": "3e4e72bd95cb9c83ecd5a181f6c28b270ea23625b56949cc4271493ef500dc26"
+      },
+      "p06_frozen_source279_preimages.json": {
+        "bytes": 57275,
+        "sha256": "e8552c0b1b768a7aeb92a49dd4e78a7880027fa7c8165efc12fe6a416bddcde5"
+      },
+      "p06_raw_member_source279_preimages.json": {
+        "bytes": 159,
+        "sha256": "8030f1fb4b87f5d394c504ac9fad4ddd8fc13b98e9a591dbad2c5852be6970cd"
+      },
+      "p06_scope_source279.json": {
+        "bytes": 4262,
+        "sha256": "f0846f896f73e22e6aab7b97afb96585efac50a897949a32585bbf4b98017808"
+      },
+      "p06_source_DATA_DESIGN.json": {
+        "bytes": 1572,
+        "sha256": "b55fd7f9761b1f465f324e0080da44742ba2960bce24e853367d2192db5cf0a7"
+      },
+      "p06_ten_review_source_data.py": {
+        "bytes": 23993,
+        "sha256": "2b9e047c1a43458f403c9934118f832ff9a2869abba33c885cf23a3de4e68307"
+      },
+      "p06_ten_test_source_data.py": {
+        "bytes": 13428,
+        "sha256": "ecf78aa3786a3509252ef30725d3384899bbbace494ab51dd1b25e83b807b130"
+      }
+    },
+    "review_sha256": "18437bb6f56e8a8163b75bd066512eb4958491c8912fb5804a9ef148a25b8620",
+    "root_admission_performed": false,
+    "run_id": 42006075396,
+    "schema": "research.independent-frozen-source-data-validation/1",
+    "scope_sha256": "4625ef93fd3b35cf69f1e166f68399aacd95ae76c6f4103df14c34a353f4ee3c",
+    "selected_source_count": 435,
+    "source_DATA_qualification_complete": true,
+    "source_identity_only": true,
+    "source_value_or_settlement_timing_qualified": false,
+    "staging_manifest_sha256": "a8e5c00b21f66ab6e30a8313c7b28dcb881313dc173d945a5a93126b2471ac4c",
+    "tests_passed": 35,
+    "utc": "2026-11-05T10:02:56.294591+00:00"
+  },
+  "source_qualification_sha256": "3d46a34e8bf8da064796accc2199b61a24c604339cdc0ce89c69a789655b4dfa",
+  "source_review": {
+    "actual_worker_request_bytes_verified": true,
+    "additional_rows": [
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1538927",
+          "listing_first_session": "2020-06-19",
+          "security_id": "321650252292096156",
+          "security_type_eligible": "1",
+          "session": "2022-10-13",
+          "source_observation_sha256": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+          "ticker": "FMTX"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1679826",
+          "listing_first_session": "2019-09-19",
+          "security_id": "23427772744584579",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+          "ticker": "PING"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1348036",
+          "listing_first_session": "2018-06-15",
+          "security_id": "652370478798714876",
+          "security_type_eligible": "1",
+          "session": "2022-10-18",
+          "source_observation_sha256": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+          "ticker": "AVLR"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:775368",
+          "listing_first_session": "1997-12-31",
+          "security_id": "683977592320274232",
+          "security_type_eligible": "1",
+          "session": "2022-10-18",
+          "source_observation_sha256": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+          "ticker": "Y"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1463172",
+          "listing_first_session": "2014-05-15",
+          "security_id": "870865871230451373",
+          "security_type_eligible": "1",
+          "session": "2022-11-21",
+          "source_observation_sha256": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0",
+          "ticker": "ZEN"
+        },
+        "parent_positions": []
+      }
+    ],
+    "arm": "P06",
+    "artifact_id": 13404817664,
+    "closed_generic_predicate_reader_sha256": "3e4e72bd95cb9c83ecd5a181f6c28b270ea23625b56949cc4271493ef500dc26",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "full_raw_row_digest_verified": true,
+    "head": "7c9f35d4a7a39f02fef82269466f5064780742f8",
+    "independent_raw_source_proof": {
+      "all_parent_date_action_rows": 22,
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "fresh_full_archive_rehash_at_DATA_use": true,
+      "full_rows": 15,
+      "native_term_sha256": [
+        "7ec878d790620777a8e43b53ee60903959627938b58e36397560051d5eacb03f",
+        "5eb674cff87d9baba04ab103475f0bccc7fef9ba1dcfb03d476ae6a7c20a80f4",
+        "1ea2abbb8cd4e10bae112ca8aaa7cd87822db91afbcaaa52ad6da417b8c4d0d6",
+        "520764575d781727341e687841e205e9404aff6726da7de2bc8e58a9864d18d4",
+        "b1481b42046cb67003a896150c6f7f9b28910b29f1b5a53ec35ef219bd4a78f0",
+        "10943a680bf8b4a98575225ee89ecabce5e8ed3bf066ed318e8ef5db55d5bc5f",
+        "a32a8b2e023dedf84185a5b7d3847b546bc29f0ff99b0186c05019dd91d9ab90",
+        "f1c92007dac927423e7703ac280ca4de869a7b275b323e127b7b6e0c5f9c6dca",
+        "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
+        "4eb6cbadfb1fd10a87741ed05f2e3d7025700280835e49f4f838d071b0600dd2"
+      ],
+      "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+      "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+      "passed": true,
+      "rows": {
+        "2022-05-11:948589239641460025": "1800c4ca7c3137d80703f1effbcc03c636f03364462e73f3cb849b84512c53dd",
+        "2022-05-12:302828589827843603": "02dc300f5b23f02b9e51cd65618de013abb8bc927ce61164e4fb3cb55d824d32",
+        "2022-05-17:988236261397113691": "e30276c675917b76f279796edc90ea7b292ede3a844675fae19c2c21b1d486a4",
+        "2022-10-12:321650252292096156": "6dc455e906851ab6c5095d87d7b49e7c06f25ce4731131331c9f0e0a7b06ec98",
+        "2022-10-13:321650252292096156": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+        "2022-10-14:23427772744584579": "d6f2412e562659f03143567f510fa640f4b5a05b06ceb46ab9691303b500ac85",
+        "2022-10-17:23427772744584579": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+        "2022-10-17:652370478798714876": "de07bcf227cd616c907f14fc1c3d940bdd859e40d3c9bbf050155f91fb64aff6",
+        "2022-10-17:683977592320274232": "13795d6eed192186e03cff5e12a0246a6cb6f76d19bd3a666c942cc375705d33",
+        "2022-10-18:652370478798714876": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+        "2022-10-18:659896685009177378": "598f6559411d5f781bcb3ed5ff427a82e1d43c902b1ae65bb25808059536aed1",
+        "2022-10-18:683977592320274232": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+        "2022-11-02:738630690199421979": "3df332c7fe52cf82fea8172855c5627ecc6d99ccbfcd3c51cd65c9eac673d892",
+        "2022-11-18:870865871230451373": "5dad6183991bf0eaafa2139e8db7ffe34c98bbe9d69b93305fc35506d95602f2",
+        "2022-11-21:870865871230451373": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0"
+      },
+      "rows_scanned": 2080223
+    },
+    "independent_reader_sha256": "2b9e047c1a43458f403c9934118f832ff9a2869abba33c885cf23a3de4e68307",
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "old_financial_rows_reaudited": 0,
+    "original_factual_source_closure": {
+      "all7_adopted_inputs_retained": true,
+      "catalog_members": [
+        "XENT",
+        "EPAY",
+        "MIME",
+        "FMTX",
+        "PING",
+        "AVLR",
+        "Y",
+        "CCXI1",
+        "CYBE",
+        "ZEN"
+      ],
+      "excluded_adopted_future_rights": [
+        {
+          "kind": "CASH_MERGER",
+          "security_id": "362949419836618645",
+          "session": "2023-03-10"
+        },
+        {
+          "kind": "CASH_PLUS_STOCK",
+          "security_id": "223345417151181882",
+          "session": "2022-05-17"
+        },
+        {
+          "kind": "CASH_MERGER",
+          "security_id": "1012599037173653936",
+          "session": "2022-06-13"
+        },
+        {
+          "kind": "CASH_MERGER",
+          "security_id": "621163045039428157",
+          "session": "2022-06-22"
+        }
+      ],
+      "original_nine_native_and_witness_pins_exact": true,
+      "original_source_files": {
+        "system-campaign-cash-calendar-terminal-facts.json": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+        "system-campaign-december-cash-calendar-terminal-facts.json": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+        "system-campaign-october-cash-calendar-terminal-facts.json": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53",
+        "system_campaign_cash_calendar.py": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f"
+      },
+      "passed": true,
+      "source_identity_only": true,
+      "value_or_timing_requalified": false
+    },
+    "parent_outer_sha256": "7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde",
+    "parent_pending_context": {
+      "23427772744584579": [],
+      "302828589827843603": [],
+      "321650252292096156": [],
+      "652370478798714876": [],
+      "659896685009177378": [],
+      "683977592320274232": [],
+      "738630690199421979": [],
+      "870865871230451373": [],
+      "948589239641460025": [],
+      "988236261397113691": []
+    },
+    "parent_root_admission_sha256": "492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9",
+    "parent_selected": {
+      "23427772744584579": false,
+      "302828589827843603": false,
+      "321650252292096156": false,
+      "652370478798714876": false,
+      "659896685009177378": false,
+      "683977592320274232": false,
+      "738630690199421979": false,
+      "870865871230451373": false,
+      "948589239641460025": false,
+      "988236261397113691": false
+    },
+    "passed": true,
+    "payload_sha256": "aab6c0ced8dc3d334012ce25d86b60b2aef3b7e9904f0f84cd35d16e3edda623",
+    "run_id": 42006075396,
+    "schema": "research.independent-frozen-source-data-review/1",
+    "scope_sha256": "4625ef93fd3b35cf69f1e166f68399aacd95ae76c6f4103df14c34a353f4ee3c",
+    "source_closure": {
+      "all_selected_sources_exact": true,
+      "original383_exact": true,
+      "original_factual_source_pins": {
+        "system-campaign-cash-calendar-terminal-facts.json": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+        "system-campaign-december-cash-calendar-terminal-facts.json": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+        "system-campaign-october-cash-calendar-terminal-facts.json": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53",
+        "system_campaign_cash_calendar.py": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f"
+      },
+      "producer_source_count": 435
+    },
+    "source_identity_qualified_for_separate_future_input_review": true,
+    "source_value_or_settlement_timing_qualified": false,
+    "terms": [
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1271214",
+          "listing_first_session": "2014-07-24",
+          "security_id": "948589239641460025",
+          "security_type_eligible": "1",
+          "session": "2022-05-11",
+          "source_observation_sha256": "1800c4ca7c3137d80703f1effbcc03c636f03364462e73f3cb849b84512c53dd",
+          "ticker": "XENT"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=954.9",
+          "security_id": "948589239641460025",
+          "session": "2022-05-12"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1073349",
+          "listing_first_session": "1999-02-12",
+          "security_id": "302828589827843603",
+          "security_type_eligible": "1",
+          "session": "2022-05-12",
+          "source_observation_sha256": "02dc300f5b23f02b9e51cd65618de013abb8bc927ce61164e4fb3cb55d824d32",
+          "ticker": "EPAY"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=2586.6",
+          "security_id": "302828589827843603",
+          "session": "2022-05-13"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1644675",
+          "listing_first_session": "2015-11-19",
+          "security_id": "988236261397113691",
+          "security_type_eligible": "1",
+          "session": "2022-05-17",
+          "source_observation_sha256": "e30276c675917b76f279796edc90ea7b292ede3a844675fae19c2c21b1d486a4",
+          "ticker": "MIME"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=5348.4",
+          "security_id": "988236261397113691",
+          "session": "2022-05-18"
+        },
+        "parent_positions": [
+          {
+            "entry_date": "2022-04-01",
+            "quantity": 38,
+            "slot_id": 26,
+            "ticker": "MIME"
+          }
+        ]
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1538927",
+          "listing_first_session": "2020-06-19",
+          "security_id": "321650252292096156",
+          "security_type_eligible": "1",
+          "session": "2022-10-12",
+          "source_observation_sha256": "6dc455e906851ab6c5095d87d7b49e7c06f25ce4731131331c9f0e0a7b06ec98",
+          "ticker": "FMTX"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=957.5",
+          "security_id": "321650252292096156",
+          "session": "2022-10-13"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1679826",
+          "listing_first_session": "2019-09-19",
+          "security_id": "23427772744584579",
+          "security_type_eligible": "1",
+          "session": "2022-10-14",
+          "source_observation_sha256": "d6f2412e562659f03143567f510fa640f4b5a05b06ceb46ab9691303b500ac85",
+          "ticker": "PING"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=2448.9",
+          "security_id": "23427772744584579",
+          "session": "2022-10-17"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1348036",
+          "listing_first_session": "2018-06-15",
+          "security_id": "652370478798714876",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "de07bcf227cd616c907f14fc1c3d940bdd859e40d3c9bbf050155f91fb64aff6",
+          "ticker": "AVLR"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=8251.1",
+          "security_id": "652370478798714876",
+          "session": "2022-10-18"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:775368",
+          "listing_first_session": "1997-12-31",
+          "security_id": "683977592320274232",
+          "security_type_eligible": "1",
+          "session": "2022-10-17",
+          "source_observation_sha256": "13795d6eed192186e03cff5e12a0246a6cb6f76d19bd3a666c942cc375705d33",
+          "ticker": "Y"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=11407.4",
+          "security_id": "683977592320274232",
+          "session": "2022-10-18"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_UNKNOWN:659896685009177378",
+          "listing_first_session": "2012-02-08",
+          "security_id": "659896685009177378",
+          "security_type_eligible": "0",
+          "session": "2022-10-18",
+          "source_observation_sha256": "598f6559411d5f781bcb3ed5ff427a82e1d43c902b1ae65bb25808059536aed1",
+          "ticker": "CCXI1"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=3709.8",
+          "security_id": "659896685009177378",
+          "session": "2022-10-19"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:768411",
+          "listing_first_session": "1997-12-31",
+          "security_id": "738630690199421979",
+          "security_type_eligible": "1",
+          "session": "2022-11-02",
+          "source_observation_sha256": "3df332c7fe52cf82fea8172855c5627ecc6d99ccbfcd3c51cd65c9eac673d892",
+          "ticker": "CYBE"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=400.8",
+          "security_id": "738630690199421979",
+          "session": "2022-11-03"
+        },
+        "parent_positions": []
+      },
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1463172",
+          "listing_first_session": "2014-05-15",
+          "security_id": "870865871230451373",
+          "security_type_eligible": "1",
+          "session": "2022-11-18",
+          "source_observation_sha256": "5dad6183991bf0eaafa2139e8db7ffe34c98bbe9d69b93305fc35506d95602f2",
+          "ticker": "ZEN"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=9626",
+          "security_id": "870865871230451373",
+          "session": "2022-11-21"
+        },
+        "parent_positions": []
+      }
+    ],
+    "utc": "2026-11-05T10:02:38.094977+00:00"
+  },
+  "source_review_sha256": "18437bb6f56e8a8163b75bd066512eb4958491c8912fb5804a9ef148a25b8620"
+}

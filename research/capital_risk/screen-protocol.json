@@ -1,0 +1,29 @@
+{
+  "schema": "research.capital-risk-screen-protocol/1",
+  "id": "fast-bg-trace-screen-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "owner_amendment": "Shorten the initial pass or find a different approach; preserve PAPER in all cases.",
+  "arms": ["B", "G"],
+  "formation_records": 126,
+  "measured_closes": 4639,
+  "start": "2008-02-22",
+  "end": "2026-07-31",
+  "capital": "50000",
+  "initial_funded_core_allocation_required": "0",
+  "diagnostic_windows": [
+    ["2008-01-01", "2009-12-31"],
+    ["2020-01-01", "2022-12-31"],
+    ["2025-01-01", "2026-07-31"]
+  ],
+  "report_every_calendar_year": true,
+  "governor_parameters": "UNCHANGED_ORIGINAL_PROTOCOL",
+  "core_financial_changes": false,
+  "fresh_full_baseline_gate": "DEFERRED_FOR_THIS_TRACE_SCREEN_ONLY",
+  "core_variant_integration": "DEFERRED_NOT_WAIVED",
+  "production_qualification": false,
+  "shortlist_rule": "Prioritize G only if full-period CAGR is no lower and maximum drawdown no deeper than B, with at least one strict improvement. Preserve all tradeoffs and negative results. This is a screen, not robustness admission.",
+  "later_core_windows": [["2021-01-04", "2022-12-30"], ["2025-01-02", "2026-07-31"]],
+  "later_core_rule": "Separate fresh formation, canonical trades/accounting/actions/restarts before interpretation; combinations and full robustness deferred.",
+  "runtime": "GITHUB_HOSTED_OFFLINE_ONLY",
+  "plaintext_financial_publication": false
+}

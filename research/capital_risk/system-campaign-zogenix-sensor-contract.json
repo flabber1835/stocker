@@ -1,0 +1,75 @@
+{
+  "schema": "research.zogenix-sensor-contract/1",
+  "security_id": "732226698577723721",
+  "native_session": "2022-03-04",
+  "session": "2022-03-07",
+  "last_trading_session": "2022-03-04",
+  "native": {
+    "session": "2022-03-04",
+    "security_id": "732226698577723721",
+    "kind": "CASH_MERGER",
+    "cash_per_share": null,
+    "exchange_ratio": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "delivered_issuer_id": null,
+    "cash_in_lieu_price_per_delivered_share": null,
+    "entitlement_aggregation": "HOLDER",
+    "reference": "actions/acquisitionby deal_value_musd=1500.1"
+  },
+  "native_term_sha256": "34fa057e5cca33a2885a6b2025c0ebde09f03a6f8ab2371fa5136b67c7b1fcb7",
+  "cash_consideration_range": [
+    26.0,
+    28.0
+  ],
+  "contingent_right_market_price_observed": false,
+  "source_witnesses": [
+    {
+      "session": "2022-03-03",
+      "security_id": "732226698577723721",
+      "ticker": "ZGNX",
+      "issuer_id": "SEC_CIK:1375151",
+      "listing_first_session": "2010-11-23",
+      "security_type_eligible": "1",
+      "source_observation_sha256": "3a22efad27995d439aa25bba35905b7279d21384a15a299e4d192ae0f5e31b6f"
+    },
+    {
+      "session": "2022-03-04",
+      "security_id": "732226698577723721",
+      "ticker": "ZGNX",
+      "issuer_id": "SEC_CIK:1375151",
+      "listing_first_session": "2010-11-23",
+      "security_type_eligible": "1",
+      "source_observation_sha256": "36e364a2773bd5a9754ae3c9eb4eac9f5c963890532add4f96978b9626158ef3"
+    }
+  ],
+  "event_source_quote_present": false,
+  "provider_rows_sha256": "932d352eafa5b302c4140653cb8db5655d3f9eeb71f9de2045f2fc0cb9dc6123",
+  "provider_row_sha256": [
+    "aef8bc082f24e4dbc87c53df328d7bf8c3c7abbc9154285a0a4edf54ebfcb8bb",
+    "85724771dc9bc2d940947a23759baa5237d42a7cb500f36dedb4da12e66df9f3",
+    "a9f4d9826820ba858007c59114e3ce8852bf7f5905c63ffc3298bde7038c1949"
+  ],
+  "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "primary_sources": [
+    "https://www.sec.gov/Archives/edgar/data/1375151/000119312522067384/d272891d8k.htm",
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-32",
+    "https://infomemo.theocc.com/infomemos?number=50145"
+  ],
+  "mandatory_remaining_common_share_entitlement": true,
+  "preopen_completion_confirmed": true,
+  "tender_participation_assumed": false,
+  "later_payment_information_used": false,
+  "production_contacted": false,
+  "inherited_sources": {
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+    "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+    "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+    "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+    "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+    "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f"
+  }
+}
