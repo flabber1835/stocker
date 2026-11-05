@@ -68,7 +68,10 @@ def test_negative_receipt_withdraws_an_old_positive_without_affecting_other_scop
 
 def test_typed_scheduled_fact_controls_headline_even_when_copy_changes():
     scheduled=model.paper_reconciliation_row(state='SCHEDULED',scheduled_until=NOW+timedelta(hours=1))
-    cycle=model.Row('automation_cycle','Cycle','WAITING_OPEN',model.WARN)
+    cycle=model.automation_cycle_row(installed=True, enabled=True,
+        cycle_id='scheduled-fixture', state='WAITING_OPEN', updated_at=NOW,
+        execution_open_at=NOW+timedelta(minutes=30), execute_at=NOW+timedelta(minutes=30),
+        execution_close_at=NOW+timedelta(hours=1))
     original=model.Panel(rows=[replace(scheduled,value='Ready for the next session'),cycle],now=NOW,local_paper_mode=True)
     assert original.operational==model.OK
     forged=model.Panel(rows=[replace(scheduled,paper_alignment=None,value='SCHEDULED'),cycle],now=NOW,local_paper_mode=True)

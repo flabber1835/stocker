@@ -30,6 +30,20 @@ docker run --rm --network none --cpus 1 --memory 2g --pids-limit 256 \
   sentinel-operational-state-tests:local -B -m pytest -p no:cacheprovider <test paths> -q
 ```
 
+## Automation coverage owner
+
+```powershell
+wsl -d Ubuntu -- python3 -B /mnt/c/GitHub/stocker/.codex-tmp/operational-state-sourcewake-coverage.py
+```
+
+Result: **716 passed**, with **100.00%** statement and branch coverage for
+`sentinel.automation.service` (917 statements and 372 branches). The local
+evidence helper selects the complete owner through `automation_modules`, runs
+pytest under `coverage.Coverage(branch=True, source=['sentinel.automation.service'])`
+and refuses a result below 100%. This used the existing Python 3.12
+`sentinel-live-url-tests:local` image with the same isolated resource and network
+limits. It does not claim 100% coverage for the new panel modules.
+
 ## Focused observer and durability evidence
 
 These directly observed batches overlap. Their counts must not be added to
@@ -89,6 +103,66 @@ The source-basis tests retain exact authenticated predecessor maps and the
 existing economic/history mappings; this is source identity qualification, not
 a new economic certification.
 
+## Complete affected regression selection
+
+The final repeated selection of 66 directly affected modules completed with
+**2,309 passed, no failures, in 641.72 seconds**. It includes panel and observer
+modules, durable projection/review, independent scope currentness, source waits,
+finite workers, automation composition, operator monitoring and test ownership.
+The exact local command was:
+
+```powershell
+wsl -d Ubuntu -- python3 -B /mnt/c/GitHub/stocker/.codex-tmp/run-operational-targeted-fast.py
+```
+
+The task-owned runner and its 66-module manifest are local evidence helpers,
+outside the delivered source tree. It used a fresh native Linux volume and the
+same Python 3.12 test image and limits above. Native `git archive` captured commit
+`13f372f3084565793d325e2ec28d74e8f98f88a5`, excluding only `sec-filings`, matching
+CI's sparse checkout policy. All 2,623 archived files were checked against their
+Git blob identities. Its 107,079,680-byte archive has SHA256:
+
+```text
+4ce8df97b8b1cf712c9ed7ff4263914999815424f36a393699e488af83943aae
+```
+
+The runner overlaid the four corrected test fixtures and recorded their exact
+hashes with the arguments and JUnit output. All 451 runtime Python files and the
+transition profile were verified against the working candidate before the run;
+production source remained unchanged during fixture corrections. The native
+volume avoids Windows-mounted filesystem timing effects. This is test-fixture
+qualification, not a production database benchmark.
+
+The extracted segment-disclosure source regression was also qualified after
+retargeting its four unchanged warning assertions to the actual imported helper:
+
+```powershell
+wsl -d Ubuntu -- python3 -B /mnt/c/GitHub/stocker/.codex-tmp/operational-state-fast-run-tests.py --overlay-test tests/sentinel/test_operational_readiness_regressions.py tests/sentinel/test_operational_readiness_regressions.py -q
+```
+
+Result: **9 passed in 3.32 seconds**. The runtime source remained identical.
+
+## Genuine current-workflow composition
+
+The current-profile workflow uses its real generated inputs, financial
+authority parsers, formed book, signed PAPER callbacks, notification path and
+HTTP application. Its disposable database installs the existing presentation
+schema while fenced. Real HTTP startup records its incarnation before the
+independent spawned worker publishes the operational snapshot. Only the
+disposable external trust-root and issuer-reference file inputs are redirected;
+their original parsers and all production guards remain in use.
+
+```powershell
+wsl -d Ubuntu -- python3 -B /mnt/c/GitHub/stocker/.codex-tmp/operational-state-fast-run-tests.py --overlay-test tests/sentinel/test_current_operational_workflow.py --overlay-test tests/support/current_workflow_run.py tests/sentinel/test_current_operational_workflow.py -q -s --tb=short
+```
+
+Result: **3 passed in 752.00 seconds**. Actual spawned collection, publication
+and worker cleanup took **3.108 seconds**, within the unchanged 20-second
+collection deadline. Existing verified-book/20-slot, PAPER classification,
+completed-cycle/reconciliation identity and real JSON/HTML assertions passed.
+This qualifies the complete private generated-data path; it does not measure
+the production database or establish production performance.
+
 ## Browser qualification
 
 The candidate server ran in the separately owned local container
@@ -117,8 +191,11 @@ synthetic-push paths. Local failure traces and final results remain in ignored
 The Chromium project used installed Microsoft Edge **156.0.4314.58**. The
 Playwright-managed Chromium binary failed before navigation with
 `browserType.launch: spawn UNKNOWN` on this Windows host; the approved Edge
-fallback passed. The required Linux browser workflow must still pass with its
-locked Chromium engine. The `webkit-iphone` project uses desktop WebKit with a
+fallback passed. Required Linux browser run `42066947086` subsequently passed
+on source commit `13f372f3`: **47 passed, 17 expected skips in 37.5 seconds**, using
+the workflow's locked WebKit and Chromium engines. Later test-fixture-only
+commits still require their own exact-head CI. The `webkit-iphone` project uses
+desktop WebKit with a
 393 by 852 viewport. This does not qualify a physical iPhone, its installed
 Home Screen lifecycle or real Apple push delivery.
 
@@ -131,12 +208,9 @@ claim of 100% coverage for the new panel modules. The separate repository
 coverage workflow is advisory. Exact-head required CI and PR-target verification
 remain the release evidence recorded with the pull request.
 
-The broader local operator batch was stopped after 188 completed tests with no
-failures reported; it is an incomplete run and supplies no passing batch total.
-A narrowed replacement was still running when this evidence note was updated.
-Neither that unfinished replacement nor pending exact-head CI is counted as
-successful qualification here. Their completed results belong in the final PR
-evidence.
+Incomplete local batches supply no passing totals. Required exact-head CI and
+the final PR target are verified separately; their completed results belong in
+the pull request evidence.
 
 No local Wealth Core or full repository suite was run for this operational
 change. No production service, financial database, broker or installed software

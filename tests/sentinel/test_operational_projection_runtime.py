@@ -16,7 +16,7 @@ def test_shared_projection_roles_have_matching_public_context_without_broker_or_
     base = yaml.safe_load((root/'docker-compose.sentinel.yml').read_text())
     overlay = yaml.safe_load((root/'docker-compose.sentinel-automation.yml').read_text())
     panel = {**base['services']['sentinel-panel']['environment'],
-             **overlay['services']['sentinel-panel']['environment']}
+             **overlay['services'].get('sentinel-panel', {}).get('environment', {})}
     verifier = overlay['services']['sentinel-verifier']['environment']
     for name in ('SENTINEL_SHADOW_STARTING_CASH', 'SENTINEL_PUBLIC_ORIGIN',
                  'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY'):

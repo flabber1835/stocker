@@ -590,7 +590,7 @@ def surfaces(monkeypatch, output, now):
     rows, _, _, errors = output
     page = model.Panel(rows=rows, source_errors=errors, now=now)
     monkeypatch.setattr(app, '_config', lambda: (Path('/fixture'), ''))
-    monkeypatch.setattr(app.projection_service, 'read', lambda _database_url: page)
+    monkeypatch.setattr(app, '_read_panel', lambda: page)
     actual = json.loads(app.panel_json().body)
     html = render(page)
     for row in actual['rows']:
