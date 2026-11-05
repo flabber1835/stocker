@@ -2802,3 +2802,17 @@ it refuses extra repairs/overlays and zero-close promotions. Seventeen cases
 including two guard removals passed. The older changed-input predicate remains
 unchanged for every phase without that explicit opt-in. This request starts
 no financial worker and grants no source or financial admission by itself.
+
+Select source274 for three admitted roots: P03 own439/bd698, P05 own965/7986
+and P11 own2050/4a8d. P03 queries ALDR plus twelve qualified2019/2020 natives
+and three delivery rows, preserving its earlier CBLK/MDCO/ARQL scope separately.
+VSLR remains deferred under its already-conversion/integral-only source limits.
+P05 queries UFS plus eight unadopted December-calendar natives; preserve EPAY's
+selected-but-unheld context without asserting future holdings. P11 queries
+the EXAS March19 identity/March20 native from its actual79-share holding.
+Append these three distinct scopes, preserve all45 previous registry values,
+and change only these three active queries. Reuse unchanged schema1/2 source
+predicates and start zero financial workers. No consideration, contingent-right
+valuation, timing policy or input repair is activated by this source request.
+Fresh independent DATA must close each captured query before any later input
+or uncertainty qualification.
