@@ -101,3 +101,11 @@ Keep the first activated P06 runtime/model source generation immutable. Implemen
 this optional distribution-only capability through a separately qualified
 generic version/retention route,so adding P07 cannot change code bytes already
 referenced by a P06 admitted input document.
+
+Portable tests may carry a small JSON fixture of the exact frozen pure input
+codec functions and positive-rational parser,with original full-module and
+per-function source/AST digests. Extract it only after verifying original source
+hashes. Test-local hash rebinding may load this excerpt while checking every
+frozen function AST and identity-replacement site. Production source hashes and
+runtime/model bytes remain unchanged; no financial state,engine or alternate
+book implementation is included in the fixture.
