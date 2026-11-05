@@ -1684,6 +1684,102 @@
       },
       "ticker": "WAAS",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094d1_ex99-1.htm"
+    },
+    {
+      "actual_completion_date": "2021-01-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 0.0,
+        "delivered_issuer_id": "SEC_CIK:1316835",
+        "delivered_security_id": "314959357206229827",
+        "delivered_ticker": "BLDR",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "1.3125",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm | Original issuer completion 8-K confirms mandatory delivery of 1.3125 BLDR shares per BMCH share on January 1, 2021. Recognize the completion on January 4, the first subsequent frozen session, and preserve December 31 trading. Fixed cash consideration is zero. Fractional cash uses the retained January 4 BLDR raw open of 41.25 as a research proxy; an actual agent settlement rate is not claimed. The original integral-only record remains separate and does not authorize this proxy.",
+        "security_id": "344954105397997801",
+        "session": "2021-01-04"
+      },
+      "arm": "P05",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1316835",
+        "listing_first_session": "2005-06-28",
+        "security_id": "314959357206229827",
+        "security_type_eligible": "1",
+        "session": "2021-01-04",
+        "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+        "ticker": "BLDR"
+      },
+      "description": "Original issuer completion 8-K confirms mandatory delivery of 1.3125 BLDR shares per BMCH share on January 1, 2021. Recognize the completion on January 4, the first subsequent frozen session, and preserve December 31 trading. Fixed cash consideration is zero. Fractional cash uses the retained January 4 BLDR raw open of 41.25 as a research proxy; an actual agent settlement rate is not claimed. The original integral-only record remains separate and does not authorize this proxy.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1574815",
+        "listing_first_session": "2013-08-09",
+        "security_id": "344954105397997801",
+        "security_type_eligible": "1",
+        "session": "2020-12-30",
+        "source_observation_sha256": "7e1044dc5befe473bc4edba307518adec40783163a2464a0406f86c05aa4d981",
+        "ticker": "BMCH"
+      },
+      "last_trading_session": "2020-12-31",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3611.6",
+        "security_id": "344954105397997801",
+        "session": "2020-12-31"
+      },
+      "native_session": "2020-12-31",
+      "native_term_sha256": "9a81db8dd2d4cce361f65bea04e15e7c9b311d8c035b84cb310fcd8e547e2c27",
+      "parent_cursor": "2020-11-30",
+      "parent_outer_sha256": "8043fc8fb8915fbd14bb69834f905d0bf217fc06027f0283f816f064235f443c",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "a19ff05c0685ab37fc886c3ddcde7b958e083b60af9904087ba1822937a65078",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2021-01-01",
+        "cash_per_ordinary_common_share": "0",
+        "exchange_ratio": "1.3125",
+        "mandatory_conversion": true,
+        "preopen_time_established": false,
+        "recognition_convention": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "314959357206229827",
+        "session": "2021-01-04",
+        "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+        "ticker": "BLDR"
+      },
+      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION",
+      "retained_original_legal_record": {
+        "catalog_file": "p01_factual_batch_facts.json",
+        "catalog_sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d",
+        "original_fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+        "original_held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+        "original_kind": "CONVERSION",
+        "proxy_authority_reused": false,
+        "record_sha256": "0a2136247c0a046e10c9cc7abebe370c8eccf59e003be7917ad81181e6c3e2d5"
+      },
+      "security_id": "344954105397997801",
+      "source_capture": {
+        "artifact_id": 13380652339,
+        "head": "4447cb10993eb7a7069a389615d25500dc180a95",
+        "independent_data_review_sha256": "a99693503a7fa20550ad0f9b72ac71d0a6a2a90e76db90af28262d84b8590faf",
+        "payload_sha256": "a0864999b5e9a82d465b2ebffba9ac64f212ae68680f45fb48fb597946cac69a",
+        "run_id": 41950496055,
+        "scope_sha256": "dc302541f00d7ae00f29b4e3fab580a091381794781a61900890a91713a43373"
+      },
+      "ticker": "BMCH",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm"
     }
   ]
 }

@@ -63,7 +63,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = 'f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e'
+OWN_CASH_SHA = 'c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -104,6 +104,7 @@ CLOSED_CASH_GENERATIONS = {'332a92d9dbfaea1b9154fbb2c2e0f397dbd5fa96686d148401d3
  'c2b3d070ba31bd94c947c057f667cca2452ee3ff4875fcd458164b947e5147a2': 11,
  'a312304df09aa19feabce82cce92adc1798a49e104333fc4d7d5cb7ce94af77f': 12}
 CLOSED_CASH_GENERATIONS['f7653bb52979ef4129741af32ae48bbd3463925dc26bd8f5f5aad60c1035e530'] = 20
+CLOSED_CASH_GENERATIONS['f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e'] = 22
 CASH_GENERATION_LENGTHS = {('P03', '2018-08-31'): 15,
  ('P11', '2022-05-31'): 16,
  ('P03', '2018-04-30'): 14,
@@ -127,7 +128,9 @@ CASH_GENERATION_LENGTHS['P11', '2023-06-30'] = 20
 CASH_GENERATION_LENGTHS['P03', '2018-12-31'] = 21
 CLOSED_CASH_GENERATIONS['c2b91afd1a521e14ce0f154b9c43317e6adac4f4a6fc6aca0c1ba42c4ee8889b'] = 21
 OWN_CASH_PHASES['P06', '2020-02-28'] = 'WAAS'
+OWN_CASH_PHASES['P05', '2020-11-30'] = 'BMCH'
 CASH_GENERATION_LENGTHS['P06', '2020-02-28'] = 22
+CASH_GENERATION_LENGTHS['P05', '2020-11-30'] = 23
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
@@ -135,6 +138,7 @@ RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
 RESEARCH_SOURCE_EXIT = 'UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH'
 PREOPEN_STOCK = 'CONFIRMED_PREOPEN_STOCK_ONLY_COMPLETION'
+PRIOR_STOCK = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION'
 SOURCE_SCOPES = 'future-source-only-scopes.json'
 ORIGINAL_ORDINARY_SOURCES = {
     arm: (('system_campaign_winter_facts', 'WinterCash',
@@ -346,6 +350,7 @@ OWN_CASH_SOURCE_CLOCKS['P05', '2020-06-30'] = (41939321606, '0e8dcd539f7e473f206
 OWN_CASH_SOURCE_CLOCKS['P11', '2023-06-30'] = (41939321606, '0e8dcd539f7e473f206285e44c8db523c41e7d73', 13376016520 )
 OWN_CASH_SOURCE_CLOCKS['P03', '2018-12-31'] = (41944211225, 'e81158bfa1feadfd0c97d6c4bf7999cc263a0c1d', 13378121330)
 OWN_CASH_SOURCE_CLOCKS['P06', '2020-02-28'] = (41950496055, '4447cb10993eb7a7069a389615d25500dc180a95', 13380408021)
+OWN_CASH_SOURCE_CLOCKS['P05', '2020-11-30'] = (41950496055, '4447cb10993eb7a7069a389615d25500dc180a95', 13380652339)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1306,6 +1311,16 @@ def completion_cash_term(term):
 
 
 def completion_session(term, dates):
+    if term.get('recognition_rule') == PRIOR_STOCK:
+        native = term['native_session']; completed = term['actual_completion_date']
+        later = [day for day in dates if day > completed]
+        need(dates == sorted(set(dates)) and native in dates and dates.index(native) > 0
+             and dates.index(native) + 1 < len(dates) and later
+             and dates[dates.index(native) - 1] == term['identity_witness']['session']
+             and term['last_trading_session'] == native <= completed < term['added']['session']
+             and later[0] == dates[dates.index(native) + 1] == term['added']['session'],
+             'OWN_INPUT_PRIOR_STOCK_FIRST_FROZEN_SESSION_AFTER_COMPLETION')
+        return
     if term.get('recognition_rule') == PREOPEN_STOCK:
         native = term['native_session']
         need(dates == sorted(set(dates)) and native in dates and dates.index(native) > 0
@@ -1386,8 +1401,46 @@ def confirmed_preopen_stock_term(term):
     return result
 
 
+def confirmed_prior_stock_term(term):
+    """Qualify a zero-cash right completed before its frozen recognition session."""
+    from datetime import date
+    a, w, dw, proxy = term['added'], term['identity_witness'], term['delivered_identity_witness'], term['proxy']
+    ratio = a['exchange_ratio']
+    need(type(ratio) is str, 'OWN_INPUT_PRIOR_STOCK_LITERAL_RATIO')
+    value = float(ratio)
+    date.fromisoformat(term['actual_completion_date'])
+    need(term['recognition_rule'] == PRIOR_STOCK and a['kind'] == 'CASH_PLUS_STOCK'
+         and math.isfinite(value) and value > 0 and Fraction(str(value)) == Fraction(ratio)
+         and type(a['cash_per_share']) is float and math.isfinite(a['cash_per_share']) and a['cash_per_share'] == 0.
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and a['entitlement_aggregation'] == 'HOLDER' and a['cash_in_lieu_price_per_delivered_share'] is None
+         and a['reference'] == term['primary_source'] + ' | ' + term['description']
+         and type(term['timing_source']) is str and bool(term['timing_source'])
+         and (a['delivered_security_id'], a['delivered_ticker'], a['delivered_issuer_id'])
+             == (dw['security_id'], dw['ticker'], dw['issuer_id'])
+         and w['session'] < term['last_trading_session'] == term['native_session'] <= term['actual_completion_date'] < a['session']
+         and term['mandatory_common_share_completion_confirmed'] is True
+         and term['preopen_completion_confirmed'] is False
+         and dw['session'] == proxy['session'] == a['session']
+         and dw['security_id'] == proxy['security_id'] == a['delivered_security_id']
+         and dw['source_observation_sha256'] == proxy['source_observation_sha256']
+         and dw['ticker'] == proxy['ticker']
+         and proxy['convention'] == 'RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY'
+         and proxy['actual_settlement_rate_observed'] is False,
+         'OWN_INPUT_EXACT_CONFIRMED_PRIOR_ZERO_CASH_STOCK_RIGHT')
+    need(term['primary_extraction'] == dict(actual_completion_date=term['actual_completion_date'],
+             cash_per_ordinary_common_share='0', exchange_ratio=ratio, mandatory_conversion=True,
+             preopen_time_established=False, recognition_convention=PRIOR_STOCK),
+         'OWN_INPUT_EXACT_PRIMARY_PRIOR_STOCK_ONLY_EXTRACTION')
+    result = deepcopy(term)
+    result['added']['exchange_ratio'] = value
+    return result
+
+
 def selected_stock_term(term):
     """Normalize only a literal ratio, preserving its exact rational value."""
+    if term.get('recognition_rule') == PRIOR_STOCK:
+        return confirmed_prior_stock_term(term)
     if term.get('recognition_rule') == PREOPEN_STOCK:
         return confirmed_preopen_stock_term(term)
     from datetime import date
@@ -1866,7 +1919,7 @@ def hydrate(cp, arm, *, source_root=None):
                 ordinary_components.append(deepcopy(source))
     suppressions(cp, terms)
     actions = inputs.load_actions(Path('/frozen/bundle'))
-    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT, PREOPEN_STOCK) for t in terms):
+    if ordinary_components or any(t.get('recognition_rule') in (NEXT_COMPLETION, SOURCE_CLOSE, RESEARCH_CASH, RESEARCH_MIXED, RESEARCH_TENDER, RESEARCH_SOURCE_EXIT, PREOPEN_STOCK, PRIOR_STOCK) for t in terms):
         from research.pooled_input_support.bundle import axis
         dates = axis()
         for t in terms:

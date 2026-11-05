@@ -84,7 +84,7 @@ def test_prior_cash_and_weekend_stock_validators_remain_ast_identical():
         result={}
         for n in ast.parse(raw).body:
             if not isinstance(n,ast.FunctionDef):continue
-            if n.name=='selected_stock_term' and isinstance(n.body[1],ast.If) and 'PREOPEN_STOCK' in ast.unparse(n.body[1].test):
+            while n.name=='selected_stock_term' and isinstance(n.body[1],ast.If) and any(mode in ast.unparse(n.body[1].test)for mode in ('PREOPEN_STOCK','PRIOR_STOCK')):
                 del n.body[1]
             result[n.name]=ast.dump(n,include_attributes=False)
         return result

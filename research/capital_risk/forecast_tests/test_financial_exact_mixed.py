@@ -133,7 +133,7 @@ def test_known_native_path_retains_delivery_identity_and_count_guards():
 
 def test_all_sixteen_prior_records_and_original_legal_policy_are_unchanged():
     before=json.loads(original(f.OWN_CASH_CATALOG));after=catalog()
-    assert after['terms'][:16]==before['terms'] and len(after['terms'])==22
+    assert after['terms'][:16]==before['terms'] and len(after['terms'])==23
     after['terms']=after['terms'][:16]
     assert f.sha((json.dumps(after,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())=='465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c'
     provenance=term()['preserved_factual_record'];raw=(C/provenance['filename']).read_bytes()
@@ -146,7 +146,7 @@ def test_original_model_and_unrelated_validator_asts_unchanged():
         result={}
         for n in ast.parse(raw).body:
             if not isinstance(n,(ast.FunctionDef,ast.ClassDef)):continue
-            if n.name=='selected_stock_term' and isinstance(n.body[1],ast.If) and 'PREOPEN_STOCK' in ast.unparse(n.body[1].test):
+            while n.name=='selected_stock_term' and isinstance(n.body[1],ast.If) and any(mode in ast.unparse(n.body[1].test)for mode in ('PREOPEN_STOCK','PRIOR_STOCK')):
                 del n.body[1]
             result[n.name]=ast.dump(n,include_attributes=False)
         return result
@@ -156,8 +156,9 @@ def test_original_model_and_unrelated_validator_asts_unchanged():
         assert old[name]==new[name],name
     before=next(n for n in ast.parse(original('system_campaign_financial_future.py')).body if isinstance(n,ast.FunctionDef)and n.name=='completion_session')
     after=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef)and n.name=='completion_session')
-    assert isinstance(after.body[0],ast.If) and 'PREOPEN_STOCK' in ast.unparse(after.body[0].test)
-    del after.body[0]
+    for mode in ('PRIOR_STOCK','PREOPEN_STOCK'):
+        assert isinstance(after.body[0],ast.If) and mode in ast.unparse(after.body[0].test)
+        del after.body[0]
     # Only the final NEXT_COMPLETION predicate now permits a nontrading
     # completion date; all earlier recognition branches remain exact.
     assert ast.dump(ast.Module(body=before.body[:-1],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=after.body[:-2],type_ignores=[]),include_attributes=False)

@@ -2201,3 +2201,37 @@ the unchanged research cash predicate for27.10USD,March30 recognition with
 opening availability assumed,preopen timing unconfirmed and no settlement
 claim. Select P06 financial continuation from own543;the protected financial
 source remains unchanged and later tails remain excluded.
+
+For a new composite input,run its exact hosted preparation against the admitted
+checkpoint before launching the financial worker. Reuse the actual read-only
+mounts,writable scratch,retained loader context and canonical input/packet
+qualifiers;advance zero financial closes and adopt no checkpoint. A preparation
+failure must stop before economic replay. This is a targeted check of the new
+path,not a new broad certification campaign. Preserve existing successful runs.
+Use writable worker scratch for temporary hydration;never relax source mounts.
+
+For P11 GE,add one generic standard-book distribution route that reuses the
+qualified continuing-parent/one-child model,source capture,ordinary CashCalendar
+activation and unchanged canonical primitives. It has no B19 certificate or
+APHA context. Keep the existing P07/v2 generation frozen. Use the exact own1570
+36GE/emptyGEV roles and genuine unconsumed SWAV335USD original input. Bind the
+original P11 spinoff primitive e82ec8 source and its published V-compiler text
+derivation;the type is unchanged and the added research_stop_floor rebasing is
+canonical for this variant. Its DATA postcondition must prove the exact original
+rebasing from the stored162.108 floor and the observed original adjustment
+factor,while preserving every other parent field. Never reuse P07's unchanged-
+episode oracle for this distinct primitive,accept arbitrary floor changes or
+alter the protected financial source. This route and catalog are generic to
+standard books and may hold further exact records;do not add a GE-only wrapper.
+
+BMCH source243 passed37independent DATA tests and the new generic prior-date
+stock selector/catalog passed58tests,including37guard-removal cases. Append
+catalog23 with the exact22-record f9f1 generation preserved. The model keeps
+January1 legal completion,January4 frozen recognition,1.3125 BLDR shares,zero
+fixed cash and the explicitly declared41.25 fractional proxy. Existing preopen
+and positive-cash predicate statements remain unchanged.
+
+P03 financial244 saved355 throughMay31,2019,83 closes beyond its admitted272.
+Select readonly report247 for those83closes,166accountings,four reports and112
+metrics,retaining own272 as monthly seed. The June tail is excluded;its next
+native is KEYW onJune11,which requires a separately source-qualified input.
