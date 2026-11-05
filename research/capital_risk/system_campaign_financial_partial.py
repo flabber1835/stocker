@@ -246,6 +246,10 @@ def review_name(spec):
 
 
 def retained_models(root, parent, spec):
+    from system_campaign_financial_additional_sensor import selected_declaration
+    if selected_declaration(root, parent, spec) is not None:
+        from system_campaign_financial_additional_sensor_runtime import retained_models as additional
+        return additional(root, parent, spec)
     schemas = [json.loads((Path(root) / 'book/repairs' / d['filename']).read_bytes())['schema']
                for d in parent['repairs']]
     declared = spec.get('retained_uncertainty_model')
@@ -293,6 +297,12 @@ def activate_retained_projection(root, parent, projection):
 
 @contextmanager
 def model_context(root, parent, spec):
+    from system_campaign_financial_additional_sensor import selected_declaration
+    if selected_declaration(root, parent, spec) is not None:
+        from system_campaign_financial_additional_sensor_runtime import original_chain
+        with original_chain(root, parent, spec):
+            yield
+        return
     with ExitStack() as stack:
         if spec.get('retained_uncertainty_model') is not None:
             from system_campaign_financial_branches import Codec, evidence
@@ -335,6 +345,8 @@ def retention_tree():
 
 @contextmanager
 def financial_inputs(root, parent, output, spec):
+    from system_campaign_financial_additional_sensor_runtime import preserve as preserve_additional
+    preserve_additional(root, parent, output, spec)
     from system_campaign_financial_compound_dispatch import retained_context as compound_retained_context
     with compound_retained_context(root, parent, output):
         import system_campaign_parallel_discovery_run as original

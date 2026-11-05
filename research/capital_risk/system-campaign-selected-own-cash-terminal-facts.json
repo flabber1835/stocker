@@ -2498,6 +2498,98 @@
       },
       "ticker": "TERN",
       "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-286"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 59.17,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/65011/000119312521345548/d234670d8k.htm | Original one-for-one NewMeredith distribution, then16.99USD Gray cash and42.18USD Dotdash cash, ordered59.17USD composite source marker on existing native December1 research calendar day. Source selectedTrue but never held; exact actual absence, no-op and original source-return delegation required. No preopen/PIT evidence, held multileg allocation, actual cash availability, settlement or broker authority.",
+        "security_id": "1072510367992802359",
+        "session": "2021-12-01"
+      },
+      "arm": "P05",
+      "description": "Original one-for-one NewMeredith distribution, then16.99USD Gray cash and42.18USD Dotdash cash, ordered59.17USD composite source marker on existing native December1 research calendar day. Source selectedTrue but never held; exact actual absence, no-op and original source-return delegation required. No preopen/PIT evidence, held multileg allocation, actual cash availability, settlement or broker authority.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:65011",
+        "listing_first_session": "1997-12-31",
+        "security_id": "1072510367992802359",
+        "security_type_eligible": "1",
+        "session": "2021-11-30",
+        "source_observation_sha256": "33b22eb0d63f5a7ec24bc2ea85b3975d63deccecbe8dfd6d119ff4e76fd232a5",
+        "ticker": "MDP"
+      },
+      "last_trading_session": "2021-11-30",
+      "mandatory_common_share_completion_confirmed": false,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2705.5",
+        "security_id": "1072510367992802359",
+        "session": "2021-12-01"
+      },
+      "native_session": "2021-12-01",
+      "native_term_sha256": "c0415c1aa5fc0a0205ade497e308f194d403687c8db4c77cd413da22a21748b8",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "portfolio_completion_authorized": false,
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/65011/000119312521345548/d234670d8k.htm",
+      "recognition_rule": "ORIGINAL_UNHELD_COMPOSITE_NATIVE_DAY",
+      "require_never_held": true,
+      "require_unowned_and_unordered": true,
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "aggregate_cash_per_original_share": "59.17",
+        "held_multileg_supported": false,
+        "ordered_legs": [
+          "DISTRIBUTE_NEW_MEREDITH_ONE_FOR_ONE",
+          "GRAY_CASH_16_99",
+          "DOTDASH_CASH_42_18"
+        ],
+        "original_input_schema": "research.p01-unheld-composite-cash-input/1",
+        "original_input_sha256": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
+        "portfolio_completion_authorized": false,
+        "preopen_availability_claimed": false,
+        "recognition_session": "2021-12-01",
+        "require_never_held": true,
+        "schema": "research.original-unheld-composite-native-day-assumption/1",
+        "strict_archival_PIT_claimed": false
+      },
+      "retained_original_composite_input": {
+        "compiler_file": "p01_iac_namespace_continue.py",
+        "compiler_sha256": "1dd6857cb374532bd33faeaadd53bdd4ae600e68c16a5534408fa498d8cb8cf5",
+        "input_file": "p01_iac_namespace_continue_cash_input.json",
+        "input_sha256": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
+        "schema": "research.p01-unheld-composite-cash-input/1"
+      },
+      "security_id": "1072510367992802359",
+      "source_capture": {
+        "artifact_id": 13414936647,
+        "head": "c0c96766d93b3f80afc2b2e9a88ecfc2b7d3573a",
+        "independent_data_qualification_sha256": "9aecd1300fb50537a328653e19de113262a55d0a39170f31b58e68777233b141",
+        "independent_data_review_sha256": "2865cf34d1c34677fcce9c4796dd2574a2aca6a931d8484bb00da1cd64ac86a2",
+        "payload_sha256": "8da955b6f1ff34ea48796d30957c49851fdad02d8c478b6b8af49de2c5a09869",
+        "run_id": 42027761123,
+        "scope_sha256": "c58515e8d433807ff5de1ec1abd1a933018f6a74dcb1135dffd52dfa78560323"
+      },
+      "source_parent_selected": true,
+      "source_valuation_phase": "CLOSE",
+      "ticker": "MDP",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1800227/000110465921145542/tm2134264d1_8k.htm"
     }
   ]
 }

@@ -103,6 +103,23 @@ ordinary material against its original source generation rather than a later
 selector hash. Preserve closed policy/source generations; register later roots
 explicitly, with no automatic unchanged-input or retained authority.
 
+Separate current retained authority from adoption provenance. A financial
+request for an explicitly registered RETAINED root declares that current
+phase/root. The transported retained_additional_sensor may equal either that
+exact current declaration or the unchanged INITIAL-origin declaration at its
+closed policy generation; it must preserve the same original cp0/cp1/model
+descriptors and all source/event/proof/ordinary-generation bindings. Initial
+mode accepts only its own exact declaration. No unregistered root, arbitrary
+intermediate declaration or unknown closed generation is accepted.
+
+Retained reporting transports preserve the initial adoption declaration as
+provenance across later roots; current request authority is checked separately
+against the registered current phase. Never require a declaration containing
+the new admission's own hash inside the admission payload. Qualify two successive
+retained registrations with fixed origin provenance and distinct current
+requests, plus wrong-root/generation/origin refusals. Do not create or select
+any future registration as part of the initial own1047 package.
+
 The selected codec and semantic context must also span the hosted readonly
 financial review called after uncertainty review returns. That existing review
 restores and re-checkpoints every stored checkpoint, including full22 inputs;

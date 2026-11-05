@@ -1,0 +1,79 @@
+{
+  "rows": [
+    {
+      "action": "acquisitionby",
+      "contraname": "UCB SA",
+      "contraticker": "UCBJY",
+      "date": "2022-03-04",
+      "name": "ZOGENIX INC",
+      "ticker": "ZGNX",
+      "value": "1500.1"
+    },
+    {
+      "action": "delisted",
+      "contraname": "N/A",
+      "contraticker": "N/A",
+      "date": "2022-03-04",
+      "name": "ZOGENIX INC",
+      "ticker": "ZGNX",
+      "value": "1500.1"
+    },
+    {
+      "action": "acquisitionof",
+      "contraname": "ZOGENIX INC",
+      "contraticker": "ZGNX",
+      "date": "2022-03-04",
+      "name": "UCB SA",
+      "ticker": "UCBJY",
+      "value": "1500.1"
+    },
+    {
+      "action": "acquisitionof",
+      "contraname": "SPRINT CORP",
+      "contraticker": "S2",
+      "date": "2020-03-31",
+      "name": "T-MOBILE US INC",
+      "ticker": "TMUS",
+      "value": "35440.6"
+    },
+    {
+      "action": "acquisitionby",
+      "contraname": "T-MOBILE US INC",
+      "contraticker": "TMUS",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "ticker": "S2",
+      "value": "35440.6"
+    },
+    {
+      "action": "tickerchangeto",
+      "contraname": "N/A",
+      "contraticker": "S2",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "ticker": "S2",
+      "value": ""
+    },
+    {
+      "action": "tickerchangefrom",
+      "contraname": "N/A",
+      "contraticker": "S",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "ticker": "S2",
+      "value": ""
+    },
+    {
+      "action": "delisted",
+      "contraname": "N/A",
+      "contraticker": "N/A",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "ticker": "S2",
+      "value": "35440.6"
+    }
+  ],
+  "schema": "research.original-provider-row-input-fixture/1",
+  "source_archive_bytes": 9855560,
+  "source_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02"
+}

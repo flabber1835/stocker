@@ -41,12 +41,14 @@ class RemoveGuard(RemoveImports):
         if isinstance(n.value,ast.Call)and isinstance(n.value.func,ast.Name)and n.value.func.id=='need'and any(isinstance(v,ast.Constant)and v.value==self.label for v in n.value.args):return ast.Pass()
         return self.generic_visit(n)
 def namespace(*,remove=None):
+    from system_campaign_financial_additional_sensor import report_declaration
     tree=ast.parse(U.read_bytes())
     body=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.ClassDef,ast.Assign))
           and not(isinstance(n,ast.Assign)and any(isinstance(t,ast.Name)and t.id=='HERE'for t in n.targets))]
     tree=RemoveGuard(remove).visit(ast.Module(body=body,type_ignores=[]))
     ns=dict(__file__=str(U),HERE=FILES,Path=Path,json=json,gzip=gzip,sha=sha,digest=digest,deepcopy=deepcopy,
-        nullcontext=nullcontext,ast=ast,need=need,hosted=lambda:None,save=lambda p,v:p.write_bytes(encoded(v)))
+        nullcontext=nullcontext,ast=ast,need=need,hosted=lambda:None,save=lambda p,v:p.write_bytes(encoded(v)),
+        report_declaration=report_declaration)
     exec(compile(ast.fix_missing_locations(tree),'<qualified-own-input-only>','exec'),ns)
     return ns
 @pytest.fixture

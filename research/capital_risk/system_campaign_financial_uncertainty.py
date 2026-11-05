@@ -18,8 +18,8 @@ MODEL_ADOPTION = 'input-adoption'
 ORDINARY_ADOPTION = 'ordinary-input-adoption'
 OWN_POLICY_CATALOG = 'system-campaign-qualified-own-uncertainty-input-facts.json'
 OWN_SOURCE_CATALOG = 'system-campaign-qualified-own-uncertainty-source-data.json'
-OWN_POLICY_SHA = '6a867f721b31cd5fb71d1b965820facf2b48939158ed8d35432257eabd0d0ff1'
-OWN_SOURCE_SHA = '1387cb501b145a77b74e31e28140a913c63cebf08f19ab293015c475574141ac'
+OWN_POLICY_SHA = 'fadb3f24477ed70b04d4241f0ed61258a1d477e58ef50e9de3b49096fd9ea089'
+OWN_SOURCE_SHA = '758d53f593aab9fa411f652ea362f6cfde1c4144bda175edc3244a7a7e8b0c7e'
 OWN_POLICY_CLOSED_GENERATIONS = {'75639e35fe4ed78b15eacdc808347c1932aa6e2cdbc4d7733cd836d1e532defc': ('bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f',), '6a867f721b31cd5fb71d1b965820facf2b48939158ed8d35432257eabd0d0ff1': ('2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0', 'bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f')}
 INTEGRATION = 'system-campaign-uncertainty-integration-request.json'
 BRANCH_SHA = 'b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef'
@@ -118,6 +118,10 @@ def boundary(root, name, original, overlay, earliest):
 
 def run(cp, out, args, rows, observer, execution, *, spec=None, old=None):
     hosted()
+    from system_campaign_financial_additional_sensor import phase as additional_phase
+    if additional_phase(spec) is not None:
+        from system_campaign_financial_additional_sensor_runtime import run as additional
+        return additional(cp, out, args, rows, observer, execution, spec, old)
     phase = own_policy_phase(spec)
     if phase is not None:
         if phase['mode'] == 'INITIAL':
@@ -178,6 +182,10 @@ def run(cp, out, args, rows, observer, execution, *, spec=None, old=None):
 
 def review(cp, evidence_root, out, *, spec=None, old=None):
     hosted()
+    from system_campaign_financial_additional_sensor import phase as additional_phase
+    if additional_phase(spec) is not None:
+        from system_campaign_financial_additional_sensor_runtime import review as additional
+        return additional(cp, evidence_root, out, spec, old)
     phase = own_policy_phase(spec)
     if phase is not None:
         if phase['mode'] == 'INITIAL':
@@ -210,6 +218,9 @@ def review(cp, evidence_root, out, *, spec=None, old=None):
 
 def validate_retained_admission_metadata(spec):
     """Check the existing registered retained root before any hosted work."""
+    from system_campaign_financial_additional_sensor import unchanged_phase, validate_admission_metadata
+    if unchanged_phase(spec):
+        return validate_admission_metadata(spec)
     cp = dict(sha256=spec['outer_sha256'], completed=spec['measured_closes'],
               source_cursor=spec['selected_session'], base=spec['base'])
     retained_contract(cp, spec)
@@ -815,6 +826,10 @@ def retained_model_scope(root, parent, spec):
 
 def typed_reporting_declaration(request, arm):
     """Expose only the declaration needed by an exact captured financial target."""
+    from system_campaign_financial_additional_sensor import report_declaration
+    additional = report_declaration(request, arm)
+    if additional is not None:
+        return additional
     declared = request['selected_research_models'].get(arm)
     need(type(declared) is dict and request['execution_mode'] == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
          and request['financial_resume_authorized'] is True and request['financial_source_changed'] is False,

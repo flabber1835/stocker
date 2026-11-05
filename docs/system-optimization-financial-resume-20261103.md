@@ -3410,6 +3410,15 @@ unchanged pure mdp_unheld_scope AST and required pinned constants for scope
 qualification, never import the donor financial runtime or reuse its book.
 SOURCE290 remains439 because it precedes this separate model implementation.
 
+Keep MDP on the existing ordinary preparation/adoption/observer path. Do not
+add the optional preparation_input_module facade or expand the compound-only
+preflight receipt route for this input subtype. Its genuine nonempty repair,
+original parser, neutral adoption and actual callback/source guards are already
+qualified through that ordinary path. Preserve the existing compound gate and
+its no-main/no-advance/no-checkpoint fence unchanged. Introduce a new orchestration
+hook only for a demonstrated required API incompatibility, not as an extra
+prospective qualification layer before this financial pass.
+
 P11 full independent DATA and unchanged completion-contract qualification now
 pass98 cases with12 meaningful guard removals. Admit the exact completed result
 39a62ec7297f0a0c784447970a7ddf39d7a199cf9231e57b0f7cfc13091451ec
@@ -3449,3 +3458,94 @@ forecast_tests/test_retained_admission_metadata.py`. Private SOURCE290 registry
 and DATA preparation pass54 cases/eight meaningful removals/five import fences;
 all53 previous scopes and function/class ASTs are preserved. The closure stays
 439 through this source dispatch, with original383/B19 exact.
+
+For P06's held TRQ, SOURCE288 independently authenticates the exact own1238
+source/native identity. Mandatory consideration is CAD43 per common share,
+with completion December16,2022 and exchange confirmation of preopen removal.
+The issuer's completion release separately quotes USD/CAD1.3618 as of
+December15. It does not establish the USD amount actually paid to a holder.
+Primary references are Rio Tinto's December16 completion release
+(https://www.riotinto.com/en/news/releases/2022/rio-tinto-completes-acquisition-of-turquoise-hill),
+its SEC exhibit
+(https://www.sec.gov/Archives/edgar/data/1158041/000115752322001751/a53077747ex99_1.htm)
+and OCC51580 (https://infomemo.theocc.com/infomemos?number=51580).
+
+Select an explicit research USD normalization for this shadow-book backtest:
+CAD43 divided by1.3618 CAD per USD, using the issuer's stated prior-day rate,
+recognized December16 under the existing terminal-cash event convention.
+Store the raw CAD consideration, exchange-rate direction, rate date, source
+and derived USD amount together. Calculate with Decimal before the existing
+canonical float input conversion and bind that exact input representation.
+This input assumption uses the existing cash-event constructor and actual
+dynamic quantity; it introduces no multicurrency portfolio or new financial
+runtime. Preserve the raw vendor native record and all inherited descriptors.
+
+Validate currency/direction, positive finite rate, rate date before recognition,
+exact source/native/parent binding and derived amount. Do not present the
+normalized USD value as actual broker payment, claim exact settlement timing,
+or assert that the announcement's quoted FX was available before the open.
+The historical causality status remains UNVERIFIED. This scoped research
+assumption is sufficient for the requested comparative financial pass once
+the input qualification passes; actual settlement reconstruction is outside
+this pass. Never treat CAD43 itself or a carry/grace price as USD consideration.
+
+SOURCE290 DOVA independent DATA now closes review
+cb518209213bbbeffe3d1056f8671e4019e3cff4baaa5504bb80af4791331d26
+and qualification6d354cee99f5c26fcedf1adc31186e74b1e52287c419caa3ce4556688796cb30,
+with46 cases/seven meaningful guard removals/five import fences. Preserve
+own462/2dfc, all15 input bytes and eight certificates. This source closure
+does not itself select a consideration model.
+
+DOVA's November12,2019 SEC completion filing confirms mandatory conversion
+to USD27.50 plus one nontransferable CVR paying at most USD1.50 upon the stated
+FDA milestone. The filing and Nasdaq ECA2019-228 confirm completion before
+the November12 open, after November11 last trading. References:
+https://www.sec.gov/Archives/edgar/data/1685071/000095015719001299/form8k.htm
+and https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-228.
+These establish the economic bounds and event clock, not an archival proof
+of announcement availability or the actual CVR payout/settlement.
+
+Select the existing bounded contingent-value treatment for this missing input:
+USD27.50 upfront and a separate uncertain USD0..1.50 right, total27.50..29.00.
+Qualify it against the fresh P03 source and own actual roles. Reuse the existing
+interval arithmetic, exhaustive decision-equivalence checks and immutable
+shadow-book rules. The new input must retain DOVA's own identity, event clock
+and legal endpoints; do not relabel an ALDR/ZGNX descriptor or select either
+donor's literal schema, source scope or book. The endpoint sum is a leadership
+uncertainty bound, never USD29 paid upfront. Existing ALDR history and future
+uncertainty remain intact. A typed input binding can supply the new event to
+the existing machinery; no separate financial engine is selected. Financial
+continuation requires that binding and its original caller/restart checks.
+
+## November 5 continuation after context recovery
+
+Resume delivery through existing PR542 from a fresh feature worktree based on
+verified main4122aa29bc86dcf5c4e5d6a91047030a95bf9890. Merge the published
+research head e9290b7b4af5b3c2a905c3a12eed4db72d1f2acb without rewriting
+history, then preserve the previous worktree and copy its29 unfinished files
+byte for byte. This updates the delivery base; it does not replace the frozen
+financial runtime,383 original drivers, B19, existing admissions or input history.
+
+The next financial request remains157, selecting only P07 own1047 with444
+source files. Its additional-sensor input follows the documented two neutral
+adoptions and retained provenance contract. The launcher import and exact-request
+probe pass in the new worktree with zero financial sessions advanced locally.
+Seven completed variants remain P00/P01/P02/P04/P08/P10/P11. P09's exact rational
+quantity format versus changed rounded-allocation policy is an open owner
+decision, independent of the other four unfinished continuations.
+
+Recovered source qualification passes348 cases in156.84s from
+research/capital_risk: `python -B -m pytest -q -p no:cacheprovider --tb=short
+--basetemp C:/GitHub/stocker/.codex-tmp/p00-p11-takeover-p07-20261105-001
+forecast_tests/additional_sensor forecast_tests/test_financial_resume.py
+forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py
+forecast_tests/test_qualified_own_uncertainty.py
+forecast_tests/test_financial_own_cash.py
+forecast_tests/original_unheld_composite/test_original_unheld_composite.py`.
+All29 transferred files initially match the tested source bytes; four new test
+files subsequently receive whitespace-only normalization with identical ASTs.
+The new-worktree probe
+uses `python -B system_campaign_financial_resume.py --probe --request
+system-campaign-factual-request.json` and passes. Canonical finance remains
+hosted only; these checks grant no completed-result admission.

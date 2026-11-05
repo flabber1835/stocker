@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '3640674e7049db653200c8c888e70fe9f645b6dfba7110b49295a0645f318304'
+OWN_CASH_SHA = '9b2e32b0dddd53919f846b4b275ccd04afb59ab257b2652e5b63892971012fd9'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -444,6 +444,135 @@ class NeverHeldSourceExitScope(SourceOnlyScope):
     schema_id: Literal['research.never-held-source-exit-scope/1'] = Field(alias='schema')
     source_ticker: Annotated[str, Field(min_length=1)]
     require_never_held: Literal[True]
+
+
+RESEARCH_UNHELD_COMPOSITE = 'ORIGINAL_UNHELD_COMPOSITE_NATIVE_DAY'
+ORIGINAL_UNHELD_COMPOSITE_MODELS = {
+    'research.p01-unheld-composite-cash-input/1': dict(
+        input_file='p01_iac_namespace_continue_cash_input.json',
+        input_sha256='4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c',
+        compiler_file='p01_iac_namespace_continue.py',
+        compiler_sha256='1dd6857cb374532bd33faeaadd53bdd4ae600e68c16a5534408fa498d8cb8cf5',
+        constructor='UnheldCashInput', scope_function='mdp_unheld_scope', scope_symbol='MDP',
+        identity_field='source_security_id', ticker_field='source_ticker',
+        distribution_ratio_field='new_meredith_distribution_ratio',
+        cash_component_fields=('gray_cash_per_old_share','dotdash_cash_per_distributed_share'),
+        aggregate_field='aggregate_cash_per_old_share',
+        ordered_legs=('DISTRIBUTE_NEW_MEREDITH_ONE_FOR_ONE','GRAY_CASH_16_99','DOTDASH_CASH_42_18')),
+}
+
+
+class ResearchOriginalUnheldCompositeAssumption(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.original-unheld-composite-native-day-assumption/1'] = Field(alias='schema')
+    original_input_schema: str
+    original_input_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    aggregate_cash_per_original_share: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    ordered_legs: list[str] = Field(min_length=1)
+    require_never_held: Literal[True]
+    held_multileg_supported: Literal[False]
+    preopen_availability_claimed: Literal[False]
+    actual_settlement_claimed: Literal[False]
+    strict_archival_PIT_claimed: Literal[False]
+    portfolio_completion_authorized: Literal[False]
+
+
+class OriginalUnheldCompositeSourceScope(NeverHeldSourceExitScope):
+    schema_id: Literal['research.original-unheld-composite-source-scope/1'] = Field(alias='schema')
+    original_input_schema: str
+    original_input_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    original_compiler_sha256: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+
+
+def original_unheld_composite_model(reference):
+    """Read original legal/schema bytes; never load its originating book."""
+    import ast
+    registration = ORIGINAL_UNHELD_COMPOSITE_MODELS.get(reference['schema'])
+    need(registration is not None, 'COMPOSITE_SOURCE_ONLY_REGISTERED_ORIGINAL_SCHEMA')
+    expected = {k: registration[k] for k in ('input_file','input_sha256','compiler_file','compiler_sha256')}
+    need(reference == dict(schema=reference['schema'], **expected), 'COMPOSITE_SOURCE_EXACT_ORIGINAL_FILE_BINDING')
+    original_raw = (HERE / expected['input_file']).read_bytes()
+    source = (HERE / expected['compiler_file']).read_bytes()
+    need(sha(original_raw) == expected['input_sha256'] and sha(source) == expected['compiler_sha256'],
+         'COMPOSITE_SOURCE_UNCHANGED_ORIGINAL_LEGAL_AND_COMPILER_BYTES')
+    tree = ast.parse(source)
+    symbol, = [n for n in tree.body if isinstance(n, ast.Assign) and
+                any(isinstance(t, ast.Name) and t.id == registration['scope_symbol'] for t in n.targets)]
+    identity = ast.literal_eval(symbol.value)
+    scope, = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == registration['scope_function']]
+    namespace = dict(need=need,**{registration['scope_symbol']:identity})
+    exec(compile(ast.Module(body=[scope],type_ignores=[]),'<unchanged-original-pure-composite-scope>','exec'),namespace)
+    document = json.loads(original_raw)
+    need(document['schema'] == reference['schema'] and document[registration['identity_field']] == identity
+         and document['held_multileg_supported'] is False,
+         'COMPOSITE_SOURCE_ORIGINAL_SCHEMA_NO_HELD_AUTHORITY')
+    return document,registration,namespace[registration['scope_function']]
+
+
+def research_original_unheld_composite_term(term):
+    from decimal import Decimal
+    model = ResearchOriginalUnheldCompositeAssumption.model_validate(term['research_assumption'])
+    original, registration, _ = original_unheld_composite_model(term['retained_original_composite_input'])
+    ratio = Fraction(original[registration['distribution_ratio_field']])
+    first,second = (Decimal(original[name]) for name in registration['cash_component_fields'])
+    total = first + second * Decimal(ratio.numerator) / Decimal(ratio.denominator)
+    need(ratio == 1 and total == Decimal(original[registration['aggregate_field']])
+         == Decimal(model.aggregate_cash_per_original_share)
+         and model.ordered_legs == original['ordered_legs'] == list(registration['ordered_legs']),
+         'COMPOSITE_SOURCE_ALL_ORDERED_LEGS_AND_EXACT_DECIMAL_SUM')
+    a,w = term['added'],term['identity_witness']
+    need(term['recognition_rule'] == RESEARCH_UNHELD_COMPOSITE
+         and model.original_input_schema == original['schema']
+         and model.original_input_sha256 == registration['input_sha256']
+         and term['parent_cursor'] == w['session'] < term['native_session'] == a['session']
+             == original['earliest_affected_session'] == model.recognition_session
+         and original['clock_scope'] == 'EXISTING_NATIVE_CALENDAR_DAY_UNHELD_ONLY_NO_PREOPEN_CLAIM'
+         and original['scope'] == 'NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM_UNHELD_TERMINAL_MARKER_ONLY'
+         and term['native_term_sha256'] == original['native_term_sha256']
+         and term['security_id'] == w['security_id'] == a['security_id'] == original[registration['identity_field']]
+         and term['ticker'] == w['ticker'] == original[registration['ticker_field']],
+         'COMPOSITE_SOURCE_EXACT_NATIVE_DAY_CURRENT_PARENT_IDENTITY_AND_ORIGINAL_CLOCK')
+    need(a['kind'] == 'CASH_MERGER' and type(a['cash_per_share']) is float
+         and math.isfinite(a['cash_per_share']) and Fraction(str(a['cash_per_share'])) == Fraction(total)
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id','delivered_ticker','delivered_issuer_id',
+                                       'exchange_ratio','cash_in_lieu_price_per_delivered_share'))
+         and term['primary_source'] == original['primary_urls'][0]
+         and term['timing_source'] in original['primary_urls']
+         and a['reference'] == term['primary_source'] + ' | ' + term['description'],
+         'COMPOSITE_SOURCE_ONLY_DECLARED_TERMINAL_MARKER_NO_HELD_LEG_ALLOCATION')
+    need(term['source_valuation_phase'] == 'CLOSE' and term['parent_positions'] == []
+         and term['preopen_completion_confirmed'] is term['mandatory_common_share_completion_confirmed'] is False
+         and term['portfolio_completion_authorized'] is False and term['require_unowned_and_unordered'] is True
+         and term['require_never_held'] is True and term['source_parent_selected'] is True,
+         'COMPOSITE_SOURCE_EXPLICIT_SELECTED_UNHELD_ONLY_AUTHORITY')
+
+
+def require_original_composite_scope(wealth,pending,ledger,scope):
+    registration = ORIGINAL_UNHELD_COMPOSITE_MODELS.get(scope['original_input_schema'])
+    need(registration is not None and scope['original_input_sha256'] == registration['input_sha256']
+         and scope['original_compiler_sha256'] == registration['compiler_sha256'],
+         'COMPOSITE_SCOPE_EXACT_ORIGINAL_SCHEMA_AND_SOURCES')
+    reference = dict(schema=scope['original_input_schema'],**{k:registration[k] for k in
+        ('input_file','input_sha256','compiler_file','compiler_sha256')})
+    original,registered,guard = original_unheld_composite_model(reference)
+    need(scope['security_id'] == original[registered['identity_field']]
+         and scope['source_ticker'] == original[registered['ticker_field']],
+         'COMPOSITE_SCOPE_EXACT_ORIGINAL_SOURCE_IDENTITY')
+    pending_data = risk_diagnostic_value(pending)
+    need(isinstance(pending_data,list) and all(isinstance(p,dict) and 'security_id' in p for p in pending_data),
+         'COMPOSITE_SCOPE_SUPPORTED_COMPLETE_PENDING_RECORDS')
+    guard(dict(wealth_core=wealth,pending=pending_data,ledger=ledger))
+    need(not mentions_source([wealth['episodes'],pending_data,ledger['receivables']],
+                             (scope['security_id'],scope['source_ticker']))
+         and not any(s.get('reserved_ticker') == scope['source_ticker'] for s in wealth['slots'].values()),
+         'COMPOSITE_SCOPE_NO_RELATED_CHILD_INTENT_RESERVATION_OR_DUE_BILL')
+
+
+def original_composite_source_names():
+    return sorted({registration[k] for registration in ORIGINAL_UNHELD_COMPOSITE_MODELS.values()
+                   for k in ('input_file','compiler_file')})
 
 
 OWN_CASH_SOURCE_CLOCKS = {('P03', '2018-08-31'): (41919370510, '3aa0c311346305f0699dd3562ee047106129efdc', 13366886633),
@@ -1192,6 +1321,18 @@ SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P06',
 SUPPLEMENTAL_SHARED_VALIDATOR_PHASES = frozenset({('P06', '2022-04-29')})
 
 
+CASH_PHASES['P07', '2022-02-28'] = ('system-campaign-cash-calendar-terminal-facts.json', ('MIME', 'CYBE'))
+SUPPLEMENTAL_PHASES['P07', '2022-02-28'] = (('system_campaign_cash_calendar', 'CashCalendar', 'JSON', 'system-campaign-october-cash-calendar-terminal-facts.json', '225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53', '183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f', ('AVLR', 'FMTX', 'PING', 'Y', 'ZEN')),)
+ADDITIONAL_SENSOR_ALIAS_PHASES = frozenset({('P07', '2022-02-28')})
+ROOT_BOUND_ALIAS_SOURCE_PHASES['P07', '2022-02-28'] = ('532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd', 'd4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058', 1047)
+
+
+
+CLOSED_CASH_GENERATIONS['3640674e7049db653200c8c888e70fe9f645b6dfba7110b49295a0645f318304'] = 32
+OWN_CASH_PHASES['P05', '2021-11-30'] = 'MDP'
+CASH_GENERATION_LENGTHS['P05', '2021-11-30'] = 33
+OWN_CASH_SOURCE_CLOCKS['P05', '2021-11-30'] = (42027761123, 'c0c96766d93b3f80afc2b2e9a88ecfc2b7d3573a', 13414936647)
+
 def own_cash_selection(arm, cursor):
     from system_campaign_cash_calendar import validate_term
     import system_campaign_cash_calendar as calendar
@@ -1212,7 +1353,9 @@ def own_cash_selection(arm, cursor):
     for old_sha, count in CLOSED_CASH_GENERATIONS.items():
         need(generation(count)[1] == old_sha, 'OWN_CASH_CLOSED_CATALOG_GENERATION_BYTES')
     for term in catalog['terms']:
-        if term['recognition_rule'] == RESEARCH_MIXED:
+        if term['recognition_rule'] == RESEARCH_UNHELD_COMPOSITE:
+            research_original_unheld_composite_term(term)
+        elif term['recognition_rule'] == RESEARCH_MIXED:
             research_mixed_term(term)
         elif term['recognition_rule'] == RESEARCH_SOURCE_EXIT:
             research_source_exit_term(term)
@@ -1291,6 +1434,9 @@ def own_cash_selection(arm, cursor):
     elif chosen['recognition_rule'] == NEXT_COMPLETION:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.'
+    elif chosen['recognition_rule'] == RESEARCH_UNHELD_COMPOSITE:
+        codec.compiler_sha = sha(Path(__file__).read_bytes())
+        codec.validator_description = 'Exact original ordered composite source marker on its native research calendar day; actual never-held no-op and original source delegation only, without held/preopen/PIT authority.'
     elif chosen['recognition_rule'] == RESEARCH_UNHELD_CASH:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Original unheld-source cash amount with explicit research closing availability, no confirmed-by-close or held-completion claim; actual canonical absence, no-op and source delegation are mandatory.'
@@ -2216,7 +2362,7 @@ def stage_selected_sources(spec, old, out):
     if bound is not None:
         need((spec.get('root_admission_sha256'), spec.get('outer_sha256'), spec.get('measured_closes')) == bound,
              'FUTURE_ALIAS_SOURCE_EXACT_QUALIFIED_OWN_ROOT')
-    if phase not in SINGLE_PHASES and phase not in FOLLOWING_PHASES:
+    if phase not in SINGLE_PHASES and phase not in FOLLOWING_PHASES and phase not in ADDITIONAL_SENSOR_ALIAS_PHASES:
         return
     import os
     from urllib.request import urlopen
@@ -2500,7 +2646,10 @@ def document(cp, material, hydrated_sha):
             ('hydrated', 'Actual frozen native and complete identity/delivery witnesses.', hydrated_sha)))
     for t in material['terms']:
         evidence.extend((dict(reference=t['primary_source'], description=t['description'], sha256=None),
-            dict(reference=t['timing_source'], description='Actual mandatory completion; preserve native trading history.', sha256=None)))
+            dict(reference=t['timing_source'], description=('Original native-calendar-day unheld composite source clock; no preopen or held completion claim.' if t.get('recognition_rule') == RESEARCH_UNHELD_COMPOSITE else 'Actual mandatory completion; preserve native trading history.'), sha256=None)))
+        if t.get('recognition_rule') == RESEARCH_UNHELD_COMPOSITE:
+            reference = t['retained_original_composite_input']
+            evidence.extend(dict(reference=REFERENCE + '/original-composite/' + reference[k],sha256=reference[h],description='Unchanged original composite legal input or pure input compiler; original book authority excluded.') for k,h in (('input_file','input_sha256'),('compiler_file','compiler_sha256')))
         if 'source_capture' in t:
             retained = t.get('retained_qualified_source')
             source_arm = retained['source_arm'] if retained is not None else t['arm']
@@ -2656,13 +2805,16 @@ def hydration_name(cp):
 def source_scopes(cp, material, overlay_sha, hydrated_sha):
     from system_campaign_financial_partial import root_spec
     expected = [t for t in selected(material['arm'], cursor=cp['source_cursor'])[2]
-                if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT)]
-    actual = [t for t in material['terms'] if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT)]
+                if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT, RESEARCH_UNHELD_COMPOSITE)]
+    actual = [t for t in material['terms'] if t.get('recognition_rule') in (SOURCE_CLOSE, RESEARCH_UNHELD_CASH, RESEARCH_SOURCE_EXIT, RESEARCH_UNHELD_COMPOSITE)]
     need(digest(actual) == digest(expected), 'FUTURE_SOURCE_ONLY_SCOPE_CANNOT_BE_OMITTED_OR_RECLASSIFIED')
     result = []
     for term in actual:
-        source_exit = term['recognition_rule'] == RESEARCH_SOURCE_EXIT
-        if term['recognition_rule'] == RESEARCH_UNHELD_CASH:
+        composite = term['recognition_rule'] == RESEARCH_UNHELD_COMPOSITE
+        source_exit = composite or term['recognition_rule'] == RESEARCH_SOURCE_EXIT
+        if composite:
+            research_original_unheld_composite_term(term)
+        elif term['recognition_rule'] == RESEARCH_UNHELD_CASH:
             research_unheld_cash_term(term)
         else:
             (research_source_exit_term if source_exit else source_cash_term)(term)
@@ -2672,9 +2824,13 @@ def source_scopes(cp, material, overlay_sha, hydrated_sha):
              and material['arm'] == term['arm'] and cp['source_cursor'] == term['parent_cursor']
              and digest(term) == digest(selected(term['arm'], cursor=term['parent_cursor'])[2][0]),
              'FUTURE_SOURCE_ONLY_EXACT_OWN_ADMITTED_PARENT_AND_LITERAL')
-        scope_class = NeverHeldSourceExitScope if source_exit else SourceOnlyScope
+        scope_class = OriginalUnheldCompositeSourceScope if composite else NeverHeldSourceExitScope if source_exit else SourceOnlyScope
         extra = dict(source_ticker=term['ticker'], require_never_held=True) if source_exit else {}
-        scope = scope_class.model_validate(dict(schema='research.never-held-source-exit-scope/1' if source_exit
+        if composite:
+            reference = term['retained_original_composite_input']
+            extra.update(original_input_schema=reference['schema'],original_input_sha256=reference['input_sha256'],original_compiler_sha256=reference['compiler_sha256'])
+            need(term['security_id'] in cp['run']['state']['median5']['selected'], 'COMPOSITE_SCOPE_CURRENT_PARENT_SELECTED_DISCLOSED')
+        scope = scope_class.model_validate(dict(schema='research.original-unheld-composite-source-scope/1' if composite else 'research.never-held-source-exit-scope/1' if source_exit
                                                else 'research.unowned-closing-source-scope/1',
             arm=term['arm'], parent_outer_sha256=cp['sha256'],
             parent_root_admission_sha256=term['parent_root_admission_sha256'],
@@ -2714,6 +2870,8 @@ def require_source_scope(wealth, pending, ledger, scope):
     if scope.get('require_never_held') is True:
         need(not mentions_source(ledger['events'], (scope['security_id'], scope['source_ticker'])),
              'FUTURE_SOURCE_EXIT_NO_HISTORICAL_OWNERSHIP')
+    if scope.get('schema') == 'research.original-unheld-composite-source-scope/1':
+        require_original_composite_scope(wealth,pending,ledger,scope)
 
 
 def actual_source_call(frame, kernel_code, prior, published):

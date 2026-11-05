@@ -69,6 +69,8 @@ def copy_referenced_original_inputs(catalog,source,destination):
     names={term[field][key]for term in catalog['terms']
            for field,key in (('retained_primary_catalog','filename'),('retained_original_legal_record','catalog_file'))
            if field in term}
+    names.update(term['retained_original_composite_input'][key] for term in catalog['terms']
+                 if 'retained_original_composite_input' in term for key in ('input_file','compiler_file'))
     for name in names:(destination/name).write_bytes((source/name).read_bytes())
 
 
