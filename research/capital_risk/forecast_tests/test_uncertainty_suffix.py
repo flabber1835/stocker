@@ -2,10 +2,12 @@
 import hashlib
 import json
 import sys
+from pathlib import Path
 from types import ModuleType
 
 import pytest
 
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from system_campaign_uncertainty_basis import basis
 
 
@@ -24,6 +26,9 @@ def corpus(tmp_path, predecessor):
 
 def stub_basis(monkeypatch):
     import system_campaign_uncertainty_basis as module
+    import system_campaign_ordinary_registry as registry
+    original_committed = registry.committed
+    monkeypatch.setattr(registry,'committed',lambda root,cp:original_committed(root,cp,Path(module.__file__).parent))
     monkeypatch.setattr(module,'validate_input_commitment',lambda root,cp:'model')
     def ordinary(root,cp):
         assert len(cp['repairs'])==1

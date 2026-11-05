@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        arm: [P03]
+        arm: [P03, P07]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -45,7 +45,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Capture P03 own251 exact SEND and TWLO source witnesses only
+      - name: Continue P03 own251 stock input and P07 own838 qualified distribution
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

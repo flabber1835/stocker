@@ -2055,3 +2055,29 @@ primary timing and declared fractional raw-open proxy. Support actual future
 holdings through canonical conversion; do not infer a never-held portfolio from
 the December source-only checkpoint. Keep such a term nonselectable until its
 own source capture and independent DATA have closed.
+
+SEND source238 and independent DATA now pass:37 source tests,50 generic stock
+predicate/calendar tests and five filled-catalog checks. Append catalog21 while
+preserving the exact20-record generation and its closed hash. The only new
+selector branch qualifies a confirmed preopen mandatory stock-only conversion;
+the prior positive-cash predicate statements remain AST-identical. The source
+review binds own251,January30/31 and February1 TWLO full-row identity. Select
+P03 financial continuation from own251,without importing its January tail.
+
+PPLI source234 and independent generic-v2 runtime review have closed. The final
+runtime hash is0b4ade1d380b395098f057dd9a8b65cd73ae8697f364640f05118326da25bd74;
+the independent peer report hash is0120aa22d6c4193ae2f4b30ed366b706d9384e081fcffcb4d57072f15bd1267e.
+The160 portable input/runtime checks and additional independent actual-caller
+checks pass. Preserve committed ordinary proofs across restarts byte-for-byte,
+and ignore child observation tails until their event is committed. Select P07
+from own838; hosted original packet,adoption,primitive-call and retained384-row
+certificate qualification remain mandatory. Keep compound generation1,original
+APHA projection,B19 and all383 protected drivers unchanged.
+
+P06 financial236 cleared the compound action and saved543 closes through
+February28,2020,252 beyond its admitted291 parent. Its hosted prefix reviewer
+passed. Independent report/DATA/root admission is still required;exclude the
+19-session March tail. Its March27 stop is a separate unresolved WAAS cash
+native,not a failure of the compound event. Investigate that exact own source
+after the new monthly root is admitted;no inferred cash input or replay tail
+may receive authority.

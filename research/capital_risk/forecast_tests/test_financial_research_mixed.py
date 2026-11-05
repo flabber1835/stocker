@@ -80,7 +80,14 @@ def test_query_identity_and_count_guard_removal_falsifiers():
 
 def test_prior_cash_and_weekend_stock_validators_remain_ast_identical():
     old=subprocess.check_output(['git','show','1ba6755b4b0d9bb03a699e54fc7f61a13cc052f7:research/capital_risk/system_campaign_financial_future.py'])
-    def functions(raw):return {n.name:ast.dump(n,include_attributes=False) for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef)}
+    def functions(raw):
+        result={}
+        for n in ast.parse(raw).body:
+            if not isinstance(n,ast.FunctionDef):continue
+            if n.name=='selected_stock_term' and isinstance(n.body[1],ast.If) and 'PREOPEN_STOCK' in ast.unparse(n.body[1].test):
+                del n.body[1]
+            result[n.name]=ast.dump(n,include_attributes=False)
+        return result
     before,after=functions(old),functions(Path(f.__file__).read_bytes())
     for name in ('selected_stock_term','research_cash_term','research_tender_term','research_source_exit_term','source_cash_term','completion_cash_term'):
         assert before[name]==after[name],name

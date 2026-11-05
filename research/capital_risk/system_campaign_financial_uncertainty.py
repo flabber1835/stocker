@@ -262,6 +262,9 @@ def run_retained(cp, out, args, observer, execution, spec, old):
     from system_campaign_financial_resume import AdoptionGate
     hashes, rows, qualified = retained_seed(old, cp, spec)
     codec = active_codec(backtest, old, cp)
+    from system_campaign_financial_compound_dispatch import selected
+    compound = selected(cp, 'P07')
+    compound_scope = nullcontext()
     with (out / 'branch-controller-qualification.json').open('xb') as stream:
         stream.write(qualified)
     preserve(old, out)
@@ -280,7 +283,12 @@ def run_retained(cp, out, args, observer, execution, spec, old):
     else:
         path, loaded = prepare(cp, out, 'P07')
         gate = AdoptionGate(cp, out / 'book', out / MODEL_ADOPTION, loaded.sha256, loaded.earliest_affected_session)
-        events = ActualEvents(out, 'P07', cp=cp)
+        if compound is not None:
+            need(hasattr(compound, 'ordinary_events'), 'FINANCIAL_RETAINED_COMPOUND_EXTERNAL_GATE_CAPABILITY')
+            events = compound.ordinary_events(out, cp)
+            compound_scope = compound.initial_context(cp, out, spec, loaded)
+        else:
+            events = ActualEvents(out, 'P07', cp=cp)
     certificate = Certificate(out, codec, alder.native, hashes, seed=rows, event_source=source)
     save(directory / 'seed.json', dict(parent_sha256=cp['sha256'], rows=len(rows),
         chain_sha256=rows[-1]['chain_sha256'], possible_after=rows[-1]['possible_after'],
@@ -290,7 +298,7 @@ def run_retained(cp, out, args, observer, execution, spec, old):
     from system_campaign_financial_projection import initial_context, qualify_initial
     with initial_context(cp, out, 'P07') as projection:
         qualify_initial(projection, out, cp)
-        with proof_scope(cp, spec), alder, idempotent_dispatch(alder), gate, certificate, observer, execution, events:
+        with compound_scope, proof_scope(cp, spec), alder, idempotent_dispatch(alder), gate, certificate, observer, execution, events:
             code = backtest.main(args + extra)
     if not unchanged:
         boundary(out, MODEL_ADOPTION, cp, path.name, loaded.earliest_affected_session)
@@ -343,6 +351,8 @@ def review_retained(parent, evidence_root, out, spec, old):
     need(actual.name == original.name and actual.read_bytes() == original.read_bytes(),
          'FINANCIAL_RETAINED_PROOF_EVENT_GZIP_NAME_AND_BYTES_PRESERVED')
     cp = journal.read_checkpoint(evidence_root / 'book/checkpoint.json.gz')
+    from system_campaign_financial_compound_dispatch import review_retained as compound_review_retained
+    compound_review_retained(evidence_root, cp)
     if unchanged_input_phase(spec):
         review_unchanged_input(parent, cp, evidence_root, spec)
     else:

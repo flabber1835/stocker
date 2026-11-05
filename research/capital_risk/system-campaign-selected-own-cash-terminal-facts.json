@@ -1527,6 +1527,93 @@
       },
       "ticker": "AJRD",
       "timing_source": "https://infomemo.theocc.com/infomemos?number=52925"
+    },
+    {
+      "actual_completion_date": "2019-02-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 0.0,
+        "delivered_issuer_id": "SEC_CIK:1447669",
+        "delivered_security_id": "361746987237610562",
+        "delivered_ticker": "TWLO",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "0.485",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1447669/000110465919005275/a19-3826_18k.htm | Issuer completion8K confirms mandatory0.485TWLO ClassA shares per SENDcommonshare and fractional cash right; issuer jointcompletion release confirms SEND ceased trading BEFORE February1,2019open. Preserve January31trading. Fixed cashleg is zero. Fractional cash uses retained February1TWLOraw-open researchproxy, not actual exchange-agent settlement. Preserve stored SEC_CIK1447669 delivery identity.",
+        "security_id": "33561376965494239",
+        "session": "2019-02-01"
+      },
+      "arm": "P03",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1447669",
+        "listing_first_session": "2016-06-23",
+        "security_id": "361746987237610562",
+        "security_type_eligible": "1",
+        "session": "2019-02-01",
+        "source_observation_sha256": "9d1d9eeb1363f4226fa7789a982a35ec3bb738f92d65a398b1208aca68df1107",
+        "ticker": "TWLO"
+      },
+      "description": "Issuer completion8K confirms mandatory0.485TWLO ClassA shares per SENDcommonshare and fractional cash right; issuer jointcompletion release confirms SEND ceased trading BEFORE February1,2019open. Preserve January31trading. Fixed cashleg is zero. Fractional cash uses retained February1TWLOraw-open researchproxy, not actual exchange-agent settlement. Preserve stored SEC_CIK1447669 delivery identity.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1477425",
+        "listing_first_session": "2017-11-15",
+        "security_id": "33561376965494239",
+        "security_type_eligible": "1",
+        "session": "2019-01-30",
+        "source_observation_sha256": "77c3169d97c40fa074c3612e2048cb3062d576d6ad3d5ff16033ec6e67c3fc8f",
+        "ticker": "SEND"
+      },
+      "last_trading_session": "2019-01-31",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2561.1",
+        "security_id": "33561376965494239",
+        "session": "2019-01-31"
+      },
+      "native_session": "2019-01-31",
+      "native_term_sha256": "53de6f69b2b4f8071a785b84cf9fa697da8c8b098db2227b8e0b48b7e9c23919",
+      "parent_cursor": "2018-12-31",
+      "parent_outer_sha256": "32b2fb50d0686f057814a7d1950b5bf5a48bd7a46ad7c686e2dcda6cdca1ebf7",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "a89d9976ab0621b14d921fe9079784d62d835d9634b9ed423d66060d925eb3cd",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2019-02-01",
+        "cash_per_ordinary_common_share": "0",
+        "exchange_ratio": "0.485",
+        "mandatory_conversion": true,
+        "preopen_time_established": true,
+        "recognition_convention": "CONFIRMED_PREOPEN_STOCK_ONLY_COMPLETION"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1447669/000110465919005275/a19-3826_18k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "361746987237610562",
+        "session": "2019-02-01",
+        "source_observation_sha256": "9d1d9eeb1363f4226fa7789a982a35ec3bb738f92d65a398b1208aca68df1107",
+        "ticker": "TWLO"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_STOCK_ONLY_COMPLETION",
+      "security_id": "33561376965494239",
+      "source_capture": {
+        "artifact_id": 13378121330,
+        "head": "e81158bfa1feadfd0c97d6c4bf7999cc263a0c1d",
+        "independent_data_review_sha256": "deadd42fdbf3a280bf047222b76753b1dfac0ba7b819cb1e63a182e93dd83ecf",
+        "payload_sha256": "ed8b60007dc7a1d2ddb3cfeb91fd6b5affc95bd38488bffc1f2b293cb161a141",
+        "run_id": 41944211225,
+        "scope_sha256": "2a49277ae3ac10ffec90fa984691f2b9b511ccc3e8f5073f3f4f64168a07c6dd"
+      },
+      "ticker": "SEND",
+      "timing_source": "https://www.twilio.com/en-us/press/releases/twilio-completes-acquisition-sendgrid"
     }
   ]
 }

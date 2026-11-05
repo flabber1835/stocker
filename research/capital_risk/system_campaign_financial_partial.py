@@ -298,7 +298,7 @@ def retention_tree():
 
 @contextmanager
 def financial_inputs(root, parent, output, spec):
-    from system_campaign_financial_compound_runtime import retained_context as compound_retained_context
+    from system_campaign_financial_compound_dispatch import retained_context as compound_retained_context
     with compound_retained_context(root, parent, output):
         import system_campaign_parallel_discovery_run as original
         if spec.get('retained_uncertainty_model') is None:

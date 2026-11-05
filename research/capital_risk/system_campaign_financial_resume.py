@@ -50,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P03',)
+SELECTED_ARMS = ('P03', 'P07')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/105'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/106'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -105,6 +105,10 @@ def expected_request():
              'system_campaign_financial_distribution_source.py', 'system-campaign-compound-source-witness-scopes.json',
              'system_campaign_financial_distribution_source_v1.py', 'system_campaign_financial_compound_input.py',
              'system_campaign_financial_compound_runtime.py', 'system-campaign-compound-input-facts.json',
+             'system_campaign_financial_compound_dispatch.py', 'system_campaign_financial_compound_runtime_v2.py',
+             'system_campaign_financial_compound_input_v2.py', 'system_campaign_financial_compound_v2_support.py',
+             'system_campaign_financial_compound_ordinary_v2.py', 'system_campaign_financial_ordinary_observer_v1.py',
+             'system_campaign_financial_distribution_source_v2.py', 'system-campaign-compound-input-v2-facts.json',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
              *(plan[2] for registry in (ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES)
@@ -379,9 +383,10 @@ def p07_overlay(cp, out):
 
 
 def qualified_overlay(cp, out, spec):
-    from system_campaign_financial_compound_runtime import applies, prepare as compound_prepare, initial_context
-    if 'root_admission' in spec and applies(cp, spec['arm']):
-        overlay, loaded = compound_prepare(cp, out, spec['arm'])
+    from system_campaign_financial_compound_dispatch import selected, initial_context
+    compound = selected(cp, spec['arm']) if 'root_admission' in spec else None
+    if compound is not None:
+        overlay, loaded = compound.prepare(cp, out, spec['arm'])
         return ['--repair-overlay', str(overlay)], initial_context(cp, out, spec, loaded)
     if 'root_admission' in spec:
         from system_campaign_financial_future import prepare
@@ -617,8 +622,8 @@ def economic(old, out, spec):
                 code = run(cp, out, args, rows, observation, execution, spec=spec, old=old)
             else:
                 extra, gate = qualified_overlay(cp, out, spec)
-                from system_campaign_financial_compound_runtime import applies as compound_applies
-                if 'root_admission' in spec and not compound_applies(cp, spec['arm']):
+                from system_campaign_financial_compound_dispatch import selected
+                if 'root_admission' in spec and selected(cp, spec['arm']) is None:
                     from system_campaign_financial_future import ActualEvents
                     events = ActualEvents(out, spec['arm'], cp=cp)
                 else:
