@@ -2089,3 +2089,30 @@ bindings in independent DATA. Retain independently admitted own628/291 as the
 monthly seed roots,and change only the exact financial transport targets. The
 P05/P06 uncommitted daily tails1424490/2218554bytes remain excluded. No root
 admission or financial transition is granted by reporting selection.
+
+P07 financial239 refused before advancing any close. The retained APHA context
+installs its loader with active=false;its exact committed activation repair has
+to pass the installed original loader before branch codec ownership can resolve.
+The synthetic composition fixture incorrectly began with active=true. Preserve
+the immutable APHA guard and source bytes. Restore the intended orchestration
+by parsing only the one exact committed activation descriptor after entering
+its retained context,using that descriptor's original resume/predecessor pins.
+Verify its bytes,SHA and boundary,then call the unchanged branch-loader owner
+check. Never set the active flag directly,unwrap an inactive owner or substitute
+the current cursor. This is input parsing only,with zero financial transitions
+and no new input adoption. Qualify a fresh false-active restart fixture and
+wrong descriptor/clock/hash refusal cases before the next hosted run.
+
+P05 saved734 passed independent DATA:106new closes,212raw accountings,five
+reports and140Decimalmetrics. The actual LM41shares posted2050USD;four Autumn
+terms were unheld zero-ops,and futureVRTU stayed excluded. Thirty-three tests
+passed,including30 negatives and five guard-removal cases. Admit own734 with
+628 retained as exact history;exclude December tail and all full scoring.
+
+Select readonly report241 for P03 saved272 through January31,2019 and P11
+saved1570 through March28,2024. Their own251/1383 roots remain the independent
+monthly seeds. Financial producer bindings are239/schema106/source423 and
+237/schema104/source415 respectively. Reporting selection never replaces those
+bindings or admits the later tails. The next P03 refusal is an original LOXO
+cash input;P11 holds36GE at a child-ownership distribution boundary. Qualify
+their exact source and generic inputs after independent report/DATA admission.
