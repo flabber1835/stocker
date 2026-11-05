@@ -2616,3 +2616,10 @@ records, synthesize caller flags or bypass the economic postconditions.
 Qualify the actual retained source composition with a failing-before and
 passing-after synthetic reproduction and guard-removal falsifiers before any
 hosted continuation. No frozen financial or observer source changes are allowed.
+
+Dispatch financial266 for P11 alone from its independently admitted own1883
+rootab8b38df9778710adafbeabdd6deea6491d498a55138be00da5cce11da8b94be,
+using qualified catalog26 and the unchanged canonical financial engines.
+Keep source265 P03 independent and preserve per-arm non-cancelling hosted
+concurrency. No P05 contract proposal or P07 caller-routing proposal is selected
+by this request. Retain all own1883 input/repair lineage and reject later tails.
