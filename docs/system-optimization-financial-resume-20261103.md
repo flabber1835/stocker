@@ -2642,3 +2642,20 @@ guard removals passed. Exclude all April P06 and February P07 tails and retain
 the complete committed P07 branch-certificate prefix. P06's actual next pending
 identity is IPHI, with23shares already present in the committed March31 book;
 the April20 native and later diagnostic tail grant no root-admission authority.
+
+Source265 independent DATA closed all three exact identities and native
+preimages;45 cases including ten guard removals passed. Its review and
+qualification pins are579437a1a8ca1e414adbc4081f67c97ab83507fda650261e30781e8e43c9dcfa
+andfdff3b1d0e476b5cbefff8e751609bfe9a0d4cf1f3c9b28c362cb95a72be2e51.
+For catalog27's CBLK record, extend generic own-cash selection to accept this
+authenticated multi-term source scope. Preserve the existing single-term
+selection behavior. In a multi-term scope, reject duplicate security IDs or
+native event keys, then require exactly one declared term matching the selected
+catalog record's security ID. Preserve every existing parent, native, identity,
+source-clock and independent DATA guard; never discard unrelated scope members
+from their authenticated source commitment. Append only CBLK26USD/October8
+under the existing explicit research-opening convention with preopen unconfirmed.
+For own439, compose the already qualified original MedicinesFacts MDCO and
+ArQuleFacts ARQL through generic supplemental selection, preserving all12
+inherited input documents and unrelated ZAYO. No wrapper, new economic policy
+or canonical financial source change is authorized by this selection extension.
