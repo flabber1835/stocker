@@ -4046,3 +4046,32 @@ forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualifie
 The exact launcher probe passes with448 source files, original383/B19 unchanged,
 zero financial workers and one sequential readonly worker. The scratch repair
 preserves every INITIAL policy source byte; no failed checkpoint is a resume seed.
+
+
+REVIEW299 stops positively with preflight0/reviewer1 and no OOM. Its readonly
+accounting and seven monthly reports reproduce own1196 exactly; the original
+review now reaches B19 retained input validation and refuses missing
+`hydrated-uncertainty-event.json` in ordinary reconstruction scratch. Keep this
+failed run and all original FIN296 stop labels unchanged. The event file is not
+in the later sensor origin input_files map: its authority is the private-event
+SHA in the exact original B19 descriptor already committed in cp0. Stage this
+single fixed-name dependency only after authenticating that descriptor against
+cp0 and its original phase binding, requiring exactly one matching evidence
+reference and the exact file bytes. Do not synthesize event facts, copy financial
+state, or modify frozen B19/runtime/INITIAL declarations. Test missing, altered,
+ambiguous and foreign witness bindings, including a guard removal and the actual
+authenticated cp0 input set. Submit fresh REVIEW300/request166 with no finance.
+
+REVIEW300 input qualification: actual FIN296 cp0 stages28 authenticated input
+resources including ALDR private-event SHA90be2b66073017f5084dc3a2d197dc498fae5a02cd956b66c072940446b1de2f;
+no financial checkpoint or journal is copied. Windows DATA inspection uses an
+extended-length source path. Focused checks pass71 in11.93s after fixing a
+synthetic guard-removal fixture to remove a non-branch descriptor (the new
+independent branch-presence guard correctly rejected its old mutation). Exact
+command: `python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/p07-readonly-event-input-tests-20261105-003
+forecast_tests/additional_sensor/test_review_scratch_inputs.py
+forecast_tests/additional_sensor/test_failed_review_transport.py`. Four affected
+resume/launcher selectors pass in8.63s using the four exact nodes listed for
+REVIEW299 with basetemp p07-readonly-event-selector-tests-20261105-001. The launcher
+probe passes request166/448 sources, zero finance and one readonly worker.

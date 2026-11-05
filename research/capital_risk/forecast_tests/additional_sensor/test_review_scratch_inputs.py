@@ -24,9 +24,16 @@ def actual_phase():
 def fixture(tmp_path):
     root, target = tmp_path / 'old', tmp_path / 'scratch'
     root.mkdir(); target.mkdir()
+    event = b'synthetic original private event'
+    (root / 'hydrated-uncertainty-event.json').write_bytes(event)
     descriptors = []
     for i in range(20):
-        raw = json.dumps(dict(synthetic_input=i)).encode()
+        doc = dict(synthetic_input=i)
+        if i == 19:
+            doc = dict(schema='research.leadership-branch-uncertainty-input/1', source_evidence=[dict(
+                reference='research:system-optimization-002/leadership-uncertainty/private-event/1',
+                sha256=repair.data.sha(event))])
+        raw = json.dumps(doc).encode()
         pin = repair.data.sha(raw)
         name = 'book/repairs/' + pin + '.json'
         path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(raw)
@@ -41,7 +48,8 @@ def fixture(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(raw); pins[name] = repair.data.sha(raw)
     cp = dict(sha256='a' * 64, repairs=deepcopy(descriptors))
     phase = dict(origin_outer_sha256=cp['sha256'], original_descriptors=descriptors,
-                 origin_root_admission_sha256='b' * 64, inherited_ordinary_observers=observers)
+                 origin_root_admission_sha256='b' * 64, inherited_ordinary_observers=observers,
+                 original_branch_descriptor=deepcopy(descriptors[-1]))
     origin = dict(ordinary_origin_outer_sha256=cp['sha256'], origin_root_admission_sha256='b' * 64, input_files=pins)
     (root / repair.data.ORIGIN).write_bytes(repair.data.encoded(origin))
     return root, target, cp, phase
@@ -50,7 +58,7 @@ def fixture(tmp_path):
 def test_all_exact_inputs_and_resources_copied_without_financial_state(tmp_path):
     args = fixture(tmp_path)
     expected = repair.stage_inputs(*args)
-    assert len(expected) == 28
+    assert len(expected) == 29
     root, target, cp, phase = args
     for name in expected: assert (target / name).read_bytes() == (root / name).read_bytes()
     assert not (target / 'book/checkpoint.json.gz').exists()
@@ -69,7 +77,7 @@ def test_missing_or_foreign_input_generation_refuses(tmp_path, change):
     elif change == 'tampered_resource': (root / 'material-0.json').write_bytes(b'changed')
     elif change == 'bad_descriptor_name': cp['repairs'][0]['filename'] = '../escape.json'; phase['original_descriptors'] = deepcopy(cp['repairs'])
     elif change == 'unsafe_resource': phase['inherited_ordinary_observers'][0]['material_file'] = '../escape.json'
-    else: cp['repairs'].pop()
+    else: cp['repairs'].pop(0)
     with pytest.raises((ValueError, FileNotFoundError)): repair.stage_inputs(root, target, cp, phase)
 
 
@@ -78,6 +86,48 @@ def test_existing_scratch_input_must_be_byte_identical(tmp_path):
     path = target / 'book/repairs' / cp['repairs'][0]['filename'];path.parent.mkdir(parents=True)
     path.write_bytes(b'foreign')
     with pytest.raises(ValueError, match='IDENTICAL_COLLIDING'): repair.stage_inputs(root, target, cp, phase)
+
+
+@pytest.mark.parametrize('change', ['missing_event', 'tampered_event', 'tampered_branch', 'foreign_branch',
+                                  'wrong_schema', 'missing_reference', 'duplicate_reference', 'bad_hash'])
+def test_original_branch_event_dependency_refuses_missing_or_foreign_binding(tmp_path, change):
+    root, target, cp, phase = fixture(tmp_path)
+    event = root / 'hydrated-uncertainty-event.json'
+    branch = root / 'book/repairs' / phase['original_branch_descriptor']['filename']
+    if change == 'missing_event': event.unlink()
+    elif change == 'tampered_event': event.write_bytes(b'changed')
+    elif change == 'tampered_branch': branch.write_bytes(b'changed')
+    elif change == 'foreign_branch': phase['original_branch_descriptor'] = dict(filename='0' * 64 + '.json', sha256='0' * 64)
+    else:
+        doc = json.loads(branch.read_bytes())
+        if change == 'wrong_schema': doc['schema'] = 'terminal-repair/1'
+        elif change == 'missing_reference': doc['source_evidence'] = []
+        elif change == 'duplicate_reference': doc['source_evidence'] *= 2
+        else: doc['source_evidence'][0]['sha256'] = '../foreign'
+        raw = repair.data.encoded(doc); pin = repair.data.sha(raw)
+        descriptor = dict(filename=pin + '.json', sha256=pin)
+        (branch.parent / descriptor['filename']).write_bytes(raw)
+        cp['repairs'][-1] = deepcopy(descriptor)
+        phase['original_descriptors'] = deepcopy(cp['repairs'])
+        phase['original_branch_descriptor'] = descriptor
+    with pytest.raises((ValueError, FileNotFoundError)):
+        repair.stage_inputs(root, target, cp, phase)
+
+
+def test_event_byte_guard_removal_accepts_corrupted_private_witness(tmp_path):
+    args = fixture(tmp_path)
+    (args[0] / 'hydrated-uncertainty-event.json').write_bytes(b'changed event')
+    with pytest.raises(ValueError, match='EXACT_INPUT_RESOURCE_BYTES'): repair.stage_inputs(*args)
+    fn = repair.data.function(Path(repair.__file__).read_bytes(), 'stage_inputs')
+    class Remove(ast.NodeTransformer):
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call) and any(isinstance(v, ast.Constant)
+                and v.value == 'REVIEW_SCRATCH_EXACT_INPUT_RESOURCE_BYTES' for v in node.value.args):
+                return None
+            return self.generic_visit(node)
+    fn = Remove().visit(fn); scope = dict(vars(repair))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), '<removed-event-byte-guard>', 'exec'), scope)
+    assert scope['stage_inputs'](*args)['hydrated-uncertainty-event.json']
 
 
 def test_single_insert_undo_restores_entire_frozen_reconstruction_AST():
@@ -102,7 +152,7 @@ def test_guard_removal_really_accepts_wrong_input_generation(tmp_path, label):
     root, target, cp, phase = args
     if label.endswith('RESOURCE_BYTES'):
         (root / 'book/repairs' / cp['repairs'][0]['filename']).write_bytes(b'changed')
-    else: cp['repairs'].pop()
+    else: cp['repairs'].pop(0)
     with pytest.raises(ValueError, match=label): repair.stage_inputs(*args)
     fn = repair.data.function(Path(repair.__file__).read_bytes(), 'stage_inputs')
     class Remove(ast.NodeTransformer):

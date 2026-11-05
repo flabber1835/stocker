@@ -1,5 +1,6 @@
 """Exact original review with authenticated scratch input reconstruction only."""
 import ast
+import json
 from pathlib import Path, PurePosixPath
 from types import FunctionType
 
@@ -21,6 +22,18 @@ def stage_inputs(root, target, cp0, phase):
         data.need(d['filename'] == d['sha256'] + '.json' and Path(d['filename']).name == d['filename'],
                   'REVIEW_SCRATCH_SAFE_DESCRIPTOR_NAME')
         expected['book/repairs/' + d['filename']] = d['sha256']
+    branch = phase['original_branch_descriptor']
+    data.need(branch in cp0['repairs'], 'REVIEW_SCRATCH_EXACT_ORIGINAL_BRANCH_DESCRIPTOR')
+    raw = (root / 'book/repairs' / branch['filename']).read_bytes()
+    data.need(data.sha(raw) == branch['sha256'], 'REVIEW_SCRATCH_EXACT_BRANCH_DESCRIPTOR_BYTES')
+    document = json.loads(raw)
+    reference = 'research:system-optimization-002/leadership-uncertainty/private-event/1'
+    witnesses = [e['sha256'] for e in document['source_evidence'] if e['reference'] == reference]
+    data.need(document['schema'] == 'research.leadership-branch-uncertainty-input/1'
+              and len(witnesses) == 1 and len(witnesses[0]) == 64
+              and all(c in '0123456789abcdef' for c in witnesses[0]),
+              'REVIEW_SCRATCH_UNIQUE_ORIGINAL_BRANCH_PRIVATE_EVENT_BINDING')
+    expected['hydrated-uncertainty-event.json'] = witnesses[0]
     resources = {'provider-source/SHARADAR_ACTIONS.zip', 'provider-alias-proof.json'}
     for record in phase['inherited_ordinary_observers']:
         resources.update((record['material_file'], record['effective_file']))
