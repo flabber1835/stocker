@@ -41,15 +41,16 @@ def proof():
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
     assert r['arms'] == ['P07']
-    assert r['maximum_parallel_financial_workers'] == 0
-    assert r['maximum_parallel_readonly_workers'] == 1
-    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
-    assert r['readonly_source_witnesses'] is True and m.request_authority(r)
-    scope = r['source_witness_scopes']['P07']
-    assert scope['parent_cursor'] == '2022-09-30' and len(scope['terms']) == 1
-    assert scope['terms'][0]['ticker'] == 'TRQ' and scope['terms'][0]['parent_positions'] == []
+    assert r['maximum_parallel_financial_workers'] == 1
+    assert r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
+    assert r['readonly_source_witnesses'] is False and m.request_authority(r)
+    assert r['source_witness_scopes'] == {}
+    ordinary = r['selected_ordinary_augmentations']['P07']
+    assert ordinary['adoption_required'] is True
+    assert ordinary['origin_root_admission_sha256'] == m.root_spec('P07')['root_admission_sha256']
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=True,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {}
     assert set(r['selected_research_models']) == {'P07'}

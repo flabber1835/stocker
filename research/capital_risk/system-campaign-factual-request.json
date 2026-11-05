@@ -5,7 +5,7 @@
   "admitted_financial_parents_sha256": "39ff767f9cafbec9bea935c4a3a80d983a32b3bbfdd0b195267513ef887bcc64",
   "arm_inputs": {
     "P07": {
-      "new_factual_overlay": false,
+      "new_factual_overlay": true,
       "restored_correlation": false
     }
   },
@@ -15,51 +15,69 @@
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "READONLY_FROZEN_SOURCE_WITNESSES",
-  "financial_resume_authorized": false,
+  "execution_mode": "OWN_ADMITTED_FINANCIAL_CONTINUATION",
+  "financial_resume_authorized": true,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
   "full_measured_closes": 2156,
   "full_measurement_end": "2026-07-31",
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
-  "maximum_parallel_financial_workers": 0,
-  "maximum_parallel_readonly_workers": 1,
+  "maximum_parallel_financial_workers": 1,
+  "maximum_parallel_readonly_workers": 0,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "readonly_partial_review": false,
-  "readonly_source_witnesses": true,
+  "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/170",
+  "schema": "research.system-campaign-accurate-resume-request/171",
+  "selected_ordinary_augmentations": {
+    "P07": {
+      "adoption_required": true,
+      "canonical_financial_source_changed": false,
+      "catalog_file": "system-campaign-p07-own1196-ordinary-augmentation.json",
+      "catalog_sha256": "8d1225940f5be894af238d39d5c86c9543bd4c1f4897f1a3ac5e4036571c2168",
+      "current_root_admission_sha256": "75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719",
+      "origin_root_admission_sha256": "75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719",
+      "original_model_inputs_and_certificates_preserved": true,
+      "schema": "research.retained-ordinary-augmentation/1"
+    }
+  },
   "selected_partials_sha256": "9162e6384570aec8a09b0e33d4f1bb47c80e7e97ea10de34fc204f9b85a76ddf",
   "selected_research_models": {
     "P07": {
-      "contract_sha256": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
+      "cp1_predecessor_binding": "EXACT_REVIEWED_NEUTRAL_ORDINARY_SUCCESSOR",
       "every_reachable_canonical_decision_must_match": true,
       "input_schema": "research.leadership-branch-uncertainty-input/1",
-      "original_strict_guard_unchanged": true
+      "input_schemas": [
+        "research.leadership-branch-uncertainty-input/1",
+        "research.zogenix-leadership-uncertainty-input/1"
+      ],
+      "mode": "RETAINED_ADDITIONAL_SENSOR",
+      "observer_generation": "IMMUTABLE_ORIGIN_SOURCE_REQUEST",
+      "ordinary_origin_outer_sha256": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058",
+      "origin_root_admission_sha256": "532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd",
+      "original_branch_descriptor": {
+        "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+        "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+        "resume_session": "2019-09-30",
+        "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+      },
+      "original_strict_guard_unchanged": true,
+      "policy_catalog_sha256": "54e98d2adf23bf9b51e8561e66375f991f9d5faeb138dfa439cc3d2f250f3158",
+      "retained_prefix_sha256": "f05bf4dcb4e5b8f78089b27d661fa58dab095740b2d014ccd90ed3d21d222263",
+      "retained_rows": 593,
+      "root_admission_sha256": "75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719",
+      "schema": "research.retained-additional-sensor-declaration/1",
+      "source_payload_sha256": "8c0b2d11d47f1ca8071020577d0e3bcdbd43d3edb68e20372c7a4397f222960e",
+      "source_qualification_sha256": "f70b8c3e50a6a0d94067cccdf74726b7802ea7adf2f171a766c94f1a83525d7f",
+      "source_review_sha256": "5066cff719e226169abe00b89dba867b7702fc455ddc0a1ddbea24853a5c75f8"
     }
   },
-  "source_witness_scopes": {
-    "P07": {
-      "additional_rows": [],
-      "parent_cursor": "2022-09-30",
-      "parent_outer_sha256": "6e3e15d25a055f5025e51b08712b56cadf8e396eb5866918d43ec4fe08fb4917",
-      "terms": [
-        {
-          "native_session": "2022-12-15",
-          "native_term_sha256": "88fc01228c4183c26a1eb963e38d251081453f2bc8acf89d30315309b7376a6a",
-          "parent_positions": [],
-          "security_id": "655209666181687436",
-          "session": "2022-12-14",
-          "ticker": "TRQ"
-        }
-      ]
-    }
-  },
+  "source_witness_scopes": {},
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
     "alpaca_fit_compare.py": "aec55dc127b7f7d815c5399c1c217b4752583adaec6e936b7b1fa88bbddb9161",
@@ -155,6 +173,9 @@
     "system-campaign-p02-winter2025-cash-predecessor.json": "c8b45232c4148c0eb171bfa3f54eb2af7f929d3d7ce9d662cb1dd7a24bda61ef",
     "system-campaign-p02-winter2025-cash-request.json": "a1289021addca704050b6f9391d3322f5ba8f1adea32a5633ef0ce52d1f8c560",
     "system-campaign-p05-seven-cash-inputs.json": "614ef0d349ae6ba82369ee7ecaa751f210023dbf2c16da60ee1d1915e9cf8681",
+    "system-campaign-p07-own1196-gbt-original-cash-literal.json": "ff5da15ec3e0d6105357369fcadb63be87dce846b9477e1114f3ef2e7c795998",
+    "system-campaign-p07-own1196-ordinary-augmentation.json": "8d1225940f5be894af238d39d5c86c9543bd4c1f4897f1a3ac5e4036571c2168",
+    "system-campaign-p07-own1196-trq-original-cash-literal.json": "a90d14a5c56a2c765f086161a689bba2a2071d34cfcdc1b406464708a0bd7527",
     "system-campaign-p07-requalified-review-transport.json": "48b9993c84484b264fb2740692faa71c900a8f81ef7910c5b5aaaf747a06e7a2",
     "system-campaign-p10-ahl2-predecessor-001.json": "540596362c8d27eaf3f8a5498db70f82550298a70d652d280630215a55334b33",
     "system-campaign-p10-ahl2-retained-qualification-001.json": "006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180",
@@ -282,12 +303,12 @@
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
     "system_campaign_financial_future.py": "8cd57c08782d33183c988c75bf3a945a9153316d4ed1479bf506830aa4dc6dec",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
-    "system_campaign_financial_partial.py": "f0cc0b829ed94438ea08bdad51bbfc92dbdd6950a85d0c8463f47639799eb084",
+    "system_campaign_financial_partial.py": "0484d8b6c28475ed8eb9e988906aa6bdb0993d3f3ad205795aaaf8351ace7334",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "4940b0a83e1c72c8541ff8e710501b8c39de2eb67dbb56520192062fa74aeb39",
+    "system_campaign_financial_resume.py": "8c70c435761e3d3b31203af759622e481941bc04d526a1f52ad703b147b9cfc2",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
-    "system_campaign_financial_uncertainty.py": "3c42b83799be83be4e8782f51a8bfd4b1aeb3a423cfb6386f5d179d7983b7985",
+    "system_campaign_financial_uncertainty.py": "1cf1eac11d6304032ab77beca75b3989716c2c8ecc20368c2c636a5384cf530e",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
     "system_campaign_followon_job.py": "5c0ffcd6dd4383c381a44b76950aea4154fde918e40c270b765e360a0ba24c3a",
@@ -320,6 +341,10 @@
     "system_campaign_morf_cash_parent.py": "9301e9f0510a3aaaf59d2a8aa3822241b374d6fa1fb80faf80e481c97bf9ede3",
     "system_campaign_normal_reference.py": "9166a676235bcd3b41e0aadf221297b8945e0454787a13c0df659b4e7b3d6abc",
     "system_campaign_observe.py": "614c785fb69534885d518758e22cf87e2d57a78605c6d35c5206d72b40962f5e",
+    "system_campaign_ordinary_augmentation_cash_v1.py": "50136003e25cd8f63190d68c81eb2b3f402c7f25858361db19400f5d80de4683",
+    "system_campaign_ordinary_augmentation_data.py": "26a2a4bcfdb1c0d43043c802e6eccb6c6d3fc993e112485da3b075601bb6aa71",
+    "system_campaign_ordinary_augmentation_router.py": "7713833c6b35e173a42fc740a976ed21e63a3e66c3eb762a825a3f2c728dc90f",
+    "system_campaign_ordinary_augmentation_runtime.py": "c77ec460d98086c4e2268f27df4043e489c5033724b7c423f8c647a878329321",
     "system_campaign_ordinary_registry.py": "e526264ca859afa5455eaf4eeabdf80fc9eea7cfd0f981969b5f884da93fab15",
     "system_campaign_outcome_archive.py": "957418532818784df64fc559728704197e4e68c0576f1abd17f5bb242fd1fce3",
     "system_campaign_outcome_basis.py": "5f7eb269b1d320db93de14cadaa60347653ea2b5f814d91f46e7e219c6a68465",
@@ -433,6 +458,7 @@
     "system_campaign_q4_cash_import_probe.py": "5b864e1b6bf8cdcd9a37eafddc9a9b4f06ddc0f3e99d9984a2e805a6e02cb0c3",
     "system_campaign_q4_cash_review.py": "80a2b4b9a382e162cbcd95da2d2e288816e49f8c4cb6f4c55254d47c27d73981",
     "system_campaign_qualified_cash_batch.py": "96c9763e021c72c784b04c7033dd32940b9809cff6b56ba0e394287e0cdd3f36",
+    "system_campaign_qualified_own_cash_literals.py": "ff903349d5f91521087f45a0bba6fb493b1513f8d01be830c20a7d757e12ec45",
     "system_campaign_qualify.py": "fc4b4eb274a6f660f13633224e05ead6410c87bd956f7d16dfd809a19edcb1b5",
     "system_campaign_readonly.py": "a2d6e85235ef09560af779dd5622af92cb388b05f655cc7136c3b4642097f629",
     "system_campaign_reconstruction_admit.py": "c1fdcd2f92328f8308047855c5cfe35fd1dadef3a0f5cf77bb96121aff5befaa",
@@ -512,5 +538,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "1c51ab0a26c3515336130b2f1a989b05c80036a5b19e031c384eb2b63971ce30"
+  "workflow_sha256": "7b6a7377f73f3138c04e0802f0e7b2aad5c3291c4fe0c0385cf7071d8db7232e"
 }

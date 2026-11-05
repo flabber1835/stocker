@@ -248,7 +248,7 @@ def review_name(spec):
 def retained_models(root, parent, spec):
     from system_campaign_financial_additional_sensor import selected_declaration
     if selected_declaration(root, parent, spec) is not None:
-        from system_campaign_financial_additional_sensor_runtime import retained_models as additional
+        from system_campaign_ordinary_augmentation_router import retained_models as additional
         return additional(root, parent, spec)
     schemas = [json.loads((Path(root) / 'book/repairs' / d['filename']).read_bytes())['schema']
                for d in parent['repairs']]
@@ -299,7 +299,7 @@ def activate_retained_projection(root, parent, projection):
 def model_context(root, parent, spec):
     from system_campaign_financial_additional_sensor import selected_declaration
     if selected_declaration(root, parent, spec) is not None:
-        from system_campaign_financial_additional_sensor_runtime import original_chain
+        from system_campaign_ordinary_augmentation_router import original_chain
         with original_chain(root, parent, spec):
             yield
         return
@@ -345,7 +345,7 @@ def retention_tree():
 
 @contextmanager
 def financial_inputs(root, parent, output, spec):
-    from system_campaign_financial_additional_sensor_runtime import preserve as preserve_additional
+    from system_campaign_ordinary_augmentation_router import preserve as preserve_additional
     preserve_additional(root, parent, output, spec)
     from system_campaign_financial_compound_dispatch import retained_context as compound_retained_context
     with compound_retained_context(root, parent, output):

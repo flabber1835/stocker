@@ -121,7 +121,7 @@ def run(cp, out, args, rows, observer, execution, *, spec=None, old=None):
     hosted()
     from system_campaign_financial_additional_sensor import phase as additional_phase
     if additional_phase(spec) is not None:
-        from system_campaign_financial_additional_sensor_runtime import run as additional
+        from system_campaign_ordinary_augmentation_router import run as additional
         return additional(cp, out, args, rows, observer, execution, spec, old)
     phase = own_policy_phase(spec)
     if phase is not None:
@@ -185,7 +185,7 @@ def review(cp, evidence_root, out, *, spec=None, old=None):
     hosted()
     from system_campaign_financial_additional_sensor import phase as additional_phase
     if additional_phase(spec) is not None:
-        from system_campaign_financial_additional_sensor_review import review as additional
+        from system_campaign_ordinary_augmentation_router import review as additional
         return additional(cp, evidence_root, out, spec, old)
     phase = own_policy_phase(spec)
     if phase is not None:

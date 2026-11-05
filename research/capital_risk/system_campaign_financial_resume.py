@@ -55,13 +55,13 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/170'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/171'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
 def factual_overlay_needed(spec):
-    from system_campaign_financial_additional_sensor import unchanged_phase
+    from system_campaign_ordinary_augmentation_router import unchanged_phase
     if unchanged_phase(spec):
         return False
     from system_campaign_financial_uncertainty import unchanged_input_phase, own_unchanged_input_phase
@@ -72,7 +72,8 @@ def factual_overlay_needed(spec):
 
 
 def expected_request():
-    from system_campaign_financial_additional_sensor import unchanged_phase as additional_unchanged_phase
+    from system_campaign_ordinary_augmentation_router import source_names as ordinary_augmentation_source_names, selected as ordinary_augmentation_selected, declaration as ordinary_augmentation_declaration
+    from system_campaign_ordinary_augmentation_router import unchanged_phase as additional_unchanged_phase
     from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, ORIGINAL_DELIVERY_PHASES, ORIGINAL_ORDINARY_PHASES, COMBINED_PHASES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_PHASES, original_composite_source_names
     from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata, own_policy_source_names, own_policy_phase, own_model_declaration, own_unchanged_input_phase
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
@@ -138,6 +139,7 @@ def expected_request():
              'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
+             *ordinary_augmentation_source_names(),
              *own_policy_source_names(), *original_composite_source_names(),
              *(term['retained_original_legal_record']['catalog_file']
                for term in json.loads((HERE / OWN_CASH_CATALOG).read_bytes())['terms']
@@ -177,6 +179,7 @@ def expected_request():
                 admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS if a not in origins},
                 initial_reporting_origins=origins,
                 selected_research_models=models,
+                selected_ordinary_augmentations={a: ordinary_augmentation_declaration(root_spec(a)) for a in SELECTED_ARMS if financial and ordinary_augmentation_selected(root_spec(a))},
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
@@ -770,7 +773,7 @@ def review(evidence, out, spec):
     hosted()
     from system_campaign_financial_additional_sensor import phase as additional_phase
     if additional_phase(spec) is not None:
-        from system_campaign_financial_additional_sensor_runtime import review_driver
+        from system_campaign_ordinary_augmentation_router import review_driver
         return review_driver(evidence, out, spec)
     from system_campaign_financial_uncertainty import uncertainty_phase
     old = Path('/old')

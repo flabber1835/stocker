@@ -4354,3 +4354,65 @@ A later admitted restart preserves that receipt and its input namespace without
 readopting or replaying it. No financial request may select GBT/TRQ until the
 complete parser, neutral-adoption, caller, readonly-review and restart lifecycle
 is qualified. Current request170 remains readonly source capture only.
+
+The augmentation implementation uses a separate catalog pinned to the exact
+own1196 parent and its22 full descriptors, plus both newly qualified literal
+catalogs. Its preparation directory contains authenticated input resources and
+the original future compiler's output; the root overlay has a distinct name.
+Private function namespaces reuse the frozen additional runtime. The full model
+visitor changes only the22-input origin slice to an exact22-input prefix and
+requires the complete additional ordinary suffix to match a validated receipt.
+It always visits and hashes the actual full checkpoint. The original two neutral
+boundaries are compared to that exact prefix, using the actual second boundary's
+canonical input hash, rather than constructing a reduced checkpoint.
+
+The retained runner adds one paused adoption after reconstructing/validating all
+inherited inputs. Its existing final equality guard compares with the actual
+neutral successor. The unchanged joint-certificate, growth, archived-event and
+financial calls remain intact. Readonly review first reconstructs the literal
+overlay and verifies the exact new neutral boundary and observation seed; its
+existing equality guard then requires the current list to equal that successor.
+New cash observations nest inside every inherited observer, leaving the unique
+stock observer outermost. Only actual current-class observer methods are used.
+A retained suffix requires the same catalog/receipt/files and full input list;
+it never adopts again. Any unregistered suffix, missing receipt, changed old
+descriptor, changed observation seed or changed origin resource is a refusal.
+
+The new ordinary cash review reuses the existing independent P07 Decimal event
+reader's complete context, integer-quantity, ledger and clearance guards. For a
+normalized per-share research amount, verify the canonical recorded float's
+operation order explicitly: each quantity times the already qualified float,
+then the original ordered sum. Compare Decimal representations of those results
+to the recorded amounts. Preserve exact legal CAD43/1.3618 provenance in the
+input validator. This changes only the independent numerical check of canonical
+float records, not the financial calculation or legal model. Keep the original
+event function source and require a complete AST undo of the three arithmetic
+sites. Bind prior closing/opening accounting and committed ledger rows; unknown
+or missing event dates, changed quantities/cash, and noncanonical contexts fail.
+
+Ordinary augmentation qualification now passes465 targeted checks in95.57s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/ordinary-augmentation-integration-tests-20261105-001
+forecast_tests/ordinary_augmentation forecast_tests/additional_sensor
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_retention.py forecast_tests/test_financial_retained_proof.py
+forecast_tests/original_cash_literals`.
+The earlier focused113 checks passed6.65s. New full-prefix/input-hash,
+cash-literal/native and packet-qualification guard removals admit their exact
+mutations; five import fences hold. Full model/runtime/pause/cash-review AST
+undo restores every original statement. Retained23 refuses preparation or
+readoption. Dynamic actual GBT/TRQ input arithmetic is checked at zero,82 and
+multiple43/39 quantities without borrowing P06 holdings. The original cash
+review function AST also matches the independently admitted report273 source.
+The initial test used the wrong cash field name; it was corrected to the
+existing canonical cash_per_share field before qualification.
+
+Select fresh FIN305/request171 for P07 own1196/root75e only, with458 pinned
+sources, one financial worker and zero readonly source workers. The request
+explicitly declares the separate ordinary augmentation and the new-overlay
+flag; original additional-sensor INITIAL/RETAINED policy and all original
+383/B19 bytes remain unchanged. The exact launcher probe passes with
+financial_runtime_executed=false and zero advanced sessions. The next financial
+execution occurs only in the offline hosted worker, after its own parent
+preflight and canonical neutral adoption. Any unsupported later event stops
+normally; no expected completion or new admitted date is assumed.
