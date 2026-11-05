@@ -14,6 +14,19 @@ from research.capital_risk.forecast_tests.test_financial_source_close import rem
 def term():return f.selected('P07',cursor='2020-06-30')[2][0]
 
 
+def test_waas_uses_same_research_cash_predicate_and_preserves_prior21_generation():
+    codec,_,terms=f.selected('P06',cursor='2020-02-28');t,=terms
+    assert t['ticker']=='WAAS' and t['added']['cash_per_share']==27.1
+    assert t['added']['session']==t['actual_completion_date']=='2020-03-30'
+    assert t['native_session']=='2020-03-27' and t['parent_positions']==[]
+    assert t['research_assumption']['opening_availability_assumed']is True
+    assert t['preopen_completion_confirmed']is t['research_assumption']['actual_settlement_claimed']is False
+    assert t['source_capture']['independent_data_review_sha256']=='7c8506ed932d49b14bc1d81631d0ea4b7bbefd501f8343a559f4790a23d17895'
+    f.research_cash_term(t);f.completion_session(t,['2020-03-26','2020-03-27','2020-03-30','2020-03-31'])
+    old=dict(codec.catalog,terms=codec.catalog['terms'][:21])
+    assert f.sha((json.dumps(old,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())=='c2b91afd1a521e14ce0f154b9c43317e6adac4f4a6fc6aca0c1ba42c4ee8889b'
+
+
 def test_lm_published_consideration_is_an_explicit_research_timing_assumption():
     codec,_,terms=f.selected('P07',cursor='2020-06-30');t,=terms
     assert t['ticker']=='LM' and t['added']['cash_per_share']==50.

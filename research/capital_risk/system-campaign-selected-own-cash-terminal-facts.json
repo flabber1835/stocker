@@ -1614,6 +1614,76 @@
       },
       "ticker": "SEND",
       "timing_source": "https://www.twilio.com/en-us/press/releases/twilio-completes-acquisition-sendgrid"
+    },
+    {
+      "actual_completion_date": "2020-03-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 27.1,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm | Research completion-date opening availability on March30,2020 for the confirmed27.10USD ordinary common-share cash right. Preserve March27 trading. Preopen completion and actual payment time are not established. Opening availability is assumed, settlement fees ignored, and actual settlement is not claimed.",
+        "security_id": "879124841538592826",
+        "session": "2020-03-30"
+      },
+      "arm": "P06",
+      "description": "Research completion-date opening availability on March30,2020 for the confirmed27.10USD ordinary common-share cash right. Preserve March27 trading. Preopen completion and actual payment time are not established. Opening availability is assumed, settlement fees ignored, and actual settlement is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1422841",
+        "listing_first_session": "2016-10-06",
+        "security_id": "879124841538592826",
+        "security_type_eligible": "1",
+        "session": "2020-03-26",
+        "source_observation_sha256": "8b2bcd4ea1fc90bdac97ba328d1b80767a56a5ede898d63d44d3bc518030d004",
+        "ticker": "WAAS"
+      },
+      "last_trading_session": "2020-03-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=864.1",
+        "security_id": "879124841538592826",
+        "session": "2020-03-27"
+      },
+      "native_session": "2020-03-27",
+      "native_term_sha256": "9a5c400fd2d72a73e3a4765f8e76b2cca33a5d10d8aefe9357a6b0b323b7dc83",
+      "parent_cursor": "2020-02-28",
+      "parent_outer_sha256": "129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "b5159227c4bdbaebb7a246062cb73cf5e3190b0805c9f4f3b93e15a6193765ec",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "27.10",
+        "recognition_session": "2020-03-30",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "879124841538592826",
+      "source_capture": {
+        "artifact_id": 13380408021,
+        "head": "4447cb10993eb7a7069a389615d25500dc180a95",
+        "independent_data_review_sha256": "7c8506ed932d49b14bc1d81631d0ea4b7bbefd501f8343a559f4790a23d17895",
+        "payload_sha256": "28b955854622d9e432c495879e8fbe3c562b2c14402ac0a0acfb5283646b2888",
+        "run_id": 41950496055,
+        "scope_sha256": "be66cb5079185fa5d26de339466d9334794525d1e5c4358d9a67167b07e8f6b6"
+      },
+      "ticker": "WAAS",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094d1_ex99-1.htm"
     }
   ]
 }

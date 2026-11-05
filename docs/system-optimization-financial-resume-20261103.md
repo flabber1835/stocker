@@ -2192,3 +2192,12 @@ preopen and positive-cash predicate statements. BMCH's January1/January4 case
 may use this rule only after source243 DATA,with the original1.3125 ratio and
 legal record retained and an explicit41.25 fractional research proxy. Do not
 reuse the old integral-only record as authority for nonintegral settlement.
+
+WAAS source243 independent DATA passed33tests,including exact archive/member,
+423producer/protected383 closure and fresh full-row/native reconstruction.
+Append cash catalog22,preserving all21 earlier records and their closed c2b91
+generation. Register only the exact P06 own543 phase and source clock. Reuse
+the unchanged research cash predicate for27.10USD,March30 recognition with
+opening availability assumed,preopen timing unconfirmed and no settlement
+claim. Select P06 financial continuation from own543;the protected financial
+source remains unchanged and later tails remain excluded.
