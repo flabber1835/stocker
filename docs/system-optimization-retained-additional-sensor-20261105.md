@@ -68,6 +68,22 @@ b3a648, independently of the new Zogenix cp1 predecessor. A projected descriptor
 view is validation-only and can never be restored, advanced, saved or admitted.
 Default unknown-schema and duplicate-model refusals remain unchanged.
 
+SOURCE279's sealed P07 qualification uses
+research.independent-frozen-source-data-validation/1, not the older
+source_identity_only field. Only this additional-sensor route may adapt that
+single field-read site in the pinned original own_source_binding visitor
+(original module70e511bcb92b2a3455544eb2b0ffe35d5d34c75a3f4ae93399befdbffcaf2251,
+function AST9d1da55a7129c5da97524468b998783f1690d6e830b77fc4ac60c4fb1cff8899).
+Require the exact schema, passed and source_identity_qualified_for_separate_future_input_review
+True; source_value_or_settlement_timing_qualified, financial_authority,
+input_adopted and local_canonical_runtime_executed all False; an actual int zero
+financial_workers_launched; and fresh_archive_and2022_raw_scan_verified True.
+The enclosing exact f70b8c3e50a6a0d94067cccdf74726b7802ea7adf2f171a766c94f1a83525d7f
+qualification hash, review hash, clocks, root, native and role checks remain.
+Match exactly one original AST read and preserve every other node. Legacy
+routes keep their original field interpretation; unknown schemas refuse.
+Do not fabricate an old flag or rewrite the sealed qualification.
+
 For independent suffix review, extend only the single
 BRANCH_ONLY_DECLARED_EVENT_MAY_VARY AST guard in the existing source-qualified
 review visitor. The additional case must first prove the original Zogenix SID,

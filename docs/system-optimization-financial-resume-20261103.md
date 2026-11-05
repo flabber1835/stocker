@@ -3272,3 +3272,26 @@ The portable catalog32 fixture is the exact4521-byte source-bound TERN record;
 it reconstructs historical generation32 and permits future append-only catalogs.
 It exercises the unchanged nonempty input parser with synthetic field models,
 including duplicate/loaded-mutation refusals, without financial execution.
+
+After delivering P05 own986/bb544, select SOURCE286/request153 for only its
+MDP native December1,2021 and strict-prior November30 identity. Bind outerc720,
+all12 inherited input documents and actual selectedTrue/unheld/unordered/
+unreserved/no-claims role. Add only one self-bound scope after the existing51,
+change only active P05, preserve every function/class AST and earlier scope.
+Use one readonly worker and zero financial workers. The original P01 multileg
+MDP input is not qualified for this book by this query; do not infer an amount
+from deal value2705.5, turn selection into ownership, or grant held authority.
+Only fresh authenticated hosted SOURCE and independent raw DATA can close the
+new own-root identity/native prerequisite for a separate input decision.
+
+SOURCE286's private registry and independent raw-source preparation pass54
+cases, eight meaningful removals and five import fences. Root verifies all11
+package/DATA member hashes and applies only the two metadata registrations.
+Shared request/source/partial/metadata checks pass162 cases in57.31s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source286-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_retained_admission_metadata.py`. The producer closure stays
+439 files with all383 original drivers and B19 unchanged. The only new source
+scope is52; economic/model activation remains false.
