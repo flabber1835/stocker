@@ -3722,3 +3722,93 @@ from the resumed canonical state. This request changes only the selected arm,
 execution mode and their immutable request/workflow bytes, retaining446 sources
 and383/B19. No P07 failure output becomes a P05 seed, and no incomplete variant
 is counted as a completed result before its reporting/DATA/root gates pass.
+
+FIN293 authentication verifies216 members/312775901 logical bytes and a positive
+stop of preflight/worker/reviewer. Its checkpoint remains1047/2022-02-28, with
+zero new committed closes; its two neutral adoptions are diagnostic evidence,
+not an admitted successor. Worker refusal is
+RETAINED_CALLER_EXACT_SOURCE_QUALIFIED_OBSERVER_CODE_AND_OWNER. The reviewer
+then correctly refuses the missing final zero-advance qualification receipt.
+
+Pure reproduction identifies a caller-code comparison defect: compiling only
+the observer method AST omits the original module's import context and produces
+different LOAD_GLOBAL/LOAD_ATTR flags for inspect.currentframe despite identical
+source/method ownership. Compile the complete authenticated module to code only,
+without executing it, and extract the original class/method or function code for
+the existing exact code-shape comparison. Keep class/function/namespace/path,
+source-hash, actual argument identity and installed-chain guards. Synthetic
+caller tests must include the same inspect import context, and an actual imported
+observer-method regression must catch the original standalone-compilation defect.
+This restores the documented source-qualified caller contract; it grants no
+foreign observer acceptance or financial successor authority.
+The immutable frozen observer is actually built by its original partial-AST
+factory, so retain that source path's original standalone compilation. Only the
+normally imported current module uses whole-module compilation. Each exact path
+has one qualified code shape; do not accept both shapes for an arbitrary path.
+Test the real current imported class and the real pure original frozen factory,
+not only synthetic classes compiled by the same helper as the comparison.
+
+
+SOURCE294 DATA closes the P06 own1238 forward identity batch:115 source rows,
+256 raw native-date action rows, unchanged eight inherited inputs, and complete
+2022--2026 raw observation scans after a fresh full archive rehash. Independent
+review dae384fa40fe89c38dc45fb0c284ea1cfdf45a49fba2be3d89e6509c43c7e74e
+and qualification e12d8d4057d55cd5d58396a0f4535d9de84a831246f64afcc05516fdf645167b
+retain zero financial authority. All26 source controls pass, including one guard
+removal and five import fences. Future holdings/selection are not predicted.
+
+P07 source-context correction passes46 integrated controls in27.21seconds:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/p07-source-code-context-integrated-20261105-002
+forecast_tests/retained_callers
+forecast_tests/additional_sensor/test_additional_observer_callers.py
+forecast_tests/additional_sensor/test_additional_inherited_observers.py
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm`.
+
+For DOVA, introduce a distinct generic versioned bounded-sensor commitment
+parameterized by an independently qualified exact event contract. Its fields
+separate upfront cash from the lower/upper additional nontransferable right;
+DOVA is27.50 cash plus0..1.50, never29 cash. The strict parser must match the
+entire expected contract and own predecessor, not accept a donor literal schema.
+It preserves the actual incomplete terminal; only an explicitly qualified
+recalendar may move that same terminal without supplying a cash value.
+
+The binding will compose with the unchanged B19 certificate and its existing
+interval math/cloud functions. Only event identity, date, native object, split,
+quote presence and legal bounds are new data. The inherited witness method uses
+its exact original code with a private event-specific namespace. Exhaustive
+recovery, all prior math/possible-state seeds, journal appends and chains remain
+B19-owned. Independent event-preimage checks may authorize precisely one varying
+material cell on its exact event date; the frozen suffix review remains the
+transition oracle. Dynamic unowned/unordered checks run before and after every
+relevant advance; a held or pending contingent right must refuse. Historical
+causality remains UNVERIFIED. Qualifying this adapter alone does not authorize
+a financial request; hosted parser/neutral-adoption, restart, retained-source
+and independent review integration must pass before dispatch.
+
+
+FIN295 stops positively at worker1/reviewer0 with hosted-reviewed partial
+financial evidence, not a complete result. Artifact13430783499 is138032906bytes,
+SHA4ccd7060b5aac3dd80819afc0d6eaa074177d45c44fe385ff8145a3dfcbecd49.
+The stop frees the single financial worker. Select fresh FIN296/request162 for
+P07 from its original admitted own1047/532e root with the46-case qualified caller
+compilation-context fix. Preserve the frozen standalone observer comparison,
+current full-module comparison, both neutral input adoptions and all retained
+source/owner/actual-call guards. No failed diagnostic successor is used as seed.
+P05's stopped artifact still requires authentication, exact refusal diagnosis
+and a separate readonly reporting/root admission before another P05 continuation.
+
+FIN296 selector checks pass2 in2.54seconds: `python -B -m pytest -q
+-p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/financial296-selector-tests-20261105-003
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished`.
+Exact launcher probe also passes with446 source files, one P07 financial worker
+and zero readonly workers. A mistaken nonexistent test selector first collected
+no tests; the stale P05 selector expectation was then updated for the explicit
+P07 request, without changing any financial fixture.
+FIN295 artifact authentication proves169 members/212010915 logical bytes,84 new
+committed month-end closes through2022-03-31/own1070 (outerfeef2cdb81f4a469b69f381f9e5fc398c2bdbe24c709d05ab49157e3df971ff4).
+Later uncommitted April rows are preserved separately. The April7 refusal is
+unresolved/blocked Wealth Core equity in verified Core+BIL accounting. It is not
+authority to treat the unresolved value as zero or adopt the diagnostic tail.

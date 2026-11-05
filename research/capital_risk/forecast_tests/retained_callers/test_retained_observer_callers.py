@@ -18,7 +18,8 @@ def need(v,c):
     if not v:raise ValueError(c)
 def tree(name):return ast.parse((C/name).read_bytes())
 def execute(nodes,namespace):
-    exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),'<exact-source-observer-AST-synthetic-API>','exec'),namespace)
+    imports=ast.parse('import inspect').body if Path(namespace.get('__file__','')).name!='system_campaign_financial_ordinary_observer_v1.py' else []
+    exec(compile(ast.fix_missing_locations(ast.Module(body=imports+nodes,type_ignores=[])),'<exact-source-observer-AST-synthetic-API>','exec'),namespace)
     return namespace
 class Fence(importlib.abc.MetaPathFinder):
     def find_spec(self,fullname,path=None,target=None):
@@ -194,3 +195,26 @@ def test_argument_and_chain_guard_removal_falsifiers(tmp_path,label,bad):
 @pytest.mark.parametrize('name',['stock_strategy_shared','sentinel','research.pooled_vacancy_funding','numpy','pandas'])
 def test_financial_import_fence(name):
     with pytest.raises(AssertionError):__import__(name)
+
+
+def test_real_current_import_and_original_frozen_factory_keep_distinct_exact_code_contexts():
+    import system_campaign_financial_future as future
+    import system_campaign_financial_compound_dispatch as dispatch
+    from system_campaign_financial_compound_ordinary_v2 import original_observer
+    raw=Path(future.__file__).read_bytes()
+    actual=dispatch._caller_code_shape(future.ActualEvents.terminal.__code__)
+    assert dispatch._observer_terminal_code(raw)==actual
+    assert dispatch._observer_predicate_code(raw)==dispatch._caller_code_shape(future.actual_terminal_call.__code__)
+    # Reinstating the old standalone-current compiler reproduces the real refusal.
+    assert dispatch._observer_terminal_code(raw,module_context=False)!=actual
+    frozen=original_observer();old=Path(frozen.__file__).read_bytes()
+    assert dispatch._observer_terminal_code(old,module_context=False)==dispatch._caller_code_shape(frozen.ActualEvents.terminal.__code__)
+    assert dispatch._observer_predicate_code(old,module_context=False)==dispatch._caller_code_shape(frozen.actual_terminal_call.__code__)
+
+
+def test_current_module_code_qualification_compiles_without_executing_module_statements():
+    import system_campaign_financial_future as future
+    import system_campaign_financial_compound_dispatch as dispatch
+    raw=Path(future.__file__).read_bytes()
+    dangerous=raw+b'\nraise AssertionError("MODULE_MUST_NOT_EXECUTE")\n'
+    assert dispatch._observer_terminal_code(dangerous)==dispatch._observer_terminal_code(raw)

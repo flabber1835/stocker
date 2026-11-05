@@ -66,21 +66,30 @@ def _caller_code_shape(code):
                   for value in code.co_consts))
 
 
-def _observer_terminal_code(raw):
-    owner, = [n for n in ast.parse(raw).body if isinstance(n, ast.ClassDef) and n.name == 'ActualEvents']
-    function, = [n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name == 'terminal']
-    namespace = {}
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
-                 '<source-qualified-observer-terminal-code-only>', 'exec'), namespace)
-    return _caller_code_shape(namespace['terminal'].__code__)
+def _observer_terminal_code(raw, *, module_context=True):
+    if not module_context:
+        owner, = [n for n in ast.parse(raw).body if isinstance(n, ast.ClassDef) and n.name == 'ActualEvents']
+        function, = [n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name == 'terminal']
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                     '<source-qualified-frozen-observer-terminal-code-only>', 'exec'), namespace)
+        return _caller_code_shape(namespace['terminal'].__code__)
+    module = compile(raw, '<source-qualified-observer-module-code-only>', 'exec', dont_inherit=True)
+    owner, = [code for code in module.co_consts if isinstance(code, CodeType) and code.co_name == 'ActualEvents']
+    function, = [code for code in owner.co_consts if isinstance(code, CodeType) and code.co_name == 'terminal']
+    return _caller_code_shape(function)
 
 
-def _observer_predicate_code(raw):
-    function, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'actual_terminal_call']
-    namespace = {}
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
-                 '<source-qualified-original-terminal-caller-predicate>', 'exec'), namespace)
-    return _caller_code_shape(namespace['actual_terminal_call'].__code__)
+def _observer_predicate_code(raw, *, module_context=True):
+    if not module_context:
+        function, = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == 'actual_terminal_call']
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                     '<source-qualified-frozen-observer-predicate-code-only>', 'exec'), namespace)
+        return _caller_code_shape(namespace['actual_terminal_call'].__code__)
+    module = compile(raw, '<source-qualified-observer-module-code-only>', 'exec', dont_inherit=True)
+    function, = [code for code in module.co_consts if isinstance(code, CodeType) and code.co_name == 'actual_terminal_call']
+    return _caller_code_shape(function)
 
 
 def _terminal_delegation_call(frame, callee, step_code, state, ledger, session, *, original, terminal, binding):
@@ -132,9 +141,9 @@ def retained_terminal_callers(modules):
     need(sha(frozen) == 'a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3'
          and sha(future_raw) == request['sources']['system_campaign_financial_future.py'],
          'RETAINED_CALLER_EXACT_ORIGINAL_AND_CURRENT_OBSERVER_SOURCES')
-    shapes = {str(frozen_path.resolve()): _observer_terminal_code(frozen),
+    shapes = {str(frozen_path.resolve()): _observer_terminal_code(frozen, module_context=False),
               str(Path(future.__file__).resolve()): _observer_terminal_code(future_raw)}
-    gates = {str(frozen_path.resolve()): _observer_predicate_code(frozen),
+    gates = {str(frozen_path.resolve()): _observer_predicate_code(frozen, module_context=False),
              str(Path(future.__file__).resolve()): _observer_predicate_code(future_raw)}
 
     def binding(method):
