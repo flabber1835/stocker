@@ -50,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P05',)
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/176'
-EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/177'
+EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -76,10 +76,12 @@ def expected_request():
     from system_campaign_ordinary_augmentation_router import unchanged_phase as additional_unchanged_phase
     from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, ORIGINAL_DELIVERY_PHASES, ORIGINAL_ORDINARY_PHASES, COMBINED_PHASES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_PHASES, original_composite_source_names
     from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata, own_policy_source_names, own_policy_phase, own_model_declaration, own_unchanged_input_phase
+    from system_campaign_explicit_source_queries import selected_scopes, source_names as explicit_source_names
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
     need(sum((financial, reporting, witnesses)) == 1, 'RESUME_ONE_EXPLICIT_REQUEST_EXECUTION_MODE')
+    WITNESS_SCOPES = selected_scopes(WITNESS_SCOPES, SELECTED_ARMS, enabled=witnesses, root_lookup=root_spec)
     need(not any(a in COMPLETED_ADMISSIONS for a in SELECTED_ARMS), 'RESUME_CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED')
     if witnesses:
         need(all(a in WITNESS_SCOPES for a in SELECTED_ARMS), 'RESUME_ONLY_DECLARED_ACTIVE_SOURCE_QUERIES')
@@ -139,7 +141,7 @@ def expected_request():
              'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
-             *ordinary_augmentation_source_names(),
+             *ordinary_augmentation_source_names(), *explicit_source_names(),
              *own_policy_source_names(), *original_composite_source_names(),
              *(term['retained_original_legal_record']['catalog_file']
                for term in json.loads((HERE / OWN_CASH_CATALOG).read_bytes())['terms']
@@ -204,6 +206,8 @@ def request_authority(request):
 def source_request_bindings(request, spec):
     """Workflow bytes were verified by the host, outside this immutable mount."""
     from system_campaign_financial_future import WITNESS_SCOPES
+    from system_campaign_explicit_source_queries import selected_scopes
+    WITNESS_SCOPES = selected_scopes(WITNESS_SCOPES, SELECTED_ARMS, enabled=True, root_lookup=root_spec)
     need(request_authority(request) and request['readonly_source_witnesses'] is True
          and request['schema'] == SCHEMA and request['arms'] == list(SELECTED_ARMS)
          and request['source_witness_scopes'] == {a: WITNESS_SCOPES[a] for a in SELECTED_ARMS}

@@ -1,0 +1,34 @@
+{
+  "financial_authority": false,
+  "input_adopted": false,
+  "queries": [
+    {
+      "arm": "P07",
+      "root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "scope": {
+        "additional_rows": [
+          {
+            "parent_positions": [],
+            "security_id": "1050970006012443443",
+            "session": "2022-12-21",
+            "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+            "ticker": "ABMD"
+          }
+        ],
+        "parent_cursor": "2022-11-30",
+        "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+        "terms": [
+          {
+            "native_session": "2022-12-21",
+            "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
+            "parent_positions": [],
+            "security_id": "1050970006012443443",
+            "session": "2022-12-20",
+            "ticker": "ABMD"
+          }
+        ]
+      }
+    }
+  ],
+  "schema": "research.explicit-own-source-witness-queries/1"
+}

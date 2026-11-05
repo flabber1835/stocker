@@ -4725,3 +4725,47 @@ source-generation checks pass in4.03s. The actual selected DATA document has26
 additions and110 evidence entries; expanding to all91 reproduces370 entries.
 All13 original input descriptors and the actual own1070 seed remain unchanged.
 Exact request176 probe passes with zero local financial sessions.
+
+SOURCE311 design: while FIN310's sole financial worker remains isolated on its
+immutable commit, use one separate readonly P07 parent-preflight worker to
+authenticate current own1238 and capture ABMD's incomplete December21 native,
+December20 identity and actual December21 final-trading source row. No second
+financial worker, economic continuation, CVR price or settlement is authorized.
+The raw full2022 scan covers2080223 rows: ABMD has245 rows, its last quote is
+December21 and none exists on December22. Nasdaq's original completion notice
+(https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-460) and the SEC completion
+release (https://www.sec.gov/Archives/edgar/data/815094/000119312522310626/d434768dex99a5h.htm)
+confirm preopen December22 completion with380USD upfront and one nontradeable
+right capped at35USD. These facts do not select a CVR price or financial model.
+
+Use a separate typed, immutable explicit source-query registry. The existing
+future capture_source_witnesses and validate_witness_capture functions already
+take the exact scope as an argument; keep both and every original future
+registry unchanged. expected_request and source_request_bindings select the
+same explicit registry only in readonly-source mode, only for the exact active
+root/arm/axis. Other arms, financial requests and historical roots keep their
+existing scopes. Both new files join the immutable request source closure.
+This keeps the P07 compiler/catalog generation unchanged by a source-only
+query. Reject malformed/duplicate/consumed/held queries, authority flags and
+wrong root axes. Private22 DATA tests pass4.19s, including the root-axis guard
+removal and all five financial import fences. The query alone grants no new
+event, endpoint, model or root authority.
+
+SOURCE311/request177 selects P07 only,462 source files, zero financial workers
+and one readonly worker. The explicit query catalog is
+b9a2f9e47c4899ae36efd6ef813a2c02337ea84ef70dede39d3e4f6d228a3dcb;
+its scoped metadata digest isf26efcf168f9f849bafc255e6ad1ae111cf1379f5aa873d6a08283b1fb6a8063.
+The selected root475af remains unowned/unordered for ABMD at November30 and
+currently selects it in the leadership sensor. That role is valid only at the
+root; future ownership is never inferred. Both source observations and the
+incomplete native are independently bound to the frozen full raw rows.
+
+The targeted command `pytest -q -p no:cacheprovider --tb=short
+forecast_tests/explicit_source_queries forecast_tests/test_financial_resume.py
+forecast_tests/test_financial_partial.py forecast_tests/test_financial_retention.py
+forecast_tests/ordinary_augmentation forecast_tests/qualified_cash_subset
+forecast_tests/test_financial_future.py` passes284 in31.40s. The23 explicit
+query checks pass1.98s after adding the complete preflight/economic/review/launch
+AST equality check against FIN310's prior source. All four worker function
+bodies are unchanged. The exact source-only request probe and binding check
+pass with zero local financial sessions.
