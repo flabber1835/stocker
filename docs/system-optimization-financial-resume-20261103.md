@@ -2235,3 +2235,31 @@ P03 financial244 saved355 throughMay31,2019,83 closes beyond its admitted272.
 Select readonly report247 for those83closes,166accountings,four reports and112
 metrics,retaining own272 as monthly seed. The June tail is excluded;its next
 native is KEYW onJune11,which requires a separately source-qualified input.
+
+After own565 independent admission,P06 can reuse the existing generic combined
+phase selector for the unchanged Spring2020 CY/MLNX/WBC catalog and
+Autumn2020 MNTA/AIMT/IMMU/MYOK/VRTU catalog together. Qualify only unconsumed,
+disjoint native/effective keys against the full retained inputs;retain every
+existing repair and exclude the consumed Sprint/S2 boundary. This uses the
+already qualified literal cash inputs rather than another provider-alias path.
+Use the existing COMBINED_PHASES two-plan composition;the ordinary-phase
+fallback intentionally returns only the first unconsumed catalog.
+
+P07's scratch correction uses the existing128MiB writable /tmp tmpfs;actual245
+inspection proves /variant and the root filesystem are read-only. The new
+composite preparation runs inside the existing retained-loader preflight,
+blocks backtest.main and runtime.advance,and binds unchanged parent,no adopted
+checkpoint,exact overlay/qualifiers/runtime source and minimum boundary before
+economic replay. Forty-three targeted tests and independent API/order/mount
+review passed. Root integration passed273checks;the five failures were a
+synthetic fixture missing source_cursor. With that field supplied,all134
+affected retention/source/preparation tests passed. No production guard or
+source mount was relaxed.
+
+For the generic P11 standard-book route,select all future,unconsumed,disjoint
+mandatory cash terms from the same unchanged original2024 CashCalendar when
+their source predicates qualify. SWAV remains a genuine nonempty activation
+term;the selected set must be proved absent from all10 inherited repair bytes.
+Preserve consumed/past terms as history and reject collisions. This batches
+existing qualified cash facts without adding economic assumptions or changing
+the canonical GE primitive and floor-rebase proof.

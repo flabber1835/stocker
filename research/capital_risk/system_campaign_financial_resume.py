@@ -50,12 +50,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P05',)
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/115'
+SCHEMA = 'research.system-campaign-accurate-resume-request/116'
 EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -496,6 +496,78 @@ def actual_parent(old, spec):
     return cp, following_session(cp, spec, wanted)
 
 
+def composite_preparation_receipt(cp, spec, module, overlay, loaded, out):
+    """Bind input-only preparation; the admitted financial parent stays unchanged."""
+    overlay, out = Path(overlay), Path(out)
+    need(overlay == out / module.OVERLAY and loaded.sha256 == sha256_file(overlay)
+         and loaded.earliest_affected_session > cp['source_cursor'],
+         'RESUME_COMPOSITE_PREPARED_EXACT_OVERLAY_AND_UNCONSUMED_BOUNDARY')
+    names = [module.QUALIFICATION]
+    if hasattr(module, 'ORDINARY_QUALIFICATION'):
+        names.append(module.ORDINARY_QUALIFICATION)
+    for name in names:
+        qualifier = json.loads((out / name).read_bytes())
+        need(qualifier['financial_sessions_advanced'] == 0
+             and qualifier.get('passed', True) is True
+             and qualifier.get('loaded_minimum_boundary', loaded.earliest_affected_session)
+                 == loaded.earliest_affected_session,
+             'RESUME_COMPOSITE_PREPARATION_ZERO_SESSION_QUALIFIERS')
+    return dict(schema='research.zero-financial-composite-preparation/1', passed=True,
+        arm=spec['arm'], parent_outer_sha256=cp['sha256'],
+        parent_inner_sha256=cp['run']['checkpoint_sha256'],
+        parent_input_sha256=cp['run']['input_sha256'], parent_cursor=cp['source_cursor'],
+        root_admission_sha256=spec.get('root_admission_sha256'),
+        runtime_source_sha256=sha256_file(Path(module.__file__)),
+        overlay_sha256=loaded.sha256, earliest_affected_session=loaded.earliest_affected_session,
+        artifacts={name: sha256_file(out / name) for name in [module.OVERLAY, *names]},
+        parent_unchanged=True, checkpoint_adopted=False, financial_sessions_advanced=0)
+
+
+def prepare_composite_before_finance(cp, out, spec):
+    """Exercise the actual composite path in the existing retained loader context."""
+    if EXECUTION_MODE != 'OWN_ADMITTED_FINANCIAL_CONTINUATION':
+        return None
+    from system_campaign_financial_compound_dispatch import selected
+    module = selected(cp, spec['arm'])
+    if module is None:
+        return None
+    from research.pooled_vacancy_funding import backtest, runtime
+    out = Path(out)
+    parent_bytes = json.dumps(cp, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    forbidden = [out / 'book/checkpoint.json.gz', out / 'input-adoption/checkpoint.json.gz']
+    need(not any(path.exists() for path in forbidden),
+         'RESUME_COMPOSITE_PREPARATION_STARTS_WITHOUT_FINANCIAL_CHECKPOINT')
+    def no_financial_advance(*args, **kwargs):
+        raise ValueError('RESUME_COMPOSITE_PREPARATION_CANNOT_RUN_FINANCIAL_TRANSITIONS')
+    original_main, original_advance = backtest.main, runtime.advance
+    try:
+        backtest.main = runtime.advance = no_financial_advance
+        overlay, loaded = module.prepare(cp, out, spec['arm'])
+    finally:
+        backtest.main, runtime.advance = original_main, original_advance
+    need(json.dumps(cp, sort_keys=True, separators=(',', ':'), allow_nan=False) == parent_bytes
+         and not any(path.exists() for path in forbidden),
+         'RESUME_COMPOSITE_PREPARATION_NO_PARENT_MUTATION_OR_CHECKPOINT_ADOPTION')
+    return composite_preparation_receipt(cp, spec, module, overlay, loaded, out)
+
+
+def require_composite_preparation(cp, spec, proof, root):
+    """A stopped parent preflight must have prepared this exact input generation."""
+    from system_campaign_financial_compound_dispatch import selected
+    module = selected(cp, spec['arm'])
+    if module is None:
+        need(proof.get('composite_preparation') is None,
+             'RESUME_NO_FOREIGN_COMPOSITE_PREPARATION_RECEIPT')
+        return
+    value = proof['composite_preparation'];root = Path(root)
+    overlay = root / module.OVERLAY
+    expected = composite_preparation_receipt(cp, spec, module, overlay,
+        type('PreparedInput', (), dict(sha256=sha256_file(overlay),
+            earliest_affected_session=value['earliest_affected_session']))(), root)
+    need(value == expected,
+         'RESUME_EXACT_STOPPED_ZERO_FINANCIAL_COMPOSITE_PREPARATION_REQUIRED')
+
+
 def preflight(old, out, spec):
     hosted()
     if 'root_admission' in spec:
@@ -503,6 +575,7 @@ def preflight(old, out, spec):
     with financial_inputs(old, strict_parent(json.loads(gzip.decompress(
             (old / spec['selected_checkpoint']).read_bytes())), spec), out, spec):
         cp, following = actual_parent(old, spec)
+        preparation = prepare_composite_before_finance(cp, out, spec)
         seed_rows(old, cp, spec)
         if 'reuse_closed_hosted_prefix_review' in spec:
             need(spec['reuse_closed_hosted_prefix_review'] is True, 'RESUME_EXACT_CLOSED_PREFIX_REUSE_DECLARATION')
@@ -524,6 +597,7 @@ def preflight(old, out, spec):
          canonical_roundtrip=True, original_journal_commitments_verified=True,
          diagnostic_state_adopted=False, financial_sessions_advanced=0,
          root_admission_sha256=spec.get('root_admission_sha256'),
+         composite_preparation=preparation,
          accounting_review_sha256=sha256_file(out / 'old-prefix-canonical-review.json')))
     request = json.loads((HERE / REQUEST).read_bytes())
     if request.get('readonly_source_witnesses') is True:
@@ -586,6 +660,7 @@ def economic(old, out, spec):
          and proof.get('root_admission_sha256') == spec.get('root_admission_sha256'),
          'RESUME_POSITIVELY_PASSED_PARENT_PREFLIGHT')
     cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
+    require_composite_preparation(cp, spec, proof, out / 'parent-preflight')
     book = out / 'book'
     with financial_inputs(old, cp, out, spec):
         cp, following = actual_parent(old, spec)

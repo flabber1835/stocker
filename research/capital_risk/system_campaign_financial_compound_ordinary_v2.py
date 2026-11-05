@@ -135,7 +135,7 @@ def ordinary_input(cp,record,root):
     inherited=inherited_proof(origin,root,subset,branch_validator=branch.validate_input)
     collision_parent,collision_view=qualified_collision_parent(origin,inherited)
     # The unchanged original hydrator verifies native, axis, collisions and fullrow.
-    with tempfile.TemporaryDirectory(prefix='compound-ordinary-source-',dir='/variant') as temp:
+    with tempfile.TemporaryDirectory(prefix='compound-ordinary-source-',dir='/tmp') as temp:
         private=codec.hydrate(collision_parent,Path(root),Path(temp))
         collision=json.loads((Path(temp)/'cash-calendar-collision-preflight.json').read_bytes())
     material=dict(schema=SCHEMA,arm=record['arm'],record_sha256=digest(record),

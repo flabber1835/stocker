@@ -171,7 +171,7 @@ def preflight_fixture(tmp_path,monkeypatch):
     request=tmp_path/'request.json';request.write_text(json.dumps(dict(readonly_source_witnesses=False)))
     monkeypatch.setattr(m,'REQUEST',request)
     old,out=tmp_path/'old',tmp_path/'out';(old/'book').mkdir(parents=True);(old/'stopped-review').mkdir();out.mkdir()
-    cp=dict(sha256='a'*64,completed=1090)
+    cp=dict(sha256='a'*64,completed=1090,source_cursor='2022-04-29')
     (old/'book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(cp).encode()))
     review=dict(all_prefixes_verified=True,all_daily_factors_and_chains_verified=True,checkpoint_sha256=cp['sha256'],counts=dict(formation=126,daily=1090))
     path=old/'stopped-review/core-review.json';path.write_bytes(json.dumps(review).encode())
