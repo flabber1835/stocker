@@ -3359,3 +3359,17 @@ December1 actions, with all12 old input bytes and selected/unheld role retained.
 Its final46 tests pass21.94s; review2865cf34d1c34677fcce9c4796dd2574a2aca6a931d8484bb00da1cd64ac86a2
 and validation9aecd1300fb50537a328653e19de113262a55d0a39170f31b58e68777233b141
 grant identity/native authority only, with no consideration or financial model.
+
+Select readonly report289/request155 for P11's authenticated full2156 target,
+retaining own2093/01d9 as its monthly seed. The47-case selector qualification
+includes six meaningful removals and unchanged full_target acceptance; it binds
+all275 members,429672139 logical bytes, zero tails and13-to14 input descriptors.
+Verify63/126/3/84 plus the full103-report/checkpoint/retry-memory proof under
+the existing completion contract. Shared request/partial/metadata checks pass94
+cases in16.55s: `python -B -m pytest -q -p no:cacheprovider --tb=short
+--basetemp C:/GitHub/stocker/.codex-tmp/report289-full-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py`. The request explicitly
+tests full_target on the selected metadata and launches zero financial workers.
+Its439-source closure includes all original383/B19; no extra replay or weakened
+completion guard is introduced.
