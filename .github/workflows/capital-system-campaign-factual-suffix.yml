@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        arm: [P07]
+        arm: [P05]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -29,7 +29,7 @@ jobs:
             .github/workflows
           fetch-depth: 1
       - name: Prepare dedicated ephemeral research capacity
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
       - name: Install locked transfer dependencies
         timeout-minutes: 4
@@ -46,7 +46,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Continue P07 own1047 after ordered ordinary and additional-sensor adoption
+      - name: Capture seven P05 own986 future corporate-action identity and native witnesses
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

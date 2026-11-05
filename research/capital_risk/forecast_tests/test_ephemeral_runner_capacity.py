@@ -222,12 +222,12 @@ def test_delete_uses_only_exact_absolute_arguments_no_shell_and_bounded_wait(mon
     monkeypatch.setattr(capacity.subprocess, "run", lambda *a, **k: calls.append((a, k)))
     capacity.remove_android()
     assert calls == [((list(capacity.DELETE_COMMAND),), dict(shell=False, check=True,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180))]
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300))]
     assert capacity.DELETE_COMMAND[-2:] == ("--", "/usr/local/lib/android")
     assert "--one-file-system" in capacity.DELETE_COMMAND and "--preserve-root=all" in capacity.DELETE_COMMAND
 
 
-@pytest.mark.parametrize("error,code", [(subprocess.TimeoutExpired("stub", 180), "UNKNOWN_REMOVAL_OUTCOME"),
+@pytest.mark.parametrize("error,code", [(subprocess.TimeoutExpired("stub", 300), "UNKNOWN_REMOVAL_OUTCOME"),
                                        (subprocess.CalledProcessError(1, "stub"), "REMOVAL_COMMAND")])
 def test_real_delete_adapter_maps_process_failures_to_closed_codes(monkeypatch, error, code):
     def fail(*a, **k):

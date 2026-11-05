@@ -1,71 +1,113 @@
 {
   "admitted_checkpoints": {
-    "P07": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058"
+    "P05": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6"
   },
   "admitted_financial_parents_sha256": "1ef2ea9e37a95f3e970a98f6a31e430c9ac008b87224520fc2d996b477e53b88",
   "arm_inputs": {
-    "P07": {
-      "new_factual_overlay": true,
+    "P05": {
+      "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P07"
+    "P05"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "OWN_ADMITTED_FINANCIAL_CONTINUATION",
-  "financial_resume_authorized": true,
+  "execution_mode": "READONLY_FROZEN_SOURCE_WITNESSES",
+  "financial_resume_authorized": false,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
   "full_measured_closes": 2156,
   "full_measurement_end": "2026-07-31",
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
-  "maximum_parallel_financial_workers": 1,
-  "maximum_parallel_readonly_workers": 0,
+  "maximum_parallel_financial_workers": 0,
+  "maximum_parallel_readonly_workers": 1,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "readonly_partial_review": false,
-  "readonly_source_witnesses": false,
+  "readonly_source_witnesses": true,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/157",
+  "schema": "research.system-campaign-accurate-resume-request/158",
   "selected_partials_sha256": "fc66caf4b8d23deaf6a5465138946e0a5072da9774b625241d6d72f80dc831cb",
   "selected_research_models": {
     "P07": {
-      "cp1_predecessor_binding": "EXACT_REVIEWED_NEUTRAL_ORDINARY_SUCCESSOR",
+      "contract_sha256": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
       "every_reachable_canonical_decision_must_match": true,
       "input_schema": "research.leadership-branch-uncertainty-input/1",
-      "input_schemas": [
-        "research.leadership-branch-uncertainty-input/1",
-        "research.zogenix-leadership-uncertainty-input/1"
-      ],
-      "mode": "RETAINED_ADDITIONAL_SENSOR",
-      "observer_generation": "IMMUTABLE_ORIGIN_SOURCE_REQUEST",
-      "ordinary_origin_outer_sha256": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058",
-      "origin_root_admission_sha256": "532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd",
-      "original_branch_descriptor": {
-        "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
-        "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
-        "resume_session": "2019-09-30",
-        "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
-      },
-      "original_strict_guard_unchanged": true,
-      "policy_catalog_sha256": "fadb3f24477ed70b04d4241f0ed61258a1d477e58ef50e9de3b49096fd9ea089",
-      "retained_prefix_sha256": "f05bf4dcb4e5b8f78089b27d661fa58dab095740b2d014ccd90ed3d21d222263",
-      "retained_rows": 593,
-      "root_admission_sha256": "532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd",
-      "schema": "research.retained-additional-sensor-declaration/1",
-      "source_payload_sha256": "8c0b2d11d47f1ca8071020577d0e3bcdbd43d3edb68e20372c7a4397f222960e",
-      "source_qualification_sha256": "f70b8c3e50a6a0d94067cccdf74726b7802ea7adf2f171a766c94f1a83525d7f",
-      "source_review_sha256": "5066cff719e226169abe00b89dba867b7702fc455ddc0a1ddbea24853a5c75f8"
+      "original_strict_guard_unchanged": true
     }
   },
-  "source_witness_scopes": {},
+  "source_witness_scopes": {
+    "P05": {
+      "additional_rows": [],
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "terms": [
+        {
+          "native_session": "2021-12-07",
+          "native_term_sha256": "7ae3331e4bbb3f576ebfcaa0dcc8b2f8aa2f01bbb3db77d42f4b3bdaf5a319ba",
+          "parent_positions": [],
+          "security_id": "505590033806659541",
+          "session": "2021-12-06",
+          "ticker": "CXP"
+        },
+        {
+          "native_session": "2021-12-10",
+          "native_term_sha256": "0cf0409fa93cc7a8c9c81009dcd246591846fbf9237f4ed06bcac1377d937969",
+          "parent_positions": [],
+          "security_id": "413759046550141969",
+          "session": "2021-12-09",
+          "ticker": "HRC"
+        },
+        {
+          "native_session": "2022-01-03",
+          "native_term_sha256": "b26916c7396760a17752c7bd49f128bf9b14d5accb27cd5fec65a8e03a184c68",
+          "parent_positions": [],
+          "security_id": "644546217848577516",
+          "session": "2021-12-31",
+          "ticker": "MGLN"
+        },
+        {
+          "native_session": "2022-02-14",
+          "native_term_sha256": "2b4f3b0dab1319948132dd10c96fbb2e9c0a554fcfaf37591c7a3a8bec11bf88",
+          "parent_positions": [],
+          "security_id": "79288825945223775",
+          "session": "2022-02-11",
+          "ticker": "PAE"
+        },
+        {
+          "native_session": "2022-02-24",
+          "native_term_sha256": "54cb5fc3645c0609c5865e94630440723d96c3b4db6534cfedf5527db5d1eb8b",
+          "parent_positions": [],
+          "security_id": "1103823526630607847",
+          "session": "2022-02-23",
+          "ticker": "RRD"
+        },
+        {
+          "native_session": "2022-02-28",
+          "native_term_sha256": "ac6da5b2c6724d36192f176d569ae1bcccb4e12e3f3544a1f274d176adb384c7",
+          "parent_positions": [],
+          "security_id": "150296277399646272",
+          "session": "2022-02-25",
+          "ticker": "MCFE"
+        },
+        {
+          "native_session": "2022-03-03",
+          "native_term_sha256": "5bc9ad32f70f91a5247f6ae8c5895c2fe4debd00886a0a849b221f14845f18cc",
+          "parent_positions": [],
+          "security_id": "631181427311568999",
+          "session": "2022-03-02",
+          "ticker": "NUAN"
+        }
+      ]
+    }
+  },
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
     "alpaca_fit_compare.py": "aec55dc127b7f7d815c5399c1c217b4752583adaec6e936b7b1fa88bbddb9161",
@@ -83,7 +125,7 @@
     "core_lineage_review.py": "90490330e2e637d4d2c383eec1f2f9f0c07abdc15cf8cedb1a66da9e52cd8235",
     "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
     "core_window_review.py": "c53dd20a961268b223d2007027ca42daad8cc905b2ab351ad4bb02bdbc4cfa4c",
-    "ephemeral_runner_capacity.py": "c7e90aa846dae28823d4be6b2ce9fa3092ab48e8346dcf21adb8d8fd7c6e3379",
+    "ephemeral_runner_capacity.py": "07911f984cb2c27c91c3142c46da6a52bca2d26647c7218198bd71fc72ea25b1",
     "forecast_collect.py": "8545f8a20fda50cefde115e807e04d8be632a44f438fa6831d8b464ab80a281f",
     "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
     "full_system_core.py": "3d5573a751272da9a3c8e1e31dcd0fd864cfd670a30da374e59e9f9067b17de8",
@@ -174,7 +216,7 @@
     "system-campaign-qualified-own-uncertainty-source-data.json": "758d53f593aab9fa411f652ea362f6cfde1c4144bda175edc3244a7a7e8b0c7e",
     "system-campaign-reconstruction-admission.json": "89806aaa204a85dab9d73e3896c06d0c97be1f3f5af58a236d18527c29f9c4ba",
     "system-campaign-remainder-terminal-facts.json": "69b2cebeda9b7efdc5cd1b29aafde97a5f205d3a8cf2fd58902f2ccce8b57fc2",
-    "system-campaign-selected-own-cash-terminal-facts.json": "9b2e32b0dddd53919f846b4b275ccd04afb59ab257b2652e5b63892971012fd9",
+    "system-campaign-selected-own-cash-terminal-facts.json": "9ef287a863e6fc5e6e0754ed8fe052b9fdc40a1353a68bf5e55e4398f03558b5",
     "system-campaign-spring2020-cash-terminal-facts.json": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122",
     "system-campaign-spring2023-cash-calendar-terminal-facts.json": "7f831edf7c33633b9847d886f4f814fbada462607e57aeac6ffbaf00e7a440b1",
     "system-campaign-sprint-terminal-facts.json": "d30f52b302557445f8ed85e6314b7deb16e04f77009c5491c9de6287515116fe",
@@ -283,11 +325,11 @@
     "system_campaign_financial_distribution_source_v2.py": "820be270c8c84aa40e81c18cc92aed4e24f1f45d414f04f6f4b514464ab6de17",
     "system_campaign_financial_distribution_standard.py": "8835ef36a70ac54acf4e96cb70e1de2598460544013dcb6e72d24e09b27b88af",
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
-    "system_campaign_financial_future.py": "0ec5c5ee9250637a304ad278fa1f05a701e978f533c3f7f8ce6e34e3f65c45c4",
+    "system_campaign_financial_future.py": "77e674d02b6782dfdf129efcd0e7c60350cff29db6fb6011b21e80dea14292d7",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
     "system_campaign_financial_partial.py": "73f3b6129baccd57c0f606c335c40f05f7d404e8d9add2942fa5696acec1bf29",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
-    "system_campaign_financial_resume.py": "f477f3c85d1e9a0aefda8ea214bd72f8709e4e6be10b5e9078b9f152d28dae17",
+    "system_campaign_financial_resume.py": "3f3094fbab0c36bca7d3301eb2c5cc29ae6cf0f6b40aa10c52a3f6e914db6089",
     "system_campaign_financial_uncertainty.py": "c1218c3c85f75a3e10b1ab07af1053187ea37c0c06b29167f0069aae60c9b85a",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
@@ -512,5 +554,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "726890582084ef8f6bcb48d3c399309c8c42a2e431b6d1ca50311bd40cfb2182"
+  "workflow_sha256": "94ff5706d67cc047c44cdbb117559c7d6f659dddef8af8d50ed678edbbe1798f"
 }

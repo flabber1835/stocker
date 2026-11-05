@@ -337,7 +337,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==54
+    assert len(f.WITNESS_SCOPE_REGISTRY)==55
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -351,6 +351,21 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         expected=(f.research_mixed_term(t) if t['recognition_rule']==f.RESEARCH_MIXED else
                   f.selected_stock_term(t) if t['added']['kind']=='CASH_PLUS_STOCK' else t)
         assert f.own_cash_selection(t['arm'],t['parent_cursor'])[2]==[expected]
+
+
+def test_p05_seven_query_append_preserves_all54_prior_scopes_and_own986_roles():
+    key='7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239'
+    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k!=key}
+    assert len(prior)==54 and f.digest(prior)=='d019c20189ecd45404e19ec5c2875308855e8e3e3fe0fd65ed3d8016271a76aa'
+    scope=f.registered_scope(key);root=m.root_spec('P05')
+    assert f.WITNESS_SCOPES['P05']==scope
+    assert root['root_admission_sha256']=='bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5'
+    assert scope['parent_outer_sha256']==root['outer_sha256']
+    assert scope['parent_cursor']==root['selected_session']=='2021-11-30'
+    assert [t['ticker'] for t in scope['terms']]==['CXP','HRC','MGLN','PAE','RRD','MCFE','NUAN']
+    assert scope['additional_rows']==[]
+    assert all(t['session']<t['native_session'] and t['parent_positions']==[] for t in scope['terms'])
+    assert all(set(t)=={'ticker','security_id','session','native_session','native_term_sha256','parent_positions'} for t in scope['terms'])
 
 
 def test_current_fresh_p00_tgi_query_uses_only_own1883_root_and_actual234_shares():

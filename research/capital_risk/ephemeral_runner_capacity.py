@@ -200,7 +200,7 @@ def write_receipt(path: Path, value: dict) -> None:
 def remove_android() -> None:
     try:
         subprocess.run(list(DELETE_COMMAND), shell=False, check=True, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=180)
+                       stderr=subprocess.DEVNULL, timeout=300)
     except subprocess.TimeoutExpired as error:
         raise Refusal("UNKNOWN_REMOVAL_OUTCOME") from error
     except (OSError, subprocess.CalledProcessError) as error:

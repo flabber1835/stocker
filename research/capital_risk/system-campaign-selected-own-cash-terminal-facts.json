@@ -2590,6 +2590,169 @@
       "source_valuation_phase": "CLOSE",
       "ticker": "MDP",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1800227/000110465921145542/tm2134264d1_8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-12-16",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 31.575855485386988,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1158041/000115752322001751/a53077747ex99_1.htm | Research USD normalization of mandatory CAD43.00 common-share consideration using issuer-quoted1.3618 CADperUSD asofDec15,2022; Decimal division precedes the exact canonical float input. RecognizeDec16 under the existing cash-event convention and actual dynamic own quantity. Legal completion beforeopen is confirmed; actual USD holder payment, settlement, FX publication-before-open and historical availability are not claimed. Historical causality UNVERIFIED; original native/tape/identity and all inherited inputs retained.",
+        "security_id": "655209666181687436",
+        "session": "2022-12-16"
+      },
+      "arm": "P06",
+      "description": "Research USD normalization of mandatory CAD43.00 common-share consideration using issuer-quoted1.3618 CADperUSD asofDec15,2022; Decimal division precedes the exact canonical float input. RecognizeDec16 under the existing cash-event convention and actual dynamic own quantity. Legal completion beforeopen is confirmed; actual USD holder payment, settlement, FX publication-before-open and historical availability are not claimed. Historical causality UNVERIFIED; original native/tape/identity and all inherited inputs retained.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1158041",
+        "listing_first_session": "2003-11-18",
+        "security_id": "655209666181687436",
+        "security_type_eligible": "1",
+        "session": "2022-12-14",
+        "source_observation_sha256": "a4c7aeb828a8bc5ee964f80c1ea6f09e1aed469cfbc1ee4ba41bb539148ce6e0",
+        "ticker": "TRQ"
+      },
+      "last_trading_session": "2022-12-15",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=6320.7",
+        "security_id": "655209666181687436",
+        "session": "2022-12-15"
+      },
+      "native_session": "2022-12-15",
+      "native_term_sha256": "88fc01228c4183c26a1eb963e38d251081453f2bc8acf89d30315309b7376a6a",
+      "parent_cursor": "2022-11-30",
+      "parent_outer_sha256": "615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f",
+      "parent_positions": [
+        {
+          "entry_date": "2022-11-07",
+          "quantity": 82,
+          "slot_id": 0,
+          "ticker": "TRQ"
+        }
+      ],
+      "parent_root_admission_sha256": "947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "active": false,
+        "actual_completion_date": "2022-12-16",
+        "actual_opening_cash_availability_proved": false,
+        "amount_inferred_from_carry_grace_or_deal_value": false,
+        "corporate_valuation_fx_footnote": {
+          "as_of": "2022-12-15",
+          "quoted_pair": "USD/CAD",
+          "quoted_rate": "1.3618",
+          "selected_as_holder_conversion_rate": false
+        },
+        "economic_model_implemented": false,
+        "final_USD_per_common_share_qualified_for_recognition": false,
+        "financial_or_source_DATA_authority": false,
+        "legal_effective_minute_observed": false,
+        "mandatory_ordinary_common_share_consideration": {
+          "amount": "43.00",
+          "currency": "CAD"
+        },
+        "no_settlement_study_performed": true,
+        "preopen_completion_confirmed": true,
+        "price_domain_observation": "Wealth Core v1 documents raw as-traded execution/mark and explicit cash-event domains; the inspected TerminalTerms preimage has cash_per_share without a currency field. CAD43 cannot be inserted as a USD per-share value without an explicit separately reviewed conversion input/model.",
+        "primary_sources": [
+          {
+            "publication_date": "2022-12-16",
+            "supports": [
+              "Arrangement completed",
+              "Remaining minority common shares acquired for CAD43.00 each"
+            ],
+            "title": "Turquoise Hill Announces Completion of the Arrangement with Rio Tinto",
+            "url": "https://www.sec.gov/Archives/edgar/data/1158041/000115752322001751/a53077747ex99_1.htm"
+          },
+          {
+            "publication_date": "2022-12-16",
+            "supports": [
+              "Completion before December16 open",
+              "Each common share converts into right to CAD43 net cash",
+              "USD equivalent not finalized in that notice"
+            ],
+            "title": "OCC51580 Turquoise Hill Cash Settlement",
+            "url": "https://infomemo.theocc.com/infomemos?number=51580"
+          },
+          {
+            "publication_date": "2022-12-16",
+            "supports": [
+              "Transaction complete",
+              "Corporate headline USD valuation uses CAD43 and USD/CAD1.3618 as of December15"
+            ],
+            "title": "Rio Tinto completes acquisition of Turquoise Hill",
+            "url": "https://www.riotinto.com/en/news/releases/2022/rio-tinto-completes-acquisition-of-turquoise-hill"
+          }
+        ],
+        "publication_before_open_observed": false,
+        "raw_primary_document_bytes_hash_claimed": false,
+        "schema": "research.inactive-primary-extraction/1",
+        "security_id": "655209666181687436",
+        "source_context": {
+          "fresh_SOURCE288_DATA_pending": true,
+          "frozen_identity_session": "2022-12-14",
+          "frozen_native_session": "2022-12-15",
+          "parent_held_quantity": 82,
+          "parent_root_admission_sha256": "947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e",
+          "parent_selected": false,
+          "slot_id": 0
+        },
+        "source_unheld_policy_allowed": false,
+        "ticker": "TRQ"
+      },
+      "primary_extraction_sha256": "da4b128bd1a6f047eb61d9953ad97111c1960790ac15c9aebff63ecba4b30a73",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1158041/000115752322001751/a53077747ex99_1.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "actual_usd_payment_claimed": false,
+        "canonical_usd_float_decimal": "31.575855485386988",
+        "canonical_usd_float_hex": "0x1.f936b43dcf596p+4",
+        "decimal_precision": 50,
+        "exchange_rate": "1.3618",
+        "exchange_rate_as_of_session": "2022-12-15",
+        "exchange_rate_direction": "CAD_PER_USD",
+        "exchange_rate_source": "https://www.riotinto.com/en/news/releases/2022/rio-tinto-completes-acquisition-of-turquoise-hill",
+        "exchange_rate_source_record_sha256": "9c0226cd4cd779682008ecc317baf2baf2d58e45fb274a7cdeea427a4f79ed20",
+        "fx_publication_before_open_proven": false,
+        "historical_causality_status": "UNVERIFIED",
+        "normalization_rule": "RAW_CAD_DIVIDED_BY_CAD_PER_USD",
+        "normalized_usd_decimal": "31.575855485386987810251138199441915112351299750330",
+        "opening_availability_assumed": true,
+        "primary_extraction_sha256": "da4b128bd1a6f047eb61d9953ad97111c1960790ac15c9aebff63ecba4b30a73",
+        "raw_cash_currency": "CAD",
+        "raw_cash_per_share": "43.00",
+        "recognition_session": "2022-12-16",
+        "schema": "research.daily-normalized-usd-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH",
+        "target_cash_currency": "USD"
+      },
+      "security_id": "655209666181687436",
+      "source_capture": {
+        "artifact_id": 13417195161,
+        "head": "170b22c393322f048c76e44d67dd40857a8dc8a1",
+        "independent_data_review_sha256": "fb6522d207a0ab15cf6af893de389a617bd4b07ff24d211b46ca0aee0ec969ea",
+        "independent_qualification_sha256": "859af70416cca1d43536ac995a5fb13d876dce659b073ac6810b44396e87c385",
+        "payload_sha256": "7094997da6db5da3e6d0edfe282f21caa6cbce818b43d26c60d8c6d67e0e1caf",
+        "run_id": 42031700046,
+        "scope_sha256": "1524193c31d829e64a650f668b35daeaeb510c813089d7159021e43fe2e2aed9"
+      },
+      "ticker": "TRQ",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=51580"
     }
   ]
 }

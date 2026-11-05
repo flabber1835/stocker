@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = '9b2e32b0dddd53919f846b4b275ccd04afb59ab257b2652e5b63892971012fd9'
+OWN_CASH_SHA = '9ef287a863e6fc5e6e0754ed8fe052b9fdc40a1353a68bf5e55e4398f03558b5'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -324,6 +324,33 @@ class ResearchCashAssumption(BaseModel):
     recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
     opening_availability_assumed: Literal[True]
     actual_settlement_claimed: Literal[False]
+    settlement_fees: Literal['IGNORED_FOR_RESEARCH']
+
+
+class ResearchNormalizedUSDCashAssumption(BaseModel):
+    """Research FX normalization facts; neither holder payment nor PIT evidence."""
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.daily-normalized-usd-cash-assumption/1'] = Field(alias='schema')
+    raw_cash_per_share: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    raw_cash_currency: Literal['CAD']
+    target_cash_currency: Literal['USD']
+    exchange_rate: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    exchange_rate_direction: Literal['CAD_PER_USD']
+    exchange_rate_as_of_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    exchange_rate_source: Annotated[str, Field(min_length=1)]
+    exchange_rate_source_record_sha256: Annotated[str, Field(pattern=r'^[a-f0-9]{64}$')]
+    normalization_rule: Literal['RAW_CAD_DIVIDED_BY_CAD_PER_USD']
+    decimal_precision: Literal[50]
+    normalized_usd_decimal: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    canonical_usd_float_decimal: Annotated[str, Field(pattern=r'^[0-9]+\.[0-9]+$')]
+    canonical_usd_float_hex: Annotated[str, Field(min_length=1)]
+    primary_extraction_sha256: Annotated[str, Field(pattern=r'^[a-f0-9]{64}$')]
+    recognition_session: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+    opening_availability_assumed: Literal[True]
+    actual_usd_payment_claimed: Literal[False]
+    actual_settlement_claimed: Literal[False]
+    fx_publication_before_open_proven: Literal[False]
+    historical_causality_status: Literal['UNVERIFIED']
     settlement_fees: Literal['IGNORED_FOR_RESEARCH']
 
 
@@ -876,6 +903,7 @@ EXTRA_WITNESS_SCOPES[('P11', '2026-04-30')] = {'additional_rows': [{'parent_posi
 EXTRA_WITNESS_SCOPES[('P05', '2021-11-30')] = {'additional_rows': [], 'parent_cursor': '2021-11-30', 'parent_outer_sha256': 'c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6', 'terms': [{'native_session': '2021-12-01', 'native_term_sha256': 'c0415c1aa5fc0a0205ade497e308f194d403687c8db4c77cd413da22a21748b8', 'parent_positions': [], 'security_id': '1072510367992802359', 'session': '2021-11-30', 'ticker': 'MDP'}]}
 EXTRA_WITNESS_SCOPES[('P06', '2022-11-30')] = {'additional_rows': [], 'parent_cursor': '2022-11-30', 'parent_outer_sha256': '615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f', 'terms': [{'native_session': '2022-12-15', 'native_term_sha256': '88fc01228c4183c26a1eb963e38d251081453f2bc8acf89d30315309b7376a6a', 'parent_positions': [{'entry_date': '2022-11-07', 'quantity': 82, 'slot_id': 0, 'ticker': 'TRQ'}], 'security_id': '655209666181687436', 'session': '2022-12-14', 'ticker': 'TRQ'}]}
 EXTRA_WITNESS_SCOPES[('P03', '2019-10-31')] = {'additional_rows': [], 'parent_cursor': '2019-10-31', 'parent_outer_sha256': 'e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd', 'terms': [{'native_session': '2019-11-12', 'native_term_sha256': 'f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f', 'parent_positions': [], 'security_id': '471435039050105714', 'session': '2019-11-11', 'ticker': 'DOVA'}]}
+EXTRA_WITNESS_SCOPES[('P05', '2021-11-30-seven-next-cash-natives')] = {'additional_rows': [], 'parent_cursor': '2021-11-30', 'parent_outer_sha256': 'c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6', 'terms': [{'ticker': 'CXP', 'security_id': '505590033806659541', 'session': '2021-12-06', 'native_session': '2021-12-07', 'native_term_sha256': '7ae3331e4bbb3f576ebfcaa0dcc8b2f8aa2f01bbb3db77d42f4b3bdaf5a319ba', 'parent_positions': []}, {'ticker': 'HRC', 'security_id': '413759046550141969', 'session': '2021-12-09', 'native_session': '2021-12-10', 'native_term_sha256': '0cf0409fa93cc7a8c9c81009dcd246591846fbf9237f4ed06bcac1377d937969', 'parent_positions': []}, {'ticker': 'MGLN', 'security_id': '644546217848577516', 'session': '2021-12-31', 'native_session': '2022-01-03', 'native_term_sha256': 'b26916c7396760a17752c7bd49f128bf9b14d5accb27cd5fec65a8e03a184c68', 'parent_positions': []}, {'ticker': 'PAE', 'security_id': '79288825945223775', 'session': '2022-02-11', 'native_session': '2022-02-14', 'native_term_sha256': '2b4f3b0dab1319948132dd10c96fbb2e9c0a554fcfaf37591c7a3a8bec11bf88', 'parent_positions': []}, {'ticker': 'RRD', 'security_id': '1103823526630607847', 'session': '2022-02-23', 'native_session': '2022-02-24', 'native_term_sha256': '54cb5fc3645c0609c5865e94630440723d96c3b4db6534cfedf5527db5d1eb8b', 'parent_positions': []}, {'ticker': 'MCFE', 'security_id': '150296277399646272', 'session': '2022-02-25', 'native_session': '2022-02-28', 'native_term_sha256': 'ac6da5b2c6724d36192f176d569ae1bcccb4e12e3f3544a1f274d176adb384c7', 'parent_positions': []}, {'ticker': 'NUAN', 'security_id': '631181427311568999', 'session': '2022-03-02', 'native_session': '2022-03-03', 'native_term_sha256': '5bc9ad32f70f91a5247f6ae8c5895c2fe4debd00886a0a849b221f14845f18cc', 'parent_positions': []}]}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES, RESOLVED_WITNESS_SCOPES, EXTRA_WITNESS_SCOPES, INITIAL_WITNESS_SCOPES, RESOLVED_TENDER_WITNESS_SCOPES, ROW_QUERY_WITNESS_SCOPES, NATIVE_DATE_WITNESS_SCOPES, NATIVE_INVENTORY_WITNESS_SCOPES, RESOLVED_NATIVE_WITNESS_SCOPES, DISTRIBUTION_WITNESS_SCOPES) for scope in scopes.values()}
 ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
@@ -910,6 +938,7 @@ ACTIVE_WITNESS_SCOPES['P11'] = digest(EXTRA_WITNESS_SCOPES[('P11', '2026-04-30')
 ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES[('P05', '2021-11-30')])
 ACTIVE_WITNESS_SCOPES['P06'] = digest(EXTRA_WITNESS_SCOPES[('P06', '2022-11-30')])
 ACTIVE_WITNESS_SCOPES['P03'] = digest(EXTRA_WITNESS_SCOPES[('P03', '2019-10-31')])
+ACTIVE_WITNESS_SCOPES['P05'] = digest(EXTRA_WITNESS_SCOPES[('P05', '2021-11-30-seven-next-cash-natives')])
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -1333,6 +1362,11 @@ OWN_CASH_PHASES['P05', '2021-11-30'] = 'MDP'
 CASH_GENERATION_LENGTHS['P05', '2021-11-30'] = 33
 OWN_CASH_SOURCE_CLOCKS['P05', '2021-11-30'] = (42027761123, 'c0c96766d93b3f80afc2b2e9a88ecfc2b7d3573a', 13414936647)
 
+CLOSED_CASH_GENERATIONS['9b2e32b0dddd53919f846b4b275ccd04afb59ab257b2652e5b63892971012fd9'] = 33
+OWN_CASH_PHASES['P06', '2022-11-30'] = 'TRQ'
+CASH_GENERATION_LENGTHS['P06', '2022-11-30'] = 34
+OWN_CASH_SOURCE_CLOCKS['P06', '2022-11-30'] = (42031700046, '170b22c393322f048c76e44d67dd40857a8dc8a1', 13417195161)
+
 def own_cash_selection(arm, cursor):
     from system_campaign_cash_calendar import validate_term
     import system_campaign_cash_calendar as calendar
@@ -1430,7 +1464,10 @@ def own_cash_selection(arm, cursor):
         codec.validator_description = 'Published listed-unit cash with explicit modeled tender participation and opening recognition after the offer deadline; actual settlement and mandatory conversion are not claimed.'
     elif chosen['recognition_rule'] == RESEARCH_CASH:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
-        codec.validator_description = 'Published cash consideration with explicit research opening availability on the completion calendar date; actual settlement and preopen completion are not claimed.'
+        if chosen['research_assumption'].get('schema') == 'research.daily-normalized-usd-cash-assumption/1':
+            codec.validator_description = 'Research CAD-to-USD cash normalization with exact raw consideration/prior-day rate/Decimal-to-float binding, actual dynamic own quantity, and UNVERIFIED historical FX availability; no actual USD payment or settlement claim.'
+        else:
+            codec.validator_description = 'Published cash consideration with explicit research opening availability on the completion calendar date; actual settlement and preopen completion are not claimed.'
     elif chosen['recognition_rule'] == NEXT_COMPLETION:
         codec.compiler_sha = sha(Path(__file__).read_bytes())
         codec.validator_description = 'Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.'
@@ -1528,7 +1565,65 @@ def research_tender_term(term):
          'OWN_INPUT_EXPLICIT_ASSUMED_TENDER_AND_PUBLISHED_CASH')
 
 
+def research_normalized_usd_cash_term(term):
+    """Reuse the cash input family with an exact, disclosed CAD/USD derivation."""
+    from decimal import Decimal, localcontext
+    from datetime import date
+    model = ResearchNormalizedUSDCashAssumption.model_validate(term['research_assumption'])
+    raw_model = term['research_assumption']
+    need(raw_model['opening_availability_assumed'] is True
+         and all(raw_model[k] is False for k in ('actual_usd_payment_claimed', 'actual_settlement_claimed', 'fx_publication_before_open_proven'))
+         and type(raw_model['decimal_precision']) is int and raw_model['decimal_precision'] == 50,
+         'OWN_INPUT_NORMALIZED_USD_EXACT_RESEARCH_SCOPE_FLAGS')
+    a, w, primary = term['added'], term['identity_witness'], term['primary_extraction']
+    encoded = (json.dumps(primary, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+    fx = primary['corporate_valuation_fx_footnote']
+    sources = {v['url'] for v in primary['primary_sources']}
+    fx_sources = [v for v in primary['primary_sources'] if v['url'] == model.exchange_rate_source]
+    need(sha(encoded) == term['primary_extraction_sha256'] == model.primary_extraction_sha256
+         and primary['mandatory_ordinary_common_share_consideration'] == dict(amount=model.raw_cash_per_share, currency=model.raw_cash_currency)
+         and fx['quoted_pair'] == 'USD/CAD' and fx['quoted_rate'] == model.exchange_rate
+         and fx['as_of'] == model.exchange_rate_as_of_session
+         and len(fx_sources) == 1 and digest(fx_sources[0]) == model.exchange_rate_source_record_sha256
+         and term['primary_source'] in sources and term['timing_source'] in sources
+         and primary['actual_completion_date'] == term['actual_completion_date'] == model.recognition_session
+         and primary['security_id'] == term['security_id'] and primary['ticker'] == term['ticker']
+         and primary['preopen_completion_confirmed'] is True
+         and primary['actual_opening_cash_availability_proved'] is False
+         and fx['selected_as_holder_conversion_rate'] is False,
+         'OWN_INPUT_NORMALIZED_USD_EXACT_RAW_PRIMARY_AND_FX_QUOTE')
+    raw, rate = Decimal(model.raw_cash_per_share), Decimal(model.exchange_rate)
+    need(raw.is_finite() and rate.is_finite() and raw > 0 and rate > 0,
+         'OWN_INPUT_NORMALIZED_USD_POSITIVE_FINITE_RAW_AND_RATE')
+    need(date.fromisoformat(model.exchange_rate_as_of_session).isoformat() == model.exchange_rate_as_of_session
+         and date.fromisoformat(model.recognition_session).isoformat() == model.recognition_session
+         and model.exchange_rate_as_of_session <= term['native_session'] < model.recognition_session,
+         'OWN_INPUT_NORMALIZED_USD_PRIOR_RATE_DATE')
+    with localcontext() as context:
+        context.prec = model.decimal_precision
+        normalized = raw / rate
+    need(str(normalized) == model.normalized_usd_decimal,
+         'OWN_INPUT_NORMALIZED_USD_EXACT_DECIMAL_DIVISION')
+    value = float(normalized)
+    need(type(a['cash_per_share']) is float and math.isfinite(value) and value > 0
+         and a['cash_per_share'].hex() == value.hex() == model.canonical_usd_float_hex
+         and str(value) == model.canonical_usd_float_decimal,
+         'OWN_INPUT_NORMALIZED_USD_EXACT_CANONICAL_FLOAT_REPRESENTATION')
+    need(term['recognition_rule'] == RESEARCH_CASH and term['preopen_completion_confirmed'] is True
+         and term['mandatory_common_share_completion_confirmed'] is True
+         and a['kind'] == 'CASH_MERGER' and a['session'] == model.recognition_session
+         and term['parent_cursor'] < w['session'] < term['native_session'] == term['last_trading_session'] < a['session']
+         and a['security_id'] == term['security_id'] == w['security_id'] and w['ticker'] == term['ticker']
+         and a['entitlement_aggregation'] == 'HOLDER'
+         and all(a[k] is None for k in ('delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+                                        'exchange_ratio', 'cash_in_lieu_price_per_delivered_share'))
+         and a['reference'] == term['primary_source'] + ' | ' + term['description'],
+         'OWN_INPUT_NORMALIZED_USD_EXACT_RESEARCH_CASH_AND_SOURCE_IDENTITY')
+
+
 def research_cash_term(term):
+    if term['research_assumption'].get('schema') == 'research.daily-normalized-usd-cash-assumption/1':
+        return research_normalized_usd_cash_term(term)
     model = ResearchCashAssumption.model_validate(term['research_assumption'])
     a, w = term['added'], term['identity_witness']
     need(term['recognition_rule'] == RESEARCH_CASH

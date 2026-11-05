@@ -3549,3 +3549,55 @@ The new-worktree probe
 uses `python -B system_campaign_financial_resume.py --probe --request
 system-campaign-factual-request.json` and passes. Canonical finance remains
 hosted only; these checks grant no completed-result admission.
+
+Next, append the qualified TRQ normalization as cash catalog34, preserving all
+33 earlier records and their closed generations. Its input-only qualification
+has43 passing cases, four meaningful guard removals and five import fences;
+the exact package is60a899504c694c392b17d85ae0556a77900e6bccc53a24683ed2b8ed0116b31e.
+This implements the CAD43/1.3618 decision above, without claiming actual USD
+payment or preopen publication of that rate. Do not launch a second financial
+worker while P07 is active.
+
+Select a separate readonly source request for P05 own986/bb544. Append scope55
+after all54 preserved scopes, selecting the seven strict-prior identity/native
+queries CXP/HRC/MGLN/PAE/RRD/MCFE/NUAN in one batch. Preserve all12 inherited
+input documents and20 unfiltered native-date action rows. Only P05's active
+source pointer changes. This source request selects no consideration, timing,
+dividend netting or future held role, and launches zero financial workers.
+In particular, CXP's special dividend and merger proceeds require a separate
+double-count check before any economic input is selected. Existing P07 immutable
+checkout and request authority remain distinct from this readonly request.
+
+P07 run42051315933 stops before dependency installation, staging or financial
+execution: the dedicated runner's Android removal reaches the existing180-second
+command limit and three-minute step limit, recording UNKNOWN_REMOVAL_OUTCOME.
+Keep that refusal and attempt1 evidence. Select a300-second removal limit and
+six-minute preparation step for a fresh immutable request; retain the exact
+fixed target, host/path checks, no-credential context, positive removal proof,
+12GiB reserve and prepared-receipt validators. No old-run rerun, successful
+cleanup inference or capacity bypass is selected.
+
+SOURCE292/request158 selects only P05's seven-source batch, with444 files,
+one readonly worker and zero financial workers. Combined TRQ/source/request/
+partial/metadata/own-cash qualification first passes237 cases with one expected
+scope-count failure after the55th append. Preserve the54-scope historical
+digest d019c20189ecd45404e19ec5c2875308855e8e3e3fe0fd65ed3d8016271a76aa
+and test the exact seven current-root queries. Final targeted source/capacity/
+request checks pass142 cases in49.26s; launcher probe and diff checks pass.
+
+Commands from research/capital_risk:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source292-trq34-qualification-20261105-001
+forecast_tests/normalized_cash forecast_tests/test_financial_resume.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py
+forecast_tests/test_financial_own_cash.py` (237passed/one corrected fixture).
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source292-trq34-final-20261105-001
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_ephemeral_runner_capacity.py
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm`
+(142passed). The new tests preserve the earlier registry rather than repinning
+its historical records. No financial session or root admission occurred locally.
