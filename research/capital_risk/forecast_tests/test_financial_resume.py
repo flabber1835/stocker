@@ -46,9 +46,8 @@ def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinishe
     assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
     assert r['readonly_source_witnesses'] is True and m.request_authority(r)
     scope = r['source_witness_scopes']['P07']
-    assert scope['parent_cursor'] == '2022-09-30' and len(scope['terms']) == 112
-    assert len({t['security_id'] for t in scope['terms']}) == 112
-    assert scope['terms'][0]['ticker'] == 'GBT'
+    assert scope['parent_cursor'] == '2022-09-30' and len(scope['terms']) == 1
+    assert scope['terms'][0]['ticker'] == 'TRQ' and scope['terms'][0]['parent_positions'] == []
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
     assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}

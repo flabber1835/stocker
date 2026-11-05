@@ -4229,3 +4229,60 @@ forecast_tests/test_financial_retention.py and the three current request/workflo
 isolated-launcher nodes; all remaining51 passed. Original450-source request,
 original383/B19 commitments and root75e stay unchanged except fresh169 request
 identity and the qualified-accounting-reference helper/preflight binding.
+
+
+Prepare a separately typed original-cash-literal selector for future ordinary
+augmentation. Reuse exact qualified legal/research records (initially GBT and
+TRQ for P07) without inventing USD primary extractions or changing the normalized
+CAD43/1.3618 assumption. Bind each member to full original catalog bytes and the
+exact record digest. Reparent only arm/current cursor/outer/root admission,
+actual current positions, frozen identity/native and fresh source-capture clock;
+preserve every other field, including inactive primary extraction/context,
+research assumptions, descriptions, timing and all added consideration. No other
+arm's book is imported. Full current-arm source DATA is mandatory. Reuse the
+unchanged cash-batch source/native/role predicates and existing research-cash/
+calendar validators. A retained NEXT record may use only the unchanged calendar
+NEXT rule and its exact original timing fields; source-only, stock, mixed and CVR
+records are refused. Replace the old new-primary-USD extraction check with this
+stronger whole-original-record identity for retained literals, not with a made-up
+primary cash quote. Prove complete AST undo and meaningful provenance/amount/
+policy guard removals. These are input facts only: P07 still requires a separate
+explicit neutral ordinary-augmentation lifecycle and full retained proof/review
+qualification before any financial request may select them. The frozen INITIAL
+additional runtime and its policy records remain unchanged.
+
+SOURCE303 succeeds: artifact13442524992 (91088269bytes,
+SHA1cb1107dbc92ad220d41bc95b9c8a50fc8f7499495f7979b4b309e272f0bcfd1)
+authenticates86 members/103121096 logical bytes and positive preflight0/non-OOM.
+All26 DATA checks pass in5.82s after correcting a renamed test import identifier.
+Fresh raw archive and2022–2026 scans close112 identities/248 action rows, payload
+bf197d9995ce3f1be3dffbfe22d8db0484e254ec234e36f5f359ef217ebef749,
+review54c596142ce834295ccbc57f208bc2c2a57a4bb78c7a26b0ef6b89d7ea656500,
+qualificationa05a0c1a190d5780a879e0bf904944846b2094297811d73b73b1eea4ad574863.
+The admitted1196 restoration/current-review reuse/source capture is qualified.
+
+The older frozen inventory predates TRQ's separately qualified normalized-cash
+record and omits it from these112 source identities. Do not invent a source
+member or import P06's book/positions. Select a fresh single-TRQ SOURCE304/
+request170 query from P07's actual1196, using the original34-record catalog's
+exact native/identity commitment and freshly recomputed own role. Preserve all
+59 existing scopes and closed SOURCE303 evidence. GBT and TRQ ordinary literals
+may use separate full closed source bundles bound to this same root. No
+financial phase is selected; a private retained-literal GBT constructor already
+passes actual source/member/whole-original-record validation, with guards and
+TRQ normalization tests still pending.
+
+SOURCE304 scope006d1cbcc6651b7d9420d89520a7c751dbdd8e30c5707f3668685ac4ce70f024
+selects only TRQ's December14 identity/December15 native from P07 own1196;
+its actual current position is empty, rather than P06's original82-share role.
+All59 earlier scopes remain identical, digest
+73159a14279c58ece9122ddaba5c16a4fd2994ff636a693595b55e2e75c26d09.
+The prior112-member query stays registered and DATA-closed; it is no longer the
+active P07 query. All77 source/launcher/request/workflow checks pass in55.44s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source304-targeted-tests-20261105-001
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm
+forecast_tests/test_financial_resume.py::test_isolated_host_import_reproduces_missing_schema_dependency_and_then_passes`.
+No financial helper function/class changes are made for this query.
