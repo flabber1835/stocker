@@ -40,3 +40,4 @@ research/capital_risk/system_campaign_late_job.py -text whitespace=blank-at-eol,
 research/capital_risk/system_campaign_late_run.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 research/capital_risk/system_campaign_midyear_facts.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 research/capital_risk/system_campaign_midyear_job.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/forecast_tests/standard_distribution/fixtures/P11-closed-source243-validation.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

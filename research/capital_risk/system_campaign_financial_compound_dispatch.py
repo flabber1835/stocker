@@ -9,7 +9,8 @@ from system_campaign_financial_compound_input_v2 import need,sha
 def versions():
     import system_campaign_financial_compound_runtime as v1
     import system_campaign_financial_compound_runtime_v2 as v2
-    return (v1,v2)
+    import system_campaign_financial_distribution_standard_runtime as standard
+    return (v1,v2,standard)
 
 
 def selected(cp,arm):

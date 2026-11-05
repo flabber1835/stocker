@@ -143,6 +143,8 @@ def test_source_bound_retainer_preserves_actual_checkpoint_documents_and_hydrati
         assert root_arg is root and parent_arg is cp and spec_arg is spec
         calls.append('model-enter');yield;calls.append('model-exit')
     monkeypatch.setattr(frozen,'hosted',lambda:None)
+    import system_campaign_financial_distribution_standard_runtime as standard
+    monkeypatch.setattr(standard,'hosted',lambda:None)
     monkeypatch.setattr(frozen,'FactualInputs',FakeCodec)
     monkeypatch.setattr(p,'model_context',model)
     with p.financial_inputs(root,cp,out,spec):calls.append('body')
