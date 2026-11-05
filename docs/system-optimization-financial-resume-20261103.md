@@ -2938,3 +2938,16 @@ are empty; ZGNX is selected, and that distinction remains explicit. The source
 request launches no financial worker and activates no ZGNX26–28 contingent-
 right model or new cash term. Fresh authenticated independent DATA must close
 the new14-row/eight-native query before a later own-root input selection.
+
+For a later independently admitted P03 model-bearing root, require an explicit
+per-root ordinary_input_mode of UNCHANGED or NEW_QUALIFIED_ORDINARY. Batching
+future facts at initial adoption must not force a duplicate overlay at the
+next month. UNCHANGED reuses the retained interval certificate and byte-exact
+input descriptors only for that admitted root; it grants no automatic
+permission to subsequent roots. Its generic own-root receipt must describe
+retained interval proof and must not claim P07's point-return witness. Preserve
+the existing P07 unchanged-input predicate and receipt byte for byte, using a
+separate generic selector to delegate its established behavior. The explicit
+record also determines the request's new_factual_overlay flag. This extends
+the documented per-arm/root phase selection without changing financial
+comparisons or the interval model.
