@@ -3295,3 +3295,67 @@ forecast_tests/test_financial_source_witnesses.py
 forecast_tests/test_retained_admission_metadata.py`. The producer closure stays
 439 files with all383 original drivers and B19 unchanged. The only new source
 scope is52; economic/model activation remains false.
+
+R285/287 hosted reporting and independent DATA close P03's23/46/1/28 and
+P06's148/296/7/196 suffixes. Admit each only from its exact existing own root,
+with all input, source and journal lineage preserved and excluded tails intact.
+For first modeled P03 admission, measured closes and proof rows are different:
+the23-close suffix contains exactly eight post-activation certificates,
+October22 through31, with zero retained certificates. The root record must
+carry the whole eight-row branch_uncertainty_proof after checking original
+interval coverage, every comparison/state set and math/watch/financial chains.
+Preserve the original ALDR model origin, all15 descriptors and three neutral
+boundaries. Do not reuse P07's rows-equal-new-closes predicate or register a
+P07 point-return seed for P03. Default P07 admission behavior remains unchanged.
+
+Only after that exact P03 root pin exists, append an explicit RETAINED policy
+record for that pin in the existing versioned own-policy resource family,
+preserving closed generation1 bytes and its original financial declaration.
+This records existing model/ordinary-input retention for source and reporting;
+it does not authorize a blind finance retry at the known DOVA blocker or a new
+DOVA amount/model. Subsequent DOVA source identity and consideration/model
+qualification remain separate gates. P06's held TRQ likewise requires fresh
+source/native and mandatory consideration evidence after own1238 admission.
+
+Root admission now selects P03 own462/2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0
+and P06 own1238/947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e.
+P03's explicit retained record makes policy generation2 SHA6a867f721b31cd5fb71d1b965820facf2b48939158ed8d35432257eabd0d0ff1;
+all generation1 records and source DATA bytes remain unchanged. The only
+uncertainty-module changes are these two metadata assignments; no function,
+class or P07 seed table changes. New finance/DOVA dispatch stays unauthorized.
+
+Select SOURCE288/request154 only for held TRQ from own1238/947. Append scope53
+after all52 preserved scopes, changing only active P06. Query December14,2022
+identity and the exact incomplete December15 native88fc01228c4183c26a1eb963e38d251081453f2bc8acf89d30315309b7376a6a.
+Preserve82 actual shares/slot0/November7 entry, unselected status, empty pending
+and claim sets, all eight inherited inputs and original price domains. One
+readonly worker and zero financial workers collect identity/native evidence;
+held status is explicit and receives no source-unheld shortcut. Do not infer
+consideration from carry31.7, grace print31.41 or deal value6320.7. Mandatory
+terms and any currency treatment remain separate evidence/model decisions.
+
+SOURCE288's registry passes12 tests/two meaningful removals; independent held
+source preparation passes46 cases/seven removals/five import fences. Shared
+request/source/partial/metadata plus own-policy/retained-proof qualification
+passes224 cases in68.68s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source288-request-retained-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_source_witnesses.py forecast_tests/test_retained_admission_metadata.py
+forecast_tests/test_qualified_own_uncertainty.py forecast_tests/test_financial_retained_proof.py`.
+The producer source count remains439; original383/B19 are unchanged. P03's
+admission/retained-policy tool adds22 pure metadata cases/three meaningful
+removals and validates the original metadata APIs without local finance.
+
+FIN284 P11 reached2156/July31 with worker/reviewer exit0 and zero tails.
+Its complete core-review reports103 monthly rows, but the existing completion
+contract also requires the exact monthly checkpoint/retry-memory reproduction
+proof. Prepare unchanged readonly report289 rather than treating that summary
+count as the missing proof or rerunning finance. Independent completion DATA
+and root admission remain outstanding before publishing a new P11 CAGR.
+
+SOURCE286 MDP independent DATA closes one full November30 row and both
+December1 actions, with all12 old input bytes and selected/unheld role retained.
+Its final46 tests pass21.94s; review2865cf34d1c34677fcce9c4796dd2574a2aca6a931d8484bb00da1cd64ac86a2
+and validation9aecd1300fb50537a328653e19de113262a55d0a39170f31b58e68777233b141
+grant identity/native authority only, with no consideration or financial model.

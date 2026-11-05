@@ -1,6 +1,580 @@
 {
   "canonical_financial_source_changed": false,
   "phases": {
+    "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0": {
+      "arm": "P03",
+      "completed": 462,
+      "continuation_dispatch_authorized": false,
+      "event": {
+        "effective_session": "2019-10-22",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1423824",
+          "listing_first_session": "2014-05-08",
+          "security_id": "941065113449292610",
+          "security_type_eligible": "1",
+          "session": "2019-10-18",
+          "source_observation_sha256": "859dfdee2ea72e571839b8ded59716304e9509536720a1a8abd620ae1713cf28",
+          "ticker": "ALDR"
+        },
+        "known_cash_leg": "18.00",
+        "maximum_conditional_later_cash": "2.00",
+        "native_session": "2019-10-21",
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=1579.1",
+          "security_id": "941065113449292610",
+          "session": "2019-10-21"
+        },
+        "native_term_sha256": "d42b9821ced47a846ecdc78c47e7513cdc81bc8cb1629090cae78f8f97c668d6",
+        "parent_pending": [],
+        "parent_positions": [],
+        "parent_selected": true,
+        "rights_per_share": "1",
+        "security_id": "941065113449292610",
+        "ticker": "ALDR"
+      },
+      "financial_authority": false,
+      "hosted_certificate_review_sha256": "9c9b578bf2695d473030c898db329412ad42cd589daf2656dfaebc36fc392812",
+      "local_canonical_runtime_executed": false,
+      "mode": "RETAINED",
+      "new_rows": 8,
+      "next_DOVA_source_or_consideration_qualified": false,
+      "ordinary_expected_tickers": [
+        "CBLK",
+        "CY",
+        "MLNX",
+        "WBC",
+        "MNTA",
+        "AIMT",
+        "IMMU",
+        "MYOK",
+        "S2",
+        "MDCO",
+        "ARQL",
+        "WLH",
+        "WAAS",
+        "LM",
+        "BMCH"
+      ],
+      "ordinary_input_descriptor": {
+        "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+        "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+        "resume_session": "2019-09-30",
+        "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+      },
+      "ordinary_input_mode": "UNCHANGED",
+      "ordinary_input_sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e",
+      "ordinary_model_terms": [
+        {
+          "original_arm": "P05",
+          "original_cursor": "2020-01-31",
+          "original_generation_length": 17,
+          "original_generation_sha256": "c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89",
+          "original_term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d",
+          "term": {
+            "actual_completion_date": "2020-02-06",
+            "added": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": 2.5,
+              "delivered_issuer_id": "SEC_CIK:1562476",
+              "delivered_security_id": "13062188894457483",
+              "delivered_ticker": "TMHC",
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": "0.8000",
+              "kind": "CASH_PLUS_STOCK",
+              "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm | Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+              "security_id": "355892456681242666",
+              "session": "2020-02-06"
+            },
+            "arm": "P03",
+            "delivered_identity_witness": {
+              "issuer_id": "SEC_CIK:1562476",
+              "listing_first_session": "2013-04-10",
+              "security_id": "13062188894457483",
+              "security_type_eligible": "1",
+              "session": "2020-02-06",
+              "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+              "ticker": "TMHC"
+            },
+            "description": "Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+            "identity_witness": {
+              "issuer_id": "SEC_CIK:1095996",
+              "listing_first_session": "2013-05-17",
+              "security_id": "355892456681242666",
+              "security_type_eligible": "1",
+              "session": "2020-02-04",
+              "source_observation_sha256": "f4f1b4c9f0376c5eb41e72b2dcbba80de496c793f15b35ccb25b5ddad90727d0",
+              "ticker": "WLH"
+            },
+            "last_trading_session": "2020-02-05",
+            "mandatory_common_share_completion_confirmed": true,
+            "native": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": null,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "actions/acquisitionby deal_value_musd=3603",
+              "security_id": "355892456681242666",
+              "session": "2020-02-05"
+            },
+            "native_session": "2020-02-05",
+            "native_term_sha256": "431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181",
+            "parent_cursor": "2019-09-30",
+            "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+            "parent_positions": [],
+            "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+            "preopen_completion_confirmed": false,
+            "preserved_factual_record": {
+              "action_id": "WLH-2020-02-06",
+              "filename": "p01_factual_batch_facts.json",
+              "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+              "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+              "record_sha256": "77d7548a2035f6c611a7e0284a8e5ba4f70489d730d959f14e54fa549d6ff5d3",
+              "sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d"
+            },
+            "primary_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+            "proxy": {
+              "actual_settlement_rate_observed": false,
+              "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+              "security_id": "13062188894457483",
+              "session": "2020-02-06",
+              "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+              "ticker": "TMHC"
+            },
+            "recognition_rule": "RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY",
+            "research_assumption": {
+              "actual_settlement_claimed": false,
+              "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+              "opening_availability_assumed": true,
+              "published_cash_is_approximate": false,
+              "published_cash_per_share": "2.50",
+              "published_exchange_ratio": "0.8000",
+              "recognition_session": "2020-02-06",
+              "schema": "research.daily-mixed-consideration-assumption/2",
+              "settlement_fees": "IGNORED_FOR_RESEARCH"
+            },
+            "security_id": "355892456681242666",
+            "source_capture": {
+              "artifact_id": 13398394021,
+              "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+              "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+              "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+              "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+              "run_id": 41992111094,
+              "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+            },
+            "ticker": "WLH",
+            "timing_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm"
+          }
+        },
+        {
+          "original_arm": "P06",
+          "original_cursor": "2020-02-28",
+          "original_generation_length": 22,
+          "original_generation_sha256": "f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e",
+          "original_term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6",
+          "term": {
+            "actual_completion_date": "2020-03-30",
+            "added": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": 27.1,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm | Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+              "security_id": "879124841538592826",
+              "session": "2020-03-30"
+            },
+            "arm": "P03",
+            "description": "Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+            "identity_witness": {
+              "issuer_id": "SEC_CIK:1422841",
+              "listing_first_session": "2016-10-06",
+              "security_id": "879124841538592826",
+              "security_type_eligible": "1",
+              "session": "2020-03-26",
+              "source_observation_sha256": "8b2bcd4ea1fc90bdac97ba328d1b80767a56a5ede898d63d44d3bc518030d004",
+              "ticker": "WAAS"
+            },
+            "last_trading_session": "2020-03-27",
+            "mandatory_common_share_completion_confirmed": true,
+            "native": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": null,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "actions/acquisitionby deal_value_musd=864.1",
+              "security_id": "879124841538592826",
+              "session": "2020-03-27"
+            },
+            "native_session": "2020-03-27",
+            "native_term_sha256": "9a5c400fd2d72a73e3a4765f8e76b2cca33a5d10d8aefe9357a6b0b323b7dc83",
+            "parent_cursor": "2019-09-30",
+            "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+            "parent_positions": [],
+            "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+            "preopen_completion_confirmed": false,
+            "primary_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm",
+            "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+            "research_assumption": {
+              "actual_settlement_claimed": false,
+              "opening_availability_assumed": true,
+              "published_cash_per_share": "27.10",
+              "recognition_session": "2020-03-30",
+              "schema": "research.daily-economic-cash-assumption/1",
+              "settlement_fees": "IGNORED_FOR_RESEARCH"
+            },
+            "security_id": "879124841538592826",
+            "source_capture": {
+              "artifact_id": 13398394021,
+              "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+              "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+              "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+              "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+              "run_id": 41992111094,
+              "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+            },
+            "ticker": "WAAS",
+            "timing_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094d1_ex99-1.htm"
+          }
+        },
+        {
+          "original_arm": "P06",
+          "original_cursor": "2020-06-30",
+          "original_generation_length": 25,
+          "original_generation_sha256": "712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28",
+          "original_term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67",
+          "term": {
+            "actual_completion_date": "2020-07-31",
+            "added": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": 50.0,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm | Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+              "security_id": "986298677409235360",
+              "session": "2020-07-31"
+            },
+            "arm": "P03",
+            "description": "Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+            "identity_witness": {
+              "issuer_id": "SEC_CIK:704051",
+              "listing_first_session": "1997-12-31",
+              "security_id": "986298677409235360",
+              "security_type_eligible": "1",
+              "session": "2020-07-29",
+              "source_observation_sha256": "bd91c16eadfd29de9462216101e31368c3de17b6cd51161df9ef93f2bc6cd661",
+              "ticker": "LM"
+            },
+            "last_trading_session": "2020-07-30",
+            "mandatory_common_share_completion_confirmed": true,
+            "native": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": null,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "actions/acquisitionby deal_value_musd=4446.5",
+              "security_id": "986298677409235360",
+              "session": "2020-07-30"
+            },
+            "native_session": "2020-07-30",
+            "native_term_sha256": "6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d",
+            "parent_cursor": "2019-09-30",
+            "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+            "parent_positions": [],
+            "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+            "preopen_completion_confirmed": false,
+            "primary_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+            "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+            "research_assumption": {
+              "actual_settlement_claimed": false,
+              "opening_availability_assumed": true,
+              "published_cash_per_share": "50.00",
+              "recognition_session": "2020-07-31",
+              "schema": "research.daily-economic-cash-assumption/1",
+              "settlement_fees": "IGNORED_FOR_RESEARCH"
+            },
+            "security_id": "986298677409235360",
+            "source_capture": {
+              "artifact_id": 13398394021,
+              "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+              "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+              "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+              "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+              "run_id": 41992111094,
+              "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+            },
+            "ticker": "LM",
+            "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
+          }
+        },
+        {
+          "original_arm": "P05",
+          "original_cursor": "2020-11-30",
+          "original_generation_length": 23,
+          "original_generation_sha256": "c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516",
+          "original_term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97",
+          "term": {
+            "actual_completion_date": "2021-01-01",
+            "added": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": 0.0,
+              "delivered_issuer_id": "SEC_CIK:1316835",
+              "delivered_security_id": "314959357206229827",
+              "delivered_ticker": "BLDR",
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": "1.3125",
+              "kind": "CASH_PLUS_STOCK",
+              "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm | Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+              "security_id": "344954105397997801",
+              "session": "2021-01-04"
+            },
+            "arm": "P03",
+            "delivered_identity_witness": {
+              "issuer_id": "SEC_CIK:1316835",
+              "listing_first_session": "2005-06-28",
+              "security_id": "314959357206229827",
+              "security_type_eligible": "1",
+              "session": "2021-01-04",
+              "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+              "ticker": "BLDR"
+            },
+            "description": "Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+            "identity_witness": {
+              "issuer_id": "SEC_CIK:1574815",
+              "listing_first_session": "2013-08-09",
+              "security_id": "344954105397997801",
+              "security_type_eligible": "1",
+              "session": "2020-12-30",
+              "source_observation_sha256": "7e1044dc5befe473bc4edba307518adec40783163a2464a0406f86c05aa4d981",
+              "ticker": "BMCH"
+            },
+            "last_trading_session": "2020-12-31",
+            "mandatory_common_share_completion_confirmed": true,
+            "native": {
+              "cash_in_lieu_price_per_delivered_share": null,
+              "cash_per_share": null,
+              "delivered_issuer_id": null,
+              "delivered_security_id": null,
+              "delivered_ticker": null,
+              "entitlement_aggregation": "HOLDER",
+              "exchange_ratio": null,
+              "kind": "CASH_MERGER",
+              "reference": "actions/acquisitionby deal_value_musd=3611.6",
+              "security_id": "344954105397997801",
+              "session": "2020-12-31"
+            },
+            "native_session": "2020-12-31",
+            "native_term_sha256": "9a81db8dd2d4cce361f65bea04e15e7c9b311d8c035b84cb310fcd8e547e2c27",
+            "parent_cursor": "2019-09-30",
+            "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+            "parent_positions": [],
+            "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+            "preopen_completion_confirmed": false,
+            "primary_extraction": {
+              "actual_completion_date": "2021-01-01",
+              "cash_per_ordinary_common_share": "0",
+              "exchange_ratio": "1.3125",
+              "mandatory_conversion": true,
+              "preopen_time_established": false,
+              "recognition_convention": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION"
+            },
+            "primary_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+            "proxy": {
+              "actual_settlement_rate_observed": false,
+              "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+              "security_id": "314959357206229827",
+              "session": "2021-01-04",
+              "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+              "ticker": "BLDR"
+            },
+            "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION",
+            "retained_original_legal_record": {
+              "catalog_file": "p01_factual_batch_facts.json",
+              "catalog_sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d",
+              "original_fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+              "original_held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+              "original_kind": "CONVERSION",
+              "proxy_authority_reused": false,
+              "record_sha256": "0a2136247c0a046e10c9cc7abebe370c8eccf59e003be7917ad81181e6c3e2d5"
+            },
+            "security_id": "344954105397997801",
+            "source_capture": {
+              "artifact_id": 13398394021,
+              "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+              "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+              "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+              "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+              "run_id": 41992111094,
+              "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+            },
+            "ticker": "BMCH",
+            "timing_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm"
+          }
+        }
+      ],
+      "ordinary_origin_completed": 439,
+      "ordinary_origin_cursor": "2019-09-30",
+      "ordinary_origin_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "ordinary_origin_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "origin_record_sha256": "282d9414ba1d5746507f7959d0716aac0b87361cfe0f0dc64f7e6f1db5090690",
+      "origin_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "original_descriptors": [
+        {
+          "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
+          "predecessor_checkpoint_sha256": "16b29a942832d6c91d5ffc90199c1dd85e6719276637e5dc06b21cee4a662ec1",
+          "resume_session": "2017-06-30",
+          "sha256": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea"
+        },
+        {
+          "filename": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775.json",
+          "predecessor_checkpoint_sha256": "1ec15c71d94ec3aed1b8ee1ded544a8ade71f94778d4d44e830d09789953798a",
+          "resume_session": "2017-07-31",
+          "sha256": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775"
+        },
+        {
+          "filename": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472.json",
+          "predecessor_checkpoint_sha256": "460649dc243ac2d4e9bfeddef3c1c7779e0d61da51faa1cbeef8ba9c5181b928",
+          "resume_session": "2018-01-31",
+          "sha256": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472"
+        },
+        {
+          "filename": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb.json",
+          "predecessor_checkpoint_sha256": "384c41289d90c809c35ad761833ea83c6db9ce7da2f15b5e536530da6dd16aa3",
+          "resume_session": "2018-03-29",
+          "sha256": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb"
+        },
+        {
+          "filename": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2.json",
+          "predecessor_checkpoint_sha256": "ddd6b4c4dd77fca13d75dfb24bf7010727fe6d9335b9904cd12b1b3d576688ca",
+          "resume_session": "2018-04-30",
+          "sha256": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2"
+        },
+        {
+          "filename": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249.json",
+          "predecessor_checkpoint_sha256": "8844d300caa2001cca9d7ba28e65e0a6accafbeaca1eaf97b82780b19a0aa06a",
+          "resume_session": "2018-04-30",
+          "sha256": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249"
+        },
+        {
+          "filename": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64.json",
+          "predecessor_checkpoint_sha256": "376c93250410e9fb955581804ca6f94834c5e3e50c3cee81b4767c00877eb612",
+          "resume_session": "2018-06-29",
+          "sha256": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64"
+        },
+        {
+          "filename": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5.json",
+          "predecessor_checkpoint_sha256": "a43253e2ac264992bfc6112a82ad4fb499d844c7c6089cdc914465b8e143aaa6",
+          "resume_session": "2018-08-31",
+          "sha256": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5"
+        },
+        {
+          "filename": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f.json",
+          "predecessor_checkpoint_sha256": "3c9b0be59b4f1eb61783ea84c60f2ef89ef242522c3d652b17712311b8808324",
+          "resume_session": "2018-11-30",
+          "sha256": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f"
+        },
+        {
+          "filename": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6.json",
+          "predecessor_checkpoint_sha256": "1220c51e1de92333aa3c1ff9fd41a353a4258e661202a53850659140c5d72530",
+          "resume_session": "2018-12-31",
+          "sha256": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6"
+        },
+        {
+          "filename": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad.json",
+          "predecessor_checkpoint_sha256": "9ede97b8164de4903bb195ec84989ec21330daa53dcbc22c35ee55269000082c",
+          "resume_session": "2019-01-31",
+          "sha256": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad"
+        },
+        {
+          "filename": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a.json",
+          "predecessor_checkpoint_sha256": "a7ab7a1d7118adc7342747a3f84fe787eb46ea6cda0cde5035245692aa980545",
+          "resume_session": "2019-05-31",
+          "sha256": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a"
+        },
+        {
+          "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+          "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+          "resume_session": "2019-09-30",
+          "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+        },
+        {
+          "filename": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96.json",
+          "predecessor_checkpoint_sha256": "3768dc85eda414bad130fab7490c200f6b1936e492cb50638996023453c1922a",
+          "resume_session": "2019-09-30",
+          "sha256": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96"
+        },
+        {
+          "filename": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1.json",
+          "predecessor_checkpoint_sha256": "f2b2fdc71f3bf8cfea9474a081efb59ec825cd6998e4d67d76d4580922afde32",
+          "resume_session": "2019-09-30",
+          "sha256": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1"
+        }
+      ],
+      "outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+      "policy": "EXHAUSTIVE_REACHABLE_CANONICAL_DECISION_INVARIANCE",
+      "policy_source_files": {
+        "system-campaign-alder-unresolved-date.json": "586f591cc182c2ef92884cc4dde96b11837a5747655d327dd0dd356550c4cd07",
+        "system-campaign-financial-branch-contract.json": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
+        "system-campaign-uncertainty-contract.json": "cfb0ec0ba6007842618aa02214aefb5b86198efd7f75f38ea9db8c72b7683999",
+        "system-campaign-uncertainty-integration-request.json": "47ed77cf185de46e5dada17a32051197342f5f0283363b4f8a3731ceec4d4a95",
+        "system-campaign-uncertainty-qualification.json": "cd5cf2e7947521fb437bb27861f7681be7e359add4f872f52a900b66e5d8695b",
+        "system_campaign_alder_date_v2.py": "38056292a1e1b2392a8ceb231d6a36da6b7c600eb2821deee39f78fb6b606865",
+        "system_campaign_alder_facts.py": "69dd192d8b601b884fecc049d43ba20ed218c5c06091f10a35cba898b94e6a92",
+        "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+        "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+        "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+        "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+        "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+        "system_campaign_uncertainty_integration.py": "9a36d43a6da0f2d363e496f96cd294179877ee9a77ad2a9cd12620711fd96f40",
+        "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+        "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f"
+      },
+      "proof_growth": "INTERVAL",
+      "retained_financial_review_sha256": "e918471b0bb6d7388ae01ca03f88e8becfa4f1108b1743f2bb465d5ba842f694",
+      "retained_rows": 0,
+      "root_admission_sha256": "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0",
+      "rows": 8,
+      "source_DATA_qualified": true,
+      "source_clock": {
+        "artifact_id": 13398394021,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "run_id": 41992111094
+      },
+      "source_cursor": "2019-10-31",
+      "source_data_file": "system-campaign-qualified-own-uncertainty-source-data.json",
+      "source_payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+      "source_producer_sha256": "91d2193ad19e0001b17c7bf7165836d7b57c080b55f240ff446eb5ef3fe1e5f3",
+      "source_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+      "source_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+      "source_scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+    },
     "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f": {
       "arm": "P03",
       "completed": 439,
