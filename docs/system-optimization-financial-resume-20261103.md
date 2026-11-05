@@ -2476,3 +2476,40 @@ catalog and validator pins. A fresh1477344-row2019 scan verified11 exact
 source rows;all seven original native preimages and the actual own355 roles
 were checked independently. The source request starts zero financial workers;
 the running P05/P07/P11 financial requests keep their already pinned heads.
+
+P07 financial259 exposed two loader surfaces with different owners:the
+retained v2 projection installs backtest.load_repair,while the original B19
+input context captures repair.load_repair. Loading bypassed the projection
+that later received apply,so its exact loaded-object identity guard refused.
+Bridge the loader surfaces only in the outer retained dispatcher,after a
+qualified retained projection enters and before B19/APHA enter:temporarily
+point repair.load_repair at the exact installed backtest.load_repair callback.
+Restore the prior repair callback in finally,including nested/error exits.
+Let unchanged original contexts capture/delegate into that loader naturally;
+never insert bound objects manually,flip activation flags,or weaken identity
+guards. Preserve all immutable v1/v2/APHA/B19 bytes. Prove the original source
+entry/capture/apply order and restoration with synthetic input objects before
+the hosted restart. A later missing adoption checkpoint must not obscure the
+original worker refusal when diagnosing such a failed input preparation.
+
+Source260 independent DATA has closed for both arms:52 P03 checks,including
+11guard-removal falsifiers,and26 P06 checks,including three removals. Their
+reviews bind all432 producer files,all original383 sources,the exact native
+and full-row preimages and their own parent roles. Append only the qualified
+LM record as catalog25,712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28,
+whose first24 records reproduce ad124c0b exactly. Preserve research-opening
+and unconfirmed-preopen disclosures. Select financial261 for own355 P03's
+eight-input batch,own628 P06's LM continuation and corrected own986 P07's
+loader routing restart. The portable routing regression reproduces the
+original identity refusal and verifies proper binding,foreign delegation,
+owner-guard falsification and nested/error restoration in17 tests.
+
+Historical-data clarification in response to the owner's point-in-time
+question:financial validation certifies replay/accounting consistency against
+the chosen frozen inputs. It does not grant strict archival point-in-time
+certification. Historical issuer/industry classification provenance remains
+unverified,and explicit corporate-action opening/CIL/tender assumptions are
+research inputs. Chronological signal/correlation calculations do not remove
+those data-availability limitations. Preserve HISTORICAL_CAUSALITY_UNVERIFIED
+and disclose these limits alongside CAGR;do not describe financial admission
+as proof of unbiased live performance.

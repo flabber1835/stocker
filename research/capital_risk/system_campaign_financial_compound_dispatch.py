@@ -34,13 +34,34 @@ def retained_versions(root,cp):
 
 
 @contextmanager
+def retained_loader_surfaces(modules):
+    """Let original inner codecs capture the actual retained projection loader."""
+    if not modules:
+        yield
+        return
+    from research.pooled_vacancy_funding import backtest, repair
+    installed = backtest.load_repair
+    owner = getattr(installed, '__self__', None)
+    need(any(isinstance(owner, module.ProjectionContext) for module in modules)
+         and owner.active and owner.api.backtest is backtest and owner.api.repair is repair,
+         'COMPOUND_RETAINED_EXACT_ACTIVE_INSTALLED_LOADER_OWNER')
+    original = repair.load_repair
+    repair.load_repair = installed
+    try:
+        yield
+    finally:
+        repair.load_repair = original
+
+
+@contextmanager
 def retained_context(root,cp,out):
     # Both enter outside the preexisting B19/APHA stack. Each delegates foreign
     # parsed object types; neither hides Codec from APHA's immutable unwrap.
-    retained_versions(root,cp)
+    retained = retained_versions(root,cp)
     with ExitStack() as stack:
         for module in versions():stack.enter_context(module.retained_context(root,cp,out))
-        yield
+        with retained_loader_surfaces(retained):
+            yield
 
 
 def review_retained(root,cp):

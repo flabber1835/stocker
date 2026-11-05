@@ -34,6 +34,8 @@ def namespace():
     exec(compile(ast.Module(body=deepcopy(assigns),type_ignores=[]),'<literal-selector-source-metadata>','exec'),ns)
     ns['HERE']=C
     names=('catalog_terms','compose','original_delivery_selection','ordinary_term_dates','ordinary_identity','ordinary_delivery_identity','inherited_delivery_addition','remaining_ordinary_terms','merge_selected_terms','selected')
+    if 'original_phase_delivery_selection' in FUNCTIONS:
+        names=names+('original_phase_delivery_selection',)
     exec(compile(ast.Module(body=[deepcopy(FUNCTIONS[n])for n in names],type_ignores=[]),'<source-only-conversion-selectors>','exec'),ns)
     ns['original_ordinary_selection']=lambda arm,cursor:None
     return ns
@@ -97,11 +99,15 @@ def test_source_catalog_pin_guard_removal(selected):
     n=selected;plan=list(n['ORIGINAL_DELIVERY_PHASES']['P05','2020-12-31'][0]);plan[-1]='0'*64;n['ORIGINAL_DELIVERY_PHASES']['P05','2020-12-31']=(tuple(plan),)
     label='FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES'
     with pytest.raises(ValueError,match=label):n['original_delivery_selection']('P05','2020-12-31')
-    assert removed(n,'original_delivery_selection',label)('P05','2020-12-31')[2][0]['ticker']=='PE'
+    if 'original_phase_delivery_selection' in FUNCTIONS:
+        with pytest.raises(ValueError,match='EXACT_CATALOG_VALIDATOR_BINDING'):
+            removed(n,'original_phase_delivery_selection',label)('P05','2020-12-31')
+    else:
+        assert removed(n,'original_delivery_selection',label)('P05','2020-12-31')[2][0]['ticker']=='PE'
 
 def test_consumed_native_refused_before_filtering(selected):
     n=selected;n['ORIGINAL_DELIVERY_PHASES']['P05','2021-01-12']=n['ORIGINAL_DELIVERY_PHASES']['P05','2020-12-31']
-    with pytest.raises(ValueError,match='NO_CONSUMED_PENDING_NATIVE'):n['original_delivery_selection']('P05','2021-01-12')
+    with pytest.raises(ValueError,match='NO_CONSUMED_PENDING_NATIVE|UNCONSUMED_PROXY_DELIVERIES_ONLY'):n['original_delivery_selection']('P05','2021-01-12')
 
 def test_exact_full_row_only_fills_existing_CIL_proxy(selected,data):
     n=selected;t=deepcopy(data['term']);before=deepcopy(t)

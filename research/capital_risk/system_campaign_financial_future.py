@@ -71,7 +71,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = 'ad124c0b56755fe08d035d35d6a27665ccd5e2049bd7293cfae2ee6cb4188be7'
+OWN_CASH_SHA = '712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -144,6 +144,9 @@ SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 CLOSED_CASH_GENERATIONS['c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516'] = 23
 OWN_CASH_PHASES['P03', '2019-05-31'] = 'KEYW'
 CASH_GENERATION_LENGTHS['P03', '2019-05-31'] = 24
+CLOSED_CASH_GENERATIONS['ad124c0b56755fe08d035d35d6a27665ccd5e2049bd7293cfae2ee6cb4188be7'] = 24
+OWN_CASH_PHASES['P06', '2020-06-30'] = 'LM'
+CASH_GENERATION_LENGTHS['P06', '2020-06-30'] = 25
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
 RESEARCH_MIXED = 'RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY'
 RESEARCH_TENDER = 'RESEARCH_ASSUMED_TENDER_PARTICIPATION'
@@ -184,6 +187,23 @@ ORIGINAL_DELIVERY_SOURCES['P03'] = ORIGINAL_ORDINARY_SOURCES['P03']
 ORIGINAL_DELIVERY_PHASES = {('P05', '2020-12-31'): (
     ('system_campaign_parsley_facts', 'ParsleyFacts', 'system-campaign-parsley-terminal-facts.json',
      '1983dd966359020fff66eccf6d6d3c22de12190c11f5a3019cafcbf80af0478d'),)}
+ORIGINAL_DELIVERY_PHASES['P03', '2019-05-31'] = (
+    ('system_campaign_distribution_facts', 'DistributionFacts', 'system-campaign-distribution-facts.json',
+     'db0e6498224929c322c1a73a0e5b7942110e7a1c645db8f6b21bd329f22d41ae'),
+    ('system_campaign_tableau_facts', 'TableauFacts', 'system-campaign-tableau-terminal-facts.json',
+     '1833a5f0cc85193416b195d896b2e6dae68927b54db8a2ddb91666c5a3cef544'),
+)
+ORIGINAL_DELIVERY_SUBSETS = {
+    ('P03', '2019-05-31', 'system-campaign-distribution-facts.json'): ('LLL1',),
+    ('P03', '2019-05-31', 'system-campaign-tableau-terminal-facts.json'): ('DATA', 'TCF1'),
+}
+ORIGINAL_ORDINARY_PHASES['P03', '2019-05-31'] = (
+    ('system_campaign_array_facts', 'ArrayFacts', 'system-campaign-array-terminal-facts.json',
+     '927d997f93e4633ee3fbb8e1350b1720380684ebf9e4fff1437c301847ac023d'),
+    ('system_campaign_tableau_facts', 'TableauFacts', 'system-campaign-tableau-terminal-facts.json',
+     '1833a5f0cc85193416b195d896b2e6dae68927b54db8a2ddb91666c5a3cef544'),
+)
+
 SUPPLEMENTAL_PHASES = {
     ('P05', '2018-11-30'): (
         ('system_campaign_yearend_facts', 'YearendFacts', 'PATH',
@@ -223,6 +243,13 @@ SUPPLEMENTAL_PHASES['P05', '2020-06-30'] = (
      'bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7',
      'dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020',
      ('MNTA','AIMT','IMMU','MYOK','VRTU')),
+)
+SUPPLEMENTAL_PHASES['P03', '2019-05-31'] = (
+    ('system_campaign_tableau_facts', 'TableauFacts', 'PATH',
+     'system-campaign-tableau-terminal-facts.json',
+     '1833a5f0cc85193416b195d896b2e6dae68927b54db8a2ddb91666c5a3cef544',
+     'd133d1f2753e6a662824d419eeb6597153cc059a431a93789f2143ff792ca0b6',
+     ('CTRL', 'UQM', 'BKS')),
 )
 SUPPLEMENTAL_PHASES['P11', '2023-06-30'] = (
     ('system_campaign_cash_calendar', 'CashCalendar', 'JSON',
@@ -366,6 +393,7 @@ OWN_CASH_SOURCE_CLOCKS['P03', '2018-12-31'] = (41944211225, 'e81158bfa1feadfd0c9
 OWN_CASH_SOURCE_CLOCKS['P06', '2020-02-28'] = (41950496055, '4447cb10993eb7a7069a389615d25500dc180a95', 13380408021)
 OWN_CASH_SOURCE_CLOCKS['P05', '2020-11-30'] = (41950496055, '4447cb10993eb7a7069a389615d25500dc180a95', 13380652339)
 OWN_CASH_SOURCE_CLOCKS['P03', '2019-05-31'] = (41961189857, 'a766451be5a7fdcdad6f1cc755244f7ab5bbd8be', 13384628988)
+OWN_CASH_SOURCE_CLOCKS['P06', '2020-06-30'] = (41966300662, '9f73b5fa7ab5102b079313b6715f030e70419c7a', 13388235253)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1625,11 +1653,64 @@ def merge_selected_terms(primary, extra):
     return terms
 
 
+def original_phase_delivery_selection(arm, cursor):
+    """Aggregate explicit original delivery subsets without changing their facts."""
+    import importlib
+    plans = ORIGINAL_DELIVERY_PHASES[arm, cursor]
+    need(plans, 'FUTURE_ORIGINAL_PHASE_NONEMPTY_DELIVERY_SOURCES')
+    sources, terms, selected = [], [], []
+    for module_name, class_name, catalog, expected_sha in plans:
+        raw = (HERE / catalog).read_bytes()
+        need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES')
+        module = importlib.import_module(module_name)
+        codec = getattr(module, class_name)(HERE / catalog)
+        candidates = [t for t in codec.catalog['terms'] if t['added']['kind'] in ('CASH_PLUS_STOCK', 'CONVERSION')]
+        declared = ORIGINAL_DELIVERY_SUBSETS.get((arm, cursor, catalog))
+        if declared is not None:
+            need(type(declared) is tuple and declared and len(set(declared)) == len(declared),
+                 'FUTURE_ORIGINAL_PHASE_UNIQUE_DECLARED_DELIVERY_SUBSET')
+            candidates = [t for t in candidates if t['ticker'] in declared]
+            need(tuple(t['ticker'] for t in candidates) == declared,
+                 'FUTURE_ORIGINAL_PHASE_EXACT_EXISTING_DELIVERY_SUBSET')
+        need(candidates and all(cursor < t['native_session'] < t['added']['session']
+             and t['added']['cash_in_lieu_price_per_delivered_share'] is None
+             and ((t['added']['kind'] == 'CONVERSION' and t['added']['cash_per_share'] is None)
+                  or t['added']['kind'] == 'CASH_PLUS_STOCK') for t in candidates),
+             'FUTURE_ORIGINAL_PHASE_UNCONSUMED_PROXY_DELIVERIES_ONLY')
+        source = dict(catalog_file=catalog, catalog_sha256=codec.catalog_sha,
+                      validator_file=Path(module.__file__).name, validator_sha256=codec.compiler_sha)
+        need(codec.catalog_sha == expected_sha and codec.compiler_sha == sha(Path(module.__file__).read_bytes()),
+             'FUTURE_ORIGINAL_PHASE_EXACT_CATALOG_VALIDATOR_BINDING')
+        need(not any(v['catalog_file'] == catalog or v['validator_file'] == source['validator_file'] for v in sources),
+             'FUTURE_ORIGINAL_PHASE_UNIQUE_DELIVERY_SOURCE_COMPONENTS')
+        if declared is not None:
+            source['selected_tickers'] = list(declared)
+        addition = []
+        for original in candidates:
+            term = deepcopy(original)
+            term['original_ordinary_source'] = dict(source, term_sha256=digest(original))
+            term['timing_source'] = original['primary_source']
+            addition.append(term)
+        terms = merge_selected_terms(terms, addition)
+        sources.append(source)
+        selected.append((codec, catalog))
+    if len(selected) == 1:
+        codec, catalog = selected[0]
+        codec.ordinary_source = sources[0]
+        return codec, catalog, terms
+    manifest = dict(schema=COMPOSITION, sources=sources)
+    codec = SimpleNamespace(catalog=dict(terms=deepcopy(terms)), catalog_sha=digest(manifest),
+        compiler_sha=digest([{v['validator_file']: v['validator_sha256']} for v in sources]),
+        composition=manifest, ordinary_sources=sources)
+    return codec, 'EXPLICIT_ORDERED_ORIGINAL_DELIVERY_COMPOSITION', terms
+
+
 def original_delivery_selection(arm, cursor):
     """Future delivery terms from unchanged literal validators; cash selection is separate."""
     import importlib
-    plans = ORIGINAL_DELIVERY_PHASES.get((arm, cursor), ORIGINAL_DELIVERY_SOURCES.get(arm, ()))
-    for module_name, class_name, catalog, expected_sha in plans:
+    if (arm, cursor) in ORIGINAL_DELIVERY_PHASES:
+        return original_phase_delivery_selection(arm, cursor)
+    for module_name, class_name, catalog, expected_sha in ORIGINAL_DELIVERY_SOURCES.get(arm, ()):
         raw = (HERE / catalog).read_bytes()
         need(sha(raw) == expected_sha, 'FUTURE_ORIGINAL_DELIVERY_CATALOG_BYTES')
         module = importlib.import_module(module_name)
@@ -1929,8 +2010,11 @@ def hydrate(cp, arm, *, source_root=None):
         inherited_ordinary.extend(inherited)
         terms = (merge_selected_terms(terms, delivery_terms)
                  if catalog != delivery_catalog or ordinary is not None else delivery_terms)
-        if delivery_codec.ordinary_source not in ordinary_components:
-            ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
+        delivery_sources = (delivery_codec.ordinary_sources if hasattr(delivery_codec, 'ordinary_sources')
+                            else [delivery_codec.ordinary_source])
+        for source in delivery_sources:
+            if source not in ordinary_components:
+                ordinary_components.append(deepcopy(source))
     supplement, components = supplemental_selection(arm, cp['source_cursor'])
     if supplement:
         need(source_root is not None, 'FUTURE_SUPPLEMENT_EXPLICIT_REPAIR_ROOT')
