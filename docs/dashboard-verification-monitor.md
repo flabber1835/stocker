@@ -143,6 +143,14 @@ map; missing, extra or changed neighboring files must retain their actual
 identity and gain no compatibility. This source edge has `authority_effect=NONE`;
 it cannot grant financial authority or renew any receipt.
 
+The verifier itself must match the exact source/runtime identity certified for
+the installed image. This compatibility profile permits the reviewed retained
+history transition; it does not authorize changing files inside an already
+certified verifier. Ship this fix in a newly certified signed image through the
+normal installation and activation path. An in-place verifier overlay must be
+refused by the existing identity guard. Never change the validated identity,
+reviewed configuration, or admission rules to make such an overlay pass.
+
 Exercise the actual Reader, monitor lifecycle, JSON, HTML and browser refresh.
 Prove independence on broker-only changes and withdrawal on shadow input or
 annotation changes. Cross several proof lifetimes with no HTTP traffic, queued
