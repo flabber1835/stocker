@@ -3601,3 +3601,12 @@ forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_fro
 forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm`
 (142passed). The new tests preserve the earlier registry rather than repinning
 its historical records. No financial session or root admission occurred locally.
+
+After publishing SOURCE292, select fresh FIN293/request159 for the same P07
+own1047/532e continuation and original additional-sensor declaration. FIN291
+advanced zero sessions and supplied no financial successor, so its parent is
+unchanged. FIN293 incorporates the qualified finite capacity-timeout correction,
+catalog34 and all55 source scopes, while the P07 ordinary producer remains its
+immutable original generation. Its source closure remains444/383/B19. Only one
+financial worker is selected; SOURCE292 is separately readonly. No rerun API,
+diagnostic-tail adoption, new origin or completed-variant replay is authorized.
