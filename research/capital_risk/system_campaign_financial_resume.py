@@ -50,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P05', 'P07')
+SELECTED_ARMS = ('P03', 'P06')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/126'
-EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/127'
+EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -117,6 +117,9 @@ def expected_request():
              'system_campaign_financial_distribution_standard_runtime.py',
              'system-campaign-standard-distribution-input-facts.json',
              'system-campaign-unconsumed2024-cash-calendar-terminal-facts.json',
+             'system-campaign-array-terminal-facts.json', 'system_campaign_array_facts.py',
+             'system-campaign-tableau-terminal-facts.json', 'system_campaign_tableau_facts.py',
+             'system-campaign-distribution-facts.json', 'system_campaign_distribution_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
              *(term['retained_original_legal_record']['catalog_file']

@@ -2455,3 +2455,24 @@ leave the separate APHA fixed-zero-CIL term and original spins unselected.
 Do not send that whole catalog through a raw-open CIL fill or alter the
 original APHA policy. Preserve all existing default/phase selections and
 qualify the whole batch before adopting any resulting input.
+
+An explicit original-delivery phase list may aggregate all its declared
+disjoint source subsets,so LLL1 and Tableau's DATA/TCF1 can share this one
+input with Array's ordinary cash term and Tableau's three cash terms. Keep
+the historical non-phase fallback's first-source behavior. Reuse the existing
+term merge/key guards,bind every catalog/validator separately,preserve each
+term's original economics and proxy provenance,and reject duplicates or
+collisions. KEYW stays the primary own355 input. This batching route must
+prove all seven original facts and full frozen rows before financial adoption.
+
+Select source260 for P03 own355 and P06 own628. The actual full registry now
+contains41 distinct scopes and preserves every prior40 binding,including
+KEYW's separate scope. P03's batch digest is
+6db8b1b1e1f08bda1ec4e3597dfc6d0a54c00cd6a55a1eac02fb6b345f7121db;
+P06's LM digest is
+e174cd7ac419c48cf5f2c440331e509139debabfc6786213123cd564c83adc28.
+The432-file closure includes all six unchanged Array/Tableau/distribution
+catalog and validator pins. A fresh1477344-row2019 scan verified11 exact
+source rows;all seven original native preimages and the actual own355 roles
+were checked independently. The source request starts zero financial workers;
+the running P05/P07/P11 financial requests keep their already pinned heads.
