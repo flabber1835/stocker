@@ -2514,6 +2514,25 @@ those data-availability limitations. Preserve HISTORICAL_CAUSALITY_UNVERIFIED
 and disclose these limits alongside CAGR;do not describe financial admission
 as proof of unbiased live performance.
 
+For P05's own817 continuation, add a generic original-contract delivery subset
+beside the existing raw-open proxy phases. Bind the exact unchanged original
+DistributionFacts record and validator and select only the declared APHA
+conversion. Preserve its ratio 0.8381 and literal cash-in-lieu 0.0; zero is a
+contractual value and must never be replaced by a later raw-open proxy. Reuse
+the existing ordinary witness/date enrichment, terminal parser and packet
+qualification. A separately qualified contractual-zero predicate must bind
+the original full delivery-row hash and identity before the common hydration
+dispatcher selects this policy. The existing unconsumed raw-proxy phase guard
+and its policy remain unchanged. Merge disjoint Following terms CATM, AZPN1,
+REGI and PLAN through the established generic path, with no spin selection,
+whole-catalog hydration, new portfolio wrapper or source-only no-op. Qualify
+exact zero and ratio preservation, wrong term/policy/source-row refusals,
+raw-open substitution refusal, and unchanged ordinary AZPN proxy behavior.
+This is a research input convention, not evidence of actual fractional-share
+settlement or historical information availability. Source263 independent DATA
+must close before activation; the private proposal grants no financial or
+root-admission authority.
+
 Financial259 saved P05 own817 throughMarch31,2021,61new closes;financial252
 saved P11 own1883 throughJune30,2025,313new closes. Both hosted prefix reviews
 passed. Select readonly report262 for these saved suffixes:61/122/3/84 and
