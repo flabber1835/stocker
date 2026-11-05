@@ -795,39 +795,41 @@ class AutomationService:
             loop.call_soon_threadsafe(heartbeat_failed.set)
 
         def heartbeat() -> None:
-            while not stopped.wait(self.config.heartbeat_seconds):
-                try:
-                    if stopped.is_set() or context.cancellation.cancelled:
+            # Created in this parent thread after the callback child was forked.
+            # Reuse removes connection startup from every fenced renewal.
+            heartbeat_conn = None
+            try:
+                while not stopped.wait(self.config.heartbeat_seconds):
+                    try:
+                        if stopped.is_set() or context.cancellation.cancelled:
+                            return
+                        if heartbeat_conn is None:
+                            heartbeat_conn = heartbeat_conn_factory()
+                            if heartbeat_conn is None:
+                                raise StaleLeaderRefused(
+                                    "heartbeat factory supplied no owned connection")
+                        # Existing bounded SQL and the current permit remain
+                        # authoritative; a failed connection is never retried.
+                        if stopped.is_set() or context.cancellation.cancelled:
+                            return
+                        # Retain the final revocation check immediately at the
+                        # renewal boundary after connection admission.
+                        if stopped.is_set() or context.cancellation.cancelled:
+                            return
+                        store.heartbeat_lease(
+                            heartbeat_conn, permit=permit,
+                            lease_seconds=self.config.lease_seconds, callback=True)
+                        if stopped.is_set() or context.cancellation.cancelled:
+                            return
+                    except BaseException as exc:                  # noqa: BLE001
+                        signal_heartbeat_failure(exc)
                         return
-                    heartbeat_conn = heartbeat_conn_factory()
-                    if heartbeat_conn is None:
-                        raise StaleLeaderRefused(
-                            "heartbeat factory supplied no owned connection")
-                except BaseException as exc:                    # noqa: BLE001
-                    signal_heartbeat_failure(exc)
-                    return
-                try:
-                    if stopped.is_set() or context.cancellation.cancelled:
-                        return
-                    # The factory applies connection and statement bounds below
-                    # the lease. Recheck immediately before the renewal itself:
-                    # a factory that returned after cancellation owns no lease.
-                    if stopped.is_set() or context.cancellation.cancelled:
-                        return
-                    store.heartbeat_lease(
-                        heartbeat_conn, permit=permit,
-                        lease_seconds=self.config.lease_seconds, callback=True)
-                    if stopped.is_set() or context.cancellation.cancelled:
-                        return
-                except BaseException as exc:                    # noqa: BLE001
-                    signal_heartbeat_failure(exc)
-                    return
-                finally:
+            finally:
+                if heartbeat_conn is not None:
                     try:
                         heartbeat_conn.close()
                     except BaseException as exc:                  # noqa: BLE001
                         signal_heartbeat_failure(exc)
-                        return
 
         worker = None
         worker_started = False
@@ -983,6 +985,10 @@ class AutomationService:
                 child_channel.close()
             if parent_channel is not None:
                 parent_channel.close()
+            if heartbeat_errors and not context.cancellation.cancelled:
+                reason = f"{phase} callback heartbeat cleanup failed: {heartbeat_errors[0]}"
+                context.cancellation.cancel(reason)
+                raise StaleLeaderRefused(reason) from heartbeat_errors[0]
 
     async def _invoke_phase(
             self, phase: str, context: CycleContext, *, permit,

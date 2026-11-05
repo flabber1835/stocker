@@ -111,6 +111,22 @@ def test_installed_pr564_source_is_exact_while_complete_repair_changes_are_seale
         assert basis.predecessor_view(changed, previous=previous) is changed
 
 
+def test_installed_pr565_source_is_exact_and_only_reviewed_modules_change():
+    profile = basis._profile()
+    previous = profile['retained_predecessors'][basis.PAPER_RELEASE_PREDECESSOR_REVISION]['files']
+    assert len(previous) == 442
+    assert admission.source_closure(previous) == (
+        '95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca')
+    actual = _actual()
+    assert set(previous) == set(actual)
+    assert basis.predecessor_view(actual, previous=previous) == previous
+    assert {name for name in actual if actual[name] != previous[name]} == {
+        'automation/service.py', 'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
+        'panel/presentation.py', 'panel/pwa.py', 'panel/render.py', 'panel/review.py',
+        'panel/retry_status.py', 'paper_plan_preview.py', 'url_selected_source_basis.py',
+    }
+
+
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_pr564(tmp_path, monkeypatch, defect):
     value = json.loads(basis.PROFILE.read_bytes())

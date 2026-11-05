@@ -12,7 +12,6 @@ import os
 import threading
 import time
 
-TTL_SECONDS = 60
 MAX_ENTRIES = 16
 MAX_BYTES = 262144
 
@@ -35,7 +34,8 @@ def projection(value):
         decision_session=value['decision_session'], tickers=dict(value['tickers']),
         broker_observation=dict(completeness=observation['completeness'],
             account_identity=observation['account_identity'], observed_at=observation['observed_at'],
-            positions=[dict(instrument=dict(security_id=item['instrument']['security_id']),
+            positions=[dict(instrument=dict(security_id=item['instrument']['security_id'],
+                                            symbol=item['instrument'].get('symbol')),
                             quantity=item['quantity']) for item in observation['positions']]))
 
 
@@ -60,11 +60,9 @@ class IntentMemo:
             if configuration != self.configuration or self.last_clock is not None and now < self.last_clock:
                 self.entries.clear()
             self.configuration, self.last_clock = configuration, now
-            for expired in [k for k, (at, _) in self.entries.items() if not 0 <= now-at < TTL_SECONDS]:
-                del self.entries[expired]
             if version is not None and key in self.entries:
                 self.entries.move_to_end(key)
-                return deepcopy(self.entries[key][1])
+                return deepcopy(self.entries[key])
         value = load_authority(conn, plan_id=plan_id)
         if row_version(conn, plan_id) != version:
             raise DualPlanAuthorityRefused('dated intent changed during canonical validation')
@@ -77,7 +75,7 @@ class IntentMemo:
         if len(encoded) <= MAX_BYTES:
             with self.lock:
                 if self.configuration == configuration and self.last_clock == now:
-                    self.entries[key] = (now, deepcopy(result))
+                    self.entries[key] = deepcopy(result)
                     while len(self.entries) > MAX_ENTRIES:
                         self.entries.popitem(last=False)
         return result

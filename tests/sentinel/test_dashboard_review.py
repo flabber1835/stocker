@@ -107,6 +107,20 @@ def test_removed_recovery_latch_is_detected(conn,monkeypatch):
         test_active_failure_stays_red_and_recovery_stays_amber(conn)
 
 
+def test_signed_failure_and_recovery_retain_original_condition_evidence(conn):
+    owner=review.Recorder();clean(owner,conn)
+    failed=panel(feed=model.FAIL)
+    result=owner.observe(failed,conn.info.dsn)
+    event=next(e for e in result.events if e['kind']=='FAILED')
+    fact=event['details']['evidence']['feed']
+    assert fact['raw_status']=='fail' and fact['effective_status']=='fail'
+    assert fact['sampled_at']==failed.now.isoformat() and len(fact['detail_sha256'])==64
+    recovered=owner.observe(panel(),conn.info.dsn)
+    event=next(e for e in recovered.events if e['kind']=='RECOVERED' and e['details'].get('previous')==['feed'])
+    assert event['details']['evidence']['feed']['effective_status']=='ok'
+    assert recovered.status=='REVIEW' and recovered.reviewed_head<recovered.head
+
+
 def test_material_warning_cannot_be_acknowledged_into_green(conn):
     owner=review.Recorder();clean(owner,conn)
     page=panel(backup_restore=model.WARN)

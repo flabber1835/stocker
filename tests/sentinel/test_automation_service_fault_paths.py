@@ -1196,7 +1196,8 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
 
         def wait(self, seconds):
             self.waits += 1
-            if mode == 'one_successful_renewal' and self.waits > 1:
+            assert self.waits <= 2, 'heartbeat double must stop or refuse within one finite renewal'
+            if mode in {'one_successful_renewal', 'close_failure'} and self.waits > 1:
                 return True
             return self.value
 

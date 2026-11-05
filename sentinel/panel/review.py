@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,49 @@ from sentinel.panel.review_model import OperatorReview
 
 TOKEN_SCHEMA = 'sentinel.operator-review-view/1'
 TOKEN_SECONDS = 30
+
+
+def condition_evidence(panel, keys):
+    """Diagnostic metadata only; never persist raw prose or change a verdict."""
+    from sentinel.panel.presentation import _row_boundary
+    result = {}
+    for key in sorted(set(keys))[:32]:
+        row = panel.row(key)
+        if row is None:
+            result[key] = {'code': 'BACKEND_SOURCE_UNAVAILABLE' if key == 'backend_sources'
+                           else 'CURRENT_FACT_MISSING'}
+            continue
+        code = 'ROW_CONDITION'
+        if row.is_future(panel.now):
+            code = 'ROW_CLOCK_FUTURE'
+        elif row.is_stale(panel.now):
+            code = 'ROW_PROOF_EXPIRED'
+        elif key == 'feed':
+            if row.feed_readiness == 'AWAITING_VERDICT':
+                code = 'FEED_BOUND_VERDICT_PENDING'
+            elif 'CorpusLockUnavailable:' in row.detail:
+                code = 'FEED_PUBLICATION_PIN_REFUSED'
+            elif row.detail == 'could not read the feed — frontier timed out':
+                code = 'FEED_FRONTIER_READ_TIMEOUT'
+            elif row.value == 'UNREADABLE':
+                code = 'FEED_READ_UNAVAILABLE'
+            elif row.detail.startswith('contract NOT READY '):
+                code = 'FEED_CONTRACT_FAILED'
+            else:
+                code = 'FEED_UNCLASSIFIED'
+        boundary = _row_boundary(row)
+        phase = row.recovery.phase if row.recovery is not None else None
+        result[key] = {'code': code, 'raw_status': row.status,
+            'effective_status': row.effective_status(panel.now),
+            'sampled_at': panel.now.isoformat(),
+            'as_of': row.as_of.isoformat() if row.as_of is not None else None,
+            'original_valid_until': boundary.isoformat() if boundary is not None else None,
+            'recovery_phase': phase if phase is not None and re.fullmatch('[A-Z0-9_]{1,64}', phase) else None,
+            'value_sha256': hashlib.sha256(row.value.encode('utf-8')).hexdigest(),
+            'detail_sha256': hashlib.sha256(row.detail.encode('utf-8')).hexdigest()}
+    if len(set(keys)) > 32:
+        result['_limit'] = {'code': 'DIAGNOSTIC_LIMIT', 'condition_count': len(set(keys))}
+    return result
 
 
 def failure_detail(error):
@@ -146,11 +190,13 @@ class Recorder:
                 if facts['active'] != state['active']:
                     kind = 'FAILED' if facts['active'] else 'RECOVERED'
                     store.append(conn, key, state, kind=kind, event_key='condition:'+str(state['head']+1),
-                        details={'conditions':facts['active'], 'previous':state['active']}, now=now)
+                        details={'conditions':facts['active'], 'previous':state['active'],
+                                 'evidence':condition_evidence(panel, facts['active']+state['active'])}, now=now)
                 if facts['warnings'] != state['warnings']:
                     kind = 'REVIEW' if facts['warnings'] else 'RECOVERED'
                     store.append(conn, key, state, kind=kind, event_key='warning:'+str(state['head']+1),
-                        details={'conditions':facts['warnings'], 'previous':state['warnings']}, now=now)
+                        details={'conditions':facts['warnings'], 'previous':state['warnings'],
+                                 'evidence':condition_evidence(panel, facts['warnings']+state['warnings'])}, now=now)
                 notices = _notices(conn)
                 unseen = sorted(set(notices) - set(state['incidents']))
                 if unseen:

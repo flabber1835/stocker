@@ -33,7 +33,7 @@ from sentinel.operational_status import color
 from sentinel.panel import last_known, model, singleflight
 from sentinel.panel.review import recorder
 from sentinel.panel.review_store import ReviewRefused
-from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
+from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
@@ -271,7 +271,13 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
 
 @app.get("/", response_class=HTMLResponse)
 @_one_panel_build
-def panel() -> HTMLResponse:
+def panel(request: Request = None) -> HTMLResponse:
+    if (request is not None and request.query_params.get('document') != '1'
+            and (request.headers.get('sec-fetch-mode') == 'navigate'
+                 or request.headers.get('sec-fetch-dest') == 'document'
+                 or 'text/html' in request.headers.get('accept', '').lower())):
+        return HTMLResponse(LAUNCH_HTML, headers={'Cache-Control': 'no-store',
+                            'X-Sentinel-Panel-Status': 'CONNECTING'})
     state_dir, dsn = _config()
     p = _read_panel()
     html = render(p, refresh_seconds=REFRESH_SECONDS)

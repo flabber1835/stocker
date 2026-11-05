@@ -15,6 +15,7 @@ CURRENT_LANES = {
     'sentinel-current-process-recovery': 'tests/sentinel/test_current_process_recovery.py',
 }
 AUTOMATION = frozenset({
+    "test_callback_heartbeat_connection_owner.py",
     "test_activation_startup_contention.py",
     "test_automation_clock_sampling.py",
     "test_closing_data_notifications.py",

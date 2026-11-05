@@ -134,8 +134,9 @@ validated intent projection, never executable sizing authority or a complete
 operational result. Every use must re-read the exact row identity/version, plan,
 binding and current mutable facts. Bind the memo to database/physical incarnation,
 relation identity, full transaction epoch plus tuple xmin/ctid, cursor/session and
-stored digest; clear it on configuration change and clock regression and expire
-it after a short fixed interval. A changed/deleted/reinserted/restored row forces
+stored digest; clear it on configuration change and clock regression. The
+November 4 launch decision below replaces the original one-minute eviction with
+reuse only while that exact physical row version still matches. A changed/deleted/reinserted/restored row forces
 full validation; a changed row with an unchanged claimed digest must refuse.
 Do not re-date any returned observation, plan or expiry. Execution and standalone
 callers retain the original uncached loader.
@@ -295,3 +296,329 @@ network. Its published port was unreachable from the test host, so a finite
 localhost stdio relay carried the actual responses. All
 test containers, networks and relays were removed. No production acknowledgement,
 runtime installation, Windows/root handover or monitoring service was performed.
+
+## Saved-plan labels for exited broker positions
+
+A saved next-open preview includes held positions that the plan exits, even when
+those positions have no target or decision-session bar. Its retained canonical
+ticker map therefore need not cover every displayed leg. For an original-intent
+preview, fill only missing ticker labels from the matching instrument's symbol
+in that same immutable sizing authority's broker observation. Existing canonical
+labels take precedence. Do not query the broker or infer an instrument from a
+different observation to fill a display label.
+
+The bounded dated-intent memo must retain that position instrument's symbol
+alongside its permanent security ID. Its canonical admission, row-version
+recheck, byte bound, expiry and defensive-copy behavior remain unchanged.
+
+If a missing label has no nonblank string symbol in the retained position,
+refuse that preview rather than present an internal security UUID as a ticker.
+The fallback changes display labels only: permanent security IDs, quantities,
+opening intents, plan fingerprints, dated observations and saved authority remain
+unchanged. Historical mirror and trial verdicts keep their original scope.
+
+An explicitly owner-authorized local application of this display-only change
+may overlay the preview and its dated-intent memo modules in the panel container
+and restart only that panel.
+Retain the original bytes and exact base-image/container identity, require the
+tested source delta, and record the overlay commit and file hashes separately
+from the signed base image. Preserve the control generation, admitted plan,
+canonical state and all other services. Local acceptance must verify the exact
+overlay as well as the existing base-runtime checks; it must not relabel the
+overlay as signed base-image content. A failed operation restores only its own
+known bytes and never overwrites an unknown concurrent change.
+
+## Backup readiness after an archive advance
+
+The delivery observer must distinguish a maintenance tick's checkpoint-refresh
+result from current backup readiness. `continuity_ready=false` means that tick
+did not publish a checkpoint. The canonical runtime may already have published
+a newer authenticated checkpoint after its independent external verification.
+This is an observer correction; the production backup writers, financial
+admission, archive equality guards and autonomous schedules do not change.
+
+Keep the narrow comparison in `tools/paper_backup_readiness.py`, shared by the
+qualified delivery observer and its regression tests. It is a pure diagnostic
+comparison, not financial mutation authority or a public JSON admission API.
+Its caller must first authenticate the checkpoint and physical-capacity proof
+with the canonical continuity reader, verify the native evidence row, and supply
+current primary/account/runtime observations. The outer observer separately
+enforces the exact native invocation, stable owner, tick age and host checks.
+
+When a successful native scan could not refresh its checkpoint, accept the
+alternative only if the independently authenticated checkpoint strictly advances
+that verified prefix and exactly reaches the observed primary archive boundary
+with its original archive-success timestamp. Require a fresh supplementary
+observation, current account/epoch/postmaster/source/engine/capacity context and
+the same complete base/timeline/range geometry. Stale, degraded, unauthenticated,
+incomplete or merely asserted newer evidence refuses. A checkpoint still behind
+the primary is a genuine pending condition, not grounds to alter its timestamp.
+
+Preserve both documented integrity producer formats. The native maintenance
+scan reports one complete sidecar pass. The runtime reports two passes for any
+newly hashed objects and may report zero new hashes for unchanged objects within
+its existing process-local 300-second reuse limit. A runtime full scrub hashes
+every object twice; incremental/cache checks never renew that limit. Trust this
+format only in the authenticated canonical proof from the admitted runtime;
+do not create another proof cache or run a manual verifier to obtain green.
+See [the existing proof reuse contract](backup-writer-admission-cost.md).
+
+Keep the original false refresh flag and both verified WAL boundaries in the
+acceptance record. A historical snapshot may qualify the comparison but cannot
+pass the outer current-tick age check. The exact-view acknowledgement still
+requires independent fresh readiness, an unchanged review subject/head and exact
+notification set, a newly issued token, and the existing server transaction.
+
+## Home-screen launch and foreground return
+
+November 4 owner report: a home-screen launch can remain black for 7–10 seconds,
+and foreground return can show refreshing for 4–5 seconds on both Wi-Fi and
+mobile data. Current paired local/public reads took 1.1–1.5 seconds before HTML
+headers, while static PWA resources took 3–21 milliseconds. The worker currently
+awaits the complete network navigation response, so no document can paint while
+status collection or connection establishment is pending. Existing resume tests
+exercise an already loaded document; they do not cover that missing first paint.
+
+Make an ordinary root document navigation return a small static, neutral launch
+document before any database, worker or review read. The existing installed
+worker also returns that same static document directly for same-origin GET root
+navigations. Keep the manifest ID/start URL, all other routes and push behavior.
+The launch document fetches the existing root HTML as a non-navigation request,
+then installs it only after the same complete-document, original-clock and
+finite-age checks used by ordinary refresh. Share that parser with refresh.
+There is one request in flight and a finite abort bound; offline/failure stays
+neutral with an explicit retry. Hidden/late responses cannot install current
+authority. Neither the worker nor the launch document stores HTML, review tokens,
+financial values or successful health in Cache Storage/local storage. The static
+launch response is CONNECTING, not CURRENT; offline launch can return that static
+200 document and subsequently show an offline notice. A no-JavaScript link uses
+the explicit read-only `?document=1` server-rendered path.
+
+A separate read-only miss/hit profile reproduced an unnecessary foreground cost:
+with imports warm, unchanged canonical intent validation took 1.36 seconds and
+the request took 2.52 seconds; its already validated display projection needed
+0.035 seconds and the request took 1.09 seconds. The old memo discards that
+immutable projection after every minute even if the physical row is unchanged.
+Retain the small bounded LRU projection for that exact physical row version
+instead. Every hit still reads database/system/postmaster/relation/tuple/full-XID
+epoch/session/digest identity; configuration changes and monotonic-clock rollback
+clear it. Changed, deleted, reinserted or restored rows force canonical validation,
+including changes retaining a claimed digest. The entry/byte bounds remain.
+Current generation, account, plan selection, opening intents, observations and
+execution time are read afresh outside this memo. Their original timestamps and
+all financial/evidence expiries stay unchanged. Execution/notification loaders
+remain uncached. This removes repeated validation of unchanged immutable bytes;
+it does not cache a complete operational result or extend authority.
+
+Qualify held-network launch before the first document, foreground freshness,
+offline/no fabricated green, single-flight/abort/hidden-response/parser guards,
+the real worker and WebKit document path, plus idle reuse and every physical-row
+invalidation with removed-guard falsifiers. A physical iPhone is not available
+to this test harness; report that limit and measured browser results explicitly.
+
+The owner explicitly authorizes a local panel-only overlay of pwa, app, render
+and intent_memo after qualification, preserving the already installed DELL
+preview and the signed base identity separately. Save exact original bytes and
+metadata, restart only that panel, compare unchanged financial/other-role
+witnesses, and refuse rollback over unknown concurrent bytes. A planned restart
+retains the existing review/acknowledgement contract.
+
+The old-worker migration regression additionally reproduced a stripped Fetch
+Metadata path: its forwarded navigation retained `Accept: text/html` but omitted
+Sec-Fetch-Mode/Dest. Recognize document destination, navigation mode, or an HTML
+Accept request at the root. Bootstrap/ordinary current-document fetches keep
+their normal `*/*` Accept and receive the full current response. The explicit
+`?document=1` path always bypasses launch selection. This covers existing
+installed workers before their update as well as older WebKit metadata support.
+
+
+### Known submitted orders awaiting reconciliation (November 4)
+
+The November4 opening cycle produced a clean, authorized execution result with
+COMMANDS_IN_FLIGHT and moved EXECUTING to RECONCILING. Its DELL SELL2 later
+filled and the same cycle reached SUCCEEDED with clean reconciliation335.
+The panel nevertheless interpreted any nonempty failure_code as an active
+cycle failure and any such transition detail as interrupted transport. The
+failure_code field also contains nonterminal progress; its presence alone is
+not sufficient to classify a failed transport.
+
+Use one pure display predicate for the summary and transport-event projection.
+Recognize only COMMANDS_IN_FLIGHT on a matching saved plan, with the producer's
+explicit submission-authorized/attention-not-required booleans, RUNNING execution,
+nonempty unique submitted keys, no refusal/deferred/restricted work, and matching
+positive clean preflight/final reconciliation identities without unresolved or
+foreign items. Require aware original cycle/open/execute/update/close clocks and
+a next wake strictly after the update and no later than that original close.
+This yields bounded RECONCILING progress, not an interrupted transport or a
+completed cycle. Missing, contradictory or malformed evidence retains failure.
+
+No failure-code-only or text-matching exception is admitted. UNKNOWN and cancel
+uncertainty in the current command/trading-run and broker rows remain independent
+required-current failures. No execution, schedule, financial authority, command,
+plan, observation or immutable event is changed. The display predicate grants
+neither green nor execution authority and cannot extend the original deadline.
+Historical mirror verification and the durable review interval retain their
+existing amber requirements. Existing false incidents stay in immutable history;
+they are not silently erased or automatically acknowledged by this repair.
+
+
+### Completed-day historical PAPER audits (November 4)
+
+The existing producer already authenticates COMPLETED_WITH_HISTORY only after
+proving the exact current day's clean completed plan, original sizing/fingerprint,
+publication, account binding, current authority/leader and zero unresolved outcomes.
+It retains the earlier informational mirror discrepancy and the current plan's
+pending post-close stamp. The verifier is completing these observations normally.
+Human health incorrectly recognizes the historical-audit scheduled state only
+before execution; a positive completion is then mistaken for a new material
+trading warning. Periodic owned checks hide that classification temporarily,
+causing repeated REVIEW/RECOVERED changes and unstable ACK eligibility.
+
+Extend only the human current-health projection for this existing typed completed
+state. Keep the financial row amber/NOT_VERIFIED, the historical discrepancy,
+original trial verdicts, immutable events and machine overall/operational status.
+The tag alone is insufficient. Require local PAPER, a unique row set, no source
+errors, fresh dated independent current capability rows, enabled/non-killed
+control, current leader, authority, complete broker/account proof and the same
+accepted closed-session feed/shadow context as the completed intent. Require the
+canonical current trading_run for today, SUCCEEDED, original completion time,
+all recorded commands FILLED (or no commands for a genuine no-change plan), and
+current SUCCEEDED cycle/completion-step rows dated at the exact same completion.
+An unfilled, UNKNOWN, cancelled, rejected, superseded, foreign-date or stale
+current fact never acquires this allowance. Do not substitute an older-generation
+completed_trading_run for a current cycle in this narrowly scoped repair.
+
+Label the human card today's trading complete and keep the historical audit
+visible in System details with explicit post-close verification caveats. It may
+become green only through the existing explicit exact-view acknowledgement and
+only while all current guards continue to pass. Bound human freshness by the
+minimum original historical-row, completed-run, account, source and leader clocks;
+never retime or extend any proof. Keep ordinary queued-check behavior and the
+canonical verifier/owner/scheduler unchanged. No broker/provider calls, manual
+verification, financial rewrite, automatic ACK or green override is introduced.
+
+### PR566 complete-source release record (November 4)
+
+The PR566 safety lanes correctly refused the unregistered executable source:
+the complete candidate map still described the installed PR565 files while
+eight presentation modules had changed. Finalize the release record after those
+reviewed changes settle. This is an exact source transition, not a relaxation of
+the complete-map guard or an update to historical test expectations.
+
+Advance the existing URL-selected descriptor to version 6 and retain the actual
+installed PR565 revision fcfbd7b1e8bd1134ad14563347ab9df0980c545f as another
+independent predecessor. Its 442 executable Python files have source closure
+95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca,
+computed from the verified Git objects. Preserve the 422-file base, every older
+retained map, structural witness, and economic mapping byte for byte. The new
+candidate records the eight reviewed presentation module hashes and the
+normalized source checker; no other executable module changes.
+
+Retain authority_effect NONE, exact whole-candidate equality, independent
+predecessor count/hash checks, and refusal for changed, missing or extra source,
+including a changed checker. Regress the failed CI cases and execute the
+existing removed-guard falsifiers against the final record. Do not change
+historical fixtures, skip tests, broaden accepted sources, or repeat a local
+overlay, acknowledgement, lifecycle or backup operation for this CI repair.
+
+Qualification reproduced the missing-record failure before the repair. The
+194 failed CI cases plus the complete directly related source-policy modules
+passed 297 cases, including removed-guard falsifiers. The private source snapshot
+retained all 479 tracked files byte for byte before and after execution; all 442
+Python files matched the reviewed record. An earlier Windows bind-mounted run
+reached its 900-second limit and is not counted as passing evidence.
+
+### Pending PAPER alignment during closing-data preparation (November 4)
+
+Starting the next closing-data cycle replaces the completed-day PAPER context
+with an ordinary, still-unverified pending result. The owned verifier already
+projects its bounded check as expected work, but completing that check can
+reintroduce a generic pending warning while no next plan exists. This creates
+false REVIEW/RECOVERED changes during normal preparation.
+
+Keep this repair in human presentation. Admit only the model's plain pending
+PAPER result, with a finite original observation boundary and no alignment or
+recovery override, or the existing bounded queued check. The current cycle must
+have an active typed closing-data wait or bounded REFRESHING_DATA/PREPARING work.
+When data is already ready, require its exact latest closed-session feed and
+strategy verdict instead of borrowing a historical wait. PLAN_READY and its open
+step additionally require the exact visible future plan for that session. All
+these allowances end at the original next exchange opening at the latest.
+Require positive independent source evidence, live strategy worker and leader,
+enabled PAPER control, complete current account/broker evidence, current backup,
+delivery and runtime facts. Each strategy/source fact must be current OK or an
+independently typed bounded closing-data wait. A generic transient retry, absent
+proof, integrity failure, UNKNOWN, expired evidence, killed control or incomplete
+broker evidence retains warning/failure. Do not interpret exception prose.
+
+This changes neither verifier receipts nor their raw WARN/NOT_VERIFIED status,
+execution readiness, plans, financial authority, source deadlines or retry policy.
+Bound human freshness by the minimum original PAPER, source, worker and leader
+clocks. Existing incident/review history stays immutable and still requires
+explicit healthy acknowledgement. Test the pending/check transition, raw JSON
+and HTML preservation, every missing/current capability, expiry, genuine retry
+and integrity failures, and an executed removed-source-proof falsifier. Deploy
+only the qualified presentation module to the existing panel; retain the signed
+base and all other role identities and source bytes.
+
+### Close-session root triage and callback connection ownership (November 4)
+
+The closing cycle produced three delivered alerts: a source-pin refusal before
+its writer could be positively identified, a lost leader after a heartbeat's new
+database connection timed out, and pending canonical PAPER evidence coverage.
+Normal source acquisition continued, the supervisor recovered leadership without
+a container restart, coverage advanced, and the exact next-session plan reached
+WAITING_OPEN. Recovery is recorded separately from a code repair. Keep genuine
+source/lease failures, original retry budgets and all historical events visible.
+Do not weaken publication ownership proof or suppress an unidentified lock owner.
+
+The callback heartbeat currently creates and closes a database connection for
+every renewal. Retain one connection owned exclusively by the heartbeat thread
+for that finite callback, opened after the callback child is forked. This removes
+repeated connection startup/authentication from otherwise healthy lease renewal.
+Keep the existing bounded connection/statement settings, database clock, fencing,
+control-generation checks, heartbeat cadence, callback deadline and cancellation.
+Never reconnect or retry a failed renewal silently. Any connection/query failure
+still cancels and fences the callback; supervisor recovery remains canonical.
+Close the owned connection once on every exit and surface cleanup failure before
+successful callback return. No connection or descriptor crosses the child fork.
+
+The verified controller decision legitimately precedes adoption into a saved
+plan. Its raw required-current WARN/NOT ADOPTED fact otherwise becomes a generic
+red financial row during normal PREPARING work. Human process health may recognize
+only the model-owned unadopted fraction grammar and exact latest decision, a
+current verified canonical book/feed/verdict, pending plan and bounded PREPARING
+cycle, plus every current safety capability required above. Retain the original
+financial row, effective machine failure, evidence timestamps and expiry. This
+does not grant next-open readiness or claim adoption. Missing/mismatched facts,
+actual FAIL/UNKNOWN, generic retry, expired evidence and absent leader remain
+negative. Add a native-model regression and a removed-decision-binding falsifier.
+
+A short feed-read failure was recorded at 22:15:54 and recovered at 22:15:55;
+the original row reason was not retained. Current snapshots cannot prove its
+historical physical cause. Current host I/O pressure is a diagnostic observation,
+not proof of that cause. Do not label this unexplained interval fixed or clear it
+by changing a timeout, hiding the event or widening evidence clocks. Preserve it
+as an open root-triage item until its cause can be established. All acknowledgements
+remain on hold during the owner's complete close-session root audit.
+
+Review transitions currently retain condition keys without their originating
+row evidence. Record bounded diagnostic metadata at that existing signed-event
+boundary: raw/effective status, original observation/expiry, recovery phase,
+controlled reason code and SHA256 of display value/detail. Do not record the
+display strings, SQL, account values, signed tokens or environment. For feed
+conditions distinguish original clock expiry, a publication pin refusal, read
+timeout, absent bound verdict and a failed source contract using only owned
+model grammar/typed fields. Unknown reasons retain an explicit unclassified code.
+Record recovered evidence for the previous condition keys as well. This repairs
+the post-mortem evidence gap without changing colors, expiry, review subject,
+acknowledgement, financial authority or the meaning of a historic event.
+
+The new callback-connection tests must belong to the dedicated automation
+coverage lane. Its explicit module inventory previously assigned them to an
+ordinary general shard, so all 691 automation cases passed while the independent
+100% branch gate missed the newly added final cleanup refusal. Add this module
+to the existing automation owner set, which also excludes it from general
+shards. Keep the coverage threshold and workflow unchanged. Verify exact,
+disjoint ownership and run the complete selected automation lane with branch
+coverage, including the connection cleanup falsifier.

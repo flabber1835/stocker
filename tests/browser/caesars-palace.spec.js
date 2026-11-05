@@ -442,7 +442,7 @@ test.describe('App resume presentation', () => {
       await page.route('**/', async route => {
         if (!route.request().isNavigationRequest()) await held;
         try {
-          const response = await route.fetch();
+          const response = await route.fetch({url:new URL('/?document=1',route.request().url()).href});
           const source = await response.text();
           const body = source.replace(
             /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
@@ -583,6 +583,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     page
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#operational-state")).toBeVisible();
     await context.setOffline(true);
 
     await expect(page.locator("#dashboard-heartbeat")).toContainText("UNAVAILABLE");
@@ -651,7 +652,8 @@ test.describe("Caesar's Palace PWA and push path", () => {
         candidate.request().frame() === page.mainFrame() && candidate.fromServiceWorker()),
       page.reload({ waitUntil: "domcontentloaded" })
     ]);
-    expect(response.status()).toBe(503);
+    expect(response.status()).toBe(200);
+    expect(response.headers()["x-sentinel-panel-status"]).toBe("CONNECTING");
     expect(response.headers()["cache-control"]).toBe("no-store");
     await expect(page.locator("body")).toContainText("STATUS NOT CURRENT — OFFLINE");
     await context.setOffline(false);
