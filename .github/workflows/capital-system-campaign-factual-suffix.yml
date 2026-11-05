@@ -16,9 +16,9 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
-        arm: [P11]
+        arm: [P03, P06]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -46,7 +46,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Continue P11 own2093 with qualified TERN ordinary cash input
+      - name: Verify P03 own462 and P06 own1238 exact financial reports
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

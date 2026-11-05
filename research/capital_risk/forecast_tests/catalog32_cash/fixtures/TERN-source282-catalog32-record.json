@@ -1,0 +1,84 @@
+{
+  "actual_completion_date": "2026-05-05",
+  "added": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": 53.0,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "https://www.merck.com/news/merck-completes-acquisition-of-terns-pharmaceuticals-inc/ | Mandatory53USD per eligible Terns ordinary common share; Merck confirms completion May5,2026 and mandatory remaining-share conversion. NasdaqECA2026-286 confirms completion beforeMay5open and May4last trading. Preserve May4history and frozen issuer/eligibility. Updated-alert publication time, exact legal minute, actual cash-payment availability and settlement are not qualified. Recognition quantity comes only from the actual canonical own book, not the157-share source parent witness.",
+    "security_id": "961294553911856115",
+    "session": "2026-05-05"
+  },
+  "arm": "P11",
+  "description": "Mandatory53USD per eligible Terns ordinary common share; Merck confirms completion May5,2026 and mandatory remaining-share conversion. NasdaqECA2026-286 confirms completion beforeMay5open and May4last trading. Preserve May4history and frozen issuer/eligibility. Updated-alert publication time, exact legal minute, actual cash-payment availability and settlement are not qualified. Recognition quantity comes only from the actual canonical own book, not the157-share source parent witness.",
+  "identity_witness": {
+    "issuer_id": "SEC_CIK:1831363",
+    "listing_first_session": "2021-02-05",
+    "security_id": "961294553911856115",
+    "security_type_eligible": "1",
+    "session": "2026-05-01",
+    "source_observation_sha256": "729a47cf28487de6eedfb285174b2ff7d7bf17d86a1dc12865899ed4a4717c51",
+    "ticker": "TERN"
+  },
+  "last_trading_session": "2026-05-04",
+  "mandatory_common_share_completion_confirmed": true,
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=6111.1",
+    "security_id": "961294553911856115",
+    "session": "2026-05-04"
+  },
+  "native_session": "2026-05-04",
+  "native_term_sha256": "ee9a9ee8b82e907c6b0024834ae9e9ac4aef4341358e57556926fa955e0139d0",
+  "parent_cursor": "2026-04-30",
+  "parent_outer_sha256": "6455483fb3a6c6e765ba75cc00c5468d1d95a3866f59643c19fffef530ac52a4",
+  "parent_positions": [
+    {
+      "entry_date": "2026-04-29",
+      "quantity": 157,
+      "slot_id": 19,
+      "ticker": "TERN"
+    }
+  ],
+  "parent_root_admission_sha256": "01d9f480ee14644206c37d7c7c9ed46da55ed000056042e85f59f41d74440ecf",
+  "preopen_completion_confirmed": true,
+  "primary_extraction": {
+    "actual_cash_payment_or_settlement_observed": false,
+    "actual_completion_date": "2026-05-05",
+    "actual_opening_cash_availability_proved": false,
+    "cash_per_ordinary_common_share": "53.00",
+    "exact_legal_effective_minute_observed": false,
+    "exchange_preopen_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-286",
+    "issuer_completion_source": "https://www.merck.com/news/merck-completes-acquisition-of-terns-pharmaceuticals-inc/",
+    "last_trading_session": "2026-05-04",
+    "mandatory_conversion": true,
+    "preopen_time_established": true,
+    "updated_alert_publication_time_observed": false
+  },
+  "primary_extraction_sha256": "66df8ee085cb7d304e742312819d464e0c952977018207c4bc2c3b5ee641f855",
+  "primary_source": "https://www.merck.com/news/merck-completes-acquisition-of-terns-pharmaceuticals-inc/",
+  "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+  "security_id": "961294553911856115",
+  "source_capture": {
+    "artifact_id": 13411242209,
+    "head": "6d0abbb92a2647a93112cecad78b8c1397c2c467",
+    "independent_data_review_sha256": "2b18a60406d2c7932ef2de78591a41dc4a195a27d900bfdd546e8c47830ff7f6",
+    "independent_qualification_sha256": "46098ae20b7b8336a1e7c8d27412f55efef7f75f09e7f9fef901afa3285e7b8d",
+    "payload_sha256": "e925c5e196e853784f870342c86ec831f9a85014749bcc6e5a4bccdbb608c673",
+    "run_id": 42020159295,
+    "scope_sha256": "a1db7726ae8fe001772f862a159d7c59ebadc3ff309de1ebb65141169e4ef30f"
+  },
+  "ticker": "TERN",
+  "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-286"
+}

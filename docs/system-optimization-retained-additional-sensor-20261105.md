@@ -94,19 +94,35 @@ ending the context at uncertainty review would invalidate the later exact-byte
 round trip. Extend only the selected additional-sensor route and restore the
 entire context after all review calls, preserving every legacy path.
 
-Retain the inherited December ordinary observer as well as the new seven-term
-observer: the old compound-v2 VCRA observer is already past its active interval,
-while six adopted December terms remain ahead. Pin the inherited raw descriptor,
-hydrated material and original source generation. Bind only their original
-overlay filename/material name into the unchanged ActualEvents constructor;
-verify its original source_scopes returns an empty list, rather than forcing it.
-Install that observer first, with output under
-additional-inherited-ordinary-observation/<descriptor SHA>/, then install the
-new seven-term instance of the exact same ActualEvents class at the normal
-output. Require disjoint selected (session,SID) keys. Consumed old terms remain
-provenance and never become new input or economic authority.
+Retain all three exact inherited ordinary-observer generations as well as the
+new seven-term observer. The old compound-v2 VCRA observer is already past its
+active interval. The actual20-input inventory still has AZPN1/REGI/PLAN,
+NUAN/CERN and the six future December terms. AZPN1 is CASH_PLUS_STOCK and
+must retain its original cash, delivered shares, aggregation and fractional
+rules. Pin each inherited raw descriptor, original source generation and exact
+effective hydrated material. An already qualified APHA projection must supply
+its original derived effective view with both raw and projection provenance;
+never revive the retired raw APHA economics or invent a new projection.
+Require the explicit own1047 record to cover exactly this authenticated full
+inventory, with no additional unregistered generation or silently dropped term.
 
-After both observers are installed, enter the existing retained_terminal_callers
+Bind only the original overlay filename/material name into unchanged
+ActualEvents constructors. Prove each original source_scopes result against its
+pinned effective material; do not force a convenient empty scope. Use the exact
+same ActualEvents class for all registered observers, with each inherited output
+under additional-inherited-ordinary-observation/<descriptor SHA>/ and new-seven
+output at the normal root. Require disjoint selected (session,SID) keys and
+original cash/stock kinds. For this explicit phase, install cash-only, unscoped
+inherited observers and new-seven first. Install the sole registered generation
+containing future AZPN1 CASH_PLUS_STOCK last/outermost. Its unchanged stock
+callback must directly see the canonical step frame and pending local;
+transparent wrapper authentication alone cannot supply that local. Prove all
+inner callbacks have no stock or source-scope frame dependence. Refuse multiple
+stock-bearing generations or an unqualified inner scoped term. Retain this
+origin-bound order through reporting/restart even after AZPN1 is consumed.
+Consumed terms remain provenance and never become new input or economics.
+
+After all registered observers are installed, enter existing retained_terminal_callers
 scope with authenticated retained_versions(old,cp0). It must validate identical
 state/pending/ledger/terms arguments, actual outermost installation, original
 step code and same-class wrapper frames before delegating to unchanged

@@ -3229,3 +3229,46 @@ exact; all thirteen input documents precede one neutral ordinary adoption.
 No special TERN runtime wrapper, new financial algorithm or volatility override
 is introduced. Completing the remaining63 closes and independent review is
 still an outstanding gate, not a result implied by this dispatch.
+
+R283 run42023552646/e2becac42d7774ea5031a909abd026c61e46fef5 and
+artifact13412613010 passed independent DATA21/42/1/28. Admit only P05
+own986/bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5,
+retaining own965/798 in historical roots and all12 current input documents.
+The original DATA validation reports root_admission_ready; an explicit root
+normalization checks that flag together with the independent review's
+financial_admission_ready, verifies all18 manifest files and preserves both
+original reports byte for byte before the unchanged admission helper executes.
+No MDP input authority or full performance score is admitted.
+
+Batch readonly report285/request152 for P03 saved462/October31,2019 and P06
+saved1238/November30,2022. Both selectors are qualified and both readers accept
+an exact shared request with per-arm artifact/seed binding. Use two independent
+readonly workers and zero financial workers. Keep P03 DATA in report285 and P06
+DATA in report287, each with the same immutable producer request/head/run and
+only its own authenticated report artifact. This shares dispatch rather than
+any book, source input or financial lineage.
+
+P03 requires23 daily rows,46 accountings,one monthly report,28 Decimal metrics
+and eight committed interval certificates; exclude seven later certificates
+and322776 daily/2457 watch bytes. Preserve the three neutral12-to15 adoption
+boundaries and explicit original FIN281 typed model/source declaration. Its
+selector passes23 cases/three removals, input helper nine cases, and exact
+interval precheck verifies all eight committed proof leaves without a point
+growth substitute. P06 requires148/296/7/196, original seven inputs plus one
+neutral ordinary input, and all ten actual cash terms. Its selector passes39
+cases/five removals; exclude eleven December closes/1365164 daily and1855
+watch bytes. Next TRQ is a held blocker: actual own1238 has82 shares in slot0;
+the incomplete December15 native and December16 economic refusal grant no
+source-unheld or cash-amount authority. Fresh own-root SOURCE follows admission.
+
+Combined report285 request/partial/metadata/retained-input qualification and the
+portable catalog32 regression pass180 cases in53.63s:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/report285-combined-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py forecast_tests/test_financial_future.py
+forecast_tests/test_financial_own_cash.py forecast_tests/catalog32_cash/test_catalog32_cash.py`.
+The portable catalog32 fixture is the exact4521-byte source-bound TERN record;
+it reconstructs historical generation32 and permits future append-only catalogs.
+It exercises the unchanged nonempty input parser with synthetic field models,
+including duplicate/loaded-mutation refusals, without financial execution.
