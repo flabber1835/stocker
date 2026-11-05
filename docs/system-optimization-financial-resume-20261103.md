@@ -2924,6 +2924,25 @@ binding, axis, actual absence/no-op and older SOURCE_CLOSE guards before any
 P05 financial continuation. No broker or canonical financial-source change is
 authorized by this research recognition assumption.
 
+In that separate typed source-only record,
+mandatory_common_share_completion_confirmed=False denotes that held-position
+completion is not qualified by this input. It does not deny the retained
+merger's legal calendar completion or rewrite its cash consideration. Keep the
+original legal record intact and make the source-only/portfolio-authority
+distinction explicit in the record's description and qualification.
+
+P05's original December catalog contains ARNA and EPAY terms whose native and
+effective sessions coincide. Preserve those literal dates. Add an explicit
+generic opt-in for this qualified supplemental phase only: equality is allowed
+only for an original validator-qualified CASH_MERGER with confirmed PREOPEN
+recognition and preopen_completion_confirmed=True, after the admitted cursor.
+All other terms retain strict native-before-effective ordering, and every
+phase without this opt-in keeps the original strict supplemental branch.
+Retain the exact original catalog and validator hashes, constructor checks,
+source disjointness and packet/collision qualification. Test foreign phases,
+noncash or unconfirmed same-day terms and removal of the new guards. Do not
+move dates or relax the shared default merely to fit this batch.
+
 Select source276 for P07 own1047/532e, after report277 was submitted. Query
 ZGNX and seven remaining2022 originals: MIME,CYBE,AVLR,FMTX,PING,Y,ZEN.
 All eight primary identity queries must be strictly before their native dates.
@@ -2961,3 +2980,72 @@ with the same scope, identities, natives and input bytes. This is one explicit
 source-only recovery after a verified terminal staging failure, not a restart
 after an observation timeout. New authenticated independent DATA remains
 mandatory. P11 financial275 and P06 readonly report277 keep their own handles.
+
+Report277 and independent DATA admit P06 own1090 through April29,2022 as
+492d237b92b995ee1fdc1f6e81049f62688df5981cd5b72f493245c695fb6fc9.
+All273 new daily rows,546 accountings,13 reports and364 Decimal metrics pass;
+retain f8be and exclude all eight May tails. The48-case input review includes
+13 guard-removal falsifiers. IPHI's actual23-share event continues into53
+MRVL shares,1518 cash and19.57098 declared raw-open fractional cash, with the
+original slot, episode and ledger sequence exact. Original APHA0.8381/CIL0
+and all six inherited input documents remain exact. Together with P07's
+new19-close admission, this cycle admits292 closes,584 accountings,14 reports
+and392 Decimal metrics without any new full completion claim.
+
+Prepare source279 from that exact P06 root for XENT plus nine known unconsumed
+original cash events: EPAY,MIME,FMTX,PING,AVLR,Y,CCXI1,CYBE,ZEN. Query ten
+natives using strictly earlier frozen identity sessions and preserve the five
+original same-day catalog identity rows as additional witnesses. Recompute
+all own1090 holding, pending and selected roles; donor roles are not portable.
+Exclude every security already in the seven adopted input documents,
+including the future AZPN1,REGI,PLAN and older MYOV rights. Add one distinct
+source registry entry, preserving all49 earlier scopes and every function/
+class AST, and select only active P06. This query activates no new cash value,
+timing policy or financial worker. Fresh independent DATA remains required.
+
+Source278 encountered the same staging HTTP504 before source execution. Two
+capacity-only artifacts establish a release-asset acquisition failure, not an
+economic/source predicate failure. Do not issue another identical staging
+attempt. Add a host-only transfer adapter around the unchanged stage.acquire
+operation: intercept only the exact release-part URLs declared by the frozen
+stage request, and retain every original size/hash, decryption, extraction and
+runtime-image/source verification. After an eligible transient open failure,
+allow a bounded fallback through GitHub's authenticated release-asset API to
+the same named/size-bound asset. Resolve metadata once, validate repository/
+tag/asset identity, and send the existing workflow read token only to
+api.github.com. Follow a validated release-asset redirect without forwarding
+that token; never log signed URLs or credentials. Honor bounded Retry-After
+information, report rate-limit status explicitly, and stop when the transfer
+budget is exhausted. A failure after streaming begins still fails closed;
+this is no append/retry of already written bytes. Restore the original opener
+on every exit. The adapter may not decrypt or parse market data, contact a
+broker, alter stage.py or any original383 source, or change any worker
+credential boundary. Pin the adapter in the factual request and invoke it
+only in the existing host staging step. Test the actual immutable acquire
+function with synthetic responses, including wrong byte/hash and destination
+guards, no credential forwarding, bounded calls and restoration. Then issue
+a fresh combined source279 query for P06 and the still-unqualified P07 scope,
+with zero financial workers and the original attempt1 guards intact.
+
+The frozen transfer has27 data parts plus one runtime asset. Once the first
+eligible public open failure and exact authenticated release metadata closure
+establish the fallback, use that same qualified API route for the remaining
+declared assets in this staging invocation. Do not spend another public
+timeout on every part. Scope this mode to the validated release and exact
+declared part identities; keep one binary API attempt per part, no streaming
+retry, all original acquire byte/hash checks and restoration on every exit.
+Qualify the multi-part mode transition and negative cases without changing
+the existing staging timeout or any financial/source authority.
+
+Dispatch combined source279/request146 only for P06 own1090/492d and P07
+own1047/532e. The host adapterdf3304aea3998841eff7b5cf9cc26fd81e77d9a4a66f3874c3ff347560ceda66
+and unchanged stage-request join the435-file source closure. Author and
+independent peer each pass64 transfer tests; the shared request/partial/source/
+metadata/transfer gate passes226 cases. Original stage.py, all383 financial
+drivers and B19 remain exact. P06's source scope4625ef93fd3b35cf69f1e166f68399aacd95ae76c6f4103df14c34a353f4ee3c
+includes MIME's actual38-share slot26 role; do not describe that entire batch
+as unheld. P07 retains scope2614 and its selected-but-unheld ZGNX role.
+The two earlier P07 staging failures remain evidence only and grant no source
+or financial authority. The new combined request still starts zero financial
+workers; its actual authenticated source output and independent DATA remain
+the next required gates.
