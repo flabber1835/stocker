@@ -337,7 +337,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==41
+    assert len(f.WITNESS_SCOPE_REGISTRY)==43
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')

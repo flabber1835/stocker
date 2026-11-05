@@ -2525,3 +2525,24 @@ These identify existing source-input work;they grant no tail or input-adoption
 checkpoint authority. Both per-artifact captures completed;distinct collection
 summaries were then created after the shared-summary filename refused an
 overwrite. No archive was downloaded again or earlier collection rewritten.
+
+Report262 and independent DATA admit own817 P05 as
+b1b4db73909f584bf7704cf33158eacc9ce1f8a8cbe212785d8f9b3404e6dede,
+and own1883 P11 as
+ab8b38df9778710adafbeabdd6deea6491d498a55138be00da5cce11da8b94be.
+The61/313 new closes,122/626 accountings,3/15 reports and84/420 Decimal
+metrics passed,with27 P05 and30 P11 input/event tests. Preserve their own
+756/1570 predecessor admissions and exclude all later tails. P11's GE parent
+rebase and actual ALPN/SWAV plus three BASE cash quantities were derived from
+its own snapshots,not another variant's holdings.
+
+Select source263 for these admitted roots. P05's five future Following
+originals are APHA,CATM,AZPN1,REGI,PLAN;exclude consumed ACIA and bind TLRY/AZPN
+delivery rows. Its current held/pending roles are empty without asserting
+future holdings. Preserve APHA's separately established0.8381 ratio and
+literal0 fractional consideration;raw-open price is not its CIL authority.
+P11's TGI query binds206shares in slot3 sinceApril4,July23 identity andJuly24
+native. Reuse the existing26USD/July25 next-session factual convention after
+fresh source DATA;do not reuse P00's234-share role. Append both scopes and
+retain all41 earlier registry objects. This source request starts no financial
+workers and grants no financial/PIT authority.

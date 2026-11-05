@@ -55,8 +55,8 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/129'
-EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/130'
+EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -120,6 +120,7 @@ def expected_request():
              'system-campaign-array-terminal-facts.json', 'system_campaign_array_facts.py',
              'system-campaign-tableau-terminal-facts.json', 'system_campaign_tableau_facts.py',
              'system-campaign-distribution-facts.json', 'system_campaign_distribution_facts.py',
+             'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
              *(term['retained_original_legal_record']['catalog_file']
