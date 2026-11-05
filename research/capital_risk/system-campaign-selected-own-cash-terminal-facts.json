@@ -1381,6 +1381,152 @@
       },
       "ticker": "ARII",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm"
+    },
+    {
+      "actual_completion_date": "2020-07-31",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 50.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm | Published50USD common-share consideration is recognized on the July31,2020 completion calendar date at the research opening boundary. Opening availability is an explicit daily-model assumption; actual preopen completion, settlement timing and fees are not claimed. Preserve July30 native trading and the qualified own628 source and41-share holding.",
+        "security_id": "986298677409235360",
+        "session": "2020-07-31"
+      },
+      "arm": "P05",
+      "description": "Published50USD common-share consideration is recognized on the July31,2020 completion calendar date at the research opening boundary. Opening availability is an explicit daily-model assumption; actual preopen completion, settlement timing and fees are not claimed. Preserve July30 native trading and the qualified own628 source and41-share holding.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:704051",
+        "listing_first_session": "1997-12-31",
+        "security_id": "986298677409235360",
+        "security_type_eligible": "1",
+        "session": "2020-07-29",
+        "source_observation_sha256": "bd91c16eadfd29de9462216101e31368c3de17b6cd51161df9ef93f2bc6cd661",
+        "ticker": "LM"
+      },
+      "last_trading_session": "2020-07-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4446.5",
+        "security_id": "986298677409235360",
+        "session": "2020-07-30"
+      },
+      "native_session": "2020-07-30",
+      "native_term_sha256": "6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d",
+      "parent_cursor": "2020-06-30",
+      "parent_outer_sha256": "2666a9c29c778f499db15c687303d1dd663edc6cb3461d3ba877c615c03a4446",
+      "parent_positions": [
+        {
+          "entry_date": "2020-04-03",
+          "quantity": 41,
+          "slot_id": 17,
+          "ticker": "LM"
+        }
+      ],
+      "parent_root_admission_sha256": "792cbf186292d30e81c370941b97083ce31a5226d19009e40771de16c1250951",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "50.00",
+        "recognition_session": "2020-07-31",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "986298677409235360",
+      "source_capture": {
+        "artifact_id": 13375404569,
+        "head": "0e8dcd539f7e473f206285e44c8db523c41e7d73",
+        "independent_data_review_sha256": "5581ba6b50981c3ab2775321650edeb3dac2b503c6c8a2c68230a7dea659f2f3",
+        "payload_sha256": "c6f9cb91dff29ba552e69a3422b41bd58333eef004e086225317be61b856fe1c",
+        "run_id": 41939321606,
+        "scope_sha256": "2d233020f20e0d1c1340f0b19772d0879f5e6a14454246aba7fdabe1cc8a3a76"
+      },
+      "ticker": "LM",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
+    },
+    {
+      "actual_completion_date": "2023-07-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 58.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/40888/000119312523196927/d533534d8k.htm | Issuer July28 completion8K confirms58USD mandatory common-share cash consideration and suspension before July28,2023 market open. OCC52925 confirms consummation before that open. Preserve allJuly27trading and the incompleteJuly27native; recognize the common cash right onJuly28. Actual exchange-agent payment time is not claimed.",
+        "security_id": "721679296374852573",
+        "session": "2023-07-28"
+      },
+      "arm": "P11",
+      "description": "Issuer July28 completion8K confirms58USD mandatory common-share cash consideration and suspension before July28,2023 market open. OCC52925 confirms consummation before that open. Preserve allJuly27trading and the incompleteJuly27native; recognize the common cash right onJuly28. Actual exchange-agent payment time is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:40888",
+        "listing_first_session": "1997-12-31",
+        "security_id": "721679296374852573",
+        "security_type_eligible": "1",
+        "session": "2023-07-26",
+        "source_observation_sha256": "56a63de40b6f62489f9a2924b8c21845cbbec41b8bc89bfcadf2c627e50ecd59",
+        "ticker": "AJRD"
+      },
+      "last_trading_session": "2023-07-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4683.2",
+        "security_id": "721679296374852573",
+        "session": "2023-07-27"
+      },
+      "native_session": "2023-07-27",
+      "native_term_sha256": "c18c68ef2a138d80a1bf1325d3ece4707e45c2bb6d51ea96a9a3c6dbb402237d",
+      "parent_cursor": "2023-06-30",
+      "parent_outer_sha256": "28f4b89c314c2d9b3fe3256412d83f335bf394708497b638fba9e95cb1cd3895",
+      "parent_positions": [
+        {
+          "entry_date": "2023-02-13",
+          "quantity": 75,
+          "slot_id": 15,
+          "ticker": "AJRD"
+        }
+      ],
+      "parent_root_admission_sha256": "98721a1b50ebb8a28c4ca9f7572d0722dcb6091da7b3f2fbba68d3b3ce768004",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/40888/000119312523196927/d533534d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "721679296374852573",
+      "source_capture": {
+        "artifact_id": 13376016520,
+        "head": "0e8dcd539f7e473f206285e44c8db523c41e7d73",
+        "independent_data_review_sha256": "1fec4ca472e3553c66cf83499a04d2e8cb97e6d0a193f0be026f2384dba66af0",
+        "payload_sha256": "095be51b29a8d3347ba3c0f10a28a448899090d4585fe3907aecec37e4c5e31d",
+        "run_id": 41939321606,
+        "scope_sha256": "ea40f33d8b1a27feba55f3ea0ae1994f6309d9c42b1600bc9d1cf42d9c6afc92"
+      },
+      "ticker": "AJRD",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=52925"
     }
   ]
 }

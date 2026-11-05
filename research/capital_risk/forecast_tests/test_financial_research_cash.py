@@ -78,7 +78,7 @@ def test_research_axis_guard_removal_admits_a_missing_daily_boundary():
 
 def test_resolved_tvty_uses_the_same_cash_model_from_own1111_without_backdating_holdings():
     codec,_,terms=f.selected('P11',cursor='2022-05-31');t,=terms
-    assert codec.catalog_sha==f.OWN_CASH_SHA and len(codec.catalog['terms'])==16
+    assert codec.catalog_sha=='465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c' and len(codec.catalog['terms'])==16
     assert t['parent_root_admission_sha256']=='524ad7d5c2ca46bd48d6fdd7066c788ba557e62116246a1fae9b00845a106e58'
     assert t['parent_positions']==[] and t['source_capture']['artifact_id']==13367285466
     assert t['identity_witness']['session']=='2022-06-24'

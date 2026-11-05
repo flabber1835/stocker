@@ -66,6 +66,21 @@ def test_literal_witness_survives_actual_frozen_date_normalization():
     assert scope['terms'] == before
 
 
+@pytest.mark.parametrize('arm,cursor,expected',[
+    ('P05','2020-06-30',['LM','MNTA','AIMT','IMMU','MYOK','VRTU']),
+    ('P11','2023-06-30',['AJRD','DICE','ARNC','FRG','FORG','CFMS','QUOT','RADI'])])
+def test_qualified_own_cash_composes_only_original_unconsumed_supplements(arm,cursor,expected,monkeypatch):
+    import system_campaign_ordinary_registry as registry
+    original=registry.registrations;monkeypatch.setattr(registry,'registrations',lambda:original(f.HERE))
+    _,_,primary=f.selected(arm,cursor=cursor);extra,sources=f.supplemental_selection(arm,cursor)
+    combined=f.merge_selected_terms(primary,extra)
+    assert [t['ticker']for t in combined]==expected and len(sources)==1
+    assert all(t['native_session']>cursor and t['added']['session']>cursor for t in combined)
+    public=json.loads((f.HERE/sources[0]['catalog_file']).read_bytes())
+    assert [t['added']for t in extra]==[t['added']for t in public['terms']]
+    assert combined[0]['parent_positions'][0]['quantity']==(41 if arm=='P05' else 75)
+
+
 def test_exact_catalog_and_validator_bytes_falsifier(tmp_path, monkeypatch):
     plan = f.SUPPLEMENTAL_PHASES['P05', '2018-11-30'][0]
     for source in f.SUPPLEMENTAL_PHASES['P05', '2018-11-30']:
