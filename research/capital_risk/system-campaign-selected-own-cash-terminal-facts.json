@@ -2172,6 +2172,90 @@
       },
       "ticker": "IPHI",
       "timing_source": "https://investor.marvell.com/sec-filings/all-sec-filings/content/0001193125-21-122807/0001193125-21-122807.pdf"
+    },
+    {
+      "actual_completion_date": "2026-03-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 105.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1800/000110465926033079/tm268709d2_8k.htm | Mandatory105USD per eligible Exact Sciences common share; legal completion March23,2026. NasdaqECA2026-178 explicitly confirms completion before March23open and March20last trading. Preserve March20history and frozen issuer/eligibility. Updated-alert publication time, exact legal minute, actual cash-payment availability and actual settlement are not qualified. Actual recognition quantity comes only from the unchanged canonical own book, not the79-share parent witness.",
+        "security_id": "637262944715750985",
+        "session": "2026-03-23"
+      },
+      "arm": "P11",
+      "description": "Mandatory105USD per eligible Exact Sciences common share; legal completion March23,2026. NasdaqECA2026-178 explicitly confirms completion before March23open and March20last trading. Preserve March20history and frozen issuer/eligibility. Updated-alert publication time, exact legal minute, actual cash-payment availability and actual settlement are not qualified. Actual recognition quantity comes only from the unchanged canonical own book, not the79-share parent witness.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1124140",
+        "listing_first_session": "2001-02-01",
+        "security_id": "637262944715750985",
+        "security_type_eligible": "1",
+        "session": "2026-03-19",
+        "source_observation_sha256": "c6ca39535f34fbd43201d52abde0a8d740befb5a5b1d939a60e212e153fce5eb",
+        "ticker": "EXAS"
+      },
+      "last_trading_session": "2026-03-20",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=20026.1",
+        "security_id": "637262944715750985",
+        "session": "2026-03-20"
+      },
+      "native_session": "2026-03-20",
+      "native_term_sha256": "689adccb69cd2f499298678e43c60d83e73de51f1af1ba8f4de739aabc85ccbd",
+      "parent_cursor": "2026-02-27",
+      "parent_outer_sha256": "29fe6110159e24934ea521d15d72ff6c4d08d2b3e4c7bf904ebd1fb5b377ceb4",
+      "parent_positions": [
+        {
+          "entry_date": "2026-02-10",
+          "quantity": 79,
+          "slot_id": 13,
+          "ticker": "EXAS"
+        }
+      ],
+      "parent_root_admission_sha256": "4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_cash_payment_or_settlement_observed": false,
+        "actual_completion_date": "2026-03-23",
+        "actual_opening_cash_availability_proved": false,
+        "cash_per_ordinary_common_share": "105.00",
+        "exact_legal_effective_minute_observed": false,
+        "exchange_preopen_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-178",
+        "issuer_completion_source": "https://www.sec.gov/Archives/edgar/data/1800/000110465926033079/tm268709d2_8k.htm",
+        "last_trading_session": "2026-03-20",
+        "mandatory_conversion": true,
+        "preopen_time_established": true,
+        "updated_alert_publication_time_observed": false
+      },
+      "primary_extraction_sha256": "420b600f36eabd7f08bb4d7f70d22045e00d3e772967b007f7e769cd4766a8ca",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1800/000110465926033079/tm268709d2_8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "637262944715750985",
+      "source_capture": {
+        "artifact_id": 13398956926,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "independent_data_review_sha256": "de63d5bc769d01c9e7504ae83e205eb9a5e0965d962cd8ffdeed306a77f4c74a",
+        "independent_qualification_sha256": "c208a4ac9b572900990cbb565dcb809d8d612d33d13eb8303818f10bd6cb5550",
+        "payload_sha256": "99144b6bf33601c21cf3b4bf73247de02f6874313ddd57527468b8d84ec6cecf",
+        "run_id": 41992111094,
+        "scope_sha256": "b96159c90fa04135da0bd04541306ebc0d4325f39a41a8a7f9bdc51cf26f19c2"
+      },
+      "ticker": "EXAS",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-178"
     }
   ]
 }

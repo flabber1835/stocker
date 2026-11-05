@@ -49,11 +49,15 @@ def test_exact_corrected_metadata_and_frozen_point_witness():
     assert u.POINT_WITNESS_SHA=='177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1'
 
 
-def test_new_1028_root_registers_the_whole_574_row_proof_and_both_seed_paths():
-    spec=p.root_spec('P07')
-    assert spec['root_admission_sha256']=='ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95'
-    assert u.validate_retained_admission_metadata(spec)==dict(
-        completed=1028,source_cursor='2022-01-31',rows=574,new_rows=42,retained_rows=532)
+@pytest.mark.parametrize('pin,phase',[
+    ('ad8b330eaed295dac664c4ea7392e8eb38956cb78765f51a2f4e05d6515a1c95',
+     dict(completed=1028,source_cursor='2022-01-31',rows=574,new_rows=42,retained_rows=532)),
+    ('532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd',
+     dict(completed=1047,source_cursor='2022-02-28',rows=593,new_rows=19,retained_rows=574))])
+def test_admitted_roots_register_the_whole_proof_and_both_seed_paths(pin,phase):
+    spec=p.root_spec('P07',pin)
+    assert spec['root_admission_sha256']==pin
+    assert u.validate_retained_admission_metadata(spec)==phase
     assert spec['root_admission_sha256'] in u.POINT_RETURN_SEEDS
 
 def test_real_bad_historical_root_refuses_before_host_and_hook_removal_reproduces_bug(monkeypatch):

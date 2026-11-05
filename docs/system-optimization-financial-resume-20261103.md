@@ -2816,3 +2816,77 @@ predicates and start zero financial workers. No consideration, contingent-right
 valuation, timing policy or input repair is activated by this source request.
 Fresh independent DATA must close each captured query before any later input
 or uncertainty qualification.
+
+Report273 and independent DATA admit P07 own1047 through February28,2022 as
+532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd.
+Verify19 new daily rows,38 raw accountings,one report and28 Decimal metrics;
+the complete593-row branch proof retains all574 earlier certificates. VCRA's
+actual41-share cash recognition is3249.25. Preserve all20 input descriptors
+and bytes and the unchanged-input receipt; exclude all three March tail rows.
+Replace the whole branch/input proof in the new admission and register its
+point-return and retained-proof seeds. Preserve ad8 as historical authority;
+do not automatically extend unchanged-input permission to the new root. The
+next ZGNX phase needs fresh source binding and separate input qualification.
+The private reader's two obsolete42/84/2 count assertions were corrected to
+the documented19/38/1 scope before review closed, with three additional
+falsifier tests; no producer, request or selected financial artifact changed.
+
+Source274 independent DATA closes P11's exact own2050/4a8d EXAS identity and
+native, with one full frozen row, both native-date action rows and all12 old
+input documents retained. Select the existing ordinary mandatory-cash PREOPEN
+route for105USD per eligible common share on March23,2026. The issuer8-K
+establishes the mandatory cash right and completion date; the separately
+retained NasdaqECA2026-178 explicitly confirms completion before that open and
+March20 last trading. Preserve March20 trading and the original incomplete
+native preimage. Exact legal minute, actual cash-payment availability and the
+publication time of the updated alert remain unqualified; this is no PIT or
+actual-settlement certification. Append only this own-root term as catalog29,
+preserving catalog28 and every earlier generation byte for byte. Bind the
+fresh SOURCE274 payload/review/qualification and the actual79-share parent
+role, but let the unchanged canonical event path determine any held quantity
+and cash at recognition. Reuse all existing hydration, neutral adoption,
+packet qualification, cash/lot clearance and source/portfolio comparison
+guards. No formula override or new financial implementation is required.
+
+For the separately source-qualified P03 ALDR continuation, sequence existing
+neutral adoptions explicitly: original own439 cp0 to the ordinary CBLK/MDCO/
+ARQL input cp1, then ALDR date-input cp2, then bounded-model cp3. Use distinct
+ordinary-input-adoption, date-input-adoption and input-adoption directories;
+review and reconstruct each neutral transition before continuing. Bind the
+ordinary ActualEvents loader to cp0 because its hydrated input names identify
+that parent. Do not reuse failed financial270's neutral checkpoint. Extend
+the established uncertainty selector only through explicit per-arm/admitted-
+root initial and retained phases, rather than a503-close threshold: P03's
+first model-bearing monthly root may have fewer closes. Its reporting
+transport must retain the typed model declaration. Preserve the original P07
+source contracts and all comparison, unowned/unordered and branch-chain
+guards. The two already retained ALDR policy metadata files absent from the
+source274 request must be explicitly bound in the later qualified input
+record and financial request. Use the existing same-day ordinary route for
+CY; do not weaken a strict-after supplementary predicate. VSLR's separate
+fractional-source limitation remains unchanged. No P03 implementation or run
+may activate until the fresh independent source qualification closes.
+
+Select financial275 only for P11 own2050/4a8d, using catalog29
+51674fc83cb9240168b27c2566edff62f44089cb4e00e57ce2e8f06b8a50277e.
+Source274 P11 DATA passed32 cases, six guard-removal falsifiers and five
+import fences; its review is de63d5bc769d01c9e7504ae83e205eb9a5e0965d962cd8ffdeed306a77f4c74a.
+Ninety-five input tests pass for the new ordinary term, all previous own-cash
+terms and the existing mixed model. Every existing function/class AST in the
+input selector is unchanged. The request starts one hosted financial worker
+and retains the complete2156-close objective; P07's newly admitted root is
+included in source closure without launching another P07 financial worker.
+
+For P03's qualified2020 input batch, opt into one declared generic multi-source
+composition in the existing future selector. Aggregate the original Spring
+three-term and Autumn four-term sources while retaining the original
+first-source path for every phase without that opt-in; exclude VRTU2021 from
+this source274 batch. Preserve CY's original same-day ordinary route. Normalize
+the declared single-catalog Sprint subset through existing catalog_terms,
+preserving its alias staging and original parser. Any reused WLH/WAAS/LM/BMCH
+economic subrecord must bind its exact closed donor generation and term, then
+bind the independently reviewed P03 identity, native and current own-root role;
+donor parent/holding/admission authority is never portable. Preserve original
+amounts, dates, model predicates, fractional proxies, input collision guards
+and cumulative packet qualification. This is input composition within the
+existing selector, with no new financial book or symbol-specific wrapper.
