@@ -21,7 +21,8 @@ def keyed(page, key):
     return next(row for row in page['rows'] if row['key'] == key)
 
 
-def scheduled_page(*, history=False, notices=False, clean=False, recovered=False):
+def scheduled_page(*, history=False, notices=False, clean=False, recovered=False,
+                   undated_open=False):
     now = datetime.now(timezone.utc)
     execute = now + timedelta(days=3)
     decision, effective = now.date(), execute.date()
@@ -34,13 +35,14 @@ def scheduled_page(*, history=False, notices=False, clean=False, recovered=False
         detail='Earlier-plan audit is retained.')
     if history:
         alignment = replace(alignment, as_of=now, freshness=timedelta(minutes=10))
-    # The native open-step producer may have no recorded transition time yet.
-    # Its typed state and original recovery deadline still describe the wait.
+    # A collected durable cycle carries its original updated_at. Retained
+    # historical warnings and notices require that current dated workflow fact.
     native_open = next(row for row in model.automation_step_rows(installed=True, enabled=True,
         cycle=dict(cycle_id=plan.cycle_id, state='WAITING_OPEN', execute_at=execute,
-            execution_open_at=execute, execution_close_at=execute+timedelta(hours=6)))
+            execution_open_at=execute, execution_close_at=execute+timedelta(hours=6),
+            updated_at=None if undated_open else now))
         if row.key == 'automation_step_open')
-    assert native_open.as_of is None
+    assert native_open.as_of == (None if undated_open else now)
     rows = []
     for row in panel.rows:
         if row.key == 'paper_reconciliation':
@@ -65,7 +67,10 @@ def scheduled_page(*, history=False, notices=False, clean=False, recovered=False
     panel = replace(panel, observation_valid_until=operational_snapshot.original_boundary(panel))
     page = public_payload(panel)
     assert page['dashboard_health']['active_conditions'] == []
-    assert page['dashboard_health']['review_conditions'] == []
+    if undated_open and (history or notices):
+        assert 'automation_step_open' in page['dashboard_health']['review_conditions']
+    else:
+        assert page['dashboard_health']['review_conditions'] == []
     assert page['dashboard_health']['color'] == ('green' if clean else 'amber')
     return page, dict(plan=plan.plan_id, decision=str(decision), effective=str(effective))
 
@@ -123,6 +128,21 @@ def test_clean_green_software_completion_keeps_its_existing_result(monkeypatch):
     result = execute_reader(monkeypatch, page, expected)
     assert result['color'] == 'green'
     assert 'operator_review' not in result and 'installation_scope' not in result
+
+
+def test_pure_review_can_keep_a_native_undated_wait_without_historical_exceptions(monkeypatch):
+    page, expected = scheduled_page(undated_open=True)
+    assert keyed(page, 'automation_step_open')['as_of'] is None
+    assert execute_reader(monkeypatch, page, expected)['operator_review']['status'] == 'REVIEW'
+
+
+@pytest.mark.parametrize('history,notices', [(True, False), (False, True), (True, True)])
+def test_undated_wait_does_not_waive_current_history_or_notification_warnings(
+        monkeypatch, history, notices):
+    page, expected = scheduled_page(history=history, notices=notices, undated_open=True)
+    assert keyed(page, 'automation_step_open')['as_of'] is None
+    with pytest.raises((AssertionError, KeyError, TypeError, ValueError)):
+        execute_reader(monkeypatch, page, expected)
 
 
 @pytest.mark.parametrize('fault', [
