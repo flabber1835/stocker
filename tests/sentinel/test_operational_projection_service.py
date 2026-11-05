@@ -50,8 +50,8 @@ def operational(conn, monkeypatch):
             condition['collect']()
         return page
     monkeypatch.setattr(sources, 'build_panel', collect)
-    # This final cheap collection is a second source boundary in publish_once.
-    monkeypatch.setattr(sources, '_automation_rows', lambda *_: ([], []))
+    # Native late-lease behavior has separate real-PostgreSQL qualification.
+    monkeypatch.setattr(sources, '_late_automation_rows', lambda _conn, rows: rows)
     return conn, owner_id, condition
 
 

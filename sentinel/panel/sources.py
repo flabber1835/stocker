@@ -936,6 +936,66 @@ def _automation_lease(conn, generation: int) -> dict:
     }
 
 
+def _late_automation_rows(conn, rows):
+    """Refresh only short-lived native facts at the publication boundary.
+
+    One MVCC statement samples the same control, lease, holder and cycle absence.
+    It neither locks financial rows nor substitutes query time for evidence time.
+    Failure escapes so publication cannot retain the old positive leader.
+    """
+    record = conn.execute(
+        "WITH sampled AS (SELECT clock_timestamp() AS now) "
+        "SELECT c.enabled,c.kill_switch_engaged,c.generation,l.control_generation,"
+        "l.holder_id,l.fence_token,l.heartbeat_at,l.expires_at,n.now,"
+        "s.instance_id,s.state,s.heartbeat_at,s.next_wake_at,s.last_error,"
+        "EXISTS (SELECT 1 FROM sentinel_automation_cycles x "
+        " WHERE x.control_generation=c.generation OR EXISTS ("
+        " SELECT 1 FROM sentinel_automation_cycle_events e "
+        " WHERE e.cycle_id=x.cycle_id AND e.control_generation=c.generation)) "
+        "FROM sampled n LEFT JOIN sentinel_automation_control c ON c.id=1 "
+        "LEFT JOIN sentinel_automation_lease l ON l.id=1 "
+        "LEFT JOIN sentinel_automation_service_instances s ON s.instance_id=l.holder_id"
+    ).fetchone()
+    if record is None:
+        raise ValueError('late automation observation is missing')
+    (enabled, killed, generation, lease_generation, holder, fence, heartbeat,
+     expires, sampled, instance_id, instance_state, instance_heartbeat,
+     wake, last_error, has_cycle) = record
+    if (type(enabled) is not bool or type(killed) is not bool
+            or type(generation) is not int or generation < 1
+            or type(fence) is not int or fence < 0
+            or type(has_cycle) is not bool
+            or not isinstance(sampled, datetime) or sampled.utcoffset() != timedelta(0)
+            or any(value is not None and (not isinstance(value, datetime)
+                   or value.utcoffset() != timedelta(0))
+                   for value in (heartbeat, expires, instance_heartbeat, wake))):
+        raise ValueError('late automation observation is malformed')
+    active = bool(holder is not None and lease_generation == generation
+                  and expires is not None and sampled < expires)
+    lease = dict(holder=holder, fence=fence, heartbeat_at=heartbeat,
+        expires_at=expires, active=active,
+        recovery_deadline=heartbeat+timedelta(seconds=30) if heartbeat else None)
+    replacements = {'automation_leader': model.automation_leader_row(
+        installed=True, enabled=enabled, killed=killed, **lease)}
+    discovery = any(row.key == 'automation_cycle' and row.operational_fact is not None
+        and row.operational_fact.kind == 'AUTOMATION_CYCLE'
+        and row.operational_fact.state == 'DISCOVERY_WAIT' for row in rows)
+    if discovery:
+        if has_cycle:
+            raise ValueError('late automation cycle changed during collection')
+        instance = dict(instance_id=str(instance_id), state=instance_state,
+            heartbeat_at=instance_heartbeat, next_wake_at=wake, last_error=last_error)
+        recovery = (_discovery_poll_recovery(None, lease, instance, now=sampled)
+                    if enabled and not killed and instance_id is not None else None)
+        replacements['automation_cycle'] = model.automation_cycle_row(
+            installed=True, enabled=enabled, discovery_recovery=recovery,
+            next_wake_at=wake, failure_code='SERVICE_ERROR' if last_error else None,
+            failure_detail=last_error)
+        replacements.update((row.key, row) for row in model.automation_step_rows(
+            installed=True, enabled=enabled, discovery_recovery=recovery))
+    return [replacements.get(row.key, row) for row in rows]
+
+
 def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | None:
     where = (" WHERE c.control_generation=%s OR EXISTS ("
              " SELECT 1 FROM sentinel_automation_cycle_events e"
@@ -3281,10 +3341,9 @@ def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
 
 
 def _shadow_worker_row(state_dir, database_url):
-    from sentinel import shadow_service_status as status, shadow_service_probe as probe, supervisor_io
+    from sentinel import shadow_service_status as status, shadow_service_probe as probe
     try:
-        snapshot = supervisor_io.run(probe.observe, Path(state_dir),
-                                     timeout=2, start_method='spawn')
+        snapshot = probe.read(Path(state_dir), timeout=2)
         value = status.decode_probe(snapshot, database_url)
         reason = value['reason']
         running = value['state'] == 'RUNNING'

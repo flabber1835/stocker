@@ -51,7 +51,10 @@ def active(state, monkeypatch):
 
 
 def row(state, monkeypatch):
-    monkeypatch.setattr(supervisor.supervisor_io, 'run', lambda fn, *a, **k: fn(*a))
+    # Semantic race/falsifier tests inject a snapshot at the transport seam;
+    # the native transport has separate real-process qualification below.
+    from sentinel import shadow_service_probe as probe
+    monkeypatch.setattr(probe, 'read', lambda directory, **_: probe.observe(directory))
     return sources._shadow_worker_row(state, DSN)
 
 
@@ -74,7 +77,7 @@ def test_idle_and_active_worker_are_current_on_json_and_html(state, monkeypatch)
         assert worker.valid_until == NOW+timedelta(seconds=60)
 
 
-def test_real_spawned_reader_can_observe_current_worker(state):
+def test_real_native_reader_can_observe_current_worker(state):
     status.publish(state/status.CRITICAL_NAME, A)
     worker = sources._shadow_worker_row(state, DSN)
     assert worker.status == model.OK, worker.detail

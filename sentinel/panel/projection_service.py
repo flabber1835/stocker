@@ -29,11 +29,12 @@ class CollectionSuperseded(ValueError):
 
 
 def refresh_delay(expiry, *, now, elapsed):
-    """Budget the measured next collection before original evidence expires."""
+    """Reserve the original call ceiling, not an optimistic previous runtime."""
     remaining = (expiry-now).total_seconds()
     if remaining <= 0 or not math.isfinite(elapsed) or elapsed < 0:
         raise TimeoutError('operational publication has no remaining delivery budget')
-    return max(.25, min(MAX_REFRESH_SECONDS, remaining-elapsed-REFRESH_MARGIN_SECONDS))
+    budget = max(DEADLINE_SECONDS, elapsed)
+    return max(.25, min(MAX_REFRESH_SECONDS, remaining-budget-REFRESH_MARGIN_SECONDS))
 
 
 def _coordinates(database_url):
@@ -63,13 +64,6 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
     context, subjects = _coordinates(database_url)
     panel = segment_disclosure.disclose(sources.build_panel(
         state_dir=Path(state_dir), database_url=database_url), database_url)
-    # Collect the shortest-lived leader facts last. Their original lease clocks
-    # still govern expiry; collection and publication cannot renew them.
-    automation, errors = sources._automation_rows(database_url)
-    current = {row.key: row for row in automation if row.key == 'automation_leader'}
-    panel = replace(panel, rows=[current.get(row.key, row) for row in panel.rows],
-                    now=datetime.now(timezone.utc),
-                    source_errors=list(dict.fromkeys([*panel.source_errors, *errors])))
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
@@ -86,6 +80,10 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         if (snapshots.context(conn, database_url) != context
                 or snapshots.subjects(conn, database_url) != subjects):
             raise CollectionSuperseded('operational projection inputs changed')
+        # Full automation composition can outlive a 12-second leader lease.
+        # Sample its bounded native liveness facts after fencing, without
+        # repeating authority, alert and cycle-history composition.
+        panel = replace(panel, rows=sources._late_automation_rows(conn, panel.rows))
         # Publisher and acknowledgement acquire the receipt before review state.
         # A common order avoids a receipt/state lock inversion.
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '

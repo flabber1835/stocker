@@ -235,6 +235,69 @@ explicit measured resource concerns. Do not relax their safety limits or exempt
 namespaces from foreign-lineage validation. Any compact lineage inventory must
 be independently tamper-invalidated and qualified before replacing that guard.
 
+## Post-installation observation patch
+
+Decision, 2026-11-05, before patch implementation. The owner requested triage
+and a patch after installing merged `35e3a118a8ee4d4efea5857f6e96d4dd8e23724a`.
+A finite 90-second production observation recorded three expired DASHBOARD
+samples and six worker-status failures among ten samples. Authenticated review
+events identify `WORKER STATUS UNREADABLE` and
+`No current worker-liveness proof: TimeoutError`; independent signed worker
+status and native container checks remained healthy. A later recurrence and
+recovery were recorded at 20:33:21 and 20:33:25 UTC. These observations do not
+prove a halted worker or establish the precise contribution of CPU throttling.
+
+Keep the two-second filesystem-observation deadline and the supervisor's
+separate one-second dependency budget. Replace the dashboard's spawn of the
+heavy importing parent with a tiny stdlib-only entry in the existing
+`shadow_service_probe` module. It reads the same bounded files in the same
+critical/pending/status order. A closed, bounded wire frame carries raw evidence
+only; the parent retains canonical HMAC, runtime binding, attempt-coherence and
+original-clock validation. The subprocess receives no database, broker, receipt
+or push credentials. Parent-death enforcement, exact PID ownership, finite
+kill/reap and refusal after unreaped I/O remain mandatory. No extra persistent
+worker, cached liveness PASS, direct unbounded filesystem read in the collector,
+fork of a threaded caller, wider deadline or new service is selected.
+
+The operational producer must not repeat the full automation/authority/cycle/
+notification composition merely to refresh its final leader fact. Select a
+dedicated bounded, consistent control/lease read for that late observation,
+inside the existing publication transaction, after owner/input fencing and
+unchanged-context/subject checks, before snapshot/review publication. Sample
+control, lease, its holder instance and current-generation cycle existence in one
+statement using the same database clock. Renew the discovery-wait projection
+only from that newly sampled native evidence and verified cycle absence; the
+cycle and discovery-step recovery deadlines share the lease boundary too.
+Its native lease expiry and heartbeat age
+remain unchanged. Current negative, missing or contradictory evidence remains
+visible; the reader cannot synthesize a renewed lease or borrow another control
+generation. The existing owner, context, subject and atomic review fences still
+govern publication. Refresh scheduling reserves the existing 20-second collection
+ceiling, or a larger measured completed-call cost, before sleeping. A short
+previous call is not a safe estimate for the next one under shared CPU/I/O load.
+When that budget does not fit, start the next collection after only the existing
+250-ms yield; do not add an optimistic idle delay. An actually expired proof
+still withdraws currentness. Continuous delivery still requires collection itself
+to fit the original evidence lifetime; qualification must measure that cost.
+
+Qualification must exercise the actual lightweight subprocess from a heavy
+caller, bounded output, original timeout, parent death, cleanup/replacement,
+critical-marker precedence and canonical evidence rejection. Use a deterministic
+multi-cycle clock witness and actual PostgreSQL control/lease observations for
+short-deadline publication; arithmetic-only scheduling assertions are insufficient.
+Preserve all original row/financial/token deadlines and demonstrate that their
+removal or extension fails a behavioral assertion. The owner's subsequent
+instruction selects a locally qualified backed PAPER application patch first,
+with PR delivery held until observed stability. Use the supported local patch
+lifecycle and its actual authority, preservation and backup gates. This is not
+permission to acknowledge unresolved incidents or widen a financial admission rule.
+
+Seal the complete patched source inventory and retain installed `35e3a118` as
+an independently pinned 451-file predecessor, including its original checker.
+Keep all prior predecessor, economic and historical maps unchanged. The 450
+mapped candidate modules plus separately normalized checker remain the same
+inventory; the patch adds no runtime module or financial authority.
+
 ## Qualification and delivery
 
 ### Typed row facts and producer ownership

@@ -25,13 +25,17 @@ OPERATIONAL_ADDITIONS = {
     'panel/operational_snapshot.py', 'panel/projection_service.py', 'panel/projection_worker.py',
     'panel/segment_disclosure.py', 'panel/serialization.py',
 }
+PATCH_CHANGES = {
+    'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
+    'url_selected_source_basis.py',
+}
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
     'automation_runtime.py', 'panel/app.py', 'panel/authority_reader.py', 'panel/model.py',
     'panel/observer_codec.py', 'panel/overview.py', 'panel/presentation.py', 'panel/pwa.py',
     'panel/read_projection.py', 'panel/render.py', 'panel/styles.py',
     'panel/review.py', 'panel/verification_service.py', 'url_selected_source_basis.py',
-}
+} | (PATCH_CHANGES - OPERATIONAL_ADDITIONS)
 
 
 def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
@@ -169,6 +173,17 @@ def test_installed_pr567_remains_exact_for_the_complete_operational_successor():
     assert set(previous) <= set(actual)
     assert {name for name in previous if actual[name] != previous[name]} == OPERATIONAL_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous
+
+
+def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_changes():
+    previous = basis._profile()['retained_predecessors'][basis.PATCH_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    assert len(previous) == 451
+    assert admission.source_closure(previous) == 'ea3e4e163241a2075bf5b49fa965b384e65bf2f8456a7e346e0fe8bba38978f8'
+    actual = _actual()
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])

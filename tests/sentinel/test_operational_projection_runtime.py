@@ -131,9 +131,9 @@ def test_role_health_requires_fresh_valid_independent_heartbeats(monkeypatch, tm
     assert verifier.health() == (0 if defect == 'none' else 1)
 
 
-@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 26), (10, 6, 2),
+@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 8), (10, 6, .25),
     (90, 1, 30), (2, 6, .25)])
-def test_adaptive_refresh_accounts_for_original_expiry_and_measured_cost(remaining, cost, expected):
+def test_adaptive_refresh_reserves_original_ceiling_and_measured_cost(remaining, cost, expected):
     now = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
     expiry = now+timedelta(seconds=remaining)
     assert producer.refresh_delay(expiry, now=now, elapsed=cost) == expected
@@ -145,6 +145,48 @@ def test_adaptive_refresh_refuses_expiry_or_invalid_measurement(remaining, cost)
     now = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
     with pytest.raises((ValueError, TimeoutError)):
         producer.refresh_delay(now+timedelta(seconds=remaining), now=now, elapsed=cost)
+
+
+def test_variable_collection_cost_does_not_add_a_gap_between_short_native_leases(monkeypatch, tmp_path):
+    """A quick previous call cannot justify sleeping through the next slow one."""
+    anchor = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
+    clock = SimpleNamespace(seconds=0.0)
+    costs = [2.0, 8.0, 7.0, 8.0]
+    intervals = []
+    stop = Stop()
+    class Wall(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return anchor+timedelta(seconds=clock.seconds)
+    def wait(seconds):
+        stop.waits.append(seconds)
+        clock.seconds += seconds
+        return stop.stopped
+    stop.wait = wait
+    monkeypatch.setattr(producer, 'datetime', Wall)
+    monkeypatch.setattr(producer, 'time', SimpleNamespace(monotonic=lambda: clock.seconds))
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'bounded-heartbeat')
+    def runner(*args, **kwargs):
+        clock.seconds += costs[len(intervals)]
+        # The late native read sees a 12s lease renewed on its original 3s cadence.
+        heartbeat = 3*(clock.seconds//3)
+        expiry = heartbeat+12
+        intervals.append((clock.seconds, expiry))
+        if len(intervals) == len(costs):
+            stop.set()
+        return {'outcome':'PUBLISHED', 'valid_until':(anchor+timedelta(seconds=expiry)).isoformat()}
+    producer.Publisher('private-db', 'same-owner', stopped=stop, runner=runner).run()
+    assert len(intervals) == 4
+    assert all(current[0] < prior[1] for prior, current in zip(intervals, intervals[1:]))
+    assert all(expiry-finished <= 12 for finished, expiry in intervals)
+
+
+def test_optimistic_previous_call_delay_is_detected(monkeypatch, tmp_path):
+    def old_delay(expiry, *, now, elapsed):
+        return max(.25, min(30, (expiry-now).total_seconds()-elapsed-2))
+    monkeypatch.setattr(producer, 'refresh_delay', old_delay)
+    with pytest.raises(AssertionError):
+        test_variable_collection_cost_does_not_add_a_gap_between_short_native_leases(monkeypatch, tmp_path)
 
 
 @pytest.mark.parametrize('refusal', [verifier.QueryCanceled, verifier.LockNotAvailable])
