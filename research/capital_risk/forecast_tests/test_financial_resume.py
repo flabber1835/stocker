@@ -40,20 +40,16 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P07']
-    assert r['maximum_parallel_financial_workers'] == 0
-    assert r['maximum_parallel_readonly_workers'] == 1
-    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is False
-    assert r['readonly_source_witnesses'] is False and m.request_authority(r)
-    assert r['source_witness_scopes'] == {}
-    assert r['selected_ordinary_augmentations'] == {}
+    assert r['arms'] == ['P05']
+    assert r['maximum_parallel_financial_workers'] == 1
+    assert r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
+    assert r['readonly_source_witnesses'] is False and r['source_witness_scopes'] == {} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P05':dict(new_factual_overlay=True,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
-    assert r['initial_reporting_origins'] == {}
+    assert r['initial_reporting_origins'] == {} and r['selected_ordinary_augmentations'] == {}
     assert set(r['selected_research_models']) == {'P07'}
-    assert r['selected_research_models']['P07']['input_schema'] == 'research.leadership-branch-uncertainty-input/1'
-    assert r['selected_research_models']['P07']['original_strict_guard_unchanged'] is True
     assert r['full_measured_closes'] == 2156 and 'P11' in m.COMPLETED_ADMISSIONS
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
 

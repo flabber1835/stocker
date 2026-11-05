@@ -69,7 +69,7 @@ def test_preflight_uses_admitted_current_review_and_restoring_old_reference_refu
     import system_campaign_financial_resume as resume
     from research.capital_risk.forecast_tests.test_financial_retention import preflight_fixture
     old,out,spec,calls = preflight_fixture(tmp_path,monkeypatch)
-    current = partial.root_spec('P07')
+    current = partial.root_spec('P07','75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719')
     spec.clear();spec.update(current)
     metadata,_ = resume.actual_parent()
     metadata.update(sha256=spec['outer_sha256'],completed=1196,source_cursor='2022-09-30')

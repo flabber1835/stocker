@@ -34,7 +34,7 @@ def env(tmp_path,monkeypatch,fixture):
     import system_campaign_financial_uncertainty as u
     overlay=tmp_path/'driver';overlay.mkdir()
     catalog=json.loads((C/'system-campaign-qualified-own-uncertainty-input-facts.json').read_bytes())
-    p=next(v for v in catalog['phases'].values() if v['mode']==data.MODE)
+    p=next(v for v in catalog['phases'].values() if v['mode']==data.MODE and v['adoption_mode']=='INITIAL')
     for name in set(p['policy_source_files'])|set(data.EXPECTED)|{u.OWN_POLICY_CATALOG,u.OWN_SOURCE_CATALOG}:
         path=C/name if (C/name).exists() else DEP/name
         (overlay/name).write_bytes(path.read_bytes())

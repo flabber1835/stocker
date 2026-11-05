@@ -4614,3 +4614,86 @@ meaningful positive-stop guard removal and reject changed clock, bytes,
 manifest, checkpoint, cursor, authority, UNKNOWN/OOM and failed-review metadata.
 REPORT308 authorizes zero financial and one readonly worker; no new root is
 admitted by this transport correction.
+
+REPORT308 completes successfully with artifact13455130061 (144430868bytes,
+ZIP17d0ad2106fefc9f211fb7e2bf1de6ce8b603a0372e1fcfedc64e42f3b73409b).
+Its authenticated readonly preflight stops0/non-OOM; there is no financial
+worker. Its monthly proof exactly reproduces the saved42-close, two-report
+suffix without replaying any financial transition.
+
+Admission design for the positive FIN306 own1238 checkpoint: retain own1196
+root75e unchanged in historical_roots; bind the new root to the separate
+REPORT308 clock and independently closed full42-row DATA accounting, chain,
+monthly/retry, all23 typed-input and742-retained-plus42-new-proof review. Keep
+the original INITIAL additional-sensor declaration and all its resources
+unchanged. Append only the new RETAINED phase axis/proof counts; preserve the
+entire current54e98 policy generation as a closed generation. Keep the actual
+ordinary23rd-input marker so later restores retain it without readopting it.
+The new positive transport has no failed-review-requalification flags; the
+prior failed FIN296 history and later qualification remain in the historical
+parent. Add the exact new root to the existing point/proof seed registries.
+Exclude all14 December tail closes and the uncommitted TRQ event. ABMD/CVR
+remains an unresolved future input; historical causality remains UNVERIFIED.
+
+The independent reader reuses the complete closed accounting/monthly reader
+and entire original induction body, changing only explicit input paths and
+branch/input dispatch. It preserves the actual additional-sensor oracle
+schema, with no new varying-event permission. Its26 DATA tests pass in11.29s:
+two meaningful guard removals, five import fences, actual742/42 induction,
+full23 descriptor retention, committed GBT zero-cash noop, scope mutations and
+an undo check restoring every original financial/reporting function AST.
+
+FIN309 design: continue only P05 from its existing own1070/March31,2022 root.
+Use the separately qualified 91-member SOURCE298 cash subset: primary HMHC21
+and ANAT190; the remaining89 exact original cash terms are supplemental inputs.
+The unchanged remaining_ordinary_terms validator removes any already retained
+forward repairs before composition, preserving their original effective dates
+and references. The91-member catalog retains the entire131-member authenticated
+source payload/review and explicit source indices; it excludes40 unsupported
+stock, CVR, source-only or timing modes. Each original economic field and held
+authority is preserved. Only the three original confirmed preopen terms may
+use same-day suppression. No new stock-delivery inputs or CVR settlement are
+introduced. Use the existing ordinary hydration/qualification/observer/review
+pipeline; no financial function or canonical source changes. Execute one hosted
+financial worker, preserving any incomplete-event refusal and uncommitted tail.
+
+The old P07 ordinary-augmentation catalog pins the entire future-selector
+module, including its registry metadata. Keep that catalog and descriptor
+unchanged. Qualify the new P05 registry extension by removing exactly the three
+declared P05 constant assignments and recovering the complete original source
+SHA8cd57c08782d33183c988c75bf3a945a9153316d4ed1479bf506830aa4dc6dec.
+Require the exact closed91-member catalog and unchanged subset loader bytes.
+No other source, statement, function or registry change is accepted. The normal
+source check still requires the original exact hash. This source-generation
+bridge preserves the old P07 catalog's intent while admitting unrelated P05
+phase metadata; falsify edited registry, unrelated code and wrong source pins.
+
+P07 positive own1238 admission is475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d.
+Its independent review is651122ce37da08982e5d55bf9cc199949af2c772163332ea106d76709ac1d27a;
+qualification is366974d6133af73e585b9bd2fc8d43fd4a043b06912254122c3662d63520656d.
+The appended policy generation is8ca4e8f729ab3ee0de8bfd90ede12080e1432b6a3c677c6192cdb21ea252c9e0.
+The original54e98 generation and all earlier generations validate unchanged.
+
+FIN309/request175 selects P05 only,460 source files and one financial worker.
+DATA-only composition against its authenticated own1070 checkpoint checks all13
+retained descriptors and yields two primary plus89 supplemental new cash terms;
+none duplicates an existing forward repair. No checkpoint is constructed by
+this check. The catalog is0215ae4293365f6327dfd38dce0493b05b67cb7cb400ff494876d835df61fb77;
+loader is e0f7f8599032d6927a9fb84f156bcb60c8c0162b7abd37a47db5bdd1a7ae7ea2.
+
+Validation: `pytest -q -p no:cacheprovider --tb=short` with
+`forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_retention.py forecast_tests/test_retained_admission_metadata.py
+forecast_tests/test_qualified_own_uncertainty.py forecast_tests/qualified_cash_subset
+forecast_tests/additional_sensor/test_requalified_parent.py
+forecast_tests/additional_sensor/test_failed_review_transport.py
+forecast_tests/ordinary_augmentation` passes334 in72.75s. The additional set
+`forecast_tests/additional_sensor/test_additional_sensor.py
+forecast_tests/additional_sensor/test_additional_runtime_inputs.py
+forecast_tests/test_financial_retained_proof.py
+forecast_tests/test_financial_retained_activation.py
+forecast_tests/unchanged_retained_input` passes114 in27.06s. Historical fixtures
+now explicitly select their original INITIAL phase and own1196 root; the old
+P07-only source assertion follows the already documented generic arm parameter.
+No financial code or golden fixture is changed by those test corrections.
+The exact-request import probe passes under all five financial import fences.

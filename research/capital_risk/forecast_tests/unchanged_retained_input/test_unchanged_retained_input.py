@@ -83,5 +83,5 @@ def test_existing_run_retained_unchanged_branch_does_not_prepare_another_repair(
     branch=next(n for n in fn.body if isinstance(n,ast.If)and ast.unparse(n.test)=='unchanged')
     yes=ast.unparse(ast.Module(body=branch.body,type_ignores=[]));no=ast.unparse(ast.Module(body=branch.orelse,type_ignores=[]))
     assert 'unchanged_input_receipt(cp, spec)'in yes and 'nullcontext()'in yes and 'prepare('not in yes
-    assert "prepare(cp, out, 'P07')"in no and 'ActualEvents('in no
+    assert 'prepare(cp, out, arm)'in no and 'ActualEvents('in no
     assert "extra = [] if unchanged else ['--repair-overlay', str(path)]"in ast.unparse(fn)

@@ -26,6 +26,31 @@ def safe(name):
     return name
 
 
+def source_matches(name, pin):
+    """Accept exact bytes or one verified additive registry generation."""
+    raw = (HERE/name).read_bytes()
+    if sha(raw) == pin:
+        return True
+    if name != 'system_campaign_financial_future.py' or pin != '8cd57c08782d33183c988c75bf3a945a9153316d4ed1479bf506830aa4dc6dec':
+        return False
+    catalog_name = 'system-campaign-p05-own1070-supported-cash-inputs.json'
+    module = 'system_campaign_qualified_cash_subset'
+    catalog_raw = (HERE/catalog_name).read_bytes()
+    module_raw = (HERE/(module+'.py')).read_bytes()
+    if sha(catalog_raw) != '0215ae4293365f6327dfd38dce0493b05b67cb7cb400ff494876d835df61fb77' or sha(module_raw) != 'e0f7f8599032d6927a9fb84f156bcb60c8c0162b7abd37a47db5bdd1a7ae7ea2':
+        return False
+    value = json.loads(catalog_raw)
+    primary = tuple(t['ticker'] for t in value['terms'] if t['ticker'] in ('HMHC', 'ANAT'))
+    other = tuple(t['ticker'] for t in value['terms'] if t['ticker'] not in primary)
+    if primary != ('HMHC', 'ANAT') or len(other) != 89:
+        return False
+    addition = ("FUTURE_LITERAL_PHASES['P05', '2022-03-31'] = " + repr((module, 'QualifiedCashSubset', catalog_name, primary)) + '\n'
+        + "SUPPLEMENTAL_PHASES['P05', '2022-03-31'] = " + repr(((module, 'QualifiedCashSubset', 'PATH', catalog_name, sha(catalog_raw), sha(module_raw), other),)) + '\n'
+        + "SUPPLEMENTAL_SAME_DAY_PHASES = SUPPLEMENTAL_SAME_DAY_PHASES | frozenset({('P05', '2022-03-31')})\n\n")
+    block = b'\n' + addition.encode()
+    return raw.count(block) == 1 and sha(raw.replace(block, b'', 1)) == pin
+
+
 def catalog():
     value = json.loads((HERE/CATALOG).read_bytes())
     need(value['schema'] == SCHEMA and value['arm'] == 'P07'
@@ -37,7 +62,7 @@ def catalog():
     need(value['expected_tickers'] == ['GBT', 'TRQ'] and len(value['literal_sources']) == 2,
          'AUGMENTATION_EXACT_ORDERED_LITERAL_SOURCES')
     for name, pin in value['source_files'].items():
-        need(Path(safe(name)).name == name and sha((HERE/name).read_bytes()) == pin,
+        need(Path(safe(name)).name == name and source_matches(name, pin),
              'AUGMENTATION_EXACT_QUALIFIED_SOURCE_FILES')
     return value
 

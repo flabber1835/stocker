@@ -49,7 +49,7 @@ def future_api(plan, validate, phase):
     import system_campaign_financial_future as f
     from system_campaign_qualified_own_cash_literals import QualifiedOriginalCashLiterals
     raw = Path(f.__file__).read_bytes()
-    data.need(data.sha(raw) == plan['source_files'][Path(f.__file__).name],
+    data.need(data.source_matches(Path(f.__file__).name, plan['source_files'][Path(f.__file__).name]),
               'AUGMENTATION_EXACT_ORDINARY_COMPILER_GENERATION')
     namespace = dict(vars(f))
     tree = ast.Module(body=[n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef)], type_ignores=[])
