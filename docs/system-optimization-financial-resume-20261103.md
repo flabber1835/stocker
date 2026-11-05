@@ -2923,3 +2923,18 @@ with all11 inherited input documents exact. Qualify the new assumption, source
 binding, axis, actual absence/no-op and older SOURCE_CLOSE guards before any
 P05 financial continuation. No broker or canonical financial-source change is
 authorized by this research recognition assumption.
+
+Select source276 for P07 own1047/532e, after report277 was submitted. Query
+ZGNX and seven remaining2022 originals: MIME,CYBE,AVLR,FMTX,PING,Y,ZEN.
+All eight primary identity queries must be strictly before their native dates.
+Retain ZGNX's March4 full row and the five original October/November catalog
+native-date identity rows as six additional witnesses, so their original
+provenance is preserved without weakening the existing source predicate.
+The preflight corrected the earlier same-day query proposal before hosting;
+use only the qualified scope2614cd361022dff57d144181e77f956448cb8c219dbcb242245def915638f7bd.
+It adds one registry entry (49 total), preserves all48 older scopes and every
+function/class AST, and changes only active P07. All held/pending parent roles
+are empty; ZGNX is selected, and that distinction remains explicit. The source
+request launches no financial worker and activates no ZGNX26–28 contingent-
+right model or new cash term. Fresh authenticated independent DATA must close
+the new14-row/eight-native query before a later own-root input selection.

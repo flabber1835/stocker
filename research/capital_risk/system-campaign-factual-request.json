@@ -1,21 +1,21 @@
 {
   "admitted_checkpoints": {
-    "P06": "41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246"
+    "P07": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058"
   },
   "admitted_financial_parents_sha256": "d2a9923784c4ad63e421775268ba4ddca70f905a7622628ffa7b8a7d2376f65b",
   "arm_inputs": {
-    "P06": {
+    "P07": {
       "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P06"
+    "P07"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
+  "execution_mode": "READONLY_FROZEN_SOURCE_WITNESSES",
   "financial_resume_authorized": false,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
@@ -30,10 +30,10 @@
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "readonly_partial_review": true,
-  "readonly_source_witnesses": false,
+  "readonly_partial_review": false,
+  "readonly_source_witnesses": true,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/143",
+  "schema": "research.system-campaign-accurate-resume-request/144",
   "selected_partials_sha256": "978b9193589739f12a171b5bc467e6b1d827257588a7f69264e4684770431751",
   "selected_research_models": {
     "P07": {
@@ -43,7 +43,122 @@
       "original_strict_guard_unchanged": true
     }
   },
-  "source_witness_scopes": {},
+  "source_witness_scopes": {
+    "P07": {
+      "additional_rows": [
+        {
+          "parent_positions": [],
+          "security_id": "732226698577723721",
+          "session": "2022-03-04",
+          "source_observation_sha256": "36e364a2773bd5a9754ae3c9eb4eac9f5c963890532add4f96978b9626158ef3",
+          "ticker": "ZGNX"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "652370478798714876",
+          "session": "2022-10-18",
+          "source_observation_sha256": "1c697983440ac118e35f9ae4027795d36f27a75243307b036647d6e1a2358ec9",
+          "ticker": "AVLR"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "321650252292096156",
+          "session": "2022-10-13",
+          "source_observation_sha256": "f229d49f15efef81e7dbe9b9f5c08f95087a024c69a486f2b43eec40ca20f172",
+          "ticker": "FMTX"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "23427772744584579",
+          "session": "2022-10-17",
+          "source_observation_sha256": "c84a4fc7c86d6723d8e35b5feb7a4258985340d49504a4dec3b6a2f695fd28a4",
+          "ticker": "PING"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "683977592320274232",
+          "session": "2022-10-18",
+          "source_observation_sha256": "a640bbaaa29de8ed34a014f0ce1ff2404a50828c16bb08871cfbe5367797975b",
+          "ticker": "Y"
+        },
+        {
+          "parent_positions": [],
+          "security_id": "870865871230451373",
+          "session": "2022-11-21",
+          "source_observation_sha256": "96b74840274797ebadf6cfcf793825dad254223828c16c8247ccae63821015f0",
+          "ticker": "ZEN"
+        }
+      ],
+      "parent_cursor": "2022-02-28",
+      "parent_outer_sha256": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058",
+      "terms": [
+        {
+          "native_session": "2022-03-04",
+          "native_term_sha256": "34fa057e5cca33a2885a6b2025c0ebde09f03a6f8ab2371fa5136b67c7b1fcb7",
+          "parent_positions": [],
+          "security_id": "732226698577723721",
+          "session": "2022-03-03",
+          "ticker": "ZGNX"
+        },
+        {
+          "native_session": "2022-05-18",
+          "native_term_sha256": "1ea2abbb8cd4e10bae112ca8aaa7cd87822db91afbcaaa52ad6da417b8c4d0d6",
+          "parent_positions": [],
+          "security_id": "988236261397113691",
+          "session": "2022-05-17",
+          "ticker": "MIME"
+        },
+        {
+          "native_session": "2022-11-03",
+          "native_term_sha256": "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
+          "parent_positions": [],
+          "security_id": "738630690199421979",
+          "session": "2022-11-02",
+          "ticker": "CYBE"
+        },
+        {
+          "native_session": "2022-10-18",
+          "native_term_sha256": "10943a680bf8b4a98575225ee89ecabce5e8ed3bf066ed318e8ef5db55d5bc5f",
+          "parent_positions": [],
+          "security_id": "652370478798714876",
+          "session": "2022-10-17",
+          "ticker": "AVLR"
+        },
+        {
+          "native_session": "2022-10-13",
+          "native_term_sha256": "520764575d781727341e687841e205e9404aff6726da7de2bc8e58a9864d18d4",
+          "parent_positions": [],
+          "security_id": "321650252292096156",
+          "session": "2022-10-12",
+          "ticker": "FMTX"
+        },
+        {
+          "native_session": "2022-10-17",
+          "native_term_sha256": "b1481b42046cb67003a896150c6f7f9b28910b29f1b5a53ec35ef219bd4a78f0",
+          "parent_positions": [],
+          "security_id": "23427772744584579",
+          "session": "2022-10-14",
+          "ticker": "PING"
+        },
+        {
+          "native_session": "2022-10-18",
+          "native_term_sha256": "a32a8b2e023dedf84185a5b7d3847b546bc29f0ff99b0186c05019dd91d9ab90",
+          "parent_positions": [],
+          "security_id": "683977592320274232",
+          "session": "2022-10-17",
+          "ticker": "Y"
+        },
+        {
+          "native_session": "2022-11-21",
+          "native_term_sha256": "4eb6cbadfb1fd10a87741ed05f2e3d7025700280835e49f4f838d071b0600dd2",
+          "parent_positions": [],
+          "security_id": "870865871230451373",
+          "session": "2022-11-18",
+          "ticker": "ZEN"
+        }
+      ]
+    }
+  },
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
     "alpaca_fit_compare.py": "aec55dc127b7f7d815c5399c1c217b4752583adaec6e936b7b1fa88bbddb9161",
@@ -251,11 +366,11 @@
     "system_campaign_financial_distribution_source_v2.py": "820be270c8c84aa40e81c18cc92aed4e24f1f45d414f04f6f4b514464ab6de17",
     "system_campaign_financial_distribution_standard.py": "8835ef36a70ac54acf4e96cb70e1de2598460544013dcb6e72d24e09b27b88af",
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
-    "system_campaign_financial_future.py": "a798a92a2a086d5dd1a2b5126858731fc2ea9e15e65b513e2557448a1b6ac59c",
+    "system_campaign_financial_future.py": "b93ce8903f2c19251c95056c6eeac20761b4c84f0e93c5a16399ce483a66ede0",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
     "system_campaign_financial_partial.py": "de5a12fa8e8404758d19e41e8fa620fbee767912847de15476df70f2fa368d8c",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
-    "system_campaign_financial_resume.py": "17af6059df984a340fc8228aa1471f575fd3fbc72cb33db88a8fc7bbf5d56487",
+    "system_campaign_financial_resume.py": "68674c69055bdcda4913c884517312293087befc68a8d6ff950cf18430f892e6",
     "system_campaign_financial_uncertainty.py": "78ca6e2c63747feb2758dbb18b001a1cec065063045ce7266c2a2b1a2b16d7f4",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
     "system_campaign_followon_facts.py": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15",
@@ -479,5 +594,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "1feb8c78bedacb8132a4e72f0c41070c13af9d17dd2138be51e2f274aa3500db"
+  "workflow_sha256": "86f80457a80a0a457447b6b7a6719ff0265e1be92567d5b000bbebc6942a123d"
 }
