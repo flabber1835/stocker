@@ -2402,3 +2402,12 @@ collection. Compose this source with the existing original2021 eight primary
 terms;delivery-selector priority must not replace them. Bind the additional
 original catalog and validator in the request closure. This generic layout
 extension adds no financial arithmetic,timing fact or per-symbol wrapper.
+
+P06 financial252 saved own628 throughJune30,2020,63new closes beyond own565;
+hosted prefix review passed. Select report258 for63daily rows,126accountings,
+three reports and84metrics. Exclude21July tail closes. The actual next blocker
+is LM's July30 native/July31 unresolved-equity refusal. Own628 holds35LM in
+slot21 sinceApril2 with no pending claim;another variant's held-role proof
+must not substitute for this own source scope. Reuse existing50USD primary
+and explicit research-opening convention only after own628 admission and
+fresh source-witness DATA qualification. No diagnostic tail is admitted.
