@@ -3373,3 +3373,79 @@ forecast_tests/test_retained_admission_metadata.py`. The request explicitly
 tests full_target on the selected metadata and launches zero financial workers.
 Its439-source closure includes all original383/B19; no extra replay or weakened
 completion guard is introduced.
+
+With SOURCE286 closed, select a generic ORIGINAL_UNHELD_COMPOSITE_NATIVE_DAY
+input subtype for P05's MDP continuation in the existing own-cash/source-scope
+family. Reuse the unchanged original P01 legal record and compiler, not its
+book: exact one-for-one distribution,16.99USD Gray cash and42.18USD Dotdash
+cash, ordered total59.17USD per original share. Actual own986/bb passes the
+original mdp_unheld_scope and generic require_never_held predicate; the entire
+own ledger has no source/child/due-bill history. Keep selectedTrue explicit.
+
+Bind the fresh November30 identity at the same parent cursor, December1 native
+and same native-calendar-day recognition. This is the original research source
+clock, with no preopen-availability claim. The unheld guard protects portfolio
+accounting; it does not turn this timing assumption into strict PIT evidence
+for the leadership signal. Refuse any actual source/child position, intent,
+reservation, receivable, claim or due bill using the original never-held and
+source-scope guards before and after canonical calls. Require actual canonical
+unheld no-op and original source-return delegation. No held multileg support,
+new source allocation or broker authority is granted.
+
+Use a distinct typed assumption with the original record/schema/hash, ordered
+Decimal cash sum, native/identity/source/root binding and explicit unheld-only
+authority. Preserve existing UFS/completion-close, quote-exit and default cash
+validators byte for byte; their different clocks cannot be relabeled as MDP.
+Qualify original constructor/nonempty parser/adoption/observer/restart paths,
+all12 inherited input bytes and source/child/intent/cash-leg/clock falsifiers.
+This chooses a reusable source-input adapter, not a symbol-specific financial
+runtime wrapper. Root will select finance only after the private implementation
+and independent input qualification are complete.
+
+MDP's input closure must additionally bind the two unchanged original files
+p01_iac_namespace_continue_cash_input.json and p01_iac_namespace_continue.py.
+They are absent from the current439-source closure; its later qualified
+financial selection therefore needs441 unique sources. Compile only the
+unchanged pure mdp_unheld_scope AST and required pinned constants for scope
+qualification, never import the donor financial runtime or reuse its book.
+SOURCE290 remains439 because it precedes this separate model implementation.
+
+P11 full independent DATA and unchanged completion-contract qualification now
+pass98 cases with12 meaningful guard removals. Admit the exact completed result
+39a62ec7297f0a0c784447970a7ddf39d7a199cf9231e57b0f7cfc13091451ec
+as scoring-only authority under completed_financial_roots and its two matching
+metadata pins. Preserve all earlier completed entries and P11's separate own2093
+continuation root01d9; complete2156 is not a new continuation seed. Bind the
+actual R289 readonly clock, all103 reports/checkpoints/retry-memory,63new daily
+rows/126 accountings/three reports/84 metrics, all14 input documents and empty
+tails. The existing authorized_completion/full_target predicates remain exact.
+Once this scoring admission is installed, select the next unfinished arm in
+the new request before publication, retaining the completed-arm reexecution
+refusal rather than leaving R289 selected on an already completed P11.
+
+Select SOURCE290/request156 for only DOVA from admitted P03 own462/2dfc.
+Append scope54 after all53 preserved scopes and change only active P03. Query
+the strict-prior November11,2019 identity and exact November12 native
+f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f.
+Bind current committed-root unheld/unordered/unreserved/no-claims/unselected
+roles, all15 input documents and eight retained model certificates. November
+tail roles are not a seed. Source identity/native collection grants no DOVA
+consideration/CVR selection or change to the original ALDR interval contract.
+Use one readonly worker, zero financial workers and439 sources; the later
+separately qualified MDP model will expand its own closure to441.
+
+P11 scoring admission39a62e is installed under the unchanged completed-result
+contract. Its independently qualified CAGR is12.9174473986% Core and
+12.6502928717% with Sentinel; these remain conditional historical-model results.
+The seven full variants are P00/P01/P02/P04/P08/P10/P11. SOURCE290 integration
+passes167 cases in61.83s, including scoring-only/continuation separation,
+completed-P11 refusal in every request mode, and an actual guard-removal
+falsifier:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source290-completed-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_retained_admission_metadata.py`. Private SOURCE290 registry
+and DATA preparation pass54 cases/eight meaningful removals/five import fences;
+all53 previous scopes and function/class ASTs are preserved. The closure stays
+439 through this source dispatch, with original383/B19 exact.

@@ -122,6 +122,15 @@ never revive the retired raw APHA economics or invent a new projection.
 Require the explicit own1047 record to cover exactly this authenticated full
 inventory, with no additional unregistered generation or silently dropped term.
 
+Derive that registered inventory from the original selected-future-ordinary
+REFERENCE namespace and its authenticated schema/source bytes. The two existing
+baseline factual repairs (including SID362949419836618645/March10,2023 and
+TGI/July25,2025) remain active, raw-byte-identical inputs through the original
+retention path; they are not new selected-future observer generations. All20
+raw descriptors are still validated. Do not exclude a new/unknown selected-
+future namespace by a convenient filename filter: exact completeness against
+the three registered generations remains a guard and needs a falsifier.
+
 Bind only the original overlay filename/material name into unchanged
 ActualEvents constructors. Prove each original source_scopes result against its
 pinned effective material; do not force a convenient empty scope. Use the exact
@@ -147,6 +156,26 @@ inner wrapper. Each selected term must have exactly one true actual canonical
 callback and one observation in its own origin directory. Qualify wrong code,
 duplicate terms, altered arguments, foreign frames and restoration; preserve
 the original advance/terminal/cash postconditions and actual quantity derivation.
+
+Frozen reconstruction keeps the original source_scopes namespace. Current
+ActualEvents constructors may gain an unrelated explicit MDP dispatch; do not
+require that entire helper's AST to remain frozen forever. For each exact P07
+ordinary material, require both original frozen source_scopes and current
+constructor source_scopes to return the same expected empty list, with input
+material unchanged by either call. Refuse a nonempty, changed or mutating scope.
+Keep the whole ActualEvents class, actual_terminal_call and actual cash/stock
+postcondition helper ASTs exact. This scopes compatibility to authenticated
+P07 material; it grants no relaxation to the MDP dispatch's separate guards.
+
+Original-generation ordinary reconstruction must freeze both function bodies
+and their selector globals. Extract only the source-pinned literal constants
+and declarative PLANS/CASH/SUPPLEMENTAL/ordinary/delivery routing registries
+needed by those frozen functions, including their authenticated declarative
+updates. Do not seed those registries from a later current module or execute a
+historical module's mutable external-catalog initialization. Any catalog bytes
+read by the reconstruction remain bound to their original filename/hash.
+Qualify a current-P07-routing mutation and show original seven-term material
+remains byte-exact; unknown/nondeclarative extraction sites must refuse.
 
 Qualification must cover actual-source AST method/super dispatch, original
 function identity, loader order and restoration, genuine point/interval cases,

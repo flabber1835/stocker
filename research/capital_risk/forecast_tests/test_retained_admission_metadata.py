@@ -22,6 +22,26 @@ OLD='9524b5ab97174248bd1171b00b6e5ac667546171f176a1d2b87ecd4f8cea23b4'
 NEW='6abf375981b345fcdfebc5db1f68664a1f401783a7e13f6a3cf2e9c8bd6a2a22'
 PHASE=dict(completed=986,source_cursor='2021-11-30',rows=532,new_rows=148,retained_rows=384)
 
+
+def test_p11_completed_scoring_authority_keeps_its_separate_continuation_seed():
+    result=p.completed_result('P11')
+    seed=p.root_spec('P11')
+    assert result['completed']==2156 and result['performance_scoring_authorized']is True
+    assert result['financial_continuation_authorized']is False
+    assert seed['measured_closes']<result['completed']
+    assert result['parent_root_admission_sha256']==seed['root_admission_sha256']
+
+
+@pytest.mark.parametrize('mode',[
+    'OWN_ADMITTED_FINANCIAL_CONTINUATION',
+    'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION',
+    'READONLY_FROZEN_SOURCE_WITNESSES'])
+def test_completed_p11_cannot_be_selected_in_any_new_request(monkeypatch,mode):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P11',))
+    monkeypatch.setattr(m,'EXECUTION_MODE',mode)
+    with pytest.raises(ValueError,match='RESUME_CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED'):
+        m.expected_request()
+
 def request_phase(monkeypatch,spec):
     monkeypatch.setattr(m,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
@@ -41,6 +61,16 @@ def mutated_function(name,path,namespace,*,label=None,remove_hook=False):
     copied=dict(namespace);exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
         '<single-removed-retained-admission-or-request-guard>','exec'),copied)
     return copied[name]
+
+
+def test_completed_p11_reexecution_guard_has_an_actual_falsifier(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P11',))
+    monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
+    with pytest.raises(ValueError,match='RESUME_CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED'):
+        m.expected_request()
+    broken=mutated_function('expected_request',C/'system_campaign_financial_resume.py',vars(m),
+        label='RESUME_CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED')
+    assert broken()['arms']==['P11']
 
 def test_exact_corrected_metadata_and_frozen_point_witness():
     spec=p.root_spec('P07',NEW)
