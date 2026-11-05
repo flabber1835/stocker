@@ -107,7 +107,12 @@ def test_old_UFS_quote_validators_and_callback_class_are_byte_exact():
     after=(C/'system_campaign_financial_future.py').read_text();saved=fixture()
     for name,expected in saved['unchanged_function_source_sha256'].items():
         node=next(n for n in ast.parse(after).body if isinstance(n,ast.FunctionDef)and n.name==name)
-        assert hashlib.sha256(ast.get_source_segment(after,node).encode()).hexdigest()==expected
+        segment=ast.get_source_segment(after,node)
+        if name=='research_cash_term':
+            prefix="def research_cash_term(term):\n    if term['research_assumption'].get('schema') == 'research.daily-normalized-usd-cash-assumption/1':\n        return research_normalized_usd_cash_term(term)\n"
+            assert segment.startswith(prefix)
+            segment='def research_cash_term(term):\n'+segment[len(prefix):]
+        assert hashlib.sha256(segment.encode()).hexdigest()==expected
     node=next(n for n in ast.parse(after).body if isinstance(n,ast.ClassDef)and n.name=='ActualEvents')
     assert hashlib.sha256(ast.get_source_segment(after,node).encode()).hexdigest()==saved['unchanged_actual_events_source_sha256']
 

@@ -337,7 +337,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==55
+    assert len(f.WITNESS_SCOPE_REGISTRY)==56
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
@@ -355,7 +355,8 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
 
 def test_p05_seven_query_append_preserves_all54_prior_scopes_and_own986_roles():
     key='7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239'
-    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k!=key}
+    appended={key,'55a9b328fa1c46f6c2db7282f69163ece866062699b5d4f8a1b4a77a8c61b8ff'}
+    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k not in appended}
     assert len(prior)==54 and f.digest(prior)=='d019c20189ecd45404e19ec5c2875308855e8e3e3fe0fd65ed3d8016271a76aa'
     scope=f.registered_scope(key);root=m.root_spec('P05')
     assert f.WITNESS_SCOPES['P05']==scope
@@ -366,6 +367,23 @@ def test_p05_seven_query_append_preserves_all54_prior_scopes_and_own986_roles():
     assert scope['additional_rows']==[]
     assert all(t['session']<t['native_session'] and t['parent_positions']==[] for t in scope['terms'])
     assert all(set(t)=={'ticker','security_id','session','native_session','native_term_sha256','parent_positions'} for t in scope['terms'])
+
+
+def test_p06_forward_cash_query_preserves_all55_prior_scopes_without_model_authority():
+    key='55a9b328fa1c46f6c2db7282f69163ece866062699b5d4f8a1b4a77a8c61b8ff'
+    prior={k:v for k,v in f.WITNESS_SCOPE_REGISTRY.items() if k!=key}
+    assert len(prior)==55 and f.digest(prior)=='624a1bdf3e9df2e8fcc36a3873c1bf7912bc8127f060806ac954c95c5103abcd'
+    scope=f.registered_scope(key);root=m.root_spec('P06')
+    assert scope==f.WITNESS_SCOPES['P06']
+    assert root['root_admission_sha256']=='947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e'
+    assert scope['parent_outer_sha256']==root['outer_sha256']
+    assert scope['parent_cursor']==root['selected_session']=='2022-11-30'
+    assert len(scope['terms'])==len({t['security_id'] for t in scope['terms']})==115
+    assert scope['additional_rows']==[]
+    assert scope['terms'][0]['ticker']=='ABMD' and scope['terms'][-1]['ticker']=='ORLA'
+    assert all('TRQ'!=t['ticker'] and t['session']<t['native_session']<='2026-07-31' for t in scope['terms'])
+    assert all(t['parent_positions']==[] and set(t)=={'ticker','security_id','session','native_session',
+        'native_term_sha256','parent_positions'} for t in scope['terms'])
 
 
 def test_current_fresh_p00_tgi_query_uses_only_own1883_root_and_actual234_shares():

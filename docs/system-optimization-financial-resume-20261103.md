@@ -3610,3 +3610,105 @@ catalog34 and all55 source scopes, while the P07 ordinary producer remains its
 immutable original generation. Its source closure remains444/383/B19. Only one
 financial worker is selected; SOURCE292 is separately readonly. No rerun API,
 diagnostic-tail adoption, new origin or completed-variant replay is authorized.
+
+SOURCE292 completes successfully and closes separate DATA review
+0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44
+and validation97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680.
+The stopped artifact13427114200 is183997 bytes, SHA256
+385b59cf0671966ca8a81dbd5ead328b1eca2fafc73ed875fb69f323171f493a.
+Its authenticated26 members and497166 logical bytes bind a positive stopped
+preflight, zero financial workers, all12 original inputs and the exact444-source
+producer. Separate JSON/manual-native/raw-corpus review verifies all seven full
+identity rows and20 native-date action rows. Actual stopped-payload tests pass26
+cases in3.95s, including one meaningful guard removal and five import fences.
+This source identity qualification grants no consideration or timing by itself.
+
+For the next P05 ordinary input, compose the already qualified MDP primary with
+a separate typed seven-term cash-input catalog on the existing supplemental
+selection, hydration, neutral adoption, reconstruction and ActualEvents paths.
+Use one generic input-only catalog validator: authenticate the embedded closed
+source DATA, exact own986/root/native/identity roles and immutable parent binding;
+delegate economic validation to the existing cash-calendar or research-cash
+validator. Preserve the original MDP generation and all34 own-cash catalog
+records. Do not expand the one-term own-cash selector, add financial orchestration
+or introduce a new runtime. Supplemental constructor/catalog/source hashes must
+be explicit and all existing future function/class ASTs must remain unchanged.
+
+The seven mandatory cash amounts and completion dates are CXP19.30/2021-12-08,
+HRC156.00/2021-12-13, MGLN95.00/2022-01-04, PAE10.05/2022-02-15,
+RRD10.85/2022-02-25, MCFE26.00/2022-03-01 and NUAN56.00/2022-03-04.
+Use confirmed preopen contracts only where the primary evidence establishes
+that clock; otherwise select the existing explicit research completion-date
+opening assumption and retain UNVERIFIED historical availability. Never infer
+actual settlement or preopen publication from a daily completion date.
+
+CXP's issuer FAQ expressly describes2.17 as the tax-classified special-dividend
+portion of the same19.30 payment, with17.13 classified as proceeds; it was not
+an additional payment. Its frozen November1–December7 observations all have
+dividend_per_share zero, and no later2021 source row is present. Select19.30
+once in the existing mandatory cash event; add no separate2.17 distribution.
+Bind that no-double-count extraction and its raw observation hashes. References:
+https://ir.columbia.reit/resources/faqs/default.aspx and
+https://www.sec.gov/Archives/edgar/data/1252849/000125284921000127/cxp-20211208.htm.
+HRC completion/156 is confirmed in
+https://www.sec.gov/Archives/edgar/data/10456/000162828021024946/bax-20211213pressreleasexe.htm;
+RRD actual completion/10.85 in
+https://www.sec.gov/Archives/edgar/data/29669/000119312522053784/d219453dex991.htm.
+Keep RRD's earlier anticipated closing announcement out of actual-completion
+authority. Qualify all seven before selecting their financial continuation.
+
+The seven-input package uses confirmed preopen contracts for MGLN/PAE/MCFE and
+the explicit existing research opening convention for CXP/HRC/RRD/NUAN. The
+generic input validator and actual nonempty supplemental/MDP composition pass34
+cases in3.95s, including two meaningful guard removals, source/primary mutations,
+dynamic82/83-share cash-observer checks and five import fences. Every existing
+future-selector function/class AST remains unchanged; only one supplemental
+routing entry is added. Bind the constructor as well as its catalog in the
+request's supplemental source closure; the complete closure becomes446 files,
+with all383/B19 unchanged. This repairs a previously hidden dependency because
+older supplemental constructors were already present in the original383.
+
+While FIN293 is active, publish this input package with a useful readonly
+SOURCE294 request rather than starting overlapping finance. Collect P06's115
+remaining future incomplete cash natives having existing original model evidence,
+strictly after own1238's2022-11-30 cursor through2026-07-31, excluding TRQ's
+already closed SOURCE288 scope. None has an inherited adopted descriptor in the
+frozen inventory. Preserve all55 earlier scopes and change only active P06.
+Derive actual parent positions from the admitted checkpoint; source identity
+does not imply future holding status or authorize the original economic model.
+This is one finite source batch on the existing worker, with zero financial
+workers and no consideration/timing/contingent-right selection. Preserve bounded
+contingent cases such as ABMD/KDNY as unknown economic models until separately
+qualified. P05 remains ready for financial selection after P07 stops.
+
+SOURCE294/P05-input integration passes259 cases in125.75s with one historical
+fixture failure: its pre-TRQ research_cash_term source pin included the newly
+qualified normalized-USD dispatch. Keep that historical hash and compare the
+unchanged original body after authenticating/removing only the exact new typed
+dispatch prefix. No fixture is repinned. The final affected fixture,34 input
+cases and two current request/workflow tests pass37 cases in4.36s; exact launcher
+probe and diff checks pass. Source294 scopes115 terms/256 raw actions and all
+eight own1238 input descriptors, preserving the exact55-scope digest
+624a1bdf3e9df2e8fcc36a3873c1bf7912bc8127f060806ac954c95c5103abcd.
+
+Commands from research/capital_risk:
+`python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source294-p05-batch-integration-20261105-001
+forecast_tests/qualified_cash_batch forecast_tests/test_financial_resume.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_financial_partial.py
+forecast_tests/test_retained_admission_metadata.py
+forecast_tests/original_unheld_composite` (259passed/one historical comparison
+corrected). Final: `python -B -m pytest -q -p no:cacheprovider --tb=short
+--basetemp C:/GitHub/stocker/.codex-tmp/source294-p05-batch-final-20261105-001
+forecast_tests/original_unheld_composite/test_original_unheld_composite.py::test_old_UFS_quote_validators_and_callback_class_are_byte_exact
+forecast_tests/qualified_cash_batch
+forecast_tests/test_financial_resume.py::test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished
+forecast_tests/test_financial_resume.py::test_existing_workflow_selects_qualified_job_without_overlapping_own_arm`
+(37passed). No local canonical financial execution occurred.
+
+FIN293's worker and reviewer both stop with exit1 and preserve encrypted output
+under FINANCIAL_REVIEW_REFUSED_PRESERVED. Authenticate the stopped artifact
+13428378700 before diagnosing either error; no successor or new performance is
+admitted from that receipt. Keep its exact444-source request and stopped
+evidence separate from SOURCE294's new446-source readonly checkout.
