@@ -3139,3 +3139,32 @@ are included in the final234-case pass. No golden source fixture was re-pinned.
 All383 original financial sources and B19 remain byte-exact. These checks
 execute synthetic input/proof qualification, never local canonical finance.
 Admission still carries the historical-data/PIT limitations stated above.
+
+After publishing FIN281, select fresh SOURCE282/request149 for P11's admitted
+own2093/01d9 checkpoint through April30,2026. Query only TERN's exact May4
+incomplete native, its strict-prior May1 identity row and a separate May4
+quote witness. Bind the actual157-share slot19 role, April29 entry, empty
+pending list, unselected status and all13 inherited input documents. Append
+one self-bound scope to the50-entry registry, change only active P11, and
+preserve every existing function/class AST and earlier scope. Use one readonly
+worker and zero financial workers; the existing three FIN281 jobs continue
+under their original immutable request and per-arm concurrency keys.
+
+This query grants no TERN cash consideration, timing override, price-bar
+substitute or financial authority. Retain the private mandatory53USD/common
+May5 preopen/May4 last-trading extraction as inactive until fresh hosted
+source output and independent raw DATA close. Updated-alert publication time,
+exact legal minute and actual payment/settlement remain unqualified. Pin the
+independent reader to the actual439-file producer source closure and preserve
+its prior closed-reader ASTs. Keep attempt1/no-blind-rerun guards unchanged.
+
+SOURCE282 request/source/partial/metadata qualification passes162 cases in
+48.14s: `python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp
+C:/GitHub/stocker/.codex-tmp/source282-request-tests-20261105-001
+forecast_tests/test_financial_resume.py forecast_tests/test_financial_partial.py
+forecast_tests/test_financial_source_witnesses.py
+forecast_tests/test_retained_admission_metadata.py`. Private composition
+preserves all current function/class ASTs, all50 prior scopes and original
+383/B19, with two tests passing. Nine narrow reader-count tests pass with a
+meaningful count-guard removal; the prior45 raw prechecks remain preserved.
+The preparation is bound to439 actual producer sources before dispatch.
