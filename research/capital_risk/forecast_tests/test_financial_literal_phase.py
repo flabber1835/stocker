@@ -34,7 +34,7 @@ def test_actual775_seed_keeps_only321_committed_certificates():
 
 
 def test_new817_selects_only_future_original2021_terms_and_keeps_its363_row_seed():
-    spec=p.root_spec('P07');assert spec['measured_closes']==817
+    spec=p.root_spec('P07','8b3bbe1f16e0daa175d031ca9a95fab95755dea50b33b66c36061af4ba77a998');assert spec['measured_closes']==817
     codec,name,terms=f.selected('P07',cursor='2021-03-31')
     assert [t['ticker'] for t in terms]==['MIK','VAR','NAV','WORK','HOME','TRIL1']
     original=json.loads((f.HERE/name).read_bytes())
@@ -61,7 +61,7 @@ def test_cash_calendar_phase_for_p11_does_not_need_a_default_arm_plan(monkeypatc
 
 
 def test_p05_own503_reuses_only_original_mdco_and_arql_terms_without_other_book_state():
-    root=p.root_spec('P05');assert (root['measured_closes'],root['selected_session'])==(503,'2019-12-31')
+    root=p.root_spec('P05','986666fa60c8c97f8ce6173a557d8773f7e1c578a44de7066f46239cfcea36f4');assert (root['measured_closes'],root['selected_session'])==(503,'2019-12-31')
     codec,name,terms=f.selected('P05',cursor=root['selected_session'])
     other,other_name,original=f.selected('P07',cursor='2019-12-31')
     assert name==other_name=='EXPLICIT_ORDERED_CATALOG_COMPOSITION' and terms==original
@@ -70,3 +70,13 @@ def test_p05_own503_reuses_only_original_mdco_and_arql_terms_without_other_book_
         ('MDCO',85.,'2020-01-06'),('ARQL',20.,'2020-01-16')]
     assert root['root_admission']['financial_continuation_authorized']is True
     assert root['root_admission']['performance_scoring_authorized']is False
+
+
+def test_p05_explicit_2021_phase_uses_original_constructor_without_default_plan():
+    assert 'P05'not in f.PLANS
+    codec,name,terms=f.selected('P05',cursor='2020-12-31')
+    original=json.loads((f.HERE/name).read_bytes())
+    assert name=='system-campaign-2021-completions-terminal-facts.json'
+    assert terms==original['terms']==codec.catalog['terms']
+    assert [t['ticker']for t in terms]==['WPX','BEAT1','MIK','VAR','NAV','WORK','HOME','TRIL1']
+    assert all(t['native_session']>'2020-12-31'and t['added']['session']>'2020-12-31'for t in terms)

@@ -2354,3 +2354,8 @@ The exact SEC record supports mandatory11.25USD conversionJune12;preopen
 timing is unconfirmed and remains explicit in any later research input.
 This adds one source-only scope without altering earlier scopes or financial
 logic. Thirty-three private DATA/selector tests passed before integration.
+
+Select financial255 for P05 own756 using the eight original2021 completion
+terms. The regenerated private proposal preserves all nine inherited repairs,
+including future BMCH/VRTU,and passed seven constructor/selection/guard checks.
+Its selector correction restores the explicit-phase-before-fallback contract.

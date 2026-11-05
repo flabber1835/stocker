@@ -55,6 +55,10 @@ FUTURE_LITERAL_PHASES = {('P07', '2021-01-29'):
 FUTURE_LITERAL_PHASES['P07', '2021-03-31'] = (
     'system_campaign_2021_completions_facts', 'CompletionFacts',
     'system-campaign-2021-completions-terminal-facts.json', ('MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1'))
+FUTURE_LITERAL_PHASES['P05', '2020-12-31'] = (
+    'system_campaign_2021_completions_facts', 'CompletionFacts',
+    'system-campaign-2021-completions-terminal-facts.json',
+    ('WPX', 'BEAT1', 'MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1'))
 COMBINED_PHASES['P07', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 COMBINED_PHASES['P06', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
@@ -1773,7 +1777,8 @@ def selected(arm, *, cursor=None):
         codec.catalog_sha = sha(raw)
         codec.compiler_sha = sha(Path(importlib.import_module('system_campaign_cash_calendar').__file__).read_bytes())
     else:
-        module, cls, catalog, tickers = {**SINGLE_PHASES, **FOLLOWING_PHASES, **FUTURE_LITERAL_PHASES}.get((arm, cursor), PLANS[arm])
+        phases = {**SINGLE_PHASES, **FOLLOWING_PHASES, **FUTURE_LITERAL_PHASES}
+        module, cls, catalog, tickers = phases[arm, cursor] if (arm, cursor) in phases else PLANS[arm]
         codec = getattr(importlib.import_module(module), cls)(HERE / catalog)
     terms = catalog_terms(codec, tickers)
     return codec, catalog, terms

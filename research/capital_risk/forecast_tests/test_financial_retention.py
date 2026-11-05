@@ -19,8 +19,10 @@ import system_campaign_parallel_discovery_run as frozen
 
 def test_all_current_reporting_seeds_are_closest_admitted_own_checkpoints():
     specs=json.loads((CAP/m.PARTIALS).read_bytes())['arms']
-    assert {a:p.reporting_seed(specs[a])['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=1970,P07=817,P10=1592)
-    assert {a:specs[a]['measured_closes'] for a in ('P04','P07','P10')}==dict(P04=2156,P07=838,P10=2156)
+    for arm in ('P04','P07','P10'):
+        target=specs[arm];seed=p.reporting_seed(target)
+        assert seed==p.root_spec(arm,target['monthly_seed_root_admission_sha256'])
+        assert seed['measured_closes']<target['measured_closes']<=2156
     assert all(specs[a]['financial_authority'] is specs[a]['financial_predecessor_admitted'] is False for a in specs)
 
 
