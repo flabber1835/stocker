@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Independent operational state](operational-state-contract.md) defines the
+November 5 dashboard/orchestration redesign: background-owned health history,
+typed bounded snapshots, diagnosable finite verification and explicit source
+handoffs. It is PR development intent and does not change the installed release.
+
 [Dashboard health and history](dashboard-resilience-and-health.md) defines the
 owner's acknowledgement contract: expected healthy operation is green only in a
 reviewed clean interval, active failure is red, recovery/deployment/restart stays

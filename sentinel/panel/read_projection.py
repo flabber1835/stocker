@@ -195,8 +195,11 @@ def changed_subject_wait(conn, row, *, scope, now):
     return [item for item in result[0] if item.key in selected], {}, [], result[3]
 
 
-def read(database_url, *, include_paper=True, now=None):
+def read(database_url, *, include_paper=True, now=None, only_scope=None):
     """HTTP consumes bounded receipts; it cannot spawn a financial observer."""
+    if (only_scope is not None and (not isinstance(only_scope, str) or only_scope not in SCOPES
+                                   or only_scope == 'PAPER' and not include_paper)):
+        raise ValueError('unknown or contradictory verification receipt scope')
     from sentinel.feed import store
     instant = now or datetime.now(timezone.utc)
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
@@ -204,7 +207,8 @@ def read(database_url, *, include_paper=True, now=None):
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         schema.require_schema(conn)
-        scopes=('SHADOW','PAPER') if include_paper else ('SHADOW',)
+        scopes=((only_scope,) if only_scope is not None else
+                ('SHADOW', 'PAPER') if include_paper else ('SHADOW',))
         facts = facts_error = None
         try:
             facts=_subject_facts(conn)

@@ -30,6 +30,7 @@ AUTOMATION = frozenset({
     "test_automation_safety_seams.py",
     "test_automation_process_contracts.py",
     "test_automation_service_fault_paths.py",
+    "test_source_completion_wake.py",
 })
 SPECIAL = AUTOMATION | frozenset(Path(name).name for name in CURRENT_LANES.values()) | frozenset({
     "test_source_seed_warmup.py", "test_runtime_contention.py",

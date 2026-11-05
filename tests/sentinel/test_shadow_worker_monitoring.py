@@ -64,7 +64,7 @@ def test_idle_and_active_worker_are_current_on_json_and_html(state, monkeypatch)
         worker = row(state, monkeypatch)
         page = model.Panel(rows=[worker], now=NOW)
         monkeypatch.setattr(app, '_config', lambda: (state, DSN))
-        monkeypatch.setattr(app, 'build_panel', lambda **k: page)
+        monkeypatch.setattr(app, '_read_panel', lambda: page)
         monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda p, d: p)
         actual = json.loads(app.panel_json().body)
         assert actual['operational'] == model.OK

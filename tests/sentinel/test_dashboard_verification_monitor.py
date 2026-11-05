@@ -249,12 +249,16 @@ def test_http_lifespan_cannot_start_independent_verification(monkeypatch):
     calls=[]
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE','dual')
     monkeypatch.setattr(app,'_config',lambda:(None,'fixture'))
+    registrations=[]
+    monkeypatch.setattr(app.projection_service,'register_panel_incarnation',
+                        lambda *args:registrations.append(args))
     monkeypatch.setattr(monitoring.Monitor,'start',lambda *a,**k:calls.append('started'))
     async def exercise():
         async with app._verification_lifespan(app.app):
             assert calls==[]
     asyncio.run(exercise())
     assert calls==[]
+    assert registrations==[('fixture',app.recorder.instance)]
 
 
 def test_financial_progress_is_available_in_collapsed_system_details():

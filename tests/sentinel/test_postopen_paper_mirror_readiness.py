@@ -169,6 +169,10 @@ def test_malformed_completion_display_fact_refuses(completed, changes):
         deadline=NOW+timedelta(seconds=10))},
 ])
 def test_internal_completion_clock_or_shape_refuses_before_clock_arithmetic(completed, changes):
+    if 'key' in changes:
+        with pytest.raises(ValueError, match='operational fact belongs to another row'):
+            replace(observe(completed), **changes)
+        return
     assert replace(observe(completed), **changes).effective_status(NOW)==model.FAIL
 
 

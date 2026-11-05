@@ -2,7 +2,7 @@
 const {test,expect}=require('@playwright/test');
 const http=require('node:http');
 
-async function fixture(request,{workerOnly=false,legacyWorker=false}={}) {
+async function fixture(request,{workerOnly=false,legacyWorker=false,partial=false}={}) {
   let source=await (await request.get('/service-worker.js')).text();
   const match=source.match(/^const LAUNCH_DOCUMENT = (.+);$/m);
   expect(match,'shipped worker must expose only its static launch document').not.toBeNull();
@@ -19,9 +19,10 @@ async function fixture(request,{workerOnly=false,legacyWorker=false}={}) {
     // The private ASGI fixture has unconfigured/negative rows. Move only its
     // synthetic document time; never fabricate a healthy financial verdict.
     const html=template.replace(/data-generated-at="[^"]+"/,
-      `data-generated-at="${new Date().toISOString()}"`);
+      `data-generated-at="${new Date().toISOString()}"`)
+      .replace(/data-observation-current="[^"]+"/, `data-observation-current="${partial?'false':'true'}"`);
     response.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store',
-      'X-Sentinel-Panel-Status':'CURRENT'});response.end(html);
+      'X-Sentinel-Panel-Status':partial?'PARTIAL':'CURRENT'});response.end(html);
   }
   const server=http.createServer((req,res)=>{
     const path=new URL(req.url,'http://fixture.invalid').pathname;
@@ -57,6 +58,17 @@ async function fixture(request,{workerOnly=false,legacyWorker=false}={}) {
 
 test.describe('First document before current evidence',()=>{
   test.use({serviceWorkers:'block'});
+  test('a fresh partial response installs with explicit non-current observation metadata',async({page,request})=>{
+    const f=await fixture(request,{partial:true});
+    try {
+      await page.goto(f.url,{waitUntil:'domcontentloaded'});
+      await expect(page.locator('#launch-status')).toBeVisible();
+      f.release();await expect(page.locator('#operational-state')).toBeVisible();
+      await expect(page.locator('body')).toHaveAttribute('data-observation-current','false');
+      await expect(page.locator('body')).toHaveAttribute('data-refresh-pending','false');
+      await expect(page.locator('#review-acknowledge')).toHaveCount(0);
+    } finally {f.release();await page.goto('about:blank',{waitUntil:'commit',timeout:3000}).catch(()=>{});await f.close();}
+  });
   test('uncontrolled iPhone-sized launch paints while the status request is held',async({page,request},testInfo)=>{
     const f=await fixture(request);
     try {

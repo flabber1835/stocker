@@ -6,9 +6,10 @@ import json
 import os
 from threading import Lock, Thread
 import time
+import uuid
 
 from sentinel import supervisor_io
-from sentinel.panel import model
+from sentinel.panel import model, observer_failure
 from sentinel.panel.observer_codec import (
     MAX_BYTES, pack, row_from_observation as _row_from_observation, validate_envelope)
 
@@ -68,7 +69,8 @@ def _retry_read(operation, retryable, *, clock, sleep):
 def _observe_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
-        raise ValueError('financial evidence changed before observation')
+        raise observer_failure.ObservationSuperseded(
+            'BEFORE_OBSERVATION', 'financial evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(
         database_url, now=datetime.now(timezone.utc), include_paper=include_paper,
         propagate_corpus_lock=True, propagate_read_unavailability=True)
@@ -76,13 +78,18 @@ def _observe_once(database_url, include_paper, expected_key):
         raise ValueError('unexpected financial observer shape')
     value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
-        raise ValueError('financial evidence changed during observation')
+        raise observer_failure.ObservationSuperseded(
+            'AFTER_OBSERVATION', 'financial evidence changed during observation')
     return value
 
 
 def _observe(database_url, include_paper, expected_key):
     return retry_observation_read(lambda: _observe_once(
         database_url, include_paper, expected_key))
+
+
+def diagnosed_observe(database_url, include_paper, expected_key):
+    return observer_failure.capture(_observe, database_url, include_paper, expected_key)
 
 
 def _key(database_url, include_paper, evidence):
@@ -114,6 +121,9 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
         rows = [replace(row, value='CHECK IN PROGRESS', status=model.WARN,
                         detail=detail+'; no current verification is claimed',
                         required_current=True, valid_until=checking_until,
+                        operational_fact=(model.OperationalFact(
+                            kind='PAPER_VERIFICATION', state='CHECKING')
+                            if row.key == 'paper_reconciliation' else None),
                         recovery=model.RecoveryEvidence(
                             phase='FINANCIAL_VERIFICATION', automatic=True,
                             deadline=checking_until))
@@ -142,7 +152,7 @@ class Reader:
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self.evidence_reader = evidence_reader or _evidence
         self.key_factory = key_factory or _key
-        self.observer = observer or _observe
+        self.observer = observer or diagnosed_observe
         self.expected_keys = expected_keys
         self.unknown = unknown_factory or _unknown
         self.execution_slot = execution_slot
@@ -162,28 +172,105 @@ class Reader:
         self.work_clock = None
         self.last_result_at = None
         self.check_reason = 'NO_COMPLETED_PROOF'
+        self.attempt_id = None
+        self.attempt_subject = None
+        self.attempt_admitted_at = None
+        self.attempt_deadline = None
+        self.attempt_completed_at = None
+        self.attempt_outcome = 'QUEUED'
+        self.diagnostic = None
+        self.failure_diagnostic = None
+        self.supersession_at = None
+        self.supersession_clock = None
+        self.supersession_last_at = None
+        self.supersession_last_clock = None
+        self.supersession_failed = False
+
+    def attempt_state(self):
+        """Small validated parent-owned diagnostics for the background projector."""
+        with self.lock:
+            if self.attempt_id is None:
+                return None
+            return observer_failure.Attempt.model_validate(dict(
+                schema=observer_failure.ATTEMPT_SCHEMA,
+                attempt_id=self.attempt_id, subject_sha256=self.attempt_subject,
+                outcome=self.attempt_outcome, admitted_at=self.attempt_admitted_at,
+                deadline=self.attempt_deadline, completed_at=self.attempt_completed_at,
+                work_started_at=self.work_started,
+                work_deadline=(min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
+                    self.attempt_deadline) if self.work_started is not None else None),
+                supersession_started_at=self.supersession_at,
+                supersession_deadline=(self.supersession_at+timedelta(
+                    seconds=observer_failure.SUPERSESSION_SECONDS)
+                    if self.supersession_at is not None else None),
+                diagnostic=self.diagnostic, latched_failure=self.failure_diagnostic
+            )).model_dump(mode='json', by_alias=True)
+
+    def _start_supersession(self, *, from_attempt=False):
+        if self.supersession_at is None:
+            self.supersession_at = (self.pending_at if from_attempt and self.pending_at is not None
+                                    else self.wall_clock())
+            self.supersession_clock = (self.pending_clock if from_attempt and self.pending_clock is not None
+                                       else self.clock())
+
+    def _supersession_boundary(self):
+        if self.supersession_at is None:
+            return None
+        return self.supersession_at+timedelta(seconds=observer_failure.SUPERSESSION_SECONDS)
+
+    def _enforce_supersession(self):
+        boundary = self._supersession_boundary()
+        if boundary is None or self.supersession_failed:
+            return
+        tick, instant = self.clock(), self.wall_clock()
+        if (tick < self.supersession_clock or instant < self.supersession_at
+                or self.supersession_last_clock is not None and tick < self.supersession_last_clock
+                or self.supersession_last_at is not None and instant < self.supersession_last_at):
+            code = 'CLOCK_REGRESSION'
+        elif (tick >= self.supersession_clock+observer_failure.SUPERSESSION_SECONDS
+              or instant >= boundary):
+            code = 'SUPERSESSION_EXHAUSTED'
+        else:
+            self.supersession_last_clock, self.supersession_last_at = tick, instant
+            return
+        self.supersession_failed = True
+        self.diagnostic = observer_failure.failure(code, 'SUPERSESSION')
+        self.failure_diagnostic = self.diagnostic
+        self.attempt_outcome = 'FAILED'
+        self.failure = 'financial observer failed: '+self.diagnostic.safe_detail()
 
     def _work(self, key, database_url, include_paper):
         acquired = False
+        phase = 'QUEUE' if self.execution_slot is not None else 'TRANSPORT'
         try:
             if self.execution_slot is not None:
                 acquired = self.execution_slot.acquire(timeout=DEADLINE_SECONDS)
                 if not acquired:
                     raise TimeoutError('financial verification slot wait expired')
-                with self.lock:
-                    self.work_started = self.wall_clock()
-                    self.work_clock = self.clock()
+            with self.lock:
+                self.work_started = self.wall_clock()
+                self.work_clock = self.clock()
+                self.attempt_outcome = 'RUNNING'
+            phase = 'TRANSPORT'
             value = self.runner(self.observer, database_url, include_paper, key,
                 timeout=DEADLINE_SECONDS, start_method='spawn')
-            answer = (key, value, None, self.wall_clock())
+            error = None
+            if isinstance(value, dict) and 'schema' in value:
+                try:
+                    error = observer_failure.decode(value)
+                except (ValueError, TypeError, KeyError):
+                    error = observer_failure.failure('INVALID_OUTCOME', 'VALIDATION')
+                value = None
+            answer = (key, value, error, self.wall_clock())
         except Exception as exc:
-            # No dependency exception (which might include private config) is
-            # echoed. Its classified type is enough for the operator.
-            answer = (key, None, type(exc).__name__, self.wall_clock())
+            answer = (key, None, observer_failure.classify(exc, transport=True, phase=phase), self.wall_clock())
         finally:
             if acquired:
                 self.execution_slot.release()
         with self.lock:
+            self.attempt_completed_at = answer[3]
+            self.diagnostic = answer[2]
+            self.attempt_outcome = answer[2].outcome if answer[2] is not None else 'COMPLETED'
             self.answer = answer
             self.pending = None
 
@@ -196,17 +283,29 @@ class Reader:
             with self.lock:
                 self.completed = None
                 self.retained = None
-            return self.unknown(include_paper, 'current financial identity unreadable: '+type(exc).__name__)
+                self.diagnostic = observer_failure.classify(exc)
+                self.failure_diagnostic = self.diagnostic
+                detail = 'current financial identity unreadable: '+self.diagnostic.safe_detail()
+                self.failure = detail
+                self.attempt_outcome = 'FAILED'
+            return self.unknown(include_paper, detail)
         with self.lock:
             if key != self.configuration:
+                healthy_change = (self.completed is not None and self.failure is None
+                    and self.pending is None and self.supersession_at is None)
+                if self.configuration is not None:
+                    self._start_supersession(from_attempt=self.pending is not None or self.answer is not None)
                 self.check_reason = ('SUBJECT_CHANGED' if self.configuration is not None
                                      else 'NO_COMPLETED_PROOF')
                 self.configuration = key
                 self.retained = None
                 self.completed = None
-                self.failure = None
                 self.last_result_at = None
-                self.last_attempt = float('-inf')
+                if healthy_change:
+                    # A newly changed healthy subject gets its initial check
+                    # promptly; retries within a superseded episode stay paced.
+                    self.last_attempt = float('-inf')
+            self._enforce_supersession()
             detail = 'full retained financial verification awaits its next bounded check'
             if self.answer is not None:
                 completed_key, value, error, completed_at = self.answer
@@ -215,8 +314,15 @@ class Reader:
                     self.last_result_at = completed_at
                     if error is not None:
                         self.completed = None
-                        detail = 'financial observer failed: '+error
-                        self.failure = detail
+                        if error.outcome == 'SUPERSEDED':
+                            self._start_supersession(from_attempt=True)
+                            self._enforce_supersession()
+                            self.check_reason = 'SUBJECT_CHANGED'
+                            detail = 'financial observation superseded: '+error.safe_detail()
+                        else:
+                            detail = 'financial observer failed: '+error.safe_detail()
+                            self.failure = detail
+                            self.failure_diagnostic = error
                     else:
                         try:
                             expected = {'shadow_verification', 'shadow_nav', 'shadow_return',
@@ -270,10 +376,29 @@ class Reader:
                                 'the last completed financial check failed'
                                 if (value['errors'] or negative)
                                     and not independent_paper_failure else None)
+                            if self.failure is None:
+                                self.supersession_at = self.supersession_clock = None
+                                self.supersession_last_at = self.supersession_last_clock = None
+                                self.supersession_failed = False
+                                self.diagnostic = None
+                                self.failure_diagnostic = None
+                                self.attempt_outcome = 'VERIFIED'
+                            else:
+                                material = json.dumps(dict(errors=value['errors'], rows=[
+                                    dict(key=row.key, status=row.status, value=row.value,
+                                         detail=row.detail) for row in negative]),
+                                    sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+                                self.diagnostic = observer_failure.failure('NEGATIVE_RESULT', 'VALIDATION',
+                                                                          material=material)
+                                self.failure_diagnostic = self.diagnostic
+                                self.attempt_outcome = 'FAILED'
                         except (KeyError, TypeError, ValueError):
                             self.completed = None
                             detail = 'financial observer result is malformed or stale'
                             self.failure = detail
+                            self.diagnostic = observer_failure.failure('INVALID_OUTCOME', 'VALIDATION')
+                            self.failure_diagnostic = self.diagnostic
+                            self.attempt_outcome = 'FAILED'
             fresh = None
             if self.completed is not None:
                 rows, errors, observed = self.completed
@@ -295,6 +420,15 @@ class Reader:
                 self.pending_at = self.wall_clock()
                 self.work_started = None
                 self.work_clock = None
+                self.attempt_id = uuid.uuid4().hex
+                self.attempt_subject = (key if isinstance(key, str) and len(key) == 64
+                    and all(character in '0123456789abcdef' for character in key)
+                    else hashlib.sha256(str(key).encode()).hexdigest())
+                self.attempt_admitted_at = self.pending_at
+                self.attempt_deadline = self.pending_at+timedelta(
+                    seconds=2*DEADLINE_SECONDS if self.execution_slot is not None else DEADLINE_SECONDS)
+                self.attempt_completed_at = None
+                self.attempt_outcome = 'QUEUED'
                 self.pending = Thread(target=self._work,
                     args=(key, database_url, include_paper), daemon=True,
                     name='sentinel-panel-financial-observer')
@@ -323,6 +457,10 @@ class Reader:
                     detail += (' · elapsed '+str(max(0, int(self.clock()-self.pending_clock)))
                                +'s · deadline '+deadline.isoformat())
                 detail += ' · reason '+self.check_reason
+                if self._supersession_boundary() is not None:
+                    deadline = min(deadline, self._supersession_boundary())
+                    deadline_clock = min(deadline_clock,
+                        self.supersession_clock+observer_failure.SUPERSESSION_SECONDS)
                 if (self.failure is None
                         and self.pending_clock <= self.clock() < deadline_clock
                         and self.pending_at <= self.wall_clock()
@@ -332,6 +470,11 @@ class Reader:
                                   'bounded check to finish before checking current evidence')
                     return self.unknown(include_paper, detail, self.retained,
                                         checking_until=deadline)
+            if (self.pending is None and self.failure is None
+                    and self._supersession_boundary() is not None):
+                return self.unknown(include_paper,
+                    'superseded verification awaits its next bounded check · reason SUBJECT_CHANGED',
+                    self.retained, checking_until=self._supersession_boundary())
             if (self.pending is None and self.failure is None and not allow_start
                     and awaiting_until is not None and awaiting_since is not None
                     and timedelta(0) < awaiting_until-awaiting_since <= timedelta(seconds=60)

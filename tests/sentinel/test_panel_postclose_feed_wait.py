@@ -173,7 +173,7 @@ def test_real_build_json_html_and_health_share_queued_ingest_wait(monkeypatch):
     page=replace(page,operator_review=reviewed_panel(now=NOW).operator_review)
     assert page.row('feed').status==model.WARN, 'queued post-close preparation remained red: '+page.row('feed').detail
     monkeypatch.setattr(app,'_config',lambda:(Path('/synthetic'),''))
-    monkeypatch.setattr(app,'build_panel',lambda **kw:page)
+    monkeypatch.setattr(app,'_read_panel',lambda:page)
     raw=json.loads(app.panel_json().body)
     health=json.loads(app.operational_health().body)
     assert raw['color']==health['color']=='amber'

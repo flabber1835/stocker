@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -192,7 +192,7 @@ def test_automation_latches_backup_configuration_refusal(monkeypatch):
 
 
 def test_segment_panel_says_marker_is_not_sufficient():
-    text = Path(panel_app.__file__).read_text()
+    text = inspect.getsource(panel_app._shadow_segment_disclosure)
     assert "approval is necessary" in text
     assert "but NOT sufficient" in text
     assert "fresh COMPLETE/RUNNING flat" in text

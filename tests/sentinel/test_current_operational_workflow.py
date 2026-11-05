@@ -114,6 +114,10 @@ def current(conn, monkeypatch, tmp_path):
                  (min(clock.now(),database_now)-timedelta(days=1),))
     conn.commit()
     operational_schema.install_quiescent(conn)
+    # Presentation installation is a separate fenced release step, outside the
+    # immutable financial schema marker and before enabling the worker.
+    from sentinel.panel import review_schema
+    review_schema.install_quiescent(conn)
     from sentinel.execution import journal
     for _ in range(100):
         progress = journal.bootstrap_observation_integrity(conn, limit=64)

@@ -40,7 +40,8 @@ async function launch() {
   class Parser {parseFromString(){return {
     getElementById:()=>input.kind==='incomplete'?null:{},body:{dataset:{
       generatedAt:input.kind==='invalid-date'?'invalid':new Date(stamp+(input.kind==='future'?10000:input.kind==='stale'?-120000:0)).toISOString(),
-      maxAgeSeconds:input.kind==='budget'?'99999':'45',refreshPending:input.kind==='pending'?'true':'false'}}};}}
+      maxAgeSeconds:input.kind==='budget'?'99999':'45',refreshPending:input.kind==='pending'?'true':'false',
+      observationCurrent:['partial','wrong-current-marker'].includes(input.kind)?'false':input.kind==='missing-marker'?undefined:'true'}}};}}
   const context={document,Date:Clock,DOMParser:Parser,AbortController,URL,
     navigator:{onLine:input.kind!=='offline'},
     location:{href:'https://fixture.invalid/',origin:'https://fixture.invalid'},
@@ -59,9 +60,9 @@ async function launch() {
   if(input.kind==='deadline') {const timer=[...timers.values()].find(t=>t.delay===15000);assert(timer);timer.fn();}
   reads[0].resolve({ok:input.kind!=='busy',status:input.kind==='busy'?503:200,
     url:input.kind==='foreign'?'https://foreign.invalid/':'https://fixture.invalid/',
-    headers:{get:()=>input.kind==='cached'?'LAST_KNOWN':'CURRENT'},text:async()=> 'fresh'});
+    headers:{get:()=>input.kind==='cached'?'LAST_KNOWN':['partial','wrong-partial-marker'].includes(input.kind)?'PARTIAL':'CURRENT'},text:async()=> 'fresh'});
   for(let i=0;i<12;i++)await Promise.resolve();
-  if(input.kind==='fresh') {assert.deepEqual(writes,['open','fresh','close']);assert.equal(reads.length,1);}
+  if(['fresh','partial'].includes(input.kind)) {assert.deepEqual(writes,['open','fresh','close']);assert.equal(reads.length,1);}
   else {assert.equal(writes.length,0,'invalid, late or hidden response installed authority');}
 }
 (async()=>{if(input.target==='worker')await worker();else await launch();process.stdout.write('PASS\n');})()

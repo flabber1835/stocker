@@ -108,7 +108,8 @@ class ProductionAutomation(base.ProductionAutomation):
             config=self.automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
-            notify=self.notify, terminal=self.certify_terminal_cycle)
+            notify=self.notify, terminal=self.certify_terminal_cycle,
+            source_completion_hint=self.source_completion_hint)
 
     def _require_backup_for_new_mutation(self, operation: str):
         try:

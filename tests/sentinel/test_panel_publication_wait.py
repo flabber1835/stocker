@@ -135,7 +135,7 @@ def test_publication_styling_preserves_failures_and_withdraws_old_pass(monkeypat
     assert all(row.shadow_book is None for row in rows)
     page=model.Panel(rows=[*rows,worker,*feed,*auto],now=NOW)
     monkeypatch.setattr(app,'_config',lambda:(Path('/synthetic'),''))
-    monkeypatch.setattr(app,'build_panel',lambda **kw:page)
+    monkeypatch.setattr(app,'_read_panel',lambda:page)
     assert json.loads(app.panel_json().body)['color']=='amber'
     assert json.loads(app.operational_health().body)['red_rows']==[]
     for bad in [replace(ingest,status=model.FAIL),replace(ingest,status=model.UNKNOWN)]:

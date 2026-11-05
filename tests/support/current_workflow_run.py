@@ -5,6 +5,7 @@ import asyncio
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from threading import Event, Thread
 import time
 import uuid
@@ -133,6 +134,23 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
     monkeypatch.setenv('SENTINEL_STATE_DIR',str(tmp_path/'state'))
     monkeypatch.setenv('SENTINEL_DATABASE_URL',dsn)
     with TestClient(app.app) as client:
+        # Startup records its real durable incarnation. The independent owner
+        # then collects and signs the dashboard snapshot before any HTTP read.
+        from sentinel.feed import issuer_reference
+        from sentinel.panel import projection_service, projection_worker
+        collection = projection_worker.Worker(_current_operational_collection,
+            dsn, owner, str(tmp_path/'state'), 'current-workflow-verifier',
+            str(tmp_path/'current-workflow-public-roots.json'),
+            str(issuer_reference.BUNDLED_PATH), issuer_reference.BUNDLED_SNAPSHOT_SHA256)
+        started = time.monotonic()
+        try:
+            published = collection.call(False, timeout=projection_service.DEADLINE_SECONDS)
+            assert published['outcome']=='PUBLISHED', published
+            assert time.monotonic()-started < projection_service.DEADLINE_SECONDS
+        finally:
+            collection.close()
+        print('CURRENT_WORKFLOW bounded operational snapshot '+
+              str(round(time.monotonic()-started, 3))+' seconds', flush=True)
         response = client.get('/panel.json')
         assert response.status_code==200,response.text
         payload = response.json()
@@ -152,6 +170,26 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
         assert 'Wealth Core' in html.text
     conn.execute('SELECT pg_advisory_unlock(%s,%s)',verification_service.OWNER_LOCK)
     conn.commit()
+
+
+def _current_operational_collection(database_url, owner_id, state_dir, instance,
+                                  roots_file, reference_file, reference_sha256,
+                                  prior_failed):
+    """Give the spawned real collector the same disposable external inputs."""
+    from pytest import MonkeyPatch
+    from sentinel.authority import validation
+    from sentinel.feed import issuer_reference
+    from sentinel.panel import projection_service
+    original_loader = validation.load_trust_roots
+    with MonkeyPatch.context() as inputs:
+        # Only external issuer files differ. The original public-file parsers,
+        # source collector, snapshot writer and finite Worker are unchanged.
+        inputs.setattr(validation, 'load_trust_roots',
+            lambda _path=None: original_loader(Path(roots_file)))
+        inputs.setattr(issuer_reference, 'BUNDLED_PATH', Path(reference_file))
+        inputs.setattr(issuer_reference, 'BUNDLED_SNAPSHOT_SHA256', reference_sha256)
+        return projection_service.collect_result(database_url, owner_id,
+            state_dir, instance, prior_failed)
 
 
 def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_path):

@@ -14,8 +14,10 @@ OPEN = datetime(2026, 10, 22, 13, 31, tzinfo=timezone.utc)
 
 
 def panel(*, local=True, scheduled=True):
-    rows = [model.Row('automation_cycle', 'Cycle', 'WAITING_OPEN', model.WARN),
-        model.Row('automation_step_open', 'Open', 'WAITING_OPEN', model.WARN),
+    rows = [model.Row('automation_cycle', 'Cycle', 'WAITING_OPEN', model.WARN,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='WAITING_OPEN')),
+        model.Row('automation_step_open', 'Open', 'WAITING_OPEN', model.WARN,
+            operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='WAITING_OPEN')),
         model.Row('shadow_verification', 'Book', 'VERIFIED', model.OK),
         model.Row('authority', 'Authority', 'PASS', model.OK),
         model.Row('alpaca_account', 'Account', 'ACTIVE', model.OK)]

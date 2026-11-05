@@ -28,6 +28,7 @@ from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 from pydantic import ValidationError
 
 from sentinel.automation import integrity, schedule, store
+from sentinel.automation.source_completion import SourceCompletionHint, progressed
 from sentinel.execution.journal import WriterLockUnavailable
 from sentinel.automation.model import (
     AutomationConfig,
@@ -76,6 +77,8 @@ NotifyCallable: TypeAlias = Callable[
     [Any, TickResult | BaseException], Any | Awaitable[Any]]
 TerminalCallable: TypeAlias = Callable[
     [Any, TickResult], Any | Awaitable[Any]]
+SourceCompletionCallable: TypeAlias = Callable[
+    [CycleRecord], SourceCompletionHint | None]
 
 
 async def _resolve(value):
@@ -362,7 +365,8 @@ class AutomationService:
             refresh: RefreshCallable, prepare: PrepareCallable,
             recover: RecoverCallable, execute: ExecuteCallable,
             notify: NotifyCallable | None = None,
-            terminal: TerminalCallable | None = None) -> None:
+            terminal: TerminalCallable | None = None,
+            source_completion_hint: SourceCompletionCallable | None = None) -> None:
         if not holder_id:
             raise ValueError("holder_id must be non-empty")
         self.config = config
@@ -373,6 +377,31 @@ class AutomationService:
         self.execute = execute
         self.notify = notify
         self.terminal = terminal
+        self.source_completion_hint = source_completion_hint
+
+    def _source_completion(self, cycle: CycleRecord) -> SourceCompletionHint | None:
+        """An unavailable optional hint cannot change the existing retry."""
+        probe = getattr(self, "source_completion_hint", None)
+        if probe is None:
+            return None
+        try:
+            value = probe(cycle)
+            if value is None:
+                return None
+            hint = SourceCompletionHint.model_validate(value)
+            return hint if hint.decision_session == cycle.decision_session else None
+        except Exception:                                     # scheduling hint only
+            return None
+
+    def _source_completion_advanced(self, cycle: CycleRecord) -> bool:
+        if (cycle.diagnostic.get("retry_phase") != "REFRESH"
+                or cycle.diagnostic.get("callback_failure") != "SOURCE_DATA_PENDING"):
+            return False
+        previous = cycle.diagnostic.get("source_completion_hint")
+        if previous is None:
+            return False
+        return progressed(previous, self._source_completion(cycle),
+                          decision_session=cycle.decision_session)
 
     def _schedule(self, now: datetime):
         """Production XNYS obligation; an isolated rehearsal may override it."""
@@ -597,7 +626,8 @@ class AutomationService:
     def _handle_callback_failure(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
             phase: str, exc: BaseException,
-            recovery_transition: bool = False) -> TickResult:
+            recovery_transition: bool = False,
+            source_completion_hint: SourceCompletionHint | None = None) -> TickResult:
         terminal, diagnostic = self._failure_diagnostic(
             cycle=cycle, phase=phase, exc=exc, now=now)
         to_state = (
@@ -627,6 +657,9 @@ class AutomationService:
             "terminal_reason": (
                 str(diagnostic["callback_failure"]) if terminal else None),
         }
+        if (not terminal and phase == "REFRESH" and isinstance(exc, SourceDataPending)
+                and source_completion_hint is not None):
+            diagnostic["source_completion_hint"] = source_completion_hint.model_dump(mode="json")
         if not terminal:
             diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
         if not terminal and phase == 'REFRESH' and type(exc) is ClosingDataPending:
@@ -1218,7 +1251,8 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.RETRY_WAIT:
-            if cycle.next_wake_at is not None and now < cycle.next_wake_at:
+            if (cycle.next_wake_at is not None and now < cycle.next_wake_at
+                    and not self._source_completion_advanced(cycle)):
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="durable retry wake has not arrived")
@@ -1340,6 +1374,7 @@ class AutomationService:
     async def _run_refresh(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
+        hint = self._source_completion(cycle)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(
@@ -1370,7 +1405,7 @@ class AutomationService:
             now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
-                phase="REFRESH", exc=exc)
+                phase="REFRESH", exc=exc, source_completion_hint=hint)
 
     async def _run_preflight_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,

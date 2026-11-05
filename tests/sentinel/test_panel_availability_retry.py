@@ -97,7 +97,7 @@ def test_sql_classification_keeps_all_projections_amber_until_fixed_open(
     from sentinel.panel import app
     panel = model.Panel(rows=[summary, current, exposure], now=NOW)
     monkeypatch.setattr(app, '_config', lambda: (Path('.'), ''))
-    monkeypatch.setattr(app, 'build_panel', lambda **_: panel)
+    monkeypatch.setattr(app, '_read_panel', lambda: panel)
     monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda value, _: value)
     payload = json.loads(app.panel_json().body)
     assert all(row['status'] == model.WARN and row['color'] == 'amber' for row in payload['rows'])
