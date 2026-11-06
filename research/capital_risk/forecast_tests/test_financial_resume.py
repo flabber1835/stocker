@@ -40,18 +40,27 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
+    assert r['arms']==['P03','P06','P07'] and r['maximum_parallel_financial_workers']==3 and r['maximum_parallel_readonly_workers']==0
     assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==561
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==586
     assert set(r['selected_p03_thor_ordinary17'])=={'P03'}
-    assert r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']==r['selected_p07_failed_review_recoveries']==r['selected_p06_retained_reporting_bridges']==r['selected_p06_admitted_source_bridges']==r['selected_p07_composite_source_bridges']=={}
-    assert set(r['selected_bounded_models'])=={'P03'} and r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=True,restored_correlation=False)}
-    root=m.root_spec('P03');decl=r['selected_p03_thor_ordinary17']['P03']
-    assert (root['measured_closes'],len(root['repairs']))==(503,16)
-    assert r['admitted_checkpoints']['P03']==root['outer_sha256']==decl['original_outer_sha256']
-    assert (decl['original_inputs'],decl['required_actual_neutral_inputs'],decl['old_committed_proof_rows'])==(16,17,49)
-    assert decl['genuine_neutral_adoption_required'] is True and decl['actual_future_neutral_checkpoint_known'] is False
+    assert set(r['selected_p06_BBIG_ordinary11_retained130'])=={'P06'}
+    assert set(r['selected_p07_vivo_ordinary25'])=={'P07'}
+    assert r['selected_abmd_preparations']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']==r['selected_p07_failed_review_recoveries']==r['selected_p06_retained_reporting_bridges']==r['selected_p06_admitted_source_bridges']==r['selected_p07_composite_source_bridges']=={}
+    assert set(r['selected_abmd_bounded_inputs'])=={'P07'} and set(r['selected_bounded_models'])=={'P03'}
+    assert r['new_origin'] is r['diagnostic_state_adopted'] is False
+    assert r['arm_inputs']=={arm:dict(new_factual_overlay=True,restored_correlation=False) for arm in r['arms']}
+    for arm,count,inputs,field,seed in [('P03',503,16,'selected_p03_thor_ordinary17',49),('P06',1383,10,'selected_p06_BBIG_ordinary11_retained130',130),('P07',1259,24,'selected_p07_vivo_ordinary25',805)]:
+        root=m.root_spec(arm);decl=r[field][arm]
+        assert (root['measured_closes'],len(root['repairs']))==(count,inputs)
+        assert r['admitted_checkpoints'][arm]==root['outer_sha256']
+        assert decl['genuine_neutral_adoption_required'] is True
+        if arm=='P06':
+            assert (decl['actual_parent_inputs'],decl['actual_neutral_inputs_required'],decl['committed_seed_rows'])==(inputs,inputs+1,seed)
+            assert decl['held_settlement_authorized'] is decl['actual_neutral_checkpoint_known'] is False
+        else:
+            assert (decl['original_inputs'],decl['required_actual_neutral_inputs'],decl['old_committed_proof_rows'])==(inputs,inputs+1,seed)
+            assert decl['actual_future_neutral_checkpoint_known'] is False
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

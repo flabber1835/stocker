@@ -6003,3 +6003,437 @@ SOURCE335 collectors use their immutable earlier commit independently. Verify
 the staged index/workflow, original383/B19/future/u and four original worker
 ASTs before publication. No new financial result is claimed before hosted
 preflight, actual neutral boundary, worker/reviewer and independent DATA pass.
+
+FIN336 stopped0/1/1, nonOOM, with zero new committed closes. Artifact13517872460
+authenticates173 members/116402564 logical bytes. The actual original packet
+qualification and genuine neutral17 were produced at503/December31; that
+unadmitted neutral outer5fb436 is diagnostic only and must not replace the
+accepted parent16 root4c56. Both workers then refused a PermissionError while
+adding the THOR overlay to the temporary owned seed view. copytree preserves
+the admitted parent's read-only directory modes, so the intended copy was not
+writable. Preserve the original failed receipt, logs, actual neutral resources
+and all existing admission authority.
+
+Restore the temporary-view contract by first resolving and checking every
+target remains inside the explicit TemporaryDirectory child of this worker's
+out directory. Reject symlinks and a wrong parent/name before any permission
+change. Add owner write/search only to directories in that owned copy, and
+owner write only to its copied book/watch.jsonl, whose intended neutral-prefix
+replacement was already documented. Do not alter any source /old or /evidence
+mode/byte, selected16 gzip, other copied file mode or global permissions.
+Record this finite permission preparation in the existing view receipt; retain
+the actual cleanup observation. This fixes conformance to the existing view
+design, not strategy, input, pricing, seed authority or any financial source.
+Qualify with explicit noncanonical filesystem fixtures, bounded-path/symlink
+refusals and a meaningful guard-removal falsifier before a new request from the
+same separately admitted original16 root. No local canonical staging is used.
+
+
+## FIN337: three finite financial continuations
+
+Select P03 accepted503/full16, P06 accepted1383/full10 and P07 accepted1259/full24 as three independent hosted financial workers. No failed neutral checkpoint becomes an admitted seed. Preserve all historical failed artifacts. P06 retains130 committed proofs and uses the original never-held BBIG source-exit convention; P07 retains805 proofs and adds VIVO plus22 already qualified common-cash terms. Genuine neutral17/11/25 adoption and independent boundary/suffix/accounting checks remain hosted gates. New saved roots require separate restart qualification. Historical causality remains UNVERIFIED.
+
+# P06 admitted1383: retain130 proofs and qualify a genuine BBIG source-only11th input
+
+This is a private design only. It authorizes no active phase, new financial job,
+new input, quote value or neutral checkpoint. SOURCE335's authenticated capture
+and independent full raw DATA closure are prerequisites to the final BBIG fact
+and any implementation that becomes selectable. Keep future.py, u.py, B19,
+original383 and all financial/controller source bytes unchanged.
+
+## Fixed financial authority and exact proof seed
+
+The only financial seed is admitted root
+`28c768af0d50047f04ddd6924c1500bf768cc138f41808cd1c0a0b5321eb64b8`, actual
+1383/2023-06-30/full10, outer
+`bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08`.
+FIN330 artifact13482378564 and REPORT333 independently close124 new daily rows,
+248 accounting snapshots, six monthly reports and168 Decimal metrics. The root
+contains six retained plus124 new proofs. The old415208/1259 root remains origin
+provenance and is never substituted as the financial seed.
+
+The authenticated proof file is147 rows/2510480 bytes, SHA
+`fbb3fb5eaebb71ac6c4489d537968fd015832c8444402ec5bafb0f3b9b6ee56e`.
+Only its first130 rows/2218200 bytes may seed, SHA
+`0bdfa51bfa0f35b62387ae2cd007ebb6b650a33d5d24fb5cdee2d63afb394e53`.
+The final admitted proof chain is
+`77ead10eb00907311069f553e4308de612f8800e95ba3b60c8d1e353a7ce533c`;
+its next state is `b45b9f8cdbc2bd17e405a86649efeefcef354cd410f2a926e5ccb518c77b0905`.
+Seventeen uncommitted July3–26 rows remain provenance only. No July26 checkpoint
+is reconstructed from those tails. They must be re-executed canonically after
+the admitted June seed when a qualified next input permits continuation.
+
+`P06-admitted1383-retained130-design-basis-DATA.json` records only authenticated
+read-only metadata. It confirms1220 actual ledger events contain no BBIG SID or
+ticker, no current episode and no pending intent. That is a June fact, not a
+prediction that BBIG remains unowned through July27.
+
+Do not spend another hosted financial run merely to stop again at BBIG after
+replaying the same17 tails. Qualify the finite130-proof continuation machinery
+and the new source-only ordinary11 boundary together, then select one complete
+financial route only after SOURCE335 closes.
+
+## BBIG source convention, explicitly excluding merger cash
+
+SOURCE335 queries actual root1383/full10 for128 future native identities, including
+BBIG SID1150551303615013770 sourceJuly26/nativeJuly27,2023. Its separate full10
+source-only bridge is qualified for source capture, not financial continuation.
+It must not be widened by changing its financial-authority flags.
+
+The provider CASH_MERGER compatibility kind does not prove a merger or cash right.
+The candidate is the existing NLST convention:
+`UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH`, modeled CLOSE
+source exit at the exact retained prior raw close. Do not invent zero cash, a
+positive cash settlement, acquisition consideration, legal identity, execution
+price, or preopen availability. Do not fill in a value from the last tape or
+diagnostic tail before SOURCE335's full raw observation/action/benchmark proof.
+
+After that source closure, bind the exact full row, native preimage, current root,
+source scope, payload, independent review and qualification hashes. Verify July27
+is the next actual frozen session after July26; the precise retained raw close
+must be represented as required by the unchanged ResearchSourceExitAssumption,
+quote digest and original `source_exit_quote` guard. Preserve provider issuer,
+security type/eligibility and listing identities exactly.
+
+Reuse whole original `research_source_exit_term`, `completion_session`,
+`source_exit_quote`, `NeverHeldSourceExitScope`, `require_source_scope`, original
+terminal no-op and kernel source-delegation methods. Never-held means no source
+SID/ticker mention anywhere in the actual ledger, plus no episode, occupied or
+reserved slot, intent, pending terminal, unresolved claim, carry or receivable.
+These guards run again at the actual event before and after the original calls.
+If Wealth Core acquires BBIG at any point after June, including an acquisition
+and exit before July27, this source-only route must refuse. The June absence
+fact cannot be used to bypass the later actual history check.
+
+The source-exit term may keep CASH_MERGER only as the existing typed compatibility
+encoding; its `cash_per_share` is the disclosed controller raw-close proxy and
+never grants portfolio completion. Require actual canonical zero-value no-op,
+unchanged wealth/ledger and the original source function delegated from the real
+kernel frame. Any owned/ordered/claimed state or attempted portfolio settlement
+fails closed. Preserve explicit UNKNOWN outcomes.
+
+## Whole source-bound selector without a cash-policy upgrade
+
+Do not feed BBIG into QualifiedCashSubset: its unchanged monetary policy dispatch
+permits PREOPEN or RESEARCH_CASH, not source exit. Do not weaken that dispatch or
+claim BBIG satisfies mandatory common-cash extraction.
+
+The existing complete `own_cash_selection` already has the SourceExit branch.
+Derive a private namespace with a new catalog that appends BBIG to the complete
+unchanged original literal prefix. Add exactly one private P06/2023-06-30 phase,
+generation length and captured SOURCE335 clock. Preserve every old closed-prefix
+hash and all old phase/scope/source guards. Bind only the new scope digest to the
+immutable SOURCE335128-query catalog; other scope digests use the original resolver.
+Keep original future.py and its actual dictionaries/files untouched. A separate
+new source-DATA metadata file carries full SOURCE335 payload/review/q; do not add
+top-level fields to the old-prefix catalog because they would change its historic
+generation hashes. Apply whole old source-binding guards and the complete original
+source/native/identity/current-role predicate to the selected BBIG member before
+calling the original own selector. No new monetary extraction is asserted.
+
+Use whole original future hydrate/document/qualify/prepare/review/source_scopes
+functions in the fresh namespace. Give the qualifier and adoption distinct names;
+keep original exclusive-save behavior. The old TRQ/MYOV inputs remain covered,
+never re-suppressed or re-adopted. A new concrete declaration pins all new source,
+catalog and lifecycle bytes and truthfully sets new_factual_overlay=True.
+
+## Complete8->9->10 history plus a genuine ordinary11 tail
+
+The old P06 models.history intentionally admits only8/9/10 and equates the typed
+neutral10's repairs/input hash to the current checkpoint. Do not call it on a
+truncated/projected synthetic10 checkpoint to validate11.
+
+Create a separately pinned whole-function adapter. Keep every original8 and9
+case and guard. For the new finite11 case, validate the original typed descriptor
+at index9 against the genuine archived neutral10, whose own full10 input hash
+remains exact. Compare those ten descriptors to the actual current first10,
+retain the original full-current11 canonical hash check, and independently read
+the sole ordinary tail's full bytes/schema, real predecessor and source binding.
+The actual original8/ordinary9/typed10 gzip/proof/correlation/resources remain
+byte-identical. No descriptor or Spec is shortened. Future12+ inputs are not
+automatically accepted by this finite11 profile.
+
+The original full10 parent remains the admitted financial authority. Execute the
+entire original paused_own_adoption with one new filename-map entry, hosted only.
+Its actual10->11 gzip/proof must satisfy the complete unchanged adoption relation,
+including financial/controller state, ledger, counters, reporting memory, all
+non-watch journal commitments, the one canonical successor watch and no new
+correlation observations. No actual neutral11 hash/descriptor is known ahead of
+this gate. Preserve the original selected10 and actual neutral11 as distinct
+genuine resources, both with truthful producer identities.
+
+## Reuse130 actual proofs without B19 codec, replay or new event permission
+
+The current point factory and retained suffix wrappers are hard-pinned to the old
+1259/six-row entry. They cannot be reused merely by changing a request root or
+pretending130 equals6. A separate finite profile binds the actual1383 selected
+gzip, full10 history,130-row literal prefix, last chain/state and closed
+REPORT333 review/qualification. Validate complete original proof/watch/financial
+identities and all six unchanged physical controller sources before any factory.
+
+Preserve the already-qualified CPython3.12 point `sum()/len()` operation order and
+original interval growth. No epsilon, rounding relaxation, math reset, truncated
+rolling window or representative repricing is permitted. Reuse the whole initial
+ABMD factory through the existing explicit seed/growth seams, with a new strict
+130-row retained-seed predicate and the full source-qualified original body.
+
+A useful complete generic seed checker is the original u.retained_seed body.
+The existing P03 adapter lifts only validate_input; P06 also needs the seed import
+lifted to the whole original ABMD DAY-bound seed_reader. Bind full11 visitor,
+actual retained phase130/124/6 and a finite contract that first checks real
+parent10 and then its complete actual neutral11 relation. All original count,
+endpoint, discrete-state membership, RollingWitnessBounds, prior review and
+qualification guards remain whole. Require its returned130 rows/qualification
+to equal the independently validated actual parent10 seed. This is an explicit
+import binding, never a B19 codec, fake Spec, empty seed or permissive callback.
+
+The December22 ABMD producer archive genuinely has the historical full10 input
+epoch. Locate/authenticate its real filename, gzip and state/input hashes, and
+revalidate the original ABMD basis using that actual archive's descriptors.
+Separately prove current11 retains the entire original ten-input history. Do not
+force the old archive to claim11 inputs or compare it against a fabricated
+descriptor list. The ABMD event is already in the admitted prior prefix; it is
+not replayed as a new event and grants no new varying-term permission.
+
+## One original observer with separately verified cash and source effects
+
+The old retained P06 observer was initialized using original1238 only as TRQ
+observation metadata, with scopes empty, then merged MYOV. It cannot acquire BBIG
+source authority by silently appending the new term to that old scopes-empty
+object. Conversely, `merge_terms` currently requires scopes empty and must not be
+weakened to grant source scope globally.
+
+Construct one whole original ActualEvents instance using the genuine current
+1383 source material and exact new overlay/Scope, binding only the complete
+original initializer's source_scopes function to the private API. Then inventory
+and merge the complete unchanged original TRQ/MYOV ordinary term records with
+conflict checks. Its original advance/terminal/source_values methods remain the
+same code objects. Do not nest competing cash/source observers or alter the
+caller's frame. Preserve original TRQ normalization31.575855485386988, MYOV zero-
+share March10 proof, all old materials/logs and initial8 observer provenance.
+
+At review, inventory the full per-date original call sets. BBIG's source-only
+event legitimately has both cash no-op and source-delegation entries. The old
+cash-only verify_records insists source==[] and exact cash dates; do not remove
+that guard or pretend the BBIG log contains no source call. Use a separate whole
+source-only no-op/delegation reviewer for BBIG, retain the unchanged cash reviewer
+for original cash dates, and prove their combined exact per-date set accounts for
+every captured log. No unexpected extra date or effect may be filtered away.
+
+## Hosted segment/review and admission sequence
+
+Bind the complete qualified retained financial run/review bodies to the new
+factory, full visitor and seed resolver. The canonical final financial main runs
+once without an additional repair-overlay argument. Its segment parent is the
+real neutral11, with original admitted Spec10 unchanged. Independently reconstruct
+the source/document and full10->11 boundary before routing the suffix reviewer to
+the real neutral11 parent. Keep the codec context across the entire unchanged
+m.review, including its readonly accounting review, correlation/tails and original
+gzip checks. All four m bodies remain byte/AST unchanged.
+
+After a successful/partial saved result, separately reproduce all new monthly
+reports from admitted1383. Independently check all new daily/accounting/chain/
+report data, full11 input history,130 retained plus the exact new proof suffix,
+and original cash plus BBIG source-only no-op/delegation. Only then admit the
+actual saved checkpoint. Preserve old roots and all raw tails; do not promote
+diagnostic state or assume the source-only route will pass future ownership.
+Further11-root continuations need their own qualified entry, not an automatic
+extension of the initial1383 profile. Historical causality remains UNVERIFIED.
+
+Qualification must include whole original selector/API/adoption/factory/seed/
+retained-body AST or code-object undo; source and root byte failures; exact130
+prefix versus17 uncommitted tails; malformed full11/neutral relations; changed
+old origin resources; old event archive/input mismatch; owned, reserved, pending,
+historically held and claim-bearing BBIG falsifiers; fake kernel/terminal frames;
+nonzero portfolio effect or missing source delegation; unexpected extra observer
+date/call; hook restoration on abort; and meaningful guard removals. Local tests
+use read-only authenticated DATA, AST and explicit noncanonical DTOs only.
+
+# SOURCE335 closed; implementation generation
+
+The saved retained130/BBIG11 design remains normative. SOURCE335 P06 raw DATA
+is now closed by qualification6ad113c2ef87b9e1db05e9122468b404b879d5eaa4c3c517450c0c32f016389a
+and reviewaecb8c23aa0bb2386745299cc5615e27b6c553d38a181f1f955cde7207f17b01.
+Implement privately; no financial selection is enabled by these local files.
+
+The actual financial session axis belongs to the immutable frozen bundle
+benchmark, not the raw archive benchmark member. Their gzip and logical contents
+differ (the archive has5176 observations; the bundle has5457). Validate the bundle
+manifest commitment and exact benchmark member113014 bytes/SHA
+cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a before deriving
+July26->July27 adjacency. Do not claim the two benchmark assets are identical.
+
+The actual BBIG source text raw_close3.8799999999999999 parses through the original
+float(row['raw_close']) function to binary64hex0x1.f0a3d70a3d70ap+1, repr3.88.
+Use that exact existing binary64 value in retained_quote and its decimal spelling
+in the original SourceExit model, preserving full original source text/digest.
+This is no rounding or repricing policy. It grants no statutory cash, execution
+price, legal identity or portfolio completion authority.
+
+## Genuine owned resource-view permissions, before implementation
+
+Actual FIN336 demonstrated that copytree preserves read-only input directory
+and file modes. P06's owned temporary seed view must therefore prepare only
+its own copied directories for new genuine lifecycle resources and its copied
+book/watch.jsonl for the authentic neutral watch prefix. Before any chmod,
+validate the exact output-owned temporary prefix, owner.parent==output,
+view==owner/view, all descendants non-symlink and in bounds, and the actual
+copied watch file. Add owner write/search to copied directories and owner write
+only to that watch file. Preserve original input/evidence and selected gzip
+permissions and bytes. Record preparation in the view receipt. Qualification
+uses explicit noncanonical filesystem fixtures only; it stages no financial book.
+
+# P07 saved1259/full24 to genuine ordinary25 VIVO continuation
+
+Private preparation only. Start from the real accepted/prospective root
+d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b,
+saved1259/2022-12-30/full24, outer
+1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a.
+Its committed805 proofs are784 retained plus21 new, with January tails excluded.
+Keep the original failed FIN326 receipt, separate positive REVIEW332 artifact,
+real neutral ABMD origin and every original B19/ZOG/ordinary input unchanged.
+No canonical financial import, replay, restore, staging or serialization runs
+locally. New hosted financial entry stays inert until SOURCE335 DATA closes and
+all concrete source pins are supplied and qualified.
+
+## Source and ordinary cash policy
+
+The issuer SEC8-K and Nasdaq ECA2023-49 are independent primary sources. The
+Nasdaq alert explicitly reports completion before the January31,2023 open,
+January30 as the last trading date, and USD34 per common share. The SEC8-K
+reports January31 consummation and common shares converted to34 cash. Treat
+these as legal/common-cash timing evidence, not provider classification or
+broker settlement evidence. Preserve frozen VIVO1/SID219953444935140 identity,
+Jan27 source row and Jan30 native preimage. SEC_UNKNOWN issuer metadata stays
+unchanged. Current84 shares/slot1/July11 entry are a parent-role observation;
+actual January31 ownership and payment are determined by canonical accounting.
+
+Use the whole existing PREOPEN cash calendar validator: nativeJan30 equals the
+confirmed last trading date and the next frozen session is Jan31, the actual
+preopen completion date. Suppress only the native hash and add the complete
+cash term on Jan31. The full original future hydrate/document/qualify/prepare/
+review_input/source_scopes code objects remain intact in a private namespace.
+Source binding adapts only the finite SOURCE335 scope and qualification schema;
+all original source/parent/role/no-authority predicates remain whole. No source
+proof hash or neutral successor hash is invented in advance.
+
+Keep the complete128-record source generation in the catalog. Select VIVO plus
+any exact already-qualified, held-authorized ordinary cash literals whose
+SID/native-date/native-hash match that generation and are not already covered
+by current inputs. Unsupported rights, stock/mixed terms, unheld-only exits and
+unqualified regulatory delistings stay excluded. Preserve all old legal fields
+with original literal-source proof. Select at most30 terms in source order and
+require VIVO in this generation; verify the actual original Repair evidence
+count remains at most128. This is one genuine new ordinary descriptor25, not a
+new model or a repricing of existing input history.
+
+## Full untruncated25 input visitor
+
+Reuse every function in the source-qualified full23/24 P07 model module. Extend
+only its bounded count predicates to permit25 after validating the new
+ordinary tail and its genuine origin. The old23 ordinary boundary and24 ABMD
+boundary remain source provenance: compare their full original prefixes and
+their own input hashes, while validating the actual current full25 input hash.
+The old descriptor remains at index23 and is independently parsed by the same
+ABMD parser; the new index24 is a terminal-repair reconstructed by the whole
+original future.document function and tied to the actual24 predecessor.
+
+Reuse the whole original B19/ZOG/ABMD visitor and actual codec chain. Never form
+a24-input checkpoint projection of current25. The old receipt reader's original
+23 prefix and new25 hash both remain checked. Adapt the old ABMD origin's final
+current-history predicate to an authenticated24 prefix plus full current hash;
+the new tail validator must separately prove the genuine24-to25 boundary.
+
+## Sequence, actual neutral adoption and805 seed bridge
+
+Validate original805 seed against actual admitted24 before any preparation:
+whole original u.retained_seed body, full typed visitor, exact six physical
+controller sources, prior positive805 review, qualification, financial/watch/
+proof axis, state/math membership and literal prefix. Preserve all raw tails
+as provenance but never use them as seed.
+
+Prepare the new ordinary input in its own namespace, apply the entire original
+u.paused_own_adoption with exactly one declared filename-map entry, and retain
+actual parent24 gzip, adopted25 gzip/proof, correlation bytes, overlay, hydration,
+catalog and packet qualification. The original adoption relation must prove
+all financial/controller/reporting/count/cursor/ledger/journal values unchanged
+apart from the exact canonical input identity and one input-successor watch.
+
+Build a hosted resource view from existing authentic resources and the actual
+neutral25 files. Keep original selected parent24 and neutral25 distinct. Bind
+the whole original retained seed function against the actual neutral25 through
+a bridge that first proves the complete boundary and then requires the returned
+805 rows/source hashes/qualification bytes equal the separately checked24 seed.
+The root Spec remains real24; no neutral25 is described as admitted. All full25
+descriptors are visited. No parent hash is changed to satisfy an old guard.
+
+Call the complete existing retained additional-sensor runtime body with the
+actual neutral25 and its full resource view. Preserve its old ordinary-adoption
+and reconstruction bodies as provenance; install the new tail-aware visitor,
+explicit805 seed bridge and post-event ABMD factory only through finite private
+namespace bindings. The qualified unselected post-event ABMD prototype retains
+all original cooperative method code; narrow its actual root/805 prefix and
+21+784 counts. It validates the admitted24 seed at its real original path,
+while the runtime bridge separately proves current25 neutral identity.
+
+Use the already-qualified CPython3.12 point operation order with the whole
+original point_growth_scope/source guard, keeping interval arithmetic and every
+uncertainty bound unchanged. No new event interval permission is granted.
+
+## Observers and review
+
+Retain all five existing observer families and original methods/caller frames,
+including original stock owner and GBT/TRQ. Construct the new cash observer as
+an original ActualEvents instance with only its initializer's material/overlay/
+source_scopes namespace bound to the new ordinary API. Stage its real24-parent
+metadata before construction. Use a distinct output folder. Cash amount and
+terminal settlement remain canonical, with actual event quantities checked by
+the original cash reviewer; do not assume the parent84 shares survive to Jan31.
+
+The outer review proves the entire24-to25 boundary and complete source/material/
+packet reconstruction independently, then reuses the original whole financial/
+branch review and retained805 prefix. Its original parent24 and neutral25 share
+the same financial state/cursor; the new input-successor chain is independently
+verified. Reuse historical-selector context only for the old GBT/TRQ
+reconstruction (8cd57 source identity), not for new VIVO material. Keep all old
+source bytes and all parser/packet/original incomplete-term falsifiers.
+
+## Honest finite request and transport authorization
+
+Do not modify the frozen delivered SOURCE-only composite module ca981... or its
+safe defaults. A separately qualified new financial declaration may bind its
+entire late-launch wrapper/admit/context code into a fresh namespace with a
+truthful finite financial guard and same closure. It must preserve original
+failed/positive artifacts and crypto/public/source/stop guards; never claim
+SOURCE mode for financial work. Scope that route only to the exact root and
+closed VIVO profile; restore all hooks on exit. Source requests continue through
+the original SOURCE-only route unchanged.
+
+The new request context must also handle the legacy m admission check before
+bounded dispatch. Bind the whole u.validate_retained_admission_metadata through
+finite actual-root/805/point-source metadata callbacks without editing u or its
+registries. Do not serialize a fictitious entry in the old policy catalog.
+Keep old selected_research_models empty for this new root if its registry has
+no such entry, and declare the separate VIVO ordinary/805 profile explicitly.
+All four original worker/launcher FunctionDef ASTs remain exact. The current
+SOURCE-only expected_request, launch/rooted guard and preflight-only context
+must remain the default whenever the new concrete financial declaration is
+absent, malformed or unqualified.
+
+Qualification uses actual authenticated DATA, whole-source AST/code-object undo,
+clearly noncanonical primitive DTOs only, meaningful guard-removal falsifiers
+and import fences. No mock canonical checkpoint, root, seed or book is created.
+Real neutral hashes/receipts remain unknown until the hosted canonical adoption
+actually occurs. Historical causality remains UNVERIFIED; PAPER/LIVE/broker
+authority and financial source bytes remain unchanged.
+
+Retained ABMD archive authority remains the actual full24 event preimage. Once a genuine ordinary25 boundary is read and independently checked, a finite permission callback passes the actual saved parent24 descriptor list to the whole original ABMD archive reader. It never slices a current checkpoint or substitutes an input hash. The current25 descriptor list must exactly match the actual neutral25 gzip before that callback runs. The original pre-event gzip, producer name, old input hash, source basis and legal endpoint checks remain unchanged. This binding also applies to lifecycle preservation and retained review; otherwise the mature archive reader would incorrectly compare a December full24 preimage with a later full25 input history.
+
+The23-term batch contains two independent common-cash events on February22 (LHCG and ONEM). Independent cash review will visit every actual full observer record, retaining its complete order/cash arrays. The whole original cash reviewer gets two finite AST bindings: its one-event record-axis guard becomes the exact complete same-day term axis, and its cash-row selector chooses the one matching SID from that full record. Original ledger quantity, float operation order, reference, clearance and no-early-payment checks remain. No observer receipt is projected or relabeled.
+
+Temporary seed views copy authenticated /old bytes and POSIX modes. Before adding genuine new resources, a finite permission helper must validate the entire target set inside the runtime-owned TemporaryDirectory below /out, require the exact prefix and view name, and refuse symlinks. Only then may it add owner write/search to copied directories and owner write to the copied book/watch.jsonl used for the actual neutral watch prefix. Original selected checkpoint bytes and all /old/evidence files remain untouched. This addresses the observed FIN336 P03 EACCES after copytree retained0555 directories.
+
+Financial request admission is a separate profile namespace. The frozen ca981 SOURCE-only transport and its request declarations remain unchanged. Explicit dispatch selects the new qualified financial declaration; all other requests use the existing SOURCE path. The new admission function uses the complete frozen composite code object with a truthful financial-request predicate. Its transport context derives the whole frozen context, extending only the allowed mode tuple for this already-qualified financial request. The late launch adapter clones the whole existing source wrapper and its original closure into that namespace, preserving the original failed capture and positive REVIEW332 overlays. A separate request-metadata context binds the whole original u retained-admission validator to exact1259/full24/805 metadata, unchanged six-source guards and physical point witness; no policy registry or u source is modified.
+
+
+Private preparation qualification pins: P06 f83828f3342f261254df80c517711715dd81c82f76135a6d06eef11aa28e76cc (68 tests); P07 c1b24330916e7d420542e467c965e864de034856a55f9e3317ec49b9c9471f09 (83 tests). These do not grant saved-root admission. The frozen ca981 SOURCE-only composite stays byte-identical; its complete launch/authentication/context bodies are reused through a separately declared truthful financial namespace.

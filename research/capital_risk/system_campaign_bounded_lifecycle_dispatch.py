@@ -21,7 +21,9 @@ def source_names():
     import system_campaign_p07_fin326_requalified_parent as composite
     import system_campaign_p06_admitted_source_bridge as admitted_source
     import system_campaign_p03_thor_runtime as thor
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names()))))
+    import system_campaign_p06_BBIG_runtime as bbig
+    import system_campaign_p07_vivo_profile as vivo
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -86,11 +88,14 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=retained_reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
     import system_campaign_p07_fin326_requalified_parent as composite
-    result=composite.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p07_vivo_profile as vivo
+    result=vivo.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_admitted_source_bridge as admitted_source
     result=admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_runtime as thor
-    return thor.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=thor.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p06_BBIG_runtime as bbig
+    return bbig.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -113,7 +118,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
             stack.enter_context(p06.entry_context(spec,evidence_root=evidence if mode=='review' else None,
                 out=out if mode=='review' else None))
         import system_campaign_p07_fin326_requalified_parent as composite
-        if composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
+        import system_campaign_p07_vivo_profile as vivo
+        vivo_selected=vivo.runtime.request_selected(spec,active_request)
+        if vivo_selected:stack.enter_context(vivo.entry_context(module,spec,mode=mode,request=active_request))
+        elif composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
         if p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
         import system_campaign_p06_abmd_retained as retained
@@ -135,9 +143,11 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         selected=dova.selected(spec) or p06_data.selected(spec) or p07.selected(spec)
         if selected:
             initial=(dova.initial(spec) or p06_data.selected(spec)
-                or (spec.get('arm')=='P07' and spec.get('root_admission_sha256')==p07.INITIAL_ROOT))
+                or (spec.get('arm')=='P07' and spec.get('root_admission_sha256')==p07.INITIAL_ROOT) or vivo_selected)
             module.factual_overlay_needed=lambda target:initial if target==spec else old_overlay(target)
         try:
             import system_campaign_p03_thor_runtime as thor
-            with thor.entry_context(module,spec,request):yield
+            import system_campaign_p06_BBIG_runtime as bbig
+            with thor.entry_context(module,spec,request):
+                with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
         finally:module.factual_overlay_needed=old_overlay

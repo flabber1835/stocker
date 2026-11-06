@@ -1,0 +1,90 @@
+{
+  "arm": "P07",
+  "files": {
+    "P07-SOURCE335-independent-DATA-DESIGN.md": {
+      "bytes": 2402,
+      "sha256": "e840983daa6e40cdab35ed27501ff1ddc3c3133ddde36dc27170dfe61faf193a"
+    },
+    "P07-SOURCE335-whole-source-DATA-reader-undo.json": {
+      "bytes": 4645,
+      "sha256": "4fbd8d351264432c5a6c99bfe1c07da367268af406b522af35b787bb7349bfe1"
+    },
+    "review_P07_SOURCE335_DATA.py": {
+      "bytes": 18870,
+      "sha256": "4170845b5479d775dc66ba1af3df8bea1dc77cb067fc6050b2b38f2de799f444"
+    },
+    "test_P07_SOURCE335_DATA.py": {
+      "bytes": 10821,
+      "sha256": "0ef2ae212c13ec761a310ece306757f72b7495fa7deb2bf6f9d2e3aef53c1ab2"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "financial_workers_launched": 0,
+  "independent_raw_source_proof": {
+    "all_observation_and_action_fields_checked": true,
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "fresh_whole_archive_rehash_at_DATA_use": true,
+    "full_observation_rows": 128,
+    "independently_read_native_observations": {
+      "VIVO1": {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "UNKNOWN:219953444935140",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_UNKNOWN:219953444935140",
+        "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "0",
+        "raw_close": "33.969999999999999",
+        "raw_compatible_volume": "6409000",
+        "raw_open": "33.950000000000003",
+        "reported_volume": "6409000",
+        "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+        "security_id": "219953444935140",
+        "security_type": "unknown",
+        "security_type_eligible": "0",
+        "security_type_source": "NO_STRICT_PRIOR_POSITIVE_EVIDENCE",
+        "session": "2023-01-30",
+        "sic": "",
+        "signal_close": "33.969999999999999",
+        "split_ratio": "1",
+        "ticker": "VIVO1",
+        "tradeable": "1"
+      }
+    },
+    "native_identities": 128,
+    "native_observation_claimed_source_captured": false,
+    "native_raw_action_rows": 320,
+    "passed": true,
+    "rows_scanned": {
+      "2023": 1834182
+    }
+  },
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "old_financial_rows_reaudited": 0,
+  "passed": true,
+  "payload_sha256": "744bfb7807b1ba0e643e0a53cc867f6b9db7ca2b202202990892a5426ceac1d7",
+  "review_sha256": "0d4255c4591dadd8107b814b26b7a981110d12f5dae4fa70f312790d0c90391b",
+  "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+  "schema": "research.independent-forward-source-DATA-validation/2",
+  "scope_sha256": "e3aec8e32e4b81259491681c69986a9dacfaf9af2beeccc40d30d22952f71ef6",
+  "source_identity_qualified_for_separate_future_input_review": true,
+  "source_value_or_settlement_timing_qualified": false,
+  "tests": {
+    "canonical_checkpoint_serialization_used": false,
+    "command": "python -B -m pytest -q test_P07_SOURCE335_DATA.py --tb=short -p no:cacheprovider --basetemp=pytest-source335-final",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 8,
+    "passed": 55,
+    "seconds": 24.6,
+    "semantic_mutations": 38,
+    "whole_original_parent_and_capture_reader_AST_undo": true,
+    "whole_original_raw_source_and_payload_reader_AST_undo": true
+  },
+  "utc": "2026-11-06T15:46:14.132763+00:00"
+}

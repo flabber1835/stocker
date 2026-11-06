@@ -27,7 +27,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==561 and len(data.source_names())==len(set(data.source_names()))
+    assert len(value['sources'])==586 and len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
@@ -39,7 +39,9 @@ def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
     else:value['repairs'].pop()
     with pytest.raises(ValueError):data.p06_declaration(value)
 
-def test_source_pin_replacement_falsifier_detects_removed_new_guard():
+def test_source_pin_replacement_falsifier_detects_removed_new_guard(monkeypatch):
+    # Exercise the closure guard without invoking another arm's legacy admission route.
+    monkeypatch.setattr(resume,'SELECTED_ARMS',('P03',))
     import system_campaign_bounded_sensor_runtime_v2 as dova
     def original():
         result=resume.legacy_expected_request()

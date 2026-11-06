@@ -1,0 +1,111 @@
+{
+  "actual_future_neutral_checkpoint_known": false,
+  "catalog_sha256": "f5a6b9d58415944a3891b19d71b9a9327b9e060e8ae5edbbe25990fafc71b406",
+  "committed_prefix_proofs": 805,
+  "design": {
+    "bytes": 11900,
+    "sha256": "776748f32cd573c4ee4a07dec8e197781bf38765f9f203bd4f281336b4a4c9f6"
+  },
+  "exact_existing_original_legal_terms": 22,
+  "excluded_unadmitted_January_tails": 19,
+  "files": {
+    "P07-SOURCE335-independent-source-DATA-validation-v2.json": {
+      "bytes": 3640,
+      "sha256": "8b65bebf761e39820ef9bc8aa0003f6f258b7c26821f1069b774317551380a1f"
+    },
+    "P07-SOURCE335-independent-source-data-review.json": {
+      "bytes": 255625,
+      "sha256": "0d4255c4591dadd8107b814b26b7a981110d12f5dae4fa70f312790d0c90391b"
+    },
+    "P07-VIVO-source-payload.json": {
+      "bytes": 286619,
+      "sha256": "744bfb7807b1ba0e643e0a53cc867f6b9db7ca2b202202990892a5426ceac1d7"
+    },
+    "P07-VIVO1-preopen-common-cash-primary-fact.json": {
+      "bytes": 1498,
+      "sha256": "74e24e486b3e189a0ce1097bfc1603203d28105ce1ab3b654c6737fb48e79c83"
+    },
+    "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt": {
+      "bytes": 8931,
+      "sha256": "43e319690ef34374daaa441e9a2096edcef882d05230735512e9673d98a9f810"
+    },
+    "P07-own1259-805-proof-identity-DATA.json": {
+      "bytes": 2906,
+      "sha256": "6fd0bfdec695db375e09860422ea7374cbca31e69872c4417eb1247dc615ea06"
+    },
+    "P07-own1259-VIVO1-preopen-ordinary25-catalog.json": {
+      "bytes": 705246,
+      "sha256": "f5a6b9d58415944a3891b19d71b9a9327b9e060e8ae5edbbe25990fafc71b406"
+    },
+    "system_campaign_p07_vivo_api.py": {
+      "bytes": 4629,
+      "sha256": "a901075604e4b2ac822b83ebf493657eeed171020dd2d9cac45150c545c7c77c"
+    },
+    "system_campaign_p07_vivo_boundary.py": {
+      "bytes": 4959,
+      "sha256": "0391aa37000700468562b61fa4df5f0b50790b1b97f828855ee182ca91ffdeb4"
+    },
+    "system_campaign_p07_vivo_certificate.py": {
+      "bytes": 2668,
+      "sha256": "c796a83686d13a236b6d62740569824f3b28d28de412a1b6517290375c5befd0"
+    },
+    "system_campaign_p07_vivo_data.py": {
+      "bytes": 11460,
+      "sha256": "0916da0092bf756e6c5848e27c107313bf9fb9de0d97e5980856478000510c05"
+    },
+    "system_campaign_p07_vivo_models.py": {
+      "bytes": 3664,
+      "sha256": "30249f9bdc16b332a8f2354f0d367d0c2c33db26d806c7beaa5c75886f7c6e09"
+    },
+    "system_campaign_p07_vivo_profile.py": {
+      "bytes": 9196,
+      "sha256": "d4a461a6542d40bc3f6ceb1eac9444a6f13de456a9959084a2dd07aa8ebf6723"
+    },
+    "system_campaign_p07_vivo_retained.py": {
+      "bytes": 10492,
+      "sha256": "87b4c0110e3d46af35491389fd301cb49e11ac6b71d8ec0610e74f3c3a417968"
+    },
+    "system_campaign_p07_vivo_runtime.py": {
+      "bytes": 18676,
+      "sha256": "1494e84ab914a9757d012729151494aadf7c109630754f8931c7228b2cf80829"
+    }
+  },
+  "financial_authority": false,
+  "financial_jobs_launched": 0,
+  "hosted_genuine_neutral_adoption_and_packet_qualification_required": true,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "new_VIVO_common_cash_terms": 1,
+  "original_inputs": 24,
+  "passed": true,
+  "required_actual_neutral_inputs": 25,
+  "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+  "schema": "research.P07-VIVO25-private-runtime-qualification/1",
+  "source335_qualification_sha256": "8b65bebf761e39820ef9bc8aa0003f6f258b7c26821f1069b774317551380a1f",
+  "tests": {
+    "actual_805_factory_metadata_passed": true,
+    "actual_full24_model_reader_passed": true,
+    "command": "python -B -m pytest -q test_VIVO25_data_models_api.py test_VIVO25_retained_runtime.py test_VIVO25_financial_profile.py -p no:cacheprovider --tb=short --basetemp=pytest-vivo25-profile-final",
+    "files": {
+      "test_VIVO25_data_models_api.py": {
+        "bytes": 8891,
+        "sha256": "c8683a3bed0e5bc5641918e219c4be55ccf3cbf959777dc0f1d1368e5c6e700d"
+      },
+      "test_VIVO25_financial_profile.py": {
+        "bytes": 7052,
+        "sha256": "a10920e80e0aad1b5f3c59d1c3e7ade1e5fbafbcefa48e9c78e0585f930236de"
+      },
+      "test_VIVO25_retained_runtime.py": {
+        "bytes": 13605,
+        "sha256": "7e35147c214186525cf232a90af314fe2f414dd70f897e6c1536d4609f9aa1e2"
+      }
+    },
+    "financial_import_fences": 5,
+    "malformed_source_and_request_metadata_cases": 41,
+    "meaningful_guard_removals": 9,
+    "passed": 83,
+    "seconds": 28.44,
+    "whole_source_undo": true
+  },
+  "utc": "2026-11-06T16:18:07.231790+00:00"
+}

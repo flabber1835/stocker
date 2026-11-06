@@ -1,5 +1,5 @@
 """Hosted genuine16-to17 ordinary adoption around the complete typed runtime."""
-import ast,gzip,json,shutil,tempfile
+import ast,gzip,json,shutil,stat,tempfile
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -125,6 +125,28 @@ def boundary(root,parent,spec,rows):
 def cleanup_observed(owned):
     data.need(not Path(owned).exists(),'THOR_RUNTIME_TEMPORARY_OWNED_SEED_VIEW_CLEANUP_OBSERVED')
     return True
+
+def owned_view_permissions(view,owned,output):
+    """Only the existing owned copy's directories and neutral watch are writable."""
+    view,owned,output=Path(view),Path(owned),Path(output)
+    root,owner,parent=view.resolve(),owned.resolve(),output.resolve()
+    data.need(not view.is_symlink() and not owned.is_symlink() and view.is_dir()
+        and root==owner/'view' and owner.parent==parent
+        and owner.name.startswith('p03-thor-owned-seed-view-'),
+        'THOR_RUNTIME_PERMISSION_TARGET_ONLY_EXPLICIT_OWNED_OUTPUT_VIEW')
+    members=[view,*view.rglob('*')]
+    data.need(all(not path.is_symlink() and path.resolve().is_relative_to(root) for path in members),
+        'THOR_RUNTIME_ALL_PERMISSION_TARGETS_WITHIN_OWNED_VIEW_NO_SYMLINKS')
+    directories=[path for path in members if path.is_dir()]
+    watch=view/'book/watch.jsonl'
+    data.need(watch.is_file() and not watch.is_symlink() and watch.resolve().is_relative_to(root),
+        'THOR_RUNTIME_ONLY_ACTUAL_COPIED_NEUTRAL_WATCH_FILE_WRITABLE')
+    # Validate the entire target set before the first chmod. copytree's other
+    # file permissions, including the selected immutable gzip, remain intact.
+    for path in directories:path.chmod(stat.S_IMODE(path.stat().st_mode)|stat.S_IWUSR|stat.S_IXUSR)
+    watch.chmod(stat.S_IMODE(watch.stat().st_mode)|stat.S_IWUSR)
+    return dict(owned_directories=len(directories),only_owner_write_search_added=True,
+        only_copied_neutral_watch_file_write_added=True,original_source_permissions_changed=False)
 @contextmanager
 def seed_view(old,out,parent,neutral,spec,evidence,rows):
     from full_system_core import hosted
@@ -137,6 +159,7 @@ def seed_view(old,out,parent,neutral,spec,evidence,rows):
     proof=boundary_relation(parent,neutral,spec,lambda name:(evidence/name).read_bytes(),rows)
     with tempfile.TemporaryDirectory(prefix='p03-thor-owned-seed-view-',dir=out) as owned:
         view=Path(owned)/'view';shutil.copytree(old,view)
+        permissions=owned_view_permissions(view,owned,out)
         files=[api_module.OVERLAY,api_module.QUALIFICATION,data.CATALOG,data.PRIMARY,
             api_module.DIRECTORY+'/checkpoint.json.gz',api_module.DIRECTORY+'/proof.json',
             api_module.DIRECTORY+'-correlation-inputs.jsonl.gz',future.hydration_name(parent),
@@ -157,6 +180,7 @@ def seed_view(old,out,parent,neutral,spec,evidence,rows):
             original_full_watch_sha256=data.sha((old/'book/watch.jsonl').read_bytes()),actual_neutral_watch_sha256=data.sha(neutral_watch),
             source_watch_file_sha256=data.sha(watch),neutral_committed_watch_bytes=len(neutral_watch),
             original_full_proof_sha256=data.sha((old/'uncertainty-certificate.jsonl').read_bytes()),actual_added_files=added,
+            owned_copy_permissions=permissions,
             financial_sessions_advanced=0,selected_checkpoint_replaced=False,temporary_view_cleanup_on_scope_exit_required=True)
         exact(out/VIEW_RECEIPT,data.encoded(receipt))
         yield view

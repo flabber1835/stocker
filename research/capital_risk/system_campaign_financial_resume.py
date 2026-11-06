@@ -51,12 +51,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P03',)
+SELECTED_ARMS = ('P03', 'P06', 'P07')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/202'
+SCHEMA = 'research.system-campaign-accurate-resume-request/203'
 EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -1064,6 +1064,10 @@ from system_campaign_p07_readonly_review_recovery import bind_launch as _bind_re
 launch = _bind_readonly_recovery_launch(launch)
 from system_campaign_p07_fin326_requalified_parent import bind_launch as _bind_p07_composite_launch
 launch = _bind_p07_composite_launch(launch)
+from system_campaign_p07_vivo_profile import bind_launch as _bind_p07_vivo_launch
+from system_campaign_p07_vivo_profile import bind_expected_request as _bind_p07_vivo_request
+launch = _bind_p07_vivo_launch(launch)
+expected_request = _bind_p07_vivo_request(sys.modules[__name__])
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

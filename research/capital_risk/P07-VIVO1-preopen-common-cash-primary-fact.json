@@ -1,0 +1,28 @@
+{
+  "schema": "research.P07-VIVO1-preopen-common-cash-primary-fact/1",
+  "ticker": "VIVO1",
+  "security_id": "219953444935140",
+  "legal_issuer": "Meridian Bioscience, Inc.",
+  "legal_issuer_cik": "794172",
+  "provider_identity_upgraded": false,
+  "provider_SEC_UNKNOWN_retained": true,
+  "source": "https://www.sec.gov/Archives/edgar/data/794172/000119312523021179/d448822d8k.htm",
+  "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-49",
+  "completion_date": "2023-01-31",
+  "last_trading_session": "2023-01-30",
+  "native_session": "2023-01-30",
+  "source_identity_session": "2023-01-27",
+  "cash_per_eligible_common_share": "34.00",
+  "mandatory_eligible_common_cash": true,
+  "preopen_completion_confirmed": true,
+  "common_consideration_components": [{"kind": "CASH", "currency": "USD", "amount_per_share": "34.00"}],
+  "stock_or_contingent_rights_in_common_consideration": [],
+  "source_extracts": [
+    {"source": "SEC8K", "support": "The introductory note reports January31 consummation and a34USD cash conversion for each eligible common share; Item3.01 describes pre-opening cessation on that date."},
+    {"source": "NASDAQ_ECA2023_49", "support": "The updated exchange notice identifies a pre-opening January31 closing, the January30 final trading session, and34USD consideration per common share."}
+  ],
+  "actual_broker_settlement_asserted": false,
+  "financial_input_selected": false,
+  "financial_authority": false,
+  "historical_causality": "UNVERIFIED"
+}
