@@ -16,7 +16,8 @@ from system_campaign_financial_partial import root_spec
 def actual():return json.loads((data.HERE/data.CATALOG).read_bytes())
 
 def test_actual_scope_has_one_native_and_last_trading_day_without_financial_authority():
-    scope=data.selected_scopes({},['P07'],enabled=True,root_lookup=root_spec)['P07']
+    original_root=lambda arm:root_spec(arm,'475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d')
+    scope=data.selected_scopes({},['P07'],enabled=True,root_lookup=original_root)['P07']
     assert scope['parent_cursor']=='2022-11-30' and len(scope['terms'])==len(scope['additional_rows'])==1
     assert scope['terms'][0]['session']=='2022-12-20' and scope['terms'][0]['native_session']=='2022-12-21'
     assert scope['additional_rows'][0]['session']=='2022-12-21'
@@ -56,7 +57,7 @@ def test_catalog_byte_change_refuses(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='EXACT_DECLARED_QUERY_CATALOG_BYTES'):data.registry()
 
 def test_current_axis_guard_removal_really_accepts_foreign_outer():
-    root=root_spec('P07');root['outer_sha256']='0'*64;lookup=lambda arm:root
+    root=root_spec('P07','475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d');root['outer_sha256']='0'*64;lookup=lambda arm:root
     with pytest.raises(ValueError,match='EXACT_CURRENT_OWN_ROOT_AXIS_AND_AUTHORITY'):
         data.selected_scopes({},['P07'],enabled=True,root_lookup=lookup)
     fn=next(n for n in ast.parse(Path(data.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='selected_scopes')

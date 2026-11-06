@@ -18,7 +18,9 @@ def source_names():
     import system_campaign_p06_abmd_retained_data as retained
     import system_campaign_p07_readonly_review_recovery as recovery
     import system_campaign_p06_retained_reporting as retained_reporting
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names()))))
+    import system_campaign_p07_fin326_requalified_parent as composite
+    import system_campaign_p06_admitted_source_bridge as admitted_source
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -80,8 +82,12 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=recovery.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
     import system_campaign_p06_retained_reporting as retained_reporting
-    return retained_reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
+    result=retained_reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
+    import system_campaign_p07_fin326_requalified_parent as composite
+    result=composite.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p06_admitted_source_bridge as admitted_source
+    return admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -103,6 +109,8 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         if p06_data.selected(spec):
             stack.enter_context(p06.entry_context(spec,evidence_root=evidence if mode=='review' else None,
                 out=out if mode=='review' else None))
+        import system_campaign_p07_fin326_requalified_parent as composite
+        if composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
         if p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
         import system_campaign_p06_abmd_retained as retained
@@ -117,6 +125,9 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         import system_campaign_p06_retained_reporting as retained_reporting
         if mode=='preflight' and 'root_admission' not in spec and retained_reporting.selected(spec):
             stack.enter_context(retained_reporting.entry_context(spec,old=Path('/old'),out=out or Path('/out'),request=request))
+        import system_campaign_p06_admitted_source_bridge as admitted_source
+        if mode=='preflight' and admitted_source.selected_request(spec,request):
+            stack.enter_context(admitted_source.entry_context(spec,old=Path('/old'),out=out or Path('/out'),request=request))
         old_overlay=module.factual_overlay_needed
         selected=dova.selected(spec) or p06_data.selected(spec) or p07.selected(spec)
         if selected:

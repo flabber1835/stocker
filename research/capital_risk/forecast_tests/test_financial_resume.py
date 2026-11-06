@@ -40,18 +40,22 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['arms']==['P06','P07'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==2
     assert r['readonly_source_witnesses'] is True and r['financial_resume_authorized'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and set(r['source_witness_scopes'])=={'P03'}
+    assert m.request_authority(r) and set(r['source_witness_scopes'])=={'P06','P07'} and len(r['sources'])==556
     assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']==r['selected_p07_failed_review_recoveries']==r['selected_p06_retained_reporting_bridges']=={}
+    assert set(r['selected_p06_admitted_source_bridges'])=={'P06'} and set(r['selected_p07_composite_source_bridges'])=={'P07'}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=False,restored_correlation=False)}
-    root=m.root_spec('P03');scope=r['source_witness_scopes']['P03']
-    assert r['admitted_checkpoints']['P03']==root['outer_sha256'] and len(r['sources'])==549
-    assert (root['measured_closes'],len(root['repairs']))==(503,16)
-    assert len(scope['terms'])==128 and scope['additional_rows']==[]
-    assert scope['terms'][0]['native_session']=='2021-01-28' and scope['terms'][-1]['native_session']=='2021-09-09'
-    assert scope['parent_outer_sha256']==root['outer_sha256'] and all(t['parent_positions']==[] for t in scope['terms'])
+    assert r['arm_inputs']=={arm:dict(new_factual_overlay=False,restored_correlation=False) for arm in ['P06','P07']}
+    for arm,count,inputs in [('P06',1383,10),('P07',1259,24)]:
+        root=m.root_spec(arm);scope=r['source_witness_scopes'][arm]
+        assert (root['measured_closes'],len(root['repairs']))==(count,inputs)
+        assert r['admitted_checkpoints'][arm]==scope['parent_outer_sha256']==root['outer_sha256']
+        assert len(scope['terms'])==128 and scope['additional_rows']==[]
+    bbig,=[t for t in r['source_witness_scopes']['P06']['terms'] if t['ticker']=='BBIG']
+    vivo,=[t for t in r['source_witness_scopes']['P07']['terms'] if t['ticker']=='VIVO1']
+    assert bbig['parent_positions']==[] and sum(p['quantity'] for p in vivo['parent_positions'])==84
+    assert r['selected_p07_composite_source_bridges']['P07']['committed_proof_rows']==805
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
@@ -209,6 +213,20 @@ def launch_fixture(tmp_path, monkeypatch, event):
     # These original launch-order fixtures do not select the new FIN326
     # failed-review transport; dedicated tests exercise its concrete route.
     request.pop('selected_p07_failed_review_recoveries',None)
+    request.pop('selected_p07_composite_source_bridges',None)
+    # These legacy order/failure cases retain their original admitted root;
+    # the new composite source transport has its own concrete route tests.
+    import system_campaign_financial_partial as partial
+    import system_campaign_p07_readonly_review_recovery as recovery
+    original_root=partial.root_spec
+    def historical_root(arm,admission_sha256=None):
+        if arm=='P07' and admission_sha256 is None:
+            admission_sha256='475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d'
+        return original_root(arm,admission_sha256)
+    monkeypatch.setattr(partial,'root_spec',historical_root)
+    monkeypatch.setattr(m,'root_spec',historical_root)
+    monkeypatch.setattr(recovery,'launcher_guard',lambda:None)
+    request['admitted_checkpoints']['P07']=historical_root('P07')['outer_sha256']
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith(('readonly','witness')),

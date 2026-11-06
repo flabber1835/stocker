@@ -5828,3 +5828,104 @@ explicit-query and first-batch regressions pass65 tests3.43s. Whole original
 module and four worker/launcher ASTs remain exact. Request200 selects549 sources,
 zero financial workers and one source-only P03 worker. Exact index, workflow,
 original383 and B19 verification is required before publishing this generation.
+
+P07 REVIEW332's separate independent DATA qualification now passes39 tests
+25.83s, including25 malformed link/diagnostic cases, four meaningful guard
+removals, five import fences and full mature-core/branch/preservation AST undo.
+It verifies the actual21 daily rows,42 accounting snapshots, one report and28
+Decimal metrics, full23-to24 history and784 retained plus21 new branch proofs.
+The financial receipt remains FINANCIAL_REVIEW_REFUSED_PRESERVED, exit1. The
+core accepts this exact failed-stop case only with the complete authenticated
+positive REVIEW332 link and actual stopped readonly reviewer inspection.
+
+The older FIN306 archive contains five uncommitted December21 ABMD refusal
+diagnostics named actual-future-event-refusal.json, after its admitted November
+cursor. The independent input reader's broad filename scan selected them along
+with genuine dated logs. Authenticate and compare the complete exact five-path
+set: passed false, zero engine calls/effects and the exact unresolved ABMD
+message. Exclude only these diagnostics from the committed resource set;
+preserve them in the authentic old artifact and require every genuine original
+source/dated observer byte. No failed event is converted into success.
+
+Qualification74762af37dd69927a58fad586665ba8be4cd06f120c085e1c008a7167a52cfd8
+binds independent review4399ca8407933809db82c0d994721baf4664443203b5ff074c0e7e904f05ede1.
+Separate composite runtime transport remains mandatory. Derive the whole prior
+requalified-parent transport for exact failed FIN326 and positive REVIEW332,
+retain every crypto/public/source/inspection guard and every financial book
+byte, and preserve failed receipts in lineage. Only explicit externally supplied
+review receipts may be exposed in a separate hosted input view. Remove the two
+readonly recovery markers from the prospective admitted transport; restore them
+only when reconstructing the exact original quarantine target. Do not mutate
+frozen u/future, fabricate a B19 codec/seed or reexecute local financial state.
+
+Calculate a prospective JSON-only admission from these actual saved bytes,
+independent proof and real transport metadata. Keep that candidate inert and
+outside the repository root registry until the finalized composite transport
+and its meaningful guard/authority tests pass. Its real hash may then bind the
+finite transport module; keep module bytes outside the independent DATA
+qualification to avoid a self-hash cycle. Retain475af7 and all earlier roots.
+This admits only saved1259/December30/full24/805 proofs, excluding19 January
+tails and failed January31 state. Further financial continuation requires its
+own retained profile and VIVO1 input qualification; no new run is selected by
+calculating an admission candidate. Historical causality remains UNVERIFIED.
+
+P06's next unresolved native is BBIG on July27,2023, with raw reference
+actions/regulatorydelisting, not a cash acquisition. The authenticated own1383
+ledger has1220 events and no BBIG holding, pending order or historical event.
+The existing never-held source-exit convention is a candidate only after its
+own source identity/quote and all original never-held guards qualify. It must
+not claim common-share merger cash, execution proceeds or actual settlement.
+Nasdaq's archived delisting reason confirms July28 suspension; that retrospective
+filing does not upgrade historical causality or give opening cash authority.
+
+Prepare SOURCE335 as a separate admitted-full10 source-only bridge at exact
+root28c768 and saved1383. Reuse the complete REPORT333 input-retention context
+body with a finite admitted-root predicate and explicit source-only request
+declaration; keep all original root/path/full10/ABMD-only codec and restoration
+guards. Activate only in preflight for READONLY_FROZEN_SOURCE_WITNESSES, with
+zero financial workers and no new adoption. Neither the1259 financial profile
+nor the unadmitted1383 reporting bridge is widened. Source queries may collect
+the next bounded128 uncovered future acquisition/regulatory-delisting native
+identities at the actual June root, preserving exact current roles and original
+ordering. Keep the source module/query catalog separate and hash-bound. The
+complete original P03 query module bodies and field bounds remain unchanged
+after the literal arm/catalog specialization. Qualify actual captured source
+bytes independently before any never-held exit input or financial continuation.
+
+P07 composite/source-only qualificationd093b6537372599d8cb9ba4308888c49c9895252b53aaf0262f1ace2837af844
+passes50 tests6.51s with ten meaningful new guard removals, actual public ZIP
+guards, the full24 DATA visitor, the existing805-proof phase and five import
+fences; its portable prospective metadata subset passes20 tests5.49s. The
+finite module hash isca981e5bc69446730cc390093aaf59ed5eec310ac15e950feacb68d4bdb6f680.
+Activate only the frozen real admissiond9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b,
+with the unchanged failed FIN326 transport plus separately authenticated
+REVIEW332 catalog28ea72e665ed42fecc7439a30bcf5f7858e917075408c3ace0ca7ac6427b1c9d.
+Keep the previous475af7 entry unchanged in historical roots. Scope the old
+requalified helper's applies/admit/accounting_review dispatch only to this new
+finite root; restore all three functions on every exit. Keep partial.admit and
+all four worker/launcher bodies exact. Add only a late launcher binding and a
+source-only preflight context before the existing full24 P07 lifecycle entry.
+Economic request generation/launch for this root must refuse until its805-proof
+continuation profile and VIVO1 input separately qualify.
+
+The P06 admitted-full10 source bridge qualification8253fd462b990119d52b6a58e9467d1d7f3c0ac772069c81e4a7568e575c983e
+passes18 tests4.16s, including the complete original retention-context code,
+whole original query-module AST undo, a meaningful source-authority guard
+removal, hook restoration on abort and five actual forbidden-import probes.
+SOURCE335/request201 may select P06 and P07 together, with zero financial
+workers and two read-only workers. Each bounded128-term query uses the same
+authenticated inventory sort, retaining the first uncovered native per SID.
+P06 dates span July5 through December6,2023; P07 spans January4 through
+August10,2023. Preserve actual December P07 roles: VIVO1 has84 shares and SGFY
+has103; do not infer later ownership or upgrade SEC_UNKNOWN identities. These
+collections grant no consideration, timing or financial input authority.
+
+SOURCE335/request201 final targeted integration passes192 checks32.76s plus
+four exact dual-query/transport-before-codec checks2.91s. Historical launch,
+dispatch and query regressions now explicitly retain their original475af7 root;
+the new composite route has its own real-root tests. The launcher import/exact
+request probe passes with zero financial sessions. Request closure is556 files,
+zero financial workers and two source workers. Original partial.admit and all
+four worker/launcher ASTs, original383/B19/future/u bytes remain unchanged.
+Exact staged index/workflow verification precedes publication. No hosted source
+success is claimed until both actual workers stop positively.

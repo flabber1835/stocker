@@ -99,7 +99,11 @@ def selected_scopes(original,arms,*,enabled,root_lookup):
     from system_campaign_p03_forward_source_queries_batch2 import selected_scopes as select_p03_batch2
     result=select_p03_batch2(result,arms,enabled=enabled,root_lookup=root_lookup)
     from system_campaign_p05_remaining_source_queries import selected_scopes as select_remaining
-    return select_remaining(result,arms,enabled=enabled,root_lookup=root_lookup)
+    result=select_remaining(result,arms,enabled=enabled,root_lookup=root_lookup)
+    from system_campaign_p06_forward_source_queries import selected_scopes as select_p06
+    result=select_p06(result,arms,enabled=enabled,root_lookup=root_lookup)
+    from system_campaign_p07_forward_source_queries import selected_scopes as select_p07
+    return select_p07(result,arms,enabled=enabled,root_lookup=root_lookup)
 
 def source_names():
     from system_campaign_pending_native_source_queries_v2 import source_names as pending_names
@@ -107,4 +111,6 @@ def source_names():
     from system_campaign_p03_forward_source_queries import source_names as p03_names
     from system_campaign_p05_remaining_source_queries import source_names as remaining_names
     from system_campaign_p03_forward_source_queries_batch2 import source_names as batch2_names
-    return (Path(__file__).name,CATALOG,*pending_names(),*forward_names(),*p03_names(),*remaining_names(),*batch2_names())
+    from system_campaign_p06_forward_source_queries import source_names as p06_names
+    from system_campaign_p07_forward_source_queries import source_names as p07_names
+    return (Path(__file__).name,CATALOG,*pending_names(),*forward_names(),*p03_names(),*remaining_names(),*batch2_names(),*p06_names(),*p07_names())

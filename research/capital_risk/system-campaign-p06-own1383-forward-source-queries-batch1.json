@@ -1,0 +1,1044 @@
+{
+  "financial_authority": false,
+  "input_adopted": false,
+  "queries": [
+    {
+      "arm": "P06",
+      "parent_completed": 1383,
+      "parent_input_count": 10,
+      "root_admission_sha256": "28c768af0d50047f04ddd6924c1500bf768cc138f41808cd1c0a0b5321eb64b8",
+      "scope": {
+        "additional_rows": [],
+        "parent_cursor": "2023-06-30",
+        "parent_outer_sha256": "bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08",
+        "terms": [
+          {
+            "native_session": "2023-07-05",
+            "native_term_sha256": "7ff1970866689d44b1970d2e4545bd2c0848ea7841c3d15fc8adc0127b635705",
+            "parent_positions": [],
+            "security_id": "234377093459001773",
+            "session": "2023-07-03",
+            "ticker": "DSEY"
+          },
+          {
+            "native_session": "2023-07-06",
+            "native_term_sha256": "c9913c15ae3739ef50aff80d363a580c25972f09b98bfc84b9cddfbaf714e385",
+            "parent_positions": [],
+            "security_id": "535973287620902152",
+            "session": "2023-07-05",
+            "ticker": "NYMXF"
+          },
+          {
+            "native_session": "2023-07-07",
+            "native_term_sha256": "8aca071286c7fccaa2db9d89d5a9a4a5321c82a77db84b9441dc5e4ed3cf0d4d",
+            "parent_positions": [],
+            "security_id": "1058941560213499210",
+            "session": "2023-07-06",
+            "ticker": "VECT"
+          },
+          {
+            "native_session": "2023-07-07",
+            "native_term_sha256": "6d1bd446556c2f91d2b2b702cd4db9b5cafa1abeb8978c730d4f88eae4366928",
+            "parent_positions": [],
+            "security_id": "154663278662986767",
+            "session": "2023-07-06",
+            "ticker": "GNRS"
+          },
+          {
+            "native_session": "2023-07-10",
+            "native_term_sha256": "670cd42f7b0bd828e76d5ac0f5b8e9f7e311271278275ce261efd8fe0e368c79",
+            "parent_positions": [],
+            "security_id": "477302961403569227",
+            "session": "2023-07-07",
+            "ticker": "ISEE"
+          },
+          {
+            "native_session": "2023-07-12",
+            "native_term_sha256": "fe7cbc5b32bd599d9d640c565e857481b6374503240c174403e0a4b2d5267580",
+            "parent_positions": [],
+            "security_id": "22169546690757039",
+            "session": "2023-07-11",
+            "ticker": "GLOP"
+          },
+          {
+            "native_session": "2023-07-13",
+            "native_term_sha256": "4ffea6b16f8773696575d0c9a3c7f002760f52033bc139be5b1b4d8f6ada6301",
+            "parent_positions": [],
+            "security_id": "884135089511647766",
+            "session": "2023-07-12",
+            "ticker": "AZRE"
+          },
+          {
+            "native_session": "2023-07-14",
+            "native_term_sha256": "3a1701921b07a0b92301d89c87c4e634e6374c7678182c3075eb254e26e55f51",
+            "parent_positions": [],
+            "security_id": "204505847473910475",
+            "session": "2023-07-13",
+            "ticker": "MLVF"
+          },
+          {
+            "native_session": "2023-07-14",
+            "native_term_sha256": "f09c1ab7227bcf50404c2ec32aa236ed727f3a9bd972a703df50e24000ea2909",
+            "parent_positions": [],
+            "security_id": "331458316630101672",
+            "session": "2023-07-13",
+            "ticker": "TESS"
+          },
+          {
+            "native_session": "2023-07-18",
+            "native_term_sha256": "5a842b4c25c3323266bda31a8aadd31669303de61a3e660403cc0d20b3b34371",
+            "parent_positions": [],
+            "security_id": "614284177923504854",
+            "session": "2023-07-17",
+            "ticker": "ARDS"
+          },
+          {
+            "native_session": "2023-07-19",
+            "native_term_sha256": "95e8369bfe7378b99c29438e97ad38e67a984a5847d41b7945f86470f923fcc7",
+            "parent_positions": [],
+            "security_id": "33166331476184148",
+            "session": "2023-07-18",
+            "ticker": "BGRY"
+          },
+          {
+            "native_session": "2023-07-19",
+            "native_term_sha256": "ccb498dd580b7f803166463271de8bfb95d1c9f362efaa4f50c0398ed7fdf677",
+            "parent_positions": [],
+            "security_id": "753641750484343508",
+            "session": "2023-07-18",
+            "ticker": "LSI"
+          },
+          {
+            "native_session": "2023-07-21",
+            "native_term_sha256": "5eecef9502ab37164383e709bd9813540c176d8a2232e0fa285e50eca97534e0",
+            "parent_positions": [],
+            "security_id": "1149869493511971081",
+            "session": "2023-07-20",
+            "ticker": "ATTOF"
+          },
+          {
+            "native_session": "2023-07-21",
+            "native_term_sha256": "16aaf05cfd46758fba388ca573c4bda163dc8960e31cda1ed417a74101645a7d",
+            "parent_positions": [],
+            "security_id": "827043255933761730",
+            "session": "2023-07-20",
+            "ticker": "GRNA"
+          },
+          {
+            "native_session": "2023-07-26",
+            "native_term_sha256": "72d19ed87f79ea7a896c413867edcc1731467928dcea8fa0f7a82ca2645ab795",
+            "parent_positions": [],
+            "security_id": "1061728384358364043",
+            "session": "2023-07-25",
+            "ticker": "ABST"
+          },
+          {
+            "native_session": "2023-07-27",
+            "native_term_sha256": "9cca7b7dadb51de88974ea9d757aa1cf85efb3244121f3c39e439aa816adbb6a",
+            "parent_positions": [],
+            "security_id": "1150551303615013770",
+            "session": "2023-07-26",
+            "ticker": "BBIG"
+          },
+          {
+            "native_session": "2023-07-27",
+            "native_term_sha256": "c18c68ef2a138d80a1bf1325d3ece4707e45c2bb6d51ea96a9a3c6dbb402237d",
+            "parent_positions": [],
+            "security_id": "721679296374852573",
+            "session": "2023-07-26",
+            "ticker": "AJRD"
+          },
+          {
+            "native_session": "2023-07-31",
+            "native_term_sha256": "4257e5bb40c491a058cba0f580e4b1ab27bb9a68f242042308994d727074c30c",
+            "parent_positions": [],
+            "security_id": "1021103387637320319",
+            "session": "2023-07-28",
+            "ticker": "SPPI"
+          },
+          {
+            "native_session": "2023-07-31",
+            "native_term_sha256": "a268aa3d4745bff6faab92aac962c554b3d771849acb55a4b32479cddf72f047",
+            "parent_positions": [],
+            "security_id": "220188358195861572",
+            "session": "2023-07-28",
+            "ticker": "UNVR"
+          },
+          {
+            "native_session": "2023-07-31",
+            "native_term_sha256": "547a285c0b6ed19c4e21cb7166fa1dd84ff637de2a55bc1658584486f90af6d8",
+            "parent_positions": [],
+            "security_id": "763759217058740273",
+            "session": "2023-07-28",
+            "ticker": "REUN"
+          },
+          {
+            "native_session": "2023-07-31",
+            "native_term_sha256": "d7b7c8cbaa4279a28d1d87d618af2283099ee074a265bafb5324fbe1f4b0fea4",
+            "parent_positions": [],
+            "security_id": "914974100856287578",
+            "session": "2023-07-28",
+            "ticker": "NBRVF"
+          },
+          {
+            "native_session": "2023-07-31",
+            "native_term_sha256": "eef7a394e5ea3469761e42a9e8274dfdb8ad43d23080a9450480b39e6c8f6ab8",
+            "parent_positions": [],
+            "security_id": "92814336218352428",
+            "session": "2023-07-28",
+            "ticker": "HMPT"
+          },
+          {
+            "native_session": "2023-08-01",
+            "native_term_sha256": "25cbd9d34a69c8c83807b11c8db953056e320b4a68dd57ba22b6d8aabfc0a778",
+            "parent_positions": [],
+            "security_id": "363649791372954404",
+            "session": "2023-07-31",
+            "ticker": "EMBK"
+          },
+          {
+            "native_session": "2023-08-03",
+            "native_term_sha256": "1c38f3b2e158dada208023fbab50d1b09dd96dbfa661b38f609a300eaf50cb77",
+            "parent_positions": [],
+            "security_id": "1002727196930595122",
+            "session": "2023-08-02",
+            "ticker": "WTT"
+          },
+          {
+            "native_session": "2023-08-04",
+            "native_term_sha256": "160a0d078a10453fdb6a48e600ad5f6b84224ac32efaeae6849a1063592c90e3",
+            "parent_positions": [],
+            "security_id": "1108976686291168446",
+            "session": "2023-08-03",
+            "ticker": "PDCE"
+          },
+          {
+            "native_session": "2023-08-08",
+            "native_term_sha256": "38a801a52f9077b135500f4810995ad7ef957a5b4b7a5482d76478bef2104868",
+            "parent_positions": [],
+            "security_id": "349504371207456722",
+            "session": "2023-08-07",
+            "ticker": "DICE"
+          },
+          {
+            "native_session": "2023-08-09",
+            "native_term_sha256": "4ce65b1178208e3a539b0ab19650533c125564ca4f896785228fb13f5bb6167c",
+            "parent_positions": [],
+            "security_id": "271065934576035529",
+            "session": "2023-08-08",
+            "ticker": "LTCH"
+          },
+          {
+            "native_session": "2023-08-10",
+            "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+            "parent_positions": [],
+            "security_id": "47247117758471252",
+            "session": "2023-08-09",
+            "ticker": "KDNY"
+          },
+          {
+            "native_session": "2023-08-10",
+            "native_term_sha256": "4ff180808ae34c1fcc704c84c5d15065416fea91963f2aae9b20575e2167b3a2",
+            "parent_positions": [],
+            "security_id": "788311267613922025",
+            "session": "2023-08-09",
+            "ticker": "SGTX"
+          },
+          {
+            "native_session": "2023-08-11",
+            "native_term_sha256": "719900eee5feacf5e2f1fd25a95b98bedca7eaf29c0fec8fd5eda269a4ac47c3",
+            "parent_positions": [],
+            "security_id": "263064945864937942",
+            "session": "2023-08-10",
+            "ticker": "SAL"
+          },
+          {
+            "native_session": "2023-08-17",
+            "native_term_sha256": "bb92e639356e1dd3003d54551d2a5b024518d5d1411907abe257dbcf593d908c",
+            "parent_positions": [],
+            "security_id": "668039262303184591",
+            "session": "2023-08-16",
+            "ticker": "UBA"
+          },
+          {
+            "native_session": "2023-08-17",
+            "native_term_sha256": "daf6fb3e9cf5d61d39b506306a9fc2694ea08dcde843fb6cbbc2e718adb01084",
+            "parent_positions": [],
+            "security_id": "814822139570731593",
+            "session": "2023-08-16",
+            "ticker": "ARNC"
+          },
+          {
+            "native_session": "2023-08-18",
+            "native_term_sha256": "f3c80eb81e56926df1d9d53c81ab4b84b82386d7cefed6814b61ae3b8cc11187",
+            "parent_positions": [],
+            "security_id": "906280636792711059",
+            "session": "2023-08-17",
+            "ticker": "FRG"
+          },
+          {
+            "native_session": "2023-08-22",
+            "native_term_sha256": "da234ccfa7f69395543eadd5f58886bd924ce9f668d7ccc61786b91d27c63539",
+            "parent_positions": [],
+            "security_id": "550959200502870769",
+            "session": "2023-08-21",
+            "ticker": "YVRLF"
+          },
+          {
+            "native_session": "2023-08-22",
+            "native_term_sha256": "082ccc07eb5b50626d2e55cf1d028908e5b69bae25e54d556aab4a3faabe7996",
+            "parent_positions": [],
+            "security_id": "711265379668295584",
+            "session": "2023-08-21",
+            "ticker": "APGN"
+          },
+          {
+            "native_session": "2023-08-22",
+            "native_term_sha256": "b9e97bc11d2f64b9acaae54e966f70fe72538f40002be5d39a2503c7b61d0cc1",
+            "parent_positions": [],
+            "security_id": "766048158265916403",
+            "session": "2023-08-21",
+            "ticker": "FRBK"
+          },
+          {
+            "native_session": "2023-08-22",
+            "native_term_sha256": "154b48f99dbae1e994a7633ecd833f93f76c00e28e3cdc1976fcee45b050fb04",
+            "parent_positions": [],
+            "security_id": "927598213803887960",
+            "session": "2023-08-21",
+            "ticker": "FORG"
+          },
+          {
+            "native_session": "2023-08-23",
+            "native_term_sha256": "5daa05a780b985c1380160759c4bdb38c6e434e8d1bb49352237245fa2a40ba3",
+            "parent_positions": [],
+            "security_id": "987218777470557287",
+            "session": "2023-08-22",
+            "ticker": "GMVDF"
+          },
+          {
+            "native_session": "2023-08-24",
+            "native_term_sha256": "bcf6d41973e11d4d3c91e6cf7d1ebde50c5ce261cbd4fb3b8f76c23da9d4df81",
+            "parent_positions": [],
+            "security_id": "608125126976337228",
+            "session": "2023-08-23",
+            "ticker": "FXLV"
+          },
+          {
+            "native_session": "2023-08-30",
+            "native_term_sha256": "9860b96f1a3cb104844164d402d0966dfd7d5aca84e12ed0fd7b1ef6fb5b621e",
+            "parent_positions": [],
+            "security_id": "514757192932235049",
+            "session": "2023-08-29",
+            "ticker": "PRDS"
+          },
+          {
+            "native_session": "2023-08-31",
+            "native_term_sha256": "48cbfc6c3839772fb283abe8dc8646a36efe5fc49e77ce87fd47fc8336c2d19c",
+            "parent_positions": [],
+            "security_id": "87829365502221746",
+            "session": "2023-08-30",
+            "ticker": "NUVA"
+          },
+          {
+            "native_session": "2023-08-31",
+            "native_term_sha256": "51bda6165c9c8b94e7111334d62021eb5e17175aa1ac015d67d8428ad5822d5d",
+            "parent_positions": [],
+            "security_id": "911440515854232861",
+            "session": "2023-08-30",
+            "ticker": "NEX"
+          },
+          {
+            "native_session": "2023-09-01",
+            "native_term_sha256": "aa3825d28c44a4b64c55a3b02a4cbbfef597ab48404d2a1e32f9486a2f9a2ec7",
+            "parent_positions": [],
+            "security_id": "356455035813755306",
+            "session": "2023-08-31",
+            "ticker": "CFMS"
+          },
+          {
+            "native_session": "2023-09-01",
+            "native_term_sha256": "c5476a5065675eb10be41e3feeb1ea7e108e86f85408d066dcd31f6e17342d80",
+            "parent_positions": [],
+            "security_id": "823579734840521990",
+            "session": "2023-08-31",
+            "ticker": "QUOT"
+          },
+          {
+            "native_session": "2023-09-07",
+            "native_term_sha256": "e41e630c99d39b794926210a61383c9b274874a3c0b0ca3ca1a6abef5b6e9a7c",
+            "parent_positions": [],
+            "security_id": "408048935946918527",
+            "session": "2023-09-06",
+            "ticker": "LOVLY"
+          },
+          {
+            "native_session": "2023-09-07",
+            "native_term_sha256": "5bcac69c7ed5c4fe0ef8c810a04fcf3253fdea184b92787dc259a01a80ed364e",
+            "parent_positions": [],
+            "security_id": "863613477226883387",
+            "session": "2023-09-06",
+            "ticker": "SURF"
+          },
+          {
+            "native_session": "2023-09-11",
+            "native_term_sha256": "0435c1e37d12110382cc1af3f330d8352234b80e60c91a3c70b6a3be96e5caab",
+            "parent_positions": [],
+            "security_id": "109055379787413751",
+            "session": "2023-09-08",
+            "ticker": "RTL"
+          },
+          {
+            "native_session": "2023-09-13",
+            "native_term_sha256": "fd2fb7e88ebd3b5306bca10636c2f20aa39e292f7b6572705e946ba666699b21",
+            "parent_positions": [],
+            "security_id": "145274372242959219",
+            "session": "2023-09-12",
+            "ticker": "INFI"
+          },
+          {
+            "native_session": "2023-09-13",
+            "native_term_sha256": "0cc98835a34af99035504d23752418ceef872cec9777c2c735a6f82499b5f496",
+            "parent_positions": [],
+            "security_id": "84484218065480428",
+            "session": "2023-09-12",
+            "ticker": "KRBP"
+          },
+          {
+            "native_session": "2023-09-14",
+            "native_term_sha256": "a5de8be28eecfecbfb77575b012a4c12e4138e47b200f6567da7409a7a90c8f5",
+            "parent_positions": [],
+            "security_id": "1010778058181577276",
+            "session": "2023-09-13",
+            "ticker": "DRTTF"
+          },
+          {
+            "native_session": "2023-09-18",
+            "native_term_sha256": "7bb2d5ad0d2db0ef70ebb963d6257103499b22a14af69afacedf47ef68c6a825",
+            "parent_positions": [],
+            "security_id": "87519734003931149",
+            "session": "2023-09-15",
+            "ticker": "ZEVY"
+          },
+          {
+            "native_session": "2023-09-20",
+            "native_term_sha256": "ace7f8e508c49e9862bebc47f5b85a37894e6437a7d42d5abdafd777efa13307",
+            "parent_positions": [],
+            "security_id": "477309164594500719",
+            "session": "2023-09-19",
+            "ticker": "RADI"
+          },
+          {
+            "native_session": "2023-09-20",
+            "native_term_sha256": "ac202ec559f9f8b3a8b914749dd8a98e2c55970e767015211fdb790542195777",
+            "parent_positions": [],
+            "security_id": "818187088615371426",
+            "session": "2023-09-19",
+            "ticker": "PRTK"
+          },
+          {
+            "native_session": "2023-09-22",
+            "native_term_sha256": "92b9e53265f46116ad3380be25912da9044d65c3ad49d38beb1a94d2f11cc23b",
+            "parent_positions": [],
+            "security_id": "253557182198766990",
+            "session": "2023-09-21",
+            "ticker": "DBTX"
+          },
+          {
+            "native_session": "2023-09-22",
+            "native_term_sha256": "9887733d31e431bbc08fff53d772b16cf453d2d60c00dc939c2c8c95f14d0546",
+            "parent_positions": [],
+            "security_id": "607033349837235157",
+            "session": "2023-09-21",
+            "ticker": "MMP"
+          },
+          {
+            "native_session": "2023-09-25",
+            "native_term_sha256": "956cab616479abbbf129832922f684dc2480955aece6ba3c3fca8243be979799",
+            "parent_positions": [],
+            "security_id": "30813944903199451",
+            "session": "2023-09-22",
+            "ticker": "LMNL"
+          },
+          {
+            "native_session": "2023-09-25",
+            "native_term_sha256": "bb0719c54b4ff45a5dc107d9fcfa8f7cd5669dd6ade1d1a361805f2b8135983b",
+            "parent_positions": [],
+            "security_id": "877716075426179792",
+            "session": "2023-09-22",
+            "ticker": "RETA"
+          },
+          {
+            "native_session": "2023-09-25",
+            "native_term_sha256": "bddced1c154b16dae117923cafb663c960ee9a0599a04c79fcdebf181787a64a",
+            "parent_positions": [],
+            "security_id": "977727204501055600",
+            "session": "2023-09-22",
+            "ticker": "DMSL"
+          },
+          {
+            "native_session": "2023-09-27",
+            "native_term_sha256": "d40914a2f307901cb17e4a8fd2bc534d997b912a1e49aecb3e5cf613bc9deb6b",
+            "parent_positions": [],
+            "security_id": "25597565870253956",
+            "session": "2023-09-26",
+            "ticker": "TRTN"
+          },
+          {
+            "native_session": "2023-09-27",
+            "native_term_sha256": "f39a11f470b2c55aa34ba2fee92b70e9c4d1f68eec97c8bf3873af5d61a98feb",
+            "parent_positions": [],
+            "security_id": "842403186726794681",
+            "session": "2023-09-26",
+            "ticker": "SYNH"
+          },
+          {
+            "native_session": "2023-09-28",
+            "native_term_sha256": "f29117e18306e593cc82d617940f6c054ee9d96cc977c0f3c141bd2ceba1038e",
+            "parent_positions": [],
+            "security_id": "132641025721375643",
+            "session": "2023-09-27",
+            "ticker": "MCLDF"
+          },
+          {
+            "native_session": "2023-09-29",
+            "native_term_sha256": "b197947f257f6eaa751dcb1ea351f17053babf24c892883077f2b1b095b0dbc3",
+            "parent_positions": [],
+            "security_id": "967279471334535303",
+            "session": "2023-09-28",
+            "ticker": "CELL"
+          },
+          {
+            "native_session": "2023-10-04",
+            "native_term_sha256": "9b6dcf1a6f93e6a563f4a0bc2312f856bfb08c2d9fc75a6e0b38916dcd78826a",
+            "parent_positions": [],
+            "security_id": "130923305193858293",
+            "session": "2023-10-03",
+            "ticker": "KLR"
+          },
+          {
+            "native_session": "2023-10-04",
+            "native_term_sha256": "b9927c4ba3546ce71b57ccde1b336b11c11854e2c7fea4da092253cf3174723f",
+            "parent_positions": [],
+            "security_id": "85544394928010562",
+            "session": "2023-10-03",
+            "ticker": "VQSSF"
+          },
+          {
+            "native_session": "2023-10-05",
+            "native_term_sha256": "50ab33b65e1b87e3c225a16eebfa8f5e88e02e75b9a8ed61c712c2ad24c20bec",
+            "parent_positions": [],
+            "security_id": "1035096804115858699",
+            "session": "2023-10-04",
+            "ticker": "NAVB"
+          },
+          {
+            "native_session": "2023-10-05",
+            "native_term_sha256": "975c5509c7016e4d4c9f414727ed6a3c40838484cf6da343b472385003b13114",
+            "parent_positions": [],
+            "security_id": "383424504385495727",
+            "session": "2023-10-04",
+            "ticker": "HZNP"
+          },
+          {
+            "native_session": "2023-10-10",
+            "native_term_sha256": "376ec4b3cdb295994968e440d395b754b485d1e29575382f06324ef030fc54b0",
+            "parent_positions": [],
+            "security_id": "529364742488721883",
+            "session": "2023-10-09",
+            "ticker": "ZYNE"
+          },
+          {
+            "native_session": "2023-10-10",
+            "native_term_sha256": "8ee5dd6fe1c436bc7a30d96e7ec20e929cdf8c242369af91464bacee3eb2f704",
+            "parent_positions": [],
+            "security_id": "889446746390919934",
+            "session": "2023-10-09",
+            "ticker": "NATI"
+          },
+          {
+            "native_session": "2023-10-12",
+            "native_term_sha256": "b8322b6513499f4f499c114e9c9fadd724844fdeedbbefcc760b3e195c5f0b96",
+            "parent_positions": [],
+            "security_id": "390513115168803332",
+            "session": "2023-10-11",
+            "ticker": "ATVI"
+          },
+          {
+            "native_session": "2023-10-12",
+            "native_term_sha256": "87c8b401c2acc3d4a932231a9217eafbd7e654bfbaced0f8390b6515af801b16",
+            "parent_positions": [],
+            "security_id": "641895834232558680",
+            "session": "2023-10-11",
+            "ticker": "EBET"
+          },
+          {
+            "native_session": "2023-10-13",
+            "native_term_sha256": "97b2cb4ce89bb219ecd3e7d67da606e0ac9fdd81d7f4be882ff9047e01e151e7",
+            "parent_positions": [],
+            "security_id": "835478709412082111",
+            "session": "2023-10-12",
+            "ticker": "THRN"
+          },
+          {
+            "native_session": "2023-10-16",
+            "native_term_sha256": "83d8c84d208752cb392423a9ab5eace093dcfd85c356bd6f22b3eed8a64ea4d6",
+            "parent_positions": [],
+            "security_id": "581126272204145976",
+            "session": "2023-10-13",
+            "ticker": "ELYS"
+          },
+          {
+            "native_session": "2023-10-16",
+            "native_term_sha256": "f9db95537eff65526bf2f14a0db55bc4b56ec4af6e15b06ae5b6e1b6c0c558c3",
+            "parent_positions": [],
+            "security_id": "717278895849758441",
+            "session": "2023-10-13",
+            "ticker": "HCCI"
+          },
+          {
+            "native_session": "2023-10-17",
+            "native_term_sha256": "61aa2c8ac6f30a3ec907776daf85fadcfefc098d5ed10a83b5a0eebbb9f51121",
+            "parent_positions": [],
+            "security_id": "441826363961881723",
+            "session": "2023-10-16",
+            "ticker": "CIR1"
+          },
+          {
+            "native_session": "2023-10-17",
+            "native_term_sha256": "c9df437dd7980f250f9cffff09a21f55d02e0ed5a0267c704036b93411b82f6e",
+            "parent_positions": [],
+            "security_id": "702386900757567766",
+            "session": "2023-10-16",
+            "ticker": "EMAN"
+          },
+          {
+            "native_session": "2023-10-20",
+            "native_term_sha256": "3c90ae13a077222a34f759258b1b26282802a7a92e55993f8ed004716528d299",
+            "parent_positions": [],
+            "security_id": "499254345947670980",
+            "session": "2023-10-19",
+            "ticker": "SCPL"
+          },
+          {
+            "native_session": "2023-10-23",
+            "native_term_sha256": "2281e27d40ce01b2d2de4ba1f5b0599697e3b56c18f519b7d93c2ee2c9eb098f",
+            "parent_positions": [],
+            "security_id": "343955049285071424",
+            "session": "2023-10-20",
+            "ticker": "PFSW"
+          },
+          {
+            "native_session": "2023-10-26",
+            "native_term_sha256": "8e924fa907e5385f52b22d3dccc81700374f5921414dc64b10a881c69fd5f742",
+            "parent_positions": [],
+            "security_id": "11684210547234731",
+            "session": "2023-10-25",
+            "ticker": "BRQSF"
+          },
+          {
+            "native_session": "2023-10-26",
+            "native_term_sha256": "da9ca3463dc9a3f123229b69095d985bdf59e4e688dbe74250113688625bef6d",
+            "parent_positions": [],
+            "security_id": "349990393386146123",
+            "session": "2023-10-25",
+            "ticker": "SFRT"
+          },
+          {
+            "native_session": "2023-10-27",
+            "native_term_sha256": "923dcea368530e78d8eb6e78459aac40310efe047b812e5ef99d6b9e2e7f31a7",
+            "parent_positions": [],
+            "security_id": "1134582194511063389",
+            "session": "2023-10-26",
+            "ticker": "FRGI"
+          },
+          {
+            "native_session": "2023-10-27",
+            "native_term_sha256": "5eebdad0a80cd9eb10d2b0501b7fa4a433ad9ea56cef31ffa75cb4b713a5414a",
+            "parent_positions": [],
+            "security_id": "500181343327777393",
+            "session": "2023-10-26",
+            "ticker": "LTRPB"
+          },
+          {
+            "native_session": "2023-10-27",
+            "native_term_sha256": "3a2c7ad84557d077c68c3823fe0a2b7d84c1cbaae28245e8b122b0c29ca4709a",
+            "parent_positions": [],
+            "security_id": "671106617517100487",
+            "session": "2023-10-26",
+            "ticker": "EGLXF"
+          },
+          {
+            "native_session": "2023-10-27",
+            "native_term_sha256": "df814a26f444b7e0722a5982a67570e9abd2bc5f460b227906ddafad043eab32",
+            "parent_positions": [],
+            "security_id": "905572516413780896",
+            "session": "2023-10-26",
+            "ticker": "LTRPA"
+          },
+          {
+            "native_session": "2023-11-01",
+            "native_term_sha256": "9c00cd9bb7117794a1dea3f8c52ecfe9332273380cf259b6458bc0c88b0c451e",
+            "parent_positions": [],
+            "security_id": "524074005503537544",
+            "session": "2023-10-31",
+            "ticker": "DEN"
+          },
+          {
+            "native_session": "2023-11-01",
+            "native_term_sha256": "349b63b7d078162d7f1960f63d323dd584f538ec7dc4e246a9690038d074d9b1",
+            "parent_positions": [],
+            "security_id": "838856970010899794",
+            "session": "2023-10-31",
+            "ticker": "MDNAF"
+          },
+          {
+            "native_session": "2023-11-02",
+            "native_term_sha256": "043b053cf0b6e5e96f65f668982b01e5bc89839272bcd681401f6ff9e97e3639",
+            "parent_positions": [],
+            "security_id": "1036427516070314394",
+            "session": "2023-11-01",
+            "ticker": "CEQP"
+          },
+          {
+            "native_session": "2023-11-02",
+            "native_term_sha256": "1108ea9d0a40f5e0430bb4bec43b63684134c43d21741868c78e5c7e1d00f835",
+            "parent_positions": [],
+            "security_id": "565033869086694544",
+            "session": "2023-11-01",
+            "ticker": "TRHC"
+          },
+          {
+            "native_session": "2023-11-06",
+            "native_term_sha256": "042e3c4ef6a4dde2ce9f6856f7e724c153d5ebe2845fe50d28bf0ae99dfcb0c7",
+            "parent_positions": [],
+            "security_id": "203591011054715248",
+            "session": "2023-11-03",
+            "ticker": "AVID"
+          },
+          {
+            "native_session": "2023-11-06",
+            "native_term_sha256": "5997cc84706bab5bd04a5c6d9fb6e4fb030ece8d8c5792d8235e36c74d071018",
+            "parent_positions": [],
+            "security_id": "533554648046407798",
+            "session": "2023-11-03",
+            "ticker": "TWNK"
+          },
+          {
+            "native_session": "2023-11-06",
+            "native_term_sha256": "9043e969f9056e3d0a283728bdc0eb971eb04706df0b7b65e77c6e19257eac36",
+            "parent_positions": [],
+            "security_id": "551585671305244475",
+            "session": "2023-11-03",
+            "ticker": "PLM"
+          },
+          {
+            "native_session": "2023-11-07",
+            "native_term_sha256": "785b1e7a91a20d2184844a21a4c088d32d15ef68991d1771e070f438748eeba1",
+            "parent_positions": [],
+            "security_id": "24026445320701582",
+            "session": "2023-11-06",
+            "ticker": "ICPT"
+          },
+          {
+            "native_session": "2023-11-07",
+            "native_term_sha256": "f1b1bff982237c13f453887d4a5bfa1cb9191fe4047ed4c43e9498bde3cbde1d",
+            "parent_positions": [],
+            "security_id": "311462628826086768",
+            "session": "2023-11-06",
+            "ticker": "RIBT"
+          },
+          {
+            "native_session": "2023-11-07",
+            "native_term_sha256": "23d0dfe7e1d209f84a68c666878673381b1748f10a891edcd9a00ad55f66b6c0",
+            "parent_positions": [],
+            "security_id": "333926898180811276",
+            "session": "2023-11-06",
+            "ticker": "NEWR"
+          },
+          {
+            "native_session": "2023-11-07",
+            "native_term_sha256": "6e563590d5e4840c46362da5f0c6a06bfe2531de366e2e92488b1effd5bdaf5b",
+            "parent_positions": [],
+            "security_id": "951220817698945218",
+            "session": "2023-11-06",
+            "ticker": "HLGN"
+          },
+          {
+            "native_session": "2023-11-08",
+            "native_term_sha256": "a94b0b74c7e407fb547139a35054649f80f94303aaa83256c2bf34e439402247",
+            "parent_positions": [],
+            "security_id": "198390113242719162",
+            "session": "2023-11-07",
+            "ticker": "CFRXQ"
+          },
+          {
+            "native_session": "2023-11-08",
+            "native_term_sha256": "177c4b37db5627e01de474078dcd597229b1d2fccf9055789fb915c842b240df",
+            "parent_positions": [],
+            "security_id": "630114323699097572",
+            "session": "2023-11-07",
+            "ticker": "ACER"
+          },
+          {
+            "native_session": "2023-11-08",
+            "native_term_sha256": "ed9cb4e73661df4a643697ed97054a00608f69de0d9285412a9572841a7c446f",
+            "parent_positions": [],
+            "security_id": "666950814132995667",
+            "session": "2023-11-07",
+            "ticker": "NXGN"
+          },
+          {
+            "native_session": "2023-11-08",
+            "native_term_sha256": "356ec70cb096d12618c0f31210c3fdaa8e295972fc0d1a10b217583e76a0d781",
+            "parent_positions": [],
+            "security_id": "876890915167829930",
+            "session": "2023-11-07",
+            "ticker": "EQRX"
+          },
+          {
+            "native_session": "2023-11-10",
+            "native_term_sha256": "a2d09a62db63201dd04a8c12ef4787e60a1c6076c599cd7d3a2ac6985871b707",
+            "parent_positions": [],
+            "security_id": "50945802619249724",
+            "session": "2023-11-09",
+            "ticker": "APRN"
+          },
+          {
+            "native_session": "2023-11-13",
+            "native_term_sha256": "f44becadd86568c4527aa792855e13f53b12c1e6bd6977281c4e2e2e237b2f78",
+            "parent_positions": [],
+            "security_id": "746158814089704953",
+            "session": "2023-11-10",
+            "ticker": "TIOG"
+          },
+          {
+            "native_session": "2023-11-14",
+            "native_term_sha256": "4774a1c6613381b0abf878f47932995c1c5d98fe4072697f189e0ad2af5bcf5c",
+            "parent_positions": [],
+            "security_id": "201346919881654526",
+            "session": "2023-11-13",
+            "ticker": "OTLC"
+          },
+          {
+            "native_session": "2023-11-14",
+            "native_term_sha256": "33540560e81521cdf9e039726ce9e883376fbc76ad2450c12c873c820ba872e5",
+            "parent_positions": [],
+            "security_id": "296189780333092312",
+            "session": "2023-11-13",
+            "ticker": "CCF"
+          },
+          {
+            "native_session": "2023-11-15",
+            "native_term_sha256": "5e74c4ca4617e2ae3679d04d65daa6477416baca9e187f0f8c2b43abab4a00cd",
+            "parent_positions": [],
+            "security_id": "731630063907477971",
+            "session": "2023-11-14",
+            "ticker": "PYRGF"
+          },
+          {
+            "native_session": "2023-11-15",
+            "native_term_sha256": "7e48b25b34915b0efa300614288abeb8d1d7216af5826ea0239f37fe8eaafb20",
+            "parent_positions": [],
+            "security_id": "742455654792357520",
+            "session": "2023-11-14",
+            "ticker": "ARGO"
+          },
+          {
+            "native_session": "2023-11-15",
+            "native_term_sha256": "4f0df2c9fab01fefd74a04d4c139e06e53024e60f0d5b450ffefd3bfcc5a9294",
+            "parent_positions": [],
+            "security_id": "833720933140950893",
+            "session": "2023-11-14",
+            "ticker": "USDP"
+          },
+          {
+            "native_session": "2023-11-16",
+            "native_term_sha256": "8b8f17dd925c3a95a8971e0affe3d36298344c4c974f0efaaabed457e1d88461",
+            "parent_positions": [],
+            "security_id": "107290180638118226",
+            "session": "2023-11-15",
+            "ticker": "CMRA"
+          },
+          {
+            "native_session": "2023-11-16",
+            "native_term_sha256": "82351662c1b14efd3d8dbd1da67afb8bdd40a87e430a6888186036e119f864d3",
+            "parent_positions": [],
+            "security_id": "430094077611721082",
+            "session": "2023-11-15",
+            "ticker": "SCU"
+          },
+          {
+            "native_session": "2023-11-16",
+            "native_term_sha256": "f03f8b12058f227d1a78bc8fd7d3f0f01ca25661f14748bfa551e97abdd1e254",
+            "parent_positions": [],
+            "security_id": "457639434973624882",
+            "session": "2023-11-15",
+            "ticker": "KBNT"
+          },
+          {
+            "native_session": "2023-11-16",
+            "native_term_sha256": "8c8dd1f0c903a26fe5c1cae3583eea0bc775116ad06e46aea66c8bf9816fda93",
+            "parent_positions": [],
+            "security_id": "699738264904030965",
+            "session": "2023-11-15",
+            "ticker": "MFLTF"
+          },
+          {
+            "native_session": "2023-11-20",
+            "native_term_sha256": "92878c3709cda1e3f255c122a8cabea35791f320e0debd3f0de49526f0db398b",
+            "parent_positions": [],
+            "security_id": "159975955321374582",
+            "session": "2023-11-17",
+            "ticker": "ROSE"
+          },
+          {
+            "native_session": "2023-11-20",
+            "native_term_sha256": "cb6f883e5d6cceeaac3b54ff4d065554304bd954f9620856799ecc0b17061125",
+            "parent_positions": [],
+            "security_id": "632116205220413752",
+            "session": "2023-11-17",
+            "ticker": "PBIO"
+          },
+          {
+            "native_session": "2023-11-21",
+            "native_term_sha256": "56293c6760677981d597ffca0bd28949443383747144138079971248d28dadd4",
+            "parent_positions": [],
+            "security_id": "803498557956960495",
+            "session": "2023-11-20",
+            "ticker": "SONX"
+          },
+          {
+            "native_session": "2023-11-21",
+            "native_term_sha256": "36141547641fcce521cedce03034e9df2eff289b76064ee86411974dcb8458bc",
+            "parent_positions": [],
+            "security_id": "861815812000677040",
+            "session": "2023-11-20",
+            "ticker": "VMW"
+          },
+          {
+            "native_session": "2023-11-22",
+            "native_term_sha256": "d12d74c668567cb68fdf14c309830cb7a98990842eac6c19efc7c9cf3524ef75",
+            "parent_positions": [],
+            "security_id": "190638977914634372",
+            "session": "2023-11-21",
+            "ticker": "AXLA"
+          },
+          {
+            "native_session": "2023-11-24",
+            "native_term_sha256": "6e7ac7d59d8e80a5c57c5a187012fba35c21c0eb20feb67fca5c8eb53109ef79",
+            "parent_positions": [],
+            "security_id": "239995637273629829",
+            "session": "2023-11-22",
+            "ticker": "ZIVO"
+          },
+          {
+            "native_session": "2023-11-27",
+            "native_term_sha256": "d918e87a2fecd07beb73b36b004f1fd702905fbbed9d2d0a2b881fc313c8c660",
+            "parent_positions": [],
+            "security_id": "208186199728699255",
+            "session": "2023-11-24",
+            "ticker": "AVTA"
+          },
+          {
+            "native_session": "2023-11-27",
+            "native_term_sha256": "238d86ca42a2db880685f2a7c8293ea58b41862bcff8e438c42fd7b4b35ba482",
+            "parent_positions": [],
+            "security_id": "507062967556352769",
+            "session": "2023-11-24",
+            "ticker": "HT"
+          },
+          {
+            "native_session": "2023-11-28",
+            "native_term_sha256": "cf63b55344941418a0454e2451cd72d85985735d5ab371c0fb5f9ea58f5ed00e",
+            "parent_positions": [],
+            "security_id": "1059746924129770752",
+            "session": "2023-11-27",
+            "ticker": "CWBR"
+          },
+          {
+            "native_session": "2023-11-29",
+            "native_term_sha256": "69ea34393e67ec4cdd0af7f85f5620871305daf50315fd66da35efb50734b847",
+            "parent_positions": [],
+            "security_id": "383149493474077830",
+            "session": "2023-11-28",
+            "ticker": "VRTV"
+          },
+          {
+            "native_session": "2023-11-30",
+            "native_term_sha256": "f6e53cc9c3bb1fc03f3a3e445ee9caaa93dd96ecbcacedd62d1c8748d213d4ce",
+            "parent_positions": [],
+            "security_id": "1118729895205250848",
+            "session": "2023-11-29",
+            "ticker": "HEP"
+          },
+          {
+            "native_session": "2023-11-30",
+            "native_term_sha256": "eeed7befd7d6ce83b54dd81bae9c74df072b42412e7e4b0f51688e9dfbea14ec",
+            "parent_positions": [],
+            "security_id": "471581517326443901",
+            "session": "2023-11-29",
+            "ticker": "PACW"
+          },
+          {
+            "native_session": "2023-11-30",
+            "native_term_sha256": "44539c85f07989b8947069c0318113f56f755d3f4578a5e813f4c9ed0fce47b7",
+            "parent_positions": [],
+            "security_id": "534439798127092335",
+            "session": "2023-11-29",
+            "ticker": "PTRS"
+          },
+          {
+            "native_session": "2023-11-30",
+            "native_term_sha256": "99ea1082f03eba7fcf76b43b7c3c36559c38d4a8d2374d4e557f8c2db3f9819b",
+            "parent_positions": [],
+            "security_id": "922568749150320567",
+            "session": "2023-11-29",
+            "ticker": "GHL"
+          },
+          {
+            "native_session": "2023-12-04",
+            "native_term_sha256": "3884ce3b2b51ba81ff93d0aaa707372503b3012a96b2565a024c5a8e8fb28e25",
+            "parent_positions": [],
+            "security_id": "426531390046542984",
+            "session": "2023-12-01",
+            "ticker": "SOFO"
+          },
+          {
+            "native_session": "2023-12-05",
+            "native_term_sha256": "68ae1f7141662f7b2a90631e96d32c7dc7f238de0df7a71e43044708b43ce79c",
+            "parent_positions": [],
+            "security_id": "358367629315548264",
+            "session": "2023-12-04",
+            "ticker": "ABCM"
+          },
+          {
+            "native_session": "2023-12-05",
+            "native_term_sha256": "38011d88e5e08d56d9abe4fa4f37fd0bdc2725bb2c55de6c30db18fb37a6f160",
+            "parent_positions": [],
+            "security_id": "434828427787090604",
+            "session": "2023-12-04",
+            "ticker": "WMC"
+          },
+          {
+            "native_session": "2023-12-06",
+            "native_term_sha256": "a7a6f0f21cb0109dab377622eda3af490a96815d802dc8cf40dba06f7e7208b9",
+            "parent_positions": [],
+            "security_id": "797080334588071799",
+            "session": "2023-12-05",
+            "ticker": "ARCE"
+          },
+          {
+            "native_session": "2023-12-06",
+            "native_term_sha256": "c8f7df975b8d9b712b5daf3ee3891fbaeacfbcb5dc814d724a38e76671239ea1",
+            "parent_positions": [],
+            "security_id": "996370058145351695",
+            "session": "2023-12-05",
+            "ticker": "MOBQ"
+          }
+        ]
+      }
+    }
+  ],
+  "schema": "research.explicit-own-forward-source-queries/1"
+}
