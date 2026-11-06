@@ -104,7 +104,7 @@ def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worke
     (ValueError('private malformed source'), 'FAILED'),
 ])
 def test_only_typed_collection_supersession_is_expected_work(monkeypatch, exception, outcome):
-    def refused(*_): raise exception
+    def refused(*_, **_options): raise exception
     monkeypatch.setattr(producer, 'publish_once', refused)
     def unavailable_fallback(*_): raise RuntimeError('private unavailable fallback')
     monkeypatch.setattr(producer, 'publish_failure', unavailable_fallback)
