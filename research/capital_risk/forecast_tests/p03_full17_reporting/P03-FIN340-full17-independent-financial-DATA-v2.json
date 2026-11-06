@@ -1,0 +1,187 @@
+{
+  "accounting": {
+    "all_raw_marks_cash_shares_receivables_factors_and_chains_verified": true,
+    "new_rows": 21,
+    "raw_accounting_snapshots": 42
+  },
+  "all620_captured_source_pins_verified": true,
+  "all70_committed_proof_rows_verified": true,
+  "all_member_hashes_verified": true,
+  "artifact_id": 13525097150,
+  "branch": {
+    "binary64_domain_cardinalities": [
+      [
+        18615529119629105
+      ],
+      [
+        17837934161918673
+      ],
+      [
+        18085597800951329
+      ],
+      [
+        17987497413186257
+      ],
+      [
+        9367378560103025
+      ],
+      [
+        18771878216615137
+      ],
+      [
+        531377
+      ],
+      [
+        543169
+      ],
+      [
+        566753
+      ],
+      [
+        543169
+      ],
+      [
+        271953
+      ],
+      [
+        277857
+      ],
+      [
+        554961
+      ],
+      [
+        519585
+      ],
+      [
+        2170465
+      ],
+      [
+        3967073
+      ],
+      [
+        1895105
+      ],
+      [
+        62042497
+      ],
+      [
+        15511681
+      ],
+      [
+        3878977
+      ],
+      [
+        1895105
+      ]
+    ],
+    "exhaustive_leaves": 21,
+    "maximum_possible_states": 1,
+    "retained_rows": 49,
+    "rows": 21
+  },
+  "checkpoint_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
+  "completed": 524,
+  "financial_authority": false,
+  "financial_transitions_reexecuted": 0,
+  "full_inputs": 17,
+  "full_members": 209,
+  "inputs_and_observers": {
+    "actual_typed_origin_verified": true,
+    "all_descriptors_bytes_verified": true,
+    "full_inputs": 17,
+    "original_observers": {
+      "all17_initial_forward_terms_preserved": true,
+      "cash_events": [
+        {
+          "nominal_cash": "0",
+          "quantity": 0,
+          "session": "2019-10-08",
+          "ticker": "CBLK"
+        },
+        {
+          "nominal_cash": "0",
+          "quantity": 0,
+          "session": "2020-01-06",
+          "ticker": "MDCO"
+        },
+        {
+          "nominal_cash": "0",
+          "quantity": 0,
+          "session": "2020-01-16",
+          "ticker": "ARQL"
+        },
+        {
+          "nominal_cash": "0",
+          "quantity": 0,
+          "session": "2020-01-23",
+          "ticker": "THOR2"
+        }
+      ],
+      "conversion_and_mixed_events": [],
+      "financial_sessions_reexecuted": 0,
+      "observation_terms": 19,
+      "original_observer_methods_unchanged": true,
+      "passed": true
+    },
+    "whole_original_input_visitor": true
+  },
+  "local_canonical_runtime_executed": false,
+  "logical_bytes": 142622219,
+  "monthly_reproduction": "PENDING_SEPARATE_HOSTED_READONLY",
+  "neutral17_boundary": {
+    "actual_neutral_outer_sha256": "5fb4362552632deb492c59b4348c73aa3be0b18733c2a7a4303c482efef191fc",
+    "all_original_state_journals_and_stats_unchanged": true,
+    "canonical_financial_source_changed": false,
+    "current_inputs": 17,
+    "financial_sessions_advanced": 0,
+    "input_successor": {
+      "earliest_affected_session": "2020-01-23",
+      "overlay": {
+        "filename": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409.json",
+        "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+        "resume_session": "2019-12-31",
+        "sha256": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409"
+      },
+      "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+      "predecessor_input_sha256": "8bf58124318903d17c309e69daecb50ae201f1ee803a70bcc6945cc95aad3760",
+      "schema": "research.pooled-action-successor/1",
+      "state_sha256": "b980ea280a50bac6089b365024bbf841f6bd2d622bbb2f5d29adad1f513ff43b",
+      "successor_input_sha256": "bcbcd587370d2711d735cc466d9a4a7880cab46dadf07c3aba24617fa3f0624d",
+      "unchanged_through": "2019-12-31"
+    },
+    "neutral_gzip_sha256": "b5c8d4c4a11a33a3d82426ef2346f5c08dba8cbf2d4486f1c3b7644a21131c11",
+    "original_inputs": 16,
+    "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+    "original_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+    "passed": true,
+    "zero_new_correlation": true
+  },
+  "passed": true,
+  "prefixes": {
+    "daily": {
+      "committed_bytes": 25620147,
+      "tail_bytes": 521406,
+      "tail_sha256": "6fb9bf23a206b2daf63cc9d4c479115eee2c67ec9b6d054fc23724efa13eaba2"
+    },
+    "formation": {
+      "committed_bytes": 5776539,
+      "tail_bytes": 0,
+      "tail_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "monthly": {
+      "committed_bytes": 90974,
+      "tail_bytes": 0,
+      "tail_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "watch": {
+      "committed_bytes": 42448,
+      "tail_bytes": 3861,
+      "tail_sha256": "309e45575807a6c5499beb3ebfb4333412cef165dceec60cfcb98b77e0788b08"
+    }
+  },
+  "raw_proof_rows": 81,
+  "retained49_byteexact": true,
+  "root_admitted": false,
+  "schema": "research.P03-FIN340-full17-independent-financial-DATA/1",
+  "source_cursor": "2020-01-31"
+}

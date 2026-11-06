@@ -46,7 +46,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Fin340 P03 exact49 retained proof reuse and P05 whole-module original gate identity from accepted parents
+      - name: Report341 reproduce actual P03 January2020 full17 and P05 September2022 full20 monthly reports with zero financial transitions
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

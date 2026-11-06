@@ -25,7 +25,9 @@ def source_names():
     import system_campaign_p07_vivo_profile as vivo
     import system_campaign_p05_remaining_runtime_v3 as remaining
     import system_campaign_p03_thor_qualification_reuse as reuse
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names()))))
+    import system_campaign_p03_full17_reporting as report3
+    import system_campaign_p05_full20_reporting as report5
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -105,7 +107,12 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=bbig.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p05_remaining_source_preparation_v2 as prep
     result=prep.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
-    return remaining.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=remaining.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p03_full17_reporting as report3
+    import system_campaign_p05_full20_reporting as report5
+    target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm]
+    result=report3.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    return report5.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -134,7 +141,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         elif composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
         import system_campaign_p05_remaining_runtime_v3 as remaining
-        if remaining.selected(spec,active_request):
+        import system_campaign_p05_full20_reporting as report5
+        if report5.selected(spec):
+            stack.enter_context(report5.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=active_request))
+        elif remaining.selected(spec,active_request):
             stack.enter_context(remaining.entry_context(module,spec,request=active_request,mode=mode,out=out or Path('/out'),evidence=evidence))
         elif p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
         import system_campaign_p06_abmd_retained as retained
@@ -162,6 +172,8 @@ def entry(module,spec,*,mode,evidence=None,out=None):
             import system_campaign_p03_thor_runtime as thor
             import system_campaign_p06_BBIG_runtime as bbig
             import system_campaign_p03_thor_qualification_reuse as reuse
+            import system_campaign_p03_full17_reporting as report3
             with reuse.entry_context(module,spec,request):
-                with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
+                with report3.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
+                    with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
         finally:module.factual_overlay_needed=old_overlay

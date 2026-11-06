@@ -10,6 +10,7 @@ def test_P05_dispatch_uses_v3_gate_and_restores_all_hooks_on_abort(monkeypatch,t
     import system_campaign_pending_cash_api as pending
     import system_campaign_retained_forward_cash as prior
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+    monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P05',))
     spec=resume.root_spec('P05');request=resume.expected_request()
     (tmp_path/'system-campaign-factual-request.json').write_text(json.dumps(request))

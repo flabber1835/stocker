@@ -27,7 +27,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==620 and len(data.source_names())==len(set(data.source_names()))
+    assert len(value['sources'])==626 and len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):

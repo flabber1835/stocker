@@ -8,6 +8,7 @@ import pytest
 def financial_generation(monkeypatch,tmp_path):
     import system_campaign_financial_resume as resume
     import system_campaign_bounded_lifecycle_dispatch as dispatch
+    monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03','P06','P07'))
     request=resume.expected_request()
     (tmp_path/'system-campaign-factual-request.json').write_text(json.dumps(request))

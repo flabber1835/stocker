@@ -1,0 +1,70 @@
+{
+  "W_files_changed": false,
+  "actual_hosted_monthly_positive_unknown": true,
+  "actual_target_completed": 1196,
+  "actual_target_cursor": "2022-09-30",
+  "actual_target_full_inputs": 20,
+  "actual_whole20_origin_and112_observer_positive": true,
+  "context_alias_and_inventory_abort_restoration": true,
+  "diagnostic_Oct3_5_tail_seeded": false,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 2233,
+      "sha256": "2122f222708ab471e157967d8c0d4955d3502c4db9ecc220d1b04870702047dd"
+    },
+    "INTEGRATION.md": {
+      "bytes": 3564,
+      "sha256": "864ad721d9565b6812e91f764489ff1398da2692a6643ad4712e1c6e5442e1da"
+    },
+    "P05-FIN340-full20-readonly-reporting-fact.json": {
+      "bytes": 16605,
+      "sha256": "7c41266e13bbeecb3c5f192e946ce75a12d36ce9c652d7eb4d727b3cfb5af8c7"
+    },
+    "P05-FIN340-full20-reporting-source-request.json": {
+      "bytes": 79542,
+      "sha256": "67ca5a6e9cff7df93afa1e7445b6f8412551b8e64e2da4445058d22b2df3dbb2"
+    },
+    "P05-FIN340-full20-reporting-target.json": {
+      "bytes": 38307,
+      "sha256": "5680033d2608e82943fb34ede2a1a8533ec9993d09d13b64be3abc6096f96ca1"
+    },
+    "P05-qualified1196-full20-reporting-target.json": {
+      "bytes": 39535,
+      "sha256": "ea9693d84b0d2bb193c6984e2540cd7a54ea31d0cef97fd7a8ea8ed6d6708af9"
+    },
+    "prepare_target_fact_DATA.py": {
+      "bytes": 6848,
+      "sha256": "6875181244baf3403f512ce8f9c21b8feb46ef9e05ed2d2b3b25bce0884904ac"
+    },
+    "system_campaign_p05_full20_reporting.py": {
+      "bytes": 9276,
+      "sha256": "6ffdaefc6492c7b9b5fa1518dd314c7d662d9e3f2bc4d2b4e7dad881b5fb90a0"
+    },
+    "test_full20_report_DATA.py": {
+      "bytes": 9052,
+      "sha256": "5d625e20036da5846456ff9a88b263851a76d1a7d7f9d21fb4c4bb571a8c81b7"
+    }
+  },
+  "financial_authority": false,
+  "financial_import_fences": 5,
+  "financial_resume_authorized": false,
+  "full_composite_visitor_before_cash_fallback": true,
+  "jobs_launched": 0,
+  "local_canonical_runtime_executed": false,
+  "local_checkpoint_restore_or_staging_or_serialization": false,
+  "maximum_financial_workers": 0,
+  "meaningful_guard_removals": 1,
+  "monthly_reproduction_executed_locally": false,
+  "monthly_seed_root_admission_sha256": "baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026",
+  "new_financial_root_admitted": false,
+  "no_compatibility_model_tag": true,
+  "no_financial_v3_route": true,
+  "original4_financial_functions_AST_unchanged": true,
+  "original_input_and_monthly_source_AST_unchanged": true,
+  "passed": true,
+  "prepared": true,
+  "pytest_seconds": 19.42,
+  "report_MODE": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
+  "schema": "research.P05-FIN340-full20-readonly-reporting-private-qualification/1",
+  "tests": 27
+}

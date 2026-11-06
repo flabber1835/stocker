@@ -40,25 +40,21 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03','P05'] and r['maximum_parallel_financial_workers']==2 and r['maximum_parallel_readonly_workers']==0
-    assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==620
+    assert r['arms']==['P03','P05'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==2
+    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==626
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
-    assert r['selected_p06_BBIG_ordinary11_retained130']==r['selected_p07_vivo_ordinary25']==r['selected_p07_composite_source_bridges']=={}
-    assert r['admitted_checkpoints']=={a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
-    p03,p05=m.root_spec('P03'),m.root_spec('P05')
-    assert (p03['measured_closes'],len(p03['repairs']))==(503,16)
-    assert (p05['measured_closes'],len(p05['repairs']))==(1175,19)
-    old=r['selected_p03_thor_ordinary17']['P03'];reuse=r['selected_p03_thor_qualification_reuse']['P03']
-    assert old['old_committed_proof_rows']==49 and old['required_actual_neutral_inputs']==17
-    assert old['actual_future_neutral_checkpoint_known'] is False and reuse['future17_root_restart_selected'] is False
-    assert reuse['original_ordinary17_declaration']==old and reuse['consumed_DOVA_constructor_only_exact49_seed'] is True
-    d=r['selected_p05_retained18_financial_inputs']['P05']
-    assert d['actual_hosted36_packet_checks_required_before_financial_entry'] is d['origin_gate_validation_failure_keeps_advance_closed'] is True
-    assert d['whole_module_compiler_context_required_for_gate_identity'] is True
-    assert d['whole_original_gate_ast_sha256']=='90b75c2165958da9a7ffe97db60f639d9199d8d43a876e01ed07398c87ecc2f6'
-    assert d['selected_terms']==18 and d['current_full_inputs']==19 and d['all94_original_observation_terms_retained'] is True
+    assert r['arm_inputs']=={a:dict(new_factual_overlay=False,restored_correlation=False) for a in r['arms']}
+    assert r['selected_p03_thor_qualification_reuse']==r['selected_p05_retained18_financial_inputs']=={}
+    assert set(r['selected_p03_full17_reporting_bridges'])=={'P03'} and set(r['selected_p05_full20_readonly_reporting_bridges'])=={'P05'}
+    parts=json.loads((CAP/m.PARTIALS).read_bytes())['arms']
+    for arm,count,day,inputs in [('P03',524,'2020-01-31',17),('P05',1196,'2022-09-30',20)]:
+        target=parts[arm];seed=m.root_spec(arm)
+        assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(count,day,inputs)
+        assert target['monthly_seed_root_admission_sha256']==seed['root_admission_sha256']
+        assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
+        assert 'root_admission' not in target and target['outer_sha256']!=seed['outer_sha256']
+    assert (m.root_spec('P03')['measured_closes'],m.root_spec('P05')['measured_closes'])==(503,1175)
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

@@ -7039,3 +7039,89 @@ binding only and changes no financial parent or input semantics.
 
 
 Private qualifications P03 6207b0ca5b5a37bb1a4744d6acb029899b04c7a80474dcb62479cd62622602c4 (27 tests), P05 2cde14250527409a82a5fcc3ed47d782f28b468bef0484efe61d274a8e946dc6 (26 tests). Historical causality remains UNVERIFIED.
+
+
+## REPORT341: two actual saved prefixes, zero financial execution
+
+Select unadmitted P03 actual524/2020-01-31/full17 and P05 actual1196/2022-09-30/full20 for readonly monthly reproduction. Keep accepted original503 and1175 roots as monthly seeds. Both FIN340 captures have positive hosted review and21 new saved closes; no new root is admitted yet. P06 FIN339 saved43closes to1426/Aug31/full11 but its negative review needs separate recovery; P07 FIN339 remains active. No financial worker is selected here; two readonly workers remain within total four campaign arms. Never use February or October diagnostic tails as seeds.
+
+# P03 FIN340 full17 read-only reporting
+
+FIN340's authenticated P03 artifact 13525097150 contains the actual own524,
+2020-01-31 checkpoint with all seventeen inputs and 21 new committed closes.
+It is an unadmitted reporting target. The monthly seed remains the independently
+admitted own503, 2019-12-31 root 4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1.
+
+The bridge qualifies only this exact transport target and a READONLY request
+with zero financial workers. Its compatibility tag invokes the existing whole
+retainer with the original B19 codec and the separately typed DOVA codec. The
+existing full-input visitor must receive the actual seventeen-input checkpoint;
+neither checkpoint projection nor a new seed/root is permitted. Original typed
+runtime source and the four financial driver function ASTs remain unchanged.
+The financial THOR qualification-reuse context must remain inactive in READONLY.
+
+Use the existing bounded runtime's reporting contract and context for actual
+full17 input validation and origin/ordinary obligations. The finite bridge adds
+request, target, captured-request, original monthly seed, source/AST, and
+read-only authority guards; it does not replace financial operations or monthly
+math. The whole existing monthly_reproduction function and mature monthly
+reporting implementation remain authoritative for Linux float presentation.
+
+Independent local DATA review authenticates all 209 members, validates raw
+checkpoint/prefix/hash commitments, preserves the original 49 proof rows,
+audits all 21 new rows with the closed independent branch induction and all
+new accounting/funded-factor/chains. Raw February journal/proof tails stay
+excluded. The local reviewer imports no financial engine, restores no runtime,
+stages no canonical book, and grants no root or performance authority.
+
+Meaningful falsifiers cover changed target/seed/count/input/request/source,
+foreign financial authority, suffix financial/branch mutations, and complete
+source/AST guards. Delivery includes private data results, finite runtime/fact,
+tests, exact target metadata, and integration notes for root-owned request341.
+
+The closed prior independent ordinary-observer DATA function has one initial
+full16 count assertion and initially eighteen terms. For this exact actual
+full17 target only, retain its whole function and change that count to17, merge
+the separately authenticated ordinary tail with the existing whole tail-material
+parser, and report the resulting nineteen terms. Require and undo-test those
+three exact AST sites; preserve every eighteen-term, cash, conversion, mixed,
+resource, and hosted-oracle comparison. Full17 descriptors and the actual typed
+origin are checked separately with the existing whole input visitor. This is a
+DATA-reader scope extension, with no financial engine or observer substitution.
+
+# P05 FIN340 full20: exact readonly monthly reporting context
+
+Only actual FIN340 artifact13524003871 is selected:1196/2022-09-30/full20,
+outer1b8c9db2c883cd1e5a0ad8e19b4642548c29877e5a93cef7ef0c61fbb3aee443.
+Its accepted monthly seed remains the original1175/full19 admitted root. The
+actual21 new closes and genuine20 origin/112-observer review are saved positive
+hosted evidence. Oct3–5 diagnostic tails are not seeds or completed closes.
+
+Create a finite nonfinancial partial target from authenticated current checkpoint
+commitments/receipt/ZIP/public files/inspections. Preserve the original base and
+all20 descriptors. Bind the exact captured financial request/declaration and
+original source/module hashes as historical provenance, not new financial
+permission. Require readonly reporting MODE,financial0,readonly_partial_review
+True,source_witnesses False,financial_resume_authorized False, no root admission
+and an explicit qualified-target marker. Do not invent a compatibility model tag.
+
+Enter this exact report context before P05's old family/cash-only fallback. Bind
+both the partial and imported m.financial_inputs aliases to a report wrapper:
+first run the complete current20 origin.origin visitor against actual parent/
+neutral/source/18-term/provider/36-packet/journal resources, then use the entire
+unchanged original financial_inputs function with the already-qualified
+origin.inventory_function composite-first visitor. This preserves all prior
+ordinary resources and validates the full18 before the old cash-only inventory
+extracts14 actual cash members. Do not route through financial runtimev3 or
+pretend this is financial mode. All factual/distribution contexts remain whole.
+
+Use the original preflight, actual-parent verification, MonthlyStats and
+monthly_reproduction unchanged, hosted with zero financial workers. Do not run
+these engine/MonthlyStats functions locally. Only actual full20 DATA, AST/code
+identity, metadata context restoration and falsifiers are locally qualified.
+No W edits, jobs, checkpoint restoration/staging, canonical engine import or new
+financial-root admission. BRG is the actual later missing-child spinoff blocker;
+no ABMD or financial uncertainty permission is introduced.
+
+
+Private preparation qualifications: P03 bead26577f5890eec6fd9af5e740c68b797369785ab87cc73e9e9747fa990ab7 (41tests); P05 41e382cdba61e01f7398668f965ad81ddb11eaa01edef56065150fc24e582448 (27tests). Both preserve original monthly reproduction/MonthlyStats; actual hosted monthly proofs and independent DATA/root admission remain pending. Historical causality remains UNVERIFIED.

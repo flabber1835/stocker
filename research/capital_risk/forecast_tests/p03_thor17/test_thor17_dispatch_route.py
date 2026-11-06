@@ -12,6 +12,7 @@ def test_THOR_facade_runs_after_generic_overlay_and_restores_both_worker_hooks(m
     import system_campaign_p03_thor_runtime as thor
     import system_campaign_bounded_sensor_binding as binding
     from system_campaign_financial_partial import root_spec
+    monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03',))
     request=resume.expected_request()
     (tmp_path/'system-campaign-factual-request.json').write_text(json.dumps(request))
