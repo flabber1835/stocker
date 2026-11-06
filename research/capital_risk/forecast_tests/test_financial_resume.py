@@ -40,19 +40,22 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P06', 'P07']
-    assert r['maximum_parallel_financial_workers'] == 0 and r['maximum_parallel_readonly_workers'] == 2
-    assert r['readonly_partial_review'] is False and r['readonly_source_witnesses'] is True
-    assert r['financial_resume_authorized'] is False and m.request_authority(r)
-    assert len(r['source_witness_scopes']['P06']['terms']) == 115 and len(r['source_witness_scopes']['P07']['terms']) == 1
-    assert r['selected_bounded_preparations'] == {} and set(r['selected_abmd_preparations']) == {'P06','P07'}
+    assert r['arms'] == ['P03','P06','P07']
+    assert r['maximum_parallel_financial_workers'] == 3 and r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False
+    assert r['financial_resume_authorized'] is True and m.request_authority(r)
+    assert r['source_witness_scopes'] == {}
+    assert set(r['selected_bounded_preparations']) == {'P03'}
+    assert set(r['selected_abmd_preparations']) == {'P06','P07'}
+    assert set(r['selected_bounded_models']) == {'P03'}
+    assert set(r['selected_abmd_bounded_inputs']) == {'P06','P07'}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ('P06','P07')}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
-    assert r['initial_reporting_origins'] == {} and r['selected_ordinary_augmentations'] == {}
-    assert set(r['selected_research_models']) == {'P07'}
+    assert r['initial_reporting_origins'] == {}
+    assert set(r['selected_research_models']) == {'P03','P07'}
     assert r['full_measured_closes'] == 2156 and 'P11' in m.COMPLETED_ADMISSIONS
-    assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
+    assert sum(r[k] for k in ['financial_wait_seconds','review_wait_seconds','preflight_wait_seconds']) <= 245*60
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import traceback
 import zipfile
@@ -50,13 +51,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P06', 'P07')
+SELECTED_ARMS = ('P03', 'P06', 'P07')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/189'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/190'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -71,7 +72,7 @@ def factual_overlay_needed(spec):
         'root_admission' in spec or spec['arm'] in ('P07', 'P10'))
 
 
-def expected_request():
+def legacy_expected_request():
     from system_campaign_ordinary_augmentation_router import source_names as ordinary_augmentation_source_names, selected as ordinary_augmentation_selected, declaration as ordinary_augmentation_declaration
     from system_campaign_ordinary_augmentation_router import unchanged_phase as additional_unchanged_phase
     from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, ORIGINAL_DELIVERY_PHASES, ORIGINAL_ORDINARY_PHASES, COMBINED_PHASES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_PHASES, original_composite_source_names
@@ -196,6 +197,11 @@ def expected_request():
                 maximum_parallel_financial_workers=len(SELECTED_ARMS) if financial else 0,
                 maximum_parallel_readonly_workers=0 if financial else len(SELECTED_ARMS),
                 production_contacted=False)
+
+
+def expected_request():
+    from system_campaign_bounded_lifecycle_dispatch import expected_request as bounded_request
+    return bounded_request(legacy_expected_request, execution_mode=EXECUTION_MODE, selected_arms=SELECTED_ARMS)
 
 
 def request_authority(request):
@@ -1071,16 +1077,19 @@ if __name__ == '__main__':
     elif args.mode:
         hosted()
         spec = json.loads(args.spec.read_bytes())
-        if args.mode == 'preflight':
-            from system_campaign_abmd_preflight_dispatch import preflight_entry
-            requested = json.loads((HERE/REQUEST).read_bytes())
-            preflight_entry(Path('/old'), Path('/out'), spec, preflight,
-                old_bounded_enabled=spec['arm'] in requested.get('selected_bounded_preparations',{}),
-                abmd_declaration=requested.get('selected_abmd_preparations',{}).get(spec['arm']))
-        elif args.mode == 'economic':
-            economic(Path('/old'), Path('/out'), spec)
-        else:
-            from system_campaign_retained_cash_v2 import review_entry
-            review_entry(Path('/evidence'), Path('/out'), spec, review)
+        from system_campaign_bounded_lifecycle_dispatch import entry as bounded_entry
+        with bounded_entry(sys.modules[__name__], spec, mode=args.mode,
+                           evidence=Path('/evidence'), out=Path('/out')):
+            if args.mode == 'preflight':
+                from system_campaign_abmd_preflight_dispatch import preflight_entry
+                requested = json.loads((HERE/REQUEST).read_bytes())
+                preflight_entry(Path('/old'), Path('/out'), spec, preflight,
+                    old_bounded_enabled=spec['arm'] in requested.get('selected_bounded_preparations',{}),
+                    abmd_declaration=requested.get('selected_abmd_preparations',{}).get(spec['arm']))
+            elif args.mode == 'economic':
+                economic(Path('/old'), Path('/out'), spec)
+            else:
+                from system_campaign_retained_cash_v2 import review_entry
+                review_entry(Path('/evidence'), Path('/out'), spec, review)
     else:
         raise SystemExit(launch(args))

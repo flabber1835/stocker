@@ -5351,3 +5351,68 @@ SOURCE322 positively stops preflight0/non-OOM and authenticates45 members,
 4938f86a9088d6751ac28b8eac37b1243fcb8e83e9e2ee54801054f0746631df.
 Its102 source identities remain pending independent DATA closure; no input,
 financial completion or root authority follows from this source capture.
+
+SOURCE322 independent DATA closure verifies all102 full identity observations,
+228 raw native action rows and the whole2022..2026 archive scans against the
+immutable bundle/archive commitments. It separately verifies ACC's realAugust9
+quote without claiming it was a captured additional row.28 DATA tests pass
+10.25s:18 semantic negatives,three meaningful guard removals,five financial
+import fences and exact undo of the original parent/capture reader ASTs.
+This closes source identity only; legal terms and recognition calendars still
+need separate input qualification.
+
+SOURCE323 independently authenticates both successful concurrent readonly
+workers: P06 artifact13476505053,27members/1074144logical bytes; P07
+artifact13476300863,130members/156755151logical bytes. Both preflight0/non-OOM
+with zero financial transitions. Independent DATA preparation review precedes
+financial selection.
+
+FIN324 integration design uses one outer lifecycle dispatcher around the full
+unchanged preflight/economic/review bodies, with explicit per-arm model-input
+declarations. P03 authenticates its actual eight-row B19 origin/full15 inputs,
+performs a real zero-session15-to16 typed adoption and retains all18 ordinary
+observations. P06 begins without a prior B19 seed: original TRQ adoption8-to9
+uses31.575855485386988, then genuine typed adoption9-to10; original B19
+induction is initialized from the actual ABMD pre-event checkpoint. P07 keeps
+all23 inputs/784 prior proofs and adds ABMD through a real neutral24th input.
+The ABMD legal380..415 range creates no owned right value, settlement amount
+or probability. Qualify parser packets and the unchanged original B19 cloud
+before actual financial advance.
+
+The dispatcher must retain each selected arm's full codec lifetime through
+the complete independent canonical readonly review. Initial source parents
+retain their old input counts while review evidence has genuine new inputs;
+review routing uses independently verified actual evidence/origin, never a
+fabricated current checkpoint. New retained roots/counts are admitted only
+after actual hosted output and independent DATA closure. Preserve original383,
+B19, future.py, all frozen interpretation generations and four legacy worker
+ASTs. Local validation uses DATA/AST and import fences only. Select P03/P06/P07
+concurrently only after the integrated checks and SOURCE323 DATA closure pass.
+
+SOURCE323 DATA closure: P06 reviewfb085d21c3b8d621f14bdb006c1bc05ddc57cf41593cfd616c3aee9eefeff2f6
+checks all27 members,full8 saved inputs,all115 source identities and two
+packet cases with12 semantic/fence negatives. P07 review
+3c4823245141a5d58418763487dd9395b7155f0f5d01ceaafd622c80b718dfda
+and qualification78ac00399361ecc59b865d0180e0f1f8f0fdf631d77612d8d702942d654031d0
+check all130 members,full23/784proof history,all502 producer sources and
+an independent whole2080223-row2022 scan/245 ABMD rows.23 tests pass8.82s.
+Both original payload generations remain preserved; fresh capture changes
+only their producer clock to immutable future54, without rewriting catalogs.
+
+FIN324/request190 selects520 exact sources and three financial workers from
+unchanged current roots. P03 revised lifecycle qualification002
+accffb5c73f6c332522b153037bb6c57227f3c42b5d6d1848363420ceb1cbc05
+passes92 DATA tests19.10s, including full-review codec lifetime/removal
+falsifier. P06 manifestv2
+81c6d41e06fe41160af33e401b728afee96a8bae4956ba78fbcff21cd129c66c
+uses an anonymous temporary synthetic proof stream so original append's
+flush/fsync operates unchanged; it replaces the unsupported BytesIO transport.
+Frozen ABMD interpretation pins remain unchanged. P07's112 DATA checks pass
+21.25s and full dispatch audit preserves all original declarations/proofs.
+
+Combined integrated checks pass589 in82.66s with one stale generated-request
+comparison during snapshot regeneration. The isolated import/request case
+then passes1 in8.58s; separate dispatcher17 pass7.65s, including source-pin
+guard removal and allthree mode scopes. Earlier combined ABMD251 pass44.59s.
+The exact staged520-source closure,all383 originals and B19 must verify
+before publication. No new saved financial result is admitted by these checks.
