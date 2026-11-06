@@ -1,5 +1,10 @@
 # Bounded checkpoint lineage discovery
 
+[Installation bootstrap](checkpoint-access-installation-bootstrap.md) records
+the separately selected, explicit local PAPER proof order after two pre-index
+canonical preflight cancellations. Its candidate qualification remains mandatory
+after quiescent index installation and before any application start.
+
 Decision and qualification plan, 2026-11-06, before implementation.
 
 Current qualification status, 2026-11-06: the ordered-witness candidate is

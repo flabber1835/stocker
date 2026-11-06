@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from sentinel_local_delivery import builder, checks, cli
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
-from sentinel_local_delivery.model import DeliveryRefused, Journal, read_json, require, digest
+from sentinel_local_delivery.model import ACCESS_PATH_SCHEMA, DeliveryRefused, Journal, read_json, require, digest
 from sentinel_local_delivery.qualification import sha256_file
 from sentinel_lock_ownership import owns_exclusive_flock
 
@@ -76,6 +76,12 @@ def require_same_postgres_storage(before, after):
             'BACKED_POSTGRES_RESTART_TIME_INVALID')
 
 
+def _require_access_path_completion(journal, record):
+    if journal.request.get('schema') == ACCESS_PATH_SCHEMA:
+        from sentinel_local_delivery.access_path_qualification import require_qualification
+        require_qualification(journal.request,journal.subject,record['artifacts'])
+
+
 def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=False):
     """Consume completed receipts without asserting another activation."""
     path = Path(path)
@@ -108,6 +114,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
         'BACKED_VERIFIED_PREDECESSOR_REQUIRED')
     journal = Journal(selected.parent)
     require(journal.read()==record, 'BACKED_PREDECESSOR_JOURNAL_CHANGED')
+    _require_access_path_completion(journal,record)
     request = journal.request
     if unfinished:
         require(record['artifacts'].get('successor_proof_sha256')
@@ -177,6 +184,7 @@ class BackedHost(Host):
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True
+    supports_post_schema_access_path = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'
@@ -372,6 +380,7 @@ class BackedHost(Host):
         record=prior.read()
         require(record['stage'] in ('VERIFIED','APPLICATIONS_STARTED'),
             'BACKED_PREDECESSOR_PROOF_STAGE_CHANGED')
+        _require_access_path_completion(prior,record)
         selected=prior.request['candidate'];old=self.request['predecessor']
         require(selected['commit']==old['commit'] and selected['image']==old['image'],
             'BACKED_PREDECESSOR_PROOF_RUNTIME_CHANGED')
@@ -394,6 +403,14 @@ class BackedHost(Host):
             artifacts.get('successor_proof_sha256')==digest(proof),
             'BACKED_PREDECESSOR_CANONICAL_PROOF_CHANGED')
         return proof
+
+    def access_path_canonical_bootstrap(self, state, retained):
+        from sentinel_local_delivery.access_path_bootstrap import preflight
+        return preflight(self,state,retained)
+
+    def verify_access_path_canonical_installation(self, state, contract):
+        from sentinel_local_delivery.access_path_bootstrap import post_schema
+        return post_schema(self,state,contract)
 
     @contextmanager
     def owned(self):
@@ -530,7 +547,8 @@ def main(argv=None):
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
                 operation_id=args.operation_id,host_type=BackedHost,
                 baseline_reader=lambda path:active_baseline(path,host,
-                    blocked_unsent=args.handoff_mode=='BLOCKED_UNSENT'),handoff_mode=args.handoff_mode)
+                    blocked_unsent=args.handoff_mode=='BLOCKED_UNSENT'),handoff_mode=args.handoff_mode,
+                canonical_proof_phase=args.canonical_proof_phase)
             output=cli.status(folder)
         elif args.command=='status':output=cli.status(folder)
         else:
