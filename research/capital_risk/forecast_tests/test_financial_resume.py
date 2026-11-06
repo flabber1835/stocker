@@ -40,18 +40,18 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P05'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
-    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
+    assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
     assert m.request_authority(r) and r['source_witness_scopes']=={}
     assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']=={}
+    assert set(r['selected_p06_admitted_point_continuations'])=={'P06'}
+    declaration=r['selected_p06_admitted_point_continuations']['P06']
+    assert declaration['committed_seed_rows']==6 and declaration['full_inputs']==10
+    assert declaration['financial_source_changed'] is declaration['new_input_adoption'] is declaration['Jan20_failure_cause_proven'] is False
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P05':dict(new_factual_overlay=False,restored_correlation=False)}
-    assert r['admitted_checkpoints']['P05']==m.root_spec('P05')['outer_sha256']
-    assert r['initial_reporting_origins']=={} and len(r['sources'])==534
-    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P05']
-    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(1175,'2022-08-31',19)
-    assert m.root_spec('P05')['measured_closes']==1152
+    assert r['arm_inputs']=={'P06':dict(new_factual_overlay=False,restored_correlation=False)}
     admitted=m.root_spec('P06')
+    assert r['admitted_checkpoints']['P06']==admitted['outer_sha256'] and len(r['sources'])==538
     assert admitted['root_admission_sha256']=='41520825b51f125272ed44bb01ca58905fe7b170005fc1a1c4a72856bf01263f'
     assert (admitted['measured_closes'],len(admitted['repairs']))==(1259,10)
     assert admitted['root_admission']['new_daily_records']==21 and admitted['root_admission']['branch_uncertainty_proof']['rows']==6
