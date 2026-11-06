@@ -102,8 +102,8 @@ def current(conn, monkeypatch, tmp_path):
     binding.bind(conn, deployment_id='isolated-current-workflow', broker='alpaca',
                  broker_account_id=ACCOUNT)
     # This is generated account inception, before any observations/projections.
-    # Its native business observations may represent this morning even when
-    # CI starts in the afternoon. Keep real DB lease/mutation clocks untouched.
+    # Native business observations use the private prospective market morning.
+    # Keep real DB lease/mutation clocks untouched.
     assert conn.info.dbname.startswith('operational_')
     assert conn.execute('SELECT count(*) FROM sentinel_observations').fetchone()[0] == 0
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0

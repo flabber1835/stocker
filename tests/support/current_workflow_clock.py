@@ -1,9 +1,10 @@
 """Synthetic market time only; PostgreSQL leases and mutation clocks stay real.
 
-The fixed date starts just before the next regular open after an actually
-closed source session. Tests advance it explicitly to the scheduled submission
-instant. This is deterministic composition evidence, never exchange latency,
-real clock-skew certification or a claim about today's market availability.
+The synthetic date starts just before a strictly future regular opening. Its
+source session is closed relative to that virtual market clock. Tests advance
+it explicitly to the scheduled submission instant. This is deterministic
+composition evidence, never real provider finality, exchange latency, real
+clock-skew certification or a claim about today's market availability.
 """
 from datetime import datetime as RealDateTime, timedelta, timezone
 import importlib
@@ -35,9 +36,9 @@ class BusinessClock:
         self.wall_offset = max(timedelta(0), self.instant-RealDateTime.now(timezone.utc))
 
     def install(self, monkeypatch):
-        # These are explicit Python wall-clock inputs used by the production
-        # adapters/guards. No validator, calendar calculation or DB SQL clock
-        # is replaced. isinstance checks retain the real datetime domain.
+        # Only market/authority inputs advance. Financial observation, receipt
+        # and dashboard clocks remain real, as do native SQL lease clocks and
+        # monotonic deadlines. isinstance checks retain the datetime domain.
         modules = (
             'tools.opening_gateway_qualification',
             'sentinel.automation_runtime', 'sentinel.authority.validation',
@@ -45,8 +46,6 @@ class BusinessClock:
             'sentinel.paper.preparation', 'sentinel.paper.execution',
             'sentinel.paper.recovery', 'sentinel.paper.validation',
             'sentinel.execution.alpaca', 'sentinel.execution.fill_notifications',
-            'sentinel.panel.sources', 'sentinel.panel.read_projection',
-            'sentinel.panel.verification_service',
         )
         for name in modules:
             module = importlib.import_module(name)
@@ -68,9 +67,14 @@ class BusinessClock:
 
 def prospective_clock(monkeypatch):
     from sentinel.feed import calendar
-    actually_closed = calendar.latest_closed_session(RealDateTime.now(timezone.utc))
-    effective = calendar.next_session(actually_closed)
+    wall = RealDateTime.now(timezone.utc)
+    decision = calendar.latest_closed_session(wall)
+    effective = calendar.next_session(decision)
     opened,_ = calendar.session_window(effective)
+    if opened <= wall:
+        decision = effective
+        effective = calendar.next_session(decision)
+        opened,_ = calendar.session_window(effective)
     result = BusinessClock(opened-timedelta(minutes=5))
     result.install(monkeypatch)
-    return result,actually_closed
+    return result,decision
