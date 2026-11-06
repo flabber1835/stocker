@@ -697,7 +697,7 @@ class AutomationService:
         """Apply the same phase budget to an explicit retry result value."""
         detail = failure_detail or failure_code or f"{phase} remains incomplete"
         exc = (CorporateActionPending(detail)
-               if phase == "PREFLIGHT_RECOVER"
+               if phase in {"PREFLIGHT_RECOVER", "RECOVER"}
                and failure_code == "CORPORATE_ACTION_PENDING"
                else TransientInfrastructureFailure(detail))
         terminal, failure_diagnostic = self._failure_diagnostic(

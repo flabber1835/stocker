@@ -103,6 +103,12 @@ create late opening buys.
 Corporate-action waits are not generic REFRESH/PREPARE source-availability
 retries. Preserve the existing bounded retry policy and report the actual
 restriction rather than claiming malformed source-availability evidence.
+This applies to both planless `PREFLIGHT_RECOVER` and a prepared plan's `RECOVER`
+result. The November 6 BIL restriction exposed a missing classification in the
+latter: wrapping `CORPORATE_ACTION_PENDING` as transient infrastructure gave it
+the unrelated availability flag. Both recovery phases must retain the typed
+corporate-action category and their configured attempt budget. This changes no
+restriction, cash authority, command identity or execution deadline.
 
 ## Qualification and delivery
 
