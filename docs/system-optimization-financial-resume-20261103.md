@@ -4902,3 +4902,61 @@ after updating that expectation to this one-worker financial request, the
 request probe and staged index snapshot verify467 sources, all383 original
 driver bytes and immutable B19. New input selection remains one MSP term; all
 26 old terms retain their original adopted descriptor and observation methods.
+
+SOURCE316 / bounded preparation design: after the separately pinned FIN314
+worker stops, allow one independent readonly P03 worker from its own462 root.
+Append only an explicit DOVA query for the November11 identity and November12
+native/final quote; keep both existing P07/P05 query records unchanged. This
+worker selects no financial continuation and adopts no descriptor or checkpoint.
+
+After the complete original preflight, an outer entry wrapper qualifies the
+separately versioned DOVA typed input against actual frozen native/quote rows,
+the actual packet schema, wrong-predecessor/consumed-cursor falsifiers and the
+unchanged controller's incomplete-terminal refusal. Check the27.50..29.00 legal
+signal-consideration range with synthetic unowned selected witness state; the
+actual native remains incomplete and no cash/CVR price reaches the book. Run
+the original synthetic B19 exhaustive-cloud qualifier in the hosted worker.
+During this preparation, both backtest.main and runtime.advance explicitly
+refuse, and no new canonical checkpoint may exist before or afterward. The
+four legacy worker function bodies remain byte-for-AST identical.
+
+Keep the original3fa legal/source-only catalog unchanged. The new input catalog
+a74c1f8c928be7b0dca35ee2c51aee803509c84024378bf2897a862a67b3d2a7
+commits all six input-interpretation modules and the immutable B19/context/math
+sources. A compatible schema name cannot reinterpret a previously adopted
+input: at-use source-byte checks and the typed document's complete catalog
+evidence commit its semantics. This qualification does not select a P03
+financial model. Neutral15-to16 adoption, complete inherited observers and
+review/later-root integration remain unselected until separately qualified.
+
+Private DATA checks pass40 in6.78s for interpretation sources/lifecycle resources,
+27 in4.85s for exact event preimage/whole B19 induction AST undo,17 in4.28s for
+full native/prior/event quote witnesses, and12 in5.61s for the preparation
+host boundary. Their guard-removal falsifiers and financial import fences are
+included. The three legacy forward cash terms are MYOV, TGI and ZAYO; S2's
+conversion and WLH/BMCH mixed consideration remain explicit review requirements.
+
+FIN314 positively stops0/1/0 with a saved P05 own1132 prefix through June30,
+21 new closes, one neutral15th MSP input and six committed old/new cash logs.
+The encrypted artifact13462400567 is154939749bytes, ZIP
+6a4e3adac413bc9f42efd4b5baa43f8b7b7b37b651103d30c40f3c3ef31caa3b;
+its187 members total232737081 logical bytes. The original observer methods
+verify MSP June23 and retained TVTY June28 as unheld zero-cash events. The
+saved checkpoint includes SRRA's incomplete June30 native with35 held shares
+and its original pending/carry fields. July1 refuses verified Core+BIL
+economics for blocked Core equity; that failed canonical state is diagnostic
+only and must never be selected as a continuation root.
+
+REPORT315 selects only the positively reviewed June30 own1132 checkpoint as
+a readonly reporting target. Reproduce the new monthly/retry state from the
+independently admitted own1111 parent, independently DATA-review all21 closes,
+42 accounting snapshots, the one report, the complete neutral15th input and
+all retained observation resources before any new root admission. All earlier
+roots/input bytes remain historical. Financial workers are zero for this
+request. SRRA requires separate source/primary/pending-native qualification;
+no consumed native date, existing checkpoint or financial source is changed.
+
+REPORT315 targeted launcher/partial/retention/query/source-generation/retained-
+cash checks pass211 in28.10s. The exact request probe passes with467 sources,
+zero financial workers and one readonly worker; P05's admitted root remains
+own1111 pending the separate stopped reporting and complete DATA validation.
