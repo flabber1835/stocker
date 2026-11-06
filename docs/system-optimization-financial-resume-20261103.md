@@ -6840,3 +6840,99 @@ financial engine, checkpoint serialization, restore, replay or root admission.
 
 
 Frozen runtime-v2 qualification2f0993882df2cdeec70dfcffbde522e5e9c95455977a191559cafdff0542a8db:22 DATA conformance tests. Frozen delivery inventory9cb67e4cfb930552138f52baa249e32c90fb222c9c36eab12463a251cc3969b2 verifies25 new runtime/factual/qualification assets and two existing unchanged stock dependencies. These are prepared input/lifecycle code, not admitted financial output. Historical causality remains UNVERIFIED.
+
+
+## FIN339: P06 complete provenance and P07 canonical callback corrections
+
+Restart only accepted P06 full10/1383 and P07 full24/1259 as two parallel financial workers. FIN337 failures remain separate and unadmitted; no neutral11/25 is assumed. P05 FIN338 passed actual36 packet checks twice but stopped before adoption/new closes at a method-integrity compiler-context comparison; its correction is separate. Preserve current roots and all frozen financial source bytes.
+
+# FIN337 P06: actual1383 metadata provenance paths
+
+FIN337 P06 artifact13520309373, run42252486692/head
+d2088351f2f0bf15d5ea6b6a3ca2992341b6acc5, has positive stopped preflight0,
+worker1/review1 and zero new financial closes. The worker failed inside the
+whole original1259 preserve body while reading root-relative
+actual-future-event-2022-12-16.json. The actual admitted1383 FIN330 artifact
+stores that unchanged TRQ log under p06-point-retained-origin. No BBIG overlay,
+packet qualification or actual neutral11 exists in this failed result. The
+reviewer's missing neutral11 is consequential, not a second financial failure.
+
+Keep the frozen original BBIG package and W unchanged. Derive a private runtime
+revision plus a finite retained-metadata resource module/plan. Plan every member
+of the actual FIN330 p06-point-retained-origin and original ordinary-observation
+directories, plus the current root uncertainty-capture and synthetic gateway,
+using exact authenticated member locations/bytes/SHA. Preserve both historical
+and current capture generations separately; never substitute the initial279-byte
+capture for current280-byte metadata.
+
+Before any preservation write, authenticate the complete finite resource
+inventory against actual1383/full10 outer and canonical commitments. The sole
+old preserve-loop read site lifts (root/name).read_bytes() to a pinned
+provenance_member(root,name); only Dec16 resolves into its real prior-origin
+location, while current capture and gateway keep their actual root locations.
+Undo this one read lift and the existing147 label adaptation to recover the
+entire unchanged original preserve AST. No original guard is removed. Stage no
+financial aliases or checkpoints locally; metadata resolution reads originals
+without restoring or changing their layout. Hosted output records actual source
+locations/hashes and preserves the complete older origin/observation metadata.
+
+The BBIG catalog/API, genuine input lifecycle, factory,130 seed and observer
+semantics remain byte-identical. Add this module/plan to declared sources and
+pin the revised runtime. The actual saved financial root remains1383/full10;
+do not invent or admit neutral11. Qualify with actual authenticated DATA,
+whole-source AST undo, missing/changed/conflicting provenance falsifiers and
+meaningful guard removals plus financial import fences. Do not invoke the full
+preserve body locally because it copies genuine checkpoint resources.
+
+Audit the entire original preserve read set before freezing, including all18
+prior resources, genuine initial/ordinary/typed archives, both adoption
+correlation resources, original8 TRQ hydration, current147 proof, current prior
+review, both capture generations and the real December22 producer archive.
+The complete plan separately pins every actual source and its exact intended
+hosted destination. It also binds already_preserved's resolution['actual'] to
+the genuine old full10 event archive/name/gzip/state/input and verifies all
+preserved destination bytes. No actual destination checkpoint is written locally.
+
+# P07 FIN337 canonical input-hash ownership correction
+
+FIN337 artifact13521423444 authenticated476 members/919142371 logical bytes.
+The worker failed before preparation/adoption because the new API requested
+`inputs.input_hash`; the immutable pooled input module defines no such member.
+The canonical function is owned by `research.pooled_vacancy_funding.backtest`.
+Actual output remains exactly the selected1259/2022-12-30/full24 gzip, with zero
+new closes. Only the original24 gzip/proof archives were copied; no ordinary25
+overlay, neutral25 checkpoint, packet qualification or positive boundary exists.
+The reviewer proof-axis refusal is consequential, not a new financial result.
+
+Correct only the private full-model API import/callback ownership. Before using
+the canonical callback, require its physical source bytes to equal the actual
+checkpoint base's immutable backtest source pin, require a function defined by
+that module namespace and require its code filename to identify that same file.
+The callback remains the entire original canonical function; no replacement
+hash algorithm or financial engine is introduced. Whole prior full_models AST
+undo must show only this finite binding and guard change.
+
+The exact immutable backtest is separately readable at the prior authenticated
+own516 source tree, with SHA
+`b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc`.
+The exact inputs source has SHA
+`04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c`.
+Statically inventory every newly introduced direct canonical attribute/function
+reference in the VIVO API/runtime/seed/certificate bindings against matching
+immutable source files, without importing or running those modules.
+
+Preserve the frozen c1b243 package and W. Deliver an amended API file and a
+separately requalified runtime receipt containing its new pin; all other runtime
+and catalog/source files remain byte-identical. The fresh request must pin the
+new API/qualification. No finite full25 parent or future proof authority is
+claimed. No cap, financial proof, model bound, rounding or canonical source
+change is authorized by this correction.
+
+The P03 qualification issue is checked independently: P07 uses the whole mature
+additional run_retained body, which writes the exact retained qualification with
+write_bytes before its certificate; paused_own_adoption itself writes no branch
+qualification. It does not use the P03 original u.run_retained exclusive-xb seam.
+This does not authorize silent replacement of mismatched existing metadata.
+
+
+Private qualifications: P06 586f93fea6c814ebc2e3fef763ebfe5ed8f1552991a561c5a804104416744582 (93 tests); P07 6284bf56a9bafc209d92c1e935e8395f0f7120cbff930f003bc54b4af7702114 (88 tests). Genuine hosted packet/adoption/runtime/review outputs remain required. Historical causality remains UNVERIFIED.

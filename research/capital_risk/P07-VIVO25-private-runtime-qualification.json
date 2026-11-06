@@ -1,7 +1,783 @@
 {
+  "actual_FIN337_failure_DATA_sha256": "51cba6b1f1641c7efea284504ac610eff2570a45ba7a661d29d5d074f6b3788f",
   "actual_future_neutral_checkpoint_known": false,
+  "canonical_API_static_audit": {
+    "active_references": [
+      {
+        "attributes": [],
+        "file": "system_campaign_p07_vivo_api.py",
+        "imported": "research.pooled_vacancy_funding.backtest",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+        "source_file": "research/pooled_vacancy_funding/backtest.py"
+      },
+      {
+        "attributes": [
+          "axis"
+        ],
+        "file": "system_campaign_p07_vivo_api.py",
+        "imported": "research.pooled_input_support.bundle.axis",
+        "sha256": "db0ec89096db94603f040f9c9dfaf64a4b9edaaa8250e7b916ec0180655e57e3",
+        "source_file": "research/pooled_input_support/bundle.py"
+      },
+      {
+        "attributes": [
+          "input_hash",
+          "load_repair"
+        ],
+        "file": "system_campaign_p07_vivo_retained.py",
+        "imported": "research.pooled_vacancy_funding.backtest",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+        "source_file": "research/pooled_vacancy_funding/backtest.py"
+      },
+      {
+        "attributes": [
+          "input_hash",
+          "load_repair"
+        ],
+        "file": "system_campaign_p07_vivo_retained.py",
+        "imported": "research.pooled_vacancy_funding.backtest",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+        "source_file": "research/pooled_vacancy_funding/backtest.py"
+      },
+      {
+        "attributes": [
+          "read_checkpoint"
+        ],
+        "file": "system_campaign_p07_vivo_runtime.py",
+        "imported": "research.pooled_vacancy_funding.journal",
+        "sha256": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5",
+        "source_file": "research/pooled_vacancy_funding/journal.py"
+      },
+      {
+        "attributes": [
+          "read_checkpoint"
+        ],
+        "file": "system_campaign_p07_vivo_runtime.py",
+        "imported": "research.pooled_vacancy_funding.journal",
+        "sha256": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5",
+        "source_file": "research/pooled_vacancy_funding/journal.py"
+      },
+      {
+        "attributes": [
+          "input_hash"
+        ],
+        "file": "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt",
+        "imported": "research.pooled_vacancy_funding.backtest",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+        "source_file": "research/pooled_vacancy_funding/backtest.py"
+      },
+      {
+        "attributes": [
+          "read_checkpoint"
+        ],
+        "file": "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt",
+        "imported": "research.pooled_vacancy_funding.journal",
+        "sha256": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5",
+        "source_file": "research/pooled_vacancy_funding/journal.py"
+      },
+      {
+        "access": "canonical_input_hash(module,cp) exact source/namespace/code-file guard",
+        "attributes": [
+          "input_hash"
+        ],
+        "file": "system_campaign_p07_vivo_api.py",
+        "imported": "research.pooled_vacancy_funding.backtest",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+        "source_file": "research/pooled_vacancy_funding/backtest.py"
+      }
+    ],
+    "actual_parent_outer_sha256": "1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a",
+    "authenticated_sources": {
+      "research/pooled_input_support/bundle.py": {
+        "exports": {
+          "Decimal": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "decimal",
+            "name": "Decimal"
+          },
+          "Path": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pathlib",
+            "name": "Path"
+          },
+          "annotations": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "__future__",
+            "name": "annotations"
+          },
+          "archive_rows": {
+            "kind": "FunctionDef"
+          },
+          "axis": {
+            "kind": "FunctionDef"
+          },
+          "bridge_benchmark": {
+            "kind": "FunctionDef"
+          },
+          "csv_rows": {
+            "kind": "FunctionDef"
+          },
+          "digest": {
+            "kind": "FunctionDef"
+          },
+          "join_diagnostics": {
+            "kind": "FunctionDef"
+          },
+          "repaired_pair": {
+            "kind": "FunctionDef"
+          },
+          "sha256": {
+            "kind": "FunctionDef"
+          },
+          "terminal_union": {
+            "kind": "FunctionDef"
+          },
+          "unique_schedule": {
+            "kind": "FunctionDef"
+          },
+          "validate_benchmark": {
+            "kind": "FunctionDef"
+          },
+          "validate_cash": {
+            "kind": "FunctionDef"
+          },
+          "validate_join": {
+            "kind": "FunctionDef"
+          },
+          "validate_observation": {
+            "kind": "FunctionDef"
+          },
+          "validate_producer_report": {
+            "kind": "FunctionDef"
+          },
+          "verify_bundle": {
+            "kind": "FunctionDef"
+          },
+          "verify_member_manifest": {
+            "kind": "FunctionDef"
+          },
+          "write_csv": {
+            "kind": "FunctionDef"
+          },
+          "write_json": {
+            "kind": "FunctionDef"
+          }
+        },
+        "path": "C:\\Users\\mbron\\.codex\\visualizations\\2026\\10\\25\\01a1737f-f4e0-7cf1-990e-82ae645d665b\\research-capital-risk-20261027\\full-system-search-001\\compiled-source-qualification\\CORE_BASELINE\\research\\pooled_input_support\\bundle.py",
+        "sha256": "db0ec89096db94603f040f9c9dfaf64a4b9edaaa8250e7b916ec0180655e57e3"
+      },
+      "research/pooled_input_support/inputs.py": {
+        "exports": {
+          "ActionSchedule": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support.adapter",
+            "name": "ActionSchedule"
+          },
+          "Classification": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.economic_replay60.inputs",
+            "name": "Classification"
+          },
+          "Fraction": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "fractions",
+            "name": "Fraction"
+          },
+          "LIQUIDATE_CHILD_AT_OPEN": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel.core.spinoffs",
+            "name": "LIQUIDATE_CHILD_AT_OPEN"
+          },
+          "Packet": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support.adapter",
+            "name": "Packet"
+          },
+          "Path": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pathlib",
+            "name": "Path"
+          },
+          "RoundedTerminalTerms": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "RoundedTerminalTerms"
+          },
+          "SpinoffDistribution": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel.core.spinoffs",
+            "name": "SpinoffDistribution"
+          },
+          "TerminalTerms": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "TerminalTerms"
+          },
+          "_archive_rows": {
+            "kind": "FunctionDef"
+          },
+          "_gzip_rows": {
+            "kind": "FunctionDef"
+          },
+          "annotations": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "__future__",
+            "name": "annotations"
+          },
+          "asdict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "asdict"
+          },
+          "defaultdict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "collections",
+            "name": "defaultdict"
+          },
+          "distributions": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.bounded_20y.run",
+            "name": "distributions"
+          },
+          "fields": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "fields"
+          },
+          "load_actions": {
+            "kind": "FunctionDef"
+          },
+          "metadata": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.bounded_20y.run",
+            "name": "metadata"
+          },
+          "packets": {
+            "kind": "FunctionDef"
+          },
+          "prepared_axis": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support.bundle",
+            "name": "axis"
+          },
+          "terminal_schedule": {
+            "kind": "FunctionDef"
+          },
+          "terminal_terms_from_dict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "terminal_terms_from_dict"
+          },
+          "terminals": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.bounded_20y.run",
+            "name": "terminals"
+          },
+          "vendor": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.bounded_20y.run",
+            "name": "vendor"
+          },
+          "verify_bundle": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support.bundle",
+            "name": "verify_bundle"
+          }
+        },
+        "path": "C:\\Users\\mbron\\.codex\\visualizations\\2026\\10\\25\\01a1737f-f4e0-7cf1-990e-82ae645d665b\\research-capital-risk-20261027\\full-system-search-001\\compiled-source-qualification\\CORE_BASELINE\\research\\pooled_input_support\\inputs.py",
+        "sha256": "04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c"
+      },
+      "research/pooled_vacancy_funding/backtest.py": {
+        "exports": {
+          "Account": {
+            "kind": "ClassDef"
+          },
+          "Decimal": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "decimal",
+            "name": "Decimal"
+          },
+          "Formation": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel.core.formation",
+            "name": "Formation"
+          },
+          "FormationPlan": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel.core.formation",
+            "name": "FormationPlan"
+          },
+          "Journal": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "journal",
+            "name": "Journal"
+          },
+          "MonthlyStats": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "monthly",
+            "name": "MonthlyStats"
+          },
+          "POOLED_PROFILE": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.funding",
+            "name": "POOLED_PROFILE"
+          },
+          "POOLED_PROFILES": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.funding",
+            "name": "POOLED_PROFILES"
+          },
+          "Path": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pathlib",
+            "name": "Path"
+          },
+          "RESEARCH_PROFILES": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.funding",
+            "name": "RESEARCH_PROFILES"
+          },
+          "RetryStats": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "retries",
+            "name": "RetryStats"
+          },
+          "ShadowObserver": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel.shadow_observation",
+            "name": "ShadowObserver"
+          },
+          "SimpleNamespace": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "types",
+            "name": "SimpleNamespace"
+          },
+          "adapter": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support",
+            "name": "adapter"
+          },
+          "advance_account": {
+            "kind": "FunctionDef"
+          },
+          "anchor_account": {
+            "kind": "FunctionDef"
+          },
+          "annotations": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "__future__",
+            "name": "annotations"
+          },
+          "apply_repair": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "repair",
+            "name": "apply_repair"
+          },
+          "archive_checkpoint": {
+            "kind": "FunctionDef"
+          },
+          "asdict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "asdict"
+          },
+          "bundle": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support",
+            "name": "bundle"
+          },
+          "checkpoint_value": {
+            "kind": "FunctionDef"
+          },
+          "comparisons": {
+            "kind": "FunctionDef"
+          },
+          "deepcopy": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "copy",
+            "name": "deepcopy"
+          },
+          "file_sha": {
+            "kind": "FunctionDef"
+          },
+          "formed_economics": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel",
+            "name": "formed_economics"
+          },
+          "formed_origin": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "sentinel",
+            "name": "formed_origin"
+          },
+          "input_hash": {
+            "kind": "FunctionDef"
+          },
+          "inputs": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "research.pooled_input_support",
+            "name": "inputs"
+          },
+          "load_repair": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "repair",
+            "name": "load_repair"
+          },
+          "main": {
+            "kind": "FunctionDef"
+          },
+          "read_checkpoint": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "journal",
+            "name": "read_checkpoint"
+          },
+          "relevant": {
+            "kind": "FunctionDef"
+          },
+          "replace": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "replace"
+          },
+          "run_backtest": {
+            "kind": "FunctionDef"
+          },
+          "runtime": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": null,
+            "name": "runtime"
+          },
+          "source_files": {
+            "kind": "FunctionDef"
+          },
+          "validate_checkpoint": {
+            "kind": "FunctionDef"
+          },
+          "watch": {
+            "kind": "FunctionDef"
+          },
+          "write_checkpoint": {
+            "kind": "ImportFrom",
+            "level": 1,
+            "module": "journal",
+            "name": "write_checkpoint"
+          },
+          "write_json": {
+            "kind": "FunctionDef"
+          }
+        },
+        "path": "C:\\Users\\mbron\\.codex\\visualizations\\2026\\10\\25\\01a1737f-f4e0-7cf1-990e-82ae645d665b\\research-capital-risk-20261027\\system-optimization-002\\volatility-native-discovery-001\\contract-source-own516\\research\\pooled_vacancy_funding\\backtest.py",
+        "sha256": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc"
+      },
+      "research/pooled_vacancy_funding/journal.py": {
+        "exports": {
+          "Journal": {
+            "kind": "ClassDef"
+          },
+          "Path": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pathlib",
+            "name": "Path"
+          },
+          "_decoded": {
+            "kind": "FunctionDef"
+          },
+          "_encoded": {
+            "kind": "FunctionDef"
+          },
+          "_finite_float": {
+            "kind": "FunctionDef"
+          },
+          "_flush": {
+            "kind": "FunctionDef"
+          },
+          "_invalid_constant": {
+            "kind": "FunctionDef"
+          },
+          "_pairs": {
+            "kind": "FunctionDef"
+          },
+          "_sync_directory": {
+            "kind": "FunctionDef"
+          },
+          "_write_all": {
+            "kind": "FunctionDef"
+          },
+          "annotations": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "__future__",
+            "name": "annotations"
+          },
+          "read_checkpoint": {
+            "kind": "FunctionDef"
+          },
+          "write_checkpoint": {
+            "kind": "FunctionDef"
+          }
+        },
+        "path": "C:\\Users\\mbron\\.codex\\visualizations\\2026\\10\\25\\01a1737f-f4e0-7cf1-990e-82ae645d665b\\research-capital-risk-20261027\\full-system-search-001\\compiled-source-qualification\\CORE_BASELINE\\research\\pooled_vacancy_funding\\journal.py",
+        "sha256": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5"
+      },
+      "research/pooled_vacancy_funding/repair.py": {
+        "exports": {
+          "AddedRoundedTerm": {
+            "kind": "ClassDef"
+          },
+          "AddedSpinoff": {
+            "kind": "ClassDef"
+          },
+          "AddedTerm": {
+            "kind": "ClassDef"
+          },
+          "Annotated": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "typing",
+            "name": "Annotated"
+          },
+          "BaseModel": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "BaseModel"
+          },
+          "ConfigDict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "ConfigDict"
+          },
+          "Decimal": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "decimal",
+            "name": "Decimal"
+          },
+          "Field": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "Field"
+          },
+          "InvalidOperation": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "decimal",
+            "name": "InvalidOperation"
+          },
+          "Literal": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "typing",
+            "name": "Literal"
+          },
+          "Path": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pathlib",
+            "name": "Path"
+          },
+          "PrivateAttr": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "PrivateAttr"
+          },
+          "Repair": {
+            "kind": "ClassDef"
+          },
+          "RepairV2": {
+            "kind": "ClassDef"
+          },
+          "RoundedTerminalTerms": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "RoundedTerminalTerms"
+          },
+          "SourceEvidence": {
+            "kind": "ClassDef"
+          },
+          "SpinoffRepair": {
+            "kind": "ClassDef"
+          },
+          "Suppression": {
+            "kind": "ClassDef"
+          },
+          "TerminalKind": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "TerminalKind"
+          },
+          "TerminalTerms": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "stock_strategy_shared.wealth_core.terminal",
+            "name": "TerminalTerms"
+          },
+          "_Strict": {
+            "kind": "ClassDef"
+          },
+          "_apply_spinoff_repair": {
+            "kind": "FunctionDef"
+          },
+          "_digest": {
+            "kind": "FunctionDef"
+          },
+          "_loaded": {
+            "kind": "FunctionDef"
+          },
+          "_nonfinite": {
+            "kind": "FunctionDef"
+          },
+          "_session": {
+            "kind": "FunctionDef"
+          },
+          "_unique": {
+            "kind": "FunctionDef"
+          },
+          "annotations": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "__future__",
+            "name": "annotations"
+          },
+          "apply_repair": {
+            "kind": "FunctionDef"
+          },
+          "asdict": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "asdict"
+          },
+          "date": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "datetime",
+            "name": "date"
+          },
+          "deepcopy": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "copy",
+            "name": "deepcopy"
+          },
+          "field_validator": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "field_validator"
+          },
+          "fields": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "fields"
+          },
+          "load_repair": {
+            "kind": "FunctionDef"
+          },
+          "model_validator": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "pydantic",
+            "name": "model_validator"
+          },
+          "replace": {
+            "kind": "ImportFrom",
+            "level": 0,
+            "module": "dataclasses",
+            "name": "replace"
+          },
+          "term_sha256": {
+            "kind": "FunctionDef"
+          }
+        },
+        "path": "C:\\Users\\mbron\\.codex\\visualizations\\2026\\10\\25\\01a1737f-f4e0-7cf1-990e-82ae645d665b\\research-capital-risk-20261027\\system-optimization-002\\volatility-native-discovery-001\\contract-source-own516\\research\\pooled_vacancy_funding\\repair.py",
+        "sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152"
+      }
+    },
+    "canonical_function_bodies_executed": false,
+    "canonical_modules_imported": false,
+    "checkpoint_created": false,
+    "exact_missing_attribute": {
+      "module": "research.pooled_input_support.inputs",
+      "name": "input_hash",
+      "present": false
+    },
+    "financial_runtime_executed": false,
+    "passed": true,
+    "qualification_write_seam": {
+      "P03_exclusive_xb_body_used": false,
+      "P07_runtime": "whole additional_runtime.run_retained writes exact retained qualification using write_bytes",
+      "paused_own_adoption_writes_branch_qualification": false
+    },
+    "qualified_owner": {
+      "module": "research.pooled_vacancy_funding.backtest",
+      "name": "input_hash",
+      "present": true
+    },
+    "schema": "research.P07-FIN337-static-canonical-API-audit/1"
+  },
+  "canonical_API_static_audit_sha256": "41b22ad25fac92e5617274a5264e110074b7727404f65f32aebe1038a01b58a5",
   "catalog_sha256": "f5a6b9d58415944a3891b19d71b9a9327b9e060e8ae5edbbe25990fafc71b406",
   "committed_prefix_proofs": 805,
+  "conformance_design": {
+    "bytes": 2548,
+    "sha256": "21a87afa91ccaef2fd498942d61290c45fdd28bd1cf26810a741415d3b79e427"
+  },
   "design": {
     "bytes": 11900,
     "sha256": "776748f32cd573c4ee4a07dec8e197781bf38765f9f203bd4f281336b4a4c9f6"
@@ -38,8 +814,8 @@
       "sha256": "f5a6b9d58415944a3891b19d71b9a9327b9e060e8ae5edbbe25990fafc71b406"
     },
     "system_campaign_p07_vivo_api.py": {
-      "bytes": 4629,
-      "sha256": "a901075604e4b2ac822b83ebf493657eeed171020dd2d9cac45150c545c7c77c"
+      "bytes": 5233,
+      "sha256": "fb969943fbf0f50c8f437ed9568c0d5e794f0e3eb8b0fb90b41df5a513463eb8"
     },
     "system_campaign_p07_vivo_boundary.py": {
       "bytes": 4959,
@@ -78,6 +854,7 @@
   "new_VIVO_common_cash_terms": 1,
   "original_inputs": 24,
   "passed": true,
+  "previous_private_qualification_sha256": "c1b24330916e7d420542e467c965e864de034856a55f9e3317ec49b9c9471f09",
   "required_actual_neutral_inputs": 25,
   "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
   "schema": "research.P07-VIVO25-private-runtime-qualification/1",
@@ -85,8 +862,12 @@
   "tests": {
     "actual_805_factory_metadata_passed": true,
     "actual_full24_model_reader_passed": true,
-    "command": "python -B -m pytest -q test_VIVO25_data_models_api.py test_VIVO25_retained_runtime.py test_VIVO25_financial_profile.py -p no:cacheprovider --tb=short --basetemp=pytest-vivo25-profile-final",
+    "command": "python -B -m pytest -q test_VIVO25_data_models_api.py test_VIVO25_retained_runtime.py test_VIVO25_financial_profile.py test_FIN337_canonical_API_conformance.py -p no:cacheprovider --tb=short --basetemp=pytest-vivo25-conformance-001",
     "files": {
+      "test_FIN337_canonical_API_conformance.py": {
+        "bytes": 4118,
+        "sha256": "76bf81942f3b8c188d4c9364fd183046c6ebde58d9094f1db2a3b7aa541bdafc"
+      },
       "test_VIVO25_data_models_api.py": {
         "bytes": 8891,
         "sha256": "c8683a3bed0e5bc5641918e219c4be55ccf3cbf959777dc0f1d1368e5c6e700d"
@@ -102,10 +883,10 @@
     },
     "financial_import_fences": 5,
     "malformed_source_and_request_metadata_cases": 41,
-    "meaningful_guard_removals": 9,
-    "passed": 83,
-    "seconds": 28.44,
+    "meaningful_guard_removals": 11,
+    "passed": 88,
+    "seconds": 29.25,
     "whole_source_undo": true
   },
-  "utc": "2026-11-06T16:18:07.231790+00:00"
+  "utc": "2026-11-06T16:52:39.273479+00:00"
 }

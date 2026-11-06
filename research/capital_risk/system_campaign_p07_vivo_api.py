@@ -18,13 +18,25 @@ def remaining_tree(raw):
     data.need(data.sha(raw)==FUTURE_SHA,'VIVO_WHOLE_ORIGINAL_REMAINING_ORDINARY_SOURCE')
     return ordinary.remaining_tree(raw)
 
+def canonical_input_hash(module,cp):
+    name='research/pooled_vacancy_funding/backtest.py'
+    path=Path(module.__file__)
+    data.need(path.as_posix().endswith('/'+name) and data.sha(path.read_bytes())==cp['base']['sources'][name],
+         'VIVO_CANONICAL_INPUT_HASH_EXACT_IMMUTABLE_BACKTEST_SOURCE')
+    fn=getattr(module,'input_hash',None)
+    data.need(isinstance(fn,FunctionType) and fn.__globals__ is vars(module)
+         and Path(fn.__code__.co_filename).resolve()==path.resolve(),
+         'VIVO_CANONICAL_INPUT_HASH_ORIGINAL_FUNCTION_OWNER_AND_CODE_FILE')
+    return fn
+
+
 def full_models(root,cp):
     from full_system_core import hosted
     hosted()
     from system_campaign_abmd_bounded_catalog import evidence
-    from research.pooled_input_support import inputs
+    from research.pooled_vacancy_funding import backtest
     value=lifecycle.catalog()
-    return models.models().validate_full(root,cp,value,evidence(value),input_hash=inputs.input_hash,root_metadata=lifecycle.initial_spec())
+    return models.models().validate_full(root,cp,value,evidence(value),input_hash=canonical_input_hash(backtest,cp),root_metadata=lifecycle.initial_spec())
 
 def typed_input_valid(root,cp,entry):
     result=full_models(root,cp)

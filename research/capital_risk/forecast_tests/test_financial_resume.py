@@ -40,21 +40,23 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P05'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
+    assert r['arms']==['P06','P07'] and r['maximum_parallel_financial_workers']==2 and r['maximum_parallel_readonly_workers']==0
     assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==611
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==613
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P05':dict(new_factual_overlay=True,restored_correlation=False)}
-    field='selected_p05_retained18_financial_inputs';assert set(r[field])=={'P05'}
-    root=m.root_spec('P05');decl=r[field]['P05']
-    assert (root['measured_closes'],root['selected_session'],len(root['repairs']))==(1175,'2022-08-31',19)
-    assert r['admitted_checkpoints']['P05']==root['outer_sha256']==decl['current_outer_sha256']
-    assert decl['initial_adoption_required'] is True and decl['actual20_origin_required'] is False
-    assert decl['current_full_inputs']==19 and decl['selected_terms']==18 and decl['all94_original_observation_terms_retained'] is True
-    assert decl['actual_hosted36_packet_checks_required_before_financial_entry'] is True
-    assert decl['origin_gate_validation_failure_keeps_advance_closed'] is True
-    assert decl['preflight_packet_gate_schema']=='research.P05-retained18-preflight-packet-gate/2'
-    assert all(r[k]=={} for k in ('selected_p05_retained18_source_preparations','selected_neutral_cash_batches','selected_p03_thor_ordinary17','selected_p06_BBIG_ordinary11_retained130','selected_p07_vivo_ordinary25','selected_p07_composite_source_bridges'))
+    assert r['arm_inputs']=={a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
+    assert r['selected_p05_retained18_financial_inputs']==r['selected_p05_retained18_source_preparations']==r['selected_p03_thor_ordinary17']==r['selected_p07_composite_source_bridges']=={}
+    p06,p07=m.root_spec('P06'),m.root_spec('P07')
+    assert (p06['measured_closes'],p06['selected_session'],len(p06['repairs']))==(1383,'2023-06-30',10)
+    assert (p07['measured_closes'],p07['selected_session'],len(p07['repairs']))==(1259,'2022-12-30',24)
+    a,b=r['selected_p06_BBIG_ordinary11_retained130']['P06'],r['selected_p07_vivo_ordinary25']['P07']
+    assert (a['committed_seed_rows'],a['actual_neutral_inputs_required'])==(130,11)
+    assert (b['old_committed_proof_rows'],b['required_actual_neutral_inputs'])==(805,25)
+    assert a['actual_neutral_checkpoint_known'] is b['actual_future_neutral_checkpoint_known'] is False
+    assert b['profile_qualification_sha256']=='6284bf56a9bafc209d92c1e935e8395f0f7120cbff930f003bc54b4af7702114'
+    assert r['admitted_checkpoints']=={a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
+    assert r['sources']['system_campaign_p06_BBIG_runtime.py']=='50a0a43d00a3818e89b3fb750c13615fdff215281eba9955853e7818d2bfe90a'
+    assert r['sources']['system_campaign_p07_vivo_api.py']=='fb969943fbf0f50c8f437ed9568c0d5e794f0e3eb8b0fb90b41df5a513463eb8'
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

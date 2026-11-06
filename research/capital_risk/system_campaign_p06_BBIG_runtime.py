@@ -13,6 +13,7 @@ import system_campaign_p06_BBIG_models as models
 import system_campaign_p06_BBIG_api as api_module
 import system_campaign_p06_BBIG_seed as seeds
 import system_campaign_p06_BBIG_observer as observations
+import system_campaign_p06_BBIG_retained_resources as resources
 from system_campaign_bounded_sensor_origin_v2 import exact,strict_json
 from system_campaign_pxd_pause import adoption
 
@@ -54,7 +55,7 @@ def expected_request(original,*,execution_mode,selected_arms,root_lookup):
         pin=data.sha((HERE/name).read_bytes());data.need(name not in result['sources'] or result['sources'][name]==pin,'P06_BBIG_NO_REQUEST_SOURCE_REPLACEMENT')
         result['sources'][name]=pin
     return result
-def source_names():return tuple(sorted(set((Path(__file__).name,*api_module.source_names(),*seeds.source_names(),*observations.source_names()))))
+def source_names():return tuple(sorted(set((Path(__file__).name,*api_module.source_names(),*seeds.source_names(),*observations.source_names(),*resources.source_names()))))
 def adoption_tree(raw):
     data.need(data.sha(raw)==seeds.U_SHA,'P06_BBIG_WHOLE_ORIGINAL_CANONICAL_ADOPTION_SOURCE')
     fn,=[n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='paused_own_adoption']
@@ -107,6 +108,11 @@ def retained_tree(raw,name):
     if name=='preserve':
         sites=[n for n in ast.walk(fn) if isinstance(n,ast.Constant) and type(n.value)is int and n.value==18]
         data.need(len(sites)==1,'P06_BBIG_ONE_ORIGINAL_FULL_PROOF_ROW_LABEL');sites[0].value=147
+        loop,=[n for n in fn.body if isinstance(n,ast.For) and ast.unparse(n.target)=='name'
+            and isinstance(n.iter,ast.Tuple) and ast.unparse(n.iter)=="('actual-future-event-2022-12-16.json', 'uncertainty-capture.json', 'p06-abmd-initial-synthetic-gateway.json')"]
+        site,=[n for n in ast.walk(loop) if isinstance(n,ast.Call) and ast.unparse(n)=='(root / name).read_bytes()']
+        replacement=ast.parse('provenance_member(root,name)',mode='eval').body
+        site.func,site.args,site.keywords=replacement.func,replacement.args,replacement.keywords
     elif name in ('run','review'):
         module='system_campaign_p06_abmd_point_continuation' if name=='run' else 'system_campaign_p06_abmd_retained_suffix'
         imp,=[n for n in ast.walk(fn) if isinstance(n,ast.ImportFrom) and n.module==module]
@@ -120,13 +126,16 @@ def retained_tree(raw,name):
     else:raise ValueError('P06_BBIG_UNDECLARED_RETAINED_FUNCTION')
     return ast.fix_missing_locations(fn)
 def preserve(root,out,parent,rows,resolution):
+    inventory=resources.inventory(root,parent)
     facade=SimpleNamespace(PROVENANCE=PROVENANCE,FULL_PROOF='old-full-uncertainty-certificate.jsonl',FULL_SHA=seeds.FULL['sha256'],encoded=data.encoded)
-    namespace=dict(vars(retained),data=facade)
+    namespace=dict(vars(retained),data=facade,provenance_member=resources.provenance_member)
     exec(compile(ast.Module(body=[retained_tree(Path(retained.__file__).read_bytes(),'preserve')],type_ignores=[]),
         '<entire-original-preserve-actual147-provenance>','exec'),namespace)
     namespace['preserve'](root,out,parent,rows,resolution)
     for p in (Path(root)/retained.data.OBSERVATIONS).rglob('*'):
         if p.is_file():exact(Path(out)/PROVENANCE/'prior-ordinary-observation'/p.relative_to(Path(root)/retained.data.OBSERVATIONS),p.read_bytes())
+    for name,raw in inventory.items():exact(Path(out)/PROVENANCE/'actual-prior-metadata'/name,raw)
+    exact(Path(out)/PROVENANCE/'actual-prior-metadata-preservation.json',data.encoded(resources.preservation_receipt(inventory)))
 def read_parent(root):return strict_json((Path(root)/models.PARENT).read_bytes())
 def genuine_receipt(neutral,spec,root,rows):return boundary_relation(read_parent(root),neutral,spec,lambda n:(Path(root)/n).read_bytes(),rows)
 def bind_retained(name,seed,request,financial_parent,rows):
@@ -144,6 +153,8 @@ def bind_retained(name,seed,request,financial_parent,rows):
     facade.review_unchanged=review_adopted
     def prior_event(root,current,proof):return seeds.prior_event(root,current,proof,financial_parent)[1][0]
     def already_preserved(root,out,current,proof,resolution):
+        resources.verify_preserved(lambda n:(Path(root)/n).read_bytes(),lambda n:(Path(out)/n).read_bytes(),
+            proof,resolution,provenance=PROVENANCE)
         data.need(len(proof)==130 and (Path(out)/PROVENANCE/'old-full-uncertainty-certificate.jsonl').read_bytes()==
             (Path(root)/'uncertainty-certificate.jsonl').read_bytes()
             and (Path(out)/resolution['actual']).read_bytes()==(Path(root)/resolution['actual']).read_bytes(),

@@ -1,7 +1,8 @@
 """Actual finite lifecycle bindings only; abort before any financial operation."""
 import pytest
+import json
 
-def test_P05_dispatch_uses_v2_packet_gate_and_restores_all_hooks_on_abort(monkeypatch):
+def test_P05_dispatch_uses_v2_packet_gate_and_restores_all_hooks_on_abort(monkeypatch,tmp_path):
     import full_system_core
     import system_campaign_bounded_lifecycle_dispatch as dispatch
     import system_campaign_financial_resume as resume
@@ -9,7 +10,10 @@ def test_P05_dispatch_uses_v2_packet_gate_and_restores_all_hooks_on_abort(monkey
     import system_campaign_pending_cash_api as pending
     import system_campaign_retained_forward_cash as prior
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+    monkeypatch.setattr(resume,'SELECTED_ARMS',('P05',))
     spec=resume.root_spec('P05');request=resume.expected_request()
+    (tmp_path/'system-campaign-factual-request.json').write_text(json.dumps(request))
+    monkeypatch.setattr(dispatch,'HERE',tmp_path)
     assert runtime.selected(spec,request)
     names=('preflight','financial_inputs','qualified_overlay','review_adoption','factual_overlay_needed')
     saved={n:getattr(resume,n) for n in names};old_parent,old_merge=pending.for_parent,prior.merge_terms

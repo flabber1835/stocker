@@ -146,19 +146,26 @@ def test_whole_seed_and_remaining_and_adoption_undo():
     node=next(n for n in tree.body if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='names')
     node.value.keys.pop();node.value.values.pop()
     assert dump(tree)==dump(function(raw,'paused_own_adoption'))
-@pytest.mark.parametrize('name',['preserve','run','review'])
+@pytest.mark.parametrize('name', ['preserve', 'run', 'review'])
 def test_whole_retained_body_undo(name):
-    raw=Path(runtime.retained.__file__).read_bytes();tree=runtime.retained_tree(raw,name)
-    if name=='preserve':
+    raw = Path(runtime.retained.__file__).read_bytes()
+    tree = runtime.retained_tree(raw, name)
+    if name == 'preserve':
         for n in ast.walk(tree):
-            if isinstance(n,ast.Constant) and type(n.value)is int and n.value==147:n.value=18
+            if isinstance(n, ast.Constant) and type(n.value) is int and (n.value == 147):
+                n.value = 18
+        site = next((n for n in ast.walk(tree) if isinstance(n, ast.Call) and ast.unparse(n) == 'provenance_member(root, name)'))
+        replacement = ast.parse('(root/name).read_bytes()', mode='eval').body
+        site.func, site.args, site.keywords = (replacement.func, replacement.args, replacement.keywords)
     else:
-        imp=next(n for n in ast.walk(tree) if isinstance(n,ast.ImportFrom) and n.module=='system_campaign_p06_BBIG_seed')
-        imp.module='system_campaign_p06_abmd_point_continuation' if name=='run' else 'system_campaign_p06_abmd_retained_suffix'
-        if name=='review':imp.names[0].name='review'
+        imp = next((n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == 'system_campaign_p06_BBIG_seed'))
+        imp.module = 'system_campaign_p06_abmd_point_continuation' if name == 'run' else 'system_campaign_p06_abmd_retained_suffix'
+        if name == 'review':
+            imp.names[0].name = 'review'
         for n in ast.walk(tree):
-            if isinstance(n,ast.Constant) and type(n.value)is int and n.value==130:n.value=6
-    assert dump(tree)==dump(function(raw,name))
+            if isinstance(n, ast.Constant) and type(n.value) is int and (n.value == 130):
+                n.value = 6
+    assert dump(tree) == dump(function(raw, name))
 def test_whole_point_metadata_undo():
     raw=Path(seeds.point.__file__).read_bytes();tree=seeds.metadata_tree(raw)
     for n in ast.walk(tree):
