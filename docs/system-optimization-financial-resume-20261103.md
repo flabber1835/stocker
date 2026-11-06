@@ -7125,3 +7125,55 @@ no ABMD or financial uncertainty permission is introduced.
 
 
 Private preparation qualifications: P03 bead26577f5890eec6fd9af5e740c68b797369785ab87cc73e9e9747fa990ab7 (41tests); P05 41e382cdba61e01f7398668f965ad81ddb11eaa01edef56065150fc24e582448 (27tests). Both preserve original monthly reproduction/MonthlyStats; actual hosted monthly proofs and independent DATA/root admission remain pending. Historical causality remains UNVERIFIED.
+
+
+## REVIEW342: P06 authentic failed-review recovery, zero financial transitions
+
+# FIN339 P06: preserve failed receipt, recover readonly review and monthly facts
+
+Actual artifact13525611349/run42257537761/head6b1c59e2938655b528e62aa77ef40b37a3b15044
+is immutable: original preflight0/worker1/reviewer1 and
+FINANCIAL_REVIEW_REFUSED_PRESERVED remain unchanged. Actual saved1426/Aug31/full11
+has43 new closes and genuine neutral11; original accepted financial seed remains
+1383/Jun30/full10 with130 committed proofs. No September diagnostic tails seed.
+
+The reviewer failed only when source_record passed compact published accounting
+ledger metadata (event_count/receivables) into the unchanged NeverHeld history
+guard requiring events. Fix only the readonly review binding. Authenticate exact
+actual1426 committed ledger-event bytes and July26 closing/July27 opening DTO
+digests/counts, canonical phase/date, count bounds and event chronology before
+cloning those published DTOs and attaching actual events[:event_count]. This is
+an explicit accounting-review DTO, never a projected checkpoint, restored book,
+portfolio settlement or fake seed. Keep all original source_record, scope,
+actual_source_phase, no-op/delegation and full combined-date guards. Lift only
+the two compact-accounting arguments in the entire original observer review;
+undo those calls to recover its whole original AST. Preserve frozen modules.
+
+Select a separate exact failed-review target with no root, review_sha=None and
+failed0/1/1 stops/status preserved. The existing readonly failed-review quarantine
+pattern authenticates the genuine original archive without relabeling it.
+Bind complete mature crypto/public/inspector/refusal readers to the finite P06
+case; original defaults and P07 requalification namespace remain unchanged.
+Require new MODE readonly,financial0,readonly1 and explicit P06 declaration.
+
+Preflight visits actual full11 with the complete original history visitor and
+ABMD InputCodec (not B19), performs original accounting/monthly reproduction
+from admitted1383 using unchanged MonthlyStats, and advances zero financial
+sessions. The fresh reviewer mounts admitted1383 as /old and actual FIN339 as
+/evidence, keeps the complete original review/context/130-to173 proof loop and
+whole actual-neutral boundary checks active, and binds only the corrected source
+review. No financial run is authorized in this separate namespace. Require fresh
+positive core,43/130 branch and BBIG combined-source review before new output is
+accepted. A new positive readonly review transport links to the immutable failed
+financial transport; DATA/monthly closure and any later admission remain separate.
+
+Local qualification reads authenticated JSON/gzip/AST only under engine fences;
+no engine/MonthlyStats calls, canonical restore/staging, W edits or jobs. Use the
+mature REPORT333 DATA reader separately for exact173 proof/43 row/full11 closure.
+
+Preserve the FIN339 failed0/1/1 receipt and accepted1383/full10 root. Select only actual1426/2023-08-31/full11 for a separate fresh positive readonly review and monthly reproduction; no new root is admitted before independent DATA. Qualification: 50tests15.51s, two meaningful guard-removal falsifiers, five import fences; original source_record KeyError reproduced and authentic DTO expansion verified. Historical causality remains UNVERIFIED.
+
+
+## REPORT341 independent P05 root admission
+
+Only saved1196/2022-09-30/full20. Whole genuine neutral19-to20, full typed input history,112 original observer terms including source-only unheld CTXS;21 daily closes,42 raw accounting snapshots,one exact September monthly report and28 Decimal metrics. October3-5 diagnostic tails and BRG October6 failed state excluded. Historical causality UNVERIFIED. BRG spin/cash contract extension remains unqualified; no later financial restart selected. Qualification 4c11dd23357466a302ef09614392d1187438141e9e891a7318e10d60e6b162fd. Original accepted1175/full19 root is retained as history; actual1196 FIN340 transport plus separately authenticated REPORT341 monthly proof is the sole new research seed. This admission does not grant a later financial restart or broker authority.

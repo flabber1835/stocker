@@ -40,21 +40,19 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03','P05'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==2
+    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
     assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==626
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==630
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={a:dict(new_factual_overlay=False,restored_correlation=False) for a in r['arms']}
-    assert r['selected_p03_thor_qualification_reuse']==r['selected_p05_retained18_financial_inputs']=={}
-    assert set(r['selected_p03_full17_reporting_bridges'])=={'P03'} and set(r['selected_p05_full20_readonly_reporting_bridges'])=={'P05'}
-    parts=json.loads((CAP/m.PARTIALS).read_bytes())['arms']
-    for arm,count,day,inputs in [('P03',524,'2020-01-31',17),('P05',1196,'2022-09-30',20)]:
-        target=parts[arm];seed=m.root_spec(arm)
-        assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(count,day,inputs)
-        assert target['monthly_seed_root_admission_sha256']==seed['root_admission_sha256']
-        assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
-        assert 'root_admission' not in target and target['outer_sha256']!=seed['outer_sha256']
-    assert (m.root_spec('P03')['measured_closes'],m.root_spec('P05')['measured_closes'])==(503,1175)
+    assert r['arm_inputs']=={'P06':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert set(r['selected_p06_fin339_readonly_review_recoveries'])=={'P06'}
+    assert r['selected_p03_full17_reporting_bridges']==r['selected_p05_full20_readonly_reporting_bridges']=={}
+    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P06'];seed=m.root_spec('P06')
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(1426,'2023-08-31',11)
+    assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(1383,'2023-06-30',10)
+    assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
+    assert target['review_sha256'] is None and target['prior_stops']['reviewer']['exit_code']==1
+    assert 'root_admission' not in target and target['outer_sha256']!=seed['outer_sha256']
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
@@ -229,6 +227,9 @@ def launch_fixture(tmp_path, monkeypatch, event):
     monkeypatch.setattr(recovery,'launcher_guard',lambda:None)
     request['admitted_checkpoints']['P07']=historical_root('P07')['outer_sha256']
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
+    # This fixture exercises the original P07 lifecycle, independently of the
+    # active, separately qualified P06 readonly recovery declaration.
+    request['selected_p06_fin339_readonly_review_recoveries']={}
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith(('readonly','witness')),
                    readonly_source_witnesses=event.startswith('witness'),
