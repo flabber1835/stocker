@@ -1295,7 +1295,7 @@ has the checked env/published callsite; no canonical module was executed locally
 The72 retained_sources,retained_proof and admission_generations compatibility
 tests passed in6.04s, including explicit parent propagation to the event observer.
 
-## Review P07's new63 April–June2020 closes without financial replay
+## Review P07's new63 Aprilâ€“June2020 closes without financial replay
 
 Financial41821755315/e4c3f0a60 stopped with628 committed closes through June30
 and a later unadmitted July tail. Artifact13318715488 is authenticated and its
@@ -1460,7 +1460,7 @@ the admitted June30 book holds234 TGI shares in slot2,entered April4,2025.
 
 Select only the exact1883 gzip/outer hash for read-only reporting, seeded from
 the independently admitted169 fresh root. Reuse the closed hosted prefix review
-and recompute only the1714 new reporting inputs and82 September2018–June2025
+and recompute only the1714 new reporting inputs and82 September2018â€“June2025
 monthly reports. No financial transitions, initial formation, old financial rows
 or original qualification are rerun. Independent DATA must verify3428 accounting
 snapshots,2296 Decimal report metrics,neutral ILG input adoption and complete
@@ -1500,7 +1500,7 @@ initial-reporting/pending-source/selected-stock/retention/future tests in35.62s.
 Fresh169 archive-format fixtures now explicitly select the unchanged historical
 c08cec7a root; current1883 authority retains that original empty-origin chain.
 
-## Review P04's83 new October2022–January2023 closes
+## Review P04's83 new October2022â€“January2023 closes
 
 Financial41832538725/e1b91fbe3 artifact13325690752 is authenticated and its
 original prefix reviewer passed. Its strict1279/January31,2023 checkpoint adds
@@ -1535,7 +1535,7 @@ This does not assert preopen completion on July24. Reuse the unchanged generic
 cash-calendar validator and shared future selector/hydrator/qualifier; no new
 symbol-specific runtime, financial engine change or new timing convention.
 
-Preserve generations2–6 byte-exactly and select generation7 only for P00/June30.
+Preserve generations2â€“6 byte-exactly and select generation7 only for P00/June30.
 Launch only the273 remaining hosted financial closes after actual source/native,
 next-session, packet, canonical cash and immutable input-adoption qualification.
 P04's read-only1279 reporting continues on its immutable commit. Full P00 scoring
@@ -1612,7 +1612,7 @@ Only named digest-pinned P05/P06/P11 targets may use the bootstrap; arbitrary
 unadmitted roots and already-admitted targets still refuse. Future AAAP treatment
 must bind the actual native/full-row source and independently qualified input,
 preserving the genuine interval before July13 and allowing no assumed tender.
-The later payment does not establish raw marks for the held February–July interval;
+The later payment does not establish raw marks for the held Februaryâ€“July interval;
 no financial continuation or fabricated interim valuation follows from this notice.
 P00 and P04 keep running on their immutable commits while these read-only jobs run.
 The reporting bootstrap passed173 targeted initial-prefix/initial-reporting/
@@ -2954,7 +2954,7 @@ use only the qualified scope2614cd361022dff57d144181e77f956448cb8c219dbcb242245d
 It adds one registry entry (49 total), preserves all48 older scopes and every
 function/class AST, and changes only active P07. All held/pending parent roles
 are empty; ZGNX is selected, and that distinction remains explicit. The source
-request launches no financial worker and activates no ZGNX26–28 contingent-
+request launches no financial worker and activates no ZGNX26â€“28 contingent-
 right model or new cash term. Fresh authenticated independent DATA must close
 the new14-row/eight-native query before a later own-root input selection.
 
@@ -3063,8 +3063,8 @@ and missing May5 causal bar, with157 shares in slot19 since April29. Do not
 override volatility or infer consideration from deal value. This readonly
 request performs zero financial transitions and grants no root admission.
 
-For P07's next own1047 ZGNX design, retain the existing26–28 Zogenix contract
-and its original codec/facts/sensor. Do not relabel P03's ALDR_INITIAL18–20
+For P07's next own1047 ZGNX design, retain the existing26â€“28 Zogenix contract
+and its original codec/facts/sensor. Do not relabel P03's ALDR_INITIAL18â€“20
 record or substitute P02's single-state certified_recovery format for P07's
 retained B19 possible_after cloud. A new explicit proof-only dispatch may
 delegate unchanged point inputs to the original P07 point-growth scope and
@@ -3644,7 +3644,7 @@ actual settlement or preopen publication from a daily completion date.
 
 CXP's issuer FAQ expressly describes2.17 as the tax-classified special-dividend
 portion of the same19.30 payment, with17.13 classified as proceeds; it was not
-an additional payment. Its frozen November1–December7 observations all have
+an additional payment. Its frozen November1â€“December7 observations all have
 dividend_per_share zero, and no later2021 source row is present. Select19.30
 once in the existing mandatory cash event; add no separate2.17 distribution.
 Bind that no-double-count extraction and its raw observation hashes. References:
@@ -4151,7 +4151,7 @@ SOURCE301 independent DATA closes161 identities/361 raw action rows, payload
 review8c3755750e030bc07e9046d298c5fec1248857652690d4c4fb13eff563093d87,
 qualification0e17c73cdb8b35dfdeadf6899861e86e168f2b5635f6243e8a324c75ac4ea2ab.
 All26 checks pass in5.58s including one guard removal/five import fences. Fresh
-whole archive rehash and complete requested2019/2021–2026 annual scans retain
+whole archive rehash and complete requested2019/2021â€“2026 annual scans retain
 source-only authority; there was no requested2020 source row.
 
 P07 own1196 is separately root-admitted as
@@ -4255,7 +4255,7 @@ SOURCE303 succeeds: artifact13442524992 (91088269bytes,
 SHA1cb1107dbc92ad220d41bc95b9c8a50fc8f7499495f7979b4b309e272f0bcfd1)
 authenticates86 members/103121096 logical bytes and positive preflight0/non-OOM.
 All26 DATA checks pass in5.82s after correcting a renamed test import identifier.
-Fresh raw archive and2022–2026 scans close112 identities/248 action rows, payload
+Fresh raw archive and2022â€“2026 scans close112 identities/248 action rows, payload
 bf197d9995ce3f1be3dffbfe22d8db0484e254ec234e36f5f359ef217ebef749,
 review54c596142ce834295ccbc57f208bc2c2a57a4bb78c7a26b0ef6b89d7ea656500,
 qualificationa05a0c1a190d5780a879e0bf904944846b2094297811d73b73b1eea4ad574863.
@@ -5601,3 +5601,30 @@ keeps original own1238/947662 unchanged. All original sources and worker
 bodies remain unchanged; exact staged534-source/workflow closure precedes
 publication. Source-only P03 and financial P05/P07 jobs stay at their own
 immutable commits and run concurrently without same-arm overlap.
+
+REPORT328 completed with an authenticated25-member readonly artifact,
+21 December daily records and one reproduced monthly report. The independent
+financial core will retain every REPORT321 accounting, chain, factor, monthly
+and retry-state statement, adapting only the two genuine P06 neutral input
+boundaries and the separately qualified initial ABMD DATA v2 component. The
+component validates8-to9-to10 inputs and six actual December22-30 proofs.
+Admission must retain that six-row scope; it must not invent proofs for the
+fifteen earlier December sessions. All twelve January daily/proof tails and
+the failed January20 state remain excluded. The initial six-row proof is
+recorded separately from the twenty-one financial daily records. No change
+to the frozen uncertainty registries is authorized by this admission.
+
+REPORT329 will select only saved P05 own1175/2022-08-31/full19 from FIN326,
+zero financial workers and one readonly worker. The authenticated302-member
+artifact contains322597534 logical bytes,23 new financial records and three
+actual neutral16-to17-to18-to19 adoptions. Its positive stopped reviewer
+verified the financial prefixes. Nineteen September daily tails and the
+failed September29 state remain excluded. The original retained ordinary
+input/reporting path already accepts terminal-repair/1 documents; the exact
+P05 batch context retains its separately qualified ACC-only calendar and
+full material inventory. No retained financial restart is selected before
+independent input, accounting and monthly admission closes.
+
+REPORT328 independent core review59fc6fed5584a502e5c79f31f3d6d9df4af11858474e0de7fa357edc85a60225 verifies21 daily records,42 raw accounting snapshots,one report and28 independent Decimal metrics. Three mature core tests pass62.31s; thirteen metadata/import-fence checks pass0.12s, including meaningful six-versus21 proof-scope guard removal. Qualificationa09c72e9b3ddda0c6dc7850143c78e0c0e1b8081a9fec94cd16bb12847bdb319 permits actualP06 root41520825b51f125272ed44bb01ca58905fe7b170005fc1a1c4a72856bf01263f. Original947662 remains historical and all frozen uncertainty source bytes stay unchanged.
+
+REPORT329/request195 targeted integration passes200 checks50.24s. It selects534 exact sources and savedP05 own1175/full19 with zero financial workers. Historical P06 initial-generation tests explicitly bind original947662 rather than relabeling the newly admitted1259 root as an initial case. Exact staged source/workflow verification precedes publication.

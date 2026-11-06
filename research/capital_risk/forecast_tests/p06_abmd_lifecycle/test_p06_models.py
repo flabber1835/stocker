@@ -20,7 +20,7 @@ def actual():
         raw=(F/'verified-output'/name).read_bytes();assert dict(bytes=len(raw),sha256=data.sha(raw))==pins[name];return raw
     cp=json.loads(gzip.decompress(member('book/checkpoint.json.gz')))
     c=json.loads((Path('C:/GitHub/stocker/.codex-tmp/wealth-variants-complete-20261105/research/capital_risk')/'P06-own1238-ABMD-bounded-catalog-v2.json').read_bytes())
-    return cp,c,root_spec('P06'),member
+    return cp,c,root_spec('P06','947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e'),member
 
 def test_actual_all_eight_original_inputs_and_full_hash_qualify_without_staging(actual):
     cp,c,metadata,member=actual

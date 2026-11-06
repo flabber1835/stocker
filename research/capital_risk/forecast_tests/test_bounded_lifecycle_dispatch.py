@@ -10,6 +10,13 @@ import system_campaign_financial_resume as resume
 from system_campaign_financial_partial import root_spec
 
 def test_financial_request_is_three_distinct_qualified_input_histories(monkeypatch):
+    # This regression is the original three-arm initial-generation request.
+    import system_campaign_financial_partial as partial
+    original=partial.root_spec
+    def historical(arm,admission_sha256=None):
+        if arm=='P06' and admission_sha256 is None:admission_sha256='947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e'
+        return original(arm,admission_sha256) if admission_sha256 is not None else original(arm)
+    monkeypatch.setattr(partial,'root_spec',historical);monkeypatch.setattr(resume,'root_spec',historical)
     monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03','P06','P07'))
     value=resume.expected_request()
@@ -22,7 +29,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
-    value=deepcopy(root_spec('P06'))
+    value=deepcopy(root_spec('P06','947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e'))
     if change=='root':value['root_admission_sha256']='0'*64
     elif change=='outer':value['outer_sha256']='0'*64
     elif change=='count':value['measured_closes']+=1
@@ -65,7 +72,7 @@ def test_outer_entry_spans_call_and_restores_hooks_on_error(monkeypatch,arm,mode
         finally:calls.append(('exit',a,k))
     monkeypatch.setattr(dova,'entry_context',scope);monkeypatch.setattr(p06,'entry_context',scope);monkeypatch.setattr(p07,'entry',scope)
     monkeypatch.setattr(p07,'selected',lambda spec:spec.get('arm')=='P07')
-    old=lambda spec:False;module=SimpleNamespace(factual_overlay_needed=old);spec=root_spec(arm,dova.INITIAL) if arm=='P03' else root_spec(arm)
+    old=lambda spec:False;module=SimpleNamespace(factual_overlay_needed=old);spec=root_spec(arm,dova.INITIAL) if arm=='P03' else root_spec(arm,'947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e') if arm=='P06' else root_spec(arm)
     with pytest.raises(RuntimeError,match='SYNTHETIC_ABORT'):
         with data.entry(module,spec,mode=mode,evidence='DATA_EVIDENCE',out='DATA_OUT'):
             assert module.factual_overlay_needed(spec) and calls[0][0]=='enter'
