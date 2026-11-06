@@ -1,0 +1,53 @@
+{
+  "actual_parent_closes": 1175,
+  "actual_parent_inputs": 19,
+  "cash_terms": 14,
+  "files": {
+    "P05-retained-NEXT-cash-DATA-qualification.json": {
+      "bytes": 1196,
+      "sha256": "1d3dcb91f924e5faebdb17a220d4a5c1a5e918cbe3d4009e7b9534536b83364c"
+    },
+    "P05-retained-stock-DATA-qualification.json": {
+      "bytes": 1188,
+      "sha256": "a80eccae343a4495c32e64753edd67eaaab93bd30915dadae507b367bbc1261b"
+    },
+    "remaining18-batch-API-DESIGN.md": {
+      "bytes": 2619,
+      "sha256": "2e5371238d2dbd5effc745a4865f790a4dacd436e7f3eea29799cb9279584faf"
+    },
+    "system_campaign_p05_remaining_batch_api.py": {
+      "bytes": 3463,
+      "sha256": "52022d4960b575aac49f20acffacefeeaa50ba793c1c0d331ebdcd8a64eda22b"
+    },
+    "system_campaign_p05_remaining_batch_data.py": {
+      "bytes": 7483,
+      "sha256": "717452b71400945d0fbb8ebec8a862382cf0290e5061478694953419b34bf1ad"
+    },
+    "test_remaining18_batch_API.py": {
+      "bytes": 6086,
+      "sha256": "b5903088e4dcc3fd82be22e06b8cf00ab757b58bd36cfaaa57bf7aad6d6512fc"
+    }
+  },
+  "financial_authority": false,
+  "financial_input_selected": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "original128_source_evidence_limit_unchanged": true,
+  "original_cash_stock_ownership_conversion_and_rounding_policies_preserved": true,
+  "original_future_API_function_code_objects_unchanged": true,
+  "passed": true,
+  "schema": "research.P05-own1175-retained18-data-API-qualification/1",
+  "source_only_terms": 1,
+  "stock_or_mixed_terms": 3,
+  "terms": 18,
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-remaining18-batch-api-tests-003 test_remaining18_batch_API.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 18,
+    "seconds": 31.34
+  },
+  "unfinished": "Hosted complete input packet qualification, real19-to20 ordinary neutral adoption, exact origin visitor, whole old94 plus new18 single observer, full cash/source/stock review and retained financial restart remain unqualified. DATA/API qualification alone cannot authorize a financial request.",
+  "utc": "2026-11-06T15:46:08.428488+00:00"
+}

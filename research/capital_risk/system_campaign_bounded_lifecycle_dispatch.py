@@ -23,7 +23,8 @@ def source_names():
     import system_campaign_p03_thor_runtime as thor
     import system_campaign_p06_BBIG_runtime as bbig
     import system_campaign_p07_vivo_profile as vivo
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names()))))
+    import system_campaign_p05_remaining_runtime_v2 as remaining
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json'))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -66,12 +67,15 @@ def expected_request(original,*,execution_mode,selected_arms):
             result['arm_inputs'][arm]['new_factual_overlay']=(dova.initial(spec) or p06.selected(spec)
                 or (arm=='P07' and spec.get('root_admission_sha256')==p07.INITIAL_ROOT))
     result['selected_abmd_bounded_inputs']=declarations
+    import system_campaign_p05_remaining_runtime_v2 as remaining
     result['selected_neutral_cash_batches']={}
     for arm in selected_arms:
         spec=root_spec(arm)
         if financial and p05.family(spec):
-            need(p05.initial(spec),'BOUNDED_DISPATCH_NEW_P05_RETAINED_FINANCIAL_PHASE_REQUIRES_SEPARATE_QUALIFICATION')
-            result['selected_neutral_cash_batches'][arm]=p05.declaration(spec)
+            if remaining.family(spec):remaining.declaration(spec)
+            else:
+                need(p05.initial(spec),'BOUNDED_DISPATCH_NEW_P05_RETAINED_FINANCIAL_PHASE_REQUIRES_SEPARATE_QUALIFICATION')
+                result['selected_neutral_cash_batches'][arm]=p05.declaration(spec)
     for name in source_names():
         pin=sha256_file(HERE/name)
         need(name not in result['sources'] or result['sources'][name]==pin,'BOUNDED_DISPATCH_NO_SOURCE_PIN_REPLACEMENT')
@@ -95,7 +99,10 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p03_thor_runtime as thor
     result=thor.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_BBIG_runtime as bbig
-    return bbig.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=bbig.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p05_remaining_source_preparation_v2 as prep
+    result=prep.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    return remaining.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -123,7 +130,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         if vivo_selected:stack.enter_context(vivo.entry_context(module,spec,mode=mode,request=active_request))
         elif composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
-        if p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
+        import system_campaign_p05_remaining_runtime_v2 as remaining
+        if remaining.selected(spec,active_request):
+            stack.enter_context(remaining.entry_context(module,spec,request=active_request,mode=mode,out=out or Path('/out'),evidence=evidence))
+        elif p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
         import system_campaign_p06_abmd_retained as retained
         import system_campaign_p06_abmd_retained_data as retained_data
         request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())

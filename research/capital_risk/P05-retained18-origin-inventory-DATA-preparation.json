@@ -1,0 +1,41 @@
+{
+  "actual19_baseline_full_checkpoint_unchanged": true,
+  "actual19_inventory_equal_to_whole_original": true,
+  "complete_FIN326_capture_members": 302,
+  "files": {
+    "remaining18-origin-inventory-DESIGN.md": {
+      "bytes": 2616,
+      "sha256": "9a35b5087b91728070056dbaca69d1648e691d835c2833c60086b8b4058114b6"
+    },
+    "system_campaign_p05_remaining_origin_data.py": {
+      "bytes": 12845,
+      "sha256": "2168229da2736b823a8c5bc85db972509161eefe09f2db9b31d40bc8339055cd"
+    },
+    "test_remaining18_origin_inventory_DATA.py": {
+      "bytes": 6653,
+      "sha256": "4d9f3dd9c63567bac8044f6653a03738bcabe25785d6afe00dfaee8fbc90086e"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "new_exact_cash_guard_meaningfully_falsified": true,
+  "original_P05_inventory_whole_AST_single_branch_undo_verified": true,
+  "original_full_input_hash_guard_meaningfully_falsified": true,
+  "original_materials_whole_AST_single_branch_undo_verified": true,
+  "passed": true,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-origin-inventory-DATA-preparation/1",
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-origin-DATA-tests-003 test_remaining18_origin_inventory_DATA.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 20,
+    "seconds": 26.71
+  },
+  "unfinished": "The actual20 positive origin and financial retained restart do not exist yet and are not claimed qualified. This private DATA visitor is a prerequisite only; one original observer/source-stock review/runtime remains under construction.",
+  "utc": "2026-11-06T16:03:30.214147+00:00",
+  "windows_long_path_prefix_idempotent": true
+}

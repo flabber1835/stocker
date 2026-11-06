@@ -6437,3 +6437,406 @@ Financial request admission is a separate profile namespace. The frozen ca981 SO
 
 
 Private preparation qualification pins: P06 f83828f3342f261254df80c517711715dd81c82f76135a6d06eef11aa28e76cc (68 tests); P07 c1b24330916e7d420542e467c965e864de034856a55f9e3317ec49b9c9471f09 (83 tests). These do not grant saved-root admission. The frozen ca981 SOURCE-only composite stays byte-identical; its complete launch/authentication/context bodies are reused through a separately declared truthful financial namespace.
+
+
+## FIN338: P05 fourth concurrent arm, authentic hosted packet gate
+
+Select only accepted P05 root baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026,1175/full19. FIN337 P03/P06/P07 continue at their immutable previous SHA. One financial worker and zero read-only workers here yield at most four independent campaign arms. Use the separately qualified runtime_v2 at every new financial dispatch seam; preserve old runtime/source modules, all old initial-only refusals, actual19 financial seed, original36 packet checks, original128 evidence cap and whole original financial/gate bodies. All hosted20/post-event/restart positive results remain unknown.
+
+# P05 CTXS source-only input and complete19-to20 lifecycle
+
+The new phase starts from actual separately admitted own1175/2022-08-31/full19,
+rootbaabf01e. SOURCE331 independent DATA qualification4712fe21 authenticates the
+entire36-native/37-observation source2 payload and its actual empty CTXS role.
+Reuse the complete original P04 CTXS source-only fact, including September30
+confirmed104USD common consideration, September29 native/last trading day,
+September28 prior witness, CLOSE phase, no preopen assertion, and no portfolio
+completion authority. Citrix's September30 8-K supports the completed merger and
+104USD eligible-common right; timing remains the original closing source policy.
+Keep every original legal/calendar/authority field unchanged; bind only the new
+own parent, fresh source identity and SOURCE331 capture provenance.
+
+Use a separate finite data/API module. Validate the entire original fact/catalog
+and shared source_cash_term/completion_session functions. Rebind the whole frozen
+future hydrate/document/qualify/prepare/review_input/source_scopes code objects to
+this exact selected literal and new factual source metadata; do not modify the
+frozen future file or global registries. Preserve every source-only runtime guard:
+the actual event must be unowned/unordered, canonical terminal NOT_HELD with an
+exact portfolio/ledger no-op, and source delegation only at CLOSE. Current parent
+absence is never a promise of future absence; unexpected ownership must refuse.
+
+For initial financial entry, reuse the whole previous P05 batch context except
+its initial1152-only entry predicate, admitting only this separately qualified
+1175 source-only declaration. Preserve all three genuine old neutral batch
+boundaries/resources and all94 existing ordinary cash observer terms. The single
+new ordinary input is adopted by the original hosted AdoptionGate before any
+financial advance; retain an explicit immutable origin manifest referencing the
+actual19-input parent gzip and actual20-input neutral gzip/proof/material/scope.
+Do not fabricate, truncate, restore, or serialize any checkpoint locally.
+
+Separate cash inventory from the one validated source-only descriptor. Reuse
+the whole original material-inventory loop, adding one exact validated-descriptor
+dispatch before its cash-only policy guard. The complete current input hash,
+all19 prior descriptors, full20 visitor, original cash policies/normalization and
+all source resources remain mandatory. No canonical book is projected to19.
+Retain the original observer constructor/advance/terminal code. Only its scoped
+source_scopes binding and the cash merger helper's empty-scope predicate may bind
+the exact validated CTXS SourceOnlyScope; all cash merging guards stay intact.
+
+Future retained financial entry needs a real separately admitted full20 root and
+independent proof of this genuine origin. The actual new root is always the
+financial seed; the original1175 parent is observation/origin metadata only.
+No future root, valuation or seed is pre-admitted by this preparation. Whole
+source/worker AST undo, private synthetic metadata DTO tests, meaningful new guard
+removal falsifiers and import fences precede publication. Historical causality
+remains UNVERIFIED, PAPER/LIVE and broker state are outside this research phase.
+
+# Bounded18-term API generation
+
+The completed factual qualifications bind CTXS source-only CLOSE, fourteen exact
+original NEXT cash facts, and three exact original stock/mixed facts to actual
+own1175/full19. No unmatched term or LNWO source-exit model is included. Keep the
+closed CTXS-only API unchanged. A separate batch API selects these18 terms in
+stable native-date/SID order, with CTXS first, and preserves the shared128 source
+evidence limit. The current parent is checked against the real root and complete
+19-input state/hash before any selection. Each selected role is checked against
+the actual parent; it grants no prediction about future ownership.
+
+Reuse complete frozen future hydrate/document/qualify/prepare/review_input/
+source_scopes code objects in a fresh namespace. Bind only the exact selected
+catalog, truthful new selector/validator identity, phase qualification filename,
+and completion_session dispatcher. The latter retains the whole original cash
+function and, only for three byte-exact stock records, calls the unchanged stock
+validator plus the original stock calendar adjacent-session rule. No ratio,
+cash, rounding, settlement or financial-source arithmetic changes.
+
+Wrap the entire original hydrate call with one additional provider-source check
+for the stock facts. Read and authenticate the original9MB provider ZIP before
+parsing, then invoke the original full provider-row validator for all three
+events. Economic mode may use the separately host-staged original object under
+/out because the prior P05 artifact does not contain it. Review prefers the real
+evidence namespace. This is factual source staging, never a fabricated financial
+predecessor. A separate host launcher wrapper must acquire/copy the exact frozen
+object using the original public URL and SHA/size guards; workers stay offline.
+
+Before the whole original prepare function runs in the hosted worker, save the
+complete actual-parent-selected catalog as explicit noncanonical input metadata.
+Its bytes must match the selector codec's declared catalog hash. This gives the
+later real neutral-adoption proof an actual retained input resource to bind;
+the metadata save does not write or admit any checkpoint. Keep the complete
+original prepare code object separately available and call it unchanged.
+
+This API preparation alone is not financial selection. The complete neutral
+adoption/origin, full20 input visitor, single original observer over old94 plus
+new18 terms, source/cash/stock DATA reviews and retained financial restart must
+still be qualified before publication. Their pending status stays explicit.
+
+# P05 finite financial lifecycle over real roots
+
+Initial authority is only the already admitted own1175/full19 root. A separate
+explicit financial request declaration selects the18-term input; it does not
+reuse the earlier initial1152 financial declaration. Preserve the whole old
+P05 entry-context code object, allowing its financial-scope predicate only for
+this separately declared phase. All earlier three real neutral adoptions and
+the full19 input/journal lineage remain checked and retained.
+
+Host preflight stages the original provider object using the already qualified
+whole original stage function, then original strict preflight runs unchanged.
+After it succeeds, prepare and qualify the18 input packets. The economic
+worker copies only exact provider metadata from its actual preflight output,
+then repeats whole original preparation/qualification. Newly created metadata
+directories are writable; no copied temporary financial book or seed view is
+introduced. The original economic/review/launch function bodies stay intact.
+
+Initial qualified_overlay returns the original repair argument and original
+AdoptionGate subclass. Its write first calls the whole original write method.
+Only after that gate has accepted an actual neutral checkpoint does the
+subclass archive exact real parent/gate bytes and source resources, and save
+the noncanonical origin manifest. The complete independent origin visitor
+must pass before advance remains available. No custom canonical writer,
+checkpoint construction, projected state or predicted root exists.
+
+Before subclassing the gate, authenticate its entire original class AST and
+compare all five live gate method code shapes to that complete source class.
+No substituted writer/advance/context method may gain authority through the
+subclass. Ignore only filename/line metadata in code-shape comparison.
+
+Use the existing retained cash context and one original ActualEvents object.
+Bind its whole original constructor to the new API at initial1175, preserving
+all original caller-frame advance/terminal/source_values methods. Install the
+single exact-scope cash-merge predicate and complete20 inventory adapters.
+The new independent reviewer validates all112 selected observations, using the
+whole original cash/stock review bodies and the validated source-only DTO
+projection documented separately. Initial review executes whole original
+review_adoption before the new origin checks.
+
+Retained selection requires an actual independently admitted P05 root with20
+inputs and the entire original19 descriptor prefix. It is declared with its
+real current root/outer/input commitments; no future root is prefilled. Strict
+original parent admission/restore still uses that current20 checkpoint. The
+complete origin visitor authenticates the archived1175 and neutral20 provenance
+against the actual current20. Reuse only its old input metadata to construct
+the same original observer; do not adopt that archived1175 as a financial
+seed. Retained qualified_overlay returns no new repair and no adoption gate,
+and review validates the real existing origin rather than inventing another
+boundary. The real engine's entire input/hash/state stays full20.
+
+The generated request's existing new_factual_overlay flag must state the
+same initial/retained distinction: true for real1175/full19 adoption, false
+for a retained actual20 continuation. Preserve other arms' declarations and
+all existing source pins.
+
+Private DATA/AST conformance tests and original19 baselines are prerequisites,
+not a claim that future20 financial or retained positive outputs exist. The
+first actual hosted financial artifact must close its true neutral and
+post-event DATA before a separately actual admitted20 restart is exercised.
+
+# Actual preflight packet proof gates financial entry
+
+Keep the closed first financial runtime/module/qualification byte-identical.
+V2 binds its whole entry context and request functions in a private namespace.
+Its explicit declaration additionally requires the actual hosted36-check
+preflight packet proof before initial financial entry. Retained selection
+continues to require the real admitted20 origin and adds no repair.
+
+The financial initial preflight already runs the complete corrected SOURCE-v2
+packet preparation after whole strict preflight. The unchanged host refuses
+economic entry unless that actual worker positively stops with exit zero.
+Economic input preparation now additionally authenticates the saved complete
+preflight preparation proof, actual1175 parent bytes, original strict proof,
+all declared preparation resource bytes, exact18 catalog/hydrated material/
+whole original overlay/single scope and36 original packet flags before
+copying the exact provider object. It emits an explicit zero-advance packet
+gate result. Then the entire original economic preparation repeats all36
+packet checks before the real original gate can adopt20 or advance. A
+separate SOURCE request is therefore optional; its independent DATA remains
+useful evidence but does not replace this actual hosted preflight gate.
+
+If any original writer or new origin validation raises while the gate handles
+an adoption, reset accepted to false before re-raising. The exact original
+advance method consequently remains closed even if a caller handles the
+exception. Preserve every original writer/context/advance code body; v2 only
+wraps the existing prepared gate and keeps its original advance method.
+
+No positive actual20/post-event/restart result is claimed by conformance
+tests. Metadata DTO falsifiers are explicitly noncanonical input metadata;
+they never create or serialize a financial checkpoint/accounting state.
+
+# One original observer and typed DATA review
+
+Initial execution constructs the original ActualEvents class once, using its
+whole original constructor bound to the new18 API. The existing retained cash
+context adds all94 old terms to that same object. Preserve the exact original
+advance/terminal/source_values methods and original caller-frame predicates.
+No nested observer or financial operation wrapper is introduced.
+
+Only the final scopes-empty predicate in the whole original cash merge helper
+may accept the one complete independently reconstructed CTXS scope. Its
+cash-only merge, conflict checks and all original methods remain unchanged.
+Retained execution builds this same observer from the archived real1175 input
+metadata and scope while the engine resumes its actual newly admitted full20
+checkpoint. The old checkpoint is metadata provenance only; it is never the
+retained financial seed. The actual full20 origin validator must pass first.
+
+DATA review first validates the entire expected committed daily observation
+axis and complete per-day cash/mixed/source/order call set, including CTXS.
+For CTXS require the exact original source-only no-op record, real adapter and
+kernel delegation flags, exact scope digest, no portfolio authority, and
+original unowned/unordered/no-claims guards on all three actual adjacent
+accounting snapshots. Forbid a CTXS financial ledger event on that date.
+Preserve the original source value result boolean; require it only when the
+actual prior snapshot records CTXS selected. Do not invent selection state.
+
+Only after those whole-record checks may review remove the validated CTXS
+source/cash/order entries from an observation DTO copy. Drop that record only
+when no ordinary term shares its date. No financial state, checkpoint, journal
+or input document is projected. Run the whole original grouped_records over
+the remaining complete ordinary records, whole original verify_records over
+all108 ordinary cash terms, and whole original stock_event over each of the
+three original conversion/mixed terms. Keep its Fraction arithmetic, holder
+aggregation, settlement/rounding, position-continuation/provenance and actual
+mixed/no-op checks unchanged, with the frozen terminal source hash guard.
+
+Tests may compare the complete new review against real committed full19
+predecessor records (all new future terms remain unconsumed). Real CTXS and
+stock post-event positive review remains pending genuine hosted financial
+outputs; no synthetic future checkpoint or accounting state is produced.
+
+# One genuine P05 nineteen-to-twenty input origin
+
+Keep the real accepted1175/full19 parent as immutable provenance and use the
+original AdoptionGate to produce the real neutral full20 checkpoint/proof in
+the hosted economic worker. Archive the exact original gzip and actual gate
+outputs after that original gate has accepted them. A noncanonical origin
+manifest binds those real resources, selected18 catalog/material/overlay,
+source-only scope, original36-check qualification and exact provider object.
+No helper constructs or predicts a checkpoint or root. Retained financial
+execution always starts from the actual admitted full20 root, never from the
+archived1175 provenance.
+
+The independent DATA visitor authenticates all manifest resources before
+parsing and requires the actual immutable1175 parent. Reconstruct the complete
+18-term material using only the closed source/legal records and independently
+verified three original delivery rows. Reuse entire original document and
+source_scopes functions for byte-exact overlay/scope comparison. Check original
+36packet flags. Call the original neutral-adoption validator over the actual
+archived before/after JSON, validate the actual watch append, require current
+full20 descriptor identity and full inner/state/input/outer commitments, and
+check all current committed journal prefixes. Run the whole prior three-stage
+neutral chain validator on the complete current20 checkpoint. No truncation,
+projection or rehashing of a checkpoint is allowed.
+
+Extend the whole original retained materials inventory with one explicit new
+descriptor dispatch before its cash-only rule. It validates that whole18-term
+origin first, retains all whole source resources, then contributes only its14
+ordinary cash terms to the existing cash observation inventory. This is a
+typed metadata visitor; the actual full20 checkpoint/input descriptor and
+18-term overlay are never changed. Every original guard and all earlier19
+descriptors remain visited. A whole-source AST undo proves removing the one
+new branch restores the original function exactly.
+
+The whole old P05 inventory wrapper keeps its existing ACC-specific NEXT
+branch. Add a prior finite exact14-cash dispatch; byte-exact selected new NEXT
+terms pass only after the composite visitor has validated the whole origin.
+Unknown NEXT or changed terms still reach an original refusal. The source
+file hashes, original128 evidence cap and real full-input hash remain fixed.
+This private visitor is not an independently qualified financial runtime;
+positive real20 origin and restart checks require actual hosted outputs.
+
+# P05 actual1175 source-only hosted packet preparation
+
+Use the existing READONLY_FROZEN_SOURCE_WITNESSES request and actual own1175
+full19 root. Add one explicit finite preparation declaration for P05. Preserve
+the whole original launch/preflight/economic/review bodies and all original
+source request scopes, transport validation, stopped-worker checks, frozen
+financial source build, accounting review and source witness capture. The
+original launch continues to enforce exact request equality and zero economic
+workers. No financial execution declaration is granted by this preparation.
+
+Wrap the host stopped_run seam only for the exact original preflight command,
+after the launcher has admitted and made the original parent read-only. Before
+the worker starts, acquire the one exact original provider ZIP using the frozen
+public URL, size and SHA, or copy an authenticated retained original object.
+Use the original whole stage_selected_sources function code object with only
+its phase tables bound to the finite P05 own1175 authority. It preserves the
+original network response, length/hash and Sprint source-row guards. In
+addition validate all nine DRE/LSI/MTTR provider rows. The provider object is
+placed in the existing preflight /out, never inside authenticated /old. The
+hosted worker remains offline.
+
+Validate the complete original preflight argument suffix, single read-only
+actual /old mount and exact existing output/name before host source staging.
+Other selected arms keep the whole existing launcher path. Any P05 economic
+or review worker under this declaration is refused before source staging or
+worker launch.
+
+After the entire original preflight has returned successfully and closed its
+original contexts, read the real saved parent gzip without restoring it. Check
+its exact root/full19 contract and byte hash. Call the finite18 API's original
+prepare function in the offline hosted worker to hydrate the frozen source
+identities/deliveries, create the ordinary input metadata and overlay, and run
+the unchanged packet parser/36 packet checks. This operation does not call
+backtest.main, runtime.advance, a canonical writer or an adoption gate. Require
+the original parent's gzip bytes and complete JSON remain unchanged; require
+the original /old file membership remain unchanged and reject any /out book,
+input-adoption, canonical checkpoint, or ordinary-adoption proof. Emit an
+explicit preparation proof with zero financial advance, no root admission,
+and hashes for every generated metadata/source resource. The original host
+copies the whole preflight directory to the SOURCE artifact, retaining these
+actual resources for independent DATA validation and later financial reuse.
+
+The preflight wrapper is selected only by the exact active source-only request
+declaration and real P05 root. Source preparation does not relax the existing
+financial continuation refusal. Financial and retained-restart qualification
+remain separate unfinished work.
+
+# Exact inherited neutral metadata allowance
+
+The whole existing P05 preflight retains its three already-real neutral-chain
+checkpoints and proofs under their original namespaces. They are legitimate
+provenance, not new canonical financial output. Keep the closed SOURCE v1
+module and qualification byte-identical. V2 reuses its entire prepare function
+code object and changes only the output-namespace predicate binding.
+
+Authenticate the actual full19 selected parent bytes, run the whole original
+old P05 chain validator against that full current19 checkpoint and actual
+original watch/resources, and derive an allowance only for the six neutral
+resource names in that exact original chain manifest plus all19 original
+committed repair documents under their unchanged book/repairs names. Those
+repair files are the original read-only input loader's staged input history.
+Before and after input
+preparation require those files' complete bytes equal the actual /old resource
+and original manifest pins. Every other book, input-adoption, checkpoint or
+proof namespace still refuses. The original no-parent-mutation, complete
+36packet checks, exact request and host staging remain unchanged.
+
+This is an inherited input-provenance allowance only. No path is relocated or
+relabelled, and no new checkpoint, root or financial transition is admitted.
+
+# Fourteen exact original remaining NEXT cash terms
+
+Reuse only exact original qualified CashCalendar NEXT terms that match the
+complete SOURCE331 native/SID/hash and source identity: CYBE, CEMI, CSII, MNTV,
+PFSW, AVTA, GHL, BSQR, PCTI, PATI, LVOX, EMKR, AMED, plus the existing separately
+qualified P11 TGI NEXT term. Validate each entire original catalog with its own
+unchanged validator; preserve every legal/calendar/normalization field. Bind
+fresh own1175 parent and source metadata only. The full source2 qualification
+already independently compared the source/native/raw action rows for these
+identities, and shows actual parent roles empty. Future ownership is unknown and
+the original canonical cash postconditions must use actual future quantities.
+
+Some original catalogs use the native-date quote as their identity witness,
+whereas SOURCE331 expressly captured the preceding source row. Preserve that
+original quote in the retained original term, bind the actual fresh prior-row
+witness separately, require security/ticker/issuer/listing/eligibility fields
+identical, and validate a fresh-witness copy with the entire original calendar
+validator. Never claim SOURCE331 captured the old native-date quote.
+
+The original CashCalendar constructor's registry reader defaults to /driver.
+For private DATA validation, retain the entire constructor after replacing only
+that one import binding with the unchanged registrations function explicitly
+pointing at the actual C source snapshot. Authenticate the original constructor
+file and actual registry; retain all original registry and catalog guards.
+
+Q4 and winter2025 catalogs belong to the already-qualified additive registry
+extension chain. Instantiate its original winter2025 CashRegistry with the exact
+C driver path and read registrations(C), without entering any hosted context.
+Keep every original base/extension hash, single-group, filename and no-override
+guard. This reads the real existing registry chain; it does not add registrations.
+
+This is factual preparation, not a new selector or financial input. CTXS retains
+its separate source-only CLOSE policy. DRE/LSI/MTTR retain their actual stock
+models. LNWO's never-held source-exit model and unmatched events, including ABMD,
+remain excluded. A later bounded composite ordinary input may combine these18
+supported records only after full hosted packet, neutral-boundary, observer and
+restart qualification. Existing128 source-evidence/parser bounds remain exact.
+
+# Exact retained DRE, LSI and MTTR stock inputs
+
+The existing qualified StockCalendar catalog contains exactly three future
+members also present in the independently closed SOURCE331 remaining36: DRE,
+LSI and MTTR. Reuse these complete original term dictionaries and the complete
+StockCalendar validate_term and require_provider_rows implementations. DRE is
+CONVERSION0.475PLD on2022-10-03 after September30 trading; LSI is an original
+stock conversion; MTTR retains its original cash-plus-stock consideration.
+Do not replace any with cash-equivalent markers or source-only absence authority.
+
+Independently bind each source/native identity to SOURCE331 and actual own1175
+parent positions. Read the original frozen provider ZIP, authenticate its exact
+9855560 bytes/db67132d hash, then compare every selected original provider row
+and the complete ordered digest for each event using the unmodified validator.
+Independently rescan complete2022,2023,2025 corpus observation CSVs and verify all
+three delivered observation rows/identities plus positive raw-open CIL proxies.
+Those delivery rows are independent archive evidence, not falsely described as
+captured by SOURCE331. The raw-open CIL convention and no actual settlement claim
+remain unchanged.
+
+This closes reusable factual stock DATA only. A later hosted finite batch API
+must still retain the complete original packet/native/delivery/held-conversion
+qualifiers, stage the same frozen provider object on the host, and compose its
+real input with CTXS through one genuine ordinary neutral boundary. The current
+CTXS-only data/API qualification remains unchanged and unselected. No local
+financial engine, checkpoint serialization, restore, replay or root admission.
+
+
+Frozen runtime-v2 qualification2f0993882df2cdeec70dfcffbde522e5e9c95455977a191559cafdff0542a8db:22 DATA conformance tests. Frozen delivery inventory9cb67e4cfb930552138f52baa249e32c90fb222c9c36eab12463a251cc3969b2 verifies25 new runtime/factual/qualification assets and two existing unchanged stock dependencies. These are prepared input/lifecycle code, not admitted financial output. Historical causality remains UNVERIFIED.

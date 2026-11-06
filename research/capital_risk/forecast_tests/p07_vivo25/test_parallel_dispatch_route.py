@@ -1,9 +1,20 @@
 """Concrete finite scopes restore on abort; no financial work is invoked."""
 from contextlib import contextmanager
 from types import SimpleNamespace
+import json
 import pytest
 
-def test_vivo_financial_transport_precedes_full_model_scope_and_keeps_overlay(monkeypatch):
+@pytest.fixture(autouse=True)
+def financial_generation(monkeypatch,tmp_path):
+    import system_campaign_financial_resume as resume
+    import system_campaign_bounded_lifecycle_dispatch as dispatch
+    monkeypatch.setattr(resume,'SELECTED_ARMS',('P03','P06','P07'))
+    request=resume.expected_request()
+    (tmp_path/'system-campaign-factual-request.json').write_text(json.dumps(request))
+    monkeypatch.setattr(dispatch,'HERE',tmp_path)
+    return request
+
+def test_vivo_financial_transport_precedes_full_model_scope_and_keeps_overlay(monkeypatch,financial_generation):
     import full_system_core
     import system_campaign_bounded_lifecycle_dispatch as dispatch
     import system_campaign_financial_resume as resume
@@ -14,7 +25,7 @@ def test_vivo_financial_transport_precedes_full_model_scope_and_keeps_overlay(mo
     calls=[]
     @contextmanager
     def transport(spec,**kwargs):
-        assert kwargs['request']==resume.expected_request()
+        assert kwargs['request']==financial_generation
         calls.append('financial-transport')
         try:yield
         finally:calls.append('restore-transport')

@@ -1,0 +1,62 @@
+{
+  "files": [
+    {
+      "bytes": 4589,
+      "frozen_original_bytes": 4596,
+      "frozen_original_sha256": "50bcd32a3ec68d9162a04016181e30e927473f71fe580e628b435a4412a34abb",
+      "name": "test_remaining18_source_preparation_v2.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/test_remaining18_source_preparation_v2.py",
+      "sha256": "68a1a33c02b9006e39613d4e2124cb804a0c75a75e81a31e8e4dc4216d77dc3d",
+      "whole_original_test_undo_verified": true
+    },
+    {
+      "bytes": 6646,
+      "frozen_original_bytes": 6653,
+      "frozen_original_sha256": "4d9f3dd9c63567bac8044f6653a03738bcabe25785d6afe00dfaee8fbc90086e",
+      "name": "test_remaining18_origin_inventory_DATA.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/test_remaining18_origin_inventory_DATA.py",
+      "sha256": "1f045d7b4f958526e253bce8ff358a876436ee6f6c98ba1ae7b88139548d0caa",
+      "whole_original_test_undo_verified": true
+    },
+    {
+      "bytes": 6090,
+      "frozen_original_bytes": 6066,
+      "frozen_original_sha256": "525e57aa3ff047437d0bfadc6c5394c780f232665d97a6d4f538538152fd120f",
+      "name": "test_remaining18_observer_DATA.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/test_remaining18_observer_DATA.py",
+      "sha256": "9c011054c05e35552dcb097c926bcdeaf49574a13795bcc76c4bcaa30edef004",
+      "whole_original_test_undo_verified": true
+    },
+    {
+      "bytes": 8869,
+      "frozen_original_bytes": 8876,
+      "frozen_original_sha256": "57adafd123ea0c9668b6f98642f23c1ccde97cf36eed18622438660ea077ccb7",
+      "name": "test_remaining18_runtime_conformance.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/test_remaining18_runtime_conformance.py",
+      "sha256": "c3b20e65c032aff9dbe83f69bbb066d62e0a7271d66cbfd3efde891e095443d0",
+      "whole_original_test_undo_verified": true
+    },
+    {
+      "bytes": 9182,
+      "frozen_original_bytes": 8953,
+      "frozen_original_sha256": "30a626bed10a12f48acbd52220a1491e5bc44e4c9dacea521cd03d55e0662a79",
+      "name": "test_remaining18_runtime_v2_conformance.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/test_remaining18_runtime_v2_conformance.py",
+      "sha256": "a6871f90569c9509c84e0e99373030d684c7d0c04e0fe985981add09a5dfc941",
+      "whole_original_test_undo_verified": true
+    },
+    {
+      "bytes": 60,
+      "name": "__init__.py",
+      "relative_target": "research/capital_risk/forecast_tests/p05_remaining18/__init__.py",
+      "sha256": "da831dc5f44879ba099f62224d824fa00c9d74d7b74579c567032a50a289eba5"
+    }
+  ],
+  "financial_runtime_executed": false,
+  "frozen_originals_unchanged": true,
+  "provider_object_path_unchanged": true,
+  "schema": "research.P05-retained18-repository-test-copy-manifest/1",
+  "separate_stock_reader_import_removed": true,
+  "source_directory": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\repository-test-copies\\research\\capital_risk\\forecast_tests\\p05_remaining18",
+  "sys_path_contains_only_capital_risk": true
+}

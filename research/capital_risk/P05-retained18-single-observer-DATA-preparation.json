@@ -1,0 +1,42 @@
+{
+  "files": {
+    "remaining18-observer-review-DESIGN.md": {
+      "bytes": 2544,
+      "sha256": "644946635ddc1f84d4b6de60342426d9241796d225ebdb3a2bee0d8eb5a3ff60"
+    },
+    "system_campaign_p05_remaining_observer_data.py": {
+      "bytes": 8726,
+      "sha256": "daef7fa958ab564269e3de87b40e78a538833fe725fe95b9cf729ba6875f74a4"
+    },
+    "test_remaining18_observer_DATA.py": {
+      "bytes": 6066,
+      "sha256": "525e57aa3ff047437d0bfadc6c5394c780f232665d97a6d4f538538152fd120f"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "full_selected_observation_terms": 112,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "ordinary_cash_terms": 108,
+  "passed": true,
+  "real19_complete_prior_observer_terms": 94,
+  "real19_observation_projection_unchanged": true,
+  "real19_prior_cash_events": 9,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-single-observer-DATA-preparation/1",
+  "source_only_terms": 1,
+  "stock_or_mixed_terms": 3,
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-observer-DATA-tests-001 test_remaining18_observer_DATA.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 22,
+    "seconds": 17.84
+  },
+  "unfinished": "Genuine post-event CTXS source-only and DRE/LSI/MTTR stock accounting and retained20 restart remain pending hosted financial outputs. The tests use complete real19 prior records plus explicitly noncanonical observation DTOs, never a synthetic future checkpoint/accounting state.",
+  "utc": "2026-11-06T16:07:39.800191+00:00",
+  "whole_original_cash_grouped_stock_review_functions_used": true,
+  "whole_original_cash_merge_AST_single_predicate_undo_verified": true
+}

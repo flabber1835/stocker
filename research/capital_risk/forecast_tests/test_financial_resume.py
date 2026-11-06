@@ -40,27 +40,21 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03','P06','P07'] and r['maximum_parallel_financial_workers']==3 and r['maximum_parallel_readonly_workers']==0
+    assert r['arms']==['P05'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
     assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==586
-    assert set(r['selected_p03_thor_ordinary17'])=={'P03'}
-    assert set(r['selected_p06_BBIG_ordinary11_retained130'])=={'P06'}
-    assert set(r['selected_p07_vivo_ordinary25'])=={'P07'}
-    assert r['selected_abmd_preparations']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']==r['selected_p07_failed_review_recoveries']==r['selected_p06_retained_reporting_bridges']==r['selected_p06_admitted_source_bridges']==r['selected_p07_composite_source_bridges']=={}
-    assert set(r['selected_abmd_bounded_inputs'])=={'P07'} and set(r['selected_bounded_models'])=={'P03'}
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==611
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={arm:dict(new_factual_overlay=True,restored_correlation=False) for arm in r['arms']}
-    for arm,count,inputs,field,seed in [('P03',503,16,'selected_p03_thor_ordinary17',49),('P06',1383,10,'selected_p06_BBIG_ordinary11_retained130',130),('P07',1259,24,'selected_p07_vivo_ordinary25',805)]:
-        root=m.root_spec(arm);decl=r[field][arm]
-        assert (root['measured_closes'],len(root['repairs']))==(count,inputs)
-        assert r['admitted_checkpoints'][arm]==root['outer_sha256']
-        assert decl['genuine_neutral_adoption_required'] is True
-        if arm=='P06':
-            assert (decl['actual_parent_inputs'],decl['actual_neutral_inputs_required'],decl['committed_seed_rows'])==(inputs,inputs+1,seed)
-            assert decl['held_settlement_authorized'] is decl['actual_neutral_checkpoint_known'] is False
-        else:
-            assert (decl['original_inputs'],decl['required_actual_neutral_inputs'],decl['old_committed_proof_rows'])==(inputs,inputs+1,seed)
-            assert decl['actual_future_neutral_checkpoint_known'] is False
+    assert r['arm_inputs']=={'P05':dict(new_factual_overlay=True,restored_correlation=False)}
+    field='selected_p05_retained18_financial_inputs';assert set(r[field])=={'P05'}
+    root=m.root_spec('P05');decl=r[field]['P05']
+    assert (root['measured_closes'],root['selected_session'],len(root['repairs']))==(1175,'2022-08-31',19)
+    assert r['admitted_checkpoints']['P05']==root['outer_sha256']==decl['current_outer_sha256']
+    assert decl['initial_adoption_required'] is True and decl['actual20_origin_required'] is False
+    assert decl['current_full_inputs']==19 and decl['selected_terms']==18 and decl['all94_original_observation_terms_retained'] is True
+    assert decl['actual_hosted36_packet_checks_required_before_financial_entry'] is True
+    assert decl['origin_gate_validation_failure_keeps_advance_closed'] is True
+    assert decl['preflight_packet_gate_schema']=='research.P05-retained18-preflight-packet-gate/2'
+    assert all(r[k]=={} for k in ('selected_p05_retained18_source_preparations','selected_neutral_cash_batches','selected_p03_thor_ordinary17','selected_p06_BBIG_ordinary11_retained130','selected_p07_vivo_ordinary25','selected_p07_composite_source_bridges'))
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
@@ -206,6 +200,8 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 
 
 def launch_fixture(tmp_path, monkeypatch, event):
+    import probe
+    monkeypatch.setattr(probe,'check_context',lambda _:None)
     import ephemeral_runner_capacity as capacity
     import system_campaign_financial_future as future
     import system_campaign_financial_review_repair as repair
