@@ -138,6 +138,23 @@ def test_measured_costs_balance_both_existing_families_without_dropping_modules(
         assert max(costs) - min(costs) <= allowed_spread
 
 
+def test_whole_module_refinement_repairs_a_greedy_local_imbalance():
+    weights = dict(a=8, b=7, c=6, d=5, e=4)
+    lanes = [['a', 'd', 'e'], ['b', 'c']]
+    shards.refine_balance(lanes, weights, 30)
+    assert [sum(weights[name] for name in lane) for lane in lanes] == [15, 15]
+    assert sorted(name for lane in lanes for name in lane) == sorted(weights)
+    first = [list(lane) for lane in lanes]
+    shards.refine_balance(lanes, weights, 30)
+    assert lanes == first
+
+
+def test_refinement_oracle_detects_a_removed_pass(monkeypatch):
+    monkeypatch.setattr(shards, 'refine_balance', lambda *_: None)
+    with pytest.raises(AssertionError):
+        test_whole_module_refinement_repairs_a_greedy_local_imbalance()
+
+
 def test_both_families_assign_measured_heavy_modules_to_distinct_workers(monkeypatch):
     modules = [f"tests/sentinel/test_{prefix}case_{i:02d}.py"
                for prefix in ("", "rolling_") for i in range(32)]

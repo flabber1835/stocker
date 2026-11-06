@@ -104,6 +104,17 @@ Keep existing module fixture boundaries and the million-row shared fixture;
 do not introduce shared mutable books or database state to claim speed gains.
 Preserve complete, disjoint module ownership and exact-attempt evidence.
 
+Decision: 2026-11-06. Longest-first greedy placement can leave an avoidable
+imbalance after a new module enters at the unchanged conservative default. PR
+569's rolling estimates differed by 6007 ms against the existing 5000 ms check.
+After greedy placement, deterministically refine within each existing family by
+moving one whole module or exchanging two whole modules only when that strictly
+reduces the sum of squared estimated lane costs. Pick the largest reduction with
+stable lane/path ties; stop when no such improvement exists. Positive integer
+costs make this descent finite. Keep every module exactly once, nonempty lanes,
+the retained measurement manifest, default, shard counts and balance assertions.
+This changes scheduling only; it grants no qualification reuse or test omission.
+
 Check shell syntax by invoking bash separately for every tracked shell file.
 Remove the full operator-suite repetition from the Docker lens build; retain
 small image-layout/import/browser smoke checks and the mandatory owner lane.
