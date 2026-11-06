@@ -291,7 +291,7 @@ def test_dual_surface_keeps_today_run_through_full_panel_assembly(monkeypatch,st
         model.Row('automation','Automation','Enabled',as_of=NOW),
         model.Row('automation_leader','Leader','Current',as_of=NOW)],[]))
     monkeypatch.setattr(sources,'_operator_evidence_rows',lambda *a,**kw:([],[]))
-    monkeypatch.setattr(sources,'_shadow_worker_row',lambda *a:model.Row('shadow_worker','Worker','Running',as_of=NOW))
+    monkeypatch.setattr(sources,'_shadow_worker_row',lambda *a,**options:model.Row('shadow_worker','Worker','Running',as_of=NOW))
     panel=sources.build_panel(state_dir='fixture',database_url='fixture',now=NOW)
     assert not panel.source_errors and panel.row('trading_run')==row
     assert panel.row('book') is None  # Do not duplicate the independently admitted shadow book.

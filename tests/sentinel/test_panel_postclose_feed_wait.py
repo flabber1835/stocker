@@ -148,7 +148,7 @@ def build(monkeypatch, *, ingest_status='success', extra=(), errors=()):
     financial,worker=facts()
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE','dual')
     monkeypatch.setattr(sources,'_bounded_dual_authority_rows',lambda *a,**kw:(financial,{},[],[]))
-    monkeypatch.setattr(sources,'_shadow_worker_row',lambda *a:worker)
+    monkeypatch.setattr(sources,'_shadow_worker_row',lambda *a,**options:worker)
     monkeypatch.setattr(sources,'_ownership',lambda *a:model.Row('ownership','Owner','BOUND'))
     monkeypatch.setattr(sources,'_runtime_rows',lambda *a:([*extra],list(errors)))
     monkeypatch.setattr(sources,'_automation_rows',lambda *a:([
