@@ -1,60 +1,143 @@
 {
   "admitted_checkpoints": {
-    "P03": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd"
+    "P05": "69f529dc4a2b6790257068be6cf75455b9aaa87264cdd2d536120145a6afd399",
+    "P07": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277"
   },
   "admitted_financial_parents_sha256": "93ef21b850a87e4d3acd192fd28306801e6caea923d8ad8b74e110a0c4ad7853",
   "arm_inputs": {
-    "P03": {
-      "new_factual_overlay": false,
+    "P05": {
+      "new_factual_overlay": true,
+      "restored_correlation": false
+    },
+    "P07": {
+      "new_factual_overlay": true,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P03"
+    "P05",
+    "P07"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
-  "financial_resume_authorized": false,
+  "execution_mode": "OWN_ADMITTED_FINANCIAL_CONTINUATION",
+  "financial_resume_authorized": true,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
   "full_measured_closes": 2156,
   "full_measurement_end": "2026-07-31",
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
-  "maximum_parallel_financial_workers": 0,
-  "maximum_parallel_readonly_workers": 1,
+  "maximum_parallel_financial_workers": 2,
+  "maximum_parallel_readonly_workers": 0,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "readonly_partial_review": true,
+  "readonly_partial_review": false,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/191",
-  "selected_abmd_bounded_inputs": {},
-  "selected_abmd_preparations": {},
+  "schema": "research.system-campaign-accurate-resume-request/192",
+  "selected_abmd_bounded_inputs": {
+    "P07": {
+      "actual_owned_or_ordered_right_valuation_authorized": false,
+      "arm": "P07",
+      "catalog_file": "P07-own1238-ABMD-bounded-catalog-v2.json",
+      "catalog_sha256": "9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1",
+      "current_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "every_reachable_canonical_decision_must_match": true,
+      "initial_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "old_models_and_784_source_proofs_preserved": true,
+      "original_controller_source_unchanged": true,
+      "schema": "research.p07-abmd-bounded-declaration/1"
+    }
+  },
+  "selected_abmd_preparations": {
+    "P07": {
+      "catalog_file": "P07-own1238-ABMD-bounded-catalog-v2.json",
+      "catalog_sha256": "9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1",
+      "checkpoint_adopted": false,
+      "financial_sessions_advanced": 0
+    }
+  },
   "selected_bounded_models": {},
   "selected_bounded_preparations": {},
-  "selected_ordinary_augmentations": {},
+  "selected_neutral_cash_batches": {
+    "P05": {
+      "arm": "P05",
+      "chunk_sizes": [
+        30,
+        30,
+        6
+      ],
+      "financial_entry_scope": "INITIAL_OWN1152_ONLY",
+      "initial_adoption_required": true,
+      "origin_root_admission_sha256": "e50bb7bb725c4636ad882b8b36b69aa1de9b7decc90fc611aa922f27b3e602c6",
+      "original_canonical_financial_source_unchanged": true,
+      "original_repair_maximum_source_evidence": 128,
+      "root_admission_sha256": "e50bb7bb725c4636ad882b8b36b69aa1de9b7decc90fc611aa922f27b3e602c6",
+      "schema": "research.p05-bounded-neutral-cash-batch-declaration/1",
+      "source_qualification_sha256": "6efd1c0bcd083bc313a1ed2c7a05537be54ddb39a9fa13d72fa115237d874857",
+      "source_scope_sha256": "6bca61ce8a03a51382d82db768e549e4d692d47aab253bf916825d395530fbd6"
+    }
+  },
+  "selected_ordinary_augmentations": {
+    "P07": {
+      "adoption_required": false,
+      "canonical_financial_source_changed": false,
+      "catalog_file": "system-campaign-p07-own1196-ordinary-augmentation.json",
+      "catalog_sha256": "8d1225940f5be894af238d39d5c86c9543bd4c1f4897f1a3ac5e4036571c2168",
+      "current_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "origin_root_admission_sha256": "75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719",
+      "original_model_inputs_and_certificates_preserved": true,
+      "schema": "research.retained-ordinary-augmentation/1"
+    }
+  },
   "selected_partials_sha256": "024b956f6f737cfbca7dcaa26c35792960947e846ea1929b6a3bc46b038c0b1a",
   "selected_research_models": {
     "P07": {
-      "contract_sha256": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
+      "cp1_predecessor_binding": "EXACT_REVIEWED_NEUTRAL_ORDINARY_SUCCESSOR",
       "every_reachable_canonical_decision_must_match": true,
       "input_schema": "research.leadership-branch-uncertainty-input/1",
-      "original_strict_guard_unchanged": true
+      "input_schemas": [
+        "research.leadership-branch-uncertainty-input/1",
+        "research.zogenix-leadership-uncertainty-input/1"
+      ],
+      "mode": "RETAINED_ADDITIONAL_SENSOR",
+      "observer_generation": "IMMUTABLE_ORIGIN_SOURCE_REQUEST",
+      "ordinary_origin_outer_sha256": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058",
+      "origin_root_admission_sha256": "532e1e4ca1317d3631235cb0316860112a355ab1b4cf4f61704f5583245540fd",
+      "original_branch_descriptor": {
+        "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+        "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+        "resume_session": "2019-09-30",
+        "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+      },
+      "original_strict_guard_unchanged": true,
+      "policy_catalog_sha256": "8ca4e8f729ab3ee0de8bfd90ede12080e1432b6a3c677c6192cdb21ea252c9e0",
+      "retained_prefix_sha256": "f05bf4dcb4e5b8f78089b27d661fa58dab095740b2d014ccd90ed3d21d222263",
+      "retained_rows": 593,
+      "root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "schema": "research.retained-additional-sensor-declaration/1",
+      "source_payload_sha256": "8c0b2d11d47f1ca8071020577d0e3bcdbd43d3edb68e20372c7a4397f222960e",
+      "source_qualification_sha256": "f70b8c3e50a6a0d94067cccdf74726b7802ea7adf2f171a766c94f1a83525d7f",
+      "source_review_sha256": "5066cff719e226169abe00b89dba867b7702fc455ddc0a1ddbea24853a5c75f8"
     }
   },
   "source_witness_scopes": {},
   "sources": {
     "ABMD-primary-source-facts.json": "dbbd6ef79557720f8e2f60ce4336bc684dab88303451a8bd78c97127b1289e81",
     "ABMD-raw-event-source-preparation.json": "cd9153160449aa28b5f11634fa91a5a7baa19d59f590086a43d69397e81d2a91",
+    "ACC-native-last-trade-raw-DATA.json": "9176ce10e23ba17688e5f1af5210dbde26f5d7f2cc55c83c3e3e4dcb273d1360",
     "P03-own462-DOVA-full-lifecycle-plan.json": "24c7d503336c84a7be151f77810e1ff865aa7fa585ac479d318a5e98de531284",
     "P03-own462-DOVA-source-bound-input-catalog-v1.json": "a74c1f8c928be7b0dca35ee2c51aee803509c84024378bf2897a862a67b3d2a7",
     "P03-own462-inherited-observer-inventory.json": "cb2bc9121564530c186a12c62d8535709a18d89cfb77f85d839cf098290806d3",
+    "P05-ACC-next-cash-fact-v2.json": "12d487ea778d920c129f911977dfd9d0209cbabfbd093da87cef766b821ab6ea",
+    "P05-batch-source-payload.json": "d6625a14a9476ddc0df9e86c302d911cfcd9a7d998ececb47177ae1c9a33e150",
+    "P05-batch-source-qualification-v2.json": "6efd1c0bcd083bc313a1ed2c7a05537be54ddb39a9fa13d72fa115237d874857",
+    "P05-batch-source-review.json": "f2668ab9da00bd0f041a89a339125be0acd885f00c81c2c08b26a2ed4baa0cd2",
     "P06-own1238-ABMD-bounded-catalog-v2.json": "dc1f6fe12216fca27f79165a29a03b1b88c490344b727ea51f207e97970e1e90",
     "P06-own1238-ABMD-initial-source-plan.json": "b0f3a450766cec498d5bb4326d14c59b220c34696ca637ed5014e9a8bd443fa4",
     "P07-abmd-full24-source-plan.json": "1c7b3e4c69282a5eec437372e4bd2aa944d47b95cbf11ad5946da6cda4280c2b",
@@ -226,7 +309,7 @@
     "system_campaign_autumn2020_cash_facts.py": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020",
     "system_campaign_baseline.py": "71e149c60bcef896a9af20987d09ab95f63b3cc4b01c17eaf3e06b7b4e127a43",
     "system_campaign_basis.py": "0c4beecf94e0a5d89e16e12129ff5730407c2ffc2533abe88cd5e70509f47b16",
-    "system_campaign_bounded_lifecycle_dispatch.py": "4cede699de3529441a534b471e8c3f51b27aa1fa2b46e03340d95b37c1a242bd",
+    "system_campaign_bounded_lifecycle_dispatch.py": "195cdd97ec37197f6a92692815bf1cd9f569912d6af654840623b8a0d5d16554",
     "system_campaign_bounded_sensor_adoption.py": "9afe4e455059c9035281931e56e3ed0212a193300ca6947ffe142c2387d58d55",
     "system_campaign_bounded_sensor_binding.py": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d",
     "system_campaign_bounded_sensor_catalog.py": "cda6b72ff1fb648b3892d84bed811af0b2c06766aeb3c88f30b34328a78c5a54",
@@ -320,7 +403,7 @@
     "system_campaign_financial_partial.py": "20d9c97b77e03d15e3c68bb71a72e5ab68ea82361d8d34b98a35c78247963dee",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "9c7ba785ced8f5bb4e8ab42910efce225a70cbf53ca34d45c665ef57910d99a1",
+    "system_campaign_financial_resume.py": "4a54ae90bcf857143d59b1f5229960cad1e552ca17abf36483ba5d7fcde6e3fb",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
@@ -440,13 +523,17 @@
     "system_campaign_p02_wwe_run.py": "72bb4e98cea041f0712d99a35087990547cbd981633dddcf587ba9ab564cd19f",
     "system_campaign_p02_zogenix_job.py": "17d8b4f3639efab99f7805f6165e6721d130100a97170e3c939278b80ef24a8b",
     "system_campaign_p02_zogenix_run.py": "2fea792f783690a867884656ca83786e821052b43eddff228c5a3f7ff6b604e0",
+    "system_campaign_p05_acc_next.py": "38cbf76d8fa43575db3790b4e441152f941365838b145b63396816a62bef1d43",
+    "system_campaign_p05_batch_api.py": "6ea8da161b55a4de38ce87cf3b0d16eb752ffa4f9a6c920588a64e889e0d4a13",
+    "system_campaign_p05_batch_data.py": "89c024ad01bf62b2c7abaf0fb026fd4f9af0d2ec5a8f6f590b9df023ba598296",
+    "system_campaign_p05_batch_runtime.py": "62cfe5fb30d61b442f2372158f3dab9110f0120ed2470fafdfc9acf84400095b",
     "system_campaign_p06_abmd_gateway.py": "14d63e7c0e53be1cc4708e5115f19d879244c11108a69253c735a8803f04adef",
     "system_campaign_p06_abmd_initial_certificate.py": "b292b0e4abae5d3856bf4bf1ace64c229e0a97f24336ec73abf8542175e99194",
     "system_campaign_p06_abmd_lifecycle.py": "c67a4db1862d18ac209fc6044ae1f0daf346a189e4de230afc873e95bb0e5af7",
     "system_campaign_p06_abmd_lifecycle_data.py": "ef2778c6d9259426ed253a66c29f8efe4ba7a436c1e11352dc630235efc8d98a",
     "system_campaign_p06_abmd_models.py": "c60488d0ac9418977fc4d3082b03e9bbeee8dda85ddc1ba71e7d956d78c6affe",
     "system_campaign_p07_abmd_certificate.py": "4f3db7f1cefffbad4c6eb48c0efe82678282c96c2a7b97c039db2307b9d86baa",
-    "system_campaign_p07_abmd_legacy.py": "ce296d4cc2a66da9550b0fd0661fef29c28f53b71cf8e34e80c6e0ace0046ed3",
+    "system_campaign_p07_abmd_legacy.py": "d41fccdc9ecb3dbaa4165329812ea3037b15ea316e073e9c6af50a71a9f4ab7c",
     "system_campaign_p07_abmd_lifecycle.py": "05a34b6b3d849a81d632fb035675b88ccb8a7ad938ea7066689e6ec60ece5f81",
     "system_campaign_p07_abmd_models.py": "1364500287d8962e836368db3269d6c1dddea0512421087df1ab796a49d091bf",
     "system_campaign_p07_abmd_origin.py": "126e183249185e5c85aa88899eaae4e0cbaef1a0d6131856acf94228f7fdc486",
@@ -571,5 +658,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "881008873600bbd4019a8e16f77266508d11192c7ad3e8295ef03aed89266c0a"
+  "workflow_sha256": "7a316c451d32f1922e7176c1b2bd07af36768f86dae7b8657e2a61363e22667a"
 }

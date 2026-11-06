@@ -79,6 +79,16 @@ def safe_copy(source,target):
         return str(target)
     return shutil.copyfile(source,target)
 
+def save_archive_receipt(path,value):
+    """Exact existing metadata only; original exclusive saver creates new files."""
+    from full_system_benchmark import save
+    path=Path(path)
+    need(path.name=='uncertainty-event-archive-preservation.json',
+         'P07_ABMD_ONLY_ORIGINAL_ARCHIVE_RECEIPT_METADATA')
+    if not path.exists():return save(path,value)
+    need(path.is_file() and path.read_bytes()==origin.encoded(value),
+         'P07_ABMD_EXISTING_ARCHIVE_RECEIPT_EXACT_BYTES_NO_OVERWRITE')
+
 def archive_tree(raw):
     need(sha(raw)==ARCHIVE_SHA,'P07_ABMD_WHOLE_ORIGINAL_ARCHIVE_SOURCE')
     fn=legacy_data.original.function(raw,'preserve')
@@ -148,7 +158,7 @@ def build(root,cp,spec,catalog,*,phase,root_metadata,review_bounded_origin,seed_
     def same_existing_archive(actual,target,proof):
         return (Path(actual).resolve()==Path(target).resolve() and Path(target).is_file()
             and sha(Path(target).read_bytes())==proof['file_sha256'])
-    archive_scope=dict(vars(archive),shutil=source_shutil,same_existing_archive=same_existing_archive)
+    archive_scope=dict(vars(archive),shutil=source_shutil,same_existing_archive=same_existing_archive,save=save_archive_receipt)
     archive_raw=Path(archive.__file__).read_bytes()
     exec(compile(ast.Module(body=[archive_resolver_tree(archive_raw),archive_tree(archive_raw)],type_ignores=[]),
         '<whole-original-archive-preserver-exact-idempotent-self-source>','exec'),archive_scope)

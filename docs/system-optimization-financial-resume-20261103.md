@@ -5450,3 +5450,81 @@ error follows from that refusal. Keep all evidence and current own1238 root
 unchanged. Any correction must preserve exact original archive names/bytes
 and metadata, with no overwrite/delete or weakened content guard; qualify a
 fresh immutable request after diagnosis. P06 remains at its FIN324 commit.
+
+P05 batch design retains SOURCE322's complete102-member payload/review/qv2,
+selects65 immutable supported cash legal records with only fresh source/root
+bindings, and adds separately qualified ACC. Keep every original source/native/
+role/primary-extraction predicate and original cash observer method. ACC uses
+existing CashCalendar NEXT: legal completion/last quote/nativeAugust9,
+recognitionAugust10, preopenFalse. The SEC8K Item2.01 confirms65.47USD common
+cash; Item3.01 supplies no preopen time. No broker settlement or August10 legal
+completion is asserted. Its independent whole2022 scan verifies151 ACC rows,
+last quoteAugust9 and next frozen sessionAugust10. Source-only records remain
+unmodified. Factv2 and its standalone exact ACC validator retain explicit
+own1152 positions29shares/slot16 and complete current16-input commitments.
+
+Use stable30/30/6 chunks. Original document compilation gives evidence counts
+124/124/28, preserving the unchanged128-entry Repair bound. Bind complete
+original future API functions to exact chunk selections/unique overlay names.
+The outer BatchGate executes three genuine canonical paused adoptions from
+actual16-to17-to18-to19, retaining each actual parent/predecessor, gzip/proof,
+zero-new-observation correlation capture and complete source material. All
+three neutral boundaries preserve financial state/count/clock/stats/journals
+and add only their original canonical watch successors. Then call original
+financial main once without another overlay. Never form projected checkpoints
+or invented successor hashes locally or in the control plane.
+
+The original observer constructor receives all28 prior+66 new terms before
+the first gate, while advance/terminal methods remain identical. Retained
+material inventory keeps its entire original code object, plus exact ACC-only
+NEXT qualification; it grants no general NEXT or source-only upgrade. Full
+independent review reconstructs allthree actual materials and neutral chain
+before original readonly accounting. Private qualification
+64fa3f91dc94fa6597d857aae20c5460ed4d25971a3919f272bab5c6b54ad1c0
+passes38 DATA/AST tests18.25s, including actual94-term observer construction,
+cap guard removal and reentrant three-pause/one-main routing. Actual canonical
+adoptions/financial execution remain hosted qualification requirements.
+
+P07 runtime generation2 binds only the unchanged archive helper's metadata
+saver to accept an already existing receipt when its bytes exactly match the
+original serializer. Fresh receipts still use the original exclusive saver;
+all other paths, changed metadata or changed formatting refuse. Original
+gzip/source/name/target guards remain complete. No file is deleted, rewritten
+or timestamp-touched. Actual FIN324 receipt regression and29 targeted checks
+pass5.41s; complete207 DATA checks pass23.11s. Manifest
+11b25947ab021f06fc7bfaddc362ced356b9421e76ce385c0bc81dfc7e99ecaf
+pins new outer legacy adaptor d41fccdc9ecb3dbaa4165329812ea3037b15ea316e073e9c6af50a71a9f4ab7c.
+The actual failed-generation neutral24 result independently qualifies with
+zero new rows and no certificate, but stays unadmitted. FIN326 may therefore
+select a fresh corrected P07 job from original own1238/full23 concurrently
+with the newly qualified P05 cash batch. P06 and REPORT325 remain isolated
+under their original commits, with at most one active job per arm.
+
+P05 generation2 corrects a separately found qualifier namespace collision
+before any hosted batch run: bind the complete original qualify code object
+to map only future-input-qualification.json to each unique phase receipt.
+All other original saves stay exclusive and all qualifier guards remain
+identical. Regression executes three whole qualifier bodies in one output
+directory and reproduces the old second-save FileExists. Qualification002
+917eb71cee722a35bb50caea4bc827b67bed2ec37ef3d1e795ab2768efdd84ba
+passes42 DATA checks14.99s. Explicit financial scope is initial own1152/full16
+only; later19-input financial selection refuses pending separate qualification.
+No future retained financial phase is inferred from the initial batch checks.
+
+FIN326/request192 integrated targeted checks pass344 in95.88s. Exact request
+selects529 sources and two financial arms P05/P07. P05 independent cross-agent
+audit verifies q002 plus9 targeted checks13.11s with no current-initial blocker.
+P07 selects only the original own1238/full23 seed and corrected generation2
+archive adapter. P06's existing worker remains isolated under FIN324. All
+original383/B19/future bytes and four worker ASTs remain unchanged; staged
+529-source/workflow closure must verify before publication.
+
+P03 REPORT325 independently authenticates two exact monthly reports/retry
+states with zero transitions. Whole qualified financial/monthly DATA core
+retains its complete AST after undoing only input-boundary/component/main
+dispatch changes. Actual41 daily records,82 accountings,two reports and56
+Decimal metrics pass, alongside full16 inputs and49 branch proofs=8+41.
+Independent component15 tests pass22.55s and core3 pass20.31s; cross-agent
+audit24 pass34.10s. A cached-helper binding finding is closed by executing the
+complete pinned pure helper source in a fresh private namespace. Root admission
+and published progress still require the separate exact admission metadata.

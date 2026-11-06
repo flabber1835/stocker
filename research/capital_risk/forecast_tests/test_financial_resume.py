@@ -40,17 +40,19 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
-    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert r['arms']==['P05','P07'] and r['maximum_parallel_financial_workers']==2 and r['maximum_parallel_readonly_workers']==0
+    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False and r['financial_resume_authorized'] is True
     assert m.request_authority(r) and r['source_witness_scopes']=={}
-    assert r['selected_bounded_preparations']==r['selected_abmd_preparations']==r['selected_bounded_models']==r['selected_abmd_bounded_inputs']=={}
+    assert r['selected_bounded_preparations']==r['selected_bounded_models']=={}
+    assert set(r['selected_abmd_preparations'])==set(r['selected_abmd_bounded_inputs'])=={'P07'}
+    assert set(r['selected_neutral_cash_batches'])=={'P05'}
+    batch=r['selected_neutral_cash_batches']['P05']
+    assert batch['chunk_sizes']==[30,30,6] and batch['original_repair_maximum_source_evidence']==128
+    assert batch['initial_adoption_required'] is True
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=False,restored_correlation=False)}
-    assert r['admitted_checkpoints']['P03']==m.root_spec('P03')['outer_sha256']
-    assert r['initial_reporting_origins']=={} and r['full_measured_closes']==2156
-    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P03']
-    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(503,'2019-12-31',16)
-    assert target['monthly_seed_root_admission_sha256']==m.root_spec('P03')['root_admission_sha256']
+    assert r['arm_inputs']=={a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
+    assert r['admitted_checkpoints']=={a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
+    assert r['initial_reporting_origins']=={} and r['full_measured_closes']==2156 and len(r['sources'])==529
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

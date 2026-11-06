@@ -12,7 +12,8 @@ def source_names():
     import system_campaign_bounded_sensor_runtime_v2 as dova
     import system_campaign_p06_abmd_lifecycle_data as p06
     import system_campaign_p07_abmd_lifecycle as p07
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names()))))
+    import system_campaign_p05_batch_runtime as p05
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -35,6 +36,7 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p07_abmd_lifecycle as p07
     import system_campaign_abmd_preflight_dispatch as prep
     import system_campaign_bounded_sensor_preparation as dova_prep
+    import system_campaign_p05_batch_runtime as p05
     from system_campaign_financial_partial import root_spec
     proxy=SimpleNamespace(expected_request=original,EXECUTION_MODE=execution_mode,SELECTED_ARMS=selected_arms)
     with dova.request_context(proxy):result=proxy.expected_request()
@@ -54,6 +56,12 @@ def expected_request(original,*,execution_mode,selected_arms):
             result['arm_inputs'][arm]['new_factual_overlay']=(dova.initial(spec) or p06.selected(spec)
                 or (arm=='P07' and spec.get('root_admission_sha256')==p07.INITIAL_ROOT))
     result['selected_abmd_bounded_inputs']=declarations
+    result['selected_neutral_cash_batches']={}
+    for arm in selected_arms:
+        spec=root_spec(arm)
+        if financial and p05.family(spec):
+            need(p05.initial(spec),'BOUNDED_DISPATCH_NEW_P05_RETAINED_FINANCIAL_PHASE_REQUIRES_SEPARATE_QUALIFICATION')
+            result['selected_neutral_cash_batches'][arm]=p05.declaration(spec)
     for name in source_names():
         pin=sha256_file(HERE/name)
         need(name not in result['sources'] or result['sources'][name]==pin,'BOUNDED_DISPATCH_NO_SOURCE_PIN_REPLACEMENT')
@@ -68,6 +76,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
     import system_campaign_p06_abmd_lifecycle as p06
     import system_campaign_p06_abmd_lifecycle_data as p06_data
     import system_campaign_p07_abmd_lifecycle as p07
+    import system_campaign_p05_batch_runtime as p05
     need(mode in ('preflight','economic','review'),'BOUNDED_DISPATCH_EXPLICIT_LEGACY_MODE')
     with ExitStack() as stack:
         if dova.selected(spec):stack.enter_context(dova.entry_context(module,spec))
@@ -75,6 +84,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
             stack.enter_context(p06.entry_context(spec,evidence_root=evidence if mode=='review' else None,
                 out=out if mode=='review' else None))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
+        if p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
         old_overlay=module.factual_overlay_needed
         selected=dova.selected(spec) or p06_data.selected(spec) or p07.selected(spec)
         if selected:
