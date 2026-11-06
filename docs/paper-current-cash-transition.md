@@ -117,8 +117,13 @@ plus the joined preparation/CLI route. Preserve the old missing-baseline refusal
 for recovery, execution and unrequested preparation. No fixture golden is
 re-pinned to confer financial authority.
 
-Deliver through required CI and a separately reviewed PR after dashboard PR
-569. Software installation and financial activation remain separate; an accepted
+Final delivery decision, 2026-11-06: PR 570 contains the complete dashboard PR
+569 ancestry and this separately reviewed cash follow-up. Use PR 570 as the
+single release after its complete required exact-head CI passes, retaining PR
+569 as the dashboard review record. This avoids an intermediate installation
+and duplicate financial activation. Obsolete predecessor CI may be cancelled;
+no test or required check is omitted from the final combined candidate.
+Software installation and financial activation remain separate; an accepted
 source or retirement receipt alone cannot authorize trading. LIVE and the
 protected backtest remain excluded.
 
