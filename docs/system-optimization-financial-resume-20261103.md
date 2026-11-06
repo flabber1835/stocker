@@ -5266,3 +5266,53 @@ generation/current-root checks pass238 in25.98s. The exact import/request
 probe passes with486 sources, zero financial workers and one readonly P05
 worker. Reporting target286e1a4187967809a0640850d05edcf853703dcbab5b6997015d8a22a061c660
 selects only actual1152/July29 and keeps own1132 unchanged as current root.
+
+Owner acceleration decision: batch remaining inputs and use three parallel
+preparation agents (P03/P06/P07). Owner subsequently authorizes concurrent
+financial workers using the existing free standard GitHub runners. Permit
+up to four independent variant jobs, one active job per arm, keeping the
+existing per-arm concurrency lock and cancel-in-progress=false. Keep standard
+ubuntu24.04, offline worker isolation, exact source snapshots and every
+admission guard. No larger paid runner or simultaneous same-arm replay is
+selected. Root centrally coordinates hosted requests; agents prepare private
+source/tests/metadata only.
+
+July1152's independent DATA checks pass31 in34.15s:22 semantic negatives,
+two meaningful guard removals,five financial import fences and whole core
+financial/monthly AST undo. Review156051bfb0d77f1adde33a24684968a94aa633108e3cc404435aaee740ea5f90,
+qualificationfbd781e48951d5ef0de9bc1fee5ec435b618570aa21c6c6f13d9442dea903d64.
+The exact1152 root e50bb7bb725c4636ad882b8b36b69aa1de9b7decc90fc611aa922f27b3e602c6
+retains own1132/fbc682 unchanged in history. Published admission follows with
+fresh source request322; no later August data enters this root.
+
+SOURCE322 batch design selects all102 uncovered future native identities from
+the exact131-member SOURCE298 payload afterJuly29, excluding20 future terms
+already covered by the full16 adopted inputs.65 have previously qualified
+cash legal terms;37 require separate legal/mode qualification. Source capture
+grants neither group financial authority. Use a separate strict forward-query
+family supporting empty or actually held parent positions and up to128
+identities. Keep all three old unheld records and the pending-native family
+unchanged. The102 queries have no pending-at-parent or additional-row claims;
+retain original source schema1 and full source capture/reconstruction bodies.
+Every native/identity date must remain after the current parent and every
+position/slot/count/root role must match the actual current own1152 state.
+Do not turn a future holding into an asserted role or upgrade old source-only
+cash policy. Financial batching must separately qualify every selected term
+and respect the original128 evidence-entry Repair limit.
+
+SOURCE322 private query qualification passes33 in7.63s. The complete original
+witness_payload and validate_witness_capture functions accept all102 query-
+shaped DATA records with source schema1 intact. Four meaningful guard-removal
+falsifiers cover current root, no financial authority, native clock and actual
+position roles; five import fences remain. The only current held query is
+ACC29shares/slot16/June30entry. Old May and June query generations remain
+closed historical fixtures after own1152 admission; current conformance must
+assert full16 inputs/eightcashlogs and the new102-query scope.
+
+SOURCE322 integrated targeted checks pass334 in50.38s with one historical
+fixture wrapper signature mismatch. Giving that test-only wrapper its
+existing optional explicit-root argument makes all41 affected cases pass1.93s.
+No source/query/financial guard changes result from the fixture correction.
+The exact probe selects488 sources and102 source-schema1 identities with
+zero financial/one readonly worker; staged closure must verify every source,
+all383 original drivers and B19 before publication.

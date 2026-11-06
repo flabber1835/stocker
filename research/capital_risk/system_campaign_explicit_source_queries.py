@@ -91,8 +91,11 @@ def selected_scopes(original,arms,*,enabled,root_lookup):
              'EXACT_CURRENT_OWN_ROOT_AXIS_AND_AUTHORITY')
         result[query.arm]=scope
     from system_campaign_pending_native_source_queries_v2 import selected_scopes as select_pending
-    return select_pending(result,arms,enabled=enabled,root_lookup=root_lookup)
+    result=select_pending(result,arms,enabled=enabled,root_lookup=root_lookup)
+    from system_campaign_forward_source_queries import selected_scopes as select_forward
+    return select_forward(result,arms,enabled=enabled,root_lookup=root_lookup)
 
 def source_names():
     from system_campaign_pending_native_source_queries_v2 import source_names as pending_names
-    return (Path(__file__).name,CATALOG,*pending_names())
+    from system_campaign_forward_source_queries import source_names as forward_names
+    return (Path(__file__).name,CATALOG,*pending_names(),*forward_names())

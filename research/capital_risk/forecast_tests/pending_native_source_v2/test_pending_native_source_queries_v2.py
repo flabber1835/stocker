@@ -9,7 +9,11 @@ class Fence:
             raise ImportError('PENDING_SOURCE_QUERY_DATA_ONLY:'+fullname)
 sys.meta_path.insert(0,Fence());sys.path.insert(0,str(Path(__file__).parent))
 import system_campaign_pending_native_source_queries_v2 as data
-from system_campaign_financial_partial import root_spec
+from system_campaign_financial_partial import root_spec as current_root_spec
+
+HISTORICAL='fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add'
+def root_spec(arm,admission=None):
+    return current_root_spec(arm,admission or HISTORICAL) if arm=='P05' else current_root_spec(arm,admission)
 
 def actual():return json.loads((data.HERE/data.CATALOG).read_bytes())
 
