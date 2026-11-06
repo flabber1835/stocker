@@ -50,13 +50,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P05',)
+SELECTED_ARMS = ('P03',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/181'
-EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/182'
+EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -78,6 +78,7 @@ def expected_request():
     from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata, own_policy_source_names, own_policy_phase, own_model_declaration, own_unchanged_input_phase
     from system_campaign_explicit_source_queries import selected_scopes, source_names as explicit_source_names
     from system_campaign_retained_forward_cash import source_names as retained_cash_source_names
+    import system_campaign_bounded_sensor_preparation as bounded_preparation
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
     witnesses = EXECUTION_MODE == 'READONLY_FROZEN_SOURCE_WITNESSES'
@@ -142,7 +143,7 @@ def expected_request():
              'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
-             *ordinary_augmentation_source_names(), *explicit_source_names(), *retained_cash_source_names(),
+             *ordinary_augmentation_source_names(), *explicit_source_names(), *retained_cash_source_names(), *bounded_preparation.source_names(),
              *own_policy_source_names(), *original_composite_source_names(),
              *(term['retained_original_legal_record']['catalog_file']
                for term in json.loads((HERE / OWN_CASH_CATALOG).read_bytes())['terms']
@@ -182,6 +183,7 @@ def expected_request():
                 admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS if a not in origins},
                 initial_reporting_origins=origins,
                 selected_research_models=models,
+                selected_bounded_preparations={a: dict(catalog_sha256=bounded_preparation.CATALOG_SHA, financial_sessions_advanced=0, checkpoint_adopted=False) for a in SELECTED_ARMS if witnesses and bounded_preparation.selected(root_spec(a))},
                 selected_ordinary_augmentations={a: ordinary_augmentation_declaration(root_spec(a)) for a in SELECTED_ARMS if financial and ordinary_augmentation_selected(root_spec(a))},
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
@@ -1066,7 +1068,9 @@ if __name__ == '__main__':
         hosted()
         spec = json.loads(args.spec.read_bytes())
         if args.mode == 'preflight':
-            preflight(Path('/old'), Path('/out'), spec)
+            from system_campaign_bounded_sensor_preparation import preflight_entry
+            preflight_entry(Path('/old'), Path('/out'), spec, preflight,
+                enabled=spec['arm'] in json.loads((HERE/REQUEST).read_bytes()).get('selected_bounded_preparations',{}))
         elif args.mode == 'economic':
             economic(Path('/old'), Path('/out'), spec)
         else:

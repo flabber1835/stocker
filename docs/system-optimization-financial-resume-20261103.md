@@ -4960,3 +4960,32 @@ REPORT315 targeted launcher/partial/retention/query/source-generation/retained-
 cash checks pass211 in28.10s. The exact request probe passes with467 sources,
 zero financial workers and one readonly worker; P05's admitted root remains
 own1111 pending the separate stopped reporting and complete DATA validation.
+
+REPORT315 positively completes as run42141444469 at1352dc2b0e336f8c741a4126e81022d99e977c8f.
+Artifact13467619814 is1607328bytes, ZIP
+d64217e8fa3b7b5c8a1fb6c28c1f5bf94efbcfb9480f2e0afc575afcbc2b0753.
+Its authenticated readonly proof reproduces one complete monthly/retry report.
+The independent DATA reader closes21 daily records,42 accounting snapshots,
+one report and28 Decimal metrics. All15 inputs,26 retained observer terms and
+six cash records agree. The31 tests pass30.94s, including22 semantic negatives,
+two meaningful guard removals, five import fences and full financial/reporting
+AST undo. Admission design: append this exact own1132 checkpoint, retain the
+own1111 root402b byte-identically in history, update only P05's admission pointer
+and readonly clock. SRRA's35-share pending June30 term stays unchanged; July1's
+failed canonical state remains diagnostic. Select SOURCE316 next with zero
+financial workers so the completed reporting target cannot be replayed.
+
+P05 own1132 admission is fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add;
+its independent review isc9d8c946650211be5473085f0f13ae85cc80787376f76f51173136a6ae0e29c9,
+qualification6e6dd31e5f005b73a579b095781c4c892e07c989328c4cae9d63068bb69ec28d.
+SOURCE316/request182 includes477 sources and one readonly P03 worker. Its
+separate preparation declaration commits catalog a74c and explicitly forbids
+checkpoint adoption. Both old query records and all four worker function ASTs
+remain unchanged. Integrated tests pass457 in38.20s;20 fence cases correctly
+refuse imports but initially disagree about the new fixture's error text.
+Adding the existing DATA_ONLY marker to that test-only fence message makes
+all158 affected tests pass5.67s. No financial code or source pin is changed by
+that fixture correction. The new current/historical root conformance tests
+cover P05's complete15-input history, six cash proofs and nonactivation of
+the old May query at the new June root. Packet/cloud qualification is pending
+the new hosted source request; P03's endpoint remains October31,2019.

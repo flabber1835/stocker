@@ -70,7 +70,7 @@ def test_selected_batch_keeps_every_term_evidence_inside_original_repair_limit()
     assert len(expanded['source_evidence'])==370>128
 
 def test_positive_p05_may_root_retains_march_history_and_exact_review_counts():
-    spec=partial.root_spec('P05');partial.validate_root_spec(spec)
+    spec=partial.root_spec('P05','402b9ce10942fca4dcaac829303c6426a83a6a894ecf35d9cf472c4d84a8bb8d');partial.validate_root_spec(spec)
     old=partial.root_spec('P05','c3cb03f790d12d7d69b29da38727b3e24f7e7be411be70a22118470c3583b29f')
     assert spec['measured_closes']==1111 and spec['selected_session']=='2022-05-31'
     assert old['measured_closes']==1070 and old['selected_session']=='2022-03-31'
