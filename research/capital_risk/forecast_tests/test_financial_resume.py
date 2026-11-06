@@ -40,14 +40,14 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P05']
-    assert r['maximum_parallel_financial_workers'] == 0 and r['maximum_parallel_readonly_workers'] == 1
+    assert r['arms'] == ['P06', 'P07']
+    assert r['maximum_parallel_financial_workers'] == 0 and r['maximum_parallel_readonly_workers'] == 2
     assert r['readonly_partial_review'] is False and r['readonly_source_witnesses'] is True
     assert r['financial_resume_authorized'] is False and m.request_authority(r)
-    assert len(r['source_witness_scopes']['P05']['terms']) == 102 and r['selected_bounded_preparations'] == {}
-    assert r['source_witness_scopes']['P05']['additional_rows'] == []
+    assert len(r['source_witness_scopes']['P06']['terms']) == 115 and len(r['source_witness_scopes']['P07']['terms']) == 1
+    assert r['selected_bounded_preparations'] == {} and set(r['selected_abmd_preparations']) == {'P06','P07'}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P05':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ('P06','P07')}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {} and r['selected_ordinary_augmentations'] == {}
     assert set(r['selected_research_models']) == {'P07'}

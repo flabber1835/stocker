@@ -5316,3 +5316,38 @@ No source/query/financial guard changes result from the fixture correction.
 The exact probe selects488 sources and102 source-schema1 identities with
 zero financial/one readonly worker; staged closure must verify every source,
 all383 original drivers and B19 before publication.
+
+SOURCE323 design selects readonly preparation for both P06 and P07 concurrently,
+with zero financial workers and no checkpoint adoption. Integrate the frozen
+shared ABMD catalog/hydration/parser/packet/cloud generation from manifest
+9a394f1dbb67508231e639359cc00f132239b9275f3c5ec4b1a9c9a49558a455.
+P06v2 catalogdc1f6fe12216fca27f79165a29a03b1b88c490344b727ea51f207e97970e1e90
+retains all115 SOURCE294 entries; P07v2 catalog9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1
+retains original SOURCE311 schema2/native+additional quote. Both preserve
+Dec21's actual quote and native, move only the incomplete event toDec22,
+prove noDec22quote exists in the full annual scan and retain legal380..415
+bounds without selecting a right price, probability or settlement.
+
+A distinct request declaration and entry wrapper invoke the new preparation
+after the complete unchanged legacy preflight. Keep the existing P03 wrapper
+and all four worker function bodies unchanged. New declarations require the
+exact current own1238 root/full8(P06) or23(P07) input list; import/request probes
+stage every required source and arm-specific interpretation pin. Common and
+arm interpretation bytes are frozen at v2; later fixes need a new generation.
+The shared62 DATA checks pass6.60s, including parser/predecessor/cursor,
+actual-source quote-absence and source-guard falsifiers. No financial writer,
+TRQ adoption, actual ABMD event or new root is selected by this request.
+
+SOURCE323/request189 integrated targeted checks pass407 in43.18s. Exact import
+probe selects502 sources, P06/P07, zero financial workers and two readonly
+workers, with two explicit ABMD preparation declarations. The shared old
+sources and all12 new interpretation/data files match the frozen v2 manifest;
+the P07 future source-plan file is included as a separately pinned resource.
+All383 original drivers, B19 and four legacy worker function ASTs remain
+unchanged. Staged source closure must verify502 files before publication.
+
+SOURCE322 positively stops preflight0/non-OOM and authenticates45 members,
+2766212 logical bytes from artifact13474058928,1752361bytes, ZIP
+4938f86a9088d6751ac28b8eac37b1243fcb8e83e9e2ee54801054f0746631df.
+Its102 source identities remain pending independent DATA closure; no input,
+financial completion or root authority follows from this source capture.

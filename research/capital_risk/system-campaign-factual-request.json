@@ -1,16 +1,22 @@
 {
   "admitted_checkpoints": {
-    "P05": "69f529dc4a2b6790257068be6cf75455b9aaa87264cdd2d536120145a6afd399"
+    "P06": "615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f",
+    "P07": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277"
   },
   "admitted_financial_parents_sha256": "93ef21b850a87e4d3acd192fd28306801e6caea923d8ad8b74e110a0c4ad7853",
   "arm_inputs": {
-    "P05": {
+    "P06": {
+      "new_factual_overlay": false,
+      "restored_correlation": false
+    },
+    "P07": {
       "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P05"
+    "P06",
+    "P07"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
@@ -24,7 +30,7 @@
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
   "maximum_parallel_financial_workers": 0,
-  "maximum_parallel_readonly_workers": 1,
+  "maximum_parallel_readonly_workers": 2,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
@@ -33,7 +39,21 @@
   "readonly_partial_review": false,
   "readonly_source_witnesses": true,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/188",
+  "schema": "research.system-campaign-accurate-resume-request/189",
+  "selected_abmd_preparations": {
+    "P06": {
+      "catalog_file": "P06-own1238-ABMD-bounded-catalog-v2.json",
+      "catalog_sha256": "dc1f6fe12216fca27f79165a29a03b1b88c490344b727ea51f207e97970e1e90",
+      "checkpoint_adopted": false,
+      "financial_sessions_advanced": 0
+    },
+    "P07": {
+      "catalog_file": "P07-own1238-ABMD-bounded-catalog-v2.json",
+      "catalog_sha256": "9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1",
+      "checkpoint_adopted": false,
+      "financial_sessions_advanced": 0
+    }
+  },
   "selected_bounded_preparations": {},
   "selected_ordinary_augmentations": {},
   "selected_partials_sha256": "b63a0effb7d2f9b0d17a777fa95c5ce789ddffcd8a44571757c45b7791c211f4",
@@ -46,50 +66,11 @@
     }
   },
   "source_witness_scopes": {
-    "P05": {
+    "P06": {
       "additional_rows": [],
-      "parent_cursor": "2022-07-29",
-      "parent_outer_sha256": "69f529dc4a2b6790257068be6cf75455b9aaa87264cdd2d536120145a6afd399",
+      "parent_cursor": "2022-11-30",
+      "parent_outer_sha256": "615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f",
       "terms": [
-        {
-          "native_session": "2022-08-09",
-          "native_term_sha256": "dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7",
-          "parent_positions": [
-            {
-              "entry_date": "2022-06-30",
-              "quantity": 29,
-              "slot_id": 16,
-              "ticker": "ACC"
-            }
-          ],
-          "security_id": "209530306982231273",
-          "session": "2022-08-08",
-          "ticker": "ACC"
-        },
-        {
-          "native_session": "2022-09-29",
-          "native_term_sha256": "6c306190c326bc01b52d3fb9fda5f2cd2cdf09fdc447cb5a41064136c6c4329a",
-          "parent_positions": [],
-          "security_id": "554480052825212855",
-          "session": "2022-09-28",
-          "ticker": "CTXS"
-        },
-        {
-          "native_session": "2022-09-30",
-          "native_term_sha256": "713092be4dbb3c3f9ba9d72f027191a8e5394a69087bbd98b7351d19c7d94c3c",
-          "parent_positions": [],
-          "security_id": "518054177581800417",
-          "session": "2022-09-29",
-          "ticker": "DRE"
-        },
-        {
-          "native_session": "2022-11-03",
-          "native_term_sha256": "4284b79a3b3954191aa59af15c07a06e626cb2340fc4834100ec506631670ef1",
-          "parent_positions": [],
-          "security_id": "738630690199421979",
-          "session": "2022-11-02",
-          "ticker": "CYBE"
-        },
         {
           "native_session": "2022-12-21",
           "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
@@ -97,6 +78,54 @@
           "security_id": "1050970006012443443",
           "session": "2022-12-20",
           "ticker": "ABMD"
+        },
+        {
+          "native_session": "2023-01-31",
+          "native_term_sha256": "3cdb7e9ae9227a2ff6d47e2e40240b74e8d10854ec1eb4591c5c2a039f2a72fb",
+          "parent_positions": [],
+          "security_id": "255755003526074655",
+          "session": "2023-01-30",
+          "ticker": "SJI"
+        },
+        {
+          "native_session": "2023-02-21",
+          "native_term_sha256": "b13c3cdc8ce1b9651108d79ca572c1a7f10aefa5a204c35fb1c8fbd28b3e3e37",
+          "parent_positions": [],
+          "security_id": "348961068556052300",
+          "session": "2023-02-17",
+          "ticker": "LHCG"
+        },
+        {
+          "native_session": "2023-02-22",
+          "native_term_sha256": "7930c9741ebd86ef403aa2c1f8a64e36a627c9db3bc4e3993fae29a438ca6d1d",
+          "parent_positions": [],
+          "security_id": "677864286983813096",
+          "session": "2023-02-21",
+          "ticker": "ONEM"
+        },
+        {
+          "native_session": "2023-02-27",
+          "native_term_sha256": "23dcc826824e13c0137d03ff260ecac5fc4a79b0f945363946c9511ae6e567c7",
+          "parent_positions": [],
+          "security_id": "840778708963135084",
+          "session": "2023-02-24",
+          "ticker": "COUP"
+        },
+        {
+          "native_session": "2023-03-23",
+          "native_term_sha256": "4ae01e26dfd27924a8973b40c79e755ff31adfba0be52e9ee9779fd8ca9679b3",
+          "parent_positions": [],
+          "security_id": "754975132000056845",
+          "session": "2023-03-22",
+          "ticker": "EVOP"
+        },
+        {
+          "native_session": "2023-03-28",
+          "native_term_sha256": "b62f3cd219734387c09081d63dac7858e2b28ffd6f41ae29b39a9ebe0dcaa940",
+          "parent_positions": [],
+          "security_id": "151225572607695758",
+          "session": "2023-03-27",
+          "ticker": "SGFY"
         },
         {
           "native_session": "2023-04-27",
@@ -115,12 +144,76 @@
           "ticker": "CSII"
         },
         {
+          "native_session": "2023-04-27",
+          "native_term_sha256": "0425d032b38ebf0099beec0a7556f66368d3cba1a7ee82a455d28d3908331d39",
+          "parent_positions": [],
+          "security_id": "858933953652218125",
+          "session": "2023-04-26",
+          "ticker": "PRVB"
+        },
+        {
+          "native_session": "2023-05-01",
+          "native_term_sha256": "3bfd185a3434b5e62dde7aa56683f1f9c82f61150541f8ae0871d0f2b16db450",
+          "parent_positions": [],
+          "security_id": "917666101373510238",
+          "session": "2023-04-28",
+          "ticker": "OSH"
+        },
+        {
+          "native_session": "2023-05-02",
+          "native_term_sha256": "8165277eedd833036d96db039d1432df89514fc53800e6d5cd8f05c977efcd8b",
+          "parent_positions": [],
+          "security_id": "192029376284057522",
+          "session": "2023-05-01",
+          "ticker": "MAXR"
+        },
+        {
+          "native_session": "2023-05-11",
+          "native_term_sha256": "cd4f6ea36d9e3a6475dcd9a6f34f93feefd20699f4df36992a4a6c1f9aad2a23",
+          "parent_positions": [],
+          "security_id": "233469495168272142",
+          "session": "2023-05-10",
+          "ticker": "SUMO"
+        },
+        {
+          "native_session": "2023-05-12",
+          "native_term_sha256": "77d6eedc0731bf0b61f05abbe341d3a6d0ededaff2b99f5f18efe6d7047bcff2",
+          "parent_positions": [],
+          "security_id": "273582270998538925",
+          "session": "2023-05-11",
+          "ticker": "TA"
+        },
+        {
           "native_session": "2023-05-31",
           "native_term_sha256": "dc62d52a52598231f5a244624e60bca0f72789db27ccc30ddf212c568ec3f870",
           "parent_positions": [],
           "security_id": "62458272022348266",
           "session": "2023-05-30",
           "ticker": "MNTV"
+        },
+        {
+          "native_session": "2023-05-31",
+          "native_term_sha256": "5d5e99a5c938874325db2c8ca83c2c8aaee2901eb86599b21a250fd6a4880b6c",
+          "parent_positions": [],
+          "security_id": "631714153765036714",
+          "session": "2023-05-30",
+          "ticker": "MGI"
+        },
+        {
+          "native_session": "2023-06-12",
+          "native_term_sha256": "be6349194d300cb9195944599ddba0d2c80c0f3afbb7e22295d12033c20a5fe0",
+          "parent_positions": [],
+          "security_id": "1132165486668118439",
+          "session": "2023-06-09",
+          "ticker": "HSKA"
+        },
+        {
+          "native_session": "2023-06-13",
+          "native_term_sha256": "882d416fd8b3dd611ec9d7c0c83b6b08d4499cffdd2a0e93d656fa5371e7c016",
+          "parent_positions": [],
+          "security_id": "129751434275280834",
+          "session": "2023-06-12",
+          "ticker": "RUTH"
         },
         {
           "native_session": "2023-06-14",
@@ -387,6 +480,14 @@
           "ticker": "ICPT"
         },
         {
+          "native_session": "2023-11-07",
+          "native_term_sha256": "23d0dfe7e1d209f84a68c666878673381b1748f10a891edcd9a00ad55f66b6c0",
+          "parent_positions": [],
+          "security_id": "333926898180811276",
+          "session": "2023-11-06",
+          "ticker": "NEWR"
+        },
+        {
           "native_session": "2023-11-08",
           "native_term_sha256": "ed9cb4e73661df4a643697ed97054a00608f69de0d9285412a9572841a7c446f",
           "parent_positions": [],
@@ -547,6 +648,14 @@
           "ticker": "ESMT"
         },
         {
+          "native_session": "2024-02-09",
+          "native_term_sha256": "c09607c58f8ec9489f838f63ff6527059c755d2cdf9438f5925f8d8a496951b5",
+          "parent_positions": [],
+          "security_id": "170441452346015322",
+          "session": "2024-02-08",
+          "ticker": "IMGN"
+        },
+        {
           "native_session": "2024-03-15",
           "native_term_sha256": "2bfcf1c193d2d87430648498ec0aeb6466c2b924280960aa77bc4120cd85c451",
           "parent_positions": [],
@@ -649,6 +758,14 @@
           "security_id": "355279027800974395",
           "session": "2024-11-27",
           "ticker": "LBPH"
+        },
+        {
+          "native_session": "2024-12-17",
+          "native_term_sha256": "3271de7e17ba66ccba86e074949c81af628173cc56a19774ced304bedd7669ba",
+          "parent_positions": [],
+          "security_id": "926139522403724450",
+          "session": "2024-12-16",
+          "ticker": "CTLT"
         },
         {
           "native_session": "2025-02-04",
@@ -875,10 +992,38 @@
           "ticker": "ORLA"
         }
       ]
+    },
+    "P07": {
+      "additional_rows": [
+        {
+          "parent_positions": [],
+          "security_id": "1050970006012443443",
+          "session": "2022-12-21",
+          "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+          "ticker": "ABMD"
+        }
+      ],
+      "parent_cursor": "2022-11-30",
+      "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+      "terms": [
+        {
+          "native_session": "2022-12-21",
+          "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
+          "parent_positions": [],
+          "security_id": "1050970006012443443",
+          "session": "2022-12-20",
+          "ticker": "ABMD"
+        }
+      ]
     }
   },
   "sources": {
+    "ABMD-primary-source-facts.json": "dbbd6ef79557720f8e2f60ce4336bc684dab88303451a8bd78c97127b1289e81",
+    "ABMD-raw-event-source-preparation.json": "cd9153160449aa28b5f11634fa91a5a7baa19d59f590086a43d69397e81d2a91",
     "P03-own462-DOVA-source-bound-input-catalog-v1.json": "a74c1f8c928be7b0dca35ee2c51aee803509c84024378bf2897a862a67b3d2a7",
+    "P06-own1238-ABMD-bounded-catalog-v2.json": "dc1f6fe12216fca27f79165a29a03b1b88c490344b727ea51f207e97970e1e90",
+    "P07-abmd-full24-source-plan.json": "1c7b3e4c69282a5eec437372e4bd2aa944d47b95cbf11ad5946da6cda4280c2b",
+    "P07-own1238-ABMD-bounded-catalog-v2.json": "9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1",
     "SRRA-own1132-pending-role-DATA.json": "c32076fb3cbc7b469864aa2d1815e83e79291770e7c34a0df8cc32c14a8c22cc",
     "SRRA-primary-cash-preparation.json": "5dc40ed7d97e3ea88bd966cb49b80a91f9220aed9371431b66db5126e90ce218",
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
@@ -1029,6 +1174,11 @@
     "system_campaign_abiomed_recovery.py": "5e914635667326b12bb56e24f6c13f4a2d12d2a199ad70e0ccd21db772eb1a41",
     "system_campaign_abiomed_review.py": "03f44f8d08d052f4cd6e2861e65a7d87b3ddd86720d9da39c6e9ac5b1a77fd8a",
     "system_campaign_abiomed_sensor.py": "6195af587b8dc40a33afb6ba78002c530586e86b3d13d5f53715808f959a821f",
+    "system_campaign_abmd_bounded_catalog.py": "663a2ccd12bfd9bb27008f57407f2a83acf5133324688259b2f38767797e89b1",
+    "system_campaign_abmd_bounded_hydration.py": "1091ea25621f9b9ebb5b7f113ecb6adbd8e6e8e876b29a7492e93776fe7d64f7",
+    "system_campaign_abmd_bounded_preparation.py": "6a998f614f814b9dd4e4d20ff9c7f7a76389fdb4513689bdb7858c3c2cf57443",
+    "system_campaign_abmd_bounded_sources.py": "c92b9bc19d7786d5095cba71ec34227d17a4a45ca6bef17ac5d99da528871e45",
+    "system_campaign_abmd_preflight_dispatch.py": "a959dbfc8d12748571c6c57460027820c6453cb8f40e66e651d4a7434499673e",
     "system_campaign_acceleration.py": "c09dc21454e3071ac7c6273a042482144602fa2f2d0fc6d7a8ab1be5e5638c46",
     "system_campaign_action_preflight.py": "0145e6ce84048faf80f49ae20095f29eaf8dc479be4dfd932ec648326d5cf68c",
     "system_campaign_alder_date_v2.py": "38056292a1e1b2392a8ceb231d6a36da6b7c600eb2821deee39f78fb6b606865",
@@ -1126,7 +1276,7 @@
     "system_campaign_financial_partial.py": "20d9c97b77e03d15e3c68bb71a72e5ab68ea82361d8d34b98a35c78247963dee",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "56e7df22b030f254764561b4f5b17692b83d6dcb59d7f1287ecba4e4f1c22547",
+    "system_campaign_financial_resume.py": "36e40bf56c847410150ab5a270b8aed59d0316ae2e52fc5de02b18bb5083a1bf",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
@@ -1246,6 +1396,10 @@
     "system_campaign_p02_wwe_run.py": "72bb4e98cea041f0712d99a35087990547cbd981633dddcf587ba9ab564cd19f",
     "system_campaign_p02_zogenix_job.py": "17d8b4f3639efab99f7805f6165e6721d130100a97170e3c939278b80ef24a8b",
     "system_campaign_p02_zogenix_run.py": "2fea792f783690a867884656ca83786e821052b43eddff228c5a3f7ff6b604e0",
+    "system_campaign_p06_abmd_initial_certificate.py": "b292b0e4abae5d3856bf4bf1ace64c229e0a97f24336ec73abf8542175e99194",
+    "system_campaign_p06_abmd_models.py": "c60488d0ac9418977fc4d3082b03e9bbeee8dda85ddc1ba71e7d956d78c6affe",
+    "system_campaign_p07_abmd_certificate.py": "4f3db7f1cefffbad4c6eb48c0efe82678282c96c2a7b97c039db2307b9d86baa",
+    "system_campaign_p07_abmd_models.py": "1364500287d8962e836368db3269d6c1dddea0512421087df1ab796a49d091bf",
     "system_campaign_p10_ahl2_contract.py": "0202a7d73259617423a258acd2fdb70bf16a04a4f56297cb7d87ea6733aea44d",
     "system_campaign_p10_ahl2_input.py": "4bad60b9bd0dfac3b1825e1998ac31a2f84853f0bb1b4b5a4b33601c442ad959",
     "system_campaign_parallel_discovery.py": "ee7cf577ddc06c12511f67be24cab4f04d06f03cac0d8cfdee1eb40a8f3bdabb",
@@ -1367,5 +1521,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "b0f59cc0c601608dd40dacccff1800d14dea3240d3ba904e4e2049a589f87360"
+  "workflow_sha256": "5c2d7992a3827c1eac9225ace6cced715e0aa2be2f2bb0fc89f46df65cd29562"
 }
