@@ -9,7 +9,9 @@ import system_campaign_bounded_lifecycle_dispatch as data
 import system_campaign_financial_resume as resume
 from system_campaign_financial_partial import root_spec
 
-def test_current_request_is_three_distinct_qualified_input_histories():
+def test_financial_request_is_three_distinct_qualified_input_histories(monkeypatch):
+    monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
+    monkeypatch.setattr(resume,'SELECTED_ARMS',('P03','P06','P07'))
     value=resume.expected_request()
     assert value['maximum_parallel_financial_workers']==3
     assert set(value['selected_bounded_models'])=={'P03'}

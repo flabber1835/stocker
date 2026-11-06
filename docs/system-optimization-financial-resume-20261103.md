@@ -5416,3 +5416,37 @@ then passes1 in8.58s; separate dispatcher17 pass7.65s, including source-pin
 guard removal and allthree mode scopes. Earlier combined ABMD251 pass44.59s.
 The exact staged520-source closure,all383 originals and B19 must verify
 before publication. No new saved financial result is admitted by these checks.
+
+FIN324 P03 positively stops0/1/0, independently authenticating166 members/
+127262584 logical bytes from artifact13476494369. Its genuine neutral16th
+input, DOVA event, original B19 continuation and full18 ordinary observations
+pass the hosted reviewer. The saved503/2019-12-31 checkpoint adds41 closes;
+14 January daily tails through517/January22 and January23's incomplete
+leadership cash refusal remain excluded. Independent input/branch/cash DATA
+review11770ab932035633ec8c1110d20d6e8a9a32afdac9dd9dde9c5937911586f642
+also passes; monthly/daily accounting admission remains pending.
+
+REPORT325 design selects zero financial workers and one readonly P03 worker
+to reproduce November/December reporting and retry memory from own462 to
+the actual saved503 checkpoint. Keep original own462 root/current authority
+unchanged. Select only the authenticated503 gzip/full16 descriptors and retain
+the exact captured FIN324 request as typed-model provenance. The existing
+bounded runtime's reporting contract and full codec scope apply to the whole
+unchanged legacy preflight. No January tail or failed diagnostic state becomes
+a seed. P06/P07 financial jobs remain isolated at their FIN324 commit and may
+continue concurrently with this readonly job.
+
+REPORT325/request191 targeted launcher/partial/dispatch/DOVA DATA checks pass
+197 in35.02s. Exact request selects520 sources, zero financial workers and
+one readonly P03 worker. Saved503 targetba8f6ca766ba93f15670dcca2e9f863da21e6353da604c0fefbd1e7be42355f0
+keeps own462 unchanged as current root. Staged closure must verify the exact
+520 source/workflow pins and original383/B19 before publication.
+
+FIN324 P07 stops0/1/1, zero new closes, after an actual neutral24th input.
+Artifact13477298284 authenticates460 members/871165564 logical bytes. The
+writer refuses a duplicate exclusive archive-preservation metadata receipt
+before creating its financial certificate; the reviewer's missing-certificate
+error follows from that refusal. Keep all evidence and current own1238 root
+unchanged. Any correction must preserve exact original archive names/bytes
+and metadata, with no overwrite/delete or weakened content guard; qualify a
+fresh immutable request after diagnosis. P06 remains at its FIN324 commit.

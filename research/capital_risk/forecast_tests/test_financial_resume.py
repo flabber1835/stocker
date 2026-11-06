@@ -39,23 +39,18 @@ def proof():
 
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
-    r = m.expected_request()
-    assert r['arms'] == ['P03','P06','P07']
-    assert r['maximum_parallel_financial_workers'] == 3 and r['maximum_parallel_readonly_workers'] == 0
-    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False
-    assert r['financial_resume_authorized'] is True and m.request_authority(r)
-    assert r['source_witness_scopes'] == {}
-    assert set(r['selected_bounded_preparations']) == {'P03'}
-    assert set(r['selected_abmd_preparations']) == {'P06','P07'}
-    assert set(r['selected_bounded_models']) == {'P03'}
-    assert set(r['selected_abmd_bounded_inputs']) == {'P06','P07'}
+    r=m.expected_request()
+    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={}
+    assert r['selected_bounded_preparations']==r['selected_abmd_preparations']==r['selected_bounded_models']==r['selected_abmd_bounded_inputs']=={}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
-    assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
-    assert r['initial_reporting_origins'] == {}
-    assert set(r['selected_research_models']) == {'P03','P07'}
-    assert r['full_measured_closes'] == 2156 and 'P11' in m.COMPLETED_ADMISSIONS
-    assert sum(r[k] for k in ['financial_wait_seconds','review_wait_seconds','preflight_wait_seconds']) <= 245*60
+    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['admitted_checkpoints']['P03']==m.root_spec('P03')['outer_sha256']
+    assert r['initial_reporting_origins']=={} and r['full_measured_closes']==2156
+    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P03']
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(503,'2019-12-31',16)
+    assert target['monthly_seed_root_admission_sha256']==m.root_spec('P03')['root_admission_sha256']
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
