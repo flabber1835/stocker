@@ -171,9 +171,6 @@ def legacy_catalog(conn, catalog):
     relations, columns, constraints, indexes, triggers = catalog
     modules = components()
     optional = (*presentation_components(), *access_path_components())
-    # Also detect orphaned functions/triggers when both tables were lost.
-    optional_present = [module for module in optional
-                        if module.require_schema(conn, allow_absent=True)]
     names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
     present = any(names(module) & set(relations) for module in modules)
     marker_possible = 'sentinel_processed_sessions' in relations
@@ -186,6 +183,11 @@ def legacy_catalog(conn, catalog):
                        for name, definition in required.items())):
             raise InstallationCatalogRefused(
                 'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
+    # Optional installations read the same marker columns; validate those
+    # columns before any component can query them in the caller's transaction.
+    # Also detect orphaned functions/triggers when both tables were lost.
+    optional_present = [module for module in optional
+                        if module.require_schema(conn, allow_absent=True)]
     marker = installation(conn, required=False) if marker_possible else None
     if not present and marker is None and not optional_present:
         return catalog

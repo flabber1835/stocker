@@ -753,7 +753,7 @@
     "operational_evidence.py": "9425b226dc2ab8c3875070ceb45aae3f6677c616c70b1eb660fcac7f7abfd07f",
     "operational_liveness_upgrade.py": "6c8fb8ba99d67c55c8571580606cc100c16b8276246016d13bece098b3824d45",
     "operational_runtime_upgrade.py": "26a1b3cc6c6816e954f1ea6be053d845a3a7fadd42275130d4bdf64a215bca48",
-    "operational_schema.py": "aeaa7a35fe149658f1e9131ea2338d63281f6ab4c7ec9adffbda43283875e574",
+    "operational_schema.py": "6fcde67ff4d7f3bc79a1bca2211a5b0103f28a1566cfc49e89b00a0856956323",
     "operational_status.py": "5cefa936615889fe6dd5d5cde7e0387a8356fb7f588fda06bbd86782c55e1d1c",
     "ownership.py": "739c11511f08c9d2c07045114c40a3b0756a8faaadd14cf7dda8bc5b655025c5",
     "ownership_view.py": "a9193a8ebf0f8546a2da6bc1fb7c46f9fecd4ae469635e036c48f1c117a560e5",

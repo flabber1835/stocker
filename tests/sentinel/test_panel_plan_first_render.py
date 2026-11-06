@@ -285,7 +285,9 @@ def test_completed_publication_expires_at_its_own_effective_open_not_a_new_metad
     opened, _ = calendar.session_window('2026-10-23')
     before = _published_panel(opened-timedelta(seconds=15))
     assert preparation_stage(before) == 'Market data published · plan preparation pending'
-    assert dashboard_health(before)['valid_until'] == opened.isoformat()
+    valid_until = dashboard_health(before)['valid_until']
+    assert valid_until == opened.astimezone(timezone.utc).isoformat()
+    assert datetime.fromisoformat(valid_until) == opened
     html = render(before)
     assert 'data-max-age-seconds="15.0"' in html and 'refreshes every 7s' in html
     # A fresh metadata read of the same old PUBLISHED job buys no new next-plan clock.
