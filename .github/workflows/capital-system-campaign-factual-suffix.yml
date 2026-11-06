@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        arm: [P03]
+        arm: [P06]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -46,7 +46,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Source327 capture P03 first128 future identities from independently admitted December503
+      - name: Report328 reproduce P06 saved December1259 monthly and retry state with exact readonly full10 bridge
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

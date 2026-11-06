@@ -5568,3 +5568,36 @@ remain bound to original own462; current conformance verifies actual503/full16,
 41+8 proof rows and the new128-query scope. All383 original sources/B19/future
 and four worker ASTs remain unchanged. Exact staged531-source/workflow closure
 must pass before publishing the503 root and source-only request.
+
+REPORT328 design selects zero financial workers and one readonly P06 worker
+for actual saved1259/2022-12-30/full10. FIN324 stops0/1/0 with216 members/
+450831168 logical bytes. Twenty-one new daily records contain six actual
+branch proof rows fromDecember22 onward; pre-event days get no fabricated
+proofs. Independent input/branch DATA v2
+f286b5f85c832d69da4197a6494efb8d5193d2271c8ea6204872b4025cd38309
+validates true8-to9-to10 boundaries and original committed1364 correlation
+rows, excluding12 old raw correlation tails and12 new January tails. Original
+own1238 remains current until full monthly/accounting admission closes.
+
+A separate exact readonly reporting bridge binds the authenticated FIN324
+request and saved1259 transport metadata, with no run.state serialization.
+Only after full target/declaration qualification, a compatibility tag selects
+the original retention extension seam. The actual model remains bounded
+input/1; no old B19 input, codec or prior seed is invented. Scope spans the
+whole unchanged preflight and retains all original compound projection and
+retention statements. Override only the full10 visitor and ABMD InputCodec
+context. Financial/source/admitted/foreign targets refuse this readonly scope.
+New modulef94984292f351498945d69bf733abf6e3c5bc7e2286902e492871be34d036d1e
+and manifest4d79abb1086eb1265648a249a59edb9b3170648577b1bd41af27e67f09517f15
+pass33 DATA checks10.48s, including two meaningful authority-guard removals
+and all four original partial-retention AST seams. Frozen v2 interpretation
+and all four financial worker bodies remain unchanged.
+
+REPORT328/request194 integrated targeted checks pass205 in58.99s. Exact
+request selects534 sources, zero financial workers and one readonly P06
+worker, with an explicit saved1259/full10 bridge declaration. Target
+1aac77e973536e06ef1ea1a00ff9927a7fb6aaeff7a8ed36e89bdec3662c47a4
+keeps original own1238/947662 unchanged. All original sources and worker
+bodies remain unchanged; exact staged534-source/workflow closure precedes
+publication. Source-only P03 and financial P05/P07 jobs stay at their own
+immutable commits and run concurrently without same-arm overlap.

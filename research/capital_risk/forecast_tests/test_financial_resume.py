@@ -40,16 +40,22 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
-    assert r['readonly_source_witnesses'] is True and r['readonly_partial_review'] is r['financial_resume_authorized'] is False
-    assert m.request_authority(r) and len(r['source_witness_scopes']['P03']['terms'])==128
-    assert r['source_witness_scopes']['P03']['additional_rows']==[]
+    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={}
     assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']=={}
+    assert set(r['selected_p06_abmd_reporting_bridges'])=={'P06'}
+    declaration=r['selected_p06_abmd_reporting_bridges']['P06']
+    assert declaration['target_completed']==1259 and declaration['readonly_reporting_only'] is True
+    assert declaration['old_B19_codec_installed'] is False and declaration['prior_seed_rows']==0
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=False,restored_correlation=False)}
-    assert r['admitted_checkpoints']['P03']==m.root_spec('P03')['outer_sha256']
-    assert r['initial_reporting_origins']=={} and len(r['sources'])==531
-    spec=m.root_spec('P03');assert (spec['measured_closes'],spec['selected_session'],len(spec['repairs']))==(503,'2019-12-31',16)
+    assert r['arm_inputs']=={'P06':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['admitted_checkpoints']['P06']==m.root_spec('P06')['outer_sha256']
+    assert r['initial_reporting_origins']=={} and len(r['sources'])==534
+    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P06']
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(1259,'2022-12-30',10)
+    assert target['p06_abmd_readonly_reporting_bridge']==declaration
+    assert m.root_spec('P06')['measured_closes']==1238
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

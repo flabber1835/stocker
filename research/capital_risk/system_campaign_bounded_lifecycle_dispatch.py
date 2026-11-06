@@ -2,6 +2,7 @@
 from contextlib import contextmanager,ExitStack
 from types import SimpleNamespace
 from pathlib import Path
+import json
 
 from full_system_benchmark import need
 from seal import sha256_file
@@ -13,7 +14,8 @@ def source_names():
     import system_campaign_p06_abmd_lifecycle_data as p06
     import system_campaign_p07_abmd_lifecycle as p07
     import system_campaign_p05_batch_runtime as p05
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names()))))
+    import system_campaign_p06_abmd_reporting as reporting
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -66,7 +68,9 @@ def expected_request(original,*,execution_mode,selected_arms):
         pin=sha256_file(HERE/name)
         need(name not in result['sources'] or result['sources'][name]==pin,'BOUNDED_DISPATCH_NO_SOURCE_PIN_REPLACEMENT')
         result['sources'][name]=pin
-    return result
+    import system_campaign_p06_abmd_reporting as reporting
+    return reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
+        target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -77,6 +81,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
     import system_campaign_p06_abmd_lifecycle_data as p06_data
     import system_campaign_p07_abmd_lifecycle as p07
     import system_campaign_p05_batch_runtime as p05
+    import system_campaign_p06_abmd_reporting as reporting
     need(mode in ('preflight','economic','review'),'BOUNDED_DISPATCH_EXPLICIT_LEGACY_MODE')
     with ExitStack() as stack:
         if dova.selected(spec):stack.enter_context(dova.entry_context(module,spec))
@@ -85,6 +90,9 @@ def entry(module,spec,*,mode,evidence=None,out=None):
                 out=out if mode=='review' else None))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
         if p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
+        if mode=='preflight' and reporting.selected(spec):
+            stack.enter_context(reporting.entry_context(spec,old=Path('/old'),out=out or Path('/out'),
+                request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())))
         old_overlay=module.factual_overlay_needed
         selected=dova.selected(spec) or p06_data.selected(spec) or p07.selected(spec)
         if selected:
