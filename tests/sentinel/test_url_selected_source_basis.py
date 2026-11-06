@@ -25,9 +25,10 @@ ACCESS_PATH_ADDITIONS = {'checkpoint_lineage_access.py', 'operational_ddl_handof
 ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
-CASH_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
+RECOVERY_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
                 'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py',
-                'execution/authority_gate.py', 'paper/validation.py', 'operational_schema.py'}
+                'execution/authority_gate.py', 'paper/validation.py', 'operational_schema.py',
+                'shadow_observation.py'}
 MARKET_OPEN_CHANGES = {'automation/service.py', 'execution/alpaca.py', 'execution/cash_corrections.py',
                       'panel/operational_snapshot.py', 'panel/presentation.py',
                       'panel/model.py', 'panel/sources.py'}
@@ -41,7 +42,7 @@ PATCH_CHANGES = {
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
     'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
-} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | CASH_CHANGES
+} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
     'automation_runtime.py', 'panel/app.py', 'panel/authority_reader.py', 'panel/model.py',
@@ -220,7 +221,7 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
         'panel/sources.py',
-        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | CASH_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -232,7 +233,7 @@ def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display
     actual = _actual()
     assert set(actual) == set(previous) | {'panel/feed_display.py'} | CASH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | CASH_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -243,7 +244,7 @@ def test_running_feed_display_source_is_retained_without_claiming_completed_inst
     assert admission.source_closure(previous) == 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'
     actual = _actual()
     assert set(actual) == set(previous) | CASH_ADDITIONS
-    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | CASH_CHANGES | {'url_selected_source_basis.py'}
+    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | {'url_selected_source_basis.py'}
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

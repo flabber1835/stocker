@@ -13,6 +13,43 @@ from tests.sentinel.test_rolling_go_inputs import issuer_source, published, read
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
 
 
+@pytest.mark.parametrize('state_field', ['initial_state', 'state'])
+def test_actual_rolling_status_preserves_native_store_read_timeout(
+        conn, published, monkeypatch, state_field):
+    import psycopg
+    from sentinel import shadow_observation
+    from tests.sentinel.test_rolling_runtime import advance
+    from tests.sentinel.test_rolling_initialization import OBS
+    expected = advance(conn)
+    before = conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions '
+                          'ORDER BY cursor_name').fetchall()
+    conn.rollback()
+    original = shadow_observation.PostgresShadowObservationStore._streamed_row
+    seen = []
+    def unavailable(self, name, field):
+        if field == state_field:
+            seen.append(name)
+            self.conn.execute("SET LOCAL statement_timeout='20ms'")
+            self.conn.execute('SELECT pg_sleep(1)')
+        return original(self, name, field)
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(shadow_observation.PostgresShadowObservationStore,
+                            '_streamed_row', unavailable)
+        with pytest.raises(psycopg.errors.QueryCanceled) as caught:
+            shadow_runtime.verified_shadow_status(conn, observation_id=OBS, starting_cash=100000)
+    assert seen and caught.value.sqlstate == '57014'
+    assert isinstance(automation_runtime.classify_dependency_failure(caught.value),
+                      TransientInfrastructureFailure)
+    assert conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions '
+                        'ORDER BY cursor_name').fetchall() == before
+    conn.rollback()
+    recovered = shadow_runtime.verified_shadow_status(conn, observation_id=OBS, starting_cash=100000)
+    assert recovered.verification == shadow_observation.VERIFIED
+    assert recovered.record_sha256 == expected.record_sha256
+    for table in ('sentinel_commands', 'sentinel_fills', 'sentinel_execution_plans'):
+        assert conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] == 0
+
+
 @contextmanager
 def _contended(conn, boundary):
     """Hold the opposite advisory mode on a second real PostgreSQL session."""

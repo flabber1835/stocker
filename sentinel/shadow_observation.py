@@ -1297,6 +1297,9 @@ class ShadowObserver:
         except ShadowObservationRefused:
             raise
         except Exception as exc:
+            from sentinel.dependency_availability import database_unavailable, local_contention
+            if database_unavailable(exc) or local_contention(exc):
+                raise
             raise ShadowObservationRefused(
                 "shadow observation genesis is unreadable") from exc
         if genesis is None:
@@ -1359,6 +1362,9 @@ class ShadowObserver:
         except ShadowObservationRefused:
             raise
         except Exception as exc:
+            from sentinel.dependency_availability import database_unavailable, local_contention
+            if database_unavailable(exc) or local_contention(exc):
+                raise
             raise ShadowObservationRefused(
                 "shadow observation genesis could not be persisted") from exc
         if matches is not True:
@@ -1758,6 +1764,9 @@ class ShadowObserver:
         except ShadowObservationRefused:
             raise
         except Exception as exc:
+            from sentinel.dependency_availability import database_unavailable, local_contention
+            if database_unavailable(exc) or local_contention(exc):
+                raise
             raise ShadowObservationRefused(
                 "shadow observation history is unreadable") from exc
         anchor = getattr(self, "_history_anchor", None)
@@ -2035,6 +2044,9 @@ class PostgresShadowRuntime:
         except ShadowObservationRefused:
             raise
         except Exception as exc:
+            from sentinel.dependency_availability import database_unavailable, local_contention
+            if database_unavailable(exc) or local_contention(exc):
+                raise
             raise ShadowObservationRefused(
                 "current corpus cannot reproduce the shadow warm-up input"
             ) from exc

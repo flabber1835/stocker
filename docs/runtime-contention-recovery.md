@@ -34,6 +34,31 @@ Already classified integrity exceptions remain terminal even when their cause
 was transient. The existing fail-closed callers still receive no result or
 authority while a dependency is unavailable.
 
+### Canonical history-read boundary
+
+Native correlation, 2026-11-06: PostgreSQL cancelled the streamed shadow-history
+row query at 18:31:05 UTC, immediately before automation recorded an unreadable
+history refusal and blocked recovery. A later fresh full read verified the same
+retained history under the unchanged 11000ms SQL limit. The history consumer's
+generic read-error wrapper was converting recognized database availability into
+`ShadowObservationRefused`, defeating the public wrappers' existing contract.
+
+Restore that contract at canonical status reads: genesis loading and verification,
+history consumption, and warm-up input revalidation preserve direct exceptions recognized
+by `dependency_availability.database_unavailable` or `local_contention` before
+wrapping unknown read failures. Keep existing `ShadowObservationRefused` values
+terminal, including those with a transient cause. Do not peel arbitrary cause
+chains, infer retry from text, alter a deadline or retry budget, supply a partial
+history, grant authority, change stored bytes or reset a blocked cycle. A later
+attempt must perform the complete ordinary verification again.
+
+Qualify a real PostgreSQL statement timeout through the actual history consumer,
+public shadow/PAPER boundaries and normal recovery classification, successful
+access after the dependency recovers, and permanent malformed/permission/unknown
+errors. Remove the preservation branch to prove the timeout oracle fails. The
+correlated timeout establishes a read-availability incident; it does not by itself
+attribute database CPU, I/O, locking or memory cost, or prove book corruption.
+
 Validate actual PostgreSQL reader/writer exclusion, production worker exit
 semantics, recovery after lock release, and unchanged durable state while held.
 Exercise the real rolling service as well as the smaller classification seams.

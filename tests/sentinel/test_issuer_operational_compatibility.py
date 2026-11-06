@@ -63,6 +63,31 @@ _PRESENTATION_OVERLAY = (
 
 # Reverse only exact reviewed common-access-path hunks. Every predecessor
 # SHA and immutable contracts pin below remains independently unchanged.
+_CATALOG_START = (
+    '    relations, columns, constraints, indexes, triggers = catalog\n'
+    '    modules = components()\n'
+    '    optional = (*presentation_components(), *access_path_components())\n')
+_MARKER_CATALOG_GUARD = '''    names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
+    present = any(names(module) & set(relations) for module in modules)
+    marker_possible = 'sentinel_processed_sessions' in relations
+    if marker_possible:
+        required = {'cursor_name': ('text', True), 'session': ('date', True),
+                    'state': ('jsonb', False)}
+        observed = columns.get('sentinel_processed_sessions', {})
+        if (relations['sentinel_processed_sessions'] != ('r', 'p', False, False, False)
+                or any(observed.get(name, ())[:2] != definition
+                       for name, definition in required.items())):
+            raise InstallationCatalogRefused(
+                'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
+'''
+_OPTIONAL_INSTALLATIONS = (
+    '    # Also detect orphaned functions/triggers when both tables were lost.\n'
+    '    optional_present = [module for module in optional\n'
+    '                        if module.require_schema(conn, allow_absent=True)]\n')
+_READ_ORDER_COMMENT = (
+    '    # Optional installations read the same marker columns; validate those\n'
+    "    # columns before any component can query them in the caller's transaction.\n")
+
 _ACCESS_PATH_OVERLAY = {
     "operational_catalog.py": (
         ("\n\ndef _index_pairs(module):\n    values = getattr(module, 'extension_index_pairs', ())\n    _require(isinstance(values, (tuple, list, set, frozenset))\n             and all(isinstance(item, tuple) and len(item) == 2\n                     and all(isinstance(name, str) and name for name in item)\n                     for item in values), 'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    pairs = set(values)\n    _require(len({name for _, name in pairs}) == len(pairs),\n             'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    return pairs\n\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    index_pairs = _index_pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n",
@@ -79,6 +104,10 @@ _ACCESS_PATH_OVERLAY = {
          "# marker. Its exact catalog is recognized when present, never silently hidden.\nPRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)\n_LOCK = (1397706832, 1330660145)\n_FUNCTION = 'sentinel_operational_installation_guard'\n"),
         ("\n\ndef access_path_components():\n    return tuple(importlib.import_module(name) for name in ACCESS_PATH_COMPONENTS)\n\n\ndef contracts():\n    return {module.__name__: hashlib.sha256(_canonical(list(module.DDL))).hexdigest()\n",
          "\n\ndef contracts():\n    return {module.__name__: hashlib.sha256(_canonical(list(module.DDL))).hexdigest()\n"),
+        # Reverse only the exact reviewed read-order correction before applying
+        # the original closed overlay. Every historical digest stays unchanged.
+        (_CATALOG_START + _MARKER_CATALOG_GUARD + _READ_ORDER_COMMENT + _OPTIONAL_INSTALLATIONS,
+         _CATALOG_START + _OPTIONAL_INSTALLATIONS + _MARKER_CATALOG_GUARD),
         ("    relations, columns, constraints, indexes, triggers = catalog\n    modules = components()\n    optional = (*presentation_components(), *access_path_components())\n    # Also detect orphaned functions/triggers when both tables were lost.\n    optional_present = [module for module in optional\n",
          "    relations, columns, constraints, indexes, triggers = catalog\n    modules = components()\n    optional = presentation_components()\n    # Also detect orphaned functions/triggers when both tables were lost.\n    optional_present = [module for module in optional\n"),
         ("        return catalog\n    excluded_tables = set()\n    excluded_indexes = set()\n    from sentinel.operational_catalog import _index_pairs\n    excluded_triggers = {('sentinel_processed_sessions', _TRIGGER),\n                         ('sentinel_processed_sessions', _TRUNCATE_TRIGGER)} if marker else set()\n",
@@ -155,6 +184,8 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
     ('operational_catalog.py', b'index_pairs <=', b'set() <='),
     ('operational_schema.py', b'if not quiescent:', b'if False:'),
     ('operational_schema.py', b'(name, key) not in excluded_indexes', b'False'),
+    ('operational_schema.py', b"'state': ('jsonb', False)", b"'state': ('text', False)"),
+    ('operational_schema.py', b'if marker_possible:', b'if False:'),
 ])
 def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent

@@ -846,7 +846,7 @@
     "shadow_drain.py": "2672329fa1f13937d77574e8631a09a3a5709da10aecc2d359c1e61118579060",
     "shadow_drain_compat.py": "b97c24101d962829502622eaeffb35df255552040970f207a354c60c58a684cc",
     "shadow_health_projection.py": "f3ead0514398cd91798eab82d27b6507fa0d5ac85c9d6075780be63cfb44a185",
-    "shadow_observation.py": "aed634895787fd44f5518cc535c0e577bac260e9725f09df1f553a0d96a1c643",
+    "shadow_observation.py": "1b50139ead6ee768c481cdb426d451e7f8cca7bef4a41c923564d801506449d9",
     "shadow_recovery.py": "20aa7b13a872092b270235c31c09b836b7e840e694dc1d57e6b73da0ab753e0f",
     "shadow_restart_recovery.py": "e3dc5822fed6fe16de40e9bebeee298124f550979ea9380735c2dcb399c3e9eb",
     "shadow_runtime.py": "ec05fbc58ac44fad5477792f36cdff28d1399590472bd7ec808936b7d3b40f46",

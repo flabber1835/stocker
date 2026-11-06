@@ -173,8 +173,9 @@ Software installation and financial activation remain separate; an accepted
 source or retirement receipt alone cannot authorize trading. LIVE and the
 protected backtest remain excluded.
 
-The complete-source seal advances to version 14 for this execution-only
-successor. Preserve all 13 retained source maps, original economic mappings and
+The complete-source seal advances to version 14 for the execution and
+operational read-availability successor. Preserve all 13 retained source maps,
+original economic mappings and
 historical lifecycle commitments. Refresh only the complete candidate map and
 the checker's version/digest binding; do not add a software-only or uninstalled
 candidate as an admitted financial predecessor. Record the current preparation
