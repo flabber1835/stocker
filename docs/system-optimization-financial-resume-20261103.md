@@ -4989,3 +4989,51 @@ that fixture correction. The new current/historical root conformance tests
 cover P05's complete15-input history, six cash proofs and nonactivation of
 the old May query at the new June root. Packet/cloud qualification is pending
 the new hosted source request; P03's endpoint remains October31,2019.
+
+SOURCE316 positively completes with preflight exit0, no financial worker and
+no adopted checkpoint. Artifact13469001296 has190828bytes, ZIP
+30858f8c466128299689ebf5070462e1e38d810be704299d1f0708f3870daf49;
+33 authenticated members total505001 logical bytes. Its preparation receipt
+24acf9f9f4344fcf09c871dcf19e3559e76fcbf6bbd62b532b826a1b6dff6562
+binds the actual typed document55e9eef76c3a0c837b6a1ad8a526879de9789f89319e15f82036ccd681882195,
+the one unchanged native/event packet, retained original incomplete refusal,
+wrong-predecessor/consumed-cursor falsifiers and the27.50..29.00 selected
+synthetic signal range. The original hosted B19 synthetic-cloud qualifier
+passes with digest0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56.
+Independent DATA closure of these preparation artifacts remains required;
+full P03 adoption/restart/review integration is still unselected.
+
+SOURCE317 design selects zero financial workers and one readonly P05 worker
+from own1132/fbc682. Add a distinct strict held/pending query family; retain
+the existing unheld/future query schema and all three existing query records.
+The new query binds exactly15 prior inputs,35 SRRA shares in slot8 entered
+June27, pending-age0/stale-at-event0, unresolved=false and the consumed
+incomplete June30 native26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6.
+Capture the June29 source identity plus the full June30 final-trading row
+b12671a9fa13421824143ffada3f10719c77f165d49c005e2e8094cd39393d3e;
+both declare the actual current35-share role. Reject nonempty future/unheld
+claims, altered counts/roles, consumed dates other than the exact parent
+native, bool-for-int pending ages and monetary fields. Original source
+capture/reconstruction and all four worker bodies remain unchanged.
+
+Separate SEC accession0001193125-22-187182 Items2.01/3.01 and Nasdaq
+ECA2022-160 confirm55USD eligible-common cash and completion/suspension before
+July1 opening, preserving June30 trading. These are fresh primary facts,
+not an upgrade of an older unheld-only record. A later financial input must
+separately qualify exact held/pending completion without suppressing or
+rewriting the already consumed June30 native. It must also preserve the
+authenticated MSP material/logs alongside the26 earlier forward cash terms.
+SOURCE317 grants source identity and pending-role evidence only; no amount,
+settlement, input adoption or performance authority is selected.
+
+The private pending-source tests pass37 in8.39s. Four meaningful guard-removal
+cases pass4.22s, covering exact root, no financial authority, pending native
+clock and equal held/additional roles, with strict numeric/boolean schema
+falsifiers and five financial import fences.
+
+SOURCE317/request183 targeted launcher/partial/retention/unheld-query/pending-
+query/source-generation/retained-cash/bounded-input checks pass410 in27.06s.
+The exact request probe selects479 sources, zero financial workers and one
+readonly P05 worker; its bounded preparation declaration is empty. The current
+P03 preparation artifact remains bound to the earlier477-source request182.
+No financial model, pending cash amount or root is selected by request183.

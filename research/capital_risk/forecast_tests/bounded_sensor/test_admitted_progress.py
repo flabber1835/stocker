@@ -15,7 +15,10 @@ def test_current_p05_june_root_has_full15_inputs_and_independent_six_cash_proof(
 
 def test_old_may_MSP_query_does_not_activate_for_new_june_root():
     original={'P05':{'unselected_original':True}}
-    assert queries.selected_scopes(original,['P05'],enabled=True,root_lookup=root_spec)==original
+    scope=queries.selected_scopes(original,['P05'],enabled=True,root_lookup=root_spec)['P05']
+    assert scope['parent_cursor']=='2022-06-30' and scope['terms'][0]['ticker']=='SRRA'
+    assert scope['terms'][0]['pending_at_parent']['pending_sessions']==0
+    assert next(q for q in queries.registry().queries if q.arm=='P05').scope.parent_cursor=='2022-05-31'
 
 def test_p03_DOVA_preparation_query_has_exact_native_and_event_quote_only():
     scope=queries.selected_scopes({},['P03'],enabled=True,root_lookup=root_spec)['P03']

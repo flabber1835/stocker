@@ -90,6 +90,9 @@ def selected_scopes(original,arms,*,enabled,root_lookup):
              and (root['outer_sha256'],root['selected_session'])==(scope['parent_outer_sha256'],scope['parent_cursor']),
              'EXACT_CURRENT_OWN_ROOT_AXIS_AND_AUTHORITY')
         result[query.arm]=scope
-    return result
+    from system_campaign_pending_source_queries import selected_scopes as select_pending
+    return select_pending(result,arms,enabled=enabled,root_lookup=root_lookup)
 
-def source_names():return (Path(__file__).name,CATALOG)
+def source_names():
+    from system_campaign_pending_source_queries import source_names as pending_names
+    return (Path(__file__).name,CATALOG,*pending_names())
