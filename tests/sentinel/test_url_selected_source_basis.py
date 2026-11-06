@@ -20,16 +20,19 @@ def _actual():
     return admission._source_files(Path(basis.__file__).parent)
 
 
+ACCESS_PATH_ADDITIONS = {'checkpoint_lineage_access.py', 'operational_ddl_handoff.py'}
+ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
+                       'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 OPERATIONAL_ADDITIONS = {
     'automation/source_completion.py', 'panel/attempt_store.py', 'panel/delivery.py', 'panel/observer_failure.py',
     'panel/operational_snapshot.py', 'panel/projection_service.py', 'panel/projection_worker.py',
     'panel/segment_disclosure.py', 'panel/serialization.py',
-}
+} | ACCESS_PATH_ADDITIONS
 PATCH_CHANGES = {
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
     'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
-}
+} | ACCESS_PATH_CHANGES
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
     'automation_runtime.py', 'panel/app.py', 'panel/authority_reader.py', 'panel/model.py',
@@ -182,7 +185,7 @@ def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_chan
     assert len(previous) == 451
     assert admission.source_closure(previous) == 'ea3e4e163241a2075bf5b49fa965b384e65bf2f8456a7e346e0fe8bba38978f8'
     actual = _actual()
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
@@ -193,20 +196,21 @@ def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes()
     assert len(previous) == 451
     assert admission.source_closure(previous) == '2778b44660897768e9f808e4f26ac16847e158feba06f3b5187a3ab9defb8552'
     actual = _actual()
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
-def test_installed_reusable_observer_is_retained_for_narrow_supersession_correction():
+def test_installed_reusable_observer_is_retained_for_exact_root_cause_corrections():
     previous = basis._profile()['retained_predecessors'][basis.PREPARATION_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
     assert len(previous) == 451
     assert admission.source_closure(previous) == '9888f64b30c02da6b06091c52a6961d91282a5473142cdf4519b865bc6459f46'
     actual = _actual()
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'panel/shadow_source_wait.py', 'url_selected_source_basis.py'}
+        'panel/shadow_source_wait.py', 'panel/projection_service.py',
+        'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

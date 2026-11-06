@@ -19,6 +19,7 @@ from sentinel.panel import operational_schema as schema
 
 DEADLINE_SECONDS = 20
 POLL_SECONDS = 5
+SUPERSEDED_RETRY_SECONDS = .25
 MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
 HEARTBEAT = Path('/tmp/sentinel-operational-projection-heartbeat')
@@ -231,7 +232,9 @@ class Publisher:
                                           elapsed=time.monotonic()-started)
                     failed = False
                     HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
-                elif result.get('outcome') != 'SUPERSEDED':
+                elif result.get('outcome') == 'SUPERSEDED':
+                    delay = SUPERSEDED_RETRY_SECONDS
+                else:
                     failed = True
             except Exception as exc:
                 failed = True

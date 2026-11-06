@@ -17,6 +17,9 @@ import os
 c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
 try:
     installation=operational_schema.install_quiescent(c)
+    for component in operational_schema.access_path_components():
+        assert component.require_schema(c)
+    c.rollback()
     end=time.monotonic()+90
     complete=False
     while time.monotonic()<end:
@@ -60,6 +63,8 @@ c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_
 try:
     c.execute('BEGIN TRANSACTION READ ONLY')
     assert operational_schema.require_schema(c)
+    for component in operational_schema.access_path_components():
+        assert component.require_schema(c)
     installation=operational_schema.installation(c,required=True)
     print(json.dumps(dict(installation=installation,complete=True),sort_keys=True))
 finally:

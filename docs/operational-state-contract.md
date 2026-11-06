@@ -434,3 +434,37 @@ candidate source seal and retain the independently authenticated installed
 predecessor and all earlier economic/history mappings. Run exact-head required CI
 and verify the ready PR targets main. Installation/activation remain a later
 owner action.
+
+### Superseded operational collection scheduling
+
+Decision, 2026-11-06, before implementation. The post-VERIFIED observation of
+local release 4a08f5961 contained two expired native snapshots. The retained
+samples do not identify the intervening collector outcomes or their timing;
+attribution of either expiry to supersession remains unproven. The lineage
+access-path work addresses its separately evidenced SQL timeout and does not
+establish that it resolves every operational freshness gap.
+
+Independently, the publisher has a deterministic scheduling defect: successful
+publication uses the original expiry to choose its next wake, while a typed
+SUPERSEDED collection falls back to a five-second polling delay. With an original
+snapshot expiring at t12, a next collection admitted at t0.25 and superseded after
+eight seconds leaves only 3.75 seconds of that proof. A five-second delay followed
+by a two-second current collection publishes at t15.25. A 0.25-second yield
+instead publishes at t10.5, before the unchanged original expiry.
+
+Select the existing fixed 0.25-second positive yield for typed SUPERSEDED work.
+Retain one worker and owner, the original 20-second per-call cap and every source
+deadline. Supersession neither clears a prior failure latch nor writes a success
+heartbeat or successful review/publication evidence. Repeated supersessions keep
+that positive bounded yield and remain interruptible by shutdown. Real failures
+retain their existing handling. Do not extend or renew the previous receipt.
+
+Qualify the complete publisher loop with the stated deterministic chronology,
+native three-second heartbeat/twelve-second lease boundaries, a restored
+five-second-backoff falsifier, repeated supersessions with/without a prior
+failure, no supersession heartbeat and shutdown without another admission.
+This corrects the demonstrated avoidable delay; repeated full collections can
+still exceed a short native proof's remaining lifetime. It does not prove
+uninterrupted freshness under arbitrary collection cost or dependency churn;
+the installed candidate needs further end-to-end observation and any remaining
+composition-boundary cause must be addressed from its own evidence.

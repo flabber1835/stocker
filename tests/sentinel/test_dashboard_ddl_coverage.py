@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from sentinel import binding, mirror_projection, operational_ddl_epoch, operational_schema, schema
+from sentinel import operational_ddl_handoff as handoff
 from sentinel.execution import evidence_projection as coverage, journal
 from sentinel.execution.contract import BrokerAccountIdentity
 from sentinel.execution.simulator import SimulatedBroker
@@ -171,13 +172,9 @@ def test_unexpected_ddl_is_atomic_and_removed_epoch_guard_is_killed(conn, monkey
         original(c); c.execute('CREATE TABLE unexpected_dashboard_ddl(id integer)')
     monkeypatch.setattr(review_schema, 'install', extra)
     if remove_guard:
-        source = inspect.getsource(migration.install)
-        needle = 'require(operational_ddl_epoch.current(conn) == (epoch[0], epoch[1] + DDL_ADVANCE),'
-        assert source.count(needle) == 1
-        namespace = {}
-        exec(compile(source.replace(needle, 'require(True,'), 'removed-dashboard-epoch-guard', 'exec'),
-             vars(migration), namespace)
-        monkeypatch.setattr(migration, 'install', namespace['install'])
+        real = handoff._require
+        monkeypatch.setattr(handoff, '_require', lambda value,reason,refusal:
+            None if reason.endswith('DDL advance differs') else real(value,reason,refusal))
     def check():
         with pytest.raises(migration.ReviewMigrationRefused, match='DDL advance differs'):
             review_schema.install_quiescent(conn)
@@ -323,13 +320,9 @@ def test_source_head_change_during_ddl_refuses_and_removed_guard_is_killed(conn,
                   "VALUES('broker-observation:v4:unexpected','2026-11-03','{}'::jsonb)")
     monkeypatch.setattr(review_schema, 'install', changed)
     if remove_guard:
-        source = inspect.getsource(migration.install)
-        needle = 'require(coverage.head(conn, domain, lock=True) == coordinates,'
-        assert source.count(needle) == 1
-        namespace = {}
-        exec(compile(source.replace(needle, 'require(True,'), 'removed-dashboard-head-guard', 'exec'),
-             vars(migration), namespace)
-        monkeypatch.setattr(migration, 'install', namespace['install'])
+        real = handoff._require
+        monkeypatch.setattr(handoff, '_require', lambda value,reason,refusal:
+            None if reason.endswith('evidence head changed') else real(value,reason,refusal))
     def check():
         with pytest.raises(migration.ReviewMigrationRefused, match='evidence head changed'):
             review_schema.install_quiescent(conn)
