@@ -65,7 +65,8 @@ def test_forged_older_ack_refuses_instead_of_pending(tmp_path):
     ('quiescent_at',(NOW+timedelta(seconds=1)).isoformat()),
     ('quiescent_at',(NOW-timedelta(seconds=602)).isoformat()),
     ('quiescent_at',(NOW-timedelta(seconds=1)).isoformat()),
-])
+],ids=('schema','kind','request-digest','future-quiescence',
+       'before-prior-request','after-prior-deadline'))
 def test_authenticated_malformed_or_out_of_interval_prior_ack_refuses(tmp_path,field,value):
     _first,current,_old=two_requests(tmp_path)
     prior=drain._load(tmp_path/drain.ACK_NAME)
