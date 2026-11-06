@@ -7,6 +7,7 @@ from pathlib import Path
 from full_system_benchmark import need
 import system_campaign_retained_forward_cash as original
 import system_campaign_retained_cash_materials_v2 as materials
+from system_campaign_pending_cash_api import observer_initializer
 
 
 def source_names():
@@ -53,7 +54,7 @@ def context(root,cp,out,spec):
     need(future.ActualEvents is Original,'RETAINED_CASH_V2_EXACT_UNWRAPPED_OBSERVER')
     class ObservedCash(Original):
         def __init__(self,target,arm,*,cp=None):
-            Original.__init__(self,target,arm,cp=cp)
+            observer_initializer(Original.__init__,cp,arm)(self,target,arm,cp=cp)
             need(arm==plan['arm'] and Path(target)==Path(out),'RETAINED_CASH_V2_EXACT_ACTIVE_OUTPUT')
             original.merge_terms(self,terms)
     need(ObservedCash.advance is Original.advance and ObservedCash.terminal is Original.terminal,

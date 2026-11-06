@@ -13,6 +13,7 @@ ROLE='SRRA-own1132-pending-role-DATA.json'
 ROLE_SHA='c32076fb3cbc7b469864aa2d1815e83e79291770e7c34a0df8cc32c14a8c22cc'
 FUNCTIONS=('selected','suppressions','hydrate','document','prepare','review_input','source_scopes')
 need,sha,digest=original.need,original.sha,original.digest
+ORIGINAL_OBSERVER_INITIALIZER=original.ActualEvents.__init__
 
 def source_names():
     return ('system_campaign_pending_cash_api.py','system_campaign_qualified_pending_cash.py',CATALOG,ROLE,cash.PRIMARY)
@@ -75,3 +76,16 @@ def for_parent(cp,arm):
     need(cp['sha256']==cash.OUTER and len(cp['repairs'])==15 and cp['completed']==1132,
          'PENDING_API_ONE_EXACT_NEW_OWN_PARENT_PHASE')
     return private_api()
+
+def observer_initializer(constructor,cp,arm):
+    if cp is None:return constructor
+    api=for_parent(cp,arm)
+    if api is original:return constructor
+    need(constructor.__code__ is ORIGINAL_OBSERVER_INITIALIZER.__code__,
+         'PENDING_API_EXACT_ORIGINAL_OBSERVER_CONSTRUCTOR')
+    need(constructor.__closure__ is None,'PENDING_API_OBSERVER_NO_HIDDEN_CLOSURE')
+    bound=FunctionType(constructor.__code__,dict(constructor.__globals__,source_scopes=api.source_scopes),
+                       constructor.__name__,constructor.__defaults__)
+    bound.__kwdefaults__=deepcopy(constructor.__kwdefaults__)
+    need(bound.__code__ is constructor.__code__,'PENDING_API_WHOLE_ORIGINAL_OBSERVER_CONSTRUCTOR_CODE')
+    return bound

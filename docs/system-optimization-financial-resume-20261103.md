@@ -5161,3 +5161,54 @@ with486 sources, one financial worker and zero readonly workers. All383
 original drivers, B19 and four legacy worker function ASTs remain unchanged.
 The next staged snapshot must verify the exact486 source closure before push.
 No financial sessions have advanced during this DATA-only preparation.
+
+P03 private neutral-adoption design reuses paused_own_adoption's entire source
+body, adding exactly one names-dictionary entry for the qualified bounded
+input filename and its distinct adoption directory. Keep original AdmissionPause,
+AdoptionGate, backtest.main call, exact boundary/read-back, zero-calls and
+correlation-byte checks. Verify the full original helper-source hash and whole
+function AST undo. Invocation is hosted-only and requires the actual active
+InputCodec owner, the exact source-bound typed document and actual own462/full15
+parent. This helper grants no financial writer/restart selection. Local
+qualification is AST/metadata only and cannot call canonical imports.
+
+FIN319 positively stops0/1/1 with zero new committed sessions and preserves
+artifact13472242357,132144138bytes, ZIP
+9c04fcb2d5597031624bb8f2f65c540ea09742ac1d3e3bb089270779c2b280c3.
+Its181 authenticated members total209362008 logical bytes. The saved book
+is byte-identical own1132/June30. Worker KeyError P05 occurs in the original
+ActualEvents constructor's source_scopes call, whose original namespace
+still resolves selected through the old registry. The compiler/preparation
+used the private phase correctly, but no adoption boundary was reached;
+review correctly refuses the absent input-adoption checkpoint.
+
+Correction design binds the entire original constructor code object to the
+already-qualified API source_scopes function for this exact own1132 phase.
+Keep terminal/advance/enter/exit and every observer helper body unchanged.
+Source-scope expected/actual term sets still use the entire unchanged
+source_scopes code object with the exact new selector; no source-only scope
+is dropped or relabeled. All other constructor cases delegate unchanged.
+Qualify with authenticated FIN319 overlay/material through a read-only member
+object, actual own1132 JSON metadata, old27-term resource union and a regression
+showing the original unbound constructor's KeyError. A fresh request follows;
+FIN319 is not rerun and its failed generation remains preserved.
+
+FIN320 private actual-constructor and portable observer checks pass28 in21.39s.
+Qualification3a6afc801aa214759bdcdb169cb417884f0976274b50327a7866d500f84c17b8
+reads authenticated FIN319 overlay/material and original own1132 gzip metadata
+without staging a book. It reproduces the old unbound KeyError, then validates
+the original constructor code object with the exact source_scopes binding,
+all28 terms, empty source-only scopes and unchanged terminal/advance methods.
+Portable tests also refuse source-only reclassification and foreign constructors.
+
+P03 private additive pause-helper metadata qualification passes12 in5.76s,
+including entire original paused_own_adoption AST undo, exact original three
+filename mappings plus one new entry, a meaningful source-guard falsifier
+and five import fences. No canonical neutral adoption was executed locally;
+the full P03 writer/retention/review lifecycle remains unselected.
+
+FIN320/request186 integrated targeted checks pass302 in53.74s. Exact import
+probe selects486 sources, one financial P05 worker, zero readonly workers
+and no source-witness or bounded-preparation declaration. All legacy worker
+bodies, original383 drivers, B19 and future.py bytes stay unchanged. The
+staged snapshot must verify this exact486-source closure before publication.

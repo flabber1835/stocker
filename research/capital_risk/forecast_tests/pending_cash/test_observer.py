@@ -30,6 +30,7 @@ def context_fixture(monkeypatch,out,*,stage_terms=None):
     import full_system_core
     import system_campaign_financial_future as future
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+    monkeypatch.setattr(data,'observer_initializer',lambda constructor,cp,arm:constructor)
     plan=dict(arm='P05')
     class Original:
         def __init__(self,target,arm,*,cp=None):self.terms={};self.scopes=[];self.original_cp=cp
