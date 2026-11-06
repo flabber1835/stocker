@@ -23,8 +23,9 @@ def source_names():
     import system_campaign_p03_thor_runtime as thor
     import system_campaign_p06_BBIG_runtime as bbig
     import system_campaign_p07_vivo_profile as vivo
-    import system_campaign_p05_remaining_runtime_v2 as remaining
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json'))))
+    import system_campaign_p05_remaining_runtime_v3 as remaining
+    import system_campaign_p03_thor_qualification_reuse as reuse
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -67,7 +68,7 @@ def expected_request(original,*,execution_mode,selected_arms):
             result['arm_inputs'][arm]['new_factual_overlay']=(dova.initial(spec) or p06.selected(spec)
                 or (arm=='P07' and spec.get('root_admission_sha256')==p07.INITIAL_ROOT))
     result['selected_abmd_bounded_inputs']=declarations
-    import system_campaign_p05_remaining_runtime_v2 as remaining
+    import system_campaign_p05_remaining_runtime_v3 as remaining
     result['selected_neutral_cash_batches']={}
     for arm in selected_arms:
         spec=root_spec(arm)
@@ -98,6 +99,8 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_runtime as thor
     result=thor.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p03_thor_qualification_reuse as reuse
+    result=reuse.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_BBIG_runtime as bbig
     result=bbig.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p05_remaining_source_preparation_v2 as prep
@@ -130,7 +133,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         if vivo_selected:stack.enter_context(vivo.entry_context(module,spec,mode=mode,request=active_request))
         elif composite.applies(spec):stack.enter_context(composite.source_context(module,spec,mode=mode,request=active_request))
         if p07.selected(spec):stack.enter_context(p07.entry(spec))
-        import system_campaign_p05_remaining_runtime_v2 as remaining
+        import system_campaign_p05_remaining_runtime_v3 as remaining
         if remaining.selected(spec,active_request):
             stack.enter_context(remaining.entry_context(module,spec,request=active_request,mode=mode,out=out or Path('/out'),evidence=evidence))
         elif p05.family(spec):stack.enter_context(p05.entry_context(module,spec))
@@ -158,6 +161,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         try:
             import system_campaign_p03_thor_runtime as thor
             import system_campaign_p06_BBIG_runtime as bbig
-            with thor.entry_context(module,spec,request):
+            import system_campaign_p03_thor_qualification_reuse as reuse
+            with reuse.entry_context(module,spec,request):
                 with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
         finally:module.factual_overlay_needed=old_overlay

@@ -6936,3 +6936,106 @@ This does not authorize silent replacement of mismatched existing metadata.
 
 
 Private qualifications: P06 586f93fea6c814ebc2e3fef763ebfe5ed8f1552991a561c5a804104416744582 (93 tests); P07 6284bf56a9bafc209d92c1e935e8395f0f7120cbff930f003bc54b4af7702114 (88 tests). Genuine hosted packet/adoption/runtime/review outputs remain required. Historical causality remains UNVERIFIED.
+
+
+## FIN340: P03 exact retained reuse and P05 whole-module gate identity
+
+Select accepted P03 503/full16 and P05 1175/full19 as two independent financial workers while FIN339 P06/P07 run at their immutable previous SHA. Keep all failed outputs unadmitted and the canonical book, controller/math source bytes, original writer and four mature function bodies unchanged. Actual retained17 and retained20 roots remain unknown until hosted results independently close.
+
+# Exact P03 qualification reuse after the real neutral17 boundary
+
+FIN337's authenticated P03 worker accepted the genuine ordinary16-to17 input
+boundary, then stopped with zero new financial closes. The already present
+branch-controller-qualification.json collides with the unchanged retained
+body's exclusive writer before Certificate construction. The later missing
+uncertainty certificate is an expected downstream absence; never create one
+manually or treat that review as passed.
+
+The complete downstream audit also finds that the existing bounded-certificate
+constructor applies an initial pre-native seed predicate to every retained
+seed. The actual admitted49 seed ends2019-12-31, after the already consumed
+DOVA native. A second finite binding may accept only that exact genuine
+retained seed and actual neutral17/current controller state. Keep the entire
+original constructor code object and closure, change only its guard's need
+binding for PRIOR_COMMITTED_B19_SEED, require the actual constructor caller
+frame/self, and retain all other need calls. Preserve the original B19 base
+constructor, math restore, append, recovery, no-position, value and context
+methods. No new event, state, valuation or seed row is created.
+
+Keep the whole frozen THOR data/API/runtime package, typed runtime, original
+uncertainty source and four financial-resume function bodies unchanged. Add
+one separately declared P03 initial-root-only context. Bind THOR's whole typed
+run code object to an adapter over the complete existing run_retained AST.
+At exactly its one qualification write, retain the original exclusive writer
+for a missing file. An existing file can be reused only when its complete
+bytes equal the original qualified seed bytes and all original six-source,
+qualification and49-row seed checks have already passed. Never overwrite,
+unlink, chmod, truncate or silently replace the file.
+
+Before accepting reuse, independently read the actual selected16 archive and
+real neutral17 resources from the current output. Re-run the entire original
+THOR boundary validator, preserving full17 state/input/journal commitments,
+the exact ordinary patch and unchanged128 source-evidence limit. Compare all
+49 admitted seed rows byte-for-byte to the real retained63-row certificate's
+committed prefix, retaining the14 unadmitted tails only as provenance. Check
+the current qualification's full bytes against the real original source-bound
+qualification, and keep the existing full seed/model/caller guards intact.
+After either original creation or exact reuse, require exact output bytes and
+save an explicit noncanonical receipt. Actual review must verify the receipt
+and original retained prefix before calling the entire unchanged THOR review.
+
+The AST adapter has one exact undo: replacing its three qualification-dispatch
+statements with the original With node restores the complete existing typed
+run_retained body. No later original statements, codec/Certificate methods,
+preservation, financial source, controller, math, entry, or review checks are
+removed. Missing, changed, foreign or unqualified proof data remain refusals.
+No future17 root restart is authorized by this initial-phase correction.
+Read-only/source requests and other arms keep the original context path.
+
+Local qualification is DATA/source/AST only over actual authenticated FIN337
+files. It does not import a financial engine, restore/replay or stage a book,
+serialize a checkpoint, or execute a canonical financial transition. Actual
+post-fix financial progress and downstream certificate review remain unknown
+until a genuine hosted run supplies them.
+
+# FIN338 P05: preserve whole-module compiler context for gate identity
+
+The actual FIN338 P05 capture failed before adoption/financial advance at the
+original_gate all-five-method-code-shapes guard. The actual neutral checkpoint
+is absent and actual1175/2022-08-31/full19 is unchanged. Packet preparation
+passed36 checks in preflight and economic preparation; that grants no new root.
+
+The real m.AdoptionGate.write method and a class compiled alone from identical
+AST have different bytecode under CPython3.12. The whole module compiler sees
+json/gzip imports and emits different LOAD_GLOBAL NULL / LOAD_ATTR method flags.
+The other four methods match. Class AST and canonical source are unchanged;
+this is a verification compiler-context mismatch, not permission to weaken the
+method-shape guard or execute a substitute writer.
+
+Keep P05 runtimev1/v2 and both closed qualification files unchanged. A finitev3
+wrapper will lift only the original_gate baseline-class construction site.
+Compile the whole original source module with dont_inherit=True, extract its
+single top-level AdoptionGate CodeType from module.co_consts, construct that
+class body with FunctionType and __build_class__, and compare all five method
+shapes through the unchanged original predicate. Never execute the whole module
+code object, instantiate an actual gate, or call a writer locally. Preserve the
+whole class AST SHA guard and all-five guard; undo the one construction lift to
+recover the complete original_gate AST.
+
+Bind the complete v1 gate wrapper and v2 failure-reclosing wrapper to that guard,
+then bind the unchanged v2 selected/request/entry/launch functions to the v3
+declaration and gate. Source pins explicitly include v3 and its qualification;
+all prior packet36/resource/scope/accepted-before-advance guards stay intact.
+The actual m.AdoptionGate remains the executed canonical gate, and substitution
+of any of its five methods must still refuse. Qualify actual imported method
+identity under financial import fences, compiler-context discrepancy, AST undo,
+whole wrapper code objects, substitution/guard-removal falsifiers and restoration.
+No W edits, jobs, canonical replay/staging or financial writer execution.
+
+The unchanged original request body receives the v3 source directory explicitly
+as HERE so private/source-integrated layouts select the same declared files;
+all old source-pin conflict guards remain intact. This is a source-file lookup
+binding only and changes no financial parent or input semantics.
+
+
+Private qualifications P03 6207b0ca5b5a37bb1a4744d6acb029899b04c7a80474dcb62479cd62622602c4 (27 tests), P05 2cde14250527409a82a5fcc3ed47d782f28b468bef0484efe61d274a8e946dc6 (26 tests). Historical causality remains UNVERIFIED.

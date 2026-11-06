@@ -9,6 +9,8 @@ def test_THOR_facade_runs_after_generic_overlay_and_restores_both_worker_hooks(m
     import system_campaign_bounded_sensor_runtime_v2 as typed
     import system_campaign_financial_uncertainty as uncertainty
     import system_campaign_financial_resume as resume
+    import system_campaign_p03_thor_runtime as thor
+    import system_campaign_bounded_sensor_binding as binding
     from system_campaign_financial_partial import root_spec
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03',))
     request=resume.expected_request()
@@ -26,10 +28,13 @@ def test_THOR_facade_runs_after_generic_overlay_and_restores_both_worker_hooks(m
     assert request['selected_p03_thor_ordinary17']['P03']['old_committed_proof_rows']==49
     overlay=lambda _:False;module=SimpleNamespace(factual_overlay_needed=overlay)
     old_run,old_review=uncertainty.run,uncertainty.review
+    old_bound,old_factory=thor.bound_runtime,binding.certificate_class
     with pytest.raises(RuntimeError,match='EXPLICIT_THOR_ABORT'):
         with dispatch.entry(module,spec,mode='economic'):
             assert module.factual_overlay_needed(spec) is True and calls==['enter']
             assert uncertainty.run is not old_run and uncertainty.review is not old_review
+            assert thor.bound_runtime is not old_bound and binding.certificate_class is not old_factory
             raise RuntimeError('EXPLICIT_THOR_ABORT')
     assert calls==['enter','exit'] and module.factual_overlay_needed is overlay
     assert uncertainty.run is old_run and uncertainty.review is old_review
+    assert thor.bound_runtime is old_bound and binding.certificate_class is old_factory
