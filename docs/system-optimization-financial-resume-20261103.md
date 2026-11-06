@@ -5082,3 +5082,82 @@ native-only pending-query, source-generation, retained-cash and admitted-root
 checks pass255 in30.65s. The request selects479 sources, zero financial
 workers and one readonly P05 worker. All383 original driver files and the
 B19 source must remain byte-exact at the staged snapshot verification.
+
+Retained-cash v2 design preserves the closed v1 observer family without changing
+its source or plan. Authenticate every complete canonical descriptor after the
+original14th boundary against the full input hash, then resolve each exact
+material through its committed hydrated source-evidence hash. Only ordinary
+cash terms with held-share authority are supported by this visitor; no
+SOURCE_ONLY record may be relabeled. Preserve the exact overlay/material bytes
+under each descriptor's own namespace. Runtime staging remains hosted-only.
+One original ActualEvents constructor receives the union of the original26
+and all authenticated later terms; terminal/advance/caller methods stay intact.
+The independent review checks the full union and every committed log against
+adjacent accounting, including MSP after another new input is adopted. No
+current financial request or canonical checkpoint is changed by private v2
+qualification. Actual archived material inventory checks pass15 in13.46s,
+including eight semantic falsifiers, a meaningful hash-guard removal and five
+financial import fences. Runtime/context integration remains unselected.
+
+SOURCE318 positively stops with preflight0/non-OOM and zero financial workers.
+Artifact13471725575 has1668994bytes and ZIP
+508be637bc16a6841ce1c33b232104e7c41fb4841b29a4e4f19915fb436047e5;
+38 authenticated members total2233503 logical bytes. Independent closure
+retains the closed reader's complete archive/bundle/action verification and
+canonical JSON input/state commitments. A distinct pending-role visitor
+requires actual35 shares/slot8/pending0 and the complete carry preimage.
+The source payload must keep additional_rows empty. Extend the raw scanner
+with one explicitly separate parent-date quote key/hash; compare every field
+of captured June29 and the full June30 quote digest during the same complete
+annual scan. June30 remains independently read archive evidence, never a
+captured additional-row claim. All raw scanner changes must undo to its
+entire original AST. No financial input is selected by DATA source closure.
+
+Private retained-cash v2 runtime/context and metadata checks pass33 in11.43s.
+Synthetic noncanonical DTOs verify original method identity, exact restoration
+on success/exception, hosted-only staging and full review term/log forwarding;
+actual archived input material stays read-only. Both meaningful guard-removal
+checks and all ten import fences pass. Runtime selection remains pending.
+
+SOURCE318 independent DATA closure passes43 in12.79s:30 semantic mutations,
+six meaningful guard removals,five financial import fences and whole raw
+scanner AST undo. Review520c97991138348f34dd8063fcfc4ac92b21c181ac2786439599803239d7e988
+and qualification0db8b418959e78388f88bf2bc837b40be9549ead0e35d75520765e22c383ae49
+verify actual own1132/full15 and two native-date raw action rows. The full2022
+scan separately verifies June29 capture and June30 archive quote, preserving
+the latter's separate provenance.
+
+Pending-cash input design introduces a separate typed loader: preserve the
+entire original CashInputBatch validator except one exact clock comparison.
+That site accepts only qualified SRRA consumed-native and strict held/pending
+source context; all other cases retain the original future-native comparison.
+Preserve source_binding except explicit schema2 and exact pending-registry
+resolver sites; keep its empty additional-row predicate. Fresh55USD eligible-
+common/preopenJuly1 facts bind amount/calendar independently. No native
+suppression or June30 checkpoint rewrite is permitted.
+
+Use a separate source-bound API namespace for exact own1132. Clone complete
+original selected/suppressions/hydrate/document/prepare/review functions with
+identical code objects; the private registry adds only this phase, and its
+pending_completion binding verifies actual root/fullinput/held/pending/carry.
+Delegate every other phase to the original API. Selector evidence pins the
+new binding source. Keep future.py bytes unchanged, preserving P07 and all
+earlier source-generation pins. Route only existing overlay/adoption helpers
+to this API; all four legacy worker bodies remain unchanged. Financial
+selection requires loader/context/observer and integration qualification,
+then a fresh financial request.
+
+FIN319/request185 selects one financial P05 worker from exact own1132/fbc682
+with one new complete55USD cash input effectiveJuly1. Full15 prior inputs,
+the consumedJune30 native, held35/pending0 and entire carry preimage remain
+intact. Retained observation/review covers original26 plus adopted MSP and
+newSRRA; all committed logs stay required. All future.py bytes remain54ebe4.
+The private qualification initially passes66 checks in13.62s and exposes one
+binding-directory error; explicitly bind HERE to the new API's own source
+folder. Both affected original-code/actual-input checks then pass5.16s.
+Targeted integrated launcher/partial/retention/source-query/augmentation/
+observer/input/root tests pass298 in29.10s. Exact import/request probe passes
+with486 sources, one financial worker and zero readonly workers. All383
+original drivers, B19 and four legacy worker function ASTs remain unchanged.
+The next staged snapshot must verify the exact486 source closure before push.
+No financial sessions have advanced during this DATA-only preparation.

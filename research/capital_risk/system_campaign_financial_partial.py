@@ -352,7 +352,7 @@ def financial_inputs(root, parent, output, spec):
         import system_campaign_parallel_discovery_run as original
         if spec.get('retained_uncertainty_model') is None:
             with original.retained_inputs(root, parent, output):
-                from system_campaign_retained_forward_cash import context as retained_cash_context
+                from system_campaign_retained_cash_v2 import context as retained_cash_context
                 with retained_cash_context(root, parent, output, spec):
                     yield
             return

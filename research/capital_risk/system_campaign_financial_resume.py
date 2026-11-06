@@ -55,8 +55,8 @@ PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/184'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/185'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -77,7 +77,8 @@ def expected_request():
     from system_campaign_financial_future import WITNESS_SCOPES, OWN_CASH_CATALOG, ORIGINAL_ORDINARY_SOURCES, ORIGINAL_DELIVERY_SOURCES, ORIGINAL_DELIVERY_PHASES, ORIGINAL_ORDINARY_PHASES, COMBINED_PHASES, FUTURE_LITERAL_PHASES, CASH_PHASES, SUPPLEMENTAL_PHASES, original_composite_source_names
     from system_campaign_financial_uncertainty import unchanged_input_phase, validate_retained_admission_metadata, own_policy_source_names, own_policy_phase, own_model_declaration, own_unchanged_input_phase
     from system_campaign_explicit_source_queries import selected_scopes, source_names as explicit_source_names
-    from system_campaign_retained_forward_cash import source_names as retained_cash_source_names
+    from system_campaign_retained_cash_v2 import source_names as retained_cash_source_names
+    from system_campaign_pending_cash_api import source_names as pending_cash_source_names
     import system_campaign_bounded_sensor_preparation as bounded_preparation
     financial = EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
     reporting = EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
@@ -143,7 +144,7 @@ def expected_request():
              'system-campaign-tgi-cash-facts.json', 'system_campaign_tgi_facts.py',
              'system_campaign_point_growth.py',
              'system-campaign-financial-branch-contract.json', OWN_CASH_CATALOG, FRESH_REQUEST,
-             *ordinary_augmentation_source_names(), *explicit_source_names(), *retained_cash_source_names(), *bounded_preparation.source_names(),
+             *ordinary_augmentation_source_names(), *explicit_source_names(), *retained_cash_source_names(), *pending_cash_source_names(), *bounded_preparation.source_names(),
              *own_policy_source_names(), *original_composite_source_names(),
              *(term['retained_original_legal_record']['catalog_file']
                for term in json.loads((HERE / OWN_CASH_CATALOG).read_bytes())['terms']
@@ -443,8 +444,8 @@ def qualified_overlay(cp, out, spec):
         overlay, loaded = compound.prepare(cp, out, spec['arm'])
         return ['--repair-overlay', str(overlay)], initial_context(cp, out, spec, loaded)
     if 'root_admission' in spec:
-        from system_campaign_financial_future import prepare
-        overlay, loaded = prepare(cp, out, spec['arm'])
+        from system_campaign_pending_cash_api import for_parent
+        overlay, loaded = for_parent(cp, spec['arm']).prepare(cp, out, spec['arm'])
         return ['--repair-overlay', str(overlay)], AdoptionGate(cp, out / 'book',
             out / 'input-adoption', loaded.sha256, loaded.earliest_affected_session)
     if spec['arm'] not in ('P07', 'P10'):
@@ -476,8 +477,9 @@ def review_adoption(evidence, cp, spec):
     raw = (root / 'checkpoint.json.gz').read_bytes()
     saved = json.loads(gzip.decompress(raw))
     if 'root_admission' in spec:
-        from system_campaign_financial_future import OVERLAY, review_input
-        name, earliest = OVERLAY, review_input(cp, evidence, spec['arm'])
+        from system_campaign_pending_cash_api import for_parent
+        api = for_parent(cp, spec['arm'])
+        name, earliest = api.OVERLAY, api.review_input(cp, evidence, spec['arm'])
     else:
         name, earliest = overlay_contract(spec['arm'])
     event = adoption(saved, cp, sha256_file(evidence / name), earliest)
@@ -1074,7 +1076,7 @@ if __name__ == '__main__':
         elif args.mode == 'economic':
             economic(Path('/old'), Path('/out'), spec)
         else:
-            from system_campaign_retained_forward_cash import review_entry
+            from system_campaign_retained_cash_v2 import review_entry
             review_entry(Path('/evidence'), Path('/out'), spec, review)
     else:
         raise SystemExit(launch(args))

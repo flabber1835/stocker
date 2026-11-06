@@ -41,14 +41,12 @@ def proof():
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
     assert r['arms'] == ['P05']
-    assert r['maximum_parallel_financial_workers'] == 0 and r['maximum_parallel_readonly_workers'] == 1
-    assert r['readonly_partial_review'] is False and r['readonly_source_witnesses'] is True
-    assert r['financial_resume_authorized'] is False and m.request_authority(r)
-    assert len(r['source_witness_scopes']['P05']['terms']) == 1 and r['source_witness_scopes']['P05']['additional_rows'] == []
-    assert r['selected_bounded_preparations'] == {}
-    assert r['source_witness_scopes']['P05']['terms'][0]['parent_positions'][0]['quantity'] == 35
+    assert r['maximum_parallel_financial_workers'] == 1 and r['maximum_parallel_readonly_workers'] == 0
+    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False
+    assert r['financial_resume_authorized'] is True and m.request_authority(r)
+    assert r['source_witness_scopes'] == {} and r['selected_bounded_preparations'] == {}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P05':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['arm_inputs'] == {'P05':dict(new_factual_overlay=True,restored_correlation=False)}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
     assert r['initial_reporting_origins'] == {} and r['selected_ordinary_augmentations'] == {}
     assert set(r['selected_research_models']) == {'P07'}
