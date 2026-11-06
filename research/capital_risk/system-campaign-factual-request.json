@@ -1,69 +1,45 @@
 {
   "admitted_checkpoints": {
-    "P07": "1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a"
+    "P06": "bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08"
   },
   "admitted_financial_parents_sha256": "c62ad5db8fa2a60a54c8082ff1151705176b429dc9edf771af48d113674816f8",
   "arm_inputs": {
-    "P07": {
-      "new_factual_overlay": true,
+    "P06": {
+      "new_factual_overlay": false,
       "restored_correlation": false
     }
   },
   "arms": [
-    "P07"
+    "P06"
   ],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
-  "execution_mode": "OWN_ADMITTED_FINANCIAL_CONTINUATION",
-  "financial_resume_authorized": true,
+  "execution_mode": "READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION",
+  "financial_resume_authorized": false,
   "financial_source_changed": false,
   "financial_wait_seconds": 10800,
   "full_measured_closes": 2156,
   "full_measurement_end": "2026-07-31",
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
-  "maximum_parallel_financial_workers": 1,
-  "maximum_parallel_readonly_workers": 0,
+  "maximum_parallel_financial_workers": 0,
+  "maximum_parallel_readonly_workers": 1,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
   "production_contacted": false,
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "readonly_partial_review": false,
+  "readonly_partial_review": true,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/209",
-  "selected_abmd_bounded_inputs": {
-    "P07": {
-      "actual_owned_or_ordered_right_valuation_authorized": false,
-      "arm": "P07",
-      "catalog_file": "P07-own1238-ABMD-bounded-catalog-v2.json",
-      "catalog_sha256": "9ee81ba4dfe9ceb6e4d486be601e5e171126f949f4897cb605061aa7a5d5fdc1",
-      "current_root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
-      "every_reachable_canonical_decision_must_match": true,
-      "initial_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
-      "old_models_and_784_source_proofs_preserved": true,
-      "original_controller_source_unchanged": true,
-      "schema": "research.p07-abmd-bounded-declaration/1"
-    }
-  },
+  "schema": "research.system-campaign-accurate-resume-request/210",
+  "selected_abmd_bounded_inputs": {},
   "selected_abmd_preparations": {},
   "selected_bounded_models": {},
   "selected_bounded_preparations": {},
   "selected_neutral_cash_batches": {},
-  "selected_ordinary_augmentations": {
-    "P07": {
-      "adoption_required": false,
-      "canonical_financial_source_changed": false,
-      "catalog_file": "system-campaign-p07-own1196-ordinary-augmentation.json",
-      "catalog_sha256": "8d1225940f5be894af238d39d5c86c9543bd4c1f4897f1a3ac5e4036571c2168",
-      "current_root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
-      "origin_root_admission_sha256": "75e0e1cfee3007e1ff47a638e62597ed49820c1ecc8a7c1cfc7675c9db800719",
-      "original_model_inputs_and_certificates_preserved": true,
-      "schema": "research.retained-ordinary-augmentation/1"
-    }
-  },
+  "selected_ordinary_augmentations": {},
   "selected_p03_full17_reporting_bridges": {},
   "selected_p03_thor_ordinary17": {},
   "selected_p03_thor_qualification_reuse": {},
@@ -74,42 +50,34 @@
   "selected_p06_abmd_reporting_bridges": {},
   "selected_p06_admitted_point_continuations": {},
   "selected_p06_admitted_source_bridges": {},
-  "selected_p06_fin339_readonly_review_recoveries": {},
+  "selected_p06_fin339_readonly_review_recoveries": {
+    "P06": {
+      "arm": "P06",
+      "expected_new_rows": 43,
+      "expected_retained_rows": 130,
+      "expected_total_proof_rows": 173,
+      "fact_file": "P06-FIN339-readonly-recovery-fact.json",
+      "fact_sha256": "675f05967aaadd64604ddf5a11a565c8ff5769972ff19d804b45cfb2ba73c5a3",
+      "financial_resume_authorized": false,
+      "financial_root_admitted": false,
+      "financial_workers": 0,
+      "input_adopted": false,
+      "original_failed_stops_preserved": true,
+      "original_financial_artifact_id": 13525611349,
+      "original_financial_head": "6b1c59e2938655b528e62aa77ef40b37a3b15044",
+      "original_financial_run_id": 42257537761,
+      "original_root_admission_sha256": "28c768af0d50047f04ddd6924c1500bf768cc138f41808cd1c0a0b5321eb64b8",
+      "original_source_record_and_history_guards_preserved": true,
+      "schema": "research.P06-FIN339-readonly-review-recovery-declaration/1",
+      "target_completed": 1426,
+      "target_inputs": 11,
+      "target_outer_sha256": "3157c9a6b1eae175a87d0c282c68a5516ea4cb312068da4b43ee80feea4d93e4"
+    }
+  },
   "selected_p06_retained_reporting_bridges": {},
   "selected_p07_composite_source_bridges": {},
   "selected_p07_failed_review_recoveries": {},
-  "selected_p07_lossless_export": {
-    "export_cap_changed": false,
-    "financial_source_changed": false,
-    "per_file_copy_equivalence_required": true,
-    "qualification_sha256": "b8fcdd1f6895f75b6036e0b162c0f5decd929b92fb450df827b301b2ab290ef4",
-    "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
-    "schema": "research.P07-lossless-codec-export-selection/1",
-    "template_sha256": "ea8f11744aaa90ad6475c78b333d52b17c3f9b5b1cc878538c1db3d72c3cd8e1"
-  },
-  "selected_p07_vivo_ordinary25": {
-    "P07": {
-      "actual_future_neutral_checkpoint_known": false,
-      "arm": "P07",
-      "cash_terms": 23,
-      "catalog_file": "P07-own1259-VIVO1-preopen-ordinary25-catalog.json",
-      "catalog_sha256": "f5a6b9d58415944a3891b19d71b9a9327b9e060e8ae5edbbe25990fafc71b406",
-      "existing_legal_terms": 22,
-      "future25_root_restart_selected": false,
-      "genuine_neutral_adoption_required": true,
-      "old_committed_proof_rows": 805,
-      "original_canonical_financial_source_changed": false,
-      "original_inputs": 24,
-      "original_outer_sha256": "1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a",
-      "profile_qualification_file": "P07-VIVO25-private-runtime-qualification.json",
-      "profile_qualification_sha256": "6284bf56a9bafc209d92c1e935e8395f0f7120cbff930f003bc54b4af7702114",
-      "provider_metadata_upgraded": false,
-      "required_actual_neutral_inputs": 25,
-      "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
-      "schema": "research.P07-VIVO1-genuine-ordinary25-declaration/1",
-      "source335_qualification_sha256": "8b65bebf761e39820ef9bc8aa0003f6f258b7c26821f1069b774317551380a1f"
-    }
-  },
+  "selected_p07_vivo_ordinary25": {},
   "selected_partials_sha256": "48c27a9240e2ab01bbac8859614739549b7b7cae6df38eb2db2dc592b636c3af",
   "selected_research_models": {
     "P07": {
@@ -450,7 +418,7 @@
     "system_campaign_financial_partial.py": "c2860370e14151acb28dc76120a9927174f45bbd84423395cd022bdaf6fb83b3",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "5411e0711e3d2aca5d3f37acbebdbf74e12df25674823d16c2cf2e66e48db7ad",
+    "system_campaign_financial_resume.py": "88f7ff042dcc576ac0864ef256756b01c82bd3e22fee95ade146b2a4d765fec7",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
@@ -756,5 +724,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "9d9b7f609af0ea4771174eb2b396cfc17f60962f45dabc1ec8b68addf475d610"
+  "workflow_sha256": "7359689be246a0be66a371f1e4e4076a7bc5bae751b1a81330d32b37fad5adcc"
 }

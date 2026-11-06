@@ -7328,3 +7328,8 @@ Run a real imported W metadata-module code-identity smoke under import fences;
 no worker or seal body is executed by that smoke.
 
 v1 was never published/selected in a hosted job. Its actual imported-module smoke exposed isolated-function compilation context mismatch; complete immutable source-module compilation without executing it preserves exact code identity. Safe UNKNOWN diagnostics now preserve original seal outcomes through traversal/logging faults. v2 qualification b8fcdd1f6895f75b6036e0b162c0f5decd929b92fb450df827b301b2ab290ef4:83tests22.04s, eleven meaningful removals/five import fences. Original cap/source/financial bodies/186 duplicate equality constraints remain intact.
+
+
+## REVIEW344: fresh P06 v2 read-only recovery alongside FIN343
+
+Select only P06 actual1426/full11 failed FIN339 transport, zero financial/one readonly worker, original1383/full10 financial root unchanged. This is a new request210; never rerun or relabel failed REVIEW342. Scoped immutable original quarantine function capture passed53private tests plus four dispatcher tests (57passed17.47s). FIN343 P07 is an independent immutable request209/run42272096625 using original d9 only; distinct-arm concurrency remains within four. Require new positive core1426, complete130+43 branch proof, original BBIG observation and exact monthly reproduction before independent DATA admission. No September WWE tails adopted.
