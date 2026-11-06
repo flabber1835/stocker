@@ -5212,3 +5212,57 @@ probe selects486 sources, one financial P05 worker, zero readonly workers
 and no source-witness or bounded-preparation declaration. All legacy worker
 bodies, original383 drivers, B19 and future.py bytes stay unchanged. The
 staged snapshot must verify this exact486-source closure before publication.
+
+P03 private observer-resource design authenticates full own462 input identity
+and all15 original repair files, then compares every future ordinary term
+against the already pinned17-term inventory. Keep the original439 observer
+origin gzip as metadata only, with its exact13th ordinary overlay/material;
+it is never a financial seed. Union the original15 observation terms with
+three legacy cash terms MYOV/TGI/ZAYO, retaining the consumed CBLK observation
+as history. Keep S2 conversion and WLH/BMCH mixed terms explicitly present
+and flag their separate review obligations. Metadata qualification initializes
+the entire original ActualEvents constructor through read-only member objects,
+without entering it, staging a book or executing a transition.
+
+P03 private retained-seed binding design keeps the entire original retained_seed
+function, lifting only its local validate_input import into an explicit
+qualified full-input visitor binding. Retain original seed/discrete/digest
+imports, every proof-count/state-set/math/qualification guard and read-only
+prior-review identity check. New retained_contract and retained_phase bindings
+must come from a separately qualified current16-input origin/root registry;
+they are not fabricated from the old15-input root. AST/metadata qualification
+precedes any hosted invocation. No retained writer or root is selected here.
+
+FIN320 positively stops0/1/0 with a reviewed saved1152/July29 checkpoint,
+20 new closes from own1132. Artifact13473317076 has161307859bytes and ZIP
+58c2fa76e23f39c506ae8d0859a77d71275731f1af07957f9b5e56e1a3c9038b;
+199 authenticated members total240533977 logical bytes. Full16 descriptors
+include exact SRRA input1268ae32ad729019837c616a836135ac7ecaeff7dc0a2d8084a4deef1fd61761.
+Hosted cash review checks all28 terms and eight committed cash logs, including
+SRRA35shares/1925USD July1 and unheld SAFM July22. Seven August tail closes
+throughAugust9 and August10's diagnostic state remain excluded. The next
+blocker is ACC's incompleteAugust9 native, held29shares in slot16 sinceJune30;
+its complete cash amount/calendar requires separate fresh source qualification.
+
+REPORT321/request187 design selects zero financial workers and one readonly
+P05 worker to reproduce the saved July29 monthly and retry state. Keep own1132
+as reporting seed and current admitted root; qualify20 daily records,40
+accounting snapshots,one report and28 Decimal metrics before any root change.
+The original independent financial/monthly reader is reused, adapting only
+its earliest affected date toJuly1 and the source-input reader/main dispatch.
+The new DATA input reader must preserve all15 prior descriptors, verify the
+entire original document and pending-completion preimage, all original26
+cash terms plus MSP/SRRA materials, and reproduce all eight hosted cash logs.
+No August tails or failed diagnostic state may be adopted.
+
+P03 private observer/adoption foundation checks pass28 in68.24s, and retained-
+seed AST/binding checks pass14 in4.80s. Foundation qualification is
+acd9bc4ddf4ab2c3df19fc5716802cc6692089c8a3e0ecd06b5366eeaa174175;
+all remain unselected metadata/AST preparation, with no local canonical
+adoption, restore, financial execution or new root authority.
+
+REPORT321/request187 targeted launcher/partial/retention/observer/source-
+generation/current-root checks pass238 in25.98s. The exact import/request
+probe passes with486 sources, zero financial workers and one readonly P05
+worker. Reporting target286e1a4187967809a0640850d05edcf853703dcbab5b6997015d8a22a061c660
+selects only actual1152/July29 and keeps own1132 unchanged as current root.
