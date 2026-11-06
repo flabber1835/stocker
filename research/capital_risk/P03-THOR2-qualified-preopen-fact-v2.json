@@ -1,0 +1,23 @@
+{
+  "cash_per_share": "68.00",
+  "completion_date": "2020-01-23",
+  "currency": "USD",
+  "currency_corroboration": "https://www.sec.gov/Archives/edgar/data/1121404/000112140422000007/sny-20211231.htm",
+  "exact_legal_effective_timestamp": null,
+  "frozen_metadata_upgraded": false,
+  "mandatory_common_cash": true,
+  "payment_timestamp_asserted": false,
+  "preopen_completion_confirmed": true,
+  "primary_common_cash_source": "https://www.sec.gov/Archives/edgar/data/1609727/000119312520013091/d858447d8k.htm",
+  "primary_completion_source": "https://www.globenewswire.com/news-release/2020/01/23/1974331/0/en/sanofi-sanofi-completes-acquisition-of-synthorx-inc.html",
+  "primary_source_bytes_archived": false,
+  "prior_calendar_research_sha256": "ab285b5e5cf21dd308bf797908cab43c74e36091b8afeb3b6f7e22fad793716b",
+  "publication_completion_upper_bound": "2020-01-23T08:52:00-05:00",
+  "qualified_basis": "Independently read issuer-authored08:52ET release states merger already completed; completion by publication precedes09:30ET. Common68cash legally corroborated; exact minute and payment availability not asserted.",
+  "schema": "research.P03-THOR2-qualified-preopen-common-cash-fact/2",
+  "security_id": "731910459224080858",
+  "source_DATA_qualification_sha256": "aa802805042661ea6750915c947918cd0622b9364009a579fbcc889ea2381de1",
+  "source_raw_row_sha256": "5398cca3b2a8bf703aba0a2534b227deadd600c1d0de5fbca65d560287adcb58",
+  "stock_or_contingent_common_components": [],
+  "ticker": "THOR2"
+}

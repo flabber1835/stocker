@@ -5929,3 +5929,77 @@ zero financial workers and two source workers. Original partial.admit and all
 four worker/launcher ASTs, original383/B19/future/u bytes remain unchanged.
 Exact staged index/workflow verification precedes publication. No hosted source
 success is claimed until both actual workers stop positively.
+
+FIN336/request202 will select P03's genuine ordinary17 THOR2 continuation from
+the exact admitted own503/December31,2019/full16 root4c56c4. Use only the
+DATA-closed SOURCE327 THOR2 member and the existing PREOPEN policy: the issuer's
+January23 completion announcement was published08:52ET, before the regular
+market open; mandatory common consideration is68USD and actual last trade is
+January22. This is an upper timing bound, not an exact legal minute, payment
+timestamp, provider classification upgrade or complete archived primary HTML.
+
+The separate source-bound one-member catalog embeds the complete128-record
+source payload. Reuse the complete qualified cash validator, changing only its
+closed qualification-schema literal and immutable first-batch scope lookup.
+All current-root, complete payload, native/identity/role, cash, primary
+extraction and PREOPEN guards remain. The full future API uses unchanged code
+objects in a fresh namespace; its one nonterminal inherited-input branch
+dispatches DOVA to the complete existing visitor. Never hide the full active
+input list or hash. Existing B19 and every ordinary guard remain unchanged.
+
+The actual December phase has no ordinary/supplemental selection, so its whole
+original hydrate body would skip the generic completion hook. Add a narrow
+hosted guard requiring January23 to be the actual next frozen session after
+January22, then call the unchanged whole hydrate body. Preserve the original
+completion helper and add this existing CashCalendar adjacency predicate. The
+exclusive qualifier receives only a finite new filename; no bound is widened.
+
+Only the complete original paused_own_adoption, with one filename-map entry,
+may produce the real16-to17 neutral checkpoint, proof, watch successor and
+zero-new-correlation gzip. Review the whole original adoption relation and
+packet qualification before any financial main call. No future neutral hash is
+known in advance. The temporary hosted seed view keeps the selected16 gzip
+unchanged, adds only genuine new input resources and the actual committed
+neutral watch prefix, and inventories every byte. Preserve all original input,
+origin, review, qualification and producer-named archive resources, including
+the entire63-row prior proof file with its14 unadmitted tails kept as provenance.
+Only the separately admitted49-row prefix may seed. Cleanup success is recorded
+only after this explicitly owned temporary view actually disappears.
+
+Reexecute the whole original retained seed with real neutral17 and the complete
+input visitor. Its finite contract first proves actual parent16 and the genuine
+neutral relation; its returned49 rows and qualification must equal the separately
+validated parent16 seed. Neither Spec nor checkpoint is forged, truncated or
+projected. Bind only this resolver into the complete typed run/review code
+objects. Stage all18 original observations plus THOR before the original
+observer. Keep the complete m.review within its existing typed-codec lifetime.
+
+Enter the new facade inside the dispatcher's final try/yield, after the generic
+DOVA overlay assignment. The concrete financial declaration truthfully requires
+new_factual_overlay=True. Restore legacy run/review/overlay hooks on every exit.
+Only actual own503/full16 may select this route; later17-root restarts explicitly
+refuse pending a separate retained profile. Do not edit frozen u/future, original
+four worker/launcher bodies or B19. Source/report modes cannot enable finance.
+
+Private qualification00f5b33c53db26840d73b9da19feca4aa0b9318c463f2e706f521717f40b70bc
+passes40 tests11.80s:16 catalog corruptions, six meaningful guard removals, five
+import fences, complete source/remaining-input/adoption AST undo and typed
+run/review code-object identity. Local tests read authenticated actual parent16
+resources and use opaque metadata seams; they perform no canonical packet,
+adoption, restore, checkpoint staging/serialization, seed call or transition.
+Hosted preflight must pass before financial execution; every new boundary,
+branch, cash/accounting/monthly and independent DATA review remains mandatory
+before admitting new results. Historical causality remains UNVERIFIED.
+
+FIN336/request202 final targeted integration passes171 checks37.58s,43 concrete
+THOR/source-route regressions7.86s and92 unchanged DOVA lifecycle regressions
+3.23s. The new dispatcher test confirms the THOR facade follows the generic
+overlay assignment, keeps the truthful new-overlay flag and restores both
+legacy worker hooks on abort. Earlier SOURCE335 regressions retain their own
+source-mode/root metadata independently of this new financial request. The
+exact launcher/request probe passes with zero local financial sessions.
+Request selects561 source files and one hosted P03 financial worker; the two
+SOURCE335 collectors use their immutable earlier commit independently. Verify
+the staged index/workflow, original383/B19/future/u and four original worker
+ASTs before publication. No new financial result is claimed before hosted
+preflight, actual neutral boundary, worker/reviewer and independent DATA pass.

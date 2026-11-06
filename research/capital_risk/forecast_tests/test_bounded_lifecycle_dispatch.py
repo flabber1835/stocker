@@ -14,6 +14,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     import system_campaign_financial_partial as partial
     original=partial.root_spec
     def historical(arm,admission_sha256=None):
+        if arm=='P03' and admission_sha256 is None:admission_sha256='2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0'
         if arm=='P06' and admission_sha256 is None:admission_sha256='947662b7b86089285e5d7360221ff3a6d931173bccbce6ac8884341d396c763e'
         if arm=='P07' and admission_sha256 is None:admission_sha256='475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d'
         return original(arm,admission_sha256) if admission_sha256 is not None else original(arm)
@@ -26,7 +27,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==556 and len(data.source_names())==len(set(data.source_names()))
+    assert len(value['sources'])==561 and len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
