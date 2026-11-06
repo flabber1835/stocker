@@ -262,6 +262,54 @@ def test_prepare_builds_resolver_after_schemas_and_prints_json(
     assert conn.closed
 
 
+def _cash_retirement_args():
+    return cli.build_parser().parse_args([
+        'prepare-paper-plan', '--through', '2026-11-06', '--expect-account', 'paper-123',
+        '--reviewed-informational-dual', '--retire-legacy-cash-plan', 'legacy-plan',
+        '--retire-legacy-cash-plan-fingerprint', 'a' * 64,
+        '--retirement-native-dividend-id', 'native-dividend',
+        '--retirement-observed-cash', '11155.77', '--retirement-actor', 'operator',
+        '--retirement-reason', 'Native dividend posted after preparation',
+        '--confirm-prospective-cash-retirement'])
+
+
+def test_cash_retirement_cli_passes_only_the_explicit_request(monkeypatch, capsys):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'dual')
+    monkeypatch.setattr('sentinel.automation_runtime.shadow_config_from_env',
+        lambda: (True, 'reviewed-shadow', Decimal('100000')))
+    monkeypatch.setattr(paper, 'build_security_resolver', lambda *_: object())
+    monkeypatch.setattr(paper_cli, 'build_execution_broker', lambda *_a, **_k: object())
+    received = []
+    async def prepare(**kwargs):
+        received.append(kwargs)
+        return SimpleNamespace(to_dict=lambda: {'prepared': True})
+    monkeypatch.setattr(paper, 'prepare_paper_plan', prepare)
+    assert asyncio.run(paper_cli._prepare_paper_plan(_config(), _cash_retirement_args())) == cli.EXIT_OK
+    from sentinel.paper.cash_retirement import Request
+    request = Request.model_validate(received[0]['legacy_cash_retirement'])
+    assert request.plan_id == 'legacy-plan' and request.native_activity_id == 'native-dividend'
+    assert request.observed_cash == '11155.77' and request.confirm_prospective_retirement is True
+    assert received[0]['conn'] is conn and conn.closed
+    assert json.loads(capsys.readouterr().out) == {'prepared': True}
+
+
+@pytest.mark.parametrize('field,value', [
+    ('reviewed_informational_dual', False), ('confirm_prospective_cash_retirement', False),
+    ('retirement_native_dividend_id', None), ('retire_legacy_cash_plan_fingerprint', None),
+])
+def test_incomplete_cash_retirement_request_refuses_before_broker(monkeypatch, field, value):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+    monkeypatch.setattr(paper_cli, 'build_execution_broker',
+        lambda *_a, **_k: pytest.fail('incomplete retirement constructed a broker'))
+    args = _cash_retirement_args()
+    setattr(args, field, value)
+    assert asyncio.run(paper_cli._prepare_paper_plan(_config(), args)) != cli.EXIT_OK
+    assert conn.closed
+
+
 def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
     calls = []
     conn = _wire_database(monkeypatch, calls)

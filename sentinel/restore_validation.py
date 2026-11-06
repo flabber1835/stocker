@@ -169,6 +169,12 @@ def validate_restored_database(conn) -> dict:
             raise RestoreValidationRefused(
                 f"cash baseline for plan {plan_id!r} disagrees with its plan")
     cash_baseline_count = len(baseline_ids)
+    from sentinel.paper.cash_retirement import verify_retirements
+    from sentinel.paper.model import PaperActivationRefused
+    try:
+        verify_retirements(conn)
+    except PaperActivationRefused as exc:
+        raise RestoreValidationRefused(str(exc)) from exc
 
     with conn.cursor() as cur:
         cur.execute(

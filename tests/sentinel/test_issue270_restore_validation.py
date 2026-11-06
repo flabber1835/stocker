@@ -29,6 +29,8 @@ class _Cursor:
         elif statement.startswith("SELECT plan_id,decision_session"):
             self.rows = [("plan-current", "2026-08-25", "alpaca",
                           "paper-account")]
+        elif statement.startswith("SELECT cursor_name,state"):
+            self.rows = []  # No prospective cash-retirement rows in this legacy fixture.
         elif statement.startswith("SELECT cursor_name"):
             self.rows = [("broker-cash-plan:v1:plan-current",)]
         else:

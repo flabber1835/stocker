@@ -484,8 +484,8 @@
     "cli/authorized_routes.py": "a3c8a555c5601bc42a4e976a00f50626d2d94064c9a3168ac53d257c20abff99",
     "cli/automation.py": "a7c2071baf7016edad0dff6152cc3b35fe55c0f60da4f604ae0dc816a40ac836",
     "cli/feed.py": "28f457b1b03a12cb232aed51b23cacc40e1996b26c633b55dcd8f13350e08a39",
-    "cli/main.py": "a4caead5101f14c86a2176bf4d01f7f98202eab3c14c472c81206d205bc6c367",
-    "cli/paper.py": "074eedc11c6a0697d86443d93aff413168ac13f81eeb1ce2656c5496771f45a9",
+    "cli/main.py": "cbedd1f39ea701bf11de7a65b365ccafc408d513932060cfd05352e89698440d",
+    "cli/paper.py": "b4b53b7e2e39b920e37b54d720289ecf6d70f5a1207f4aa81035a9b1e1c28016",
     "cli/status.py": "8ca3c25236680dafe9a60788312b03f9ed58a84557adba23bffbe33e770580c6",
     "cli/trading.py": "7471d1f5290f55c9a9afd938d70939a43858519d8b420b8f628d792ddd9cf3e7",
     "clock_sampling_upgrade.py": "2aedd9e6e8dcbfa11baa02c9f26e5a215a6f60ecf211f9cb15be9109cde0afdb",
@@ -551,13 +551,13 @@
     "execution/__init__.py": "36362d73b9e5584832fea5881b0f8fdc1f7986e3f6bfa33291ef62fc1bca5ae7",
     "execution/account_event_accounting.py": "ff3bb2841b4c0be7ed471b40431619ed2513b1cbe8dc5bd943808f70f54b6a82",
     "execution/account_status.py": "cb03123647dcd452c3e230ae4ec184dccff47d2103d583ad573789be0526dd21",
-    "execution/alpaca.py": "8098c4f7ccbe31cab87e0f3a79cd3a5caa64ee9b563d7ef74081c5657ad8c7f9",
-    "execution/alpaca_asset_id.py": "bf88bdc2ba72e1239a61ae314f2ab6bc1c8dc54903dad2981b7f8f2f1fe1ce62",
+    "execution/alpaca.py": "f1616377d484a94dcfb69b2e1bd3f6e427f7c95bca82f5de9a8b8b6db520aa58",
+    "execution/alpaca_asset_id.py": "ee3d4eef60d676de718e7c4f6e02047d6c99df05464e280cd3e60132eea66315",
     "execution/alpaca_history.py": "ee70b2e51f7cc7f99411c8b1b03a32681e959d024eed9c2c25cd69dadab67607",
     "execution/authority_gate.py": "0a257359d27afacb07329fd54e988b0e488c826c20fa2306cec94d92d4da9d72",
     "execution/broker_cash.py": "51d80c7d478bc1a3dcce248fc22cdef3edd1fda2a668e3279c86b43d48198508",
     "execution/cash_corrections.py": "c23721f880a98e8df0710d6c4d1c6af2905e552c6aa166689e4c838829c24edb",
-    "execution/certification.py": "bbf301d56bcd5f58f841b81105f4fac85ed7561e825386ea38427d5e78fed0d5",
+    "execution/certification.py": "5cd91b7f76f8bacd3f1f9603186467f18b2751975d529cb61d83de5b9cac9ded",
     "execution/commands.py": "8e9d02f8a2ea0eebdadd799e7726d71a83c18bfd7599d2c4145bd8c01672a0ee",
     "execution/contract.py": "3db17735e8d6499ee37a6035d27147b37334df1f69f25c5b4019970f901dff65",
     "execution/evidence_projection.py": "2dd302b2dd5b5d7b7159a5551a64863664abdcfe15fea3c066cf9ee7777f3fce",
@@ -800,13 +800,14 @@
     "panel/verification_monitor.py": "e2033210e1aa6e29c76920c91895650d0da5a1af52457a0b75f4aa6cdfbd4016",
     "panel/verification_service.py": "6b38264ddb0d8f8b57c891850df2980620fef693713a2aa4b88019f163dc5c5a",
     "paper/__init__.py": "9a0ab70e47da874cd259281a78d8d8a76087b0bdcd835f9bd6606081cf86b898",
-    "paper/cash.py": "a593a881a9a23be533cf244a9743e6962992c7ab6cfd677ad859c278f3da7897",
+    "paper/cash.py": "c29195c266632e788d0b9105f5b12f15a853e2ea450cefd1fcc97c8a6d7f20c3",
+    "paper/cash_retirement.py": "dfba2b99b44eec94b2fcbe9806af7d071c34934d7e22066b88f30ce2dce677d4",
     "paper/execution.py": "8186f360f39866c8a714577345f4734670106564619fbc42bb4e025ba6b57e84",
     "paper/finalization.py": "42917c024d50797462a51e64277fa2dee6447b5245721bf9c672b22d7eae6557",
     "paper/inspection.py": "4678292aa5f4309336dd37b42ad1e99e74b95f9ae3c14660adc7eb319dd8d945",
     "paper/issuer_enrollment.py": "4dc93599ef46ccfe624a3a426a5a9c22437a3ae19f764110ed56ec3090f99770",
     "paper/model.py": "52e25998272453bc2e2e73fe03a4085462ebf690fb917962ff4489f593fd4fc8",
-    "paper/preparation.py": "750fa08a30299a4aae828f9ce47488be928a8b4f10ca060716fc3ad813203775",
+    "paper/preparation.py": "57fb09cfb6441817bd0e79e755addd870e6f05335e6ce3e0398340cb5bc8e0eb",
     "paper/reconciliation_evidence.py": "f94b92d80692bfeaeb440618916c5744cf19e021e7e6cf7949ef1ed5dd02a81b",
     "paper/recovery.py": "329c7b1642c14e2d29e83bc2cfd3fe8b2fd6c5e396d890beabe62f6e22d46d0c",
     "paper/targets.py": "4e5ae78c226e8b34bd0982295bd2b9636db8fa6b57b08156e87deebb9fabff65",
@@ -823,9 +824,9 @@
     "receipt_authentication.py": "b7e9aa39858f8b0b7be98f797eda404764f6de1078855f613e947479306dd27c",
     "regime/__init__.py": "0444d75dcee98cdf6ac10cf0bca1ecc034761d0a6b7e4eb66e96c5ee29b1b356",
     "regime/spy.py": "7ee44c4d5ad82f5c5d8b978f9e78e0b0e839abfa69f217c57cb549f853549155",
-    "restore_validation.py": "71469429ba32a7b5878823e811b062444f7b477e2011405f0afdf519eff61ab6",
+    "restore_validation.py": "26ad37dbe314975db2aaea0434cd2bf2d7450501407894ac22b6d846aeee441e",
     "retained_go.py": "fddfa0ba651967cdae82b0960cfbbf3e8cfed8be57940224126481392916ee02",
-    "retained_input_namespaces.py": "a6cf3ad730474696bc9cd99b4b46a11960f737d20af801aa8fa964a599e283a6",
+    "retained_input_namespaces.py": "d0d28ada54d469663dc6d18acd12ba841371c20179d41c6ab88aae5e80a12c0b",
     "retained_parity.py": "dd7619f7b5bae1dfa20bc000ad8d1cf1348ca299c6ad38db9cdd77ef37e45963",
     "retained_readiness_upgrade.py": "44938aef8030a216c5e867486a1f125dbb4792cb86069962296d152ac6658eb7",
     "rolling_authority.py": "6c061a75377603a9771633b0d867b8bfa7eb1d28c4bfc20da302fdd694a4489e",
@@ -881,7 +882,7 @@
     "web_push.py": "db5f7ba2f8992aa2d262d9b5cc5206e26b027c169ddc7941607d650d6916104c",
     "worker_notification_source_basis.py": "1b9301e9d1ddc3f75d3276959c4952b38ad8ffb507e4b78adb942b0908d81d08"
   },
-  "module_sha256": "abe56f2f263751b2bb7a03c098e17e90e5f7c7ba66c348ffca2c4c4f993c7843",
+  "module_sha256": "99a9fcb37722b6eff22baa6143a7a57979d7a66041624e912539a49221a9e9a0",
   "retained_predecessors": {
     "2e5e856c34e50958810a51f89e32b20db6a776a2": {
       "files": {
@@ -6686,6 +6687,6 @@
       "source_sha256": "95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca"
     }
   },
-  "schema": "sentinel.url-selected-trading-transition/13",
+  "schema": "sentinel.url-selected-trading-transition/14",
   "structural_profile_sha256": "139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0"
 }

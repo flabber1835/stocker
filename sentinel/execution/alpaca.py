@@ -1934,6 +1934,14 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if not account_uuid:
             raise MalformedBrokerPayload(
                 "Alpaca account payload has no UUID for Activity SSE binding")
+        if self.financial_activity_sse:
+            created_at = _required_aware_ts(
+                account.raw.get("created_at"),
+                where="Activity SSE account creation time")
+            if not datetime(2026, 2, 12, tzinfo=timezone.utc) <= created_at <= upper:
+                raise MalformedBrokerPayload(
+                    "Activity SSE account predates complete source history "
+                    "or has a future creation time")
         headers = dict(self._headers())
         headers["Accept"] = "text/event-stream"
 
@@ -2031,7 +2039,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             account_after = await self.identify_account()
             if ((account_after.broker, account_after.account_id)
                     != (account.broker, account.account_id)
-                    or str(account_after.raw.get("id") or "").strip() != account_uuid):
+                    or str(account_after.raw.get("id") or "").strip() != account_uuid
+                    or (self.financial_activity_sse
+                        and account_after.raw.get("created_at") != account.raw.get("created_at"))):
                 raise MalformedBrokerPayload(
                     "Alpaca account identity changed around Activity SSE read")
             return events
@@ -2100,7 +2110,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             # Publication-order replay begins only after this exhaustive
             # snapshot has captured the current upper event_id.
             after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
-            since_event_id=since_event_id)
+            since_event_id=since_event_id,
+            verify_snapshot_replay=self.financial_activity_sse)
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
         for event in events:
