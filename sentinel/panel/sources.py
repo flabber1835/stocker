@@ -721,7 +721,7 @@ def _ownership(state_dir: Path, database_url: str = "") -> model.Row:
 
 def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
     """Own a fresh display transaction; retry only legacy pin contention."""
-    from sentinel.feed import readers
+    from sentinel.panel import feed_display
     from sentinel.feed.publication import CorpusLockUnavailable
 
     deadline = clock() + FEED_PIN_RETRY_SECONDS
@@ -735,7 +735,7 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
             raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
         _set_statement_timeout(conn, max(1, int(remaining * 1000)))
         try:
-            return readers.display_status_snapshot(conn, include_publication=True)
+            return feed_display.status_snapshot(conn, include_publication=True)
         except CorpusLockUnavailable as exc:
             last_error = exc
         finally:

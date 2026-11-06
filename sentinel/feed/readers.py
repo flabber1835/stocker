@@ -86,38 +86,6 @@ def status_snapshot(conn, *, include_publication=False):
         return (*result, pub.version) if include_publication else result
 
 
-def display_status_snapshot(conn, *, include_publication=False):
-    """One read-only rolling metadata frame; never financial data admission.
-
-    Caller owns a fresh transaction and its rollback. Legacy/default readers
-    retain their corpus pin; rolling display reads only authenticated immutable
-    publication metadata and the exactly matching measured verdict.
-    """
-    if conn.autocommit:
-        raise ValueError('DISPLAY_STATUS_REQUIRES_CALLER_TRANSACTION')
-    with conn.cursor() as cur:
-        cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-    pub = _display_current(conn)
-    if pub is None or not is_rolling(pub):
-        return status_snapshot(conn, include_publication=include_publication)
-    snapshot = legacy_readiness.latest_snapshot(conn)
-    result = pub.window_end, snapshot if snapshot_matches(pub, snapshot) else None
-    return (*result, pub.version) if include_publication else result
-
-
-def _display_current(conn):
-    from sentinel.feed import readiness_scope
-    readiness_scope.require(conn)
-    try:
-        return publication.current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != 'ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER':
-            raise
-    pub = snapshots._current(conn)
-    snapshots.display_binding(conn, pub)
-    return pub
-
-
 def snapshot_matches(pub, snapshot):
     if not is_rolling(pub):
         return True

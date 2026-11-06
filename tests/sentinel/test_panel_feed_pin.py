@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import calendar, readers, store
+from sentinel.feed import calendar, store
 from sentinel.feed.publication import CorpusLockUnavailable
-from sentinel.panel import model, sources
+from sentinel.panel import model, sources, feed_display as readers
 
 
 class Clock:
@@ -44,7 +44,7 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
             raise CorpusLockUnavailable('publication owns the pin')
         return original
 
-    monkeypatch.setattr(readers, 'display_status_snapshot', attempt)
+    monkeypatch.setattr(readers, 'status_snapshot', attempt)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda _, ms: timeouts.append(ms))
     assert sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep) is original
     assert len(calls) == 2 and conn.rollbacks >= 3
@@ -59,7 +59,7 @@ def test_persistent_lock_expires_at_original_deadline(monkeypatch):
         assert include_publication is True
         raise CorpusLockUnavailable('still owned')
 
-    monkeypatch.setattr(readers, 'display_status_snapshot', busy)
+    monkeypatch.setattr(readers, 'status_snapshot', busy)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda _, ms: timeouts.append(ms))
     with pytest.raises(CorpusLockUnavailable):
         sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep)
@@ -77,7 +77,7 @@ def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
         calls.append(True)
         raise error
 
-    monkeypatch.setattr(readers, 'display_status_snapshot', fail)
+    monkeypatch.setattr(readers, 'status_snapshot', fail)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda *_: None)
     with pytest.raises(type(error)):
         sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep)
@@ -103,7 +103,7 @@ def test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monke
     monkeypatch.setattr(sources, '_operational_acquisition', lambda _: [dict(
         kind='daily', status='success', current_chunk='PUBLISHED publication 5', updated_at=now)])
     monkeypatch.setattr(calendar, 'freshness', lambda _: SimpleNamespace(sessions_behind=0, ahead=False))
-    monkeypatch.setattr(readers, 'display_status_snapshot', attempt)
+    monkeypatch.setattr(readers, 'status_snapshot', attempt)
     original = sources._feed_status_snapshot
     monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: original(
         conn, clock=clock, sleep=clock.sleep))
@@ -145,6 +145,6 @@ def test_omitting_reacquisition_rollback_breaks_its_falsifier(monkeypatch):
 
 
 def test_bypassing_retry_in_full_feed_reader_breaks_its_falsifier(monkeypatch):
-    monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: readers.display_status_snapshot(conn, include_publication=True))
+    monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: readers.status_snapshot(conn, include_publication=True))
     with pytest.raises((AssertionError, CorpusLockUnavailable)):
         test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monkeypatch, False)

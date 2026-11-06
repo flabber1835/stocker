@@ -26,7 +26,7 @@ positive verdict, extend a proof clock or acknowledge the incident as the fix.
 
 ## Separate display read, same authenticated metadata
 
-Add an explicitly named `readers.display_status_snapshot` API for the panel.
+Add an explicitly named `panel.feed_display.status_snapshot` API for the panel.
 It must run in a new REPEATABLE READ, READ ONLY transaction before any data
 query. Reject autocommit connections, on which a standalone SET TRANSACTION
 would not bind subsequent queries to that transaction. Reuse the exact existing authenticated `current` publication dispatch,
@@ -55,17 +55,30 @@ for mutable legacy bars or relax their snapshot-stability contract.
 ## Transaction ownership and publication fence
 
 The real-writer qualification exposed a second, implicit transaction-level pin
-inside `rolling_store.manifest` through its parent-row reader. Separate row
-decoding from financial admission: the default parent and manifest readers keep
-their existing pin; an explicitly named display manifest reader must first
-verify server-side REPEATABLE READ and READ ONLY, and reject autocommit. Both
-manifest paths use the same candidate, layout and evidence validation. Factor
-operational binding validation into one implementation with two explicit entry
-points, so the display path selects only that guarded metadata reader. The
-default binding and all financial consumers continue selecting the pinned
-manifest reader. Reuse the existing authenticated publication dispatch without
-calling the financial `current` entry point on the rolling display branch.
-There is no ambient bypass flag or reusable financial authority.
+inside `rolling_store.manifest` through its parent-row reader. The first
+qualified implementation factored that shared reader and operational binding.
+Its local build refused ECONOMIC_RUNTIME_CHANGED before installation because
+these feed modules are within the protected economic runtime's byte identity.
+Retain that refusal and its uninstalled source/evidence. Do not weaken the guard.
+
+Revised decision before implementation: restore `feed/readers.py`,
+`feed/rolling_store.py` and `feed/operational_snapshot.py` byte-for-byte to the
+installed predecessor. Implement the display-only metadata projection wholly
+inside `panel/feed_display.py`. It uses the existing authenticated publication
+reader, typed manifest/request schemas, canonical evidence verifiers, layout
+validation and publication-fingerprint cache matcher. Its explicit metadata
+queries reproduce the candidate/manifest and operational binding consistency
+checks, under mandatory server-side REPEATABLE READ and READ ONLY. This small
+second projection owns no strategy state, data admission or financial authority.
+Comparative real-database tests must show identical metadata verdicts and refusal
+of corrupted binding, evidence and authentication. This deliberate projection
+duplication preserves the stronger existing economic byte boundary. A future
+shared-validator extraction would need its own economic change review.
+
+Only the rolling display branch selects these metadata queries. Every default
+and financial reader keeps its original code and pin, including the implicit
+manifest pin. No connection adapter, monkeypatch, ambient bypass flag, source
+identity exception or financial guard relaxation is permitted.
 
 The panel's acquisition-status read can leave a successful transaction active.
 Its owned display helper must explicitly roll back that SELECT-only transaction
