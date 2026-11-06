@@ -5528,3 +5528,43 @@ Independent component15 tests pass22.55s and core3 pass20.31s; cross-agent
 audit24 pass34.10s. A cached-helper binding finding is closed by executing the
 complete pinned pure helper source in a fresh private namespace. Root admission
 and published progress still require the separate exact admission metadata.
+
+P03 admission decision: admit only actual503/2019-12-31/full16 after complete
+REPORT325 and independent DATA closure
+c5dc36f963cf5373469d380ec32cb24c013a053b7a14e8352721677c91140ed1,
+qualification50997bd2a5af423644e2fd73ea9ba8260bbec4d14e4764446e26cf4475d3a3bc.
+Preserve own462/2dfc5b30 unchanged in historical roots. Replace branch proof
+metadata with actual41 new plus8 retained rows and its exact current DATA
+reader pin; do not retain the prior eight-row count as the new full proof.
+Reuse only the byte/AST-qualified financial/monthly review code from P05's
+closed REPORT321 qualification, never its portfolio, state or economic input.
+Current503 remains an unfinished research root; no January tail, failed state,
+full scoring, production certification or broker authority is admitted.
+
+SOURCE327 design publishes the actual P03 own503 admission and captures its
+first128 uncovered future acquisition identities in one readonly worker.
+Selection is stable by native session/security/native digest, from the whole
+pinned inventory afterDecember31, excluding already adopted full16 inputs.
+The128 records spanWAIR/January8,2020 throughEIDX/January25,2021; THOR2's
+January23,2020 known blocker is included. All128 actual current held roles
+are empty; no January tail or future holding is used. Additional rows remain
+empty under the original source-schema1 payload. Capture grants no cash,
+calendar, valuation, input-adoption or financial authority.
+
+Specialize the complete previously qualified P05 query module only at arm,
+catalog filename and catalog hash, leaving the old P05 generation unchanged.
+New catalogb3a822a16c274c28326ef49d2c1fbda464f29fced3cc0030e9c8a8e8a2d0408d
+and scopef86015e954834bda3c8291e508cb25a57f02d44340d09727bd02ec3402886090
+bind actual503 root4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1.
+Private42 DATA checks pass7.34s, including the entire original128-member
+witness constructor/reconstruction, five meaningful guard removals and five
+financial import fences. Qualificatione33dac0b38bd52d64df4f834cee70d17d43ce30717044a2ae8c210368ca029e4
+does not claim that source quotes have already been captured or qualified.
+
+SOURCE327/request193 integrated targeted checks pass399 in43.99s. Exact
+request selects531 sources, P03, zero financial workers and one readonly
+worker with128 source-schema1 identities. Historical DOVA preparation tests
+remain bound to original own462; current conformance verifies actual503/full16,
+41+8 proof rows and the new128-query scope. All383 original sources/B19/future
+and four worker ASTs remain unchanged. Exact staged531-source/workflow closure
+must pass before publishing the503 root and source-only request.

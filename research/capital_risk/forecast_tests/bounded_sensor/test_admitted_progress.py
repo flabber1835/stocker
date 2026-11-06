@@ -23,8 +23,21 @@ def test_historical_may_and_june_queries_do_not_replace_current_forward_batch():
     assert next(q for q in queries.registry().queries if q.arm=='P05').scope.parent_cursor=='2022-05-31'
 
 def test_p03_DOVA_preparation_query_has_exact_native_and_event_quote_only():
-    scope=queries.selected_scopes({},['P03'],enabled=True,root_lookup=root_spec)['P03']
+    scope=queries.selected_scopes({},['P03'],enabled=True,root_lookup=lambda arm:root_spec(arm,'2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0'))['P03']
     assert scope['parent_cursor']=='2019-10-31'
     assert len(scope['terms'])==len(scope['additional_rows'])==1
     assert scope['terms'][0]['ticker']=='DOVA' and scope['terms'][0]['session']=='2019-11-11'
     assert scope['terms'][0]['native_session']==scope['additional_rows'][0]['session']=='2019-11-12'
+
+def test_current_p03_december503_root_retains_full16_inputs_and_49_actual_proofs():
+    spec=root_spec('P03');validate_root_spec(spec)
+    old=root_spec('P03','2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0')
+    assert (spec['measured_closes'],spec['selected_session'])==(503,'2019-12-31')
+    assert len(spec['repairs'])==16 and spec['repairs'][:15]==old['repairs']
+    proof=spec['root_admission']['branch_uncertainty_proof']
+    assert (proof['rows'],proof['retained_rows'])==(41,8)
+    source=spec['root_admission']['source_input_proof']
+    assert source['all_financial_observer_terms']==18 and source['January_tails_and_failed_state_excluded']
+    scope=queries.selected_scopes({},['P03'],enabled=True,root_lookup=root_spec)['P03']
+    assert len(scope['terms'])==128 and scope['parent_cursor']=='2019-12-31'
+    assert all(term['parent_positions']==[] for term in scope['terms'])

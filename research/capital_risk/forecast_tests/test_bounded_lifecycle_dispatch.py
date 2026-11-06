@@ -18,7 +18,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==529 and len(data.source_names())==len(set(data.source_names()))
+    assert len(value['sources'])==531 and len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
@@ -65,7 +65,7 @@ def test_outer_entry_spans_call_and_restores_hooks_on_error(monkeypatch,arm,mode
         finally:calls.append(('exit',a,k))
     monkeypatch.setattr(dova,'entry_context',scope);monkeypatch.setattr(p06,'entry_context',scope);monkeypatch.setattr(p07,'entry',scope)
     monkeypatch.setattr(p07,'selected',lambda spec:spec.get('arm')=='P07')
-    old=lambda spec:False;module=SimpleNamespace(factual_overlay_needed=old);spec=root_spec(arm)
+    old=lambda spec:False;module=SimpleNamespace(factual_overlay_needed=old);spec=root_spec(arm,dova.INITIAL) if arm=='P03' else root_spec(arm)
     with pytest.raises(RuntimeError,match='SYNTHETIC_ABORT'):
         with data.entry(module,spec,mode=mode,evidence='DATA_EVIDENCE',out='DATA_OUT'):
             assert module.factual_overlay_needed(spec) and calls[0][0]=='enter'

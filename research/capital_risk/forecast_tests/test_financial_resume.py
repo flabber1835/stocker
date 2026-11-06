@@ -40,19 +40,16 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P05','P07'] and r['maximum_parallel_financial_workers']==2 and r['maximum_parallel_readonly_workers']==0
-    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False and r['financial_resume_authorized'] is True
-    assert m.request_authority(r) and r['source_witness_scopes']=={}
-    assert r['selected_bounded_preparations']==r['selected_bounded_models']=={}
-    assert set(r['selected_abmd_preparations'])==set(r['selected_abmd_bounded_inputs'])=={'P07'}
-    assert set(r['selected_neutral_cash_batches'])=={'P05'}
-    batch=r['selected_neutral_cash_batches']['P05']
-    assert batch['chunk_sizes']==[30,30,6] and batch['original_repair_maximum_source_evidence']==128
-    assert batch['initial_adoption_required'] is True
+    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_source_witnesses'] is True and r['readonly_partial_review'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and len(r['source_witness_scopes']['P03']['terms'])==128
+    assert r['source_witness_scopes']['P03']['additional_rows']==[]
+    assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']=={}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={a:dict(new_factual_overlay=True,restored_correlation=False) for a in r['arms']}
-    assert r['admitted_checkpoints']=={a:m.root_spec(a)['outer_sha256'] for a in r['arms']}
-    assert r['initial_reporting_origins']=={} and r['full_measured_closes']==2156 and len(r['sources'])==529
+    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert r['admitted_checkpoints']['P03']==m.root_spec('P03')['outer_sha256']
+    assert r['initial_reporting_origins']=={} and len(r['sources'])==531
+    spec=m.root_spec('P03');assert (spec['measured_closes'],spec['selected_session'],len(spec['repairs']))==(503,'2019-12-31',16)
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
