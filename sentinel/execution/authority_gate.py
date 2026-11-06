@@ -322,13 +322,18 @@ def build_fresh_execution_check(
         strategy_identity: IdentityProvider,
         validate_grant: GrantValidator,
         automation_config_sha256: str | None = None,
-        authority_check=None, safety_authority_check=None
+        authority_check=None, safety_authority_check=None,
+        publish_operational_evidence: bool = True
         ) -> GrantValidator:
     """Build the synchronous fresh check used also at actual LIVE HTTP entry."""
     if not callable(connection_factory):
         raise TypeError("connection_factory must be callable")
     endpoint = TradingEndpoint.parse(paper_base_url)
     live = endpoint.environment is TradingEnvironment.LIVE
+    if type(publish_operational_evidence) is not bool:
+        raise TypeError('publish_operational_evidence must be bool')
+    if live and not publish_operational_evidence:
+        raise AuthorityRefused('read-only authority connection is qualified for PAPER only')
     authority_check = authority_check or require_current_authority
     safety_authority_check = (
         safety_authority_check or require_observation_safety_authority)
@@ -342,6 +347,16 @@ def build_fresh_execution_check(
         if not live:
             assert_paper_url(paper_base_url)
         with closing(connection_factory()) as conn:
+            if not publish_operational_evidence:
+                # This separate authority reader must never contend with its
+                # caller's financial transaction through diagnostic triggers.
+                with conn.cursor() as cur:
+                    cur.execute('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
+                # Some authority readers finish their own proof transaction.
+                # Bind the connection default so those rollbacks cannot turn a
+                # later check back into a writer. This connection owns no
+                # financial work from the caller.
+                conn.commit()
             backup_proof = None
             evidence_written = False
             try:
@@ -417,16 +432,16 @@ def build_fresh_execution_check(
                             "grant")
                     if live and account.broker != "alpaca-live":
                         raise AuthorityRefused("LIVE result has a different broker namespace")
-                if isinstance(result, BrokerAccountSnapshot):
+                if publish_operational_evidence and isinstance(result, BrokerAccountSnapshot):
                     operational_evidence.record_account_snapshot(conn, result)
                     evidence_written = True
-                if (backup_proof and backup_proof.get("enabled") is True
+                if (publish_operational_evidence and backup_proof and backup_proof.get("enabled") is True
                         and backup_proof.get("backup_state") != "DEGRADED"):
                     operational_evidence.record_backup_proof(
                         conn, kind="RUNTIME_CHAIN", proof=backup_proof)
                     evidence_written = True
             except Exception as exc:                          # noqa: BLE001
-                if isinstance(grant, AutomationExecutionGrant):
+                if publish_operational_evidence and isinstance(grant, AutomationExecutionGrant):
                     from sentinel.automation import store as automation_store
                     try:
                         automation_store.record_authority_verdict(
@@ -442,7 +457,7 @@ def build_fresh_execution_check(
                         # current panel truth merely to explain why it stopped.
                         conn.rollback()
                 raise
-            if isinstance(grant, AutomationExecutionGrant):
+            if publish_operational_evidence and isinstance(grant, AutomationExecutionGrant):
                 from sentinel.automation import store as automation_store
                 automation_store.record_authority_verdict(
                     conn, verdict="PASS",
@@ -463,7 +478,8 @@ def build_fresh_execution_guard(
         strategy_identity: IdentityProvider,
         validate_grant: GrantValidator,
         automation_config_sha256: str | None = None,
-        authority_check=None, safety_authority_check=None
+        authority_check=None, safety_authority_check=None,
+        publish_operational_evidence: bool = True
         ) -> ExecutionBrokerGuard:
     """Create callbacks that never cache broker authority between operations."""
     check = build_fresh_execution_check(
@@ -471,7 +487,8 @@ def build_fresh_execution_guard(
         runtime_identity=runtime_identity, strategy_identity=strategy_identity,
         validate_grant=validate_grant,
         automation_config_sha256=automation_config_sha256,
-        authority_check=authority_check, safety_authority_check=safety_authority_check)
+        authority_check=authority_check, safety_authority_check=safety_authority_check,
+        publish_operational_evidence=publish_operational_evidence)
 
     async def before_read(grant, operation):
         check(grant, operation, None)

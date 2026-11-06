@@ -1921,7 +1921,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             self, *, after: datetime,
             through: datetime,
             since_event_id: Optional[str] = None,
-            verify_snapshot_replay: bool = False) -> tuple[dict, ...]:
+            verify_snapshot_replay: bool = False,
+            require_account_history: bool = False) -> tuple[dict, ...]:
         floor = _required_aware_ts(
             after, where="Activity SSE lower boundary")
         upper = _required_aware_ts(
@@ -1934,7 +1935,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if not account_uuid:
             raise MalformedBrokerPayload(
                 "Alpaca account payload has no UUID for Activity SSE binding")
-        if self.financial_activity_sse:
+        if require_account_history:
             created_at = _required_aware_ts(
                 account.raw.get("created_at"),
                 where="Activity SSE account creation time")
@@ -2111,7 +2112,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             # snapshot has captured the current upper event_id.
             after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
             since_event_id=since_event_id,
-            verify_snapshot_replay=self.financial_activity_sse)
+            verify_snapshot_replay=self.financial_activity_sse,
+            require_account_history=self.financial_activity_sse)
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
         for event in events:

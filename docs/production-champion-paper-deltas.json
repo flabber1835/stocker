@@ -148,7 +148,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "69b26dccb108b0a91158eb33b72fca2c188b1a8e237695b347e2a7a643abf763",
+      "generated_ast_sha256": "b4270f75df1fa02fa6524e2341c9502f0ed5f8f2d0f82dff9ed8a813105e33c5",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
       "issuer_admission_acceptance": [
         "tests/sentinel/test_issuer_runtime.py",
@@ -171,7 +171,15 @@
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
       "protected_buy_reason": "Keep all fresh broker-read brackets and derive protected funding internally from committed rows and the actual certified wrapper; no caller-provided funding proof or fallback from missing activity.",
-      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change."
+      "readonly_authority_acceptance": [
+        "tests/sentinel/test_paper_authority_readonly.py",
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_current_operational_workflow.py",
+        "tests/sentinel/test_current_process_recovery.py"
+      ],
+      "readonly_authority_design": "docs/paper-current-cash-transition.md",
+      "readonly_authority_predecessor_ast_sha256": "69b26dccb108b0a91158eb33b72fca2c188b1a8e237695b347e2a7a643abf763",
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change. PAPER fresh authority connections are transaction-read-only inside the canonical financial gateway; independent automation/account/backup producers own operational publications. All original fresh checks and backup requirements remain; no caller transaction is committed early."
     },
     "_informational_active_symbols": {
       "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",

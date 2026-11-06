@@ -29,7 +29,12 @@ Production uses the same complete bootstrap, bounded native event cursor,
 account brackets, strict taxonomy/currency/status and immutable native cash
 ledger. Require a native account creation timestamp on or after February 12,
 2026, so an older account cannot claim full history from the provider's February
-11 coverage boundary. Repeat initial discovery before accepting its first cursor. Unreachable
+11 coverage boundary. Scope that inception-coverage gate to account-cash
+discovery. Positive native fill recovery retains its existing bounded account,
+order and progression evidence; it cannot earn complete account-cash history or
+fill negative-space finality. A shared stream traversal must not impose a cash
+history claim on those independent positive facts. Repeat initial discovery
+before accepting its first cursor. Unreachable
 or contradictory source evidence refuses; corrections/busts and external
 securities transfers remain explicit recovery conditions. Repeated identical
 snapshots never become historical finality. Trade notionals remain in the
@@ -113,6 +118,37 @@ The ordinary baseline reader still owns exact deterministic plan-id keys;
 semantic restore dispatches the reserved retirement subnamespace to its strict
 receipt validator. Preserve the original namespace list, trigger SQL, catalog
 bytes and catalog pin. This needs no database-schema or financial-book migration.
+
+## Fresh authority checks do not publish inside a financial writer
+
+Decision, 2026-11-06, before implementation: the complete current workflow
+reproduced a self-conflict after accepted cash ingestion. The financial
+transaction advanced its cash cursor and held the PAPER revision row. The next
+fresh broker guard opened its separate connection, then tried to publish a
+global authority verdict through that same revision row. Its caller could not
+finish and release the row while waiting for that guard. This is a transaction
+ownership defect, not evidence that the signed authority check needs more time.
+
+For the canonical PAPER financial gateway, keep every fresh connection and
+before/after-operation signature, publication, account, generation, lease,
+kill, runtime and mutation-backup check. Make that connection explicitly
+transaction-read-only and disable its incidental operational account, backup
+and authority-verdict publications. Do not share the caller's transaction,
+commit its cash/book/commands early, skip a fresh check or catch a timeout as
+permission. A refused check still refuses the broker operation.
+
+The existing automation authority poll owns its durable global verdict outside
+the financial transaction; the execution account-status collector owns native
+display snapshots; backup maintenance owns recovery observations. Financial
+reconciliation and cash ingestion retain their ordinary writer transactions
+and durable evidence. Standalone guard consumers retain their prior publication
+behavior by default, and this read-only option cannot configure LIVE transport.
+The current-workflow qualification must run the real independent account-status
+producer before consuming its dashboard evidence, instead of relying on a
+financial guard's side effect. Prove the split with an actual held PAPER
+revision row, a removed-guard falsifier, fresh negative authority cases, and the
+complete current-source execution/restart workflow. The operational catalog and
+all financial deadlines remain unchanged.
 
 ## Qualification and release
 

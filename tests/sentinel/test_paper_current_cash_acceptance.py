@@ -183,7 +183,7 @@ def test_acceptance_oracle_detects_removed_guard(monkeypatch, guard):
             assert len(matches) == 1
             matches[0].value = ast.Constant(False)
         else:
-            matches = [n for n in ast.walk(tree) if isinstance(n, ast.If) and ast.unparse(n.test) == 'self.financial_activity_sse']
+            matches = [n for n in ast.walk(tree) if isinstance(n, ast.If) and ast.unparse(n.test) == 'require_account_history']
             assert len(matches) == 1
             matches[0].test = ast.Constant(False)
         ast.fix_missing_locations(tree)

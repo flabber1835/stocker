@@ -47,6 +47,24 @@ def test_six_then_four_shares_reconcile_and_notify_once_across_connections(conn)
     print(json.dumps({'progression':[6,10],'native_total':10,'native_notional':1000,'retained_fill_rows':2,'ordinary_fill_alerts':2}))
 
 
+@pytest.mark.parametrize('created_at', [None, '2025-01-01T00:00:00Z'])
+def test_positive_fill_recovery_cannot_claim_complete_cash_history(conn, created_at):
+    from sentinel.execution.alpaca import MalformedBrokerPayload
+
+    owner, _, broker, http, _ = original.fixture(conn, native_quantities=('10',))
+    account = http.routes['/v2/account']
+    if created_at is not None:
+        account['created_at'] = created_at
+    result = asyncio.run(R.reconcile(broker=broker, conn=conn,
+        binding=None, deployment=owner.identity))
+    assert result.clean and result.runtime_state is RuntimeState.RUNNING
+    assert result.expected == result.observed == {'SEC-AAPL': Decimal(10)}
+    assert journal.load_commands(conn, owner.identity)[0].state is S.FILLED
+    with pytest.raises(MalformedBrokerPayload, match='creation|predates'):
+        asyncio.run(broker.account_cash_activities(after=original.START, through=original.FILL))
+    assert not [call for call in http.calls if call[0] != 'GET']
+
+
 __all__ = ['conn', 'pg']
 
 

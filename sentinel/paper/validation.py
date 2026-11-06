@@ -438,7 +438,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         strategy_identity=strategy_provider,
         validate_grant=validate,
         automation_config_sha256=automation_config_sha256,
-        authority_check=require_current_authority)
+        authority_check=require_current_authority,
+        publish_operational_evidence=False)
     async def protected_funding(**kwargs):
         # The canonical membrane derives its own ceiling from committed rows.
         # Callers cannot supply a balance/proof that grants spend permission.
