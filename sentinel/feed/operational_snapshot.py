@@ -165,6 +165,15 @@ def validate(conn, lease, request):
 
 
 def _bound(conn, pub):
+    return _checked_binding(conn, pub, rolling_store.manifest)
+
+
+def display_binding(conn, pub):
+    """Validate the same binding using the guarded display metadata reader."""
+    return _checked_binding(conn, pub, rolling_store.display_manifest)
+
+
+def _checked_binding(conn, pub, manifest_reader):
     binding = pub.evidence.get("rolling_snapshot")
     if not isinstance(binding, dict) or binding.get("schema") != SCHEMA:
         raise OperationalSnapshotRefused("NOT_AN_OPERATIONAL_SNAPSHOT")
@@ -177,7 +186,7 @@ def _bound(conn, pub):
             or str(row[0]) != binding.get("job_id") or str(row[1]) != binding.get("candidate_id")
             or row[2] != binding.get("validation_sha256")):
         raise OperationalSnapshotRefused("OPERATIONAL_BINDING_MISMATCH")
-    manifest = rolling_store.manifest(conn, str(row[1]))
+    manifest = manifest_reader(conn, str(row[1]))
     request = jobs.PreparationRequest.model_validate(jobs.status(conn, str(row[0]))["request"])
     proof = rolling_store.load_evidence(conn, row[2])
     if (binding.get("snapshot_id") != manifest.snapshot_id

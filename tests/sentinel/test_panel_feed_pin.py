@@ -1,4 +1,4 @@
-"""A temporary source-pin refusal never changes measured feed evidence."""
+"""Legacy display-pin retries preserve measured evidence and owned transactions."""
 from datetime import datetime, timezone
 import inspect
 from types import SimpleNamespace
@@ -44,10 +44,10 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
             raise CorpusLockUnavailable('publication owns the pin')
         return original
 
-    monkeypatch.setattr(readers, 'status_snapshot', attempt)
+    monkeypatch.setattr(readers, 'display_status_snapshot', attempt)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda _, ms: timeouts.append(ms))
     assert sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep) is original
-    assert len(calls) == 2 and conn.rollbacks == 1
+    assert len(calls) == 2 and conn.rollbacks >= 3
     assert original[1].ready is False
     assert timeouts[1] < timeouts[0] <= 2000
 
@@ -59,12 +59,12 @@ def test_persistent_lock_expires_at_original_deadline(monkeypatch):
         assert include_publication is True
         raise CorpusLockUnavailable('still owned')
 
-    monkeypatch.setattr(readers, 'status_snapshot', busy)
+    monkeypatch.setattr(readers, 'display_status_snapshot', busy)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda _, ms: timeouts.append(ms))
     with pytest.raises(CorpusLockUnavailable):
         sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep)
     assert clock.now == sources.FEED_PIN_RETRY_SECONDS
-    assert conn.rollbacks == len(timeouts) <= 21
+    assert conn.rollbacks >= len(timeouts) and len(timeouts) <= 21
     assert all(0 < timeout <= 2000 for timeout in timeouts)
 
 
@@ -77,11 +77,11 @@ def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
         calls.append(True)
         raise error
 
-    monkeypatch.setattr(readers, 'status_snapshot', fail)
+    monkeypatch.setattr(readers, 'display_status_snapshot', fail)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda *_: None)
     with pytest.raises(type(error)):
         sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep)
-    assert len(calls) == 1 and clock.now == 0 and conn.rollbacks == 0
+    assert len(calls) == 1 and clock.now == 0 and conn.rollbacks > 0
 
 
 @pytest.mark.parametrize('persistent', [False, True])
@@ -103,7 +103,7 @@ def test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monke
     monkeypatch.setattr(sources, '_operational_acquisition', lambda _: [dict(
         kind='daily', status='success', current_chunk='PUBLISHED publication 5', updated_at=now)])
     monkeypatch.setattr(calendar, 'freshness', lambda _: SimpleNamespace(sessions_behind=0, ahead=False))
-    monkeypatch.setattr(readers, 'status_snapshot', attempt)
+    monkeypatch.setattr(readers, 'display_status_snapshot', attempt)
     original = sources._feed_status_snapshot
     monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: original(
         conn, clock=clock, sleep=clock.sleep))
@@ -145,6 +145,6 @@ def test_omitting_reacquisition_rollback_breaks_its_falsifier(monkeypatch):
 
 
 def test_bypassing_retry_in_full_feed_reader_breaks_its_falsifier(monkeypatch):
-    monkeypatch.setattr(sources, '_feed_status_snapshot', readers.status_snapshot)
+    monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: readers.display_status_snapshot(conn, include_publication=True))
     with pytest.raises((AssertionError, CorpusLockUnavailable)):
         test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monkeypatch, False)

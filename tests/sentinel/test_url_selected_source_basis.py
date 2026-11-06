@@ -30,6 +30,7 @@ OPERATIONAL_ADDITIONS = {
 } | ACCESS_PATH_ADDITIONS
 PATCH_CHANGES = {
     'shadow_drain.py',
+    'feed/readers.py', 'feed/rolling_store.py', 'feed/operational_snapshot.py',
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
     'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
@@ -211,11 +212,12 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
+        'panel/sources.py', 'feed/readers.py', 'feed/rolling_store.py', 'feed/operational_snapshot.py',
         'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
-def test_installed_checkpoint_access_runtime_has_only_the_reviewed_drain_successor():
+def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display_changes():
     previous = basis._profile()['retained_predecessors'][basis.CHECKPOINT_ACCESS_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
     assert len(previous) == 453
@@ -223,7 +225,8 @@ def test_installed_checkpoint_access_runtime_has_only_the_reviewed_drain_success
     actual = _actual()
     assert set(actual) == set(previous)
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_drain.py', 'url_selected_source_basis.py'}
+        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py',
+        'feed/readers.py', 'feed/rolling_store.py', 'feed/operational_snapshot.py'}
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

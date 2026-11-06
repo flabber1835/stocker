@@ -205,6 +205,10 @@ def _pin_reader(conn):
 def _parent(conn, candidate_id: str, *, lock: bool = False):
     if not lock:
         _pin_reader(conn)
+    return _parent_row(conn, candidate_id, lock=lock)
+
+
+def _parent_row(conn, candidate_id: str, *, lock: bool = False):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session_axis,reference_sha256,source_evidence_sha256,manifest "
@@ -376,6 +380,22 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
 
 
 def manifest(conn, candidate_id: str) -> SnapshotManifest:
+    return _manifest(conn, candidate_id, _parent)
+
+
+def display_manifest(conn, candidate_id: str) -> SnapshotManifest:
+    """Immutable metadata only, under an actual read-only repeatable snapshot."""
+    if conn.autocommit:
+        raise SnapshotStorageRefused('DISPLAY_MANIFEST_REQUIRES_CALLER_TRANSACTION')
+    settings = conn.execute(
+        "SELECT current_setting('transaction_isolation'),"
+        "current_setting('transaction_read_only')").fetchone()
+    if settings != ('repeatable read', 'on'):
+        raise SnapshotStorageRefused('DISPLAY_MANIFEST_REQUIRES_READ_ONLY_SNAPSHOT')
+    return _manifest(conn, candidate_id, _parent_row)
+
+
+def _manifest(conn, candidate_id: str, parent) -> SnapshotManifest:
     with conn.cursor() as cur:
         cur.execute("SELECT snapshot_id,manifest FROM sentinel_price_candidates "
                     "WHERE candidate_id=%s", (candidate_id,))
@@ -385,7 +405,7 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
     value = SnapshotManifest.model_validate(row[1])
     if value.snapshot_id != row[0]:
         raise SnapshotStorageRefused("snapshot manifest content identity differs")
-    axis, reference, source, _ = _parent(conn, candidate_id)
+    axis, reference, source, _ = parent(conn, candidate_id)
     if (value.window.model_dump(mode="json")["sessions"] != axis
             or value.reference_sha256 != reference
             or value.source_evidence_sha256 != source):
