@@ -1266,6 +1266,11 @@ def _observation_recovery(
     return None
 
 
+def _backup_valid_until(fact_at: datetime | None) -> datetime | None:
+    """Independent maintenance evidence never borrows a trading retry clock."""
+    return fact_at + timedelta(minutes=10) if fact_at is not None else None
+
+
 def _latest_automation_instance(conn, *, holder: str | None = None) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -1678,8 +1683,8 @@ def _operator_evidence_rows(
             # can never lend that recovery budget to backup evidence.
             now=now, recovery=_cycle_recovery(
                 cycle, failure_domains=("BACKUP",)),
-            runtime_valid_until=_runtime_valid_until(
-                cycle, (runtime_backup or {}).get("observed_at")),
+            runtime_valid_until=_backup_valid_until(
+                (runtime_backup or {}).get("observed_at")),
             error=backup_error)
         if backups_suspended:
             backup_row = model.Row(

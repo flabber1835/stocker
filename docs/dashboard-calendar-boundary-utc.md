@@ -33,7 +33,8 @@ remains at APPLICATIONS_STARTED. Preserve that distinction. The next complete
 source map may retain its actual 454-module source closure
 `c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab`
 alongside all twelve unchanged retained maps. This compatibility witness grants
-no financial or installation authority. Seal the exact five reviewed runtime
-changes (calendar outputs, BIL routing, recovery classification and the still
-quarantined activity account bracket) and their source-map checker. Preserve
+no financial or installation authority. Seal the exact seven reviewed runtime
+changes (calendar outputs, independent backup clocks and row expiry, BIL routing,
+recovery classification and the still quarantined activity account bracket)
+and their source-map checker. Preserve
 the original economic compiler and all installed predecessor bytes.

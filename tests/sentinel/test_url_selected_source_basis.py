@@ -25,7 +25,8 @@ ACCESS_PATH_ADDITIONS = {'checkpoint_lineage_access.py', 'operational_ddl_handof
 ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 MARKET_OPEN_CHANGES = {'automation/service.py', 'execution/alpaca.py', 'execution/cash_corrections.py',
-                      'panel/operational_snapshot.py', 'panel/presentation.py'}
+                      'panel/operational_snapshot.py', 'panel/presentation.py',
+                      'panel/model.py', 'panel/sources.py'}
 OPERATIONAL_ADDITIONS = {
     'automation/source_completion.py', 'panel/attempt_store.py', 'panel/delivery.py', 'panel/observer_failure.py',
     'panel/operational_snapshot.py', 'panel/projection_service.py', 'panel/projection_worker.py',
