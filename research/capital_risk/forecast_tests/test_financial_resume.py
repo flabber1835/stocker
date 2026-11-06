@@ -40,21 +40,20 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
-    assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={}
-    assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']=={}
-    assert set(r['selected_p06_admitted_point_continuations'])=={'P06'}
-    declaration=r['selected_p06_admitted_point_continuations']['P06']
-    assert declaration['committed_seed_rows']==6 and declaration['full_inputs']==10
-    assert declaration['financial_source_changed'] is declaration['new_input_adoption'] is declaration['Jan20_failure_cause_proven'] is False
+    assert r['arms']==['P05'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_source_witnesses'] is True and r['financial_resume_authorized'] is r['readonly_partial_review'] is False
+    assert m.request_authority(r) and set(r['source_witness_scopes'])=={'P05'}
+    scope=r['source_witness_scopes']['P05']
+    assert len(scope['terms'])==36 and len(scope['additional_rows'])==1 and all(t['parent_positions']==[] for t in scope['terms'])
+    assert scope['terms'][0]['ticker']=='CTXS' and scope['additional_rows'][0]['session']=='2022-09-29'
+    assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']=={}
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P06':dict(new_factual_overlay=False,restored_correlation=False)}
-    admitted=m.root_spec('P06')
-    assert r['admitted_checkpoints']['P06']==admitted['outer_sha256'] and len(r['sources'])==538
-    assert admitted['root_admission_sha256']=='41520825b51f125272ed44bb01ca58905fe7b170005fc1a1c4a72856bf01263f'
-    assert (admitted['measured_closes'],len(admitted['repairs']))==(1259,10)
-    assert admitted['root_admission']['new_daily_records']==21 and admitted['root_admission']['branch_uncertainty_proof']['rows']==6
+    assert r['arm_inputs']=={'P05':dict(new_factual_overlay=False,restored_correlation=False)}
+    admitted=m.root_spec('P05')
+    assert r['admitted_checkpoints']['P05']==admitted['outer_sha256'] and len(r['sources'])==540
+    assert admitted['root_admission_sha256']=='baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026'
+    assert (admitted['measured_closes'],len(admitted['repairs']))==(1175,19)
+    assert admitted['root_admission']['new_daily_records']==23 and admitted['root_admission']['source_input_proof']['total_observer_terms']==94
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

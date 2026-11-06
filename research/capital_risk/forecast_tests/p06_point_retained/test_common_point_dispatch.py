@@ -11,9 +11,14 @@ from system_campaign_financial_partial import root_spec
 
 
 @pytest.fixture
-def routes(monkeypatch):
+def routes(monkeypatch,tmp_path):
     import full_system_core
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+    # Bind the immutable original financial request while the active campaign
+    # moves to other arms; the actual P06 root remains authoritative.
+    captured=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial330-source-snapshot/system-campaign-factual-request.json')
+    (tmp_path/'system-campaign-factual-request.json').write_bytes(captured.read_bytes())
+    monkeypatch.setattr(common,'HERE',tmp_path)
     calls=[]
     @contextmanager
     def scope(module,spec,**kwargs):
