@@ -150,8 +150,14 @@ def validate_restored_database(conn) -> dict:
             (f"{broker_cash.PLAN_BASELINE_PREFIX}%",))
         baseline_names = [str(row[0]) for row in cur.fetchall()]
     plan_by_id = {str(row[0]): row for row in plan_rows}
+    from sentinel.paper.cash_retirement import PREFIX as cash_retirement_prefix, verify_retirements
     baseline_ids = []
     for name in baseline_names:
+        if name.startswith(cash_retirement_prefix):
+            # A distinct authenticated subtype of existing execution metadata.
+            # Its paired receipts are strictly validated below, not parsed as a
+            # baseline or silently omitted from restored-state validation.
+            continue
         plan_id = name.removeprefix(broker_cash.PLAN_BASELINE_PREFIX)
         if not plan_id or plan_id not in plan_by_id:
             raise RestoreValidationRefused(
@@ -169,7 +175,6 @@ def validate_restored_database(conn) -> dict:
             raise RestoreValidationRefused(
                 f"cash baseline for plan {plan_id!r} disagrees with its plan")
     cash_baseline_count = len(baseline_ids)
-    from sentinel.paper.cash_retirement import verify_retirements
     from sentinel.paper.model import PaperActivationRefused
     try:
         verify_retirements(conn)

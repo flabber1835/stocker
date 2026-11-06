@@ -92,8 +92,9 @@ same-session order or late opening BUY is enabled.
 Build the next ordinary plan from the existing verified shadow and held-target
 rules. Atomically adopt that new plan, record its own current immutable cash
 baseline, and append an HMAC-bound retirement receipt in the existing
-`sentinel_processed_sessions` store under the distinct, explicitly retained
-`broker-cash-retirement:v1:` namespace. Bind the exact predecessor and successor,
+`sentinel_processed_sessions` store under the typed
+`broker-cash-plan:v1:retirement:` subnamespace of existing execution metadata.
+Bind the exact predecessor and successor,
 native reference, current cash cursor, reconciled account/book facts, signed
 authority and operator request. A separate keyed native-reference claim prevents
 using one dividend to retire multiple legacy plans. Failed preparation rolls
@@ -103,6 +104,15 @@ re-anchor that successor or consume the dividend twice.
 Semantic restore validates every receipt/native-claim pair against its retained
 predecessor, successor and successor baseline; it refuses orphaned or altered
 evidence without treating retirement rows as ordinary plan cash baselines.
+
+Qualification correction, before implementation: a new top-level PAPER cursor
+prefix also changes the generated operational cursor-trigger SQL. The current
+workflow correctly refused that unqualified catalog change. Use the existing
+cash-plan namespace with an explicit authenticated retirement subtype instead.
+The ordinary baseline reader still owns exact deterministic plan-id keys;
+semantic restore dispatches the reserved retirement subnamespace to its strict
+receipt validator. Preserve the original namespace list, trigger SQL, catalog
+bytes and catalog pin. This needs no database-schema or financial-book migration.
 
 ## Qualification and release
 

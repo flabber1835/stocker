@@ -26,8 +26,7 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 CASH_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
-                'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py',
-                'retained_input_namespaces.py'}
+                'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py'}
 MARKET_OPEN_CHANGES = {'automation/service.py', 'execution/alpaca.py', 'execution/cash_corrections.py',
                       'panel/operational_snapshot.py', 'panel/presentation.py',
                       'panel/model.py', 'panel/sources.py'}

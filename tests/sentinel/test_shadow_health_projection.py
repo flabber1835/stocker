@@ -106,7 +106,7 @@ def test_causal_session_age_is_reobserved(projection, monkeypatch):
 @pytest.mark.parametrize('cursor', [
     'broker-cash-activity:v1:alpaca:paper-account',
     'broker-cash-plan:v1:paper-plan',
-    'broker-cash-retirement:v1:paper-plan',
+    'broker-cash-plan:v1:retirement:paper-plan',
     'dual-plan-sizing-authority:v1:paper-plan',
     'dual-regenesis-broker-handover:v2:paper-observation:00000001',
     'paper-informational-mirror:v1:paper-plan',

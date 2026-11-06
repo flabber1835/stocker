@@ -72,6 +72,23 @@ def test_selected_cash_graph_and_guard_without_fill_or_finality_claims():
     assert 'cash_observable' not in certification._CERTIFIED_CAPABILITIES['alpaca-live']
 
 
+def test_current_workflow_native_fixture_supports_selected_cash_bootstrap():
+    from tests.support.current_workflow_transport import NativeWorkflowAlpaca
+
+    native = NativeWorkflowAlpaca(account=ACCOUNT_NUMBER, cash='50000', assets={},
+        window=lambda: (NOW, NOW))
+    inner = AssetIdAlpacaExecutionBroker(api_key='fixture', secret_key='fixture',
+        base_url='https://paper-api.alpaca.markets', http_provider=lambda: native)
+    certification.certify_adapter(inner, name='alpaca', mode='ALPACA_PAPER')
+    broker = GuardedExecutionBroker(inner=inner,
+        grant=PaperPreparationGrant(ACCOUNT_NUMBER, NOW.date()),
+        guard=ExecutionBrokerGuard(no_op, no_op, no_op))
+    batch = asyncio.run(broker.account_cash_activities(after=NOW, through=NOW))
+    assert batch.completeness is Completeness.COMPLETE and not batch.activities
+    assert native.requests['GET ' + PATH] == 2
+    assert not native.orders and not native.positions
+
+
 @pytest.mark.parametrize('created_at', [None, '', '2026-02-11T23:59:59Z', '2026-08-21T00:00:00Z'])
 def test_unknown_or_outside_history_account_creation_refuses_before_stream(created_at):
     broker, http = selected(created_at=created_at)

@@ -33,6 +33,9 @@ class _Cursor:
             self.rows = []  # No prospective cash-retirement rows in this legacy fixture.
         elif statement.startswith("SELECT cursor_name"):
             self.rows = [("broker-cash-plan:v1:plan-current",)]
+            if self.conn.retirement_present:
+                self.rows += [("broker-cash-plan:v1:retirement:legacy",),
+                              ("broker-cash-plan:v1:retirement:native:claim",)]
         else:
             self.rows = []
 
@@ -44,10 +47,11 @@ class _Cursor:
 
 
 class _Connection:
-    def __init__(self):
+    def __init__(self, *, retirement_present=False):
         self.statements = []
         self.commits = 0
         self.rollbacks = 0
+        self.retirement_present = retirement_present
 
     def cursor(self):
         return _Cursor(self)
@@ -59,7 +63,9 @@ class _Connection:
         self.rollbacks += 1
 
 
-def test_restore_validator_reconstructs_every_durable_chain(monkeypatch):
+@pytest.mark.parametrize('retirement_present', [False, True])
+def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirement_present):
+    from sentinel.paper import cash_retirement
     account = SimpleNamespace(
         identity="deployment", takeover_epoch=4, broker="alpaca",
         broker_account_id="paper-account")
@@ -68,6 +74,9 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch):
     control = SimpleNamespace(
         enabled=False, kill_switch_engaged=True, generation=12)
     cycles = []
+    validated_retirements = []
+    monkeypatch.setattr(cash_retirement, 'verify_retirements',
+        lambda connection: validated_retirements.append(connection))
 
     monkeypatch.setattr(
         restore_validation.schema, "require_runtime_schema", lambda _c: None)
@@ -115,7 +124,7 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch):
         restore_validation.automation_integrity, "validate_cycle_lineage",
         lambda _c, cycle: cycles.append(cycle))
 
-    conn = _Connection()
+    conn = _Connection(retirement_present=retirement_present)
     result = restore_validation.validate_restored_database(conn)
 
     assert result["transaction_read_only"] is True
@@ -124,6 +133,7 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch):
     assert result["cycle_count"] == 2
     assert result["trial_verification_count"] == 2
     assert result["cash_baseline_count"] == 1
+    assert validated_retirements == [conn]
     assert cycles == ["cycle-a", "cycle-b"]
     assert "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY" in (
         conn.statements)

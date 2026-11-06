@@ -25,6 +25,7 @@ from sentinel.paper import cash_retirement as retirement
 from sentinel.paper.cash import _cash_authority_or_refuse
 from sentinel.paper.model import PaperActivationRefused
 from tests.sentinel.test_paper_current_cash_acceptance import conn, pg, selected, ACCOUNT_NUMBER
+from tests.sentinel.test_operational_catalog_integration import cluster, conn as qualified_catalog_conn
 
 NOW = datetime(2026, 11, 6, 22, tzinfo=timezone.utc)
 DECISION = date(2026, 11, 6)
@@ -34,6 +35,10 @@ IDENTITY = BrokerAccountIdentity('alpaca', ACCOUNT_NUMBER)
 
 @pytest.fixture
 def context(conn, monkeypatch):
+    return retirement_context(conn, monkeypatch)
+
+
+def retirement_context(conn, monkeypatch):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-retirement-test-key-not-production')
     bound = binding.require(conn)
     old = ExecutionPlan('legacy-cash-plan', date(2026, 11, 5), DECISION, Decimal(0),
@@ -107,6 +112,41 @@ def test_future_anchor_preserves_legacy_plan_and_missing_cash_boundary(conn, con
             activity_state=context['activity_state'], permit_new_activity=True)
     assert retirement.pending_request(conn, context['request'], new, decision_session=DECISION) is None
     retirement.verify_retirements(conn)
+
+
+def test_retirement_preserves_qualified_catalog_and_shadow_revision(qualified_catalog_conn, monkeypatch, tmp_path):
+    from sentinel import operational_catalog, operational_schema
+    from sentinel.panel import operational_schema as panel_schema
+
+    # Operational extensions own persistent functions as well as tables. Keep
+    # their committed installation in a disposable database, outside the shared
+    # legacy table-reset fixture used by the remaining retirement cases.
+    conn = qualified_catalog_conn
+    binding.bind(conn, deployment_id='cash-acceptance', broker='alpaca', broker_account_id=ACCOUNT_NUMBER)
+    conn.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z' WHERE id=1")
+    conn.commit()
+    context = retirement_context(conn, monkeypatch)
+    developer_transaction_fixture(monkeypatch, tmp_path)
+    operational_schema.install_quiescent(conn)
+    assert operational_catalog.require_extension(conn, panel_schema.__name__)
+    conn.rollback()
+    with journal.writer_lock(conn):
+        prepared = qualify(conn, context)
+        new = successor(conn, context)
+        revisions = lambda: dict(conn.execute(
+            'SELECT scope,revision FROM sentinel_operational_read_revisions').fetchall())
+        before = revisions()
+        retirement.record(conn, prepared=prepared, successor=new)
+        after = revisions()
+        assert after['PAPER'] == before['PAPER'] + 2
+        assert after['SHADOW'] == before['SHADOW']
+        retirement.verify_retirements(conn)
+        # Unknown metadata must still invalidate financial shadow subjects.
+        conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                     "VALUES ('unrecognized-financial-input','2026-11-06','{}')")
+        assert revisions()['SHADOW'] == after['SHADOW'] + 1
+        conn.commit()
+    assert operational_catalog.require_extension(conn, panel_schema.__name__)
 
 
 @pytest.mark.parametrize('state', list(CommandState))

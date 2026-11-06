@@ -20,7 +20,7 @@ from sentinel.feed.rolling_contract import digest
 from sentinel.paper.cash import _account_economics, _observation_economics
 from sentinel.paper.model import PaperActivationRefused as Refused
 
-PREFIX = 'broker-cash-retirement:v1:'
+PREFIX = broker_cash.PLAN_BASELINE_PREFIX + 'retirement:'
 SCHEMA = 'sentinel.unsent-paper-cash-retirement/1'
 
 
