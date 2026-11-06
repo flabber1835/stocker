@@ -96,6 +96,8 @@ def selected_scopes(original,arms,*,enabled,root_lookup):
     result=select_forward(result,arms,enabled=enabled,root_lookup=root_lookup)
     from system_campaign_p03_forward_source_queries import selected_scopes as select_p03
     result=select_p03(result,arms,enabled=enabled,root_lookup=root_lookup)
+    from system_campaign_p03_forward_source_queries_batch2 import selected_scopes as select_p03_batch2
+    result=select_p03_batch2(result,arms,enabled=enabled,root_lookup=root_lookup)
     from system_campaign_p05_remaining_source_queries import selected_scopes as select_remaining
     return select_remaining(result,arms,enabled=enabled,root_lookup=root_lookup)
 
@@ -104,4 +106,5 @@ def source_names():
     from system_campaign_forward_source_queries import source_names as forward_names
     from system_campaign_p03_forward_source_queries import source_names as p03_names
     from system_campaign_p05_remaining_source_queries import source_names as remaining_names
-    return (Path(__file__).name,CATALOG,*pending_names(),*forward_names(),*p03_names(),*remaining_names())
+    from system_campaign_p03_forward_source_queries_batch2 import source_names as batch2_names
+    return (Path(__file__).name,CATALOG,*pending_names(),*forward_names(),*p03_names(),*remaining_names(),*batch2_names())
