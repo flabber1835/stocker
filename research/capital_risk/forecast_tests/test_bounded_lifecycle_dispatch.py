@@ -25,7 +25,7 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==540 and len(data.source_names())==len(set(data.source_names()))
+    assert len(value['sources'])==544 and len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
@@ -58,12 +58,17 @@ def test_source_pin_replacement_falsifier_detects_removed_new_guard():
 
 @pytest.mark.parametrize('arm',['P03','P06','P07'])
 @pytest.mark.parametrize('mode',['preflight','economic','review'])
-def test_outer_entry_spans_call_and_restores_hooks_on_error(monkeypatch,arm,mode):
+def test_outer_entry_spans_call_and_restores_hooks_on_error(monkeypatch,tmp_path,arm,mode):
     import full_system_core
     import system_campaign_bounded_sensor_runtime_v2 as dova
     import system_campaign_p06_abmd_lifecycle as p06
     import system_campaign_p07_abmd_lifecycle as p07
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+    # Preserve the original financial-generation regression independently of
+    # the active readonly repair request.
+    captured=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial324-source-snapshot/system-campaign-factual-request.json')
+    (tmp_path/'system-campaign-factual-request.json').write_bytes(captured.read_bytes())
+    monkeypatch.setattr(data,'HERE',tmp_path)
     calls=[]
     @contextmanager
     def scope(*a,**k):

@@ -1295,7 +1295,7 @@ has the checked env/published callsite; no canonical module was executed locally
 The72 retained_sources,retained_proof and admission_generations compatibility
 tests passed in6.04s, including explicit parent propagation to the event observer.
 
-## Review P07's new63 AprilÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“June2020 closes without financial replay
+## Review P07's new63 AprilÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“June2020 closes without financial replay
 
 Financial41821755315/e4c3f0a60 stopped with628 committed closes through June30
 and a later unadmitted July tail. Artifact13318715488 is authenticated and its
@@ -1460,7 +1460,7 @@ the admitted June30 book holds234 TGI shares in slot2,entered April4,2025.
 
 Select only the exact1883 gzip/outer hash for read-only reporting, seeded from
 the independently admitted169 fresh root. Reuse the closed hosted prefix review
-and recompute only the1714 new reporting inputs and82 September2018ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“June2025
+and recompute only the1714 new reporting inputs and82 September2018ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“June2025
 monthly reports. No financial transitions, initial formation, old financial rows
 or original qualification are rerun. Independent DATA must verify3428 accounting
 snapshots,2296 Decimal report metrics,neutral ILG input adoption and complete
@@ -1500,7 +1500,7 @@ initial-reporting/pending-source/selected-stock/retention/future tests in35.62s.
 Fresh169 archive-format fixtures now explicitly select the unchanged historical
 c08cec7a root; current1883 authority retains that original empty-origin chain.
 
-## Review P04's83 new October2022ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“January2023 closes
+## Review P04's83 new October2022ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“January2023 closes
 
 Financial41832538725/e1b91fbe3 artifact13325690752 is authenticated and its
 original prefix reviewer passed. Its strict1279/January31,2023 checkpoint adds
@@ -1535,7 +1535,7 @@ This does not assert preopen completion on July24. Reuse the unchanged generic
 cash-calendar validator and shared future selector/hydrator/qualifier; no new
 symbol-specific runtime, financial engine change or new timing convention.
 
-Preserve generations2ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“6 byte-exactly and select generation7 only for P00/June30.
+Preserve generations2ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“6 byte-exactly and select generation7 only for P00/June30.
 Launch only the273 remaining hosted financial closes after actual source/native,
 next-session, packet, canonical cash and immutable input-adoption qualification.
 P04's read-only1279 reporting continues on its immutable commit. Full P00 scoring
@@ -1612,7 +1612,7 @@ Only named digest-pinned P05/P06/P11 targets may use the bootstrap; arbitrary
 unadmitted roots and already-admitted targets still refuse. Future AAAP treatment
 must bind the actual native/full-row source and independently qualified input,
 preserving the genuine interval before July13 and allowing no assumed tender.
-The later payment does not establish raw marks for the held FebruaryÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“July interval;
+The later payment does not establish raw marks for the held FebruaryÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“July interval;
 no financial continuation or fabricated interim valuation follows from this notice.
 P00 and P04 keep running on their immutable commits while these read-only jobs run.
 The reporting bootstrap passed173 targeted initial-prefix/initial-reporting/
@@ -2954,7 +2954,7 @@ use only the qualified scope2614cd361022dff57d144181e77f956448cb8c219dbcb242245d
 It adds one registry entry (49 total), preserves all48 older scopes and every
 function/class AST, and changes only active P07. All held/pending parent roles
 are empty; ZGNX is selected, and that distinction remains explicit. The source
-request launches no financial worker and activates no ZGNX26ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“28 contingent-
+request launches no financial worker and activates no ZGNX26ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“28 contingent-
 right model or new cash term. Fresh authenticated independent DATA must close
 the new14-row/eight-native query before a later own-root input selection.
 
@@ -3063,8 +3063,8 @@ and missing May5 causal bar, with157 shares in slot19 since April29. Do not
 override volatility or infer consideration from deal value. This readonly
 request performs zero financial transitions and grants no root admission.
 
-For P07's next own1047 ZGNX design, retain the existing26ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“28 Zogenix contract
-and its original codec/facts/sensor. Do not relabel P03's ALDR_INITIAL18ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“20
+For P07's next own1047 ZGNX design, retain the existing26ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“28 Zogenix contract
+and its original codec/facts/sensor. Do not relabel P03's ALDR_INITIAL18ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“20
 record or substitute P02's single-state certified_recovery format for P07's
 retained B19 possible_after cloud. A new explicit proof-only dispatch may
 delegate unchanged point inputs to the original P07 point-growth scope and
@@ -3644,7 +3644,7 @@ actual settlement or preopen publication from a daily completion date.
 
 CXP's issuer FAQ expressly describes2.17 as the tax-classified special-dividend
 portion of the same19.30 payment, with17.13 classified as proceeds; it was not
-an additional payment. Its frozen November1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“December7 observations all have
+an additional payment. Its frozen November1ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“December7 observations all have
 dividend_per_share zero, and no later2021 source row is present. Select19.30
 once in the existing mandatory cash event; add no separate2.17 distribution.
 Bind that no-double-count extraction and its raw observation hashes. References:
@@ -4151,7 +4151,7 @@ SOURCE301 independent DATA closes161 identities/361 raw action rows, payload
 review8c3755750e030bc07e9046d298c5fec1248857652690d4c4fb13eff563093d87,
 qualification0e17c73cdb8b35dfdeadf6899861e86e168f2b5635f6243e8a324c75ac4ea2ab.
 All26 checks pass in5.58s including one guard removal/five import fences. Fresh
-whole archive rehash and complete requested2019/2021ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2026 annual scans retain
+whole archive rehash and complete requested2019/2021ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“2026 annual scans retain
 source-only authority; there was no requested2020 source row.
 
 P07 own1196 is separately root-admitted as
@@ -4255,7 +4255,7 @@ SOURCE303 succeeds: artifact13442524992 (91088269bytes,
 SHA1cb1107dbc92ad220d41bc95b9c8a50fc8f7499495f7979b4b309e272f0bcfd1)
 authenticates86 members/103121096 logical bytes and positive preflight0/non-OOM.
 All26 DATA checks pass in5.82s after correcting a renamed test import identifier.
-Fresh raw archive and2022ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2026 scans close112 identities/248 action rows, payload
+Fresh raw archive and2022ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“2026 scans close112 identities/248 action rows, payload
 bf197d9995ce3f1be3dffbfe22d8db0484e254ec234e36f5f359ef217ebef749,
 review54c596142ce834295ccbc57f208bc2c2a57a4bb78c7a26b0ef6b89d7ea656500,
 qualificationa05a0c1a190d5780a879e0bf904944846b2094297811d73b73b1eea4ad574863.
@@ -5696,3 +5696,45 @@ the original unheld guard, strict authority/date/role/schema boundaries, a
 meaningful current-root guard removal and five financial import fences.
 
 SOURCE331/request197 integrated targeted checks pass220 in39.43s across new queries, financial resume/partial, bounded dispatch, immutable P06 mode regression, P05 batches and P03 queries. Exact request selects540 sources, zero financial workers and one readonly P05 worker. P05 rootbaabf01e/full19 and originale50 history are staged with the new source query; FIN330 remains independently active at its own immutable P06 commit. Exact540-source/workflow/383-driver/B19 snapshot verification must pass before push.
+
+REVIEW332 design selects zero financial workers and one readonly P07 worker
+for the exact unadmitted FIN326 own1259/December30/full24 result. The original
+failed receipt and0/1/1 stops remain failed. Authentication admits bytes only
+to quarantine. The complete existing failed-review adapter/public-member,
+original1238-accounting/refusal and requalification bodies are reused with
+explicit FIN326 case constants. The existing1GiB crypto size option is selected
+only after the exact770361099-byte archive/585-member/964176783-logical-byte
+target guard; the unchanged1GiB logical cap remains. No old1196 case is widened.
+
+Authenticated original and failed reconstructed ordinary hydrations differ
+only in selector_sha256: historical8cd57 versus current54ebe. Complete original
+document construction reproduces both stored documents exactly; only source
+evidence entries4 and5 differ. The entire packet qualification is identical.
+The historical selector is shipped as physically hash-pinned source data,
+never imported. Every function/class AST must match current54ebe, and the
+original additive-registry source_matches qualification must still pass.
+Bind only the fresh private future factory namespace __file__ to that physical
+historical source. Preserve complete original review lambda code/defaults/
+closure and the entire review_ordinary body/equality guards. Neither stored
+source evidence nor descriptors/checkpoints are edited.
+
+An explicit readonly declaration may activate the existing full24 ABMD codec
+route for the exact saved target and its genuine original1238 review parent.
+It refuses economic mode before hooks. All original hooks restore on exit.
+The unchanged launcher first reproduces monthly state, then executes its
+existing original-parent review path. A positive result requires all1259
+financial accounting prefixes and21 new branch rows with784 retained proofs.
+Independent DATA and separate root admission remain mandatory afterwards.
+January tails and failed January31/VIVO1 held84 diagnostic state are excluded.
+No financial rerun or new neutral adoption belongs to this repair.
+
+Private qualification has35 checks7.03s, one authenticated complete document
+regression5.86s and one original-launch scope check5.51s. These retain whole
+quarantine ASTs after undoing only case constants/size option, preserve exact
+failed source/stops and original1238 metadata, exercise three meaningful new
+guard removals, restore hooks on abort in every mode and forbid financial
+imports. No canonical runtime or staging executes locally.
+
+REVIEW332 keeps the launcher and worker contexts distinct: launcher transport uses the unchanged probe.check_context Linux/GitHub/credential fence; offline worker modes retain full_system_core.hosted and the /variant requirement. The original launcher body remains exact and is wrapped only at its existing entry binding. Historical launch-order tests explicitly omit the new concrete failed-review declaration so their original scenarios remain independent; the new route has its own scope/restore/authority tests.
+
+REVIEW332/request198 final targeted integration passes273 checks44.03s, including five meaningful new guard removals. Qualificatione93255e3dd1eab3fc87e87e1aa0f2d774a1f45b6e66f7428ed2608cf81a548b8 binds the exact current/historical sources, full failed transport, original launcher/worker guard distinction and readonly target. All four original worker/launcher ASTs and original383/B19/future/uncertainty bytes remain exact. The request selects544 sources, zero financial workers and one readonly P07 worker; exact staged source/workflow verification precedes publication.

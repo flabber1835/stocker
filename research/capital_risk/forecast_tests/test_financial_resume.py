@@ -40,20 +40,22 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P05'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
-    assert r['readonly_source_witnesses'] is True and r['financial_resume_authorized'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and set(r['source_witness_scopes'])=={'P05'}
-    scope=r['source_witness_scopes']['P05']
-    assert len(scope['terms'])==36 and len(scope['additional_rows'])==1 and all(t['parent_positions']==[] for t in scope['terms'])
-    assert scope['terms'][0]['ticker']=='CTXS' and scope['additional_rows'][0]['session']=='2022-09-29'
+    assert r['arms']==['P07'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is r['readonly_source_witnesses'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={}
     assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']=={}
+    assert set(r['selected_p07_failed_review_recoveries'])=={'P07'}
+    declared=r['selected_p07_failed_review_recoveries']['P07']
+    assert declared['expected_new_rows']==21 and declared['expected_retained_rows']==784 and declared['financial_workers']==0
+    assert declared['financial_resume_authorized'] is declared['input_adopted'] is declared['financial_root_admitted'] is False
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P05':dict(new_factual_overlay=False,restored_correlation=False)}
-    admitted=m.root_spec('P05')
-    assert r['admitted_checkpoints']['P05']==admitted['outer_sha256'] and len(r['sources'])==540
-    assert admitted['root_admission_sha256']=='baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026'
-    assert (admitted['measured_closes'],len(admitted['repairs']))==(1175,19)
-    assert admitted['root_admission']['new_daily_records']==23 and admitted['root_admission']['source_input_proof']['total_observer_terms']==94
+    assert r['arm_inputs']=={'P07':dict(new_factual_overlay=False,restored_correlation=False)}
+    root=m.root_spec('P07');target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P07']
+    assert r['admitted_checkpoints']['P07']==root['outer_sha256'] and len(r['sources'])==544
+    assert (root['measured_closes'],len(root['repairs']))==(1238,23)
+    assert (target['measured_closes'],len(target['repairs']))==(1259,24)
+    assert target['p07_fin326_readonly_review_recovery'] is target['readonly_failed_review_requalification'] is True
+    assert target['prior_stops']['reviewer']['exit_code']==1 and target['financial_authority'] is False
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
@@ -208,6 +210,9 @@ def launch_fixture(tmp_path, monkeypatch, event):
         monkeypatch.setattr(repair, 'applies', lambda spec: False)
     monkeypatch.setattr(future, 'stage_selected_sources', lambda *args: None)
     request = dict(m.expected_request())
+    # These original launch-order fixtures do not select the new FIN326
+    # failed-review transport; dedicated tests exercise its concrete route.
+    request.pop('selected_p07_failed_review_recoveries',None)
     monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith(('readonly','witness')),

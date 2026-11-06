@@ -16,7 +16,8 @@ def source_names():
     import system_campaign_p05_batch_runtime as p05
     import system_campaign_p06_abmd_reporting as reporting
     import system_campaign_p06_abmd_retained_data as retained
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names()))))
+    import system_campaign_p07_readonly_review_recovery as recovery
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -73,7 +74,10 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
     import system_campaign_p06_abmd_retained as retained
-    return retained.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=retained.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p07_readonly_review_recovery as recovery
+    return recovery.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
+        target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -87,6 +91,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
     import system_campaign_p06_abmd_reporting as reporting
     need(mode in ('preflight','economic','review'),'BOUNDED_DISPATCH_EXPLICIT_LEGACY_MODE')
     with ExitStack() as stack:
+        import system_campaign_p07_readonly_review_recovery as recovery
+        active_request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())
+        if spec.get('arm')=='P07' and recovery.selected_request(active_request):
+            stack.enter_context(recovery.context(active_request,spec=spec,mode=mode))
         if dova.selected(spec):stack.enter_context(dova.entry_context(module,spec))
         if p06_data.selected(spec):
             stack.enter_context(p06.entry_context(spec,evidence_root=evidence if mode=='review' else None,
