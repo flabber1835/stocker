@@ -44,7 +44,7 @@ def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinishe
     assert r['maximum_parallel_financial_workers'] == 0 and r['maximum_parallel_readonly_workers'] == 1
     assert r['readonly_partial_review'] is False and r['readonly_source_witnesses'] is True
     assert r['financial_resume_authorized'] is False and m.request_authority(r)
-    assert len(r['source_witness_scopes']['P05']['terms']) == len(r['source_witness_scopes']['P05']['additional_rows']) == 1
+    assert len(r['source_witness_scopes']['P05']['terms']) == 1 and r['source_witness_scopes']['P05']['additional_rows'] == []
     assert r['selected_bounded_preparations'] == {}
     assert r['source_witness_scopes']['P05']['terms'][0]['parent_positions'][0]['quantity'] == 35
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False

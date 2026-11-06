@@ -1,0 +1,41 @@
+{
+  "financial_authority": false,
+  "input_adopted": false,
+  "queries": [
+    {
+      "arm": "P05",
+      "parent_completed": 1132,
+      "parent_input_count": 15,
+      "root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+      "scope": {
+        "additional_rows": [],
+        "parent_cursor": "2022-06-30",
+        "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+        "terms": [
+          {
+            "native_session": "2022-06-30",
+            "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+            "parent_positions": [
+              {
+                "entry_date": "2022-06-27",
+                "quantity": 35,
+                "slot_id": 8,
+                "ticker": "SRRA"
+              }
+            ],
+            "pending_at_parent": {
+              "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+              "pending_sessions": 0,
+              "stale_at_event": 0,
+              "unresolved": false
+            },
+            "security_id": "324793693976033682",
+            "session": "2022-06-29",
+            "ticker": "SRRA"
+          }
+        ]
+      }
+    }
+  ],
+  "schema": "research.explicit-own-pending-source-queries/2"
+}

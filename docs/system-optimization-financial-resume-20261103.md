@@ -5037,3 +5037,48 @@ The exact request probe selects479 sources, zero financial workers and one
 readonly P05 worker; its bounded preparation declaration is empty. The current
 P03 preparation artifact remains bound to the earlier477-source request182.
 No financial model, pending cash amount or root is selected by request183.
+
+SOURCE317 positively stops preflight exit1 with zero financial workers and
+preserves its exact refused artifact13469652766,1666265bytes, ZIP
+9b6246b648b1f92a4b9c317afbbe44bfbb2d5a9a2cff85c604680b4792e77b5d.
+Its35 authenticated members total2226664 logical bytes. The unchanged
+additional_source_rows predicate requires parent_cursor<row.session; a
+June30 additional row at the June30 parent correctly refuses with
+SOURCE_WITNESS_UNMODIFIED_ADDITIONAL_ROW_AND_PARENT_ROLE. This is not qualified
+source output and grants no new input or root authority.
+
+SOURCE318 design corrects the metadata with a distinct pending-native-only
+schema2/catalog/module. Preserve the failed schema1 generation in history;
+do not relax the original additional-row predicate. Capture the June29
+identity/native and exact held/pending parent context with additional_rows=[];
+the original source schema remains2 because pending_at_parent is present.
+Verify the complete June30 quote directly from the independently hashed
+frozen archive during DATA closure. Source capture of that parent-date quote
+is not claimed. Require an empty additional list in the new typed family,
+and retain all position/pending/root/count guards and no-financial authority.
+Issue a fresh request184 rather than rerunning the refused workflow.
+
+SOURCE316's independent source/preparation DATA review now passes49 checks
+in8.99s, including34 semantic mutations, seven meaningful guard removals,
+five import fences and unchanged complete source-payload/raw-scan ASTs.
+Its review is7b991bf18f49f48e44ad1c0fd3c82ab91b3c97c405b922356486c6e76a8edb6d.
+Fresh full-archive/bundle/action checks independently verify both2019 source
+observations and both native-date action rows. The complete typed document,
+all nine interpretation sources, packet/guard results, original synthetic
+cloud and absence of a new checkpoint agree. This closes preparation only;
+P03's neutral adoption/writer/restart/review integration remains unselected.
+
+SOURCE318's native-only schema2 private tests pass39 in7.11s. The regression
+using the actual immutable native action and a clearly synthetic, noncanonical
+source-query metadata DTO exercises the entire unchanged witness_payload and
+validate_witness_capture functions: both accept the zero-additional-row pending
+scope. The unchanged additional-row function still refuses a same-parent-date
+quote. Both affected driver-boundary regressions pass5.06s; no actual checkpoint
+is staged, restored or serialized locally. Native-only catalog digest is
+517316861416ecc68e0ef19718613226ac2077ea6bc1581fea86395f1230acbe.
+
+SOURCE318/request184 integrated launcher, partial, retention, original source-query,
+native-only pending-query, source-generation, retained-cash and admitted-root
+checks pass255 in30.65s. The request selects479 sources, zero financial
+workers and one readonly P05 worker. All383 original driver files and the
+B19 source must remain byte-exact at the staged snapshot verification.
