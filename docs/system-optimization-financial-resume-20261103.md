@@ -7177,3 +7177,154 @@ Preserve the FIN339 failed0/1/1 receipt and accepted1383/full10 root. Select onl
 ## REPORT341 independent P05 root admission
 
 Only saved1196/2022-09-30/full20. Whole genuine neutral19-to20, full typed input history,112 original observer terms including source-only unheld CTXS;21 daily closes,42 raw accounting snapshots,one exact September monthly report and28 Decimal metrics. October3-5 diagnostic tails and BRG October6 failed state excluded. Historical causality UNVERIFIED. BRG spin/cash contract extension remains unqualified; no later financial restart selected. Qualification 4c11dd23357466a302ef09614392d1187438141e9e891a7318e10d60e6b162fd. Original accepted1175/full19 root is retained as history; actual1196 FIN340 transport plus separately authenticated REPORT341 monthly proof is the sole new research seed. This admission does not grant a later financial restart or broker authority.
+
+
+## FIN343: original P07 seed with qualified lossless export representation
+
+# Lossless representation of known P07 export duplicates
+
+FIN339 failed the whole original combined export guard; which conjunct failed is
+unknown. This package must not assume size or promise that representation will
+make a future export pass. The original limit, source implementation and four
+financial worker bodies remain exact. The previous d9/1259/full24 parent is the
+only admitted financial authority.
+
+Bind the existing host `m.seal` seam and track actual calls to `m.stopped_run`.
+Representation is possible only after every attempted writer has positively
+stopped, with a durable exact inspection matching its returned result. Exit 1 or
+OOM does not destroy evidence; a missing, active or unknown stop forbids the
+transaction. Never infer a review completion from absent files. All model code
+runs inside those stopped workers; the adapter imports no financial engine.
+
+The allowed names come from the frozen FIN337 93-file inventory, with two exact
+copy namespaces: `parent-preflight/<name>` and
+`stopped-review/additional-review-codec-retention/<name>`. No prefix is ignored.
+Each existing candidate must equal a still-physical, noncandidate root original
+byte for byte and by pinned hash/size. No source is another represented copy.
+Unexpected files, new checkpoints, new VIVO25 inputs, logs, reports and all
+unique failure evidence remain physical. An unknown/mismatched candidate causes
+the transaction to refuse rather than drop it.
+
+Before mutation, enumerate and hash the complete regular-file inventory; reject
+symlinks, junctions, hardlinks and special files in every source/candidate ancestor.
+Write one authenticated per-file representation receipt containing exact names,
+hashes, sizes, retained paths, original mode/time metadata, source-template pin,
+writer-stop proof pins, complete before inventory, and the corresponding complete
+physical and expanded logical inventories. The receipt is an explicit alternate
+representation, not a rewritten original manifest or an implied fake file.
+
+Remove only enumerated duplicate files while keeping directories, then call the
+whole original seal. Its unchanged combined guard evaluates the actual physical
+export. The sealed receipt and retained originals can independently reproduce
+every represented name exactly. Root book/journals/checkpoints/proofs are never
+represented, rewritten, moved or removed. Restore every removed copied file and
+its metadata in a `finally` transaction before returning or propagating an error.
+Restore on deletion, receipt-write, original-seal, postvalidation or observer
+failure. Originals are rehashed before and after; rollback failure is explicit,
+never a claimed success. The existing success-only cleanup remains frozen.
+
+A separate pure DATA member reader must validate the authenticated physical
+manifest, exact receipt, full before/physical/expanded inventories and each retained
+source before resolving a represented per-file name. It exposes original logical
+bytes without changing the original artifact manifest. Integration into an actual
+future independent DATA review must explicitly bind this reader. Future hosted
+admission, if it needs the original auxiliary paths, must use an equally explicit
+verified reconstruction in an owned temporary view; this package does not admit a
+root or claim existing readers already accept the representation.
+
+Read-only safe aggregate diagnostics run before the original seal regardless of
+whether representation is eligible. They report file count, total bytes, symlink
+count and the three independent bound predicates. Diagnostics survive a seal
+failure in the existing public receipt and logs. They must contain no file names,
+market/financial values, private paths, container IDs, credentials or exception
+text. Public updating must be atomic and preserve every existing receipt field.
+The wrapper never suppresses an original error or changes its result.
+
+All preparation and tests use private code, metadata and NONCANONICAL filesystem
+fixtures. Real FIN337 data is read only for full-name/hash/byte equality; no real
+canonical tree is staged, modified, restored, replayed or serialized locally.
+
+Select only original admitted1259/2022-12-30/full24 d9 for the already qualified VIVO25 financial continuation. Keep FIN339 unknown progress and original combined export failure explicit. REVIEW342 P06 remains a distinct immutable read-only run; no same-arm overlap. All original four mature financial bodies remain unchanged. Private export qualification a3af4e922886e90859676020a47c16688ad01e4cfad308f3ade398769fcdc799:69tests12.47s, eight meaningful removals, five import fences, before/after move and seal/receipt/observer rollback. Real FIN337 equality proves186 copies/433864014bytes only; actual next export sufficiency remains unknown.
+
+
+## REPORT341 independent P03 root admission
+
+Only saved524/2020-01-31/full17. Whole genuine neutral16-to17 THOR2 boundary, all70 committed branch proof rows (49 retained plus21 new), all19 ordinary observations,21 closes/42 raw accounting snapshots,one exact January monthly report/28 Decimal metrics. February diagnostic tails and failed February19 DERM2 state excluded. Historical causality UNVERIFIED. Full17 future financial restart and DERM2-plus13 batch require separate qualification; no later restart selected. Qualification b101774325308a6020420068cd80ca3974c7389956361223f0162fa35d977a2c. Preserve prior503/full16 root in history.
+
+
+## P06 recovery v2: capture original quarantine functions before scoped hooks
+
+# Exact active-launch quarantine lookup repair
+
+The frozen v1 package and failed REVIEW342 remain unchanged. Read-only metadata
+reproduction proves legacy('admit') before context selects the exact original
+code, but during context original.admit is a capturing dispatch lambda. Looking
+up that mutable attribute then fails the whole-function no-closure guard before
+any quarantine/admission body or worker can run. This is a launcher binding
+error, not financial failure or permission to rerun REVIEW342.
+
+Capture only complete original public_names/admit function objects once when
+the new v2 module imports, before context can install hooks. Validate the exact
+unchanged physical quarantine source and original functions' lack of closures;
+keep an immutable map of original objects. legacy(name) must bind the captured
+object's identical complete code into the same finite P06 case namespace. Do
+not compile/trim original functions, weaken the no-closure guard, or execute
+quarantine bodies locally. Preserve every original crypto/public/request,
+inspector/stop/capacity/source/refusal guard, failed0/1/1 target, readonly-only
+mode, new-review/monthly gates and all frozen v1/accounting/fact assets.
+
+The regression must enter the actual active launch context, observe that the
+original module attribute is the hook, then require legacy('admit') to retain
+the pre-hook original code and a separate globals namespace. It must not call
+admit. Replacing captured lookup with mutable getattr must reproduce exactly
+the proven old error; hooks must restore on scope exit. Re-run all original50
+checks plus this active-context meaningful falsifier, whole v1/v2 AST undo and
+current driver's original4m/partial AST contracts under engine import fences.
+New module/profile source pin only; no W edit, hosted job, financial/root
+authority, local engine/checkpoint operations or alteration of failed receipts.
+
+REVIEW342 42268829782 failed before any review worker, returning only four public JSON files. Actual launch-context metadata reproduces the mutable lookup closure guard refusal. Keep this failed receipt separate, all FIN339 evidence and original1383 financial seed unchanged. v2 qualification d6f7b0d32fd8534d03e412e73011daed3e891235a10735288f1166a4b3a60f82 passed53tests17.78s, including the active-context exact-code regression and meaningful reintroduction of the bad lookup. Any fresh P06 review must be a new explicit readonly request, never a rerun/relabel.
+
+
+## P03 same-prefix hosted-oracle metadata correction
+
+Restore the actual authenticated hosted transition-oracle identity ae2ac28a64c3f39f179a3c2ff1968be3a5e05d09da9b992413e6b6a015356abb in the independent branch proof; all524 closes, currentgzip, financial values,49+21 proofs and21 closes relative to503 remain identical. Preserve both original503 root and superseded unpublished524 metadata b8cf6b7fcc737daf21870dd9cce4874910d3f33139c92201d0c4ae730ea33e43 in history. This adds zero financial sessions; original strict parent remains503, not524. v2 qualification b11671181c4a3b07ebf133e7feaf4f3b077ddfc415e1f680e53ffdca662ef245 and six tests passed19.18s. Future financial restart remains separately unqualified.
+
+
+## FIN343 prelaunch v2 conformance correction
+
+# V2 source-code identity and noninterfering diagnostics
+
+Keep the entire original lossless-representation plan and guards. Preserve the
+first frozen package unchanged. This v2 changes its host seam and the core's one
+observational diagnostic call, plus private qualification. All representation,
+inventory, stop, equivalence and rollback guards and the FIN33793 template stay exact.
+No W edits, financial engine imports, canonical staging/replay or jobs occur.
+
+The original code-object check compiled an isolated function AST. Python's
+compilation of imported globals depends on the complete module symbol context,
+so this rejected the real imported seal/stop code despite exact source bytes.
+Compile the WHOLE physical immutable module without executing it and extract the
+one named top-level code object. Retain exact code-object equality, physical
+source hashes and function-global owner checks. Do not normalize opcodes or
+discard comparison fields. A real imported-metadata-module smoke test must prove
+both real code objects match; a substituted function body must still fail.
+
+Diagnostic traversal is observational. Catch its exceptions into a fixed safe
+UNKNOWN diagnostic with all counts/bound predicates unset and a constant failure
+label. Never insert path, exception text, financial value or credentials. Both
+logging and public-receipt writing are observational and must not replace the
+original seal return or exception. Keep all actual representation/rollback errors
+strict. This distinction preserves the original guard and the complete duplicate
+transaction while making BEFORE, PHYSICAL and RESTORED diagnostic failures safe.
+The core's observer-argument traversal uses the same safe UNKNOWN helper; its
+inventory and byte-equality checks remain strict and can still refuse representation.
+
+Qualification must inject traversal errors at all three points for both original
+seal success and failure. Verify safe UNKNOWN diagnostics survive in the existing
+public receipt, stdout contains no injected secret/path text, and the exact same
+original return/error propagates. Keep previous rollback/equivalence/guard tests.
+Run a real imported W metadata-module code-identity smoke under import fences;
+no worker or seal body is executed by that smoke.
+
+v1 was never published/selected in a hosted job. Its actual imported-module smoke exposed isolated-function compilation context mismatch; complete immutable source-module compilation without executing it preserves exact code identity. Safe UNKNOWN diagnostics now preserve original seal outcomes through traversal/logging faults. v2 qualification b8fcdd1f6895f75b6036e0b162c0f5decd929b92fb450df827b301b2ab290ef4:83tests22.04s, eleven meaningful removals/five import fences. Original cap/source/financial bodies/186 duplicate equality constraints remain intact.

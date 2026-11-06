@@ -27,8 +27,9 @@ def source_names():
     import system_campaign_p03_thor_qualification_reuse as reuse
     import system_campaign_p03_full17_reporting as report3
     import system_campaign_p05_full20_reporting as report5
-    import system_campaign_p06_fin339_readonly_recovery as review6
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names()))))
+    import system_campaign_p06_fin339_readonly_recovery_v2 as review6
+    import system_campaign_p07_lossless_export_host as lossless_export
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -114,7 +115,7 @@ def expected_request(original,*,execution_mode,selected_arms):
     target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm]
     result=report3.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     result=report5.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
-    import system_campaign_p06_fin339_readonly_recovery as review6
+    import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     return review6.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
 
 @contextmanager
@@ -131,7 +132,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
     with ExitStack() as stack:
         import system_campaign_p07_readonly_review_recovery as recovery
         active_request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())
-        import system_campaign_p06_fin339_readonly_recovery as review6
+        import system_campaign_p06_fin339_readonly_recovery_v2 as review6
         if review6.selected_request(active_request):
             with review6.context(active_request,spec=spec,mode=mode,module=module,old=Path('/old'),out=out or Path('/out'),evidence=evidence):yield
             return

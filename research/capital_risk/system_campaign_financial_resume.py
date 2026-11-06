@@ -51,13 +51,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P06',)
+SELECTED_ARMS = ('P07',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/208'
-EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
+SCHEMA = 'research.system-campaign-accurate-resume-request/209'
+EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -1074,8 +1074,12 @@ preflight = _p05_remaining_prep.bind_preflight(preflight)
 launch = _p05_remaining_prep.bind_launch(launch, sys.modules[__name__])
 launch = _p05_remaining_finance.bind_launch(launch, sys.modules[__name__])
 
-from system_campaign_p06_fin339_readonly_recovery import bind_launch as _bind_p06_fin339_readonly_launch
+from system_campaign_p06_fin339_readonly_recovery_v2 import bind_launch as _bind_p06_fin339_readonly_launch
 launch = _bind_p06_fin339_readonly_launch(launch)
+
+import system_campaign_p07_lossless_export_host as _p07_lossless_export
+expected_request = _p07_lossless_export.bind_expected_request(expected_request)
+launch = _p07_lossless_export.bind_launch(sys.modules[__name__])
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

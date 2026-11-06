@@ -8,6 +8,16 @@ import pytest
 def financial_generation(monkeypatch,tmp_path):
     import system_campaign_financial_resume as resume
     import system_campaign_bounded_lifecycle_dispatch as dispatch
+    import system_campaign_financial_partial as partial
+    original=partial.root_spec
+    def historical(arm,admission_sha256=None):
+        if arm=='P03' and admission_sha256 is None:
+            admission_sha256='4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1'
+        return original(arm,admission_sha256)
+    # Preserve this earlier three-arm financial-generation regression after
+    # P03's separate read-only admission; its later restart is not selected.
+    monkeypatch.setattr(partial,'root_spec',historical)
+    monkeypatch.setattr(resume,'root_spec',historical)
     monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03','P06','P07'))
     request=resume.expected_request()
