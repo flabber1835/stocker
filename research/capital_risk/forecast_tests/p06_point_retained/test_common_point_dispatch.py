@@ -46,7 +46,8 @@ def test_removed_admission_guard_really_misroutes_actual_target(routes):
     with common.entry(module,spec,mode='preflight',out='DATA_OUTPUT'):pass
     fn=next(n for n in ast.parse(Path(common.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='entry')
     candidates=[n.test for n in ast.walk(fn) if isinstance(n,ast.If) and isinstance(n.test,ast.BoolOp)
-                and "'root_admission' not in spec" in [ast.unparse(v) for v in n.test.values]]
+                and "'root_admission' not in spec" in [ast.unparse(v) for v in n.test.values]
+                and any(isinstance(v,ast.Call) and ast.unparse(v.func)=='reporting.selected' for v in ast.walk(n.test))]
     assert len(candidates)==1
     test=candidates[0];test.values=[v for v in test.values if ast.unparse(v)!="'root_admission' not in spec"]
     scope=dict(vars(common));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),

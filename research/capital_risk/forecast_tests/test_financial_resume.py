@@ -40,22 +40,22 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P07'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
     assert r['readonly_partial_review'] is True and r['financial_resume_authorized'] is r['readonly_source_witnesses'] is False
     assert m.request_authority(r) and r['source_witness_scopes']=={}
-    assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']=={}
-    assert set(r['selected_p07_failed_review_recoveries'])=={'P07'}
-    declared=r['selected_p07_failed_review_recoveries']['P07']
-    assert declared['expected_new_rows']==21 and declared['expected_retained_rows']==784 and declared['financial_workers']==0
-    assert declared['financial_resume_authorized'] is declared['input_adopted'] is declared['financial_root_admitted'] is False
+    assert r['selected_bounded_preparations']==r['selected_bounded_models']==r['selected_abmd_preparations']==r['selected_abmd_bounded_inputs']==r['selected_neutral_cash_batches']==r['selected_p06_abmd_reporting_bridges']==r['selected_p06_admitted_point_continuations']==r['selected_p07_failed_review_recoveries']=={}
+    assert set(r['selected_p06_retained_reporting_bridges'])=={'P06'}
+    declared=r['selected_p06_retained_reporting_bridges']['P06']
+    assert declared['target_completed']==1383 and declared['prior_seed_rows']==6 and declared['readonly_reporting_only'] is True
+    assert declared['financial_resume_authorized'] is declared['old_B19_codec_installed'] is False
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P07':dict(new_factual_overlay=False,restored_correlation=False)}
-    root=m.root_spec('P07');target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P07']
-    assert r['admitted_checkpoints']['P07']==root['outer_sha256'] and len(r['sources'])==544
-    assert (root['measured_closes'],len(root['repairs']))==(1238,23)
-    assert (target['measured_closes'],len(target['repairs']))==(1259,24)
-    assert target['p07_fin326_readonly_review_recovery'] is target['readonly_failed_review_requalification'] is True
-    assert target['prior_stops']['reviewer']['exit_code']==1 and target['financial_authority'] is False
+    assert r['arm_inputs']=={'P06':dict(new_factual_overlay=False,restored_correlation=False)}
+    root=m.root_spec('P06');target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P06']
+    assert r['admitted_checkpoints']['P06']==root['outer_sha256'] and len(r['sources'])==547
+    assert (root['measured_closes'],len(root['repairs']))==(1259,10)
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(1383,'2023-06-30',10)
+    assert root['repairs']==target['repairs'] and root['input_sha256']==target['input_sha256']
+    assert target['p06_retained_readonly_reporting_bridge']==declared and target['financial_authority'] is False
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():

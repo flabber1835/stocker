@@ -17,7 +17,8 @@ def source_names():
     import system_campaign_p06_abmd_reporting as reporting
     import system_campaign_p06_abmd_retained_data as retained
     import system_campaign_p07_readonly_review_recovery as recovery
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names()))))
+    import system_campaign_p06_retained_reporting as retained_reporting
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -76,7 +77,10 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p06_abmd_retained as retained
     result=retained.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p07_readonly_review_recovery as recovery
-    return recovery.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
+    result=recovery.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
+        target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
+    import system_campaign_p06_retained_reporting as retained_reporting
+    return retained_reporting.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
 
 @contextmanager
@@ -110,6 +114,9 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         if mode=='preflight' and 'root_admission' not in spec and reporting.selected(spec):
             stack.enter_context(reporting.entry_context(spec,old=Path('/old'),out=out or Path('/out'),
                 request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())))
+        import system_campaign_p06_retained_reporting as retained_reporting
+        if mode=='preflight' and 'root_admission' not in spec and retained_reporting.selected(spec):
+            stack.enter_context(retained_reporting.entry_context(spec,old=Path('/old'),out=out or Path('/out'),request=request))
         old_overlay=module.factual_overlay_needed
         selected=dova.selected(spec) or p06_data.selected(spec) or p07.selected(spec)
         if selected:
