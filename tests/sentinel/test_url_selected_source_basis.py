@@ -28,7 +28,7 @@ OPERATIONAL_ADDITIONS = {
 PATCH_CHANGES = {
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
-    'panel/verification_service.py', 'url_selected_source_basis.py',
+    'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
 }
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
@@ -195,6 +195,18 @@ def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes()
     actual = _actual()
     assert set(actual) == set(previous)
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+def test_installed_reusable_observer_is_retained_for_narrow_supersession_correction():
+    previous = basis._profile()['retained_predecessors'][basis.PREPARATION_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    assert len(previous) == 451
+    assert admission.source_closure(previous) == '9888f64b30c02da6b06091c52a6961d91282a5473142cdf4519b865bc6459f46'
+    actual = _actual()
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == {
+        'panel/shadow_source_wait.py', 'url_selected_source_basis.py'}
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

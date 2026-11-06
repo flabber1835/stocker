@@ -371,6 +371,25 @@ and first-failure history with real PostgreSQL; removing the handoff guard must
 make a behavioral assertion fail. The old incident's missing message cannot be
 reconstructed by this correction.
 
+The installed follow-up's retained startup diagnostic also identified an exact
+classification defect. A queued PAPER attempt raised
+`ValueError("shadow preparation subject changed before observation")`, producing
+`VALIDATION_REFUSED`; its fingerprint matches review event726 at
+2026-11-06T00:54:35 UTC. The changed underlying dependency is not identified.
+Restore the existing typed supersession contract at both preparation-subject
+comparisons: raise `ObservationSuperseded` with BEFORE_OBSERVATION or
+AFTER_OBSERVATION, as the ordinary observation path already does. A changed
+subject never yields a usable result. Keep the reader's original queue, work,
+supersession and retry clocks, including finite supersession exhaustion and
+current negative precedence. This corrects presentation diagnostics; it grants
+no financial authority and does not erase the original incident. Qualify both
+scopes and both comparisons through the actual capture/classification boundary,
+with an executed old-ValueError falsifier and the existing exhaustion tests.
+Retain installed `4a08f5961a2dd0d5b174509b6afa4aa7d61d88a3` as a complete
+independently pinned predecessor in the next source seal, preserving all prior
+maps and the original economic extraction. The classification correction adds
+no runtime module or financial permission.
+
 ## Qualification and delivery
 
 ### Typed row facts and producer ownership
