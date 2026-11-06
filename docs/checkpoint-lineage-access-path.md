@@ -7,14 +7,22 @@ after quiescent index installation and before any application start.
 
 Decision and qualification plan, 2026-11-06, before implementation.
 
-Current qualification status, 2026-11-06: the ordered-witness candidate is
-PRIVATELY QUALIFIED / NOT INSTALLED. Its full synthetic large-fixture run
+Qualification update, 2026-11-06: the ordered-witness67458b207 candidate is
+LOCALLY INSTALLED / VERIFIED; its post-installation observation is in progress.
+The actual26320dae runtime passed the unchanged full canonical comparison after
+quiescent migration. A read-only native EXPLAIN used the sparse index with zero
+rows and0.246ms execution time under a three-second server cap. Native plan
+evidence SHA256ea4f8f6ee4215721d074bcf1dd40bd5ad03105bc2b8d38b8e8caf112355a7507.
+This one measured plan is not a stability or general latency claim. The separate
+drain-polling successor remains uninstalled at this update.
+
+The full synthetic large-fixture run
 completed all access-plan, migration, preservation and final coverage gates.
 The initial B query remains unqualified: it chose the expensive JSON fallback
 scan after writes. Preserve that failure and every earlier harness refusal;
 they are not passes for the ordered candidate. The complete final result and
-scope limits appear below. Required CI, native installation and installed
-multi-cycle stability are not established by this private qualification.
+scope limits appear below. Required CI and installed multi-cycle stability
+remain separate gates and are not established by the private qualification.
 
 The post-installation observer captured a real SHADOW `READ_TIMEOUT` and one
 expired operational snapshot. PostgreSQL logged statement-timeout cancellation

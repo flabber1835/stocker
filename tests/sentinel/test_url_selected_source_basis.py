@@ -29,6 +29,7 @@ OPERATIONAL_ADDITIONS = {
     'panel/segment_disclosure.py', 'panel/serialization.py',
 } | ACCESS_PATH_ADDITIONS
 PATCH_CHANGES = {
+    'shadow_drain.py',
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
     'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
@@ -210,7 +211,19 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
-        'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+def test_installed_checkpoint_access_runtime_has_only_the_reviewed_drain_successor():
+    previous = basis._profile()['retained_predecessors'][basis.CHECKPOINT_ACCESS_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    assert len(previous) == 453
+    assert admission.source_closure(previous) == 'f4eaa5729cee9c2ce5794e4fa334c945dbf2ab2cadd55a77aa35a8b1abe61121'
+    actual = _actual()
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == {
+        'shadow_drain.py', 'url_selected_source_basis.py'}
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

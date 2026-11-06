@@ -147,3 +147,23 @@ host paths and their direct regressions on the final frozen source, with exact
 commands and file hashes. Do not rerun or repin an unrelated Wealth Core golden
 fixture. Required CI, PR delivery, local installed observation and signed PAPER
 installation remain separate gates. LIVE remains forbidden.
+
+## Actual local bootstrap result
+
+On2026-11-06 the separate fresh398ad43b request completed every canonical stage
+through VERIFIED with67458b207/source and26320dae/image. The full candidate proof
+ran after authenticated quiescent access installation and equaled the genuine
+retained predecessor proof before Compose installation or any candidate start.
+Final receipt SHA2563359129e91e3313d34f0875e4077947b3c09b61175f810e8be971aee20e34907.
+Canonical financial state, native positions, command journal and PostgreSQL
+identity passed unchanged checks. The same maintenance unit was restarted from
+the actual qualified source with its existing fragment/drop-ins preserved.
+
+The earlier expired DRAIN_REQUESTED receipt and actual initial START_REQUESTED
+health refusal remain retained. The verifier became healthy without a restart;
+one explicit canonical continuation used its original successor clock. Its
+startup operational-publisher TimeoutError is separate from the confirmed
+lineage scan timeout and remains unattributed beyond that finite publisher call.
+No old clock was extended, stage reset, financial acknowledgement issued or
+index rolled back. Required CI, subsequent signed installation, recurring backup
+evidence and the finite installed stability window remain independent gates.
