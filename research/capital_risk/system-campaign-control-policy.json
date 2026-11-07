@@ -44,12 +44,12 @@
       "event": "BWA/PHIN post-close distribution",
       "family": "DISTRIBUTION",
       "missing": [
-        "independent event source qualification from authenticated full native/PHIN rows",
-        "legalJuly3-postclose/nativeJuly5 clock adapter",
-        "full25-to26 history visitor and929-row binding",
-        "hosted canonical tests"
+        "complete25-to26 history visitor and preservation of all929 saved proofs/resources",
+        "actual canonical input adoption and original constructor",
+        "actual event-day role and hosted canonical financial tests"
       ],
-      "source_observations": "BWA priorJuly3/eventJuly5 and PHIN July5 present; PHIN SID801672850394475146/CIK1968915; both original typed distribution source_row_ids authenticated"
+      "source_observations": "SOURCE357 complete BWA July3/July5 and PHIN July5 rows plus both native distribution records independently verified; unchanged frozen axis confirms July5 follows July3; legal July3 17:00 EDT and later July10 filing remain separate; source-only qualification passed21 tests",
+      "source_qualification": "P07-BWA-source-DATA-qualification.json"
     },
     {
       "arm": "P09",

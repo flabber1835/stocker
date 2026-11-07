@@ -1,0 +1,22 @@
+{
+  "actual_record_date_ownership_verified": false,
+  "admitted_parent_inputs": 25,
+  "admitted_parent_sessions": 1383,
+  "admitted_parent_sha256": "7c01a593be8a4e0e67f29e2dd78c950e42f2d6967a1f2f6f82cfdeeba0874f58",
+  "admitted_parent_shares": 62,
+  "admitted_positions_verified": true,
+  "canonical_runtime_executed": false,
+  "event_date_ownership_verified": false,
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "frozen_next_session_verified": true,
+  "full_raw_and_typed_preimages_verified": true,
+  "full_source_rows": 3,
+  "historical_availability": "UNVERIFIED",
+  "native_records": 2,
+  "normalized_payload_digest": "6eb77579510cf8da66ad5d916cf05b6a37fe4bd10ed02b7d4bbd64ef3cd2d08e",
+  "original_price_and_metadata_fields_unchanged": true,
+  "passed": true,
+  "schema": "research.independent-postclose-distribution-source-DATA-review/1",
+  "source_payload_sha256": "464b807d7f2c528f8634c00bafd26dcd9f773991973f59499b64591bb3b283ac"
+}
