@@ -15,6 +15,16 @@ def test_real_target():
     assert t['monthly_seed_root_admission_sha256']==r.ROOT
     assert 'root_admission' not in t and 'root_requalified_fin326_failed_review_parent' not in t
     r.require_request(request(t),t)
+
+def test_original_crypto_refusal_guard_distinguishes_current_and_historical_labels():
+    import system_campaign_factual_admit as crypto
+    t=r.fact()['target'];assert 'review_refusal' not in t
+    import ast
+    source=ast.parse(Path(crypto.__file__).read_bytes())
+    guards=[n for n in ast.walk(source) if isinstance(n,ast.If) and ast.unparse(n.test)=="spec.get('review_refusal')"]
+    assert len(guards)==1 and not t.get('review_refusal')
+    wrong=deepcopy(t);wrong['review_refusal']=t['inherited_reporting_seed_diagnostic_metadata']['review_refusal']
+    with pytest.raises(ValueError,match='FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL'):crypto.prove_review_refusal(wrong,{},Path('EXPLICIT_NONCANONICAL_UNUSED'))
 @pytest.mark.parametrize('key,value',[('measured_closes',1384),('selected_session','2023-07-03'),('outer_sha256','f'*64),('financial_authority',True)])
 def test_nonexact_target_refuses(key,value):
     t=deepcopy(r.fact()['target']);t[key]=value

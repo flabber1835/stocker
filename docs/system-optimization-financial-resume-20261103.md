@@ -7437,3 +7437,8 @@ REPORT346 explicitly routes its new readonly request around the old source-only 
 ## REPORT347 readonly admission diagnostics
 
 REPORT346 returned only four public metadata files before a worker was launched. A new request213 preserves its failed receipt and adds only safe admission-stage/exception-type/static guard diagnostics around the unchanged original crypto reader and exact-copy expansion. No financial worker or input change is selected; the original exception is re-raised. Private financial DATA retains the actual additional-oracle schema; its absent qualification-counter field is replaced only by independently authenticated byte-identical old/current922B qualification, not an invented host counter.
+
+
+## REPORT348 positive transport metadata correction
+
+REPORT347 precisely identified FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL: the new positive FIN343 reporting target had inherited its older d9 predecessor refusal label. Move only that historical refusal/log/qualified-transport metadata into an explicit inherited namespace. Original crypto guards and all failed historical receipts remain unchanged; the actual positive FIN343 status, full25 checkpoint, zip/cipher and529 physical members remain identical. Preserve v1 fact/request history. The unmodified refusal validator must accept absent current-refusal metadata and reject the old stale label.

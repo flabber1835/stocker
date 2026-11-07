@@ -2646,6 +2646,11 @@
       "financial_authority": false,
       "financial_predecessor_admitted": false,
       "head": "389b09788d0259e99389bfbd7684fea089b2cd9f",
+      "inherited_reporting_seed_diagnostic_metadata": {
+        "qualified_review_transport_sha256": "28ea72e665ed42fecc7439a30bcf5f7858e917075408c3ace0ca7ac6427b1c9d",
+        "review_log_sha256": "5f99517d78bde0a60a78b2b99da2bd7d957b41a9ea9cc13b12e026cc77defd7a",
+        "review_refusal": "P07_ORDINARY_HISTORICAL_SELECTOR_IDENTITY"
+      },
       "inner_sha256": "5a16ac91b95432bc66e13b8a75f2b1d60d3fd06cda4a82a493b996d40172df06",
       "input_sha256": "c5f510a76341fbefd3d430cb5eb52f4aa97792ed9ffc6b557da5a0f862d12a81",
       "inspections": {
@@ -2748,7 +2753,6 @@
           "sha256": "914046eaf2a071703d6e33b27e5fa1efe8f8a967a8c5be298ce522f927e8ae64"
         }
       },
-      "qualified_review_transport_sha256": "28ea72e665ed42fecc7439a30bcf5f7858e917075408c3ace0ca7ac6427b1c9d",
       "receipt_name": "campaign-factual-P07.json",
       "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
       "receipt_sha256": "6a1bcde3da533178119d2ee400e5d2d5c85a1ee1ad1a0214e547f07fd15a3e1f",
@@ -2953,8 +2957,6 @@
       "retained_ordinary_augmentation_sha256": "8d1225940f5be894af238d39d5c86c9543bd4c1f4897f1a3ac5e4036571c2168",
       "retained_uncertainty_model": "research.leadership-branch-uncertainty-input/1",
       "reuse_closed_hosted_prefix_review": true,
-      "review_log_sha256": "5f99517d78bde0a60a78b2b99da2bd7d957b41a9ea9cc13b12e026cc77defd7a",
-      "review_refusal": "P07_ORDINARY_HISTORICAL_SELECTOR_IDENTITY",
       "review_sha256": "4be11de95428c48325a703f454b226cfcc53c225490b6ba59567373b59a40ddc",
       "run_id": 42272096625,
       "selected_checkpoint": "book/checkpoint.json.gz",

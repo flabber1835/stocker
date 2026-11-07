@@ -9,8 +9,8 @@ import system_campaign_p07_vivo_runtime as runtime
 import system_campaign_p07_vivo_api as visitor
 import system_campaign_p07_vivo_profile as vivo
 HERE=Path(__file__).parent
-FACT='P07-FIN343-full25-reporting-fact.json'
-PIN='6235d70b30ca0d2f55eabb560a7a2afe10e17b9520f1f0db3ef633035d840734'
+FACT='P07-FIN343-full25-reporting-fact-v2.json'
+PIN='785a38fc180271536bcb50c086b6e7c78f6fa4ac4b3c18ef49b0d4b9c78f8223'
 MARKER='p07_fin343_full25_reporting'
 FIELD='selected_p07_full25_readonly_reporting'
 MODE='READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
