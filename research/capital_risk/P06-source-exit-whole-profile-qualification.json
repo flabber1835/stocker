@@ -2,7 +2,7 @@
   "actual_event_date_roles_verified": false,
   "actual_neutral13_known": false,
   "canonical_runtime_executed": false,
-  "closed_utc": "2026-11-07T18:44:58.361338+00:00",
+  "closed_utc": "2026-11-07T18:58:37.487763+00:00",
   "excluded_old_tail_rows": 18,
   "files": {
     "P06-TBIO-source-exit-DATA-qualification.json": {
@@ -70,8 +70,8 @@
       "sha256": "b59d0a07e3633e9d784807d07afd9c73da46c58a5e213940a8bf839a5336024d"
     },
     "system_campaign_source_exit_resources.py": {
-      "bytes": 4285,
-      "sha256": "9847928b8960139bdeadf05b2a1ebc894371fdff7b8735994572704efe108f7d"
+      "bytes": 4566,
+      "sha256": "f36b588b30a09c303a8915cef4fd42145820ce7da49a9bd2d8b22d4ee9477bc2"
     },
     "system_campaign_source_exit_runtime.py": {
       "bytes": 15695,
@@ -96,6 +96,22 @@
   "final_integrated_checks_required_before_publication": false,
   "financial_authority": false,
   "held_settlement_authorized": false,
+  "latest_targeted_fix": {
+    "batch_validation_after_change": true,
+    "cause": "Original canary requires inventory.dependency_closure and a matching complete plan; adapter supplied the bare manifest and inherited old89 plan.",
+    "command": "python -B -m pytest forecast_tests/test_source_exit_resources.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/source-exit-canary-fix-tests-20261107-a",
+    "financial_sessions_advanced": 0,
+    "financial_worker_started": false,
+    "fix": "Bind exact original inventory wrapper and the new104 plan in the whole unchanged canary code object.",
+    "original_artifact": 13586486394,
+    "original_artifact_zip_sha256": "37ae1f13839ca83c30aa44b2f6767bb84d805683430e1e43a53a640d17f4236c",
+    "original_failed_run": 42402873507,
+    "passed": 24,
+    "preflight_exit": 1,
+    "preflight_oom_killed": false,
+    "seconds": 4.17,
+    "unchanged_full_suite_not_repeated": true
+  },
   "mature_original_function_AST_sha256": {
     "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
     "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
@@ -108,6 +124,7 @@
   "parent_inputs": 12,
   "parent_source_cursor": "2024-08-30",
   "passed": true,
+  "previous_full_profile_sha256": "052d25e7ba4b4e4dc5a6dbca9daed21306ed905c41f28eb242d31d41b10abbd1",
   "qualification_scope": "INPUT_AND_WHOLE_SOURCE_DATA_ONLY",
   "ready_for_hosted_gated_continuation": true,
   "required_genuine_neutral_inputs": 13,
