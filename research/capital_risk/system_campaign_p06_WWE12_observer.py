@@ -66,10 +66,10 @@ def observer(root,out,current,parent,spec,request):
     exact(folder/ORIGIN,data.encoded(origin(parent,historical,payloads,terms,scopes)))
     return event
 
-def review(parent,current,evidence,out,*,spec,old):
+def review(parent,current,evidence,out,*,spec,old,resolutions):
     from full_system_core import hosted
     hosted();evidence,out,old=Path(evidence),Path(out),Path(old)
-    resources.verify_preserved(lambda n:(old/n).read_bytes(),lambda n:(evidence/n).read_bytes())
+    resources.verify_preserved(lambda n:(old/n).read_bytes(),lambda n:(evidence/n).read_bytes(),resolutions=resolutions)
     historical,_,payloads,scopes=historical_contract(parent,spec,lambda n:(evidence/n).read_bytes())
     terms=prior.cash_terms(evidence,current);folder=evidence/DIRECTORY
     data.need(json.loads((folder/ORIGIN).read_bytes())==origin(parent,historical,payloads,terms,scopes)

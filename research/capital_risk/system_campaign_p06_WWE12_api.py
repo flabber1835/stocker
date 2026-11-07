@@ -14,6 +14,7 @@ HERE=Path(__file__).parent
 PACKETS='wwe-packet-qualification.json'
 CANONICAL='wwe-canonical-qualification.json'
 RECEIPT='p06-WWE-zero-financial-preparation.json'
+CANARY='continuation-dependency-canary.json'
 
 def prepare(parent,old,out,request,*,spec):
     from full_system_core import hosted
@@ -35,6 +36,12 @@ def prepare(parent,old,out,request,*,spec):
 def receipt(parent,spec,root):
     authority.parent(parent,spec);root=Path(root)
     packet=json.loads((root/PACKETS).read_bytes());canonical=json.loads((root/CANONICAL).read_bytes())
+    canary=json.loads((root/CANARY).read_bytes())
+    data.need(canary['passed'] is canary['actual_copy_verified'] is canary['owned_copy_removed'] is True
+        and type(canary['financial_sessions_advanced']) is int and canary['financial_sessions_advanced']==0
+        and canary['dependency_closure']['schema']=='research.continuation-resource-dependency-closure/1'
+        and len(canary['dependency_closure']['event_resolutions'])==1,
+        'P06_WWE12_COMPLETE_DEPENDENCY_COPY_CANARY_REQUIRED')
     data.need(packet['actual_packet_checks']==2 and packet['actual_stock_or_mixed_terms']==1
         and packet['original_incomplete_guards']==1 and packet['cumulative_retained_inputs_applied'] is True
         and packet['original_packets_unchanged'] is True and packet['missing_delivery_quote_refused'] is True
@@ -51,7 +58,7 @@ def receipt(parent,spec,root):
         'P06_WWE12_PREPARATION_COMPLETE_STOCK_DOCUMENT_RECONSTRUCTION')
     return dict(schema='research.P06-WWE12-zero-financial-preparation/1',passed=True,arm='P06',root_admission_sha256=data.ROOT,
         parent_outer_sha256=parent['sha256'],earliest_affected_session='2023-09-11',
-        files={n:dict(bytes=len((root/n).read_bytes()),sha256=data.sha((root/n).read_bytes())) for n in (models.OVERLAY,models.PRIVATE,PACKETS,CANONICAL)},
+        files={n:dict(bytes=len((root/n).read_bytes()),sha256=data.sha((root/n).read_bytes())) for n in (models.OVERLAY,models.PRIVATE,PACKETS,CANONICAL,CANARY)},
         parent_unchanged=True,checkpoint_adopted=False,financial_sessions_advanced=0)
 
 def preflight(parent,out,spec,old,request):
@@ -64,6 +71,11 @@ def preflight(parent,out,spec,old,request):
     saved=backtest.main,runtime.advance
     try:
         backtest.main=runtime.advance=refuse
+        import system_campaign_p06_WWE173_seed as seeds
+        import system_campaign_p06_WWE12_resources as resources
+        baseline=seeds.original_seed(old,parent,spec)
+        dependency_check=resources.canary(old,out,parent,spec,resolutions=(baseline[3],))
+        exact(out/CANARY,data.encoded(dependency_check))
         prepare(parent,old,out,request,spec=spec)
     finally:backtest.main,runtime.advance=saved
     data.need(data.encoded(parent)==before and not any(p.exists() for p in forbidden),'P06_WWE12_NO_PREFLIGHT_PARENT_MUTATION_OR_ADOPTION')

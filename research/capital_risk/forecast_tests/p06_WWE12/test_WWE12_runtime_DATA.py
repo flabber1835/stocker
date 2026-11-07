@@ -18,6 +18,13 @@ from system_campaign_financial_partial import root_spec
 def test_entire_retained_spine_AST_undo(name):
  raw=Path(p.retained.__file__).read_bytes();before=next(n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name==name)
  after=p.retained_tree(raw,name)
+ if name=='run':
+  added=[n for n in after.body if isinstance(n,ast.Expr) and ast.unparse(n)=='constructor_canary(parent, out, certificate, events)']
+  assert len(added)==1
+  original_with=next(n for n in after.body if isinstance(n,ast.With) and [ast.unparse(i.context_expr) for i in n.items]==['certificate','observer','execution','events'])
+  assert after.body.index(added[0])+1==after.body.index(original_with)
+  after.body.remove(added[0])
+  # Undo preserves the complete original body, including the first main call.
  for n in ast.walk(after):
   if isinstance(n,ast.ImportFrom) and n.module=='system_campaign_p06_WWE173_seed':
    n.module='system_campaign_p06_abmd_point_continuation' if name=='run' else 'system_campaign_p06_abmd_retained_suffix'

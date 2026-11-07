@@ -1,8 +1,9 @@
 """Exact authenticated historical resources, with no current-book aliases."""
-import json
+import json,tempfile
 from pathlib import Path,PurePosixPath
 import system_campaign_p06_WWE12_data as data
 from system_campaign_bounded_sensor_origin_v2 import exact
+import system_campaign_dependencies as dependencies
 HERE=Path(__file__).parent
 PLAN='P06-WWE12-authenticated-retained-resources-v2.json'
 PLAN_SHA='4dac453c6d203136ee074407dc16fba81c2531fd141e5ecba19019040a01b1af'
@@ -38,21 +39,28 @@ def inventory(member):
     return dict(passed=True,plan_sha256=PLAN_SHA,resources=value['resources'],financial_authority=False,
         financial_book_aliases_created=False,financial_sessions_reexecuted=0)
 
-def preserve(root,out,parent,spec):
+def closed_inventory(member,resolutions):
+    data.need(len(resolutions)==1,'P06_WWE12_ACTUAL_RETAINED_ABMD_RESOLUTION_REQUIRED')
+    result=inventory(member)
+    result['dependency_closure']=dependencies.build(plan()['resources'],resolutions,member)
+    return result
+
+def preserve(root,out,parent,spec,*,resolutions):
     from full_system_core import hosted
     hosted();data.parent_contract(parent,spec);root,out=Path(root),Path(out)
-    result=inventory(lambda n:(root/n).read_bytes())
-    for name in plan()['resources']:exact(out/name,(root/name).read_bytes())
+    read=lambda n:(root/n).read_bytes()
+    result=closed_inventory(read,resolutions)
+    dependencies.copy_checked(result['dependency_closure'],read,lambda n,b:exact(out/n,b))
+    dependencies.verify(result['dependency_closure'],plan()['resources'],resolutions,read,lambda n:(out/n).read_bytes())
     value=plan();raw=(root/value['raw_proof_source']).read_bytes()
     data.need(dict(bytes=len(raw),sha256=data.sha(raw))==value['raw_proof'],'P06_WWE12_ENTIRE_RAW179_PROOF_PROVENANCE')
     exact(out/value['raw_proof_destination'],raw)
     exact(out/'p06-WWE-ordinary12-origin/authenticated-resource-preservation.json',data.encoded(result))
     return result
 
-def verify_preserved(source,destination):
-    result=inventory(source)
-    for name in plan()['resources']:
-        data.need(destination(name)==source(name),'P06_WWE12_ALL_HISTORICAL_DESTINATIONS_BYTE_IDENTICAL:'+name)
+def verify_preserved(source,destination,*,resolutions):
+    result=closed_inventory(source,resolutions)
+    dependencies.verify(result['dependency_closure'],plan()['resources'],resolutions,source,destination)
     value=plan();raw=source(value['raw_proof_source'])
     data.need(dict(bytes=len(raw),sha256=data.sha(raw))==value['raw_proof']
         and destination(value['raw_proof_destination'])==raw
@@ -60,4 +68,16 @@ def verify_preserved(source,destination):
         'P06_WWE12_COMPLETE_RAW179_AND_RESOURCE_PRESERVATION_RECEIPT')
     return True
 
-def source_names():return (Path(__file__).name,PLAN,*data.source_names())
+def canary(root,out,parent,spec,*,resolutions):
+    from full_system_core import hosted
+    hosted();data.parent_contract(parent,spec);root,out=Path(root),Path(out)
+    read=lambda n:(root/n).read_bytes();result=closed_inventory(read,resolutions)
+    with tempfile.TemporaryDirectory(prefix='continuation-dependency-canary-',dir=out) as owned:
+        target=Path(owned)
+        dependencies.copy_checked(result['dependency_closure'],read,lambda n,b:exact(target/n,b))
+        dependencies.verify(result['dependency_closure'],plan()['resources'],resolutions,read,lambda n:(target/n).read_bytes())
+    data.need(not Path(owned).exists(),'P06_WWE12_DEPENDENCY_CANARY_OWNED_COPY_REMOVED')
+    return dict(passed=True,dependency_closure=result['dependency_closure'],actual_copy_verified=True,
+        owned_copy_removed=True,financial_sessions_advanced=0)
+
+def source_names():return (Path(__file__).name,PLAN,Path(dependencies.__file__).name,*data.source_names())

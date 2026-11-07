@@ -69,15 +69,18 @@ class NoncanonicalReviewResourceDTO:
  def __truediv__(self,name):return NoncanonicalReviewResourceDTO(self.values,name)
  def read_bytes(self):return json.dumps(self.values[self.name],sort_keys=True).encode()
 
-def receipt_call(actual,monkeypatch,packet,canonical):
+def receipt_call(actual,monkeypatch,packet,canonical,canary_changes=None):
  document=dict(EXPLICIT_NONCANONICAL_STOCK_DOCUMENT_DTO=True)
- root=NoncanonicalReviewResourceDTO({api.PACKETS:packet,api.CANONICAL:canonical,api.models.OVERLAY:document,api.models.PRIVATE:dict(EXPLICIT_NONCANONICAL_PRIVATE_RESOURCE_DTO=True)})
+ canary=dict(EXPLICIT_NONCANONICAL_CANARY_DTO=True,passed=True,actual_copy_verified=True,owned_copy_removed=True,financial_sessions_advanced=0,
+  dependency_closure=dict(schema='research.continuation-resource-dependency-closure/1',event_resolutions=[{'EXPLICIT_NONCANONICAL_RESOLUTION_DTO':True}]))
+ if canary_changes:canary.update(canary_changes)
+ root=NoncanonicalReviewResourceDTO({api.PACKETS:packet,api.CANONICAL:canonical,api.models.OVERLAY:document,api.models.PRIVATE:dict(EXPLICIT_NONCANONICAL_PRIVATE_RESOURCE_DTO=True),api.CANARY:canary})
  monkeypatch.setattr(api,'Path',lambda value:value);monkeypatch.setattr(api.models,'document',lambda parent,member:document)
  return api.receipt(actual.parent,actual.spec,root)
 
 def test_complete_noncanonical_27_gate_review_DTO(actual,monkeypatch):
  packet,canonical=review_DTOs();result=receipt_call(actual,monkeypatch,packet,canonical)
- assert result['financial_sessions_advanced']==0 and len(result['files'])==4 and result['checkpoint_adopted'] is False
+ assert result['financial_sessions_advanced']==0 and len(result['files'])==5 and result['checkpoint_adopted'] is False
 
 @pytest.mark.parametrize('change',['shares','cash','missing_refusal','packets','old_inputs'])
 def test_foreign_16_gate_or_missing_packet_guard_refused(actual,monkeypatch,change):
@@ -95,6 +98,12 @@ def test_27_gate_guard_removal_is_meaningful(actual,monkeypatch):
  original=api.data.need;monkeypatch.setattr(api.data,'need',lambda value,label:None if label=='P06_WWE12_REAL_27_FOR_27_ONCE_ONLY_CANONICAL_COPY_GATE' else original(value,label))
  assert receipt_call(actual,monkeypatch,packet,canonical)['passed'] is True
 
+def test_dependency_canary_guard_and_meaningful_removal(actual,monkeypatch):
+ packet,canonical=review_DTOs()
+ with pytest.raises(ValueError,match='COPY_CANARY_REQUIRED'):receipt_call(actual,monkeypatch,packet,canonical,dict(actual_copy_verified=False))
+ original=api.data.need;monkeypatch.setattr(api.data,'need',lambda value,label:None if label=='P06_WWE12_COMPLETE_DEPENDENCY_COPY_CANARY_REQUIRED' else original(value,label))
+ assert receipt_call(actual,monkeypatch,packet,canonical,dict(actual_copy_verified=False))['passed'] is True
+
 def bound_preflight_runner_DTO(backtest,runtime):
  # Keep the whole original preflight function; replace only its finance import
  # with explicitly named noncanonical callbacks. No engine module is imported.
@@ -107,6 +116,10 @@ def bound_preflight_runner_DTO(backtest,runtime):
 def test_preflight_blocks_both_runner_callbacks_and_restores_on_refusal(actual,monkeypatch,tmp_path):
  import full_system_core
  monkeypatch.setattr(full_system_core,'hosted',lambda:None)
+ import system_campaign_p06_WWE173_seed as seeds
+ import system_campaign_p06_WWE12_resources as resources
+ monkeypatch.setattr(seeds,'original_seed',lambda *a:(None,None,None,{'EXPLICIT_NONCANONICAL_RESOLUTION_DTO':True}))
+ monkeypatch.setattr(resources,'canary',lambda *a,**k:{'EXPLICIT_NONCANONICAL_CANARY_DTO':True})
  main=lambda *a,**k:pytest.fail('EXPLICIT_NONCANONICAL_MAIN_UNBLOCKED');advance=lambda *a,**k:pytest.fail('EXPLICIT_NONCANONICAL_ADVANCE_UNBLOCKED')
  b=SimpleNamespace(main=main);r=SimpleNamespace(advance=advance);fn,scope=bound_preflight_runner_DTO(b,r)
  def prepare(*a,**k):
@@ -115,7 +128,8 @@ def test_preflight_blocks_both_runner_callbacks_and_restores_on_refusal(actual,m
   raise RuntimeError('EXPLICIT_NONCANONICAL_PREPARATION_REFUSAL')
  scope['prepare']=prepare
  with pytest.raises(RuntimeError,match='PREPARATION_REFUSAL'):fn(actual.parent,tmp_path,actual.spec,actual.root,{'EXPLICIT_NONCANONICAL_REQUEST_DTO':True})
- assert b.main is main and r.advance is advance and list(tmp_path.iterdir())==[]
+ assert b.main is main and r.advance is advance
+ assert json.loads((tmp_path/'continuation-dependency-canary.json').read_bytes())=={'EXPLICIT_NONCANONICAL_CANARY_DTO':True}
 
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])
 def test_import_fences(name):

@@ -1,0 +1,13 @@
+{
+  "schema": "research.campaign-next-event-policy/1",
+  "financial_authority": false,
+  "maximum_independent_arms": 4,
+  "maximum_active_jobs_per_arm": 1,
+  "next_events": [
+    {"arm": "P03", "event": "STML cash plus contingent right", "family": "CASH_AND_CONTINGENT_RIGHT", "missing": ["second bounded-event input preserving DOVA", "complete history visitor and retained proof binding", "hosted canonical tests"]},
+    {"arm": "P05", "event": "BRG/BHM distribution and terminal parent", "family": "DISTRIBUTION_WITH_TERMINAL_PARENT", "missing": ["atomic original-model distribution with no fictitious parent quote", "hosted canonical tests"]},
+    {"arm": "P06", "event": "WWE/TKO 1:1 stock conversion", "family": "STOCK_CONVERSION", "profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json", "missing": ["fresh complete dependency canary", "fresh actual constructor canary", "independent financial review"]},
+    {"arm": "P07", "event": "BWA/PHIN post-close distribution", "family": "DISTRIBUTION", "missing": ["closed full native and PHIN source rows", "legal/native clock adapter", "full history and929-row binding", "hosted canonical tests"]},
+    {"arm": "P09", "event": "Exact fractional share representation", "family": "QUANTITY_REPRESENTATION", "requires_owner_choice": true, "missing": ["explicit exact-fraction versus12-decimal owner choice"]}
+  ]
+}

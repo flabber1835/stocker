@@ -1,5 +1,57 @@
 # Resume the eight unfinished financial paths
 
+## Campaign execution improvements after the November7 root-cause audit
+
+Owner authorized implementation of the audit recommendations. Continue existing
+PR542 from736b03bc7; preserve canonical strategy/controller sources and financial
+authority boundaries. Use a small shared research dependency/control layer rather
+than another checkpoint-specific worker implementation.
+
+Dependency preservation is a closure over both declared historical assets and
+the actual retained-event resolutions produced by the unchanged proof reader.
+Every referenced original pre-event archive must be copied at its genuine
+producer path with its existing gzip hash, and verified in the new output.
+Never infer completeness from a successful check of a manually enumerated list.
+Current book/checkpoint aliases remain forbidden; exact historical pre-event
+archives are required evidence, not replacement financial seeds. A generic
+reader/copy/verify API takes callbacks and creates no financial state.
+
+P06's FIN355 failure was a missing December22 ABMD pre-event archive. Its genuine
+zero-session12 archive remains diagnostic only. Retry from admitted1426/full11,
+173 committed proofs, after fresh hosted adoption. Preflight checks the complete
+dependency closure and performs an owned temporary copy/verification canary;
+its temporary files must be removed before returning. The actual retained worker
+additionally checks that closure after real constructor/observer initialization
+and before its first financial main call. Preserve all original run-body code;
+add one explicit canary callback before the original with block and verify its
+whole-body AST undo. No local canonical staging or execution is introduced.
+
+Create one source-only event inventory for the entire remaining interval. Retain
+capture clocks and primary/legal clocks separately; raw provider events and
+requested identities are potential dependencies, not qualified settlements or
+predictions of future ownership. Record missing identity, consideration, delivery,
+event-date roles, codec, proof and review prerequisites explicitly. Existing event
+classes remain the reusable implementation boundary. Inventory/controller metadata
+never grants financial authority or changes holdings. An UNKNOWN prerequisite
+prevents automatic financial selection.
+
+Add a small deterministic campaign control command for status, exact failure
+classification and next eligible actions from receipts/inventory. It must never
+equate workflow success with final financial admission, count an unreviewed suffix,
+launch a duplicate arm, or execute source paths supplied by an artifact. Shared
+logic is read-only by default; state reports are atomic derived metadata.
+
+Use one read-only thread heartbeat every20minutes to inspect completed runs and
+report completion or idle state, with quiet checks for unchanged running jobs.
+Unattended code edits, pushes and new financial launches were rejected by automatic
+approval review and are not enabled; those actions continue in foreground turns.
+The read-only monitor has no financial execution or repair authority. Preserve
+the separate paused automations for unrelated historical campaigns. Up to four
+qualified arms may run independently, with one active job per arm; unresolved
+event contracts or P09 representation authority do not become ready by waiting.
+Report actual admitted gains and completed variants first; preparation/canary
+passes are distinct from financial progress. No merge or production action.
+
 The owner selected full financial runs on November 3, after P01's final financial
 admission. This supersedes the earlier deferral of the other accurate paths.
 P00/P01/P02/P08 are complete and are excluded. Select P03/P04/P05/P06/P07/P09/P10/P11,
@@ -7630,3 +7682,5 @@ original failure-proof route. Restore the original reader on every launcher exit
 
 
 Private whole source qualification 46b2207e7a504bc8ea7a0b44d60be1f2b2143a4d2901338c9d024b442c91d248:75 distinct tests, plus7 final manifest checks (82 total), nine meaningful guard removals and five financial-import fences. All original current11/173 financial bytes and the original190de branch oracle are retained. Real neutral12 is unknown and must be created and reviewed only by the hosted canonical adopter. Original383, B19, uncertainty source and four mature resume financial bodies remain unchanged. Select P06 only; all other roots retain their accepted progress. No PAPER/LIVE/execution authority and no performance scoring or historical-causality certification is granted.
+
+Implementation validation:205 targeted tests passed in67.14s, including the authenticated FIN355 missing-archive regression, original whole-run AST undo, dependency-copy and owner-choice guard falsifiers. Source-only provider inventory contains6922 groups/9922 rows through2026-07-31; unknown frozen identity/legal terms/event-date roles/runtime qualifications remain explicit. Full frozen-native event coverage is not claimed. Shared control reports admitted dates, primary failure stage, eligible arms and unresolved prerequisites; it has no launch or admission authority. The read-only20-minute monitor was created and verified; automatic unattended repair/push/launch remains disabled after approval-review rejection.

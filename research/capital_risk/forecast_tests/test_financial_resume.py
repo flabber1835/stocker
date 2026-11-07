@@ -42,7 +42,7 @@ def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinishe
     r=m.expected_request()
     assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
     assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False and r['financial_resume_authorized'] is True
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==696
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==697
     wwe=r['selected_p06_WWE12_retained173_financial_profile']['P06']
     assert (wwe['actual_parent_inputs'],wwe['required_genuine_neutral_inputs'],wwe['committed_seed_rows'])==(11,12,173)
     assert wwe['genuine_neutral12_known'] is False and wwe['held_WWE_shares']==27

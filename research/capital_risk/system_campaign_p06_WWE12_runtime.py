@@ -22,7 +22,7 @@ MODE=loader.MODE
 PROVENANCE=models.PROVENANCE
 BOUNDARY='p06-WWE-genuine-neutral12-boundary-review.json'
 RECEIPT='p06-WWE-ordinary12-adopted-input-receipt.json'
-QUALIFICATION='P06-WWE12-whole-profile-qualification.json'
+QUALIFICATION='P06-WWE12-dependency-closure-profile-qualification.json'
 FULL_PROOF='actual-old-full179-uncertainty-certificate.jsonl'
 PRIOR_RUNTIME_SHA='50a0a43d00a3818e89b3fb750c13615fdff215281eba9955853e7818d2bfe90a'
 
@@ -126,6 +126,10 @@ def retained_tree(raw,name):
     sites=[n for n in ast.walk(fn) if isinstance(n,ast.Constant) and type(n.value)is int and n.value==6]
     data.need(len(sites)==(1 if name=='run' else 5),'P06_WWE12_EXACT_ORIGINAL_RETAINED_ROW_COUNT_SITES')
     for n in sites:n.value=173
+    if name=='run':
+        block,=[n for n in fn.body if isinstance(n,ast.With)
+            and [ast.unparse(i.context_expr) for i in n.items]==['certificate','observer','execution','events']]
+        fn.body.insert(fn.body.index(block),ast.parse('constructor_canary(parent,out,certificate,events)').body[0])
     return ast.fix_missing_locations(fn)
 
 def genuine_receipt(neutral,spec,root,rows):
@@ -133,7 +137,9 @@ def genuine_receipt(neutral,spec,root,rows):
     return boundary_relation(parent,neutral,spec,lambda n:(Path(root)/n).read_bytes(),rows)
 
 def bind_retained(name,seed,request,financial_parent,rows):
-    scope_root=[None];target=[None];old_root=[None]
+    scope_root=[None];target=[None];old_root=[None];resolutions=[]
+    def checked_seed(*a,**k):
+        value=seed(*a,**k);resolutions[:]=[value[3]];return value
     facade=SimpleNamespace(selected=lambda spec,req:selected(spec,req),UNCHANGED=RECEIPT,
         receipt=lambda current,spec:genuine_receipt(current,spec,scope_root[0],rows),PROVENANCE=PROVENANCE,
         FULL_PROOF=FULL_PROOF,encoded=data.encoded,OBSERVATIONS=observations.DIRECTORY)
@@ -145,14 +151,21 @@ def bind_retained(name,seed,request,financial_parent,rows):
             'P06_WWE12_FINANCIAL_SEGMENT_USES_GENUINE_NEUTRAL12_AND_ALL_PRIOR_INPUTS')
     facade.review_unchanged=review_adopted
     def preserved(root,out,current,proof,resolution):
-        resources.verify_preserved(lambda n:(Path(root)/n).read_bytes(),lambda n:(Path(out)/n).read_bytes())
+        resources.verify_preserved(lambda n:(Path(root)/n).read_bytes(),lambda n:(Path(out)/n).read_bytes(),resolutions=(resolution,))
         data.need(len(proof)==173 and (Path(out)/models.OLD_PROOF).read_bytes()==(Path(root)/'uncertainty-certificate.jsonl').read_bytes()
             and (Path(out)/resolution['actual']).read_bytes()==(Path(root)/resolution['actual']).read_bytes(),
             'P06_WWE12_WHOLE_PRESERVATION_DONE_BEFORE_REAL_ADOPTION')
-    scope=dict(vars(retained),data=facade,seed=seed,full=models.full,preserve=preserved,
+    def constructor_canary(current,out,certificate,events):
+        out=Path(out);old=Path(old_root[0])
+        resources.verify_preserved(lambda n:(old/n).read_bytes(),lambda n:(out/n).read_bytes(),resolutions=tuple(resolutions))
+        models.full(out,current)
+        exact(out/'continuation-constructor-canary.json',data.encoded(dict(passed=True,
+            actual_certificate_and_original_observer_constructed=True,all_referenced_archives_preserved=True,
+            current_checkpoint_sha256=current['sha256'],financial_sessions_advanced=0)))
+    scope=dict(vars(retained),data=facade,seed=checked_seed,full=models.full,preserve=preserved,constructor_canary=constructor_canary,
         prior_event=lambda root,current,proof:seeds.prior_event(root,current,proof,financial_parent)[1][0],
         ordinary_observer=lambda root,out,current:observations.observer(root,out,current,financial_parent,target[0],request),
-        review_cash=lambda neutral,current,evidence,out:observations.review(financial_parent,current,evidence,out,spec=target[0],old=old_root[0]))
+        review_cash=lambda neutral,current,evidence,out:observations.review(financial_parent,current,evidence,out,spec=target[0],old=old_root[0],resolutions=tuple(resolutions)))
     exec(compile(ast.Module(body=[retained_tree(Path(retained.__file__).read_bytes(),name)],type_ignores=[]),
         '<whole-original-retained-worker-exact173-and-original-ABMD-factory>','exec'),scope)
     whole=scope[name]
@@ -219,7 +232,8 @@ def neutral_seed(old,view,parent,neutral,spec,evidence,rows,baseline):
 def run(parent,out,args,rows,observer,execution,*,spec,old,request):
     from full_system_core import hosted
     hosted();request_financial(request,spec);old,out=Path(old),Path(out)
-    baseline=seeds.original_seed(old,parent,spec);resources.preserve(old,out,parent,spec)
+    baseline=seeds.original_seed(old,parent,spec);resources.preserve(old,out,parent,spec,resolutions=(baseline[3],))
+    exact(out/api.CANARY,(out/'parent-preflight'/api.CANARY).read_bytes())
     exact(out/models.PARENT,(old/spec['selected_checkpoint']).read_bytes())
     oracle=(old/'stopped-review/uncertainty-certificate-review.json').read_bytes()
     data.need(data.sha(oracle)=='190de5015b174b76f42786943f87ac5e3100555b660e0e116d7d305a18b71bf8','P06_WWE12_ORIGINAL_FIN339_PHYSICAL_ORACLE')

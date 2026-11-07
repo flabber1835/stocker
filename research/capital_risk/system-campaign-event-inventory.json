@@ -1,0 +1,151 @@
+{
+  "accepted": [
+    {
+      "arm": "P00",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P01",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P02",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P03",
+      "complete": false,
+      "completed": 606,
+      "root": "3ee60adb5326914846a052e26310d62045dd39b838a923378c9a84b6f230e7d4",
+      "through": "2020-05-29"
+    },
+    {
+      "arm": "P04",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P05",
+      "complete": false,
+      "completed": 1196,
+      "root": "ca722bb750ee34ed6f7db8e114b1561f4988f08385fccd91ddc2d0867f1ba209",
+      "through": "2022-09-30"
+    },
+    {
+      "arm": "P06",
+      "complete": false,
+      "completed": 1426,
+      "root": "edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f",
+      "through": "2023-08-31"
+    },
+    {
+      "arm": "P07",
+      "complete": false,
+      "completed": 1383,
+      "root": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+      "through": "2023-06-30"
+    },
+    {
+      "arm": "P08",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P09",
+      "complete": false,
+      "completed": 692,
+      "through": "2020-09-30"
+    },
+    {
+      "arm": "P10",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P11",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    }
+  ],
+  "events_file": "system-campaign-event-inventory.events.json.gz",
+  "events_file_bytes": 681225,
+  "events_file_sha256": "a73b0d08788a9939bc2e0810dfe5c9052684a21b8fdbf931e293f842b5ec704b",
+  "families": {
+    "CONSIDERATION_REVIEW": 1182,
+    "DISTRIBUTION": 139,
+    "EXIT_CLASSIFICATION": 6784,
+    "STOCK_OR_MIXED_CONSIDERATION": 34,
+    "UNKNOWN_COMMON_RIGHTS": 1476
+  },
+  "financial_authority": false,
+  "full_frozen_native_event_coverage_verified": false,
+  "groups": 6922,
+  "next_events": [
+    {
+      "arm": "P03",
+      "event": "STML cash plus contingent right",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "second bounded-event input preserving DOVA",
+        "complete history visitor and retained proof binding",
+        "hosted canonical tests"
+      ]
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model distribution with no fictitious parent quote",
+        "hosted canonical tests"
+      ]
+    },
+    {
+      "arm": "P06",
+      "event": "WWE/TKO 1:1 stock conversion",
+      "family": "STOCK_CONVERSION",
+      "missing": [
+        "fresh complete dependency canary",
+        "fresh actual constructor canary",
+        "independent financial review"
+      ],
+      "profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json"
+    },
+    {
+      "arm": "P07",
+      "event": "BWA/PHIN post-close distribution",
+      "family": "DISTRIBUTION",
+      "missing": [
+        "closed full native and PHIN source rows",
+        "legal/native clock adapter",
+        "full history and929-row binding",
+        "hosted canonical tests"
+      ]
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "explicit exact-fraction versus12-decimal owner choice"
+      ],
+      "requires_owner_choice": true
+    }
+  ],
+  "provider_dates_are_not_legal_or_native_recognition_clocks": true,
+  "provider_file": "P06-WWE-original-provider-SHARADAR_ACTIONS.zip",
+  "provider_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "raw_rows": 9922,
+  "schema": "research.full-remaining-provider-event-inventory/1",
+  "scope": "ALL_PROVIDER_CANDIDATES_NOT_FUTURE_HOLDING_PREDICTIONS"
+}
