@@ -1,6 +1,97 @@
 """Authenticated rolling display metadata; no financial corpus admission."""
-from sentinel.feed import operational_snapshot as snapshots, publication, readers
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+from threading import Lock
+import time
+
+from sentinel.feed import operational_snapshot as snapshots, readers
 from sentinel.feed import readiness, rolling_jobs as jobs, rolling_store
+
+
+@dataclass(frozen=True)
+class _ByteProof:
+    started: float
+    deadline: float
+    observed_at: datetime
+    valid_until: datetime
+
+    def current(self, instant, clock):
+        return (self.started <= clock < self.deadline
+                and self.observed_at <= instant < self.valid_until)
+
+
+_BYTE_PROOFS: dict[str, _ByteProof] = {}
+_PROOF_LOCK = Lock()
+_MAX_PROOFS = 16
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def _byte_context(conn):
+    """Fresh small context; absent independent DDL evidence grants no reuse."""
+    present = conn.execute(
+        "SELECT to_regclass('public.sentinel_operational_ddl_epoch') IS NOT NULL").fetchone()[0]
+    if not present:
+        return None
+    from sentinel.panel import read_projection, authority_reader
+    physical, installation, epoch, _ = read_projection._subject_facts(conn)
+    info = conn.info
+    sources = [Path(__file__), Path(rolling_store.__file__)]
+    return _digest(['sentinel.display-evidence-byte-proof/1',
+        [info.host, info.port, info.dbname, info.user], list(physical),
+        installation['installation_id'] if installation is not None else None,
+        epoch, sorted(os.environ.items()),
+        [(str(path), hashlib.sha256(path.read_bytes()).hexdigest()) for path in sources],
+        rolling_store.MAX_EVIDENCE_BYTES, authority_reader.FRESH_SECONDS])
+
+
+def _byte_subject(conn, identity, context):
+    row = conn.execute(
+        "SELECT d.oid::text,pg_postmaster_start_time()::text,"
+        "floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint,"
+        "e.tableoid::text,pg_relation_filenode(e.tableoid)::text,c.reltoastrelid::text,"
+        "pg_relation_filenode(c.reltoastrelid)::text,e.xmin::text,e.ctid::text,"
+        "e.payload IS NULL,e.canonical_payload IS NOT NULL,octet_length(e.canonical_payload) "
+        "FROM sentinel_snapshot_evidence e JOIN pg_class c ON c.oid=e.tableoid "
+        "JOIN pg_database d ON d.datname=current_database() WHERE e.evidence_sha256=%s",
+        (identity,)).fetchone()
+    # Legacy JSON remains with the original canonical decoder/verifier.
+    if row is None or row[-3] is not True or row[-2] is not True:
+        return None
+    return _digest([os.getpid(), context, identity, list(row)])
+
+
+def _verify_evidence(conn, identity, *, context):
+    """Reuse only successful bytes under this caller's immutable MVCC frame."""
+    if context is None:
+        rolling_store.verify_evidence(conn, identity)
+        return
+    from sentinel.panel import authority_reader
+    started, instant = time.monotonic(), _now()
+    subject = _byte_subject(conn, identity, context)
+    if subject is not None:
+        with _PROOF_LOCK:
+            proof = _BYTE_PROOFS.get(subject)
+        if proof is not None and proof.current(_now(), time.monotonic()):
+            return
+    rolling_store.verify_evidence(conn, identity)
+    proof = _ByteProof(started, started + authority_reader.FRESH_SECONDS,
+        instant, instant + timedelta(seconds=authority_reader.FRESH_SECONDS))
+    if subject is not None and proof.current(_now(), time.monotonic()):
+        with _PROOF_LOCK:
+            if subject not in _BYTE_PROOFS and len(_BYTE_PROOFS) >= _MAX_PROOFS:
+                _BYTE_PROOFS.pop(next(iter(_BYTE_PROOFS)))
+            _BYTE_PROOFS[subject] = proof
 
 
 def status_snapshot(conn, *, include_publication=False):
@@ -20,13 +111,9 @@ def status_snapshot(conn, *, include_publication=False):
 def _current(conn):
     from sentinel.feed import readiness_scope
     readiness_scope.require(conn)
-    try:
-        return publication.current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != 'ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER':
-            raise
     pub = snapshots._current(conn)
-    _binding(conn, pub)
+    if pub is not None and readers.is_rolling(pub):
+        _binding(conn, pub)
     return pub
 
 
@@ -53,8 +140,9 @@ def _manifest(conn, candidate_id):
     from sentinel.feed.normalized_layout import require_layout
     require_layout(conn, candidate_id, value)
     if not rolling_store.retired(conn, candidate_id):
-        rolling_store.verify_evidence(conn, value.reference_sha256)
-        rolling_store.verify_evidence(conn, value.source_evidence_sha256)
+        context = _byte_context(conn)
+        for identity in dict.fromkeys((value.reference_sha256, value.source_evidence_sha256)):
+            _verify_evidence(conn, identity, context=context)
     return value
 
 

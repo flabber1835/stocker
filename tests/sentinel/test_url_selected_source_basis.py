@@ -27,6 +27,7 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
 EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
+FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
 EFFICIENCY_CHANGES = {
     'dual_reconciliation.py', 'paper/preparation.py', 'panel/model.py',
     'panel/observer_codec.py', 'panel/read_projection.py', 'panel/sources.py',
@@ -252,7 +253,7 @@ def test_running_feed_display_source_is_retained_without_claiming_completed_inst
     assert admission.source_closure(previous) == 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'
     actual = _actual()
     assert set(actual) == set(previous) | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
-    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
+    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -264,7 +265,7 @@ def test_installed_pr570_is_preserved_and_only_coherent_worker_collection_change
     assert admission.source_closure(previous) == '5470089498b2e6341865fd5483732c07f347e0019de71376dfdbbc8b2121c344'
     assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_service_probe.py', 'url_selected_source_basis.py'} | EFFICIENCY_CHANGES
+        'shadow_service_probe.py', 'url_selected_source_basis.py'} | EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -275,7 +276,7 @@ def test_installed_pr572_and_every_original_predecessor_are_preserved():
     assert len(previous) == 455
     assert admission.source_closure(previous) == 'abe9a2628cc3d46e43a73e9b811e5855c89f3af74619aca87fd765402c8bfc95'
     assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
-    assert {name for name in previous if actual[name] != previous[name]} == EFFICIENCY_CHANGES
+    assert {name for name in previous if actual[name] != previous[name]} == EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 

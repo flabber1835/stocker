@@ -81,6 +81,49 @@ volumes, credentials, Docker socket and network stay outside the test container.
 
 ## Daily SHADOW verification and current execution presentation
 
+### Rolling feed evidence in routine status reads
+
+Decision before implementation, 7 November. A second retained incident, event
+2822 at 16:23:42.753470 UTC, recovered as 2824 at 16:23:45.549015. Its code is
+`FEED_FRONTIER_READ_TIMEOUT`. PostgreSQL retained the timed-out canonical-evidence
+hash statement. The unchanged current publication's reference and source evidence
+contain 9,521,324 and 1,115,855 canonical bytes. The display verifies those bytes
+again on every collection, even though only the already recorded frontier/verdict
+is requested. This timeout is converted into a feed row, so an outer collector
+exception retry does not address that path. The triggering resource wait was not
+retained; do not attribute it to a particular CPU, I/O or lock cause.
+
+Keep the canonical evidence verifier and add bounded process-local reuse of only
+its successful byte-integrity result inside the rolling display projection.
+Fresh publication authentication, binding, typed manifest/request, layout,
+validation evidence, cached verdict matching and its original clocks remain on
+every read. Read one publication generation and authenticate it once within the
+same mandatory REPEATABLE READ, READ ONLY frame, rather than first authenticating
+it through the legacy dispatch and then repeating authentication for rolling.
+Default and financial feed readers remain byte-for-byte unchanged.
+
+Reuse requires the exact database/endpoint, postmaster/physical relation and TOAST
+identity, transaction epoch, evidence identity and tuple xmin/ctid/storage metadata,
+installed identity, independently guarded DDL epoch, caller environment, verifier
+source bytes and size policy. Reobserve the small subject on every read. Missing
+DDL witness or legacy JSON evidence uses the original full verifier without reuse;
+missing, changed or malformed evidence cannot reuse a prior result. Retain at most
+16 successful subjects in process memory, without disk receipts or cross-owner
+transfer. Never cache a failure, readiness verdict, frontier or broker fact.
+
+A successful byte proof expires at its original start plus the existing
+600-second financial-proof maximum, checked against both monotonic and UTC clocks.
+Hits do not renew it; expiry, clock reversal or a changed subject requires actual
+verification again. This bounded display-integrity interval has the same storage
+limitation as the independent SHADOW proof: metadata is not a claim that every
+stored byte is continuously rehashed. Changed tuples and DDL invalidate it
+immediately, and periodic full byte verification remains. This is no financial
+admission or source-authority exception. Qualification must count actual hash
+queries, preserve negative verdicts/authentication/binding failures, and execute
+removed-subject/expiry guards as falsifiers, including real private PostgreSQL.
+
+### SHADOW content and execution presentation
+
 The read-only current-PAPER-plan command currently verifies shadow once inside
 plan reconciliation and immediately verifies it again to obtain the same result.
 Return the verified intent and its reconciliation together from one canonical

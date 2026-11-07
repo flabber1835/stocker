@@ -127,3 +127,12 @@ samples cannot qualify as a clean interval. Bounded sampled HTTP/native facts
 and durable history complement each other. A new actual stable interval,
 required CI, authorized merge, signed PAPER installation and honest final
 operational review remain distinct gates. LIVE stays forbidden.
+
+The 7 November decision in `redundant-operational-work.md` adds bounded,
+process-local reuse of successful canonical evidence-byte verification for this
+display projection only. Its freshly observed physical/tuple/DDL/source subject,
+original 600-second expiry and periodic full verification replace repeated
+rehashing of unchanged evidence on every status collection. All other metadata,
+authentication, binding and recorded-verdict checks above remain fresh. Missing
+reuse prerequisites retain the original full verification; default/financial
+readers and their authority are unchanged.
