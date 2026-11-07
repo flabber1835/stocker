@@ -7,7 +7,7 @@ from full_system_benchmark import need
 from system_campaign_facts import sha,digest
 import system_campaign_financial_future as original
 import system_campaign_p06_BBIG_api as previous
-import system_campaign_source_exit_input as source
+import system_campaign_source_exit_input_v1 as source
 from system_campaign_bounded_sensor_input import SCHEMA
 FUTURE_SHA='54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c'
 FUNCTIONS=('hydrate','document','qualify','prepare','review_input','source_scopes','hydration_name')

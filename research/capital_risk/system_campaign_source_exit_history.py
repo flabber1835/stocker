@@ -6,7 +6,7 @@ from system_campaign_facts import sha,digest
 from system_campaign_bounded_sensor_origin_v2 import strict_json
 from system_campaign_pxd_pause import adoption
 import system_campaign_source_exit_api as api_module
-import system_campaign_source_exit_input as source
+import system_campaign_source_exit_input_v1 as source
 import system_campaign_full_history_successor as successor
 PARENT=successor.PARENT
 DIRECTORY='ordinary-successor-adoption'

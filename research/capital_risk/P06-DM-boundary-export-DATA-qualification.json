@@ -25,17 +25,30 @@
       "bytes": 6756,
       "sha256": "7c82b6d2afe966de39214c3f75c969c14a1d7dd3a1b4fbe98b7095f238448271"
     },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 3932,
+      "sha256": "8b45391fb7091ed8f73926ff5b5bc702eaaad578c5f5dbabe6514027dea60f48"
+    },
     "system_campaign_source_exit_entry.py": {
-      "bytes": 10814,
-      "sha256": "c6db39fb09d47d1df3376a0a0bd57f3cfb541be1f886669701e0fab584ba67df"
+      "bytes": 10856,
+      "sha256": "505084e60f9043d508e94e2ff0a850679afd295ab0b2480286ff975bf9077faa"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 6664,
+      "sha256": "95a0ec1c4e3eaad26379f2c289e548aeb413147e0ec961c9b8952d973d72206a"
     },
     "system_campaign_source_exit_input.py": {
       "bytes": 10286,
       "sha256": "40bd8cf85ab7380c211b080b839cacd0d9b4ac45d112eed49449e4f7a489804a"
+    },
+    "system_campaign_source_exit_input_v1.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
     }
   },
   "financial_authority": false,
   "financial_profile_ready": false,
+  "historical_version1_compiler_sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594",
   "hosted_financial_constructor_qualified": false,
   "input_adopted": false,
   "passed": true,
@@ -54,6 +67,7 @@
     "control": "20passed1.18s including approved P09 decision without financial readiness",
     "export_cases_passed": 20,
     "export_final": "20passed1.63s including synthetic probe and failed-preparation diagnostic passthrough",
+    "historical_compiler_and_complete13_history": "2passed15.78s; actual genuine full13 history, original compiler hash and unmodified current checkpoint",
     "initial_batch": "65passed6.75s; one expected savings threshold corrected to preserve every protected checkpoint/book byte",
     "input_boundary_and_entry_cases_passed": 48,
     "total_selected_cases_passed": 88

@@ -35,6 +35,14 @@ Register successive input catalogs and complete prior visitors as data in the
 existing continuation path. Each visitor receives a genuine archived predecessor,
 never a projected current checkpoint. A new launcher per event is not intended.
 
+Historical packet material commits the original compiler's byte hash, not only
+its behavior. Retain the exact original version1 compiler bytes separately as
+system_campaign_source_exit_input_v1.py, and bind historical API/history readers
+to that compiler. Do not recompute old compiler identities from the newer
+version2 file, repin the old packet material or recreate the archived declaration.
+The version2 path must receive an explicit catalog/provider and distinct output
+names when its full successor profile is registered.
+
 ## Export budget
 
 FIN366's complete stopped output has456 members and980668378 logical bytes.
