@@ -59,6 +59,13 @@ def _subject(conn, database_url, scope, *, facts=None):
     if row is None:
         raise ValueError('verification invalidation state unavailable')
     physical,installation,epoch,environment = facts if facts is not None else _subject_facts(conn)
+    if scope == 'SHADOW':
+        # Plan/rollout are projected fresh by the consumer. Include every
+        # non-PAPER cursor, including unknown namespaces, without decoding state.
+        return _digest([SCHEMA, 'SHADOW_CONTENT_AND_FRESH_EXECUTION_V1', database_url,
+            row[0], list(physical), _shadow_inventory(conn),
+            installation['installation_id'] if installation is not None else None,
+            epoch, environment])
     if scope == 'PAPER':
         # This compatibility scope contains account evidence. URL changes must
         # invalidate it without invalidating broker-independent SHADOW facts.
@@ -72,6 +79,24 @@ def _subject(conn, database_url, scope, *, facts=None):
     return _digest([SCHEMA, database_url, scope, list(row),list(physical),
                     installation['installation_id'] if installation is not None else None,
                     epoch,environment])
+
+
+def _shadow_inventory(conn):
+    from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
+    relation = conn.execute("SELECT 'sentinel_processed_sessions'::regclass::oid::text,"
+        "pg_relation_filenode('sentinel_processed_sessions')::text,"
+        "'sentinel_corpus_publications'::regclass::oid::text,"
+        "pg_relation_filenode('sentinel_corpus_publications')::text,"
+        "floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint").fetchone()
+    cursors = conn.execute('SELECT cursor_name,session::text,tableoid::text,xmin::text,ctid::text '
+        'FROM sentinel_processed_sessions WHERE cursor_name<>ALL(%s) AND NOT (cursor_name LIKE ANY(%s)) '
+        'ORDER BY cursor_name LIMIT 10001',
+        (list(PAPER_CURSOR_NAMES), [prefix+'%' for prefix in PAPER_CURSOR_PREFIXES])).fetchall()
+    publications = conn.execute('SELECT version,tableoid::text,xmin::text,ctid::text '
+        'FROM sentinel_corpus_publications ORDER BY version LIMIT 10001').fetchall()
+    if len(cursors) > 10000 or len(publications) > 10000:
+        raise ValueError('shadow content inventory exceeds bound')
+    return [relation, cursors, publications]
 
 
 def subject_for(database_url, include_paper):
@@ -231,6 +256,10 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
                         continue
                     raise ValueError('current verification receipt unavailable')
                 result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
+                if scope == 'SHADOW':
+                    from sentinel.panel.shadow_execution_projection import project
+                    result = (project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant),
+                              result[1], result[2], result[3])
             except (ValueError,TypeError,KeyError,OverflowError) as exc:
                 retained = None
                 if row is not None and row[0] == key:

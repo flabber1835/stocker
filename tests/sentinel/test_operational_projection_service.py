@@ -98,6 +98,52 @@ def test_background_failure_and_recovery_record_once_without_any_http(operationa
     assert producer.read(conn.info.dsn).operator_review.head == head
 
 
+@pytest.mark.parametrize('locked_attempts', [1, 2])
+def test_actual_owner_lock_recovers_once_or_retains_typed_failure(operational, monkeypatch, locked_attempts):
+    """Reproduce the incident's owner SELECT timeout on the private primary."""
+    from psycopg.errors import QueryCanceled
+    from sentinel.feed import store
+    conn, owner_id, _ = operational
+    publish(operational, instance='lock-qualifier')
+    before = state(conn)
+    conn.execute(f'SELECT id FROM {snapshots.schema.OWNER} WHERE id=1 FOR UPDATE')
+    original_connect = store.connect
+    def bounded(*args, **kwargs):
+        kwargs['statement_timeout_ms'] = 500
+        return original_connect(*args, **kwargs)
+    monkeypatch.setattr(store, 'connect', bounded)
+    original_publish = producer.publish_once
+    attempts = []
+    def collect(*args, **kwargs):
+        attempts.append(len(attempts)+1)
+        try:
+            return original_publish(*args, **kwargs)
+        except QueryCanceled:
+            assert producer._COLLECTION_STAGE.get() == 'OWNER'
+            if len(attempts) == locked_attempts:
+                conn.rollback()  # Release only after the actual bounded refusal.
+            raise
+    monkeypatch.setattr(producer, 'publish_once', collect)
+    started = time.monotonic()
+    try:
+        result = producer.collect_result(conn.info.dsn, owner_id, '/var/lib/sentinel', 'lock-qualifier')
+    finally:
+        conn.rollback()
+    assert result['outcome'] == 'PUBLISHED'
+    assert attempts == [1, 2] and time.monotonic()-started < producer.DEADLINE_SECONDS
+    after = state(conn)
+    if locked_attempts == 1:
+        assert after['head'] == before['head'] and after['active'] == before['active'] == []
+        assert conn.execute("SELECT count(*) FROM sentinel_dashboard_review_events WHERE kind='FAILED'").fetchone() == (0,)
+    else:
+        assert 'operational_projection' in after['active']
+        event = conn.execute("SELECT payload FROM sentinel_dashboard_review_events WHERE kind='FAILED' ORDER BY sequence DESC LIMIT 1").fetchone()[0]
+        evidence = event['details']['evidence']['operational_projection']
+        assert evidence['code'] == 'OPERATIONAL_COLLECTION_READ_TIMEOUT'
+        assert evidence['collector_stage'] == 'OWNER' and evidence['attempts'] == 2
+        assert evidence['exception_type'] == 'QueryCanceled'
+
+
 def test_review_and_snapshot_both_roll_back_if_publication_refuses(operational, monkeypatch):
     conn, _, condition = operational
     publish(operational)
@@ -199,11 +245,8 @@ def financial_rows(scope, now):
     if scope == 'PAPER':
         return [replace(model.paper_reconciliation_row(state='CLEAN'), as_of=now,
                         freshness=timedelta(seconds=600))]
-    return [model.Row(key, key, 'VERIFIED', model.OK, as_of=now,
-                     freshness=timedelta(seconds=600), required_current=True,
-                     shadow_book=(model.ShadowBook(session=str(now.date()), cash='100', receivables='0',
-                         nav='100', pending_operations=0, holdings=[]) if key == 'book' else None))
-            for key in sorted(read_projection.SHADOW_KEYS)]
+    from tests.sentinel.test_shadow_content_projection import proof_rows
+    return proof_rows(instant=now)
 
 
 def save_financial(conn, scope, rows=None):

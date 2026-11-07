@@ -338,6 +338,28 @@ class ShadowBook(BaseModel):
         return self
 
 
+class ShadowProjectionBasis(BaseModel):
+    """Authenticated display inputs; never a restorable strategy state."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    observed_at: datetime
+    target_core_exposure: Decimal = Field(ge=0, le=1, allow_inf_nan=False)
+    slots_used: int = Field(ge=0, le=100, strict=True)
+    slots_total: int = Field(ge=0, le=100, strict=True)
+    nav: Decimal = Field(gt=0, allow_inf_nan=False)
+    cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    blocked: bool = Field(strict=True)
+    unresolved: int = Field(ge=0, strict=True)
+    carried: int = Field(ge=0, strict=True)
+    pending: int = Field(ge=0, strict=True)
+
+    @model_validator(mode='after')
+    def coherent(self):
+        if self.observed_at.utcoffset() != timedelta(0) or self.slots_used > self.slots_total:
+            raise ValueError('shadow display basis is inconsistent')
+        return self
+
+
 class BackupMaintenanceProgress(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
     schema_version: Literal['sentinel.backup-maintenance-progress/1'] = Field(alias='schema')
@@ -415,6 +437,7 @@ class Row:
     #: duration when the next durable cycle/session deadline is known.
     valid_until: Optional[datetime] = None
     shadow_book: Optional[ShadowBook] = None
+    shadow_projection: Optional[ShadowProjectionBasis] = None
     paper_plan: Optional[PlanPreview] = None
     paper_account: Optional[PaperAccountOverview] = None
     order_outcomes: list[PaperOrderOutcome] = field(default_factory=list)

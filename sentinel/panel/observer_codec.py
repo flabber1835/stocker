@@ -14,6 +14,8 @@ def pack(rows, errors, *, observed_at):
              'observed_at': observed_at}
     for raw, row in zip(value['rows'], rows):
         raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
+        raw['shadow_projection'] = (row.shadow_projection.model_dump(mode='json')
+                                    if row.shadow_projection else None)
         raw['operational_fact'] = (row.operational_fact.model_dump(mode='json')
                                    if row.operational_fact else None)
     if (len(json.dumps(value, default=str, allow_nan=False).encode()) > MAX_BYTES
@@ -54,6 +56,10 @@ def row_from_observation(value):
         if row.get('key') != 'book':
             raise ValueError('holdings are only permitted on the canonical book')
         row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
+    if row.get('shadow_projection') is not None:
+        if row.get('key') != 'book':
+            raise ValueError('shadow display basis is only permitted on the canonical book')
+        row['shadow_projection'] = model.ShadowProjectionBasis.model_validate(row['shadow_projection'])
     if type(row.get('required_current', False)) is not bool:
         raise ValueError('observer current flag is malformed')
     if row.get('paper_alignment') not in {None, 'SCHEDULED', 'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY', 'PRIOR_CYCLE_FAILED'} or (

@@ -20,6 +20,7 @@ from typing import Any, Mapping, Optional
 import sentinel_ci_certification_verify as verifier
 import sentinel_go_lock as go_lock
 import sentinel_go_validate as go
+from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused
 
 BINDING_SCHEMA = "sentinel.nas-go-ci-runtime-binding/1"
 BINDING_PATH = (
@@ -229,7 +230,7 @@ def _write_binding(*, commit: str, result: Mapping[str, Any], local_id: str,
 
 
 def certify_from_ci(runner: go.CommandRunner, *, git: go.GitIdentity,
-                    now_text: str, run_suite: bool):
+                    now_text: str, run_suite: bool, software_verification=None):
     if not run_suite:
         summary = go.TestSummary(None, None, None)
         return summary, go.make_gate(
@@ -253,8 +254,9 @@ def certify_from_ci(runner: go.CommandRunner, *, git: go.GitIdentity,
         token=os.environ.get("SENTINEL_GITHUB_READ_TOKEN")
         or os.environ.get("GITHUB_TOKEN"))
     try:
-        result = verifier.verify_current(
-            root=go.ROOT, commit=git.commit, client=client)
+        result = (verifier.verify_current(root=go.ROOT, commit=git.commit, client=client)
+            if software_verification is None else software_verification.verify(
+                root=go.ROOT, commit=git.commit, env=os.environ))
         passed_tests = _certified_pass_count(client, result=result)
         immutable_ref = str(result.get("certified_image") or "")
         registry_digest = str(result.get("image_digest") or "")
@@ -271,7 +273,7 @@ def certify_from_ci(runner: go.CommandRunner, *, git: go.GitIdentity,
         return summary, go.make_gate(
             "certified_suite_no_skips", go.FAIL, now_text,
             {"reason": exc.code})
-    except (CIRuntimeRefused, KeyError, TypeError, ValueError):
+    except (CIRuntimeRefused, CertifiedInstallRefused, KeyError, TypeError, ValueError):
         summary = go.TestSummary(None, None, None)
         return summary, go.make_gate(
             "certified_suite_no_skips", go.FAIL, now_text,

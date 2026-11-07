@@ -367,7 +367,7 @@ class EnvHarness(unittest.TestCase):
     def shell_repo(self):
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
-        for name in ("sentinel_env.py", "sentinel-env.sh", "sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
+        for name in ("sentinel_env.py", "sentinel-env.sh", "sentinel-compose.sh", "sentinel_postgres_helpers.py", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
             shutil.copyfile(ROOT / "scripts" / name, scripts / name)
         launcher = scripts / "sentinel-autonomous-deploy.sh"
         launcher.write_text(launcher.read_text().replace(

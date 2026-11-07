@@ -301,10 +301,13 @@ def test_disable_edit_enable_cannot_reuse_original_receipt_subject(conn):
     assert all(old!=new for old,new in zip(before,after))
 
 
-def test_constant_size_subject_never_hashes_the_lifetime_journal():
+def test_bounded_subject_never_decodes_the_lifetime_journal():
     source=inspect.getsource(projection._subject)
     assert 'sentinel_observations' not in source and 'sentinel_execution_plans' not in source
     assert 'xmin::text' in source and 'incarnation::text,revision' in source
+    inventory=inspect.getsource(projection._shadow_inventory)
+    assert inventory.count('LIMIT 10001')==2
+    assert 'SELECT cursor_name,session::text,tableoid::text,xmin::text,ctid::text' in inventory
 
 
 def assert_physical_subject_bound(conn):
@@ -327,9 +330,9 @@ def test_same_url_cannot_reuse_proof_after_physical_database_replacement(conn):
 
 def test_removing_physical_subject_binding_has_a_falsifier(conn,monkeypatch):
     source=inspect.getsource(projection._subject)
-    assert source.count('list(row),list(physical)')==1
+    assert source.count('list(physical)')==2
     namespace=dict(projection.__dict__)
-    exec(compile(source.replace('list(row),list(physical)','list(row)'),'unguarded physical subject','exec'),namespace)
+    exec(compile(source.replace('list(physical)',"'removed-physical-scope'"),'unguarded physical subject','exec'),namespace)
     monkeypatch.setattr(projection,'_subject',namespace['_subject'])
     with pytest.raises(AssertionError,match='physical database replacement'):
         assert_physical_subject_bound(conn)
@@ -500,7 +503,8 @@ def test_real_consumer_handles_changed_paper_without_failing_independent_shadow(
     owner=str(uuid.uuid4())
     conn.execute('INSERT INTO sentinel_operational_verification_owner VALUES (1,%s,%s)',
         (owner,instant+timedelta(seconds=610)))
-    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state=state)])]:
+    from tests.sentinel.test_shadow_content_projection import proof_rows
+    for scope,rows in [('SHADOW',proof_rows(instant=instant)),('PAPER',[model.paper_reconciliation_row(state=state)])]:
         rows=[replace(row,as_of=instant) for row in rows]
         subject=projection.subject(conn,conn.info.dsn,scope)
         value,signature=projection.make(scope,subject,rows,[],observed_at=instant)
@@ -565,6 +569,11 @@ def snapshot_receipts(monkeypatch):
     monkeypatch.setattr(operational_schema,'installation',installation)
     monkeypatch.setattr(operational_ddl_epoch,'current',epoch)
     monkeypatch.setattr(projection.schema,'require_schema',lambda *_:True)
+    # This fixture isolates common-context reuse; real cursor inventory and
+    # execution reprojection have their own PostgreSQL qualification.
+    monkeypatch.setattr(projection,'_shadow_inventory',lambda _c:['bounded-shadow-inventory'])
+    from sentinel.panel import shadow_execution_projection
+    monkeypatch.setattr(shadow_execution_projection,'project',lambda _c,rows,**kw:rows)
     connection=ReceiptConnection({})
     monkeypatch.setenv('ALPACA_BASE_URL','https://paper-api.alpaca.markets')
     environment={name:projection.os.environ.get(name,'') for name in sorted(projection.SUBJECT_ENV)}
@@ -572,9 +581,14 @@ def snapshot_receipts(monkeypatch):
         # SHADOW keeps its wire identity; account receipts also bind URL mode.
         selected = ({**environment,'ALPACA_BASE_URL':'https://paper-api.alpaca.markets'}
                     if scope == 'PAPER' else environment)
-        current=projection._digest([projection.SCHEMA,'fixture',scope,
-            list(connection.revisions[scope]),['7691913275518591014','paper'],
-            'authenticated-installation',('original-ddl-incarnation',5),selected])
+        if scope=='SHADOW':
+            current=projection._digest([projection.SCHEMA,'SHADOW_CONTENT_AND_FRESH_EXECUTION_V1',
+                'fixture',connection.revisions[scope][0],['7691913275518591014','paper'],
+                ['bounded-shadow-inventory'],'authenticated-installation',('original-ddl-incarnation',5),selected])
+        else:
+            current=projection._digest([projection.SCHEMA,'fixture',scope,
+                list(connection.revisions[scope]),['7691913275518591014','paper'],
+                'authenticated-installation',('original-ddl-incarnation',5),selected])
         value,signature=projection.make(scope,current,rows,[],observed_at=NOW)
         connection.receipts[scope]=(current,NOW,NOW+timedelta(seconds=600),value,signature)
     return connection,calls

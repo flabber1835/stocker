@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -15,6 +16,7 @@ import sentinel_go_ci_runtime as ci_runtime  # noqa: E402
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_runtime_selection as runtime  # noqa: E402
+from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused
 
 
 def _sha(value: dict) -> str:
@@ -111,13 +113,14 @@ def _promote_local_full(*, head: str, runner) -> str:
     return expected
 
 
-def _promote_ci(*, head: str, runner) -> str:
+def _promote_ci(*, head: str, runner, software_verification=None) -> str:
     try:
         binding = ci_runtime.load_binding(
             commit=head, runner=runner, require_current_run=True)
-        result = ci_runtime.verifier.verify_current(
-            root=phase.controller.go.ROOT, commit=head)
-    except (ci_runtime.CIRuntimeRefused,
+        result = (ci_runtime.verifier.verify_current(root=phase.controller.go.ROOT, commit=head)
+            if software_verification is None else software_verification.verify(
+                root=phase.controller.go.ROOT, commit=head, env=os.environ))
+    except (ci_runtime.CIRuntimeRefused, CertifiedInstallRefused,
             ci_runtime.verifier.CertificationVerificationRefused) as exc:
         raise runtime.RuntimeSelectionRefused(
             "CI-certified runtime could not be reverified at promotion") from exc
@@ -135,7 +138,7 @@ def _promote_ci(*, head: str, runner) -> str:
     return certified_image
 
 
-def main(argv=None) -> int:
+def main(argv=None, *, software_verification=None) -> int:
     extra_args = list(argv if argv is not None else sys.argv[1:])
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
@@ -151,7 +154,8 @@ def main(argv=None) -> int:
         runner = phase.controller.DiagnosticRunner()
         selected = (
             _promote_local_full(head=head, runner=runner)
-            if local_full else _promote_ci(head=head, runner=runner)
+            if local_full else _promote_ci(head=head, runner=runner,
+                **({'software_verification': software_verification} if software_verification is not None else {}))
         )
         text = runtime.POINTER.read_text(encoding="ascii")
         if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % selected:

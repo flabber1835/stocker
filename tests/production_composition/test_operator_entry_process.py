@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -16,9 +17,17 @@ REAL_STAGES = {
     "runtime_preflight": "scripts/sentinel_runtime_selection.py",
     "account_preflight": "scripts/sentinel_go_account_preflight.py",
     "validation": "scripts/sentinel_go_output_guard.py",
-    "promotion": "scripts/sentinel_go_promote.py",
+    "promotion": "in-process:sentinel_go_promote.main",
     "post_validation": "scripts/sentinel_go_post_validate.py",
 }
+
+
+@pytest.fixture(autouse=True)
+def private_operator_checkout(tmp_path, monkeypatch):
+    private = tmp_path/'operator-repo'
+    shutil.copytree(ROOT/'scripts', private/'scripts')
+    monkeypatch.setitem(globals(), 'ROOT', private)
+    monkeypatch.setitem(globals(), 'LAUNCHER', private/'scripts/sentinel-go-validate.sh')
 
 
 def _write_env(path: Path, *, include_github=True):
@@ -36,6 +45,15 @@ def _write_env(path: Path, *, include_github=True):
 
 
 def _shim(tmp_path: Path) -> Path:
+    entry = tmp_path/'controlled-validation-and-promotion.py'
+    entry.write_text("""import os,sys
+code=os.environ.get('COMPOSITION_CHILD')
+if code: exec(compile(code,'<controlled-financial-validation>','exec'),{})
+stage='in-process:sentinel_go_promote.main'
+with open(os.environ['COMPOSITION_LOG'],'a') as log: log.write(stage+'\\n')
+if os.environ.get('COMPOSITION_FAIL_SCRIPT')==stage:
+    raise SystemExit(int(os.environ.get('COMPOSITION_FAIL_RC','41')))
+""", encoding='utf-8')
     path = tmp_path / "python-shim"
     path.write_text("""#!/usr/bin/env bash
 set -euo pipefail
@@ -46,15 +64,13 @@ case "$script" in
     exec "$REAL_PYTHON" "$@"
     ;;
 esac
-if [ "${COMPOSITION_REAL_GUARD:-0}" = 1 ]; then
-  case "$script" in
-    scripts/sentinel_go_output_guard.py) exec "$REAL_PYTHON" "$@" ;;
-    scripts/sentinel_go_verified_entry.py) exec "$REAL_PYTHON" -c "$COMPOSITION_CHILD" ;;
-  esac
-fi
 if [ -n "${COMPOSITION_FAIL_SCRIPT:-}" ] && [ "$script" = "$COMPOSITION_FAIL_SCRIPT" ]; then
   exit "${COMPOSITION_FAIL_RC:-41}"
 fi
+case "$script" in
+  scripts/sentinel_go_output_guard.py) exec "$REAL_PYTHON" "$@" ;;
+  scripts/sentinel_go_verified_entry.py) exec "$REAL_PYTHON" "$COMPOSITION_ENTRY" ;;
+esac
 exit 0
 """, encoding="utf-8")
     path.chmod(0o755)
@@ -82,6 +98,7 @@ def _run(tmp_path: Path, *, fail_stage=None, include_github=True, args=(),
         "SENTINEL_HOST_PYTHON": str(shim),
         "REAL_PYTHON": sys.executable,
         "COMPOSITION_LOG": str(log),
+        "COMPOSITION_ENTRY": str(tmp_path/'controlled-validation-and-promotion.py'),
     })
     env.update(process_env or {})
     if fail_stage:

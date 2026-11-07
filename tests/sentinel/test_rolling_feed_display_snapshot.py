@@ -222,3 +222,51 @@ def test_metadata_snapshot_guard_has_an_executed_falsifier(conn,published,monkey
         test_metadata_boundary_requires_both_snapshot_guards(conn,published,
             'SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY')
     conn.rollback()
+
+
+def test_cached_byte_integrity_preserves_new_negative_authentication_and_binding_failures(
+        conn,monkeypatch,request):
+    # Force the existing canonical TEXT format in this private data-only fixture.
+    # The separate real-PostgreSQL reuse tests qualify its full DDL/source subject.
+    monkeypatch.setattr(rolling_store,'JSONB_EVIDENCE_BYTES',0)
+    pub,_=request.getfixturevalue('published')
+    frames=[]
+    def owned(actual):
+        context=display._ByteFrame('private-qualified-display-context',actual,('private','db'),None,('epoch',1))
+        frames.append(context)
+        return context
+    monkeypatch.setattr(display,'_byte_context',owned)
+    monkeypatch.setattr(display,'_authenticate_byte_context',lambda *args:None)
+    calls=[];verify=rolling_store.verify_evidence
+    def measured(actual,identity):
+        calls.append(identity)
+        return verify(actual,identity)
+    monkeypatch.setattr(rolling_store,'verify_evidence',measured)
+    display._BYTE_PROOFS.clear()
+    try:
+        assert display.status_snapshot(conn)[1].ready is True
+        conn.rollback()
+        assert len(calls)==len(set(calls))==2
+        proofs=dict(display._BYTE_PROOFS)
+        negative=cache(conn,pub,negative=True)
+        current=display.status_snapshot(conn)[1]
+        assert current.ready is False and current.computed_at==negative.computed_at
+        assert current.checks==negative.checks
+        conn.rollback()
+        assert len(calls)==2 and display._BYTE_PROOFS==proofs
+        assert frames and all(context.active is False for context in frames)
+        with monkeypatch.context() as fault:
+            load=rolling_store.load_evidence
+            fault.setattr(rolling_store,'load_evidence',lambda actual,key:
+                {**load(actual,key),'request_sha256':'f'*64})
+            with pytest.raises(op.OperationalSnapshotRefused,match='OPERATIONAL_PROOF_MISMATCH'):
+                display.status_snapshot(conn)
+            conn.rollback()
+        with monkeypatch.context() as fault:
+            fault.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','different-private-display-key-'+'z'*64)
+            with pytest.raises(publication.CorpusIncoherent):display.status_snapshot(conn)
+            conn.rollback()
+        assert len(calls)==2 and display._BYTE_PROOFS==proofs
+    finally:
+        conn.rollback()
+        display._BYTE_PROOFS.clear()

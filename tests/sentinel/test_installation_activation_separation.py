@@ -183,6 +183,32 @@ def phase_request(monkeypatch, tmp_path):
     return path
 
 
+@pytest.mark.parametrize('supplied_bundle', [False, True])
+def test_coordinator_fences_before_go_only_when_it_must_produce_a_bundle(monkeypatch, tmp_path, supplied_bundle):
+    calls = []
+    def fenced():calls.append('coordinator-fence');return True
+    obj = SimpleNamespace(commit=SHA, runtime_repo_digest=IMAGE,
+        git_preflight=lambda:None, activation_transition=nullcontext,
+        _quiesce_database=fenced, read_paper_account=lambda:calls.append('account'),
+        run_activation=lambda:calls.append('activation-body'))
+    monkeypatch.setattr(core, 'merged_environment', lambda:{})
+    monkeypatch.setattr(activate.sentinel_env, 'validate', lambda *a,**k:None)
+    monkeypatch.setattr(activate.bootstrap, 'discover', lambda env:env)
+    monkeypatch.setattr(activate.bootstrap.hardened, 'Config', lambda env:object())
+    monkeypatch.setattr(core, '_attempt_dir', lambda *a:tmp_path)
+    monkeypatch.setattr(activate.bootstrap, 'BootstrapDeploy', lambda *a:obj)
+    monkeypatch.setattr(install.InstallationDeploy, 'build_promote', lambda obj:None)
+    def bundle(*args):calls.append('bundle');return tmp_path/'bundle.zip','digest'
+    monkeypatch.setattr(activate, 'financial_bundle', bundle)
+    monkeypatch.setattr(core, 'parse_reviewed_validation_bundle', lambda *a,**k:SimpleNamespace(git_commit=SHA))
+    monkeypatch.setattr(activate, 'publish_immutable', lambda *a:None)
+    activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
+        installation_sha256='f'*64,bundle='bundle.zip' if supplied_bundle else None),
+        dict(runtime_image=IMAGE))
+    assert calls == (['bundle','activation-body'] if supplied_bundle else
+                     ['coordinator-fence','account','bundle','activation-body'])
+
+
 @pytest.mark.parametrize('field,value', [('mode', []), ('checkout', 1), ('installation_receipt', None),
     ('source_commit', 'not-sha'), ('env_sha256', None), ('bundle', ['not-path']), ('extra', True)])
 def test_malformed_request_refuses_before_financial_work(phase_request, field, value):
