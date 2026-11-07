@@ -16,7 +16,7 @@ def test_captured_request_is_exact_failed_transport_review_only():
     request=historical_request();assert request['schema']=='research.system-campaign-accurate-resume-request/208' and len(request['sources'])==630
     assert request['arms']==['P06'] and request['maximum_parallel_financial_workers']==0
     assert request['maximum_parallel_readonly_workers']==1 and recovery.selected_request(request)
-    assert resume.root_spec('P06')['measured_closes']==1383
+    assert resume.root_spec('P06',recovery.ORIGIN)['measured_closes']==1383
     assert recovery.target()['measured_closes']==1426 and recovery.target()['prior_stops']['reviewer']['exit_code']==1
 
 @pytest.mark.parametrize('mode',['preflight','review'])

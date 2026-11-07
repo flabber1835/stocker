@@ -13,6 +13,8 @@ def financial_generation(monkeypatch,tmp_path):
     def historical(arm,admission_sha256=None):
         if arm=='P03' and admission_sha256 is None:
             admission_sha256='4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1'
+        if arm=='P06' and admission_sha256 is None:
+            admission_sha256='28c768af0d50047f04ddd6924c1500bf768cc138f41808cd1c0a0b5321eb64b8'
         return original(arm,admission_sha256)
     # Preserve this earlier three-arm financial-generation regression after
     # P03's separate read-only admission; its later restart is not selected.

@@ -29,7 +29,8 @@ def source_names():
     import system_campaign_p05_full20_reporting as report5
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     import system_campaign_p07_lossless_export_host as lossless_export
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names()))))
+    import system_campaign_p03_cash14_runtime as cash14
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -102,7 +103,8 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p06_admitted_source_bridge as admitted_source
     result=admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_runtime as thor
-    result=thor.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p03_cash14_runtime as cash14
+    result=cash14.expected_thor_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_qualification_reuse as reuse
     result=reuse.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_BBIG_runtime as bbig
@@ -116,7 +118,8 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=report3.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     result=report5.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
-    return review6.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    result=review6.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    return cash14.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -181,7 +184,11 @@ def entry(module,spec,*,mode,evidence=None,out=None):
             import system_campaign_p06_BBIG_runtime as bbig
             import system_campaign_p03_thor_qualification_reuse as reuse
             import system_campaign_p03_full17_reporting as report3
-            with reuse.entry_context(module,spec,request):
-                with report3.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
-                    with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
+            import system_campaign_p03_cash14_runtime as cash14
+            if cash14.request_selected(spec,request):
+                with cash14.entry_context(module,spec,request):yield
+            else:
+                with reuse.entry_context(module,spec,request):
+                    with report3.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
+                        with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
         finally:module.factual_overlay_needed=old_overlay
