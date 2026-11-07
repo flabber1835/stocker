@@ -17,6 +17,34 @@ and complete original rows retain their actual tickers. Native groups still need
 an explicit security ID. No financial parent or event-date role is invented.
 Keep the completed SOURCE357 batch immutable in its captured source snapshot.
 
+SOURCE361 is fully authenticated: September26 raw close3.9900000000000002 and
+September27 raw close3.23 are both present; September30 is explicitly absent.
+The native contains regulatorydelisting plus delisted and one original incomplete
+cash-terminal record. Reuse the already reviewed ResearchSourceExitAssumption
+with its prior-retained-quote convention:3.99 is the September26 binary64 proxy,
+not a September27 closing price, statutory cash payment or actual execution price.
+Retain both full observations and both raw native records as distinct evidence.
+The existing never-held/no-intent/reservation/claim guard must pass in the real
+parent and actual event-day caller, with zero-value portfolio no-op and original
+kernel source delegation. No OTC extinction, legal settlement or held treatment
+is authorized. Keep financial_profile_ready false until the full12-to13 visitor,
+424-row retained seed, transport, preflight, actual constructor and independent
+review are qualified together. Reuse original future input hydration/document/
+packet qualification and ActualEvents method code through explicit bindings.
+
+### Compose successor history over genuine archived parents
+
+Use one shared append-only history verifier for later ordinary inputs. Verify the
+genuine, hash-bound admitted parent archive with its existing complete visitor,
+then verify the entire current input hash, exact unchanged descriptor prefix,
+new source-bound document and genuine canonical neutral adoption separately.
+The previous visitor receives the actual archived parent, never a projected or
+truncated current checkpoint. The current checkpoint and full descriptor list
+remain intact. Preserve both original parent and real neutral archives and their
+watch/correlation proofs. This replaces further count-specific rewrites of
+already qualified nested history validators. Hosted preflight and actual worker
+constructor checks must validate the composed history before financial main.
+
 ## November7 authenticated source batch and current blockers
 
 FIN356 subsequently stopped at the next unsupported September27,2024 source
