@@ -40,6 +40,12 @@ def classify_receipt(receipt):
         return isinstance(s,dict) and s.get('stopped') is True and type(s.get('exit_code')) is int and type(s.get('oom_killed')) is bool
     status=receipt.get('status','UNKNOWN')
     if 'UNKNOWN' in status:return dict(stage='UNKNOWN',admission_required=True,retry_authorized=False)
+    if status=='SOURCE_BATCH_CAPTURED':
+        s=receipt.get('worker',{})
+        if not stopped('worker') or s.get('exit_code')!=0 or s.get('oom_killed') is not False:
+            return dict(stage='UNKNOWN',admission_required=True,retry_authorized=False)
+        return dict(stage='SOURCE_DATA_PENDING_INDEPENDENT_QUALIFICATION',admission_required=False,
+            source_qualification_required=True,retry_authorized=False)
     for role in ('preflight','worker','reviewer'):
         if role in receipt and not stopped(role):return dict(stage='UNKNOWN',role=role,admission_required=True,retry_authorized=False)
         if stopped(role) and (receipt[role]['exit_code']!=0 or receipt[role]['oom_killed']):

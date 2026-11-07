@@ -1,5 +1,35 @@
 # Resume the eight unfinished financial paths
 
+## Parallel source evidence batch for remaining November7 blockers
+
+The owner explicitly authorized unattended repair/push/qualified research launches
+and reiterated that all current blockers must be addressed. The thread heartbeat
+is now write-enabled within this campaign/PR542; no merge, broker or deployment
+authority is added. Preserve P09's separate unresolved representation choice.
+
+Collect the missing source observations for STML,BRG/BHM and BWA/PHIN together,
+independently of P06's already running financial generation. One bounded generic
+source-only collector scans each requested archive year once and captures complete
+original rows by exact ticker/date and optional known frozen security identity.
+Capture all native records for the explicitly requested parent/date groups and
+preserve full raw action preimages and the unchanged original distribution parser.
+Zero matches are explicit NOT_FOUND, multiple matches refuse, and no source result
+grants ownership, settlement, financial admission or input-adoption authority.
+
+Bind the source job to current admitted-root metadata as capture context only;
+do not download/restore a financial parent or invent a checkpoint to satisfy a
+source API. The original authenticated frozen-input stage supplies all bytes.
+The read-only networkless source worker uses the same pinned image, 2CPU/8GiB
+fences, original CSV/parser functions, positive-stop supervisor and encrypted
+exporter. No financial main, Wealth Core state, controller or broker is used.
+Source observations and typed native records stay encrypted. Require original
+archive/bundle and parser hashes and exact driver source pins before collection.
+
+Use a separate source request/workflow trigger so publishing the source batch
+does not reselect or queue P06. Preserve all quote-missing and native-coverage
+unknowns as evidence. Independent DATA qualification and event-date role guards
+remain required before any collected row can enter a financial event profile.
+
 ## Campaign execution improvements after the November7 root-cause audit
 
 Owner authorized implementation of the audit recommendations. Continue existing
@@ -7684,3 +7714,5 @@ original failure-proof route. Restore the original reader on every launcher exit
 Private whole source qualification 46b2207e7a504bc8ea7a0b44d60be1f2b2143a4d2901338c9d024b442c91d248:75 distinct tests, plus7 final manifest checks (82 total), nine meaningful guard removals and five financial-import fences. All original current11/173 financial bytes and the original190de branch oracle are retained. Real neutral12 is unknown and must be created and reviewed only by the hosted canonical adopter. Original383, B19, uncertainty source and four mature resume financial bodies remain unchanged. Select P06 only; all other roots retain their accepted progress. No PAPER/LIVE/execution authority and no performance scoring or historical-causality certification is granted.
 
 Implementation validation:205 targeted tests passed in67.14s, including the authenticated FIN355 missing-archive regression, original whole-run AST undo, dependency-copy and owner-choice guard falsifiers. Source-only provider inventory contains6922 groups/9922 rows through2026-07-31; unknown frozen identity/legal terms/event-date roles/runtime qualifications remain explicit. Full frozen-native event coverage is not claimed. Shared control reports admitted dates, primary failure stage, eligible arms and unresolved prerequisites; it has no launch or admission authority. The read-only20-minute monitor was created and verified; automatic unattended repair/push/launch remains disabled after approval-review rejection.
+
+Source batch validation:103 targeted source/control/stage-transport tests passed in3.65s. Includes exact admitted-context binding, financial-authority removal falsifier, ambiguous-identity removal falsifier, missing-row handling, native-record bounds, local-hosted refusal and disjoint workflow triggers. Eight observation queries and three native groups cover STML,BRG/BHM,BWA/PHIN in one source-only pass; financial workers remain zero. The P06 financial request is byte-identical to active FIN356 and is not reselected by this publication. Source success requires independent DATA qualification and never financial admission.

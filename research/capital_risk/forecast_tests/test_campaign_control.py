@@ -25,6 +25,11 @@ def test_reviewed_partial_is_useful_but_does_not_grant_admission_or_retry():
  assert p.classify_receipt(value)==dict(stage='REVIEWED_PARTIAL_PENDING_INDEPENDENT_ADMISSION',admission_required=True,retry_authorized=False)
  value['worker']=stop(137,True);assert p.classify_receipt(value)['stage']=='FAILED_WORKER'
 
+def test_source_capture_success_is_never_a_financial_admission():
+ value=dict(EXPLICIT_NONCANONICAL_RECEIPT_DTO=True,status='SOURCE_BATCH_CAPTURED',worker=stop(),financial_authority=False)
+ assert p.classify_receipt(value)==dict(stage='SOURCE_DATA_PENDING_INDEPENDENT_QUALIFICATION',admission_required=False,source_qualification_required=True,retry_authorized=False)
+ value['worker']['stopped']=False;assert p.classify_receipt(value)['stage']=='UNKNOWN'
+
 @pytest.mark.parametrize('change',['status','stop','exit_type','oom_type'])
 def test_unknown_outcomes_never_promoted(change):
  value=dict(EXPLICIT_NONCANONICAL_RECEIPT_DTO=True,status='PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT',preflight=stop(),worker=stop(),reviewer=stop())
