@@ -62,6 +62,25 @@ BWA distribution continues to require its separate original packet/kernel
 guards. These source bindings remain unselected until the entire hosted
 26-input restart and independent review route are qualified.
 
+## Standalone distribution descriptor
+
+The existing v2 composite loaded view requires a new nonempty ordinary cash
+repair. P07 already committed its forward cash schedule. BWA's distribution
+therefore gets a separate typed input descriptor, following the existing
+typed-input loader pattern. Its declared first affected day is July 5.
+The descriptor binds the exact admitted parent, source catalog, independent
+source review, model, original native records and original packet projection.
+It carries no new ordinary cash completion.
+
+The new loader delegates every other descriptor to the complete installed
+loader chain. Its packet operation is the unchanged original v2 projection,
+which replaces both native BWA rows with one reviewed distribution and removes
+the parent's duplicate dividend proxy. It does not implement any financial
+state transition. Install it after the retained historical codecs, preserve
+their function identities, and restore the complete prior loader/apply pair
+on exit. Actual financial use remains hosted and requires the separate
+complete restart qualification and original financial observer/kernel review.
+
 ## Source qualification
 
 The source normalization, independent reconstruction and packet-codec checks passed 21 tests in 4.08 seconds. They read the genuine admitted 1383-day checkpoint and authentic SOURCE357 data, retain all three complete observations and both native records, and verify the actual frozen trading axis. The term builder and packet projection retain their complete original function bodies. Two guard-removal tests cover date relabeling and independent full-witness comparison. No financial state was created or advanced. Source closure is complete; the financial profile remains closed pending the full history, 929-proof preservation and hosted gates above.
@@ -69,3 +88,5 @@ The source normalization, independent reconstruction and packet-codec checks pas
 ## Saved-result DATA checks
 
 Seventeen distinct checks passed across the targeted runs. The first run passed 16 checks and identified one stale namespace attribute; the affected check passed after both references were updated to the same function. The tests read the complete genuine parent, invoke the complete original saved-proof reader, verify all accepted proofs, exclude the unaccepted tail and run the complete original ABMD metadata validator against its genuine historical archive. AST reversal tests cover the exact finite bindings, and the prefix guard has a removal test. The actual future input adoption and financial class construction remain unexecuted and unqualified. These changes calculate zero new trading days.
+
+The standalone descriptor and packet-codec tests passed 20 checks in 7.44 seconds. They cover exact source/parent binding, rejected alternate cursors and predecessors, preservation of unrelated packets and old loader calls, the original native-row replacement and duplicate-cash suppression, exact handler restoration, refusal to overwrite an unknown layer, and local financial-entry refusal. These tests use source DATA and explicitly noncanonical packet/API objects; they advance zero trading days.

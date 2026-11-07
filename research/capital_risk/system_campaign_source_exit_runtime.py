@@ -39,7 +39,7 @@ def qualification(spec):
  need(candidate(spec) and (HERE/name).is_file(),'SOURCE_EXIT_RUNTIME_WHOLE_PROFILE_NOT_CLOSED')
  raw=(HERE/name).read_bytes();q=json.loads(raw)
  need(q['passed'] is True and q['root_admission_sha256']==spec['root_admission_sha256'] and q['financial_authority'] is q['canonical_runtime_executed'] is False
-  and q.get('actual_neutral_checkpoint_known',q.get('actual_neutral13_known')) is False,
+  and q.get('selected_job_neutral_checkpoint_known',q.get('actual_neutral_checkpoint_known',q.get('actual_neutral13_known'))) is False,
   'SOURCE_EXIT_RUNTIME_EXPLICIT_WHOLE_DATA_PROFILE_NO_CLAIMED_HOSTED_BOUNDARY')
  for n,pin in q['files'].items():
   b=(HERE/n).read_bytes();need(dict(bytes=len(b),sha256=sha(b))==pin,'SOURCE_EXIT_RUNTIME_COMPLETE_PROFILE_BYTES:'+n)
@@ -75,8 +75,16 @@ def adoption_tree(raw,*,directory=models.DIRECTORY,overlay=models.OVERLAY):
  mapping,=[n.value for n in fn.body if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='names']
  need(ast.unparse(mapping)=="{ORDINARY_ADOPTION: 'future-financial-overlay.json', DATE_ADOPTION: DATE_OVERLAY, MODEL_ADOPTION: 'branch-uncertainty-input.json'}",'SOURCE_EXIT_RUNTIME_ONE_ORIGINAL_DIRECTORY_OVERLAY_MAP')
  mapping.keys.append(ast.Constant(directory));mapping.values.append(ast.Constant(overlay));return ast.fix_missing_locations(fn)
+def adoption_boundary(spec,original):
+ names=profiles.paths(spec)
+ def boundary(root,directory,parent,overlay,earliest):
+  need(directory==names['DIRECTORY'] and overlay==Path(names['OVERLAY']).name,
+   'SOURCE_EXIT_RUNTIME_EXACT_SELECTED_BOUNDARY_FILENAME')
+  return original(root,directory,parent,names['OVERLAY'],earliest)
+ return boundary
+
 def adopter(spec):
- names=profiles.paths(spec);scope=dict(vars(legacy));exec(compile(ast.Module(body=[adoption_tree(Path(legacy.__file__).read_bytes(),directory=names['DIRECTORY'],overlay=names['OVERLAY'])],type_ignores=[]),'<whole-original-canonical-adopter-one-successor-filename>','exec'),scope)
+ names=profiles.paths(spec);scope=dict(vars(legacy),boundary=adoption_boundary(spec,legacy.boundary));exec(compile(ast.Module(body=[adoption_tree(Path(legacy.__file__).read_bytes(),directory=names['DIRECTORY'],overlay=names['OVERLAY'])],type_ignores=[]),'<whole-original-canonical-adopter-one-successor-filename>','exec'),scope)
  return scope['paused_own_adoption']
 
 @contextmanager

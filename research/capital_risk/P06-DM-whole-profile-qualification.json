@@ -1,6 +1,5 @@
 {
   "actual_event_date_roles_verified": false,
-  "actual_neutral_checkpoint_known": false,
   "canonical_runtime_executed": false,
   "closed_utc": "2026-11-07T21:48:49.684348+00:00",
   "excluded_old_tail_rows": 0,
@@ -63,7 +62,7 @@
     },
     "system_campaign_financial_resume.py": {
       "bytes": 67598,
-      "sha256": "ff09f3957547479c1f8ea9f2ad5dd31341dd5811e68589162cedb79996536bd0"
+      "sha256": "7c90826b6a6c204e236b13356d382d9f67b01912c2bdfbfd808a14501d451c60"
     },
     "system_campaign_full_history_successor.py": {
       "bytes": 4566,
@@ -118,8 +117,8 @@
       "sha256": "ea6ecaa3d3bf0c00e0b0d3c285ad8d1bbeaffe8994097a130d69be5a769d3dab"
     },
     "system_campaign_source_exit_runtime.py": {
-      "bytes": 16720,
-      "sha256": "a29e21a4bc8ad4f08ec8a9e0ad7a336a9a43579ea3f119b5ef3edd1c57b80445"
+      "bytes": 17160,
+      "sha256": "17324dcaa62f4bffdb843500d30027effc7ff215fe9ed9b7e271d6600015fc93"
     },
     "system_campaign_stopped_parent.py": {
       "bytes": 13792,
@@ -177,6 +176,89 @@
       "seconds": 12.61
     }
   },
+  "request227_boundary_path_correction": {
+    "actual_new_trading_days": 0,
+    "cause": "Original adopter supplied the basename to a root-relative reader after the new profile introduced nested folders",
+    "command": "python -B -m pytest forecast_tests/test_source_exit_nested_boundary.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-nested-boundary-20261107-001",
+    "original_artifact_id": 13593557334,
+    "original_boundary_reader_unchanged": true,
+    "original_function_body_unchanged": true,
+    "original_run": 42419775620,
+    "original_zip_sha256": "03531c91689a919f8f368af35e59fad6d86287e969c805090131806d1f899fd4",
+    "seconds": 2.62,
+    "tests_passed": 10
+  },
+  "request227_genuine_prior_zero_day_adoption": {
+    "actual_inputs": 14,
+    "actual_neutral_gzip": {
+      "bytes": 1345443,
+      "sha256": "8fae1b36cf2dd0ff5d0e267eea7283218ecbf739baebe0adc6e0feac9ede9537"
+    },
+    "actual_neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+    "actual_parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+    "all568_committed_proofs_preserved": true,
+    "boundary": {
+      "current_inputs": 14,
+      "earliest_affected_session": "2025-04-01",
+      "financial_sessions_advanced": 0,
+      "input_successor": {
+        "earliest_affected_session": "2025-04-01",
+        "overlay": {
+          "filename": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8.json",
+          "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+          "resume_session": "2025-03-31",
+          "sha256": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8"
+        },
+        "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+        "predecessor_input_sha256": "b2adace7ca60c250e1f618421407c826edea0280e40623fc58930b28f5af905e",
+        "schema": "research.pooled-action-successor/1",
+        "state_sha256": "68c202dbadd15d2df78552a9264f224e99da734e42d3ab59cdc4c880d794a134",
+        "successor_input_sha256": "ef00f1820361727f5a83313b69d69bf00d2e8ccc49a31cd8084d6161886e716d",
+        "unchanged_through": "2025-03-31"
+      },
+      "neutral_gzip_sha256": "8fae1b36cf2dd0ff5d0e267eea7283218ecbf739baebe0adc6e0feac9ede9537",
+      "neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "original_inputs": 13,
+      "original_root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+      "passed": true,
+      "source_exit_does_not_authorize_portfolio_settlement": true
+    },
+    "canonical_runtime_executed": false,
+    "complete_previous_history_verified": true,
+    "financial_sessions_advanced": 0,
+    "history": {
+      "current_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "financial_sessions_advanced": 0,
+      "full_inputs": 14,
+      "input_successor": {
+        "earliest_affected_session": "2025-04-01",
+        "overlay": {
+          "filename": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8.json",
+          "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+          "resume_session": "2025-03-31",
+          "sha256": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8"
+        },
+        "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+        "predecessor_input_sha256": "b2adace7ca60c250e1f618421407c826edea0280e40623fc58930b28f5af905e",
+        "schema": "research.pooled-action-successor/1",
+        "state_sha256": "68c202dbadd15d2df78552a9264f224e99da734e42d3ab59cdc4c880d794a134",
+        "successor_input_sha256": "ef00f1820361727f5a83313b69d69bf00d2e8ccc49a31cd8084d6161886e716d",
+        "unchanged_through": "2025-03-31"
+      },
+      "neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "new_input_adopted": true,
+      "parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+      "passed": true
+    },
+    "original_artifact": 13593557334,
+    "original_manifest_sha256": "7835f5d1366ec814b6a569e7f69815d4608ef25cff457199a0f25c20a9f20aeb",
+    "original_run": 42419775620,
+    "parent_inputs": 13,
+    "passed": true,
+    "state_unchanged": true,
+    "watch_and_correlation_unchanged_except_exact_input_event": true
+  },
   "required_genuine_neutral_inputs": 14,
   "required_hosted_gates": [
     "authenticate_original_FIN366_failed_transport_and_separate_positive_REVIEW368",
@@ -195,6 +277,8 @@
   "retained_proofs": 568,
   "root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
   "schema": "research.source-exit-successor-whole-profile-DATA-qualification/1",
+  "selected_job_neutral_checkpoint_known": false,
+  "selected_job_neutral_flag_scope": "NEXT_REQUESTED_JOB_MUST_STILL_PRODUCE_AND_VERIFY_ITS_OWN_ADOPTION",
   "source_return_proxy": "4.91",
   "statutory_cash_not_used_as_source_proxy": "5.295"
 }

@@ -1,0 +1,62 @@
+{
+  "canonical_runtime_executed": false,
+  "files": {
+    "P07-BWA-postclose-source-catalog.json": {
+      "bytes": 122263,
+      "sha256": "6a6de9498afc77747b26a2ed36c5f153289894ec4567f7ac9fe85db9d67eedcd"
+    },
+    "P07-BWA-saved-restart-DATA-qualification.json": {
+      "bytes": 3552,
+      "sha256": "72d94ca5eb1123f2a32ff34263e03821220e7630b9eef35c38008b2c20431a78"
+    },
+    "P07-BWA-source-DATA-qualification.json": {
+      "bytes": 2882,
+      "sha256": "c7911bf6bee7ae65d03dfaa06c0464d4b00db0a9d19eb0470ca1c6f8f85ee9d3"
+    },
+    "P07-BWA-source-DATA-review.json": {
+      "bytes": 965,
+      "sha256": "fa868ee7b8e553b7a336a10a05732a88d1c18e1c8bacc72fd1902d1dbb5c44ed"
+    },
+    "system_campaign_distribution_facts.py": {
+      "bytes": 15123,
+      "sha256": "c83a3ed96b2334333fde7f8f2d05ef9e4c2b98d7a52c4be5e437a6b954aa88bb"
+    },
+    "system_campaign_financial_compound_input_v2.py": {
+      "bytes": 16326,
+      "sha256": "13207b6c2a2c36b7f7a1c09b70446b11942b9e1bc1f316643721d47ea3d87d9a"
+    },
+    "system_campaign_postclose_distribution_codec.py": {
+      "bytes": 6628,
+      "sha256": "3e3b9c5a57c39bd5c280d1b6c66fb735343bad6ce46dfb6e47967340b0ed252b"
+    },
+    "system_campaign_postclose_distribution_input.py": {
+      "bytes": 13722,
+      "sha256": "31a9fd1a035fdef15d508dc39ca89f665021037090411a335d04b0134296341b"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "new_input_first_affected_session": "2023-07-05",
+  "no_new_ordinary_cash_repair": true,
+  "old_loader_chain_delegated": true,
+  "parent_cursor": "2023-06-30",
+  "parent_root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "passed": true,
+  "remaining": [
+    "actual hosted source reconstruction and original financial observer/kernel checks",
+    "complete hosted restart and preserved resources",
+    "actual canonical adoption and certificate constructor",
+    "financial run and independent admission"
+  ],
+  "schema": "research.postclose-distribution-typed-input-DATA-qualification/1",
+  "standalone_typed_input": true,
+  "tests": {
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_codec.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-distribution-codec-20261107-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 20,
+    "seconds": 7.44
+  },
+  "whole_original_packet_projection_preserved": true
+}

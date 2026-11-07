@@ -111,7 +111,7 @@ def test_closed_DM_request_selects_only_exact_current_parent_and_export_policy()
  import system_campaign_financial_resume as financial
  spec=root_spec('P06');request=financial.expected_request()
  assert request==json.loads((C/financial.REQUEST).read_bytes())
- assert request['schema']=='research.system-campaign-accurate-resume-request/227'
+ assert request['schema']=='research.system-campaign-accurate-resume-request/228'
  assert request['arms']==['P06'] and request['admitted_checkpoints']=={'P06':spec['outer_sha256']}
  assert runtime.request_financial(request,spec)
  assert request[runtime.FIELD]['P06']['committed_seed_rows']==568
