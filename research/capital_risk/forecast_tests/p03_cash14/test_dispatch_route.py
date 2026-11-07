@@ -9,7 +9,10 @@ import system_campaign_p03_thor_qualification_reuse as reuse
 import system_campaign_bounded_sensor_runtime_v2 as dova
 
 @pytest.mark.parametrize('mode',['preflight','economic','review'])
-def test_new_profile_precedes_old_retained_refusal(monkeypatch,mode):
+def test_new_profile_precedes_old_retained_refusal(monkeypatch,tmp_path,mode):
+    from pathlib import Path
+    captured=Path("C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial345-source-snapshot/system-campaign-factual-request.json")
+    (tmp_path/"system-campaign-factual-request.json").write_bytes(captured.read_bytes());monkeypatch.setattr(dispatch,"HERE",tmp_path)
     monkeypatch.setattr(full_system_core,'hosted',lambda:None);calls=[]
     @contextmanager
     def outer(*a,**k):yield

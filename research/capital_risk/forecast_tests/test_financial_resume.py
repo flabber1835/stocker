@@ -40,17 +40,17 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
-    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False and r['financial_resume_authorized'] is True
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==648
+    assert r['arms']==['P07'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==650
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs']=={'P03':dict(new_factual_overlay=True,restored_correlation=False)}
-    assert set(r['selected_p03_cash14_ordinary18'])=={'P03'} and r['selected_p03_thor_qualification_reuse']=={}
-    assert r['selected_p06_fin339_readonly_review_recoveries']=={} and 'selected_p07_lossless_export' not in r
-    seed=m.root_spec('P03');decl=r['selected_p03_cash14_ordinary18']['P03']
-    assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(524,'2020-01-31',17)
-    assert (decl['batch_terms'],decl['old_committed_proof_rows'],decl['required_total_observer_terms'],decl['required_actual_preflight_packet_checks'])==(14,70,33,28)
-    assert decl['actual_future_neutral_checkpoint_known'] is decl['future18_root_restart_selected'] is False
+    assert r['arm_inputs']=={'P07':dict(new_factual_overlay=False,restored_correlation=False)}
+    assert set(r['selected_p07_full25_readonly_reporting'])=={'P07'} and 'selected_p07_lossless_export' not in r
+    target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P07'];seed=m.root_spec('P07')
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(1383,'2023-06-30',25)
+    assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(1259,'2022-12-30',24)
+    assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
+    assert target['monthly_seed_root_admission_sha256']==seed['root_admission_sha256']
 
 
 def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
@@ -230,6 +230,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
     request['selected_p06_fin339_readonly_review_recoveries']={}
     request.pop('selected_p07_lossless_export',None)
     request['selected_p03_cash14_ordinary18']={}
+    request['selected_p07_full25_readonly_reporting']={}
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith(('readonly','witness')),
                    readonly_source_witnesses=event.startswith('witness'),

@@ -7406,3 +7406,29 @@ qualified. Local tests are DATA/AST/DTO/import-fence only: no engine, restore,
 adoption, seed view or canonical state serialization locally.
 
 Private preparation qualification 90fae09eb928c35e5e1bb77097a3ff83582ada347cb5f43621794e62659a3ee6:36passed17.26s,three meaningful removals/five import fences. Require actual original28-packet preflight before financial execution; neutral18 remains unknown until canonical hosted adoption. Publish the independently admitted P06 edfe1426 root alongside this distinct P03 request; no P06 financial restart is selected.
+
+
+## REPORT346: actual P07 saved1383/full25 readonly reporting
+
+# Actual P07 full25 readonly monthly reproduction
+
+Select only authentic FIN343 saved1383/2023-06-30/full25,1259/full24/d9
+as reporting seed. Preserve original physical crypto manifest529members and
+separate exact186-copy logical equivalence. The hosted readonly loader first
+uses the whole original positive-partial crypto/stop/accounting admission,
+then reconstructs only individually authenticated redundant copies into that
+owned hosted source tree, before the original launcher makes it read only.
+No checkpoint bytes change; no local canonical tree is reconstructed.
+
+For readonly preflight only, install the already qualified full25 VIVO visitor
+and whole original lifecycle API using original d9 source-origin metadata,
+with actual current1383 checkpoint unprojected. Run/review/economic callbacks
+are never invoked. The whole original financial-input and monthly functions
+remain unchanged. Suppress only the old source-only d9 launcher interception
+within this new explicit readonly scope; restore it afterward. Every actual
+source/history/model/observer and original financial-entry AST guard remains.
+No future financial root or BWA repair is authorized by this reporting bridge.
+
+FIN343 exported529 physical members655659594bytes; explicit lossless DATA independently checked715 semantic names including186copies. Hosted core/branch/VIVO review passed0;124 saved new closes and929 proofs are provisional until monthly and independent DATA close. This bridge passed18 metadata/falsifier/rollback/import tests5.67s plus whole full25 origin DATA. Original four financial bodies stay unchanged. No BWA repair/financial continuation is selected.
+
+REPORT346 explicitly routes its new readonly request around the old source-only d9 declaration builder as well as its launcher interception; old source-only/financial routes delegate unchanged. The full25 classifier receives original d9 origin metadata while visiting actual current1383, with all financial callbacks closed.

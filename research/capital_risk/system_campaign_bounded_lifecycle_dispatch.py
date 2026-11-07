@@ -30,7 +30,8 @@ def source_names():
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     import system_campaign_p07_lossless_export_host as lossless_export
     import system_campaign_p03_cash14_runtime as cash14
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names()))))
+    import system_campaign_p07_full25_reporting as report25
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -99,7 +100,8 @@ def expected_request(original,*,execution_mode,selected_arms):
         target_lookup=lambda arm:json.loads((HERE/'system-campaign-financial-partials.json').read_bytes())['arms'][arm])
     import system_campaign_p07_fin326_requalified_parent as composite
     import system_campaign_p07_vivo_profile as vivo
-    result=vivo.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p07_full25_reporting as report25
+    result=report25.expected_vivo_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_admitted_source_bridge as admitted_source
     result=admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_runtime as thor
@@ -119,7 +121,9 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=report5.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     result=review6.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
-    return cash14.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=cash14.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p07_full25_reporting as report25
+    return report25.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -136,6 +140,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
         import system_campaign_p07_readonly_review_recovery as recovery
         active_request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())
         import system_campaign_p06_fin339_readonly_recovery_v2 as review6
+        import system_campaign_p07_full25_reporting as report25
+        if report25.selected(spec):
+            with report25.entry_context(module,spec,mode=mode,request=active_request):yield
+            return
         if review6.selected_request(active_request):
             with review6.context(active_request,spec=spec,mode=mode,module=module,old=Path('/old'),out=out or Path('/out'),evidence=evidence):yield
             return

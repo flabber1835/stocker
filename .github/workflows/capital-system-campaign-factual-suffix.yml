@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        arm: [P03]
+        arm: [P07]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
@@ -46,7 +46,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Fin345 P03 original fourteen-cash packet gate then genuine18 continuation from admitted524
+      - name: Report346 P07 actual1383 full25 original monthly reproduction with zero financial transitions
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
