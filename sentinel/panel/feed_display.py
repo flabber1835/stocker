@@ -24,6 +24,17 @@ class _ByteProof:
                 and self.observed_at <= instant < self.valid_until)
 
 
+@dataclass
+class _ByteFrame:
+    key: str
+    owner: object
+    physical: tuple
+    installation_id: str | None
+    epoch: tuple
+    authenticated: bool = False
+    active: bool = True
+
+
 _BYTE_PROOFS: dict[str, _ByteProof] = {}
 _PROOF_LOCK = Lock()
 _MAX_PROOFS = 16
@@ -37,22 +48,51 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def _byte_context(conn):
-    """Fresh small context; absent independent DDL evidence grants no reuse."""
-    present = conn.execute(
-        "SELECT to_regclass('public.sentinel_operational_ddl_epoch') IS NOT NULL").fetchone()[0]
-    if not present:
+def _byte_metadata(conn):
+    present = conn.execute("SELECT to_regclass('public.sentinel_operational_ddl_epoch'),"
+        "to_regclass('public.sentinel_processed_sessions')").fetchone()
+    if not present[0]:
         return None
-    from sentinel.panel import read_projection, authority_reader
-    physical, installation, epoch, _ = read_projection._subject_facts(conn)
+    marker = ("(SELECT json_build_array(tableoid::text,pg_relation_filenode(tableoid)::text,"
+        "xmin::text,ctid::text,state->'installation'->>'installation_id') "
+        "FROM public.sentinel_processed_sessions WHERE cursor_name='operational-schema:v1')"
+        if present[1] else 'NULL::json')
+    row = conn.execute("SELECT s.system_identifier::text,current_database(),"
+        "e.tableoid::text,pg_relation_filenode(e.tableoid)::text,e.xmin::text,e.ctid::text,"
+        "e.incarnation::text,e.epoch," + marker + ","
+        "(SELECT json_agg(json_build_array(t.oid::text,t.xmin::text,t.ctid::text,"
+        "t.evtenabled,p.oid::text,p.xmin::text,p.ctid::text) ORDER BY t.oid) "
+        "FROM pg_event_trigger t JOIN pg_proc p ON p.oid=t.evtfoid "
+        "WHERE t.evtname='sentinel_operational_evidence_ddl_changed') "
+        "FROM public.sentinel_operational_ddl_epoch e CROSS JOIN pg_control_system() s WHERE e.id=1").fetchone()
+    if row is None:
+        raise ValueError('DISPLAY_EVIDENCE_DDL_WITNESS_ABSENT')
+    return row
+
+
+def _byte_context(conn):
+    """Observe compact independent witnesses; authenticate only on a miss."""
+    row = _byte_metadata(conn)
+    if row is None:
+        return None
+    from sentinel.panel import authority_reader
     info = conn.info
     sources = [Path(__file__), Path(rolling_store.__file__)]
-    return _digest(['sentinel.display-evidence-byte-proof/1',
-        [info.host, info.port, info.dbname, info.user], list(physical),
-        installation['installation_id'] if installation is not None else None,
-        epoch, sorted(os.environ.items()),
+    key = _digest(['sentinel.display-evidence-byte-proof/2',
+        [info.host, info.port, info.dbname, info.user], list(row), sorted(os.environ.items()),
         [(str(path), hashlib.sha256(path.read_bytes()).hexdigest()) for path in sources],
         rolling_store.MAX_EVIDENCE_BYTES, authority_reader.FRESH_SECONDS])
+    return _ByteFrame(key, conn, tuple(row[:2]), row[8][4] if row[8] is not None else None,
+        (row[6], row[7]))
+
+
+def _authenticate_byte_context(conn, context):
+    from sentinel.panel import read_projection
+    physical, installation, epoch, _ = read_projection._subject_facts(conn)
+    if (tuple(physical) != context.physical or tuple(epoch) != context.epoch
+            or (installation['installation_id'] if installation is not None else None)
+                != context.installation_id):
+        raise ValueError('DISPLAY_EVIDENCE_CONTEXT_CHANGED')
 
 
 def _byte_subject(conn, identity, context):
@@ -68,7 +108,7 @@ def _byte_subject(conn, identity, context):
     # Legacy JSON remains with the original canonical decoder/verifier.
     if row is None or row[-3] is not True or row[-2] is not True:
         return None
-    return _digest([os.getpid(), context, identity, list(row)])
+    return _digest([os.getpid(), context.key, identity, list(row)])
 
 
 def _verify_evidence(conn, identity, *, context):
@@ -76,14 +116,21 @@ def _verify_evidence(conn, identity, *, context):
     if context is None:
         rolling_store.verify_evidence(conn, identity)
         return
+    if not context.active or context.owner is not conn:
+        raise ValueError('DISPLAY_EVIDENCE_CONTEXT_OWNER_CHANGED')
     from sentinel.panel import authority_reader
     started, instant = time.monotonic(), _now()
     subject = _byte_subject(conn, identity, context)
-    if subject is not None:
-        with _PROOF_LOCK:
-            proof = _BYTE_PROOFS.get(subject)
-        if proof is not None and proof.current(_now(), time.monotonic()):
-            return
+    if subject is None:
+        rolling_store.verify_evidence(conn, identity)
+        return
+    with _PROOF_LOCK:
+        proof = _BYTE_PROOFS.get(subject)
+    if proof is not None and proof.current(_now(), time.monotonic()):
+        return
+    if not context.authenticated:
+        _authenticate_byte_context(conn, context)
+        context.authenticated = True
     rolling_store.verify_evidence(conn, identity)
     proof = _ByteProof(started, started + authority_reader.FRESH_SECONDS,
         instant, instant + timedelta(seconds=authority_reader.FRESH_SECONDS))
@@ -141,8 +188,12 @@ def _manifest(conn, candidate_id):
     require_layout(conn, candidate_id, value)
     if not rolling_store.retired(conn, candidate_id):
         context = _byte_context(conn)
-        for identity in dict.fromkeys((value.reference_sha256, value.source_evidence_sha256)):
-            _verify_evidence(conn, identity, context=context)
+        try:
+            for identity in dict.fromkeys((value.reference_sha256, value.source_evidence_sha256)):
+                _verify_evidence(conn, identity, context=context)
+        finally:
+            if context is not None:
+                context.active = False
     return value
 
 

@@ -230,7 +230,13 @@ def test_cached_byte_integrity_preserves_new_negative_authentication_and_binding
     # The separate real-PostgreSQL reuse tests qualify its full DDL/source subject.
     monkeypatch.setattr(rolling_store,'JSONB_EVIDENCE_BYTES',0)
     pub,_=request.getfixturevalue('published')
-    monkeypatch.setattr(display,'_byte_context',lambda actual:'private-qualified-display-context')
+    frames=[]
+    def owned(actual):
+        context=display._ByteFrame('private-qualified-display-context',actual,('private','db'),None,('epoch',1))
+        frames.append(context)
+        return context
+    monkeypatch.setattr(display,'_byte_context',owned)
+    monkeypatch.setattr(display,'_authenticate_byte_context',lambda *args:None)
     calls=[];verify=rolling_store.verify_evidence
     def measured(actual,identity):
         calls.append(identity)
@@ -248,6 +254,7 @@ def test_cached_byte_integrity_preserves_new_negative_authentication_and_binding
         assert current.checks==negative.checks
         conn.rollback()
         assert len(calls)==2 and display._BYTE_PROOFS==proofs
+        assert frames and all(context.active is False for context in frames)
         with monkeypatch.context() as fault:
             load=rolling_store.load_evidence
             fault.setattr(rolling_store,'load_evidence',lambda actual,key:

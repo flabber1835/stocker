@@ -6,7 +6,7 @@ import psycopg
 from psycopg import sql
 import pytest
 
-from sentinel import operational_ddl_epoch
+from sentinel import operational_catalog, operational_ddl_epoch
 from sentinel.feed import rolling_store
 from sentinel.panel import feed_display as display
 from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
@@ -32,10 +32,11 @@ def evidence_db(pg):
 
 
 class Measured:
-    def __init__(self,conn):self.conn=conn;self.hash_queries=0
+    def __init__(self,conn):self.conn=conn;self.hash_queries=0;self.queries=0
     @property
     def info(self):return self.conn.info
     def execute(self,statement,params=()):
+        self.queries+=1
         if "sha256(convert_to(canonical_payload,'UTF8'))" in str(statement):
             self.hash_queries+=1
         return self.conn.execute(statement,params)
@@ -58,18 +59,24 @@ def seed(conn):
 
 def frame(measured,identity):
     measured.conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    context=None
     try:
         context=display._byte_context(measured)
         display._verify_evidence(measured,identity,context=context)
-        return context
-    finally:measured.conn.rollback()
+        return context.key if context is not None else None
+    finally:
+        if context is not None:context.active=False
+        measured.conn.rollback()
 
 
 def test_unchanged_real_tuple_earns_one_actual_hash_query(evidence_db):
     install(evidence_db);identity=seed(evidence_db);measured=Measured(evidence_db)
     first=frame(measured,identity)
+    measured.queries=0
     assert first is not None and frame(measured,identity)==first
     assert measured.hash_queries==1 and len(display._BYTE_PROOFS)==1
+    # Work budget excludes caller BEGIN/ROLLBACK. Fewer queries remain welcome.
+    assert measured.queries<=3
 
 
 def test_absent_real_ddl_witness_always_runs_canonical_verifier(evidence_db):
@@ -116,6 +123,24 @@ def test_real_missing_evidence_refuses_even_after_success(evidence_db):
     assert measured.hash_queries==2
 
 
+@pytest.mark.parametrize('fault',['disable-event','replace-handler'])
+def test_changed_real_audit_guard_refuses_even_without_an_epoch_advance(evidence_db,fault):
+    install(evidence_db);identity=seed(evidence_db);measured=Measured(evidence_db)
+    frame(measured,identity)
+    epoch=evidence_db.execute('SELECT epoch FROM sentinel_operational_ddl_epoch').fetchone()[0]
+    if fault=='disable-event':
+        evidence_db.execute('ALTER EVENT TRIGGER sentinel_operational_evidence_ddl_changed DISABLE')
+    else:
+        evidence_db.execute('CREATE OR REPLACE FUNCTION sentinel_operational_evidence_ddl_changed() '
+            'RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN NULL; END $$')
+    evidence_db.commit()
+    assert evidence_db.execute('SELECT epoch FROM sentinel_operational_ddl_epoch').fetchone()[0]==epoch
+    evidence_db.rollback()
+    with pytest.raises(operational_catalog.OperationalCatalogRefused,match='CATALOG_CHANGED'):
+        frame(measured,identity)
+    assert measured.hash_queries==1
+
+
 def test_removed_real_tuple_subject_has_an_executed_falsifier(evidence_db,monkeypatch):
     source=inspect.getsource(display._byte_subject)
     assert source.count('list(row)')==1
@@ -124,3 +149,26 @@ def test_removed_real_tuple_subject_has_an_executed_falsifier(evidence_db,monkey
     monkeypatch.setattr(display,'_byte_subject',values['_byte_subject'])
     with pytest.raises(pytest.fail.Exception):
         test_real_same_length_corruption_cannot_reuse_success(evidence_db)
+
+
+def test_removed_real_handler_witness_has_an_executed_falsifier(evidence_db,monkeypatch):
+    original=display._byte_metadata
+    def missing_handler(actual):
+        row=list(original(actual))
+        assert row[9]
+        row[9]=[entry[:5]+['ignored-handler-xmin','ignored-handler-ctid'] for entry in row[9]]
+        return tuple(row)
+    monkeypatch.setattr(display,'_byte_metadata',missing_handler)
+    with pytest.raises(pytest.fail.Exception):
+        test_changed_real_audit_guard_refuses_even_without_an_epoch_advance(evidence_db,'replace-handler')
+
+
+def test_repeated_catalog_work_breaks_the_real_query_budget(evidence_db,monkeypatch):
+    from sentinel.panel import read_projection
+    original=display._byte_context
+    def repeated(actual):
+        read_projection._subject_facts(actual)
+        return original(actual)
+    monkeypatch.setattr(display,'_byte_context',repeated)
+    with pytest.raises(AssertionError):
+        test_unchanged_real_tuple_earns_one_actual_hash_query(evidence_db)

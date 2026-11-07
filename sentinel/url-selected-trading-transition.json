@@ -763,7 +763,7 @@
     "panel/authority_reader.py": "504c636b89ae27ed43ce830b673a5f76a7e39ea654c31026089eaa7df1ca53a6",
     "panel/banner.py": "e69d22a8e4acab3d7c200ac14c5ae61ebe5e727003225123364dda3a310f9544",
     "panel/delivery.py": "913d5e49c24ebf2924845a565abee1cb287abe916b9eff90acd778e24b30e499",
-    "panel/feed_display.py": "915dcb49ab196e4cd629ef25b343af793a996fb69c5f3a8d64543de5244b704b",
+    "panel/feed_display.py": "77ddea20b39a380fbc3209cf9b3c0bd656c52e7d0f66c2d03f4d70e70e6ef578",
     "panel/intent_memo.py": "ead012971b2c2aa0649c63cefa9a21f643a685fcf459f37edaa39eb7f11305ae",
     "panel/last_known.py": "d2948e7de85b30ba9c1f30b9b3dd25380d9b0ae974a30866ba71d4019512a3be",
     "panel/model.py": "476b9fa30a9927291b973b9fcc27bfc0a484318652c6e44c77decff2f417dc79",

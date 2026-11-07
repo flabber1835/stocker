@@ -122,6 +122,33 @@ admission or source-authority exception. Qualification must count actual hash
 queries, preserve negative verdicts/authentication/binding failures, and execute
 removed-subject/expiry guards as falsifiers, including real private PostgreSQL.
 
+The representative private installed-schema measurement caught an avoidable
+cost in the first candidate: a warm 9,521,230-byte verification used one query
+and about 10.3 ms median, while a byte-proof hit still performed 23 metadata
+queries and about 13.1 ms. These are isolated warm-page measurements, not
+production latency. Do not move repeated full catalog validation into the fast
+path as the price of avoiding a payload hash.
+
+Refinement before implementation: read a compact witness for the installation
+marker and independent DDL epoch, including the event trigger and its handler's
+catalog tuple identities. Ordinary public DDL advances the epoch; changing or
+disabling its event trigger/handler changes these independent catalog tuples.
+Marker/witness row and physical identities remain part of the subject. Authenticate
+the full existing installation/DDL contracts on a byte-proof miss, once for that
+owned immutable MVCC frame, before any successful byte proof can be retained.
+An unchanged hit reobserves the compact witness without repeating that catalog
+proof. Missing/changed/malformed evidence cannot retain a hit; changed guard
+metadata must earn full authentication again and refuse if invalid. Do not store
+or transfer the frame's authentication flag, and never share it across connection
+owners. Test actual catalog/hash call counts and real handler/trigger changes,
+in addition to tuple corruption and original proof expiry.
+
+The same private workload after this refinement used three small queries and no
+payload hash on a hit, with about 1.75 ms median versus 8.74 ms for its paired
+original hash. A cold proof still performed genuine catalog and byte verification
+(25 queries in that one-evidence workload). This qualifies the work reduction;
+it is not a production latency promise or a claim about physical disk reads.
+
 ### SHADOW content and execution presentation
 
 The read-only current-PAPER-plan command currently verifies shadow once inside
