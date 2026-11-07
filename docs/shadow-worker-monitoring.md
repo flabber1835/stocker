@@ -50,6 +50,42 @@ does not grant execution authority, change strategy/controller state or clear
 the interruption fence. Legacy deployments without a shadow service retain their
 existing projection.
 
+## Coherent startup observation — November 7, 2026
+
+Decision before implementation: the pending-attempt marker is durable before a
+child is launched; the matching authenticated status is published afterward.
+Those separate files are not a transaction. At 07:21:11 UTC a read-only native
+observation reproduced a normal startup with a new pending attempt and the
+previous IDLE status. Canonical decoding raised `ValueError`; the matching
+ACTIVE_WORKER status appeared about 50 milliseconds later. The earlier
+06:36:19 UTC incident retained the same exception class but no exact branch.
+
+Make the existing credential-free native observer collect a coherent snapshot
+before returning its one response. Only recognizable RUNNING observations whose
+pending identity changed during capture or disagrees with the status identity
+are collected again. Every pass reads fresh critical/pending/status/critical/
+latest-pending bytes. Yield briefly between passes. A critical marker or a
+negative status returns immediately; malformed data is returned for canonical
+rejection, not repaired. Authentication, runtime binding, attempt consistency,
+original producer timestamps and expiry remain the parent's responsibility.
+
+This is one filesystem collection inside the existing request and its original
+two-second absolute parent deadline. There is no new request, renewed deadline,
+cached successful proof or retry of a failed IPC exchange. A persistent mismatch
+exhausts that same budget, discards/reaps the observer and records UNKNOWN.
+One-shot and reusable native readers use the same collection rule. The direct
+single-capture seam remains available for canonical decoder falsifiers.
+
+Qualification must place the actual native reader between durable arming and
+the producer's next status publication, prove that only the fresh matching
+status is returned, and demonstrate failure when coherent collection is removed.
+Also exercise a changed attempt during capture, a critical marker during the
+wait, an unchanged persistent mismatch, malformed/authentication failures and
+the original per-request deadline/cleanup. No strategy, controller, execution,
+book, command, backup or financial authority changes are selected. Preserve the
+complete installed source as an independently pinned predecessor in the existing
+source-only compatibility profile before qualified PAPER delivery.
+
 ## Retained interruption alerts
 
 Startup with a durable critical or pending marker still launches no child.
