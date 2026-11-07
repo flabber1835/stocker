@@ -173,5 +173,3 @@ def test_canonical_authentication_still_rejects_a_coherent_but_forged_status(sta
     assert not probe._changing_attempt(snapshot)
     with pytest.raises(ValueError, match='authentication failed'):
         status.decode_probe(snapshot, DSN)
-
-
