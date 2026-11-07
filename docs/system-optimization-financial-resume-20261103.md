@@ -7932,6 +7932,19 @@ record, adjacent saved accounting and checkpoint ledger, demonstrate the origina
 KeyError, and check malformed counts and unchanged evidence. Review this saved
 prefix independently; never rerun its financial sessions to obtain reports.
 
+REVIEW367 positively stopped1/non-OOM before core review at the retained-worker
+selection gate. The whole original retained review called the source-exit
+financial selector, which recomputed the current DATA-profile declaration. That
+cannot equal the authentic archived request225 declaration after the reviewer
+correction. For this zero-financial hosted worker only, bind that finite selector
+to the already strict provenance validator: require exact archived request225
+bytes and the complete genuine original1677 parent, plus every current read-only
+request/source commitment. Set the binding only after both financial entry
+points have been replaced by refusal functions, retain it through monthly review,
+and restore it in the same finally block. Never change the normal financial
+selector or the archived request. Regression coverage must show the actual
+archived/current declaration mismatch and verify rejection of mutated provenance.
+
 FIN366 capture: artifact13587599730, ZIP737497136 bytes, SHA256
 079552b2cf2ccd1f11ee3a9efbd082f2a7908784bbd1c39b64bf02af3f1c3a6a.
 The complete authenticated456-member output has980668378 logical bytes. Its

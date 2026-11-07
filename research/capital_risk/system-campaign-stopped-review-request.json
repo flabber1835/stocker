@@ -5,6 +5,7 @@
   "input_adopted": false,
   "maximum_parallel_financial_workers": 0,
   "maximum_parallel_readonly_workers": 1,
+  "previous_readonly_run": 42409654841,
   "protocol_sha256": "480a05c7c59643a42e0a0f05a7d83c573e9c7f53597d7ca6648dc50c06b3ca37",
   "review_profile": "P06_FIN366_FULL13_STOPPED_REVIEW",
   "review_source_changes": {
@@ -688,7 +689,7 @@
     "system_campaign_source_exit_reporting.py": "dea2b436ac4973e16b5cc2d1ff3b8c40677c4dec52ebc378fccd8394427a6752",
     "system_campaign_source_exit_resources.py": "f36b588b30a09c303a8915cef4fd42145820ce7da49a9bd2d8b22d4ee9477bc2",
     "system_campaign_source_exit_runtime.py": "458d7cdee6f9b67275e736a5d01fb3bad9bcbf1cac6da3cda6f738fcc2642460",
-    "system_campaign_source_exit_stopped_review.py": "1b8f4737a911f108aa102371e6c153a7db2885abcdaaa852204ae0bc30462f1c",
+    "system_campaign_source_exit_stopped_review.py": "08a71f2ae24c85895e14501bf9f8b141ba077770bf82d1ac9d50cc6918dd2997",
     "system_campaign_space.py": "eb8ce9fd4cec36ca23a8c4a09da0dedd3cd63745b2ab209f0fbd99536e9846eb",
     "system_campaign_spring2020_cash_facts.py": "86bc30b7b2078f28fa2abe403e7c869624d2865e7aac48b41e34facb8e6116f7",
     "system_campaign_spring2023_basis.py": "a4a308ee4d6d404be600de4e9b27554d120c6cf7311a25b14cdd9a04eec4baea",

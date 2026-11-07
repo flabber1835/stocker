@@ -51,6 +51,13 @@ def profile_request(captured,spec):
  return True
 
 
+def review_selection(spec,captured):
+ # This is a provenance predicate in a worker with both financial entry points
+ # disabled. Never compare an archived financial declaration to changed review
+ # code, and never relax the ordinary financial selector.
+ return profile_request(captured,spec)
+
+
 def inspect(name,identity=None):
  import system_campaign_financial_resume as resume
  fn,=[n for n in ast.parse(Path(resume.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='inspect']
@@ -94,13 +101,14 @@ def worker():
  from research.pooled_vacancy_funding import backtest,runtime as financial
  spec=json.loads(Path('/out/spec.json').read_bytes());need(spec==root_spec('P06',ROOT),'FIN366_ORIGINAL1677_PARENT_ONLY')
  def refuse(*a,**k):raise ValueError('FIN366_READONLY_FINANCIAL_ADVANCE_FORBIDDEN')
- saved=backtest.main,financial.advance,runtime.request_financial
+ saved=backtest.main,financial.advance,runtime.request_financial,runtime.selected
  backtest.main=financial.advance=refuse;runtime.request_financial=profile_request
+ runtime.selected=review_selection
  try:
   with entry.context(resume,spec,mode='review',old=Path('/old'),out=Path('/out'),request=captured,evidence=Path('/evidence')):
    from system_campaign_retained_cash_v2 import review_entry
    review_entry(Path('/evidence'),Path('/out'),spec,resume.review)
- finally:backtest.main,financial.advance,runtime.request_financial=saved
+ finally:backtest.main,financial.advance,runtime.request_financial,runtime.selected=saved
  core=json.loads(Path('/out/core-review.json').read_bytes());branch=json.loads(Path('/out/uncertainty-certificate-review.json').read_bytes())
  month=json.loads(Path('/out/monthly-reproduction.json').read_bytes())
  need(core['checkpoint_sha256']==branch['checkpoint_sha256']==month['checkpoint_sha256']==fact['target']['outer_sha256']

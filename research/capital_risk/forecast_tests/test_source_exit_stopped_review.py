@@ -75,8 +75,22 @@ def test_worker_fences_both_entry_points_until_all_review_and_reporting_exit():
  assert 'backtest.main = financial.advance = refuse' in body
  block=next(n for n in node.body if isinstance(n,ast.Try))
  assert 'entry.context' in ast.unparse(block) and 'review_entry' in ast.unparse(block)
- assert 'backtest.main, financial.advance, runtime.request_financial = saved' in ast.unparse(block.finalbody[0])
+ assert 'backtest.main, financial.advance, runtime.request_financial, runtime.selected = saved' in ast.unparse(block.finalbody[0])
+ assignment=next(i for i,n in enumerate(node.body) if ast.unparse(n)=='runtime.selected = review_selection')
+ fence=next(i for i,n in enumerate(node.body) if ast.unparse(n)=='backtest.main = financial.advance = refuse')
+ assert fence<assignment<node.body.index(block)
  assert not any(isinstance(n,ast.Call) and ast.unparse(n.func) in ('backtest.main','financial.advance','runtime.run') for n in ast.walk(node))
+
+
+def test_actual_REVIEW367_archived_profile_mismatch_and_strict_readonly_provenance():
+ from system_campaign_financial_partial import root_spec
+ import system_campaign_source_exit_runtime as runtime
+ captured=json.loads((C/p.CAPTURED).read_bytes());spec=root_spec('P06',p.ROOT)
+ assert runtime.selected(spec,captured) is False
+ assert p.review_selection(spec,captured) is True
+ for key in ('financial_resume_authorized','selected_source_exit_successors','admitted_checkpoints'):
+  bad=deepcopy(captured);bad.pop(key)
+  with pytest.raises(ValueError):p.review_selection(spec,bad)
 
 
 def test_actual_archive_uses_an_existing_crypto_option_without_relaxing_actual_size():
