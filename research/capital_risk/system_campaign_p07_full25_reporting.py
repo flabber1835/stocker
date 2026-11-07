@@ -1,5 +1,5 @@
 """Exact full25 readonly reporting and explicit hosted copy equivalence."""
-import ast,json,os
+import ast,json,os,re
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,9 +73,17 @@ def bind_launch(original,module):
         import system_campaign_p07_fin326_requalified_parent as composite
         old_admit,old_applies=module.admit_partial,composite.applies
         def admit(spec,*a,**k):
-            result=old_admit(spec,*a,**k)
-            if selected(spec):validate(spec);reconstruct(result,fact()['physical_manifest'])
-            return result
+            stage='CRYPTO_ADMISSION'
+            try:
+                result=old_admit(spec,*a,**k)
+                if selected(spec):
+                    stage='LOGICAL_EXPANSION';validate(spec);reconstruct(result,fact()['physical_manifest'])
+                return result
+            except Exception as exc:
+                value=dict(p07_readonly_stage=stage,error_type=type(exc).__name__)
+                if isinstance(exc,ValueError) and re.fullmatch('[A-Z0-9_]{1,200}',str(exc)):value['guard']=str(exc)
+                if isinstance(exc,KeyError) and len(exc.args)==1 and re.fullmatch('[a-z_]{1,64}',str(exc.args[0])):value['field']=str(exc.args[0])
+                print(json.dumps(value),flush=True);raise
         composite.applies=lambda spec:False if spec.get('root_admission_sha256')==ROOT else old_applies(spec)
         module.admit_partial=admit
         try:return original(args)

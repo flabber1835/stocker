@@ -7432,3 +7432,8 @@ No future financial root or BWA repair is authorized by this reporting bridge.
 FIN343 exported529 physical members655659594bytes; explicit lossless DATA independently checked715 semantic names including186copies. Hosted core/branch/VIVO review passed0;124 saved new closes and929 proofs are provisional until monthly and independent DATA close. This bridge passed18 metadata/falsifier/rollback/import tests5.67s plus whole full25 origin DATA. Original four financial bodies stay unchanged. No BWA repair/financial continuation is selected.
 
 REPORT346 explicitly routes its new readonly request around the old source-only d9 declaration builder as well as its launcher interception; old source-only/financial routes delegate unchanged. The full25 classifier receives original d9 origin metadata while visiting actual current1383, with all financial callbacks closed.
+
+
+## REPORT347 readonly admission diagnostics
+
+REPORT346 returned only four public metadata files before a worker was launched. A new request213 preserves its failed receipt and adds only safe admission-stage/exception-type/static guard diagnostics around the unchanged original crypto reader and exact-copy expansion. No financial worker or input change is selected; the original exception is re-raised. Private financial DATA retains the actual additional-oracle schema; its absent qualification-counter field is replaced only by independently authenticated byte-identical old/current922B qualification, not an invented host counter.

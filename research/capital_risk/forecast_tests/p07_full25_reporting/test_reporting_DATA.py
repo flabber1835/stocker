@@ -59,3 +59,17 @@ def test_noncanonical_copy_expansion_and_rollback(tmp_path,monkeypatch,fail):
         with pytest.raises(ValueError,match='NONCANONICAL COPY'):r.reconstruct(root,manifest)
         assert r.loss.inventory(root)[0]==manifest
     else:assert r.reconstruct(root,manifest)['copies']==2 and r.loss.inventory(root)[0]==expected
+
+@pytest.mark.parametrize('error',[ValueError('NONCANONICAL_STATIC_GUARD'),ValueError('NONCANONICAL private value'),KeyError('missing_code_field')])
+def test_admission_diagnostics_preserve_error_and_restore_hooks(tmp_path,monkeypatch,capsys,error):
+    from types import SimpleNamespace
+    import system_campaign_p07_fin326_requalified_parent as composite
+    t=r.fact()['target'];path=tmp_path/'NONCANONICAL-request.json';path.write_text(json.dumps(request(t)))
+    def original_admit(*a,**k):raise error
+    module=SimpleNamespace(admit_partial=original_admit)
+    def launch(args):return module.admit_partial(t)
+    old=composite.applies;monkeypatch.setattr(r,'host_guard',lambda:None)
+    with pytest.raises(type(error)) as caught:r.bind_launch(launch,module)(SimpleNamespace(arm='P07',request=path))
+    assert caught.value is error and module.admit_partial is original_admit and composite.applies is old
+    value=json.loads(capsys.readouterr().out);assert value['p07_readonly_stage']=='CRYPTO_ADMISSION'
+    assert value['error_type']==type(error).__name__ and 'private value' not in json.dumps(value)
