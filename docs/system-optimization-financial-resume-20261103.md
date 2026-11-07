@@ -7976,3 +7976,8 @@ the separately admitted1677 root as source-query context only. This job reads
 immutable source data, carries zero financial workers, adopts no input, and may
 run alongside the independent saved-prefix review. No new collector or launcher
 code is introduced. The existing complete request/file validator passed.
+
+
+## Independent admission of FIN366 saved P06 sessions
+
+Genuine saved1821/2025-03-31/full13. Independently verified144 new financial closes,288 accounting snapshots,424+144 committed branch proofs,104 resources, complete original input/observer history, genuine neutral13 adoption, actual TBIO unheld source delegation,7 exact monthly reports and196 Decimal metrics. FIN366 remains failed0/1/1. REVIEW368 is separate positive read-only evidence. No financial session reexecuted;2025-04-01 refusal excluded. Historical causality UNVERIFIED. Continuation from full13 requires separate qualification. New root 27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0. Qualification d41df0143e9f8d4a19eb9b587b2ab5420331d64e62c786b1f5a160969ce25305. Preserve the prior ed91 root and original failed0/1/1 receipt. SELECTED_ARMS becomes empty; no unqualified full13 continuation is selected. The source-only job remains independent. Validation: complete independent DATA reader passed144 rows/288 accountings/7 reports/196 metrics; component4 tests and final8 guard/AST/fence tests passed.

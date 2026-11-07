@@ -4,8 +4,8 @@ from pathlib import Path
 C=Path(__file__).resolve().parents[1];sys.path.insert(0,str(C))
 import system_campaign_financial_partial as p
 
-def test_new_P06_root_is_exact1677_full12_and_preserves_prior_root():
- current=p.root_spec('P06');old=p.root_spec('P06','edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f')
+def test_historical_P06_root_is_exact1677_full12_and_preserves_prior_root():
+ current=p.root_spec('P06','ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845');old=p.root_spec('P06','edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f')
  assert (current['measured_closes'],current['selected_session'],len(current['repairs']))==(1677,'2024-08-30',12)
  assert (old['measured_closes'],old['selected_session'],len(old['repairs']))==(1426,'2023-08-31',11)
  assert current['repairs'][:11]==old['repairs'] and current['base']==old['base']
@@ -15,7 +15,7 @@ def test_new_P06_root_is_exact1677_full12_and_preserves_prior_root():
  assert a['source_input_proof']['full_inputs']==12 and a['source_input_proof']['all89_resources_verified'] is True
 
 def test_failed_financial_receipt_and_separate_positive_review_are_preserved():
- spec=p.root_spec('P06');a=spec['root_admission']
+ spec=p.root_spec('P06','ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845');a=spec['root_admission']
  assert spec['receipt_status']==a['original_failed_financial_receipt_status']=='FINANCIAL_REVIEW_REFUSED_PRESERVED'
  assert [spec['prior_stops'][r]['exit_code'] for r in ('preflight','worker','reviewer')]==[0,1,1]
  assert a['original_failed_financial_receipt_preserved'] is True and a['original_failed_financial_receipt_sha256']==spec['receipt_sha256']
