@@ -422,10 +422,17 @@
       "module": "inspection"
     },
     "current_paper_plan": {
-      "generated_ast_sha256": "6aeb88fced6fa09bb6ca269d34f662c0d27dbcf5751ea08f693e0a32cba23b3f",
+      "generated_ast_sha256": "21096bec6786d4203987d114f753b48962d83e70756b8f950e0bac775a85e648",
       "historical_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",
       "module": "preparation",
-      "reason": "PR #561 adds only the explicit PAPER URL refusal before current-plan database inspection; all existing immutable plan, source and account-sizing logic is unchanged.",
+      "reason": "PR #561 adds only the explicit PAPER URL refusal before current-plan database inspection. PR #573 returns the independently verified shadow intent and its canonical reconciliation from one operation, removing the immediate second history verification. All existing immutable plan, state/session/exposure and account-sizing checks remain; a new command earns fresh proof.",
+      "verification_work_acceptance": [
+        "tests/sentinel/test_verified_plan_content_once.py",
+        "tests/sentinel/test_dual_reconciliation.py",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "verification_work_design": "docs/redundant-operational-work.md",
+      "verification_work_predecessor_ast_sha256": "6aeb88fced6fa09bb6ca269d34f662c0d27dbcf5751ea08f693e0a32cba23b3f",
       "url_acceptance": [
         "tests/sentinel/test_url_selected_gateway.py::test_explicit_paper_current_plan_api_refuses_live_before_database",
         "tests/sentinel/test_url_selected_gateway.py::test_explicit_paper_current_plan_url_guard_has_a_behavioral_falsifier"

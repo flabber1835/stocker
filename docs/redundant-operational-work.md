@@ -44,6 +44,12 @@ keep `authority_effect=NONE`. Unknown, missing or extra source modules must reta
 their actual identity and refuse old compatibility. No financial fixture/result
 or strategy identity is re-pinned to make these operational changes pass.
 
+The frozen PAPER lifecycle equivalence manifest remains unchanged. Its separate
+reviewed-delta inventory records only the changed `current_paper_plan` definition,
+preserving its historical AST identity and all other definition records. Reference
+this one-proof design and its behavior tests there; it is a source-change audit,
+not a new financial result or a relaxation of any other definition's fingerprint.
+
 ## Recovered operational read failure on 7 November
 
 Review event 2820 was published at 15:08:28.632838 UTC and recovered as event

@@ -29,6 +29,8 @@ def test_url_changes_only_invalidate_account_scope(monkeypatch):
             return ('incarnation', 1, 'xmin')
 
     facts = (('cluster', 'db'), {'installation_id': 'install'}, 'epoch', {})
+    monkeypatch.setattr(read_projection, '_shadow_inventory',
+                        lambda _conn: [('unchanged canonical content',), [], []])
     conn = Connection()
     def keys():
         return tuple(read_projection._subject(conn, 'dsn', scope, facts=facts)
