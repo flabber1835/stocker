@@ -138,7 +138,7 @@ def launch(request_path,staging,output):
     import system_campaign_p06_WWE12_runtime as runtime
     import system_campaign_financial_review_repair as repair
     from system_campaign_financial_partial import root_spec
-    from full_system_source import build
+    from system_campaign_variants import build
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_BLIND_RERUN')
     request=json.loads(Path(request_path).read_bytes());fact,captured=validate(request)
     resume.stage_valid(json.loads(Path(staging).read_bytes()))

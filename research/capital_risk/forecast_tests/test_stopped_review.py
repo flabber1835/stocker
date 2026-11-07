@@ -80,6 +80,21 @@ def test_review_has_no_economic_entry_and_original_advance_is_closed():
  main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
  assert "choices=('launch', 'review')" in ast.unparse(main)
 
+def test_launcher_uses_same_builder_as_actual_FIN356_for_its_full_parameter_schema():
+ import importlib
+ import system_campaign_financial_resume as original
+ tree=ast.parse(Path(p.__file__).read_bytes());launch=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='launch')
+ source,=[n.module for n in ast.walk(launch) if isinstance(n,ast.ImportFrom) and any(a.name=='build' for a in n.names)]
+ builder=importlib.import_module(source)
+ assert builder.build is original.build
+ E=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial356-P06-source-snapshot/capture-P06-13581395529-001/verified-output')
+ binding=json.loads((E/'source-bindings.json').read_bytes())
+ assert builder.canonical(binding['parameters'])==binding['parameters']
+ assert builder.digest(binding['parameters'])==binding['profile_sha256']
+ # The former builder rejects this real variant schema before reading source files.
+ import full_system_source as prior
+ with pytest.raises(ValueError,match='FULL_SOURCE_PARAMETERS'):prior.render({},binding['parameters'])
+
 def test_workflow_disjoint_trigger_and_shared_P06_concurrency():
  import yaml
  w=yaml.load((C.parents[1]/'.github/workflows/capital-system-stopped-review.yml').read_bytes(),Loader=yaml.BaseLoader)
