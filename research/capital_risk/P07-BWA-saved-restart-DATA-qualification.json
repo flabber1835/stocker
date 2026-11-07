@@ -1,0 +1,79 @@
+{
+  "actual_neutral26_known": false,
+  "canonical_runtime_executed": false,
+  "committed_proofs": 929,
+  "complete_existing_parent_history_verified": true,
+  "entire_original_factory_metadata_passed": true,
+  "files": {
+    "P07-BWA-retained929-source.json": {
+      "bytes": 21010,
+      "sha256": "92a073c9e1a4732e2b117fec79a6dfc9b84cbfeae688b139547ace704d52015f"
+    },
+    "P07-BWA-source-DATA-qualification.json": {
+      "bytes": 2882,
+      "sha256": "c7911bf6bee7ae65d03dfaa06c0464d4b00db0a9d19eb0470ca1c6f8f85ee9d3"
+    },
+    "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt": {
+      "bytes": 8931,
+      "sha256": "43e319690ef34374daaa441e9a2096edcef882d05230735512e9673d98a9f810"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p07_saved_proofs.py": {
+      "bytes": 11066,
+      "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
+    },
+    "system_campaign_p07_vivo_certificate.py": {
+      "bytes": 2668,
+      "sha256": "c796a83686d13a236b6d62740569824f3b28d28de412a1b6517290375c5befd0"
+    },
+    "system_campaign_p07_vivo_models.py": {
+      "bytes": 3664,
+      "sha256": "30249f9bdc16b332a8f2354f0d367d0c2c33db26d806c7beaa5c75886f7c6e09"
+    },
+    "system_campaign_p07_vivo_retained.py": {
+      "bytes": 10492,
+      "sha256": "87b4c0110e3d46af35491389fd301cb49e11ac6b71d8ec0610e74f3c3a417968"
+    },
+    "system_campaign_postclose_distribution_history.py": {
+      "bytes": 3322,
+      "sha256": "3b5c9807fe8ea48f80a3e76c2c4e62cf3a9bd18443c80d8e66221e7d13acdad8"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "future26_boundary_execution_verified": false,
+  "original_factory_constructor_executed": false,
+  "parent_cursor": "2023-06-30",
+  "parent_inputs": 25,
+  "parent_sessions": 1383,
+  "passed": true,
+  "raw_proofs": 930,
+  "remaining": [
+    "complete source-bound BWA payload and original packet/kernel review route",
+    "all actual historical resources and transport preservation",
+    "hosted genuine neutral26 adoption, actual saved-proof/certificate constructor and event-role guards",
+    "hosted calculation and independent admission"
+  ],
+  "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "schema": "research.P07-saved-restart-DATA-qualification/1",
+  "tests": {
+    "affected_command": "python -B -m pytest forecast_tests/test_p07_saved_proofs.py::test_entire_saved_factory_metadata_on_actual_historical_archive -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-saved-proof-restart-20261107-002",
+    "affected_rerun_passed": 1,
+    "affected_rerun_seconds": 7.11,
+    "command": "python -B -m pytest forecast_tests/test_p07_saved_proofs.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-saved-proof-restart-20261107-001",
+    "distinct_passed": 17,
+    "financial_import_fences": 5,
+    "initial_failed": 1,
+    "initial_failure": "Updated retained-declaration function was installed in its globals but the namespace attribute still referred to the old function; both references now select the same updated whole function.",
+    "initial_passed": 16,
+    "initial_seconds": 34.86,
+    "meaningful_guard_removals": 1,
+    "original_function_AST_undo": true
+  },
+  "unadmitted_tail_used": false,
+  "whole_original_seed_reader_passed_on_genuine_parent": true
+}
