@@ -401,7 +401,7 @@
     "P03": {
       "archive_format": "FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1",
       "arm": "P03",
-      "artifact_id": 13556088875,
+      "artifact_id": 13560350458,
       "base": {
         "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
         "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
@@ -646,66 +646,66 @@
       },
       "complete_journals": {
         "daily": {
-          "bytes": 27039099,
-          "sha256": "b764cddbf69527983f0861cd276f41885784a8c9f943228b04e8b746bd591a4a"
+          "bytes": 29677320,
+          "sha256": "9c514569aecc6d1b3ad6a5fd6bd70696fab080cdace355e5535ed676448bc6c6"
         },
         "formation": {
           "bytes": 5776539,
           "sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
         },
         "monthly": {
-          "bytes": 94676,
-          "sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+          "bytes": 105767,
+          "sha256": "9fdac331f433c3bfb1cc4d136992aa679f6159b2f3b290c220a307163dd39ff2"
         },
         "watch": {
-          "bytes": 54118,
-          "sha256": "1dedeac962f22639f311b1508ef8595a494e826d2e2f36a1fbba5227b7e032c3"
+          "bytes": 75950,
+          "sha256": "4db006cc7d1e567a19ae7a2dbf03526f27b2c6890b8badaa9c7f172166f6e674"
         }
       },
       "encrypted_output": {
-        "bytes": 131495967,
+        "bytes": 118884799,
         "compression": "TAR_GZIP_V1",
-        "manifest_sha256": "cb08d49e9d1fe4b25e73733a258cfbaedf4541b4ece211f5557e9928ca48609f",
+        "manifest_sha256": "d8f891b838290b218bf66666b85ad08a6d1cd334e748b0b84c8c6b070628a0fc",
         "name": "campaign-factual-P03.tar.crseal",
-        "sha256": "66862bac3ef6c8bf64be4958f4b531cc016d21eb462b2a69c7d488859988a6bc"
+        "sha256": "8bb4beaaa034d6b936ec2168da1184fdea4027478340c19a96b5cc16cee38590"
       },
       "financial_authority": false,
       "financial_entrypoint_sha256": "27ed4a9c20359f86e8c2591e49ab5b783b3a2b542a3e21f7a085d08d65cd7474",
       "financial_predecessor_admitted": false,
-      "head": "9f808eb6e21271a8d1e0d10aeeab528cb533fa00",
-      "inner_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
-      "input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+      "head": "9aaad04b915573b5f12f7c005c90ce1d5cb79194",
+      "inner_sha256": "206e9ea14493716ddb1d96f8130a986d2d83f0be911c367dd7078e92e695ecb9",
+      "input_sha256": "1186bd4c3cefbc8e067a332b8a8ea75edce8f39a5c789c82981e00c6d92c73b7",
       "inspections": {
         "parent-preflight/worker-inspect.json": {
           "correlation_prefix_mounted": false,
           "exit_code": 0,
-          "id": "8295fc5343f49e941441a8bd72aa17be32d8b7b2f616fe849f3b893e103e858c",
-          "name": "/capital-system-resume-p03-preflight-42327820775-1",
-          "sha256": "939fd0377c7c4a49faeffefb5f17fc4f3ffe9ddf31d93e62fd40f402538359b6",
+          "id": "3c4d4c756937958db4d3004ce3d43bc351005ed1a84413805cc456537785f36f",
+          "name": "/capital-system-resume-p03-preflight-42335535377-1",
+          "sha256": "cb3b2a51f7fc72dff307bb1e1795837da5621d9bea8d64904b725b15fd818366",
           "user": "1001:1001"
         },
         "stopped-review/worker-inspect.json": {
           "correlation_prefix_mounted": false,
           "exit_code": 0,
-          "id": "25d03f79629b57b27100ef39d29f31116f07e1f30ad3142c2879b1dbb19216ae",
-          "name": "/capital-system-resume-p03-review-42327820775-1",
-          "sha256": "e23943a18b6ae5e33e82bfb2a913a15ed2ebfc4d60af1693e9f7096c5261cb72",
+          "id": "f830bb3eabb1ede46d6536419812944dcbd535060a1d8649772c81c4cd08b481",
+          "name": "/capital-system-resume-p03-review-42335535377-1",
+          "sha256": "c9bc6aba3f3271f5419bd1560b6ac7a7a61ef3f86eb507544234b69a8944fe25",
           "user": "1001:1001"
         },
         "worker-inspect.json": {
           "correlation_prefix_mounted": false,
           "exit_code": 1,
-          "id": "d846a3daa184398a1737ca4e3c5d6cb8170482e6a724ad71b4f569f401479fac",
-          "name": "/capital-system-resume-p03-worker-42327820775-1",
-          "sha256": "fcac918de40f7b30ee761a9c9178d3e5cf880046d7409157be7622caedefcf55",
+          "id": "36bbf18c18201f73921637ee983742a63f1dcfddafb0d0b0a87445d0846fb1f0",
+          "name": "/capital-system-resume-p03-worker-42335535377-1",
+          "sha256": "fdc1b08a7bc8c0a234dac4f6c14e52c28357be69a6e3f4b5cda1d2fbdeb67579",
           "user": "1001:1001"
         }
       },
       "journals": {
         "daily": {
-          "bytes": 26511557,
-          "last_record_sha256": "c1f1746f3cde4de26fcbd3251a3cb910f1a64fc60a414142bbc7edb51c74731d",
-          "prefix_sha256": "a1d9d21c98e40318de0c465ca153f6a769cc3b4e6ae033efe1ebf696f5854fa9"
+          "bytes": 29353484,
+          "last_record_sha256": "239a5fe41acaf3689b0c9b19028bfb6ea881f84055401564b89fd8455dd50f70",
+          "prefix_sha256": "364ce02d4c55ffe2602333dd9126889fbdfee8cf50bc6156abe4c064eade8957"
         },
         "formation": {
           "bytes": 5776539,
@@ -713,47 +713,47 @@
           "prefix_sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
         },
         "monthly": {
-          "bytes": 94676,
-          "last_record_sha256": "38e2c68a2a4821637db352d2949016d676e085d8a896b73efb0b77666661d247",
-          "prefix_sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+          "bytes": 105767,
+          "last_record_sha256": "ad4e9dd1e2a0352b0a6ed1c280e7851d8125226a64d456e426839f11d0418fd2",
+          "prefix_sha256": "9fdac331f433c3bfb1cc4d136992aa679f6159b2f3b290c220a307163dd39ff2"
         },
         "watch": {
-          "bytes": 49906,
-          "last_record_sha256": "6367f2105b2999926c5edc1c78bd7266b833892327c4c8d4b438994b3ab85d98",
-          "prefix_sha256": "14a9c5e8a563339290f21f8b99ea1181a7d634a6ec5005520fdeb93f8a2585d2"
+          "bytes": 73493,
+          "last_record_sha256": "8be764041a5ee0b33ca9437c075890db4d0787026a048dd9aed5cb45d570df9f",
+          "prefix_sha256": "05fe39b2079500c78895665f354901a23f8e9e0c7a9c8b049087884ea7efea3d"
         }
       },
       "manifest": {
-        "member_count": 257,
-        "raw_member_bytes": 168155929
+        "member_count": 242,
+        "raw_member_bytes": 158193237
       },
-      "measured_closes": 543,
-      "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+      "measured_closes": 606,
+      "monthly_seed_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
       "original_parent_index_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
       "original_request_member": {
-        "bytes": 79027,
-        "sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7"
+        "bytes": 80889,
+        "sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86"
       },
-      "outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
-      "p03_full18_readonly_reporting_bridge": {
+      "outer_sha256": "53651f1a143ea9d4ec39dfe45840f8182709df4830e0d4906f38677219dc1335",
+      "p03_full19_readonly_reporting_bridge": {
         "actual_full_input_visitor_required": true,
         "arm": "P03",
-        "captured_request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
-        "completed": 543,
-        "fact_file": "P03-FIN345-full18-reporting-fact-v1.json",
-        "fact_sha256": "63f4f9f7cb7fbbb7fba0ea83e6bab6a5eaaaf323b28f1d0f2eafd57e13e0b9f7",
+        "captured_request_sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86",
+        "completed": 606,
+        "fact_file": "P03-FIN352-full19-reporting-fact-v1.json",
+        "fact_sha256": "f4688b2eb7af73455eac2eeeaaddde15d15f999d49587d1def6c648bc8fff1c9",
         "financial_resume_authorized": false,
         "financial_reuse_seed_installed": false,
         "financial_transitions_reexecuted": 0,
-        "full_inputs": 18,
-        "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
-        "new_financial_rows": 19,
+        "full_inputs": 19,
+        "monthly_seed_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+        "new_financial_rows": 63,
         "original_B19_and_typed_DOVA_codecs_retained": true,
-        "retained_rows": 70,
+        "retained_rows": 89,
         "root_admitted": false,
-        "schema": "research.p03-full18-readonly-reporting-bridge/1",
-        "source_cursor": "2020-02-28",
-        "target_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+        "schema": "research.p03-full19-readonly-reporting-bridge/1",
+        "source_cursor": "2020-05-29",
+        "target_outer_sha256": "53651f1a143ea9d4ec39dfe45840f8182709df4830e0d4906f38677219dc1335",
         "whole_monthly_reproduction_unchanged": true
       },
       "prior_account_performance_certified": false,
@@ -781,15 +781,15 @@
       "public_members": {
         "campaign-factual-P03.json": {
           "bytes": 1317,
-          "sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70"
+          "sha256": "73886fd3e758e5f7ec35545bf19ca132def4261ad3b2689e77f04065d16e0f28"
         },
         "ephemeral-runner-capacity.json": {
           "bytes": 698,
-          "sha256": "462a74443dc666dd9286877c4d1001f754b3c5c1ff35e700713da616a4ca1402"
+          "sha256": "0d7fd25f0de4b780f98d232dea6b3ea346e59bd371f52d1e8d6e68721a1bd15d"
         },
         "full-core-staging.json": {
           "bytes": 964,
-          "sha256": "6f1e3c41b20c59e3cb2519e0e032000d2434d76148c3e43d7d2459774f662983"
+          "sha256": "16f50c185c37fcf9fc9757a3f91d6681fe398dcf2b6c1887d77f435a18b9ee9c"
         },
         "resume-export-qualification-P03.json": {
           "bytes": 149,
@@ -798,7 +798,7 @@
       },
       "receipt_name": "campaign-factual-P03.json",
       "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
-      "receipt_sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70",
+      "receipt_sha256": "73886fd3e758e5f7ec35545bf19ca132def4261ad3b2689e77f04065d16e0f28",
       "receipt_status": "PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT",
       "repairs": [
         {
@@ -908,26 +908,32 @@
           "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
           "resume_session": "2020-01-31",
           "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+        },
+        {
+          "filename": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9.json",
+          "predecessor_checkpoint_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+          "resume_session": "2020-02-28",
+          "sha256": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9"
         }
       ],
-      "request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
+      "request_sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86",
       "retained_uncertainty_model": "research.leadership-branch-uncertainty-input/1",
       "reuse_closed_hosted_prefix_review": true,
-      "review_sha256": "3194773a75eea1ba188481be42abe69b9ecbe2109229cdb2b966e96c1f6e2f82",
-      "run_id": 42327820775,
+      "review_sha256": "c3f9471505bad3371209a479010f360df675c388f0cb5b9f27a5189d94faed11",
+      "run_id": 42335535377,
       "selected_checkpoint": "book/checkpoint.json.gz",
       "selected_file": {
-        "bytes": 1143759,
-        "sha256": "26662bb56bb5cbae62a0d5df17da65943f6b56d592c3f97fe629efc43ec21c22"
+        "bytes": 1125187,
+        "sha256": "39ca09b3f584d66c3fcfa19d8b24b4d5be337fe24ebae60cf3b8558ad5120a18"
       },
-      "selected_session": "2020-02-28",
+      "selected_session": "2020-05-29",
       "source_binding_sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9",
       "source_files": 515,
       "source_profile_sha256": "47bdf86184ac6b83c0b3a50ebae646471f08229c7dd81305a97f265b441d68b3",
       "stage": "campaign-factual-suffix",
-      "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
-      "zip_bytes": 131499865,
-      "zip_sha256": "8c39c06fd1f80da4d66a47591c2494771b0db48080d7681eac1333f9df68b68a"
+      "state_sha256": "2301c54dcb839830bfb09bc518d22dafcc99a473746af99afee7bdd0343a3b62",
+      "zip_bytes": 118888697,
+      "zip_sha256": "7825a6a6166ecfac9b6f7007d7327178fe4b61d2404bcb0a09ba004fc2bb613a"
     },
     "P04": {
       "archive_format": "FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1",

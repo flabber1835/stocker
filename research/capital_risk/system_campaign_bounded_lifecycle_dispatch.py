@@ -33,7 +33,8 @@ def source_names():
     import system_campaign_p03_HABT19_runtime as habt
     import system_campaign_p07_full25_reporting as report25
     import system_campaign_p03_full18_reporting as report18
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names(),*habt.source_names()))))
+    import system_campaign_p03_full19_reporting as report19
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names(),*habt.source_names(),*report19.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -130,7 +131,9 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p07_full25_reporting as report25
     result=report25.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     import system_campaign_p03_full18_reporting as report18
-    return report18.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    result=report18.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    import system_campaign_p03_full19_reporting as report19
+    return report19.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -210,5 +213,7 @@ def entry(module,spec,*,mode,evidence=None,out=None):
                     with report3.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
                         import system_campaign_p03_full18_reporting as report18
                         with report18.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
-                            with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
+                            import system_campaign_p03_full19_reporting as report19
+                            with report19.entry_context(module,spec,mode=mode,old=Path('/old'),request=request):
+                                with bbig.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=request,evidence=evidence):yield
         finally:module.factual_overlay_needed=old_overlay

@@ -40,20 +40,20 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
-    assert r['financial_resume_authorized'] is True and r['readonly_source_witnesses'] is r['readonly_partial_review'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==663
+    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==666
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
     assert r['selected_p03_full18_reporting_bridges']=={} and r['selected_p03_cash14_ordinary18']=={}
-    h=r['selected_p03_HABT_ordinary19']['P03']
-    assert (h['original_inputs'],h['required_actual_neutral_inputs'],h['old_committed_proof_rows'],h['entire_raw_proof_rows'])==(18,19,89,101)
-    assert (h['batch_terms'],h['existing_observer_terms'],h['required_total_observer_terms'],h['required_actual_preflight_packet_checks'])==(1,33,34,2)
+    assert r['selected_p03_HABT_ordinary19']=={}
+    h=r['selected_p03_full19_reporting_bridges']['P03']
+    assert (h['completed'],h['full_inputs'],h['retained_rows'],h['new_financial_rows'])==(606,19,89,63)
     target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P03'];seed=m.root_spec('P03')
-    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(543,'2020-02-28',18)
+    assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(606,'2020-05-29',19)
     assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(543,'2020-02-28',18)
     assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
     prior=m.root_spec('P03',target['monthly_seed_root_admission_sha256'])
-    assert (prior['measured_closes'],prior['selected_session'])==(524,'2020-01-31')
+    assert (prior['measured_closes'],prior['selected_session'])==(543,'2020-02-28')
     assert seed['root_admission']['branch_uncertainty_proof']['retained_rows']==70
     p07=m.root_spec('P07')
     assert (p07['measured_closes'],p07['selected_session'],len(p07['repairs']))==(1383,'2023-06-30',25)
@@ -241,6 +241,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
     request['selected_p03_HABT_ordinary19']={}
     request['selected_p07_full25_readonly_reporting']={}
     request['selected_p03_full18_reporting_bridges']={}
+    request['selected_p03_full19_reporting_bridges']={}
     request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
                    financial_resume_authorized=not event.startswith(('readonly','witness')),
                    readonly_source_witnesses=event.startswith('witness'),

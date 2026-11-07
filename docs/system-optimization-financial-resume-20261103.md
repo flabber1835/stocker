@@ -7511,3 +7511,9 @@ the old neutral19 as the corrected input. Pin a v2 private qualification and
 require a new hosted preflight/adoption from the original admitted543 root.
 
 Qualification d4e45fc08d37c8ec0fbaedf7b748f1cb60d43bf6f7db6f3ee15a6e49d64e079a:30 passed9.55s, three meaningful guard removals, five financial-import fences and whole-body undo. Actual authenticated FIN351 hydration is the regression input; the original ordinary-term equality guard remains unchanged. All legal/economic fields and the admitted543/full18/89 root are unchanged. Old v1 qualification and failed transport stay preserved. The corrected catalog/selector require fresh canonical packet checks and a fresh19 adoption from that admitted root.
+
+
+## REPORT353 P03 actual606 full19 monthly reproduction
+
+Only actual FIN352 saved606/2020-05-29/full19 and independently admitted543/f297 seed. Reuse the whole full18 readonly bridge with finite19-input/89+63-proof literals. Original complete DOVA history and all financial/monthly bodies remain unchanged; zero financial workers. Three monthly reports need reproduction. June1-9 diagnostic tails and June10 STML failure are not seeds. No local canonical runtime or new neutral/checkpoint creation.
+Private whole bridge AST undo and target/import checks:11passed6.02s. Authenticated FIN352 artifact13560350458 has242 members/158193237 bytes and0/1/0 nonOOM stops; hosted review passed. Only63 genuinely saved closes through May29 may be admitted after original monthly reproduction and independent DATA. No further financial worker selected.
