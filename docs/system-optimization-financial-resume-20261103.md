@@ -2,6 +2,28 @@
 
 ## November7 authenticated source batch and current blockers
 
+FIN356 subsequently stopped at the next unsupported September27,2024 source
+terminal. Its authenticated monthly checkpoint contains1677 closes through
+August30,2024,251 above the admitted1426 parent;18 September tail closes are
+excluded. Its173 retained plus251 new branch rows passed the hosted branch
+review, but the historical observer's blanket prohibition on any refusal record
+also rejected the genuine later September27 refusal. The dependency and actual
+constructor canaries passed. None of the251 closes is admitted yet.
+
+Recover the stopped evidence through a separate, explicitly read-only hosted
+review job. Authenticate the exact original failed artifact and original admitted
+parent independently, retain all original status/stop/source/checkpoint bytes,
+and use the whole original review bodies. The sole observer predicate adaptation
+allows an empty-call refusal strictly after the saved checkpoint, matching the
+original failed worker status/session/error. Historical or committed-date refusals,
+successful event records, cash/stock/source/risk calls and engine calls remain
+forbidden. Preserve the entire original observer and runtime files unchanged;
+qualify the review adapter separately. Forbid financial main and runtime advance
+inside the review process, and supply no economic worker entry. Reproduce monthly
+reports from the recorded NAVs using the unchanged monthly implementation and the
+genuine1426 predecessor. A positive fresh review remains pending independent root
+admission.
+
 SOURCE357 completed at5be1be10d66c703af04adb8efce2ca8e43fbf599, run42388826916,
 artifact13580637335. The complete48413-byte ZIP SHA256 is
 342b8110eac0159379d076e2c001585284f0d563adff5ec9250c42bb33740594.
