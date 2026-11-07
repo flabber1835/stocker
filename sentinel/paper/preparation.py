@@ -958,12 +958,8 @@ def current_paper_plan(
         _assert_deterministic_plan_id(plan)
         from sentinel import dual_reconciliation
         try:
-            dual_match = dual_reconciliation.require_plan_matches_verified_shadow(
+            result, dual_match = dual_reconciliation.verified_plan_intent(
                 conn, plan=plan,
-                observation_id=str(dual_shadow_observation_id),
-                starting_cash=dual_shadow_starting_cash)
-            result = dual_reconciliation.verified_shadow_intent(
-                conn, decision_session=plan.decision_session,
                 observation_id=str(dual_shadow_observation_id),
                 starting_cash=dual_shadow_starting_cash)
         except dual_reconciliation.DualReconciliationPending as exc:

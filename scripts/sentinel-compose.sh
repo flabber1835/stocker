@@ -126,6 +126,12 @@ print("1" if d.get("cpu_limits_usable", True) else "0")' \
   fi
 fi
 
+# Keep the infrastructure's directory bind when the reviewed archive helper is
+# byte-identical; moving an application checkout alone must not restart PostgreSQL.
+HELPER_GRAPH="$("$PYTHON" scripts/sentinel_postgres_helpers.py \
+  --output artifacts/compose/docker-compose.sentinel.postgres-helpers.yml)" || exit 2
+if [ -n "$HELPER_GRAPH" ]; then COMPOSE_ARGS+=(-f "$HELPER_GRAPH"); fi
+
 if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   if [ "${SENTINEL_BACKUP_OUTAGE_POLICY:-}" = BOUNDED_30H_V1 ]; then

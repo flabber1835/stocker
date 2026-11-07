@@ -100,16 +100,6 @@ if [ "$VALIDATION_RC" -ne 0 ]; then
   exit "$VALIDATION_RC"
 fi
 
-go_phase "PROMOTE EXACT CERTIFIED RUNTIME"
-set +e
-"$PYTHON" scripts/sentinel_go_promote.py "$@"
-PROMOTE_RC=$?
-set -e
-if [ "$PROMOTE_RC" -ne 0 ]; then
-  go_error "certified runtime promotion failed (exit $PROMOTE_RC)"
-  exit "$PROMOTE_RC"
-fi
-
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "POST-VALIDATION HANDOFF"
   set +e

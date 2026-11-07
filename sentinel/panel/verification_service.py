@@ -35,7 +35,8 @@ def _observe_once(database_url, include_paper, expected_key):
     if not include_paper:
         rows, details, history, errors = sources._dual_authority_rows(database_url,
             now=datetime.now(timezone.utc), include_paper=False,
-            propagate_corpus_lock=True, propagate_read_unavailability=True)
+            propagate_corpus_lock=True, propagate_read_unavailability=True,
+            project_execution_context=False)
         if details or history:
             raise ValueError('unexpected shadow observation shape')
     else:

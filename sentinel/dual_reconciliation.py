@@ -687,12 +687,12 @@ def _verified_guard_intent(conn, *, decision_session, observation_id, starting_c
     return result
 
 
-def require_plan_matches_verified_shadow(
+def verified_plan_intent(
         conn, *, plan, observation_id: str,
         starting_cash: Decimal | str | int | float,
         binding=None, rollout_state=None,
-        establish_regenesis_handover: bool = False) -> Mapping[str, str]:
-    """Verify exact dual intent; optionally establish the one-time handover."""
+        establish_regenesis_handover: bool = False):
+    """Return the verified intent and exact reconciliation from one operation."""
     decision_session = str(plan.decision_session)
     result = verified_shadow_intent(
         conn, decision_session=decision_session,
@@ -757,7 +757,7 @@ def require_plan_matches_verified_shadow(
             if handover["sizing_authority_sha256"] != sizing["authority_sha256"]:
                 raise DualReconciliationRefused(
                     "re-genesis handover sizing authority differs from current plan")
-    return {
+    return result, {
         "schema": "sentinel.dual-plan-shadow-reconciliation/1",
         "decision_session": decision_session,
         "effective_session": expected_effective.isoformat(),
@@ -775,11 +775,22 @@ def require_plan_matches_verified_shadow(
     }
 
 
+def require_plan_matches_verified_shadow(
+        conn, *, plan, observation_id: str,
+        starting_cash: Decimal | str | int | float,
+        binding=None, rollout_state=None,
+        establish_regenesis_handover: bool = False) -> Mapping[str, str]:
+    """Report-only compatibility surface; all verification remains canonical."""
+    return verified_plan_intent(conn, plan=plan, observation_id=observation_id,
+        starting_cash=starting_cash, binding=binding, rollout_state=rollout_state,
+        establish_regenesis_handover=establish_regenesis_handover)[1]
+
+
 __all__ = [
     "DualReconciliationPending", "DualReconciliationRefused",
     "REGENESIS_APPROVAL_ENV", "REGENESIS_HANDOVER_MAX_AGE_SECONDS",
     "REGENESIS_HANDOVER_PREFIX", "REGENESIS_HANDOVER_SCHEMA",
     "REGENESIS_OBSERVATION_SCHEMA", "regenesis_preparation_active",
     "regenesis_preparation_scope", "require_plan_matches_verified_shadow",
-    "verified_shadow_intent",
+    "verified_shadow_intent", "verified_plan_intent",
 ]

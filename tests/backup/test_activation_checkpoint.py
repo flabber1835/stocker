@@ -181,7 +181,7 @@ def test_malformed_chain_after_arrival_refuses_without_publishing_or_fallback(co
     assert not any('sentinel-base-backup.sh' in a or 'sentinel-restore-drill.sh' in a for a in commands.calls)
 
 
-@pytest.mark.parametrize('reason', ['absent', 'age', 'wal'])
+@pytest.mark.parametrize('reason', ['absent'])
 def test_normal_fresh_milestone_needed_only_before_new_marker(commands, reason):
     if reason == 'absent':
         commands.receipt = None
@@ -193,6 +193,32 @@ def test_normal_fresh_milestone_needed_only_before_new_marker(commands, reason):
         commands.observation['lsn'] = '2/0C000000'
     assert checkpoint.reuse(Path('/backups'), commands) is None
     assert not commands.recorded and not any('INSERT' in a[-1] for a in commands.calls)
+
+
+@pytest.mark.parametrize('producer', [True, False])
+def test_due_base_is_renewed_once_without_implicit_restore(commands, capsys, producer):
+    commands.selected['timestamp'] = NOW - maintenance.RENEW_SECONDS
+    calls = []
+    def runner(argv, timeout):
+        if argv == ['bash', 'scripts/sentinel-base-backup.sh']:
+            calls.append(argv)
+            commands.selected.update(name='base-20261014T020000Z', timestamp=NOW-1)
+            commands.producer = verified_producer(commands) if producer else None
+            return 'verified_base_backup:/backups/base/' + commands.selected['name']
+        assert 'scripts/sentinel-restore-drill.sh' not in argv
+        return commands(argv, timeout)
+    if not producer:
+        with pytest.raises(RuntimeError, match='lacks authenticated producer'):
+            checkpoint.reuse(Path('/backups'), runner)
+        assert not commands.recorded
+        assert not any('INSERT INTO sentinel_backup_recovery_markers' in a[-1] for a in commands.calls)
+    else:
+        assert checkpoint.reuse(Path('/backups'), runner).endswith(commands.selected['name'])
+        result = json.loads(capsys.readouterr().out.split('activation_recovery_checkpoint:')[1])
+        assert result['new_base_created'] is True and result['full_restore_performed'] is False
+        assert result['method'] == 'VERIFIED_NEW_BASE_AND_ARCHIVED_STATE'
+        assert sum(a[:2] == ['bash', 'scripts/sentinel-backup-status.sh'] for a in commands.calls) == 1
+    assert len(calls) == 1
 
 
 def test_removed_base_evidence_gate_is_detected_by_actual_missing_proof_test(commands, monkeypatch):

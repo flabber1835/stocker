@@ -26,6 +26,13 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
+EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
+EFFICIENCY_CHANGES = {
+    'dual_reconciliation.py', 'paper/preparation.py', 'panel/model.py',
+    'panel/observer_codec.py', 'panel/read_projection.py', 'panel/sources.py',
+    'panel/verification_service.py', 'panel/projection_service.py', 'panel/review.py',
+    'url_selected_source_basis.py',
+}
 RECOVERY_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
                 'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py',
                 'execution/authority_gate.py', 'paper/validation.py', 'operational_schema.py',
@@ -37,13 +44,13 @@ OPERATIONAL_ADDITIONS = {
     'automation/source_completion.py', 'panel/attempt_store.py', 'panel/delivery.py', 'panel/observer_failure.py',
     'panel/operational_snapshot.py', 'panel/projection_service.py', 'panel/projection_worker.py',
     'panel/segment_disclosure.py', 'panel/serialization.py',
-} | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS
+} | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
 PATCH_CHANGES = {
     'shadow_drain.py',
     'shadow_service_probe.py', 'panel/sources.py', 'panel/projection_service.py',
     'panel/projection_worker.py', 'panel/review.py', 'panel/authority_reader.py',
     'panel/verification_service.py', 'panel/shadow_source_wait.py', 'url_selected_source_basis.py',
-} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
+} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | EFFICIENCY_CHANGES
 OPERATIONAL_CHANGES = {
     'automation/service.py', 'automation_recovery.py', 'automation_resilience.py',
     'automation_runtime.py', 'panel/app.py', 'panel/authority_reader.py', 'panel/model.py',
@@ -196,7 +203,7 @@ def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_chan
     assert len(previous) == 451
     assert admission.source_closure(previous) == 'ea3e4e163241a2075bf5b49fa965b384e65bf2f8456a7e346e0fe8bba38978f8'
     actual = _actual()
-    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
@@ -207,7 +214,7 @@ def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes()
     assert len(previous) == 451
     assert admission.source_closure(previous) == '2778b44660897768e9f808e4f26ac16847e158feba06f3b5187a3ab9defb8552'
     actual = _actual()
-    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
@@ -218,11 +225,11 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     assert len(previous) == 451
     assert admission.source_closure(previous) == '9888f64b30c02da6b06091c52a6961d91282a5473142cdf4519b865bc6459f46'
     actual = _actual()
-    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS
+    assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
         'panel/sources.py',
-        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -232,9 +239,9 @@ def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display
     assert len(previous) == 453
     assert admission.source_closure(previous) == 'f4eaa5729cee9c2ce5794e4fa334c945dbf2ab2cadd55a77aa35a8b1abe61121'
     actual = _actual()
-    assert set(actual) == set(previous) | {'panel/feed_display.py'} | CASH_ADDITIONS
+    assert set(actual) == set(previous) | {'panel/feed_display.py'} | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -244,8 +251,8 @@ def test_running_feed_display_source_is_retained_without_claiming_completed_inst
     assert len(previous) == 454
     assert admission.source_closure(previous) == 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'
     actual = _actual()
-    assert set(actual) == set(previous) | CASH_ADDITIONS
-    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | {'url_selected_source_basis.py'}
+    assert set(actual) == set(previous) | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
+    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -255,16 +262,29 @@ def test_installed_pr570_is_preserved_and_only_coherent_worker_collection_change
     actual = _actual()
     assert len(previous) == 455
     assert admission.source_closure(previous) == '5470089498b2e6341865fd5483732c07f347e0019de71376dfdbbc8b2121c344'
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_service_probe.py', 'url_selected_source_basis.py'}
+        'shadow_service_probe.py', 'url_selected_source_basis.py'} | EFFICIENCY_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
+def test_installed_pr572_and_every_original_predecessor_are_preserved():
+    previous = basis._profile()['retained_predecessors'][basis.EFFICIENCY_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    actual = _actual()
+    assert len(previous) == 455
+    assert admission.source_closure(previous) == 'abe9a2628cc3d46e43a73e9b811e5855c89f3af74619aca87fd765402c8bfc95'
+    assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
+    assert {name for name in previous if actual[name] != previous[name]} == EFFICIENCY_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+@pytest.mark.parametrize('revision', [basis.STARTUP_PREDECESSOR_REVISION,
+                                      basis.EFFICIENCY_PREDECESSOR_REVISION])
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
-def test_repinning_cannot_replace_installed_pr570(tmp_path, monkeypatch, defect):
+def test_repinning_cannot_replace_installed_pr570_or_pr572(tmp_path, monkeypatch, defect, revision):
     value = json.loads(basis.PROFILE.read_bytes())
-    prior = value['retained_predecessors'][basis.STARTUP_PREDECESSOR_REVISION]
+    prior = value['retained_predecessors'][revision]
     if defect == 'changed': prior['files']['shadow_service_probe.py'] = 'f'*64
     elif defect == 'missing': prior['files'].pop('shadow_service_probe.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64

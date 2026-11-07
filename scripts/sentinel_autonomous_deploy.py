@@ -1592,11 +1592,14 @@ class AutonomousDeploy:
         return status
 
     def resolve_compose(self) -> None:
-        explained = self.runner.run(
-            ["bash", "scripts/sentinel-compose.sh", "--explain"], capture=True)
-        args = shlex.split(explained.stdout.strip())
-        if not args or "-f" not in args:
-            raise DeployRefused("Sentinel Compose resolver returned no graph")
+        from sentinel_compose_context import ComposeContext
+        if not hasattr(self, '_compose_context'):
+            self._compose_context = ComposeContext()
+        try:
+            args = self._compose_context.resolve(root=ROOT, env=self.env,
+                invoke=lambda argv:self.runner.run(argv,capture=True))
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise DeployRefused('Sentinel Compose resolver returned no exact graph') from exc
         self.base_compose = ["docker", "compose"] + args
         if any("nocpu" in part for part in args):
             generated = self.attempt_dir / "docker-compose.sentinel-automation.nocpu.yml"

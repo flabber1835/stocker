@@ -134,7 +134,7 @@ def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
     install_anytime._install_overlay()
 
 
-def _install_software_certifier(*, local_full: bool) -> None:
+def _install_software_certifier(*, local_full: bool, software_verification=None) -> None:
     def certify(runner, *, git, now_text, run_suite):
         if local_full:
             if not run_suite:
@@ -155,7 +155,8 @@ def _install_software_certifier(*, local_full: bool) -> None:
                     phase._write_with_ordinary(git.commit, summary)
         else:
             summary, gate = ci_runtime.certify_from_ci(
-                runner, git=git, now_text=now_text, run_suite=run_suite)
+                runner, git=git, now_text=now_text, run_suite=run_suite,
+                **({'software_verification': software_verification} if software_verification is not None else {}))
 
         phase._PHASE["certified"] = bool(
             gate.status == go.PASS and summary.complete)
@@ -188,7 +189,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise controller.PhaseRefused(str(exc)) from exc
         _install_wallclock_independent_dual_overlay(development=development)
         phase.install()
-        _install_software_certifier(local_full=local_full)
+        from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+        software_verification = SoftwareVerification()
+        _install_software_certifier(local_full=local_full, software_verification=software_verification)
         if not development:
             import sentinel_go_backup_refresh as backup_refresh  # noqa: PLC0415
             backup_refresh.install()
@@ -207,6 +210,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rc = controller.main(raw)
         if rc == 0 and not development:
             _write_run_pass(target=target)
+            # One process-local signed software session spans validation and
+            # promotion. No serialized PASS can grant software authority.
+            import sentinel_go_promote as promote
+            print('\n=== PROMOTE EXACT CERTIFIED RUNTIME ===', flush=True)
+            rc = promote.main(list(argv if argv is not None else sys.argv[1:]),
+                software_verification=software_verification)
         return rc
     except controller.PhaseRefused as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)

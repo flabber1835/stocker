@@ -113,6 +113,22 @@ def renewal_due(selected, observation):
     return daily or age >= RENEW_SECONDS or footprint >= RENEW_BYTES
 
 
+def renew_base(root, image, runner=run):
+    """Produce and select one exact successor; callers retain their lock/budget."""
+    output = runner(['bash', 'scripts/sentinel-base-backup.sh'], timeout=BASE_COMMAND_SECONDS)
+    paths = [line[len('verified_base_backup:'):].strip() for line in output.splitlines()
+             if line.startswith('verified_base_backup:')]
+    if len(paths) != 1:
+        raise Refused('producer did not return one exact successor')
+    observation = observe_primary(runner)
+    selected = worker('observe', image, root, observation, runner)
+    if not BASE_RE.fullmatch(selected['name']) or paths[0] != root + '/base/' + selected['name']:
+        raise Refused('producer successor differs from selected generation')
+    if renewal_due(selected, observation):
+        raise Refused('successor already exhausts maintenance headroom')
+    return selected, observation
+
+
 def heavy_work_allowed(observation):
     now = datetime.fromtimestamp(observation['now'], timezone.utc)
     minutes = now.hour*60 + now.minute
@@ -367,18 +383,7 @@ def _tick(root, runner, progress, started):
             deadline=first_second + INVOCATION_SECONDS,
             system_identifier=observation['system_id'], image=image,
             predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
-        output = runner(["bash", "scripts/sentinel-base-backup.sh"],
-                        timeout=BASE_COMMAND_SECONDS)
-        paths = [line[len("verified_base_backup:"):] for line in output.splitlines()
-                 if line.startswith("verified_base_backup:")]
-        if len(paths) != 1 or not paths[0].startswith(root + "/base/"):
-            raise Refused("producer did not return one exact successor")
-        selected = worker("observe", image, root, observation, runner)
-        if paths[0] != root + "/base/" + selected["name"]:
-            raise Refused("producer successor differs from selected generation")
-        observation = observe_primary(runner)
-        if renewal_due(selected, observation):
-            raise Refused("successor already exhausts maintenance headroom")
+        selected, observation = renew_base(root, image, runner)
         _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
     path = root + "/base/" + selected["name"]
     status=runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)

@@ -6,6 +6,7 @@ The parent retains the sole verifier session lock and its original owner clock.
 from __future__ import annotations
 
 from dataclasses import replace
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import os
 import math
@@ -23,6 +24,8 @@ SUPERSEDED_RETRY_SECONDS = .25
 MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
 HEARTBEAT = Path('/tmp/sentinel-operational-projection-heartbeat')
+_COLLECTION_STAGE = ContextVar('operational_collection_stage', default='NOT_STARTED')
+_READ_STAGES = frozenset({'COORDINATES','COLLECT','CONNECT','OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS'})
 
 
 class CollectionSuperseded(ValueError):
@@ -63,15 +66,19 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
     from sentinel.feed import store
     from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources
 
+    _COLLECTION_STAGE.set('COORDINATES')
     context, subjects = _coordinates(database_url)
+    _COLLECTION_STAGE.set('COLLECT')
     panel = segment_disclosure.disclose(sources.build_panel(
         state_dir=Path(state_dir), database_url=database_url,
         shadow_observer=shadow_observer), database_url)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
+    _COLLECTION_STAGE.set('CONNECT')
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
+        _COLLECTION_STAGE.set('OWNER')
         owner = conn.execute(f'SELECT owner_id,expires_at FROM {schema.OWNER} '
             'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() FOR UPDATE',
             (owner_id,)).fetchone()
@@ -79,13 +86,16 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
             raise snapshots.SnapshotUnavailable('operational projection owner changed')
         # Financial receipt publication uses owner -> receipt. Preserve that
         # order here rather than holding a receipt while waiting for its owner.
+        _COLLECTION_STAGE.set('INPUT_FENCE')
         lock_inputs(conn)
+        _COLLECTION_STAGE.set('FINAL_CONTEXT')
         if (snapshots.context(conn, database_url) != context
                 or snapshots.subjects(conn, database_url) != subjects):
             raise CollectionSuperseded('operational projection inputs changed')
         # Full automation composition can outlive a 12-second leader lease.
         # Sample its bounded native liveness facts after fencing, without
         # repeating authority, alert and cycle-history composition.
+        _COLLECTION_STAGE.set('LIVENESS')
         panel = replace(panel, rows=sources._late_automation_rows(conn, panel.rows))
         # Publisher and acknowledgement acquire the receipt before review state.
         # A common order avoids a receipt/state lock inversion.
@@ -96,16 +106,20 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                        for scope in ('SHADOW', 'PAPER')}
         panel = replace(panel, now=now, trial_details={**panel.trial_details,
             'verification_attempts': {key: value for key, value in diagnostics.items() if value is not None}})
+        _COLLECTION_STAGE.set('REVIEW')
         result = recorder.observe_owned(conn, panel, database_url)
         panel = replace(panel, operator_review=result)
+        _COLLECTION_STAGE.set('ENCODE')
         from sentinel.panel.serialization import preflight
         preflight(panel)
         envelope, signature = snapshots.encode(panel, context_sha256=context, subjects=subjects,
             valid_until=min(snapshots.original_boundary(panel), owner[1]))
+        _COLLECTION_STAGE.set('PUBLISH')
         snapshots.publish_owned(conn, owner_id=owner_id, value=envelope,
             signature=signature, context_sha256=context, subjects=subjects, now=now)
         if review.store.database_now(conn) >= datetime.fromisoformat(envelope['valid_until']):
             raise CollectionSuperseded('operational collection expired before commit')
+        _COLLECTION_STAGE.set('COMMIT')
         conn.commit()
         recorder.committed()
         return {'valid_until': envelope['valid_until']}
@@ -116,7 +130,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         conn.close()
 
 
-def publish_failure(database_url, owner_id, instance, diagnostic):
+def publish_failure(database_url, owner_id, instance, diagnostic, *, context=None):
     """Publish an explicit negative collector fact, never retained positive rows."""
     from sentinel.feed import store
     from sentinel.panel import model, observer_failure, operational_snapshot as snapshots, review
@@ -129,7 +143,7 @@ def publish_failure(database_url, owner_id, instance, diagnostic):
         if owner is None:
             raise snapshots.SnapshotUnavailable('operational projection owner changed')
         lock_inputs(conn)
-        context, subjects = snapshots.context(conn, database_url), snapshots.subjects(conn, database_url)
+        context_sha256, subjects = snapshots.context(conn, database_url), snapshots.subjects(conn, database_url)
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
                      "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
         now = review.store.database_now(conn)
@@ -138,13 +152,14 @@ def publish_failure(database_url, owner_id, instance, diagnostic):
             'Operational observation', 'OBSERVATION UNAVAILABLE', model.UNKNOWN,
             detail=detail, as_of=now, required_current=True)],
             source_errors=['Operational collection unavailable'],
-            trial_details={'operational_failure':failure.model_dump(mode='json', by_alias=True)})
+            trial_details={'operational_failure':failure.model_dump(mode='json', by_alias=True),
+                           'operational_failure_context':context})
         recorder = review.Recorder(component='verifier', instance=instance)
         panel = replace(panel, operator_review=recorder.observe_owned(conn, panel, database_url))
-        value, signature = snapshots.encode(panel, context_sha256=context, subjects=subjects,
+        value, signature = snapshots.encode(panel, context_sha256=context_sha256, subjects=subjects,
             valid_until=min(snapshots.original_boundary(panel), owner[1]))
         snapshots.publish_owned(conn, owner_id=owner_id, value=value, signature=signature,
-            context_sha256=context, subjects=subjects, now=now)
+            context_sha256=context_sha256, subjects=subjects, now=now)
         if review.store.database_now(conn) >= datetime.fromisoformat(value['valid_until']):
             raise CollectionSuperseded('negative operational observation expired before commit')
         conn.commit()
@@ -159,19 +174,42 @@ def publish_failure(database_url, owner_id, instance, diagnostic):
 def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
                    *, shadow_observer=None):
     """Classify child refusals before the generic process wrapper loses type."""
+    from psycopg.errors import LockNotAvailable, QueryCanceled
+    started = time.monotonic()
+    deadline = started + DEADLINE_SECONDS
+    attempts = 0
+    token = _COLLECTION_STAGE.set('NOT_STARTED')
     try:
-        return {'outcome':'PUBLISHED', **publish_once(
-            database_url, owner_id, state_dir, instance, prior_failed,
-            shadow_observer=shadow_observer)}
+        while True:
+            attempts += 1
+            try:
+                return {'outcome':'PUBLISHED', **publish_once(
+                    database_url, owner_id, state_dir, instance, prior_failed,
+                    shadow_observer=shadow_observer)}
+            except (QueryCanceled, LockNotAvailable):
+                # One fresh read attempt, never a new transport/call allowance.
+                # COMMIT/REVIEW failures and unknown outcomes are not replayed.
+                if (attempts >= 2 or _COLLECTION_STAGE.get() not in _READ_STAGES
+                        or time.monotonic() >= deadline-3):
+                    raise
+                time.sleep(min(.25, max(0, deadline-3-time.monotonic())))
+                if time.monotonic() >= deadline-3:
+                    raise
     except CollectionSuperseded:
         return {'outcome':'SUPERSEDED'}
     except Exception as exc:
         from sentinel.panel import observer_failure
         diagnostic = observer_failure.classify(exc).model_dump(mode='json', by_alias=True)
         try:
-            return {'outcome':'PUBLISHED', **publish_failure(database_url, owner_id, instance, diagnostic)}
+            context = dict(schema='sentinel.operational-failure-context/1',
+                stage=_COLLECTION_STAGE.get(),attempts=attempts,
+                elapsed_ms=max(0,int((time.monotonic()-started)*1000)))
+            return {'outcome':'PUBLISHED', **publish_failure(database_url, owner_id, instance,
+                diagnostic, context=context)}
         except Exception:
             return {'outcome':'FAILED', 'type':type(exc).__name__}
+    finally:
+        _COLLECTION_STAGE.reset(token)
 
 
 class Collector:

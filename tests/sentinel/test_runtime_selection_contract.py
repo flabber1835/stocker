@@ -92,8 +92,10 @@ def test_go_launcher_orders_preflight_verified_validator_and_exact_promotion():
     text = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(encoding="utf-8")
     preflight = text.index("sentinel_runtime_selection.py preflight")
     validator = text.index("sentinel_go_verified_entry.py")
-    promote = text.index("sentinel_go_promote.py")
-    assert preflight < validator < promote
+    assert preflight < validator
+    assert '"$PYTHON" scripts/sentinel_go_promote.py' not in text
+    entry = (ROOT/'scripts/sentinel_go_verified_entry.py').read_text()
+    assert entry.index('rc = controller.main(raw)') < entry.index('rc = promote.main(')
     assert 'if [ "$VALIDATION_RC" -ne 0 ]' in text
     assert "sentinel_runtime_selection.py promote" not in text
 

@@ -981,17 +981,18 @@ def probe_retained_wealth_parity(*, commit: Optional[str], now_text: str,
 
 def _resolve_compose_args(runner: CommandRunner,
                           env: Mapping[str, str]) -> Optional[list[str]]:
-    explained = runner.run(
-        ["bash", "scripts/sentinel-compose.sh", "--explain"], env=env)
-    if explained.returncode != 0:
-        return None
+    from sentinel_compose_context import ComposeContext
     try:
-        compose_args = shlex.split((explained.stdout or "").strip())
-    except ValueError:
+        context = getattr(runner, '_sentinel_compose_context', None)
+        if context is None:
+            context = ComposeContext()
+            try:
+                runner._sentinel_compose_context = context
+            except AttributeError:
+                pass
+        return context.resolve(root=ROOT, env=env, invoke=lambda argv:runner.run(argv,env=env))
+    except (OSError, ValueError, TypeError, KeyError):
         return None
-    if not compose_args or "-f" not in compose_args:
-        return None
-    return compose_args
 
 
 def _without_broker_authority(env: Mapping[str, str]) -> Dict[str, str]:

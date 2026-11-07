@@ -39,6 +39,7 @@ import json
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -276,16 +277,30 @@ class TestTheGeneratedDeploymentHasNoCpus:
 
 
 class TestTheResolver:
+    @pytest.fixture(autouse=True)
+    def isolated_resolver(self, tmp_path, monkeypatch):
+        """Writable private graph; no Docker socket or ambient primary ownership."""
+        repo = tmp_path/'resolver-repo'
+        shutil.copytree(REPO/'scripts', repo/'scripts')
+        for name in ('docker-compose.sentinel.yml','docker-compose.sentinel-backup.yml','Makefile'):
+            shutil.copy2(REPO/name, repo/name)
+        monkeypatch.setitem(globals(), 'REPO', repo)
+        monkeypatch.setitem(globals(), 'RESOLVER', repo/'scripts/sentinel-compose.sh')
+        command = tmp_path/'docker'
+        command.write_text('#!/bin/sh\nif [ "$1" = --context ] && [ "$3" = ps ]; then exit 0; fi\nexit 1\n')
+        command.chmod(0o755)
+        monkeypatch.setenv('PATH', str(tmp_path)+':'+os.environ.get('PATH',''))
+
     def test_it_fails_toward_the_CANONICAL_file(self, tmp_path):
         """An unprobed host keeps its declared ceilings. Guessing UNSUPPORTED
         would silently drop every CPU limit on a host that can hold them; the
         other way round the failure is a loud daemon refusal.
 
-        A STUB docker that exits non-zero, rather than an empty PATH — the
+        A STUB docker whose capability probe exits non-zero, rather than an empty PATH — the
         first version emptied PATH and removed `bash` along with it, so the
         test failed for a reason unrelated to what it checks."""
         stub = tmp_path / "docker"
-        stub.write_text("#!/bin/sh\nexit 1\n")
+        stub.write_text('#!/bin/sh\nif [ "$1" = --context ] && [ "$3" = ps ]; then exit 0; fi\nexit 1\n')
         stub.chmod(0o755)
         env = dict(os.environ, PATH=f"{tmp_path}:{os.environ.get('PATH', '')}",
                    SENTINEL_BACKUP_DIR="/backup")
@@ -488,6 +503,20 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
     lines. A YAML comparison cannot see this, which is exactly why the
     real-compose branch below exists.
     """
+
+    @pytest.fixture(autouse=True)
+    def private_generated_graph(self, tmp_path, monkeypatch, request):
+        repo = tmp_path/'generated-repo'
+        shutil.copytree(REPO/'scripts', repo/'scripts')
+        for name in ('docker-compose.sentinel.yml','docker-compose.sentinel-backup.yml'):
+            shutil.copy2(REPO/name, repo/name)
+        monkeypatch.setitem(globals(), 'REPO', repo)
+        monkeypatch.setitem(globals(), 'RESOLVER', repo/'scripts/sentinel-compose.sh')
+        if request.node.name == 'test_the_canonical_branch_is_bound_to_project_and_root':
+            command = tmp_path/'docker'
+            command.write_text('#!/bin/sh\nif [ "$1" = --context ] && [ "$3" = ps ]; then exit 0; fi\nexit 1\n')
+            command.chmod(0o755)
+            monkeypatch.setenv('PATH', str(tmp_path)+':'+os.environ.get('PATH',''))
 
     @staticmethod
     def resolver_args(force=None):
