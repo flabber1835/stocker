@@ -1,7 +1,7 @@
 """Two exact real restart parents; DATA readers and original code identity only."""
 import ast,gzip,json,sys
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path,PurePosixPath,PureWindowsPath
 from types import SimpleNamespace
 import pytest
 C=Path(__file__).resolve().parents[1];sys.path.insert(0,str(C))
@@ -111,7 +111,7 @@ def test_closed_DM_request_selects_only_exact_current_parent_and_export_policy()
  import system_campaign_financial_resume as financial
  spec=root_spec('P06');request=financial.expected_request()
  assert request==json.loads((C/financial.REQUEST).read_bytes())
- assert request['schema']=='research.system-campaign-accurate-resume-request/226'
+ assert request['schema']=='research.system-campaign-accurate-resume-request/227'
  assert request['arms']==['P06'] and request['admitted_checkpoints']=={'P06':spec['outer_sha256']}
  assert runtime.request_financial(request,spec)
  assert request[runtime.FIELD]['P06']['committed_seed_rows']==568
@@ -123,3 +123,17 @@ def test_selected_request_refuses_changed_profile_source_pin():
  import system_campaign_financial_resume as financial
  request=financial.expected_request();request['sources']['system_campaign_source_exit_profiles.py']='f'*64
  with pytest.raises(ValueError,match='ALL_CURRENT_SOURCE_PINS'):runtime.request_financial(request,root_spec('P06'))
+
+@pytest.mark.parametrize('path_type',[PurePosixPath,PureWindowsPath])
+@pytest.mark.parametrize('root',[profiles.LEGACY_ROOT,'27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0'])
+def test_actual_resource_receipt_path_expression_handles_both_profile_names(path_type,root):
+ # Exercise the exact pure path expression from the guarded hosted function.
+ # No guard is bypassed and no book, checkpoint, directory or file is created.
+ names=profiles.paths(root_spec('P06',root));out=path_type('EXPLICIT_NONCANONICAL_OUTPUT_PATH_DTO')
+ fn=next(n for n in ast.parse(Path(runtime.resources.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='preserve')
+ call=next(n for n in ast.walk(fn) if isinstance(n,ast.Call) and ast.unparse(n.func)=='exact'
+  and any(isinstance(v,ast.Constant) and isinstance(v.value,str) and 'resource-preservation.json' in v.value for v in ast.walk(n.args[0])))
+ result=eval(compile(ast.Expression(body=call.args[0]),'<actual-resource-receipt-path-expression>','eval'),{'out':out,'names':names})
+ assert result==out/names['PROVENANCE']/'resource-preservation.json'
+ # The exact old expression must reproduce the observed Python type error.
+ with pytest.raises(TypeError):eval("out/names['PROVENANCE']+'/resource-preservation.json'",{'out':out,'names':names})

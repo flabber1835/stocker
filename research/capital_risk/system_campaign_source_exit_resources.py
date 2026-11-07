@@ -49,7 +49,7 @@ def preserve(root,out,parent,spec,*,rows,resolutions):
  dependencies.copy_checked(manifest,read,lambda n,b:exact(out/n,b))
  dependencies.verify(manifest,value['resources'],resolutions,read,lambda n:(out/n).read_bytes())
  names=profiles.paths(spec);raw=read('uncertainty-certificate.jsonl');seeds.literal_prefix(raw,rows,spec);exact(out/names['OLD_PROOF'],raw)
- exact(out/names['PROVENANCE']+'/resource-preservation.json',(json.dumps(manifest,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())
+ exact(out/names['PROVENANCE']/'resource-preservation.json',(json.dumps(manifest,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())
  return manifest
 
 def verify_preserved(source,destination,spec,*,rows,resolutions):

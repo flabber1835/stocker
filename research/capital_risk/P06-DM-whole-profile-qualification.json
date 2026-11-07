@@ -63,7 +63,7 @@
     },
     "system_campaign_financial_resume.py": {
       "bytes": 67598,
-      "sha256": "9330a9dad00da676b1ead6e4bccc6b7bee979e793db99fa29be4df2c66c6b162"
+      "sha256": "ff09f3957547479c1f8ea9f2ad5dd31341dd5811e68589162cedb79996536bd0"
     },
     "system_campaign_full_history_successor.py": {
       "bytes": 4566,
@@ -114,8 +114,8 @@
       "sha256": "688270839416fec70e199dcb6309ce9051145d93f6a1e72f378c9f1765036f95"
     },
     "system_campaign_source_exit_resources.py": {
-      "bytes": 5036,
-      "sha256": "fc6f030a1cd382dbdb7e34c8d18c8cb3ee09bc1bb18012998079e06b4341bde9"
+      "bytes": 5035,
+      "sha256": "ea6ecaa3d3bf0c00e0b0d3c285ad8d1bbeaffe8994097a130d69be5a769d3dab"
     },
     "system_campaign_source_exit_runtime.py": {
       "bytes": 16720,
@@ -157,6 +157,26 @@
   "passed": true,
   "qualification_scope": "INPUT_AND_WHOLE_SOURCE_DATA_ONLY",
   "ready_for_hosted_gated_continuation": true,
+  "request226_preparation_correction": {
+    "actual122_resource_copy_and_cleanup_passed": true,
+    "authenticated_manifest_sha256": "070fd3fb793783088e2f50e7e39a1a0083c2becff7258528b9c58769532adbd3",
+    "cause": "Path division followed by string addition instead of another path division",
+    "failure_log_sha256": "b3b1802ce71043faa71e0d8dc9d411461b1fe1b80e686e3b26290b5e31fb1164",
+    "financial_job_started": false,
+    "new_financial_sessions": 0,
+    "original_artifact_id": 13592680719,
+    "original_failed_preflight_preserved": true,
+    "original_head": "fcdf9575e7b7fdad8f22e3ed75d7cb7aada6c70a",
+    "original_run": 42417798516,
+    "original_zip_sha256": "7a552778f1e928151acff800f8c194f85ebca604b283e6db953f480eb0564a5c",
+    "receipt_path_regression_checks_pending": false,
+    "regression_checks": {
+      "command": "python -B -m pytest forecast_tests/test_source_exit_profiles.py::test_actual_resource_receipt_path_expression_handles_both_profile_names forecast_tests/test_source_exit_profiles.py::test_closed_DM_request_selects_only_exact_current_parent_and_export_policy forecast_tests/test_source_exit_profiles.py::test_selected_request_refuses_changed_profile_source_pin -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-path-fix-20261107-001",
+      "old_error_reproduced_on_both_path_types": true,
+      "passed": 6,
+      "seconds": 12.61
+    }
+  },
   "required_genuine_neutral_inputs": 14,
   "required_hosted_gates": [
     "authenticate_original_FIN366_failed_transport_and_separate_positive_REVIEW368",
