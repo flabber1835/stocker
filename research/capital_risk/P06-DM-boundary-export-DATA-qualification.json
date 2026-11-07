@@ -1,0 +1,62 @@
+{
+  "actual_neutral14_known": false,
+  "canonical_runtime_executed": false,
+  "export": {
+    "actual_export_of_financial_data_performed_locally": false,
+    "canonical_book_and_checkpoint_paths_retained": true,
+    "kept_bytes": 784990767,
+    "mapping_receipt_bytes": 137119,
+    "omitted_duplicate_preflight_bytes": 195677611,
+    "original_FIN366_bytes": 980668378,
+    "original_financial_output_unchanged": true,
+    "original_one_gib_bound_preserved": true,
+    "planned_plaintext_bytes": 785127886
+  },
+  "files": {
+    "P06-DM-source-exit-input-catalog-v2.json": {
+      "bytes": 20363,
+      "sha256": "5f733fa0f61fe0b3682b2c5a636fa7840720ebefacf140f7fa1af06236e33155"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 67592,
+      "sha256": "0d098d5f99966eeee5c9c3851256f899d8a7dc2eb0ae23f6c49d1ee4d59788e0"
+    },
+    "system_campaign_preflight_export.py": {
+      "bytes": 6756,
+      "sha256": "7c82b6d2afe966de39214c3f75c969c14a1d7dd3a1b4fbe98b7095f238448271"
+    },
+    "system_campaign_source_exit_entry.py": {
+      "bytes": 10814,
+      "sha256": "c6db39fb09d47d1df3376a0a0bd57f3cfb541be1f886669701e0fab584ba67df"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 10286,
+      "sha256": "40bd8cf85ab7380c211b080b839cacd0d9b4ac45d112eed49449e4f7a489804a"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "hosted_financial_constructor_qualified": false,
+  "input_adopted": false,
+  "passed": true,
+  "remaining_gates": [
+    "complete generic full13-to14 history and retained568 seed/observer registration",
+    "bind original full Future functions to version2 catalog-specific boundary validator",
+    "fresh hosted actual parent witness and no-op/source-delegation gates",
+    "canonical neutral14 archive/watch proof",
+    "actual certificate/observer constructor and source-pinned whole profile",
+    "source-bound financial continuation and independent core/branch/event/monthly admission"
+  ],
+  "root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+  "schema": "research.source-exit-boundary-and-export-DATA-qualification/1",
+  "tests": {
+    "campaign_control_cases_passed": 20,
+    "control": "20passed1.18s including approved P09 decision without financial readiness",
+    "export_cases_passed": 20,
+    "export_final": "20passed1.63s including synthetic probe and failed-preparation diagnostic passthrough",
+    "initial_batch": "65passed6.75s; one expected savings threshold corrected to preserve every protected checkpoint/book byte",
+    "input_boundary_and_entry_cases_passed": 48,
+    "total_selected_cases_passed": 88
+  },
+  "utc": "2026-11-07T21:08:06.836123+00:00"
+}

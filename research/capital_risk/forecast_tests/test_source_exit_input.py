@@ -20,7 +20,7 @@ def test_actual_source_exit_uses_prior_proxy_and_preserves_native_quote(actual):
  assert value['financial_profile_ready'] is value['financial_authority'] is False
  assert len(value['parent_descriptors'])==12 and value['parent_completed']==1677
  codec,_,terms=p.selected('P06',cursor='2024-08-30');assert terms==[value['term']]
- assert codec.parent_outer_sha256==root_spec('P06')['outer_sha256']
+ assert codec.parent_outer_sha256==root_spec('P06',actual['term']['parent_root_admission_sha256'])['outer_sha256']
 
 @pytest.mark.parametrize('change',['authority','profile','adopt','root','input','descriptors','parent_role','event_row','prior_row','native','missing','event_roles','cash_claim','extinction','amount'])
 def test_unsafe_or_unbound_term_is_refused(actual,change):

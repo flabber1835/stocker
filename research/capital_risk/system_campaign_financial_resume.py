@@ -1100,6 +1100,9 @@ launch = _source_exit_entry.bind_launch(launch, sys.modules[__name__])
 import system_campaign_progress_observer as _progress_observer
 launch = _progress_observer.bind_launch(launch, sys.modules[__name__])
 
+import system_campaign_preflight_export as _preflight_export
+seal = _preflight_export.bind_seal(seal)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--probe', action='store_true')

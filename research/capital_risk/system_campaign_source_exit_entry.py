@@ -13,11 +13,11 @@ PREPARATION='source-exit-successor-zero-financial-preparation.json'
 
 def source_names():
  names=('system_campaign_source_exit_entry.py','system_campaign_source_exit_runtime.py','system_campaign_source_exit_api.py','system_campaign_source_exit_history.py',
-  'system_campaign_source_exit_input.py','P06-TBIO-source-exit-input-catalog.json','P06-TBIO-source-exit-DATA-qualification.json',
+  'system_campaign_source_exit_input.py','P06-TBIO-source-exit-input-catalog.json','P06-TBIO-source-exit-DATA-qualification.json','P06-DM-source-exit-input-catalog-v2.json','P06-DM-boundary-export-DATA-qualification.json',
   'system_campaign_full_history_successor.py','system_campaign_retained_seed_successor.py','system-campaign-retained-seed-successors.json','P06-retained424-successor-DATA-qualification.json',
   'system_campaign_stopped_parent.py','system-campaign-stopped-parent-transports.json','P06-stopped-parent-transport-DATA-qualification.json',
   'system_campaign_source_exit_resources.py','system-campaign-source-exit-successor-resources.json','system_campaign_source_exit_observer.py',
-  'P06-source-exit-API-history-DATA-qualification.json','system_campaign_source_exit_reporting.py','system_campaign_progress_observer.py',runtime.QUALIFICATION)
+  'P06-source-exit-API-history-DATA-qualification.json','system_campaign_source_exit_reporting.py','system_campaign_progress_observer.py','system_campaign_preflight_export.py',runtime.QUALIFICATION)
  return names if (HERE/runtime.QUALIFICATION).is_file() else tuple(n for n in names if n!=runtime.QUALIFICATION)
 
 def expected_request(original,*,execution_mode,selected_arms,root_lookup):

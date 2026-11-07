@@ -41,9 +41,9 @@
     {
       "arm": "P06",
       "complete": false,
-      "completed": 1677,
-      "root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
-      "through": "2024-08-30"
+      "completed": 1821,
+      "root": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "through": "2025-03-31"
     },
     {
       "arm": "P07",
@@ -114,19 +114,19 @@
       "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
     },
     {
-      "admitted_root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+      "admitted_root": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
       "arm": "P06",
-      "completed_previous_event": "WWE/TKO original27-for27 conversion independently verified and admitted within saved1677/full12",
-      "event": "September27,2024 incomplete leadership terminal",
+      "completed_previous_event": "TBIO actual never-held source delegation independently admitted through1821/full13",
+      "event": "DM native April1,2025 source exit; legal April2 completion remains separate",
       "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
-        "qualified full12 retained424 continuation loader",
-        "complete native/quote/identity/role evidence for September27 SID896501989594575427",
-        "correct event-family terms and independent source qualification",
-        "hosted canonical tests and fresh constructor canary"
+        "complete full13-to14 lineage and retained568 proof binding",
+        "full-profile genuine-parent constructor and actual event-role gates",
+        "explicit bounded export qualification",
+        "hosted canonical continuation and independent DATA admission"
       ],
       "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
-      "source_observations": "Exact unsupported SID896501989594575427; native ticker/terms/event-date roles not yet classified"
+      "source_observations": "SOURCE369 authenticated March31 raw4.9100000000000001/nativeApril1 raw4.96/April2 absent; original acquisitionby+delisted group and incomplete cash terminal; DATA-only boundary catalog ready"
     },
     {
       "arm": "P07",
@@ -145,9 +145,12 @@
       "event": "Exact fractional share representation",
       "family": "QUANTITY_REPRESENTATION",
       "missing": [
-        "explicit exact-fraction versus12-decimal owner choice"
+        "exact rational quantity source implementation preserving allocation rules",
+        "complete source/serialization/consumer/restart certification",
+        "hosted source-bound financial execution and independent DATA admission"
       ],
-      "requires_owner_choice": true
+      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
+      "requires_owner_choice": false
     }
   ],
   "provider_dates_are_not_legal_or_native_recognition_clocks": true,

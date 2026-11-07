@@ -9,8 +9,19 @@ def stop(code=0,oom=False):return dict(stopped=True,exit_code=code,oom_killed=oo
 
 def test_actual_admitted_dates_and_counts_are_primary_reporting():
  rows=p.accepted_status();assert len(rows)==12 and sum(r['complete'] for r in rows)==7
- assert sum(r['completed'] for r in rows)==20646
- assert next(r for r in rows if r['arm']=='P06')['through']=='2024-08-30'
+ assert sum(r['completed'] for r in rows)==20790
+ assert next(r for r in rows if r['arm']=='P06')['through']=='2025-03-31'
+
+
+def test_P09_owner_choice_closed_without_granting_financial_readiness():
+ policy=json.loads((C/'system-campaign-control-policy.json').read_bytes())
+ record=next(r for r in policy['next_events'] if r['arm']=='P09')
+ decision=json.loads((C/record['owner_decision_record']).read_bytes())
+ assert record['requires_owner_choice'] is False
+ assert decision['choice']=='EXACT_RATIONAL_QUANTITIES_PRESERVE_ALLOCATION'
+ assert decision['allocation_rule_change_authorized'] is decision['rounding_authorized'] is decision['financial_profile_ready'] is False
+ accepted=next(r for r in p.accepted_status() if r['arm']=='P09')
+ assert p.qualified_profile(C,record,accepted)==(False,'EVENT_PROFILE_NOT_QUALIFIED')
 
 @pytest.mark.parametrize('role',['preflight','worker','reviewer'])
 def test_noncanonical_stopped_failure_receipts_classified_by_primary_stage(role):
