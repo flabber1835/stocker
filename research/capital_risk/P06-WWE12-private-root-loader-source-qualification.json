@@ -1,0 +1,57 @@
+{
+  "actual_completed": 1426,
+  "canonical_checkpoint_created_projected_or_restored": false,
+  "canonical_runtime_executed": false,
+  "current_full_inputs": 11,
+  "current_root_admission_sha256": "edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f",
+  "default_financial_gate_closed": true,
+  "files": {
+    "P06-FIN339-exact-failed-target.json": {
+      "bytes": 36604,
+      "sha256": "6124a681f560b9012cd060daaa43b1bca28c0638b3cd670a648a648a898888bf"
+    },
+    "P06-REVIEW344-positive-requalified-transport.json": {
+      "bytes": 3467,
+      "sha256": "36a68f0c46a295c5c4dc4e8a4233eeb6d2bdfff2dbfe2349c4b7687be1ec89f5"
+    },
+    "P06-WWE-root-loader-v2-DESIGN.md": {
+      "bytes": 1281,
+      "sha256": "35eb94757583bc27c6236cbb59421115e96030a30237e894a140854231cc0172"
+    },
+    "P06-WWE12-actual-admission-fact.json": {
+      "bytes": 82405,
+      "sha256": "96afb2e7a49532f6aa9b4eb2f3b8f51d3513fdd1f9f0dfee19bf1b91b515daad"
+    },
+    "system_campaign_p06_FIN339_requalified_parent.py": {
+      "bytes": 10791,
+      "sha256": "d96ffe1bc505953b7fe45ddbf6d87071ee43b8c6b0e7762c99744b8b7cfaf4bc"
+    },
+    "system_campaign_p06_WWE_admission.py": {
+      "bytes": 2798,
+      "sha256": "7c5188c8d0f643e1e0e6d509a1abc909473e4adf9eae398d612f80a7c70f6956"
+    },
+    "test_WWE_root_loader_DATA.py": {
+      "bytes": 5265,
+      "sha256": "973c60084fa4b2455d44cabddece3dc6fccef03347598e2d6a1bdca9c821ee4a"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "original_failed_FIN339_receipt_preserved": true,
+  "passed": true,
+  "remaining": [
+    "Separately qualify whole financial profile and literal-True exact request validator.",
+    "Complete genuine12 adoption, retained173 worker/reviewer, immutable stock source staging and27-share hosted gate."
+  ],
+  "schema": "research.P06-WWE12-financial-root-loader-source-qualification/1",
+  "separate_positive_REVIEW344_transport": true,
+  "tests": {
+    "all_scoped_dispatch_hooks_restored": true,
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 17,
+    "seconds": 8.27,
+    "whole_original_authenticator_AST_undo": true
+  },
+  "utc": "2026-11-07T09:07:36.386860+00:00"
+}

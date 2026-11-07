@@ -1,0 +1,65 @@
+{
+  "actual_completed": 1426,
+  "canonical_checkpoint_created_projected_or_restored": false,
+  "canonical_runtime_executed": false,
+  "committed_proof_rows": 173,
+  "current_full_inputs": 11,
+  "current_root_admission_sha256": "edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f",
+  "excluded_tail_rows": 6,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 4996,
+      "sha256": "c5a81f73deff6dea19c5387b8d7651feb95fdf0124f850e9156e03ad7c667897"
+    },
+    "P06-WWE12-actual-admission-fact.json": {
+      "bytes": 82405,
+      "sha256": "96afb2e7a49532f6aa9b4eb2f3b8f51d3513fdd1f9f0dfee19bf1b91b515daad"
+    },
+    "P06-actual1426-full11-retained173-preconditions.json": {
+      "bytes": 7817,
+      "sha256": "ad4f104054eb8b754756e62cedeec469308858501f3ad7bcbacaf11744677ac6"
+    },
+    "system_campaign_p06_WWE12_data.py": {
+      "bytes": 620,
+      "sha256": "5f916f5577d76eb8a57bd7112f776cb750236ee66929f9bc6cc774a00ab9c80e"
+    },
+    "system_campaign_p06_WWE173_preconditions.py": {
+      "bytes": 6377,
+      "sha256": "5f94f9af015b7a90fe8969960289076867246370feb12c1957f4b07809c82c98"
+    },
+    "system_campaign_p06_WWE173_seed.py": {
+      "bytes": 10134,
+      "sha256": "cd13094c049a228c5a199e44918ee012cb6eb3166aad0cff4e7a7599c2320bbe"
+    },
+    "system_campaign_p06_WWE_admission.py": {
+      "bytes": 2798,
+      "sha256": "7c5188c8d0f643e1e0e6d509a1abc909473e4adf9eae398d612f80a7c70f6956"
+    },
+    "test_WWE173_seed_DATA.py": {
+      "bytes": 4852,
+      "sha256": "f8b294e2ef08e50a40f07c16329e8e47f399182a528cd1f1bd457f97cd53eb7d"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "historical_ABMD_event_full_inputs": 10,
+  "passed": true,
+  "raw_proof_rows": 179,
+  "remaining": [
+    "Complete whole retained worker/reviewer, genuine12 adoption and source-only StockCalendar bindings.",
+    "Qualify positive344 financial root-loader independently; current partial loader still requires finalized request binding.",
+    "Qualify immutable provider source stage,27-share canonical gate and resumed conversion review in hosted runtime.",
+    "Finalize request and dispatch only after all source/DATA/negative guards close."
+  ],
+  "schema": "research.P06-WWE173-private-seed-source-qualification/1",
+  "tests": {
+    "actual_full11_history_and173_proof_checked": true,
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 10,
+    "seconds": 16.26,
+    "whole_original_metadata_AST_undo": true
+  },
+  "utc": "2026-11-07T03:41:42.835814+00:00",
+  "whole_current_input_hash_retained": true
+}

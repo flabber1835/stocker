@@ -1,0 +1,94 @@
+{
+  "W_edited": false,
+  "actual1426_state_and173_proof_watch_financial_identities_verified": true,
+  "actual_WWE27_held_and_TKO0_role_verified": true,
+  "canonical_checkpoint_restored_or_staged": false,
+  "engine_import_fences": 5,
+  "engine_imported": false,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 4262,
+      "sha256": "878e37f93aa63bb87cf8e2a19cd4dd059f7ec21a0ed9200257fb3bb0a763c4fd"
+    },
+    "INTEGRATION-PREPARATION.md": {
+      "bytes": 3705,
+      "sha256": "f6da759426ee275ce54f7921b505fa6f4c9c4cd5398a41cdf40b2dada29c76ea"
+    },
+    "P06-WWE-original-provider-SHARADAR_ACTIONS.zip": {
+      "bytes": 9855560,
+      "sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02"
+    },
+    "P06-WWE-prospective-source-role-DATA.json": {
+      "bytes": 14420,
+      "sha256": "de152e117143d9b08034d28b78e30409cf6f28ae6b157b8a3968cd0f3fec084d"
+    },
+    "P06-WWE-source-asset-protocol.json": {
+      "bytes": 2450,
+      "sha256": "0d1ad5b5cf3284d1441938019454d62bcd80feae7d698f7bddce22a51d38e4e8"
+    },
+    "P06-WWE12-admission-binding-pending.json": {
+      "bytes": 362,
+      "sha256": "1a533ff7c3b3d66e154239123249dfc9352be40f11fa25247df73baef4245f5b"
+    },
+    "P06-actual1426-full11-retained173-preconditions.json": {
+      "bytes": 7817,
+      "sha256": "ad4f104054eb8b754756e62cedeec469308858501f3ad7bcbacaf11744677ac6"
+    },
+    "prepare_private_assets.py": {
+      "bytes": 5334,
+      "sha256": "3120677abb5f9c34d1c7873e500f6c3b23009160ae4801df379a53e72287e618"
+    },
+    "system_campaign_p06_WWE173_preconditions.py": {
+      "bytes": 6377,
+      "sha256": "5f94f9af015b7a90fe8969960289076867246370feb12c1957f4b07809c82c98"
+    },
+    "system_campaign_p06_WWE27_qualifiers.py": {
+      "bytes": 2453,
+      "sha256": "35626341907ddfb8de48bebf3b05bb5864db3b444778c8a8df020bb1349dae49"
+    },
+    "system_campaign_p06_WWE_source_asset.py": {
+      "bytes": 4604,
+      "sha256": "241f6764d0f49ab3d78fdf6a91167252865cfc92311229b6612c8bd6af1c949c"
+    },
+    "system_campaign_p06_WWE_stock_source.py": {
+      "bytes": 3499,
+      "sha256": "b28be292d5e3112db6ac54231d545969a2d2776a055b3b4859f83b93bf594aa6"
+    },
+    "test_WWE_runtime_preparation_DATA.py": {
+      "bytes": 12103,
+      "sha256": "baa53297bbef0899ca76c20a24ac8eb8cea90f4ab743cbb9c78b6c391a5fe6b9"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_complete": false,
+  "financial_sessions_reexecuted": 0,
+  "genuine_neutral12_sha256": null,
+  "hosted_canonical_transition_oracle_sha256": "190de5015b174b76f42786943f87ac5e3100555b660e0e116d7d305a18b71bf8",
+  "hosted_jobs_launched": false,
+  "immutable_original_provider_source_asset_qualified": true,
+  "meaningful_falsifiers": 3,
+  "new_root_admission_sha256": null,
+  "old_book_or_driver_mutated": false,
+  "original_FIN339_transport_oracle_member": "stopped-review/uncertainty-certificate-review.json",
+  "original_P02_16_share_modules_and_receipts_unmodified": true,
+  "original_provider_bytes": 9855560,
+  "passed": true,
+  "pending": [
+    "REAL1426_READONLY_MONTHLY_DATA_ROOT_ADMISSION",
+    "ROOT_BOUND_FULL11_TO12_VISITOR_AND_GENUINE_ADOPTION",
+    "WHOLE_RETAINED173_SEED_FACTORY_WORKER_REVIEWER_BRIDGE",
+    "HOSTED_CANONICAL27_QUALIFICATION_AND_ACTUAL_RESUMED_WWE_REVIEW"
+  ],
+  "qualifier_entries_refuse_before_engine_until_real_admission": true,
+  "raw179_proof_all6_uncommitted_tails_excluded": true,
+  "real_full8_9_typed10_ordinary11_history_verified": true,
+  "schema": "research.P06-WWE12-retained173-private-runtime-source-preparation-qualification/1",
+  "scope": "PROSPECTIVE_PREPARATION_ONLY_NOT_FINANCIAL_CONTINUATION",
+  "source_supply_network_required": false,
+  "test_command": "python -B -m pytest test_WWE_runtime_preparation_DATA.py -q -p no:cacheprovider",
+  "test_seconds": 52.93,
+  "tests": 29,
+  "whole_original_StockCalendar_constructor_build_patch_packet_qualifier_retained": true,
+  "whole_original_hydrator_AST_undo_one_explicit_source_read": true,
+  "whole_original_qualifier_reviewer_AST_undo_only27_role": true
+}

@@ -40,9 +40,12 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==[] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==0
-    assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
-    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==666
+    assert r['arms']==['P06'] and r['maximum_parallel_financial_workers']==1 and r['maximum_parallel_readonly_workers']==0
+    assert r['readonly_partial_review'] is r['readonly_source_witnesses'] is False and r['financial_resume_authorized'] is True
+    assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==696
+    wwe=r['selected_p06_WWE12_retained173_financial_profile']['P06']
+    assert (wwe['actual_parent_inputs'],wwe['required_genuine_neutral_inputs'],wwe['committed_seed_rows'])==(11,12,173)
+    assert wwe['genuine_neutral12_known'] is False and wwe['held_WWE_shares']==27
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
     assert r['selected_p03_full18_reporting_bridges']=={} and r['selected_p03_cash14_ordinary18']=={}
     assert r['selected_p03_HABT_ordinary19']=={}
@@ -63,8 +66,8 @@ def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
     import yaml
     workflow = yaml.load((CAP.parent.parent / m.WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
     job = workflow['jobs']['suffix']
-    assert list(m.SELECTED_ARMS)==[] and job['if'].startswith('false && ')
-    assert job['strategy']['matrix']['arm']==['P03']
+    assert list(m.SELECTED_ARMS)==['P06'] and not job['if'].startswith('false && ')
+    assert job['strategy']['matrix']['arm']==['P06']
     assert job['strategy']['max-parallel'] == '4'
     assert 'concurrency' not in workflow
     assert job['concurrency'] == dict(group='system-optimization-002-financial-${{ matrix.arm }}', **{'cancel-in-progress':'false'})
@@ -235,6 +238,8 @@ def launch_fixture(tmp_path, monkeypatch, event):
     # This fixture exercises the original P07 lifecycle, independently of the
     # active, separately qualified P06 readonly recovery declaration.
     request['selected_p06_fin339_readonly_review_recoveries']={}
+    request['selected_p06_WWE12_retained173_financial_profile']={}
+    request['selected_p06_WWE_immutable_source_assets']={}
     request.pop('selected_p07_lossless_export',None)
     request['selected_p03_cash14_ordinary18']={}
     request['selected_p03_HABT_ordinary19']={}

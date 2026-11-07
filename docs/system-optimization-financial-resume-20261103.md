@@ -7522,3 +7522,111 @@ Private whole bridge AST undo and target/import checks:11passed6.02s. Authentica
 ## REPORT353 independent P03 root admission
 
 Only saved606/2020-05-29/full19 with152 committed branch proofs. Preserve89 prior proofs and verify63 new closes,126 accountings,all34 ordinary observations,three exact monthly reports and84 Decimal metrics. Genuine HABT neutral19 and entire DOVA/input history checked. June1-9 diagnostic tails and June10 STML contingent-value-right failure excluded. Historical causality UNVERIFIED. STML is not a qualified pure-cash completion; next financial restart requires separate qualification. Qualification c7ca24a3febc24ca41c7c4e731db5e20dd61b3f62b40f7d325ff9db4ae1a4b90. Independent reader/test paths are pinned at their tested absolute locations, with authenticated transport/reporting evidence retained separately. Preserve the previous f297 root as history. This root grants no unqualified future-input or broker authority. Until a successor is qualified, select zero arms and disable the automatic campaign job; preserve all completed request snapshots and do not duplicate FIN352.
+
+
+## FIN355 P06 actual1426/full11 through genuine WWE input12
+
+# Separately qualified P06 financial source bridge
+
+The real edfe admission uses fresh_readonly_financial_review_requalification,
+not the older P07 failed_review_requalification schema. Validate that actual
+P06 proof against exact FIN339 failed target and positive344 transport; retain
+their distinct original statuses, all book/source bytes and original190de oracle.
+No P06 readonly recovery context is authorized for financial use.
+
+This new source-only bridge defaults closed until a separately qualified whole
+profile validator is supplied. The validator must return literalTrue for the
+exact active request/root before installing any hooks or downloading anything.
+Bind that callback into a complete admit function code object; do not mutate
+its module globals. Each launcher/worker process runs one arm independently.
+The source/accounting dispatch is scoped across launch,preflight,economic and
+review because each may authenticate or inspect the original parent. This only
+selects the separately authenticated positive344 accounting evidence; it never
+executes a financial transition or changes the failed FIN339 receipt. Restore
+every original dispatch hook on all exits. Keep the separately closed173 seed
+source qualification and its immutable admission fact unchanged.
+
+
+# Whole history and historical observation for WWE12
+
+Pin the complete original BBIG full11 visitor explicitly. The separate full12
+visitor changes only its historical neutral11 comparisons to the genuine first11
+descriptor metadata; it retains the full current input commitment. Qualify its
+entire composed AST by undo, and exercise the complete actual full11 history.
+Only a real hosted ordinary12 adoption may satisfy the new12 boundary.
+
+Retain an exact finite inventory of authenticated FIN339 historical resources at
+their original paths. Include all adopted-input archives, correlation prefixes,
+original source material, ABMD event resources and BBIG observer records. Preserve
+the entire179-row raw proof separately;173 committed rows remain the seed. Do not
+copy the current book or put an old proof at the new worker's active proof path.
+Leave lineage preservation to the unchanged original resume function. Its new
+inventory belongs to the current continuation; copying the prior inventory over
+it would conflict. The separate explicit inventory contains88 historical input
+and observation resources and excludes all lineage paths.
+Do not overwrite request/spec/log/current outcome files. Retain source metadata
+and historical failed receipts without granting them financial authority.
+
+Construct the complete original ActualEvents initializer with the genuine
+historical1383 parent solely as observation provenance. Its BBIG source-scope
+compiler and all adapter methods remain unchanged. Retain original TRQ/MYOV cash
+terms. All three event dates precede the actual1426 financial seed; require that
+fact explicitly. The new suffix must create no records for those old events.
+WWE CONVERSION delegates to the original terminal code unchanged, and a separate
+whole27-share conversion reviewer validates its actual resumed ownership/ledger.
+Never call the historical parent a financial seed or rerun its sessions.
+
+Local checks use authenticated DATA readers, ASTs and explicit noncanonical DTOs.
+No canonical book staging, replay, restore or financial transition runs locally.
+
+
+# Exact1426/full11 to genuine ordinary12 financial continuation
+
+Use the newly qualified source bridge in launch,preflight,economic and review.
+Its validator must match the exact finalized request, admitted root, immutable
+source asset and separately closed complete profile. Preserve FIN339 failure and
+REVIEW344 success separately. Do not activate its permanently closed default.
+
+Prepare the unchanged original StockCalendar with its original WWE registry and
+the separately staged provider bytes. Apply every actual prior input in the
+active ABMD codec context during the whole27-share packet/canonical-copy gate.
+Block backtest.main/runtime.advance during preflight preparation. Return a
+source-only receipt with real private/overlay/qualification hashes; require that
+same stopped receipt before the economic phase. This creates no neutral state.
+
+After original economic setup preserves its book and archive index, preserve88
+authenticated historical resources, whole179 proof provenance and the genuine
+selected parent11 gzip. Prepare WWE again, then call the whole original canonical
+ordinary adopter with only the new adoption filename mapping added. Require the
+real neutral12 state, journals, watch event, correlation prefix and complete
+history before permitting any financial main call.
+
+Bind whole retained run/review bodies through explicit visitor,seed,preservation,
+observer and certificate callbacks; only finite seed count173 and original
+factory/suffix imports change. Seed from all173 committed rows and exclude six
+raw diagnostic tails. A host-only owned temporary copy adds genuine neutral12
+resources/watch but retains the actual selected parent11 gzip unchanged. Use a
+separately guarded owner-only permission helper and observe cleanup on all exits.
+Review the independent real adoption boundary, all historical resources and
+original173 suffix proof. Independently rehydrate WWE from original inputs and
+apply the whole27 actual conversion review. No strategy/controller code changes.
+
+Prepare and qualify every module privately before integration/request selection.
+No local canonical import,book staging,replay,restore,adoption or transition.
+
+The original stock collision reader recognizes only the older leadership typed
+schema. Retain its complete function, adding one explicit ABMD typed-schema
+branch that validates the exact tenth descriptor through the complete current
+history before continuing. Preserve every original ordinary collision check.
+Bind that whole collision reader into the whole already-qualified stock factory
+and build code objects through a private namespace; do not mutate original
+modules or broaden the original compiler's accepted schemas globally.
+
+The original launcher treats every readonly_failed_review_requalification flag
+as the older P07 repair lineage. Preserve the P06 flag and failure metadata, but
+scope that legacy applies reader to false for this exact positively requalified
+edfe financial root only. Bare FIN339 transport authentication still takes its
+original failure-proof route. Restore the original reader on every launcher exit.
+
+
+Private whole source qualification 46b2207e7a504bc8ea7a0b44d60be1f2b2143a4d2901338c9d024b442c91d248:75 distinct tests, plus7 final manifest checks (82 total), nine meaningful guard removals and five financial-import fences. All original current11/173 financial bytes and the original190de branch oracle are retained. Real neutral12 is unknown and must be created and reviewed only by the hosted canonical adopter. Original383, B19, uncertainty source and four mature resume financial bodies remain unchanged. Select P06 only; all other roots retain their accepted progress. No PAPER/LIVE/execution authority and no performance scoring or historical-causality certification is granted.

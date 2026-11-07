@@ -34,7 +34,8 @@ def source_names():
     import system_campaign_p07_full25_reporting as report25
     import system_campaign_p03_full18_reporting as report18
     import system_campaign_p03_full19_reporting as report19
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names(),*habt.source_names(),*report19.source_names()))))
+    import system_campaign_p06_WWE12_runtime as wwe12
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names(),*habt.source_names(),*report19.source_names(),*wwe12.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -52,6 +53,11 @@ def p06_declaration(spec):
         every_reachable_canonical_decision_must_match=True)
 
 def expected_request(original,*,execution_mode,selected_arms):
+    import system_campaign_p06_WWE12_runtime as wwe12
+    from system_campaign_financial_partial import root_spec
+    requested_arms=selected_arms
+    if execution_mode==wwe12.MODE and 'P06' in selected_arms and wwe12.candidate(root_spec('P06')):
+        selected_arms=tuple(a for a in selected_arms if a!='P06')
     import system_campaign_bounded_sensor_runtime_v2 as dova
     import system_campaign_p06_abmd_lifecycle_data as p06
     import system_campaign_p07_abmd_lifecycle as p07
@@ -133,7 +139,8 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p03_full18_reporting as report18
     result=report18.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     import system_campaign_p03_full19_reporting as report19
-    return report19.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    result=report19.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
+    return wwe12.expected_request(lambda selected_arms:result,execution_mode=execution_mode,selected_arms=requested_arms,root_lookup=root_spec)
 
 @contextmanager
 def entry(module,spec,*,mode,evidence=None,out=None):
@@ -146,6 +153,11 @@ def entry(module,spec,*,mode,evidence=None,out=None):
     import system_campaign_p05_batch_runtime as p05
     import system_campaign_p06_abmd_reporting as reporting
     need(mode in ('preflight','economic','review'),'BOUNDED_DISPATCH_EXPLICIT_LEGACY_MODE')
+    import system_campaign_p06_WWE12_runtime as wwe12
+    wwe_request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())
+    if wwe12.candidate(spec) and wwe_request.get('execution_mode')==wwe12.MODE:
+        with wwe12.entry_context(module,spec,mode=mode,old=Path('/old'),out=out or Path('/out'),request=wwe_request,evidence=evidence):yield
+        return
     with ExitStack() as stack:
         import system_campaign_p07_readonly_review_recovery as recovery
         active_request=json.loads((HERE/'system-campaign-factual-request.json').read_bytes())
