@@ -1,0 +1,66 @@
+{
+  "actual_neutral13_known": false,
+  "actual_parent_full_inputs": 12,
+  "all_original_additional_source_selections_unchanged": true,
+  "complete_original_function_code_objects": [
+    "hydrate",
+    "document",
+    "qualify",
+    "prepare",
+    "review_input",
+    "source_scopes",
+    "hydration_name"
+  ],
+  "entire_original_typed_dispatch_AST_undo": true,
+  "files": {
+    "P06-TBIO-source-exit-input-catalog.json": {
+      "bytes": 19467,
+      "sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c"
+    },
+    "forecast_tests/test_source_exit_api.py": {
+      "bytes": 4253,
+      "sha256": "87b86043c1c7ec79e6387c2a836638f298c9fee9a89224fa91ca5592e03cddc3"
+    },
+    "forecast_tests/test_source_exit_history.py": {
+      "bytes": 4714,
+      "sha256": "ea38d328ab62f0ee632b3eb8407e012ceb45a3912d9d346b50d468841ff9618a"
+    },
+    "system_campaign_financial_future.py": {
+      "bytes": 371399,
+      "sha256": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 3823,
+      "sha256": "a351c18bcb358c01d1ec6717fd9066d9f8d6541f04e1cf9a5fca67fde2bdc87b"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 6579,
+      "sha256": "4e499c2191efd45c278641d95c85a52daab8bbb4a4257518455b2790a1572d92"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "full_original_parent_history_traversed": true,
+  "hosted_packet_execution_qualified": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+  "schema": "research.source-exit-API-history-DATA-qualification/1",
+  "tests": {
+    "financial_import_fences": 5,
+    "local_hydration_refused": true,
+    "meaningful_guard_removal_falsifiers": 1,
+    "passed": 26,
+    "seconds": 27.75
+  },
+  "utc": "2026-11-07T18:10:20.242104+00:00"
+}
