@@ -14,7 +14,10 @@ services:
     network_mode: "service:sentinel-postgres"
     init: true
     restart: "no"
-    mem_limit: 256m
+    # Charged memory includes dirty backup pages and replication sockets.
+    # Bound this disposable client separately from the primary database.
+    mem_limit: 2g
+    memswap_limit: 2g
     cpus: 0.5
     environment:
       POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}
