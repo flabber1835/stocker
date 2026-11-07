@@ -1,17 +1,8 @@
 {
-  "admitted_checkpoints": {
-    "P03": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b"
-  },
-  "admitted_financial_parents_sha256": "b1a815fdca1e77b2abea5c4db507d0d358880dff70c237d3bad39037cc5d2c2e",
-  "arm_inputs": {
-    "P03": {
-      "new_factual_overlay": false,
-      "restored_correlation": false
-    }
-  },
-  "arms": [
-    "P03"
-  ],
+  "admitted_checkpoints": {},
+  "admitted_financial_parents_sha256": "6ebad9a0cf63696f7d5cd7ba2971c37c17dbb2e41573d80468544a6ad623dfe4",
+  "arm_inputs": {},
+  "arms": [],
   "artifact_retention_days": 7,
   "campaign": "system-optimization-002",
   "diagnostic_state_adopted": false,
@@ -24,7 +15,7 @@
   "full_measurement_start": "2018-01-02",
   "initial_reporting_origins": {},
   "maximum_parallel_financial_workers": 0,
-  "maximum_parallel_readonly_workers": 1,
+  "maximum_parallel_readonly_workers": 0,
   "new_origin": false,
   "predecessors_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
   "preflight_wait_seconds": 1200,
@@ -33,7 +24,7 @@
   "readonly_partial_review": true,
   "readonly_source_witnesses": false,
   "review_wait_seconds": 2700,
-  "schema": "research.system-campaign-accurate-resume-request/215",
+  "schema": "research.system-campaign-accurate-resume-request/216",
   "selected_abmd_bounded_inputs": {},
   "selected_abmd_preparations": {},
   "selected_bounded_models": {},
@@ -42,29 +33,7 @@
   "selected_ordinary_augmentations": {},
   "selected_p03_cash14_ordinary18": {},
   "selected_p03_full17_reporting_bridges": {},
-  "selected_p03_full18_reporting_bridges": {
-    "P03": {
-      "actual_full_input_visitor_required": true,
-      "arm": "P03",
-      "captured_request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
-      "completed": 543,
-      "fact_file": "P03-FIN345-full18-reporting-fact-v1.json",
-      "fact_sha256": "63f4f9f7cb7fbbb7fba0ea83e6bab6a5eaaaf323b28f1d0f2eafd57e13e0b9f7",
-      "financial_resume_authorized": false,
-      "financial_reuse_seed_installed": false,
-      "financial_transitions_reexecuted": 0,
-      "full_inputs": 18,
-      "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
-      "new_financial_rows": 19,
-      "original_B19_and_typed_DOVA_codecs_retained": true,
-      "retained_rows": 70,
-      "root_admitted": false,
-      "schema": "research.p03-full18-readonly-reporting-bridge/1",
-      "source_cursor": "2020-02-28",
-      "target_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
-      "whole_monthly_reproduction_unchanged": true
-    }
-  },
+  "selected_p03_full18_reporting_bridges": {},
   "selected_p03_thor_ordinary17": {},
   "selected_p03_thor_qualification_reuse": {},
   "selected_p05_full20_readonly_reporting_bridges": {},
@@ -216,7 +185,7 @@
     "system-campaign-early2019-terminal-facts.json": "740b0e937067d3cf45a371e51cfd02c59821e9fdb5232714d449d302cda6b4ac",
     "system-campaign-explicit-source-witness-queries.json": "c6c72f4f7448db302305e974947320e9a5425d70be8e938ce8fc1beaf5569c47",
     "system-campaign-february-cash-calendar-terminal-facts.json": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
-    "system-campaign-financial-admitted-parents.json": "b1a815fdca1e77b2abea5c4db507d0d358880dff70c237d3bad39037cc5d2c2e",
+    "system-campaign-financial-admitted-parents.json": "6ebad9a0cf63696f7d5cd7ba2971c37c17dbb2e41573d80468544a6ad623dfe4",
     "system-campaign-financial-branch-contract.json": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
     "system-campaign-financial-correlation-prefix.json": "db34a12dc699680a3f89cc3d08f0107ee1d041fdfe427a86f6b3cffc6f05f32c",
     "system-campaign-financial-partials.json": "db9ed3adcb53515dc76f2ecf70d3697dd77227ab67c7b8a87898e325f0348915",
@@ -429,10 +398,10 @@
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
     "system_campaign_financial_future.py": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
-    "system_campaign_financial_partial.py": "88b1e300f35b14b7a0516f1713b0ee1517b1be6681d46919a7c3fdd1d1d7000c",
+    "system_campaign_financial_partial.py": "4aa05194577c9aef17384404820e3b342ad779f3a110092a759f09b9b869b25d",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "76ebdfdf8ef574f5052c75623a3c84ee4bc45e54a355de920a1714096c2b2db1",
+    "system_campaign_financial_resume.py": "7083943bb135fb3da0c0e01e78088aadf4544a72048960f570890cbabafdbc51",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
@@ -745,5 +714,5 @@
     "transfer-requirements.lock": "2e2ac7498d98bbe4d563760f6eb814f63e85a0baa833b7d973d8cae93deab104",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "workflow_sha256": "9241d59f4bd7cf2052af2514371075ae862df8b2244b31618f4a83247114d689"
+  "workflow_sha256": "396d663476296a90a9329e9b9d0aef87e5b95e508d395952196f077e7b682c44"
 }

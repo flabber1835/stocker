@@ -7448,3 +7448,18 @@ REPORT347 precisely identified FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL: the new pos
 
 Use only genuine FIN345 saved543/full18 and independently admitted524/bff8 monthly seed. Reuse the entire qualified full17 readonly bridge with explicit immutable case literals (18 inputs,70 retained+19 new proofs), original full DOVA history and all original financial/monthly bodies. No financial context or new input adoption is installed. March diagnostic tails and HABT failure are not seeds. Whole AST undo and actual full input validation are required; no local canonical execution.
 Private full18 target/literal AST undo/import validation:11passed6.24s. Select P03 only, zero financial/one readonly worker. P07 reporting remains a separate immutable request. FIN345 positive hosted review and19 saved closes remain unadmitted until original monthly reproduction and independent DATA.
+
+
+## REPORT348 independent P07 root admission
+
+Only saved1383/2023-06-30/full25 and929 committed proofs. Original805 proofs retained;124 daily closes,248 accounting snapshots,six monthly reports and168 Decimal metrics independently checked. Authenticated529 physical members and explicit715-name lossless logical equivalence remain distinct. July3 diagnostic tail and July5 BWA failed state excluded. Historical causality UNVERIFIED. No next financial restart is qualified by this root admission. Qualification decfbb241877a8c0e91bbbabaa219240212282bcfb6d949f91496222ce0db523. Keep original d9 root and its failed-review requalification intact as historical evidence. The new positive FIN343 transport and fresh REPORT348 monthly proof identify current evidence. Move inherited failed-review metadata under its seed namespace. Leave the original uncertainty module and its point-only seed catalog unchanged; a future full25/BWA bridge requires separate qualification.
+
+
+## REPORT349 independent P03 root admission
+
+Only saved543/2020-02-28/full18 with89 committed branch proofs. Retain70 admitted proofs; independently verify19 new closes,38 accounting snapshots,all33 ordinary observations,one monthly report and28 Decimal metrics. Genuine neutral18 and whole inherited DOVA history checked. March diagnostic tails and HABT March18 failed state excluded. Historical causality UNVERIFIED. No next financial restart is qualified by this admission. Qualification 7966b3c366cf734a53810f4175c191a0e56341ba591dd37f7c63e247d7379558. The original bff8 root remains historical evidence. This admission authorizes only separate qualified research continuations and source inspection; all execution and production authority remains excluded.
+
+
+## Accepted-prefix checkpoint after REPORT348 and REPORT349
+
+Both completed reporting jobs are immutable evidence, not templates for duplicate reruns. Publish their independently closed P03543/full18 and P071383/full25 roots together. Until a successor financial or source bridge is separately qualified, select zero arms and disable the automatic campaign job at this metadata checkpoint. The request remains an explicit reporting-mode metadata snapshot with zero financial and zero readonly workers; no saved checkpoint is advanced by this publication. Reactivation must explicitly select qualified successor profiles and restore the workflow condition. Preserve all prior captured requests, roots and source snapshots. This does not change any financial policy or grant production authority.

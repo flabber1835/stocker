@@ -8,7 +8,8 @@ permissions:
   actions: read
 jobs:
   suffix:
-    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    # No successor profile selected at the accepted-prefix metadata checkpoint.
+    if: false && github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     concurrency:
@@ -46,7 +47,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stage_transport.py --factual-request research/capital_risk/system-campaign-factual-request.json --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Report349 P03 actual543 full18 February monthly reproduction with zero financial transitions
+      - name: Accepted-prefix checkpoint; successor profile must be qualified before activation
         timeout-minutes: 270
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

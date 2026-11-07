@@ -41,6 +41,13 @@ def test_p06_declaration_has_no_unregistered_or_truncated_source(change):
 
 def test_source_pin_replacement_falsifier_detects_removed_new_guard(monkeypatch):
     # Exercise the closure guard without invoking another arm's legacy admission route.
+    import system_campaign_financial_partial as partial
+    root=partial.root_spec
+    def historical(arm,admission_sha256=None):
+        if arm=='P03' and admission_sha256 is None:admission_sha256='bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877'
+        return root(arm,admission_sha256)
+    monkeypatch.setattr(partial,'root_spec',historical)
+    monkeypatch.setattr(resume,'root_spec',historical)
     monkeypatch.setattr(resume,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
     monkeypatch.setattr(resume,'SELECTED_ARMS',('P03',))
     import system_campaign_bounded_sensor_runtime_v2 as dova
