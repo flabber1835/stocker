@@ -758,7 +758,7 @@
         "all_new_funded_factors_and_financial_chains_verified": true,
         "all_new_monthly_and_retry_state_verified": true,
         "arm": "P03",
-        "authority_scope": "Only exact own543 may seed qualified research continuation; later tails,full scoring and broker authority excluded.",
+        "authority_scope": "Only exact own606 may seed qualified research continuation; later tails,full scoring and broker authority excluded.",
         "base": {
           "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
           "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
@@ -1006,105 +1006,237 @@
           "all_math_watch_financial_chains_verified": true,
           "binary64_domain_cardinalities": [
             [
-              1896129
-            ],
-            [
-              15511681
-            ],
-            [
-              3788801
-            ],
-            [
-              7756545
-            ],
-            [
-              3702753
-            ],
-            [
-              4059297
-            ],
-            [
-              7936897
-            ],
-            [
-              2031057
-            ],
-            [
-              8117153
-            ],
-            [
-              63494865
-            ],
-            [
-              2031057
-            ],
-            [
-              531377
-            ],
-            [
-              543169
-            ],
-            [
-              1038433
-            ],
-            [
-              8108865
-            ],
-            [
-              116832801
-            ],
-            [
-              14450497
+              14786625
             ],
             [
               1722945
             ],
             [
-              1681953
+              58490625
+            ],
+            [
+              7138529
+            ],
+            [
+              851345
+            ],
+            [
+              185609
+            ],
+            [
+              188113
+            ],
+            [
+              41905
+            ],
+            [
+              34181
+            ],
+            [
+              36853
+            ],
+            [
+              7259
+            ],
+            [
+              16445
+            ],
+            [
+              7875
+            ],
+            [
+              7623
+            ],
+            [
+              6903
+            ],
+            [
+              7259
+            ],
+            [
+              7995
+            ],
+            [
+              7865
+            ],
+            [
+              16891
+            ],
+            [
+              16125
+            ],
+            [
+              33649
+            ],
+            [
+              16625
+            ],
+            [
+              7865
+            ],
+            [
+              7865
+            ],
+            [
+              7865
+            ],
+            [
+              18125
+            ],
+            [
+              17061
+            ],
+            [
+              18327
+            ],
+            [
+              80811
+            ],
+            [
+              80125
+            ],
+            [
+              97405
+            ],
+            [
+              688125
+            ],
+            [
+              93599
+            ],
+            [
+              48125
+            ],
+            [
+              52461
+            ],
+            [
+              52461
+            ],
+            [
+              105105
+            ],
+            [
+              54873
+            ],
+            [
+              114285
+            ],
+            [
+              58089
+            ],
+            [
+              108185
+            ],
+            [
+              108185
+            ],
+            [
+              103565
+            ],
+            [
+              102025
+            ],
+            [
+              106645
+            ],
+            [
+              218817
+            ],
+            [
+              231385
+            ],
+            [
+              487025
+            ],
+            [
+              289121
+            ],
+            [
+              144921
+            ],
+            [
+              151305
+            ],
+            [
+              266049
+            ],
+            [
+              543169
+            ],
+            [
+              148225
+            ],
+            [
+              153873
+            ],
+            [
+              157465
+            ],
+            [
+              160545
+            ],
+            [
+              160545
+            ],
+            [
+              154385
+            ],
+            [
+              153873
+            ],
+            [
+              157465
+            ],
+            [
+              147969
+            ],
+            [
+              157465
             ]
           ],
           "every_binary64_box_covered_disjointly": true,
-          "exhaustive_leaves": 19,
-          "hosted_canonical_transition_oracle_sha256": "1544b7e738972aab0a06fc6e474cf2683341af8c2da1c4ff3c586f1ae417bc51",
+          "exhaustive_leaves": 63,
+          "hosted_canonical_transition_oracle_sha256": "57497155745fcd0128eb1d29eafe47f0c2d0dd4059d18a80a80588f353c150cc",
           "maximum_possible_states": 1,
           "passed": true,
           "prior_proof_rows_reexecuted": 0,
           "prior_qualification_reexecuted": false,
-          "retained_rows": 70,
-          "rows": 19
+          "retained_rows": 89,
+          "rows": 63
         },
-        "completed": 543,
-        "disclosure": "Only saved543/2020-02-28/full18 with89 committed branch proofs. Retain70 admitted proofs; independently verify19 new closes,38 accounting snapshots,all33 ordinary observations,one monthly report and28 Decimal metrics. Genuine neutral18 and whole inherited DOVA history checked. March diagnostic tails and HABT March18 failed state excluded. Historical causality UNVERIFIED. No next financial restart is qualified by this admission.",
-        "exact_linux_monthly_proof_sha256": "5925063ca99373cd4585d0f43ed2912da750839807e8b8f0fdcaab0e48acfaf2",
-        "financial_artifact_id": 13556088875,
-        "financial_cipher_sha256": "66862bac3ef6c8bf64be4958f4b531cc016d21eb462b2a69c7d488859988a6bc",
+        "completed": 606,
+        "disclosure": "Only saved606/2020-05-29/full19 with152 committed branch proofs. Preserve89 prior proofs and verify63 new closes,126 accountings,all34 ordinary observations,three exact monthly reports and84 Decimal metrics. Genuine HABT neutral19 and entire DOVA/input history checked. June1-9 diagnostic tails and June10 STML contingent-value-right failure excluded. Historical causality UNVERIFIED. STML is not a qualified pure-cash completion; next financial restart requires separate qualification.",
+        "exact_linux_monthly_proof_sha256": "d8e01d64de31667aa4aebb2f28c711bc8d6478df4be00134dcbd385ceef4eebf",
+        "financial_artifact_id": 13560350458,
+        "financial_cipher_sha256": "8bb4beaaa034d6b936ec2168da1184fdea4027478340c19a96b5cc16cee38590",
         "financial_continuation_authorized": true,
-        "financial_head": "9f808eb6e21271a8d1e0d10aeeab528cb533fa00",
-        "financial_run_id": 42327820775,
+        "financial_head": "9aaad04b915573b5f12f7c005c90ce1d5cb79194",
+        "financial_run_id": 42335535377,
         "financial_sessions_added_by_metadata_correction": 0,
         "financial_source_epoch_unchanged": true,
-        "financial_zip_sha256": "8c39c06fd1f80da4d66a47591c2494771b0db48080d7681eac1333f9df68b68a",
+        "financial_zip_sha256": "7825a6a6166ecfac9b6f7007d7327178fe4b61d2404bcb0a09ba004fc2bb613a",
         "full_financial_validation_completed": false,
-        "independent_accounting_snapshots": 38,
-        "independent_branch_reader_sha256": "10fcdc89c42dad1adb1a3291357507a6d53f30eaa143a9090e48a642604b5d05",
-        "independent_cash_reader_sha256": "10fcdc89c42dad1adb1a3291357507a6d53f30eaa143a9090e48a642604b5d05",
-        "independent_cash_reader_tests_sha256": "f5cf3bd590ecb8794be01a6ca5643bc120f0166370d3c784bac84601ecbb65ac",
-        "independent_core_reader_qualification_reused_from_admitted_root": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
-        "independent_negative_tests_passed": 1,
-        "independent_reader_sha256": "09f0488ae7da10ada83d6858c2b9c4e84b07307de3dfba03d14f2e4501755448",
+        "independent_accounting_snapshots": 126,
+        "independent_branch_reader_sha256": "33f8efc07de293aa19449468184954ba6e7f6902164182b9bd8e68a3d30235c8",
+        "independent_cash_reader_sha256": "33f8efc07de293aa19449468184954ba6e7f6902164182b9bd8e68a3d30235c8",
+        "independent_cash_reader_tests_sha256": "fdeffee85c07ce6ad09468d6ed94ccb709be76ec94cb5e1dcfb060f734828b75",
+        "independent_core_reader_qualification_reused_from_admitted_root": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+        "independent_negative_tests_passed": 3,
+        "independent_reader_sha256": "9aa53325f99840abe24be2c9bcb11b5cba6d6f21cf2a3a4c3f31259229927d8c",
         "independent_reader_tests_qualification_reused_from": "financial-readonly-20261104-092/test_initial_data.py",
-        "independent_reader_tests_sha256": "f5cf3bd590ecb8794be01a6ca5643bc120f0166370d3c784bac84601ecbb65ac",
-        "independent_review_sha256": "c38e6101196ef4fbe3ee6293be7a8911ff89a1af6ead764886b3fe524c3bd3e3",
+        "independent_reader_tests_sha256": "fdeffee85c07ce6ad09468d6ed94ccb709be76ec94cb5e1dcfb060f734828b75",
+        "independent_review_sha256": "280fb3ef01338984a4cbe062d65793eeac8f292a0dab5146eb99d07d96dda5d2",
         "independent_same_prefix_metadata_qualification_sha256": "b11671181c4a3b07ebf133e7feaf4f3b077ddfc415e1f680e53ffdca662ef245",
         "initial_formation_records": 126,
-        "inner_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+        "inner_sha256": "206e9ea14493716ddb1d96f8130a986d2d83f0be911c367dd7078e92e695ecb9",
         "input_adoptions_fully_state_neutral": true,
-        "input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+        "input_sha256": "1186bd4c3cefbc8e067a332b8a8ea75edce8f39a5c789c82981e00c6d92c73b7",
         "journals": {
           "daily": {
-            "bytes": 26511557,
-            "last_record_sha256": "c1f1746f3cde4de26fcbd3251a3cb910f1a64fc60a414142bbc7edb51c74731d",
-            "prefix_sha256": "a1d9d21c98e40318de0c465ca153f6a769cc3b4e6ae033efe1ebf696f5854fa9"
+            "bytes": 29353484,
+            "last_record_sha256": "239a5fe41acaf3689b0c9b19028bfb6ea881f84055401564b89fd8455dd50f70",
+            "prefix_sha256": "364ce02d4c55ffe2602333dd9126889fbdfee8cf50bc6156abe4c064eade8957"
           },
           "formation": {
             "bytes": 5776539,
@@ -1112,29 +1244,29 @@
             "prefix_sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
           },
           "monthly": {
-            "bytes": 94676,
-            "last_record_sha256": "38e2c68a2a4821637db352d2949016d676e085d8a896b73efb0b77666661d247",
-            "prefix_sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+            "bytes": 105767,
+            "last_record_sha256": "ad4e9dd1e2a0352b0a6ed1c280e7851d8125226a64d456e426839f11d0418fd2",
+            "prefix_sha256": "9fdac331f433c3bfb1cc4d136992aa679f6159b2f3b290c220a307163dd39ff2"
           },
           "watch": {
-            "bytes": 49906,
-            "last_record_sha256": "6367f2105b2999926c5edc1c78bd7266b833892327c4c8d4b438994b3ab85d98",
-            "prefix_sha256": "14a9c5e8a563339290f21f8b99ea1181a7d634a6ec5005520fdeb93f8a2585d2"
+            "bytes": 73493,
+            "last_record_sha256": "8be764041a5ee0b33ca9437c075890db4d0787026a048dd9aed5cb45d570df9f",
+            "prefix_sha256": "05fe39b2079500c78895665f354901a23f8e9e0c7a9c8b049087884ea7efea3d"
           }
         },
         "local_canonical_runtime_executed": false,
-        "new_daily_records": 19,
-        "new_monthly_reports": 1,
-        "next_session": "2020-03-02",
-        "original_strict_parent_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
+        "new_daily_records": 63,
+        "new_monthly_reports": 3,
+        "next_session": "2020-06-01",
+        "original_strict_parent_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
         "original_zero_measurement_checkpoint_sha256": "fa1f7daca5e345490b4938fd786995755701664bdc265876d6d3545ce6fca6e0",
-        "outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
-        "parent_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "outer_sha256": "53651f1a143ea9d4ec39dfe45840f8182709df4830e0d4906f38677219dc1335",
+        "parent_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
         "performance_scoring_authorized": false,
         "production_contacted": false,
-        "readonly_artifact_id": 13558251810,
-        "readonly_head": "e5965bcf71519e974d6dbe0c1d58d708370817e7",
-        "readonly_run_id": 42331943293,
+        "readonly_artifact_id": 13567319355,
+        "readonly_head": "ce3948a193c68beca4041e07458fbc5b3f1b7e80",
+        "readonly_run_id": 42356055652,
         "repairs": [
           {
             "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
@@ -1243,24 +1375,30 @@
             "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
             "resume_session": "2020-01-31",
             "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+          },
+          {
+            "filename": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9.json",
+            "predecessor_checkpoint_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+            "resume_session": "2020-02-28",
+            "sha256": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9"
           }
         ],
         "schema": "research.root-financial-continuation-admission/1",
         "selected_checkpoint": "book/checkpoint.json.gz",
         "selected_file": {
-          "bytes": 1143759,
-          "sha256": "26662bb56bb5cbae62a0d5df17da65943f6b56d592c3f97fe629efc43ec21c22"
+          "bytes": 1125187,
+          "sha256": "39ca09b3f584d66c3fcfa19d8b24b4d5be337fe24ebae60cf3b8558ad5120a18"
         },
         "source_binding_sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9",
-        "source_cursor": "2020-02-28",
+        "source_cursor": "2020-05-29",
         "source_input_proof": {
-          "March_tails_excluded": true,
-          "all_financial_observer_terms": 33,
+          "June_tails_excluded": true,
+          "all_financial_observer_terms": 34,
           "financial_transitions_reexecuted": 0,
           "full_input_proof": {
             "actual_typed_origin_verified": true,
             "all_descriptors_bytes_verified": true,
-            "full_inputs": 18,
+            "full_inputs": 19,
             "original_observers": {
               "all17_initial_forward_terms_preserved": true,
               "cash_events": [
@@ -1269,6 +1407,24 @@
                   "quantity": 0,
                   "session": "2019-10-08",
                   "ticker": "CBLK"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-04-16",
+                  "ticker": "CY"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-04-27",
+                  "ticker": "MLNX"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-05-29",
+                  "ticker": "WBC"
                 },
                 {
                   "nominal_cash": "0",
@@ -1285,6 +1441,18 @@
                 {
                   "nominal_cash": "0",
                   "quantity": 0,
+                  "session": "2020-03-30",
+                  "ticker": "WAAS"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-03-09",
+                  "ticker": "ZAYO"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
                   "session": "2020-01-23",
                   "ticker": "THOR2"
                 },
@@ -1293,9 +1461,25 @@
                   "quantity": 0,
                   "session": "2020-02-20",
                   "ticker": "DERM2"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-03-19",
+                  "ticker": "HABT"
                 }
               ],
               "conversion_and_mixed_events": [
+                {
+                  "actual_context_verified": true,
+                  "cash_consideration": "0",
+                  "cash_in_lieu": "0",
+                  "delivered_whole": 0,
+                  "kind": "CONVERSION",
+                  "session": "2020-04-01",
+                  "source_lots": 0,
+                  "ticker": "S2"
+                },
                 {
                   "actual_context_verified": true,
                   "cash_consideration": "0",
@@ -1308,54 +1492,54 @@
                 }
               ],
               "financial_sessions_reexecuted": 0,
-              "observation_terms": 33,
+              "observation_terms": 34,
               "original_observer_methods_unchanged": true,
               "passed": true
             },
             "whole_original_input_visitor": true
           },
-          "full_inputs": 18,
-          "genuine_neutral18_boundary": {
-            "actual_neutral_outer_sha256": "fc9b30b33ac8c6a469935a641f7953f88fc55368f7c3722bf3de023d5b6d53af",
+          "full_inputs": 19,
+          "genuine_neutral19_boundary": {
+            "actual_neutral_outer_sha256": "dd188e3157dca26937425cfeb266b46eec16a2aaae4eebb22dd4b72dc5e2831d",
             "all_original_state_journals_and_stats_unchanged": true,
             "canonical_financial_source_changed": false,
-            "current_inputs": 18,
+            "current_inputs": 19,
             "financial_sessions_advanced": 0,
             "input_successor": {
-              "earliest_affected_session": "2020-02-19",
+              "earliest_affected_session": "2020-03-18",
               "overlay": {
-                "filename": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946.json",
-                "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
-                "resume_session": "2020-01-31",
-                "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+                "filename": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9.json",
+                "predecessor_checkpoint_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+                "resume_session": "2020-02-28",
+                "sha256": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9"
               },
-              "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
-              "predecessor_input_sha256": "bcbcd587370d2711d735cc466d9a4a7880cab46dadf07c3aba24617fa3f0624d",
+              "predecessor_checkpoint_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+              "predecessor_input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
               "schema": "research.pooled-action-successor/1",
-              "state_sha256": "abf9f3b9deb17e25606ed90a8d547cd03a84d274d5ea275eb821cb0da58e1572",
-              "successor_input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
-              "unchanged_through": "2020-01-31"
+              "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
+              "successor_input_sha256": "1186bd4c3cefbc8e067a332b8a8ea75edce8f39a5c789c82981e00c6d92c73b7",
+              "unchanged_through": "2020-02-28"
             },
-            "neutral_gzip_sha256": "4b11b6982f25b78f21755d19193b45cac930dadc57c52b7e3864ea06438568f1",
-            "original_inputs": 17,
-            "original_parent_outer_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
-            "original_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+            "neutral_gzip_sha256": "25ee7d41e81a307e0d20f5fef39411c7b148cfd3acf07a5437250cc461d331d9",
+            "original_inputs": 18,
+            "original_parent_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+            "original_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
             "passed": true,
             "zero_new_correlation": true
           },
           "passed": true
         },
-        "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
+        "state_sha256": "2301c54dcb839830bfb09bc518d22dafcc99a473746af99afee7bdd0343a3b62",
         "status": "ADMITTED_EXACT_FINANCIAL_CONTINUATION_CHECKPOINT",
         "superseded_local_metadata_admission_sha256": "b8cf6b7fcc737daf21870dd9cce4874910d3f33139c92201d0c4ae730ea33e43",
         "uncommitted_tails_are_not_financial_authority": true,
-        "utc": "2026-11-07T03:11:24.988363+00:00"
+        "utc": "2026-11-07T08:46:06.046265+00:00"
       },
-      "admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+      "admission_sha256": "3ee60adb5326914846a052e26310d62045dd39b838a923378c9a84b6f230e7d4",
       "transport": {
         "archive_format": "FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1",
         "arm": "P03",
-        "artifact_id": 13556088875,
+        "artifact_id": 13560350458,
         "base": {
           "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
           "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
@@ -1600,66 +1784,66 @@
         },
         "complete_journals": {
           "daily": {
-            "bytes": 27039099,
-            "sha256": "b764cddbf69527983f0861cd276f41885784a8c9f943228b04e8b746bd591a4a"
+            "bytes": 29677320,
+            "sha256": "9c514569aecc6d1b3ad6a5fd6bd70696fab080cdace355e5535ed676448bc6c6"
           },
           "formation": {
             "bytes": 5776539,
             "sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
           },
           "monthly": {
-            "bytes": 94676,
-            "sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+            "bytes": 105767,
+            "sha256": "9fdac331f433c3bfb1cc4d136992aa679f6159b2f3b290c220a307163dd39ff2"
           },
           "watch": {
-            "bytes": 54118,
-            "sha256": "1dedeac962f22639f311b1508ef8595a494e826d2e2f36a1fbba5227b7e032c3"
+            "bytes": 75950,
+            "sha256": "4db006cc7d1e567a19ae7a2dbf03526f27b2c6890b8badaa9c7f172166f6e674"
           }
         },
         "encrypted_output": {
-          "bytes": 131495967,
+          "bytes": 118884799,
           "compression": "TAR_GZIP_V1",
-          "manifest_sha256": "cb08d49e9d1fe4b25e73733a258cfbaedf4541b4ece211f5557e9928ca48609f",
+          "manifest_sha256": "d8f891b838290b218bf66666b85ad08a6d1cd334e748b0b84c8c6b070628a0fc",
           "name": "campaign-factual-P03.tar.crseal",
-          "sha256": "66862bac3ef6c8bf64be4958f4b531cc016d21eb462b2a69c7d488859988a6bc"
+          "sha256": "8bb4beaaa034d6b936ec2168da1184fdea4027478340c19a96b5cc16cee38590"
         },
         "financial_authority": false,
         "financial_entrypoint_sha256": "27ed4a9c20359f86e8c2591e49ab5b783b3a2b542a3e21f7a085d08d65cd7474",
         "financial_predecessor_admitted": false,
-        "head": "9f808eb6e21271a8d1e0d10aeeab528cb533fa00",
-        "inner_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
-        "input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+        "head": "9aaad04b915573b5f12f7c005c90ce1d5cb79194",
+        "inner_sha256": "206e9ea14493716ddb1d96f8130a986d2d83f0be911c367dd7078e92e695ecb9",
+        "input_sha256": "1186bd4c3cefbc8e067a332b8a8ea75edce8f39a5c789c82981e00c6d92c73b7",
         "inspections": {
           "parent-preflight/worker-inspect.json": {
             "correlation_prefix_mounted": false,
             "exit_code": 0,
-            "id": "8295fc5343f49e941441a8bd72aa17be32d8b7b2f616fe849f3b893e103e858c",
-            "name": "/capital-system-resume-p03-preflight-42327820775-1",
-            "sha256": "939fd0377c7c4a49faeffefb5f17fc4f3ffe9ddf31d93e62fd40f402538359b6",
+            "id": "3c4d4c756937958db4d3004ce3d43bc351005ed1a84413805cc456537785f36f",
+            "name": "/capital-system-resume-p03-preflight-42335535377-1",
+            "sha256": "cb3b2a51f7fc72dff307bb1e1795837da5621d9bea8d64904b725b15fd818366",
             "user": "1001:1001"
           },
           "stopped-review/worker-inspect.json": {
             "correlation_prefix_mounted": false,
             "exit_code": 0,
-            "id": "25d03f79629b57b27100ef39d29f31116f07e1f30ad3142c2879b1dbb19216ae",
-            "name": "/capital-system-resume-p03-review-42327820775-1",
-            "sha256": "e23943a18b6ae5e33e82bfb2a913a15ed2ebfc4d60af1693e9f7096c5261cb72",
+            "id": "f830bb3eabb1ede46d6536419812944dcbd535060a1d8649772c81c4cd08b481",
+            "name": "/capital-system-resume-p03-review-42335535377-1",
+            "sha256": "c9bc6aba3f3271f5419bd1560b6ac7a7a61ef3f86eb507544234b69a8944fe25",
             "user": "1001:1001"
           },
           "worker-inspect.json": {
             "correlation_prefix_mounted": false,
             "exit_code": 1,
-            "id": "d846a3daa184398a1737ca4e3c5d6cb8170482e6a724ad71b4f569f401479fac",
-            "name": "/capital-system-resume-p03-worker-42327820775-1",
-            "sha256": "fcac918de40f7b30ee761a9c9178d3e5cf880046d7409157be7622caedefcf55",
+            "id": "36bbf18c18201f73921637ee983742a63f1dcfddafb0d0b0a87445d0846fb1f0",
+            "name": "/capital-system-resume-p03-worker-42335535377-1",
+            "sha256": "fdc1b08a7bc8c0a234dac4f6c14e52c28357be69a6e3f4b5cda1d2fbdeb67579",
             "user": "1001:1001"
           }
         },
         "journals": {
           "daily": {
-            "bytes": 26511557,
-            "last_record_sha256": "c1f1746f3cde4de26fcbd3251a3cb910f1a64fc60a414142bbc7edb51c74731d",
-            "prefix_sha256": "a1d9d21c98e40318de0c465ca153f6a769cc3b4e6ae033efe1ebf696f5854fa9"
+            "bytes": 29353484,
+            "last_record_sha256": "239a5fe41acaf3689b0c9b19028bfb6ea881f84055401564b89fd8455dd50f70",
+            "prefix_sha256": "364ce02d4c55ffe2602333dd9126889fbdfee8cf50bc6156abe4c064eade8957"
           },
           "formation": {
             "bytes": 5776539,
@@ -1667,47 +1851,47 @@
             "prefix_sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
           },
           "monthly": {
-            "bytes": 94676,
-            "last_record_sha256": "38e2c68a2a4821637db352d2949016d676e085d8a896b73efb0b77666661d247",
-            "prefix_sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+            "bytes": 105767,
+            "last_record_sha256": "ad4e9dd1e2a0352b0a6ed1c280e7851d8125226a64d456e426839f11d0418fd2",
+            "prefix_sha256": "9fdac331f433c3bfb1cc4d136992aa679f6159b2f3b290c220a307163dd39ff2"
           },
           "watch": {
-            "bytes": 49906,
-            "last_record_sha256": "6367f2105b2999926c5edc1c78bd7266b833892327c4c8d4b438994b3ab85d98",
-            "prefix_sha256": "14a9c5e8a563339290f21f8b99ea1181a7d634a6ec5005520fdeb93f8a2585d2"
+            "bytes": 73493,
+            "last_record_sha256": "8be764041a5ee0b33ca9437c075890db4d0787026a048dd9aed5cb45d570df9f",
+            "prefix_sha256": "05fe39b2079500c78895665f354901a23f8e9e0c7a9c8b049087884ea7efea3d"
           }
         },
         "manifest": {
-          "member_count": 257,
-          "raw_member_bytes": 168155929
+          "member_count": 242,
+          "raw_member_bytes": 158193237
         },
-        "measured_closes": 543,
-        "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "measured_closes": 606,
+        "monthly_seed_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
         "original_parent_index_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
         "original_request_member": {
-          "bytes": 79027,
-          "sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7"
+          "bytes": 80889,
+          "sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86"
         },
-        "outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
-        "p03_full18_readonly_reporting_bridge": {
+        "outer_sha256": "53651f1a143ea9d4ec39dfe45840f8182709df4830e0d4906f38677219dc1335",
+        "p03_full19_readonly_reporting_bridge": {
           "actual_full_input_visitor_required": true,
           "arm": "P03",
-          "captured_request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
-          "completed": 543,
-          "fact_file": "P03-FIN345-full18-reporting-fact-v1.json",
-          "fact_sha256": "63f4f9f7cb7fbbb7fba0ea83e6bab6a5eaaaf323b28f1d0f2eafd57e13e0b9f7",
+          "captured_request_sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86",
+          "completed": 606,
+          "fact_file": "P03-FIN352-full19-reporting-fact-v1.json",
+          "fact_sha256": "f4688b2eb7af73455eac2eeeaaddde15d15f999d49587d1def6c648bc8fff1c9",
           "financial_resume_authorized": false,
           "financial_reuse_seed_installed": false,
           "financial_transitions_reexecuted": 0,
-          "full_inputs": 18,
-          "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
-          "new_financial_rows": 19,
+          "full_inputs": 19,
+          "monthly_seed_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+          "new_financial_rows": 63,
           "original_B19_and_typed_DOVA_codecs_retained": true,
-          "retained_rows": 70,
+          "retained_rows": 89,
           "root_admitted": false,
-          "schema": "research.p03-full18-readonly-reporting-bridge/1",
-          "source_cursor": "2020-02-28",
-          "target_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+          "schema": "research.p03-full19-readonly-reporting-bridge/1",
+          "source_cursor": "2020-05-29",
+          "target_outer_sha256": "53651f1a143ea9d4ec39dfe45840f8182709df4830e0d4906f38677219dc1335",
           "whole_monthly_reproduction_unchanged": true
         },
         "prior_account_performance_certified": false,
@@ -1735,15 +1919,15 @@
         "public_members": {
           "campaign-factual-P03.json": {
             "bytes": 1317,
-            "sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70"
+            "sha256": "73886fd3e758e5f7ec35545bf19ca132def4261ad3b2689e77f04065d16e0f28"
           },
           "ephemeral-runner-capacity.json": {
             "bytes": 698,
-            "sha256": "462a74443dc666dd9286877c4d1001f754b3c5c1ff35e700713da616a4ca1402"
+            "sha256": "0d7fd25f0de4b780f98d232dea6b3ea346e59bd371f52d1e8d6e68721a1bd15d"
           },
           "full-core-staging.json": {
             "bytes": 964,
-            "sha256": "6f1e3c41b20c59e3cb2519e0e032000d2434d76148c3e43d7d2459774f662983"
+            "sha256": "16f50c185c37fcf9fc9757a3f91d6681fe398dcf2b6c1887d77f435a18b9ee9c"
           },
           "resume-export-qualification-P03.json": {
             "bytes": 149,
@@ -1752,7 +1936,7 @@
         },
         "receipt_name": "campaign-factual-P03.json",
         "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
-        "receipt_sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70",
+        "receipt_sha256": "73886fd3e758e5f7ec35545bf19ca132def4261ad3b2689e77f04065d16e0f28",
         "receipt_status": "PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT",
         "repairs": [
           {
@@ -1862,26 +2046,32 @@
             "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
             "resume_session": "2020-01-31",
             "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+          },
+          {
+            "filename": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9.json",
+            "predecessor_checkpoint_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+            "resume_session": "2020-02-28",
+            "sha256": "a5f5a4dc140ca88eed6435fc734391483b931ccdca5a0a255a526d931b9573b9"
           }
         ],
-        "request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
+        "request_sha256": "ce2932f236f8e217fa58feb6d314a7c60748361566468cbb78ce05ff2fc2bf86",
         "retained_uncertainty_model": "research.leadership-branch-uncertainty-input/1",
         "reuse_closed_hosted_prefix_review": true,
-        "review_sha256": "3194773a75eea1ba188481be42abe69b9ecbe2109229cdb2b966e96c1f6e2f82",
-        "run_id": 42327820775,
+        "review_sha256": "c3f9471505bad3371209a479010f360df675c388f0cb5b9f27a5189d94faed11",
+        "run_id": 42335535377,
         "selected_checkpoint": "book/checkpoint.json.gz",
         "selected_file": {
-          "bytes": 1143759,
-          "sha256": "26662bb56bb5cbae62a0d5df17da65943f6b56d592c3f97fe629efc43ec21c22"
+          "bytes": 1125187,
+          "sha256": "39ca09b3f584d66c3fcfa19d8b24b4d5be337fe24ebae60cf3b8558ad5120a18"
         },
-        "selected_session": "2020-02-28",
+        "selected_session": "2020-05-29",
         "source_binding_sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9",
         "source_files": 515,
         "source_profile_sha256": "47bdf86184ac6b83c0b3a50ebae646471f08229c7dd81305a97f265b441d68b3",
         "stage": "campaign-factual-suffix",
-        "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
-        "zip_bytes": 131499865,
-        "zip_sha256": "8c39c06fd1f80da4d66a47591c2494771b0db48080d7681eac1333f9df68b68a"
+        "state_sha256": "2301c54dcb839830bfb09bc518d22dafcc99a473746af99afee7bdd0343a3b62",
+        "zip_bytes": 118888697,
+        "zip_sha256": "7825a6a6166ecfac9b6f7007d7327178fe4b61d2404bcb0a09ba004fc2bb613a"
       }
     },
     "P04": {
@@ -78632,6 +78822,1138 @@
         "state_sha256": "2399eaa29d90b0847fc93c4f32669836c587b30ec4e1ffc508b0bc541e3741db",
         "zip_bytes": 161307859,
         "zip_sha256": "58c2fa76e23f39c506ae8d0859a77d71275731f1af07957f9b5e56e1a3c9038b"
+      }
+    },
+    "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8": {
+      "admission": {
+        "all_new_cash_shares_receivables_and_raw_marks_verified": true,
+        "all_new_funded_factors_and_financial_chains_verified": true,
+        "all_new_monthly_and_retry_state_verified": true,
+        "arm": "P03",
+        "authority_scope": "Only exact own543 may seed qualified research continuation; later tails,full scoring and broker authority excluded.",
+        "base": {
+          "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+          "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+          "capital": "50000",
+          "comparison_files": {
+            "compact/champion-daily.csv": "cda954a33aa4e16d72a8124219ae9eb7f526f003d0c8b4f5dbb88c69e498caeb",
+            "owned55/segment-001/daily.jsonl": "379997093d4912910451e2e0f227e4e95471adc815ad66c9f2d397f192d1da61",
+            "owned55/segment-002/daily.jsonl": "4ec82cfce67d6ef42a60ba5243500016de79330a2c597f0da8bc35b848c1498b",
+            "owned55/segment-003/daily.jsonl": "4d568257fd5bbbdf502dcc7da7bdc08b832383b91eaeacad18783b8bc4ebd488",
+            "owned55/segment-004/daily.jsonl": "e6db8bee030755d3718ad733ca66eaf529673cf59e0f30e9cf9d2555f023b93d",
+            "owned55/segment-005/daily.jsonl": "c0219870196ffa30067862265445f14bd5a622ed93738c68b4f56c6964a24868"
+          },
+          "end": "2026-07-31",
+          "policy": "wealth-core-v5-zero-share-fixed-2008-v1",
+          "schema": "research.pooled-vacancy-backtest/1",
+          "sources": {
+            "research/pooled_input_support/__init__.py": "8e8b661138166a47beec75d442d330ef3e0ea46a85a087044865735fe8bb3695",
+            "research/pooled_input_support/adapter.py": "f14c7c3de0cb55e30f08dea7dfd047e099dcfa794e1a6c020555baf4781d77a4",
+            "research/pooled_input_support/build_prefix.py": "75d4712354473d62464813aaef1943d4b99e7264eb5aa051ce729075ae3b3341",
+            "research/pooled_input_support/bundle.py": "db0ec89096db94603f040f9c9dfaf64a4b9edaaa8250e7b916ec0180655e57e3",
+            "research/pooled_input_support/inputs.py": "04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c",
+            "research/pooled_input_support/prefix_checks.py": "1c4a8f1be4b18afa2e65fd8f7785cf54f01db0fbaef16d3c4da17c0a33a7312b",
+            "research/pooled_input_support/prepare.py": "67493a2fa51140128cc0f32645284cae6d93a7dad727605afcbe5b71bf96bd4e",
+            "research/pooled_input_support/spinoff_inputs.py": "69a17e66966e87fd952890339145795c02bbf834e57c32ed1ced266171aa6c68",
+            "research/pooled_vacancy_funding/__init__.py": "e016d3a2e924e4ebd7de8ac65886667e0232b31cb2bc502ec27fc87cf1fdd9c7",
+            "research/pooled_vacancy_funding/backtest.py": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+            "research/pooled_vacancy_funding/journal.py": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5",
+            "research/pooled_vacancy_funding/matched_inputs.py": "08d1ee73191887a44b2fd6eb9a32906e5dadad35aeaceb84513252ade8f5d743",
+            "research/pooled_vacancy_funding/matched_launch.py": "a5bb143d075ea1225aedba8da8a4552bdbb205fce2765fd35bbc85d4099a9d20",
+            "research/pooled_vacancy_funding/monthly.py": "7c4676ffad92ee67adf83e95f17be21960ea2d64ec88736dd364e83bf96097bd",
+            "research/pooled_vacancy_funding/prepare_inputs.py": "46f4e7d1d0abb8603eb6711c2dbb01298ae20bdcf110f771f2e6a203518f1293",
+            "research/pooled_vacancy_funding/repair.py": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+            "research/pooled_vacancy_funding/retries.py": "fc22847c199a32e5595213e88fa6cc7c41a8d3027d12d8209931c3ee34755486",
+            "research/pooled_vacancy_funding/runtime.py": "6a1abb031655a8b3a1cd1a3cfc94b596c34d88cdd329cc67f109540e3060b139",
+            "research/pooled_vacancy_funding/source_successor.py": "e2e781f94a4c96e48ffc74426640748117f2c08a334a30fcdcd9810ef831ea40",
+            "sentinel/__init__.py": "94a4acb0177af19ec0a02856b3cdfd159abfe981b7f5780ac9b1ee2cff861d3a",
+            "sentinel/__main__.py": "ec203aa60bb8882895d2b7f27476a4917973f3174f5488e50a0623dabccc1e36",
+            "sentinel/administrative_authority.py": "7096b1671eebb9a7787a5aeefc03b9b237a6d974431d5cd550e22cc60da3ba19",
+            "sentinel/alert_health.py": "ca49465fbc32979f0af8a4bd2726d299abe6eea85f69605763d6e9f24d0569e5",
+            "sentinel/alert_liveness.py": "d354c4e89f3d0ab2d03d402dadcdeefc031f885eb0445ec0cd68bd32d6e88132",
+            "sentinel/alert_service.py": "7c83c955c1388a9cd6536ff80439ee7f214cba1b1f454aea3bfcd8270b7b9a3d",
+            "sentinel/alert_supervisor.py": "8724a717fa79ce8c9f689c849934ac90cb1c1f055ffc68288b156ad31a6edfdd",
+            "sentinel/automation_liveness.py": "11967bddf2a46b31fd964eb7e734dcb689d8c1d0c6c2428037011de6f9e4ec12",
+            "sentinel/automation_recovery.py": "798a7c79afff42ccd05724bf1c4061677c73470b10e8f8129ba3f1d3810c7d5b",
+            "sentinel/automation_resilience.py": "f5a5e7ce395b494e48fde85bab01995b4e3be1d12454508aae4084d8491731a6",
+            "sentinel/automation_runtime.py": "41ec879535c2b9d758ff8798dc0a049592a57f1f0d40da10a94d4f7e10729a71",
+            "sentinel/automation_supervisor.py": "6360a9cd2401df18cdf2cadbae4389821adc4e3d7cf5e075f5e2b21bc5784bdd",
+            "sentinel/automation_worker.py": "29789548d282a0867dd4b258c9f38908c7b301670adae280437d0049ab8d9570",
+            "sentinel/autonomy_runtime_upgrade.py": "9a25f82d6e9f73f699be5773cdd2982f9f5e9032d23eb00dee4ae5b8907a691f",
+            "sentinel/backed_paper_source.py": "4fa844f7c13d017a9306ba858c2770a7347989e7971b8b16e59a1a802763e40a",
+            "sentinel/backup_archive_names.py": "801134448d0dffd25af9cd3ab675047f1a53fe1e00734b97d6e621b880cca583",
+            "sentinel/backup_guard.py": "7ffbe5156e414ef685d1d3e24563aea05389b5598785096566b8f90253939e96",
+            "sentinel/backup_retention.py": "bf3ef0cbb83459775c96f7673a15d496f45ed6c77d8b1035e85ecf52396e542e",
+            "sentinel/backup_runtime_authority.py": "66998ed1daf634929d8ade308b07b113dd90d4e755ba9036cf2b6f94a4b87292",
+            "sentinel/binding.py": "7840b3e39f019c0f9f30aae1f5b0ff4ec33e3a787610fbde413dffc32a94bbe4",
+            "sentinel/broker.py": "7ea6700ab26c6d26db9469d5752860807e4a828d9d5dd1b86bae86ed8aa3dee9",
+            "sentinel/callback_liveness_upgrade.py": "2a68a45b3cf9a4b0ea0e727de23899f49d608b97b4f119b207d1ca765ae2b1f1",
+            "sentinel/clock_sampling_upgrade.py": "2aedd9e6e8dcbfa11baa02c9f26e5a215a6f60ecf211f9cb15be9109cde0afdb",
+            "sentinel/close_cycle_upgrade.py": "486027dafeba53fd14ae734e3d48fb5dbc5800ff350dc6ab87ffeebc61ea35d4",
+            "sentinel/committed_read.py": "7f8bbbceb93b2c669c78849e511d84de08acfe96066bdff580f549f2701f5ef0",
+            "sentinel/config.py": "a7c9c82d286751208ef99e8fb15f68060a3c4a2e6f31e5720bd7efa6067100a4",
+            "sentinel/controller/__init__.py": "6f9ac76cf0b5a030bcaeb556d3d1695708aa53ff024ab5948cf8fb4f10f73dc1",
+            "sentinel/controller/champion.py": "b96dc432492e5e3b098dff6336416bd711e95a01c79b74ab940dec009742049a",
+            "sentinel/controller/champion_config.py": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+            "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+            "sentinel/controller/concordance.py": "a3bb33f131060d72e385051843ecca8a0b1e6ad7cc3238f1b3036c73fc689d04",
+            "sentinel/controller/concordance_parent.py": "9c42ec75133c9a64063636d63975412df550243d57f88a9fc29d7b9e560b62f8",
+            "sentinel/controller/ex3_v6.py": "6735cb78bdf3be44e24fbe7b77f1b9ce4584dc50223e5880c5b859e6b9db6120",
+            "sentinel/controller/frozen_rule.py": "cd4b730ae4b5108626e67f4ce0fbf6a32303960e070b9ab9b99246267cca121e",
+            "sentinel/controller/ldrc.py": "6eedb85005a3843d4b128eac863a525f83657544eba2f08fd1b1986be86b960a",
+            "sentinel/controller/machine.py": "42ccefd7b497da560e611ceda3fd4ed0d40b573617ee8679851b2dd7bad3c797",
+            "sentinel/controller/median5.py": "177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1",
+            "sentinel/controller/median5_breadth.py": "8cd6ac067e9fa004fb7134d5117beb4f45c6175d288a4bf42841be7c0bd55f71",
+            "sentinel/controller/owned_impairment.py": "699286647502b99ea9a3bf7c02b3bd839a43523d613ed3c62ad71271c2de092b",
+            "sentinel/controller/recent_leadership.py": "77fb36065457f85956ab2257bc4ea2054208123d6518ecd01f17e3f24d6ec24c",
+            "sentinel/controller/terminal_returns.py": "172c55b738753bcc9bcf29cf6ab3618d9de42d6f63f7e555d606508f7f740867",
+            "sentinel/core/__init__.py": "dab2bfd96605eca71bebff61bac7798328d91bca32133dc6cce0ac6fe1b5cabf",
+            "sentinel/core/bootstrap.py": "eacbbdd4f0c24930381613c9169a558556d4f6403935169bd427a342e56a24f5",
+            "sentinel/core/cash_distributions.py": "6bfc664500caeda8dcead85fc923c298700167a5d6b2ad28515ea9baa50b8e47",
+            "sentinel/core/cashflow.py": "127f30f023ca04775b3e4ee032734239c816924f70714bc04eee3c76480d1a9d",
+            "sentinel/core/catchup.py": "3e781874da3351510e40d03f22ab82f6248aad82feed67cc7b4101f3ab7a316c",
+            "sentinel/core/decision.py": "f94bd591073ba51ac7cb1b787a7ab0347efa514e65259b615a18106dae192c8a",
+            "sentinel/core/feature_warmup.py": "b13c221d97c06fd0c20dd5135c9ab14cfba05a4e5582b657787d0d34440f04c6",
+            "sentinel/core/formation.py": "0daaf586991853d80a1801f4b9c9317fd3c9b7cc579788ccfa1bc6102d714005",
+            "sentinel/core/formation_features.py": "5d2d7ea24f9bdc921279fffb646b53738f2226bc5768e4f3de54acb647c856a3",
+            "sentinel/core/formation_identity.py": "7df63f700769ee2787efab7783195c940140b59eae1fabe436b04ec27011aebe",
+            "sentinel/core/formation_inputs.py": "81af5d570247f8ee94c052bcf84fdca39a79fa93401886130b9772b7e208a767",
+            "sentinel/core/formation_preview.py": "e95eb5ed012c0d74d85b6d65c66c704703033540ca2591d1da2358ef4317dd97",
+            "sentinel/core/history.py": "2703bf2912fb893e0c30e74556231a7680f03489e02a4e49c8722c66f6d6f9c4",
+            "sentinel/core/input_domains.py": "a823ae244c575e0b1178f7ba6c037f3934ef23716ffcd1af2368a45ee9754419",
+            "sentinel/core/kernel.py": "d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739",
+            "sentinel/core/loader.py": "95c9b96915ac2ab73b4c1d640ec825a6ed1ea7fd37163ffa550b455becf41191",
+            "sentinel/core/migration.py": "89cc16fe329d3be03e229193e4663fc06d96729911d53c64c7078a8e6b0ff0f8",
+            "sentinel/core/price_identity.py": "bb8b1a072069d1393f788a4bc4654d1ab24dc8d655fa472b2aefcd5443c29297",
+            "sentinel/core/production.py": "d8fbdc02c61b632391615dec9faaabc1e1e66d76b756c8f20e5df46c0788616d",
+            "sentinel/core/rolling_continuity.py": "81e89b3fa279736a91efe2c2f8dafc3ccb7dffea7890b008a5cbefceaf1b22e5",
+            "sentinel/core/rolling_inputs.py": "f4092a97e583fcdb6350d6fe68d99f822cda92cd5e32c77aa308a066761a41c5",
+            "sentinel/core/rolling_reader.py": "7f3238e31dceb4a38bfe2a2fb78e1e8387ad03cdcf86c7724c054cab596f1212",
+            "sentinel/core/session.py": "a9a522b36e7d1710041d7b13f1170bfa1ef9051b8d5b82e20778401e404242e4",
+            "sentinel/core/spinoffs.py": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+            "sentinel/core/strategy_profiles.py": "c7184411ccfdc085609d509facbe4008808190826aa3fcebfa3c3403d113e81e",
+            "sentinel/core/terminal.py": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
+            "sentinel/core/window_continuity.py": "deadc644f2564b2b2550731288b5400d315672eb867cff55a4b1bcac98771653",
+            "sentinel/core/window_features.py": "48e94251d4b2df7f6f9876ba5699b28a71a84844f2715fc2290a6f7524550661",
+            "sentinel/core/window_material.py": "3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76",
+            "sentinel/core/window_policy.py": "407710aa1e2a6da40b64aac2411a7a319bbda4de43bdef52cc05fcf170718dc7",
+            "sentinel/corpus_writer_source_basis.py": "6d241eb77aeca336c054853414d2dc4e1022998ba9e216464670e51e93073a3a",
+            "sentinel/dashboard_monitor_upgrade.py": "c4f97b1ae7a657e89d8ac3a54fde85cce2a2898715fc1401875cccec56c031da",
+            "sentinel/dependency_availability.py": "5add39c59d57a7b1b31ec17b4aecdc1edc5e856df87e7acc44fcbf16afe612f0",
+            "sentinel/deployment_fence.py": "42ffe14fa6048bc65f66439eecc883940525d078decade34f6afeaaf68198b15",
+            "sentinel/dual_plan_authority.py": "0f6e530417509c04696768514ccd9a359857e65ec32b26bccf961cd9727329f4",
+            "sentinel/dual_plan_renewal_upgrade.py": "70de1efda4b68ea42c3750d24d0330314f5ea00aac6a1ff15bc79499183c3ca9",
+            "sentinel/dual_reconciliation.py": "bbd603e5033668a279fcbd3d219268fd58bd747f2aab009b0d276a574e2de6a1",
+            "sentinel/economic_manifest.py": "c55e73a7eda54bd4c92cb2a60e3913fd6021441229e288957b43af66645ae03c",
+            "sentinel/economic_migration.py": "5f8630d4c6991e357bd6725aad6f800287871b5079f68866698beacc943d573e",
+            "sentinel/empty_account.py": "611f455b307e4b36c4677f067ac11f1c13d9b8f5ed0086bf00d19eebd63b6d6b",
+            "sentinel/empty_account_authority.py": "b4443920837b473472082190fa5c6eea3fac1a06c694d76c6616f59c5a5d5caf",
+            "sentinel/execution_collector.py": "e62ef87c29435dc56a033b4f79a17caa1532194505e4b108ed1523ead486ff72",
+            "sentinel/execution_upgrade.py": "9e65d218356e49ecc185e918c537b6182ba26641bba20f3345cfac086701494a",
+            "sentinel/formation_bootstrap.py": "a441cf3b20318f05b256e9150b3f8f3d4382beb687982de0aa0dd9dc49eba723",
+            "sentinel/formation_cache.py": "3dcf6df2c3a9080b464fa9616fdece3c48c8414cdc9edae2c285b1f40413158a",
+            "sentinel/formed_economics.py": "34ce8061a3ebc53c208163f4f63049682f8ed9f5110413e0282d857d8fd84ef0",
+            "sentinel/formed_origin.py": "7639b6f746e5a1cca6a0f8a68a68a38bdcf5afee8cce1a525aea881a7cec925b",
+            "sentinel/guarded_administration.py": "a6584181ad79d4e5a521959b1cae0f82038e431097e4a2b794a1942faa59c76f",
+            "sentinel/handover.py": "80f31624d3d271f2774ab3f29f16990e0f70a089cb433bb922fc9f2998e285e4",
+            "sentinel/identity.py": "07865851f32aae555fe85fbf2f0a8063a26ade22d22aa255b96e5af3d0f8ee6a",
+            "sentinel/idle_leader_upgrade.py": "62c75da24a6861bfb570b98bad7e951acca0e790bb8752db3db88703b5db1685",
+            "sentinel/informational_paper_mirror.py": "d33363a24e91ca40e8de61f311ab12cdfa121e4c48b41c66f44956e56095f1bc",
+            "sentinel/live_readiness.py": "1a5c5d924e5d6ecb1c92e5d7b904d59817e279b32b07a7acc1c04a268e386643",
+            "sentinel/local_paper.py": "b3fd1e258a933076014f2c3794ea53d8ccc9ef809303fbb4ae53468a560ee139",
+            "sentinel/mirror_projection.py": "2c29b2cea5db96f68b9cfba7e5ad2a1a1a88eb7714d9ac27abec0d423a556a64",
+            "sentinel/mirror_schema.py": "1fca20eaaf7a4cb029867acf4699c9491817c4cb9a7dd7c301a5f2ef6259aaf6",
+            "sentinel/native_read_upgrade.py": "6dfae675ef72e28f765c1d33a3702899bd86b6c45833a4daded73216a772c4e7",
+            "sentinel/notification_policy.py": "f5805e06d7f4f53a626460d01aebaf3d1d338572bf56bff7ea2c1e07949c36e9",
+            "sentinel/observation_authority.py": "c79bf0d8dc0e17d8b3feea9a7c992353184d13b4f023091f9305428154ca8fb8",
+            "sentinel/observation_startup.py": "4856ddfc0622fd7ed7f4d3f5f58f3bafa51bbf83e3ba6f4b46059ea0029c7618",
+            "sentinel/observation_storage.py": "df7835f6062ef15172cf52f1329ba907ede1c03d81303ee0e6012a6fe19798a3",
+            "sentinel/open_time_upgrade.py": "806f51e51e1d0bb0bb7c56799ef8608e8bf54cf4b9548e2ca76fe23c8ed4b843",
+            "sentinel/opening_latency_upgrade.py": "1fc0319a95d18d39fce23626e28f9861a77f93e3be3c6bb588d6cb4d8b11138f",
+            "sentinel/operational_catalog.py": "9533edea8aaea8af7cef456d416c4308ea4fdeaa021f6f92e65da6aa914b3f36",
+            "sentinel/operational_ddl_epoch.py": "b13648c84d2a677963343500320e973071668734ac5460c32dc90ddf1696abb9",
+            "sentinel/operational_evidence.py": "9425b226dc2ab8c3875070ceb45aae3f6677c616c70b1eb660fcac7f7abfd07f",
+            "sentinel/operational_liveness_upgrade.py": "6c8fb8ba99d67c55c8571580606cc100c16b8276246016d13bece098b3824d45",
+            "sentinel/operational_runtime_upgrade.py": "26a1b3cc6c6816e954f1ea6be053d845a3a7fadd42275130d4bdf64a215bca48",
+            "sentinel/operational_schema.py": "2a63ef4a57d12308c85dfd828f38474caafce602369753d8de3c74bd131863aa",
+            "sentinel/operational_status.py": "5cefa936615889fe6dd5d5cde7e0387a8356fb7f588fda06bbd86782c55e1d1c",
+            "sentinel/ownership.py": "739c11511f08c9d2c07045114c40a3b0756a8faaadd14cf7dda8bc5b655025c5",
+            "sentinel/ownership_view.py": "a9193a8ebf0f8546a2da6bc1fb7c46f9fecd4ae469635e036c48f1c117a560e5",
+            "sentinel/paper_performance.py": "975a86c3663e60f7e3c37d338ada9401946753d67586baaa31b123db8d8d8fd8",
+            "sentinel/paper_plan_preview.py": "33974d4c00820a574acf643bd79e2d34b561476488dd09bb74887f63999d80c4",
+            "sentinel/persistent_share_authority.py": "1ab0a512232cc452351c578e4d781c917dc815fcb9537277977f46c04ec82392",
+            "sentinel/protected_cohort_upgrade.py": "cef5b24fe29a64a7d7a86f16602639fbd59c46d95dd6be8fa2c0bbadd54b7dff",
+            "sentinel/publisher_pipeline_source_basis.py": "2e93edfd1e59dfcf635a38d35fbdda432e4a99a4b155524614769212ec5980f4",
+            "sentinel/push_recipients.py": "6ad78983849bdbd4544b8f88cb4ae5413f18f1eed7ba493905479f32faf102db",
+            "sentinel/receipt_authentication.py": "b7e9aa39858f8b0b7be98f797eda404764f6de1078855f613e947479306dd27c",
+            "sentinel/restore_validation.py": "71469429ba32a7b5878823e811b062444f7b477e2011405f0afdf519eff61ab6",
+            "sentinel/retained_go.py": "fddfa0ba651967cdae82b0960cfbbf3e8cfed8be57940224126481392916ee02",
+            "sentinel/retained_input_namespaces.py": "a6cf3ad730474696bc9cd99b4b46a11960f737d20af801aa8fa964a599e283a6",
+            "sentinel/retained_parity.py": "dd7619f7b5bae1dfa20bc000ad8d1cf1348ca299c6ad38db9cdd77ef37e45963",
+            "sentinel/retained_readiness_upgrade.py": "44938aef8030a216c5e867486a1f125dbb4792cb86069962296d152ac6658eb7",
+            "sentinel/rolling_authority.py": "6c061a75377603a9771633b0d867b8bfa7eb1d28c4bfc20da302fdd694a4489e",
+            "sentinel/rolling_checkpoint.py": "ca31b054df204efcc1b2a2c231ca5faeab51e0032ba1e1cad91188bcbfc40c64",
+            "sentinel/rolling_daily.py": "3c46efb044ff84381341f44790c779ae8fe7a718b9d746d02b6ad5b9fa9a5f3b",
+            "sentinel/rolling_daily_checkpoint.py": "45adfda89b7adf2c7d4c7cb50b7e07d3fab7d9844bfbcf113efddf3bd301607f",
+            "sentinel/rolling_initialization.py": "2e2235afeb2d7f2da2d3fb1c25754de103827a034ff4b30ab0952437a3e831f9",
+            "sentinel/rolling_reconstruction_evidence.py": "6d474dc4b65d88020489d2abb9b533322fe1c9679326341bdabe7341038a3943",
+            "sentinel/rolling_recovery.py": "b01ba5e898da28d3d0205aa79a46e6540b5b7a4e3981e26ca1046b5cdce0f5a0",
+            "sentinel/rolling_rehearsal.py": "cbe29abb63caf5088f9fee08c13a50e07e13eaeec41cae5f4bee45f005bee831",
+            "sentinel/rolling_runtime.py": "6c71a830e653dcca14e8c4633d7da127974245f4a23c7df3a549190c8f3e80e2",
+            "sentinel/runtime_admission.py": "adcbb78fead48c2ea38d72c2da2fa48351451adb0610536d7a6674790a60d9e7",
+            "sentinel/schema.py": "4efca204f0f5e915d3a1c1d835cf00770449651cc5f0cdaa3c406d5bc2582287",
+            "sentinel/semantic_source_basis.py": "877cae7db32c7bc86efa9e6bdb8676687623ffde54856f82937ed6de4a2dc335",
+            "sentinel/shadow_budget.py": "4cd339c141faf3759e2724d9b83a5d4badd1cac44e2ccf9f7e894f53ad0c334b",
+            "sentinel/shadow_dependency_notifications.py": "950276cbf0f25ce4c7579b7848e2e0c316f924f5522d9ed8ba7c16a261498d86",
+            "sentinel/shadow_drain.py": "bf78196874e4cc773a94c20b38df0304bf642b479bb1a4fd9164cbbcd4ff45ba",
+            "sentinel/shadow_drain_compat.py": "b97c24101d962829502622eaeffb35df255552040970f207a354c60c58a684cc",
+            "sentinel/shadow_health_projection.py": "3e95ee0be32ff2020c5ba20fd72cd09aa0e7a755cb2ed8c426c4f8a9e02c8988",
+            "sentinel/shadow_observation.py": "62266616d6f9a78d6ae9eab4d88ee2429d1ce4e08e003afcb6b60a3c2115b957",
+            "sentinel/shadow_recovery.py": "20aa7b13a872092b270235c31c09b836b7e840e694dc1d57e6b73da0ab753e0f",
+            "sentinel/shadow_restart_recovery.py": "e3dc5822fed6fe16de40e9bebeee298124f550979ea9380735c2dcb399c3e9eb",
+            "sentinel/shadow_runtime.py": "ec05fbc58ac44fad5477792f36cdff28d1399590472bd7ec808936b7d3b40f46",
+            "sentinel/shadow_segments.py": "02309d99962792c9cc7853423a450ad58ec722fbb80159bc9b4291a2242f5284",
+            "sentinel/shadow_service.py": "ef0ac9a0a2ef49c680ffcab00b7400b04f833f9ffc5d16c8ddbef10431549043",
+            "sentinel/shadow_service_probe.py": "cf9a56cd7d3d1c44be8943a9f478c61831e77863c90815697f1956d6518683b1",
+            "sentinel/shadow_service_status.py": "2328035c1534bcde2d76586948de163ae5cdff48ebd8a883c5b98fcc67b5b016",
+            "sentinel/shadow_supervisor.py": "aee1a3c34ee247678c5b37993eca2bcc700187ee99615f2d0720380a89f001c2",
+            "sentinel/shadow_ui_upgrade.py": "e6f59359b6ec5ae1d5d9fc4125eb174122c1336a0b08c4f0827b9fe9bc368b9a",
+            "sentinel/shadow_worker.py": "a04d0eda940999154b03dfa7c9993aef06cc7603775276dd3cbe69ddcdb9847b",
+            "sentinel/shadow_worker_liveness.py": "6ade169ab8d44d33f1d757aede2c5d6cfdfd816f30536c53602f5fa30ab44452",
+            "sentinel/source_diagnostic.py": "220b2ed56041a0cfde560ae3b240367c4acbed0c574eacfd4497f687dc579c9e",
+            "sentinel/standing_observation_authority.py": "1f7c43a01dba94561156d76591190e1b9cd5434ac40aadb1194b9bb5460bcf55",
+            "sentinel/startup.py": "92fe5e50df2ae634729d4080e37dc4baa0a659f41ccfbb6fedcb77785f65d177",
+            "sentinel/startup_contention_upgrade.py": "fac86d07c3628146e13873910bbdf68e8c09f3ca981bc74fad738e3052d847c8",
+            "sentinel/store.py": "40267c7f90f6820ddea2a19cf0918d173ee1b63970170078e23cc948e96c98dc",
+            "sentinel/strategy.py": "36d2b1d0e20a4e2bebd0d8c8ecb2399a310f5c4885c2b670644fec08ff429489",
+            "sentinel/structural_refactor_source_basis.py": "15525a4f5b63294343cdf6541a7331eb9dfbf8767f0cd4f665599a099d46a8f4",
+            "sentinel/structural_verification.py": "1b3719543470d53619ee3f77b89138c6fcd44f6b22b7fdd8484998016932dbfc",
+            "sentinel/supervisor_io.py": "78fad1b887b0ffddeeda4962c0a71951c12250068a267d82fa58e074a8e1fc96",
+            "sentinel/trading_environment.py": "5e41099e6cd55f4cb2e6d32aa712aeaa8e83b92b4a7de69350b9def2c35c5a6c",
+            "sentinel/transaction_contract.py": "f31869db57c69fa9e6ebf8822ac2d87644138372eb4c6d46cf10f4ab9d9c0e57",
+            "sentinel/transition_registry.py": "339db86c1a5e1f8c7ecfc36f3860fb5c79ae0a732294ee24388dac3c682796cf",
+            "sentinel/transition_registry_specs.py": "db062fb9e10203c590834f485a6f16b7edacbd99ba23589854feef7bfed704a5",
+            "sentinel/trial.py": "0aa019adb344a35f1256795295a11a88a93cb3b58da645110653ed4c7d986d38",
+            "sentinel/trial_close.py": "938d443d41dcb742b730c3db7bb67ce93b14f12663ee7e6816912a9cfe93ac44",
+            "sentinel/trial_evidence.py": "d3a135aee17bc0df951d49acd5dffedbd2c18dc36378bddcb0d694016716524c",
+            "sentinel/trial_fills.py": "5f3dde71b9fb2113325d4eda805dea0e7821356f105a100969319de26d36e867",
+            "sentinel/unsent_recovery_upgrade.py": "6fd45eb7cebb7ed47abed560a6420178443b861c6115cfd179ad1dcfc5651b9e",
+            "sentinel/web_push.py": "6e87cd42391193a619a04e74c1d0fff195b21bc3ac8eca1d099d7a51a23c4789",
+            "sentinel/worker_notification_source_basis.py": "1b9301e9d1ddc3f75d3276959c4952b38ad8ffb507e4b78adb942b0908d81d08",
+            "shared/stock_strategy_shared/wealth_core/__init__.py": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
+            "shared/stock_strategy_shared/wealth_core/accounting_snapshot.py": "62309cfd4d23470bb8d131ce21ff29be9e21ead44dda5d1e05f695bd599528ed",
+            "shared/stock_strategy_shared/wealth_core/adapter.py": "3c1233a325b99fe50b18079c3db54abdf4392866a5c4932b5ac17475055a0ed9",
+            "shared/stock_strategy_shared/wealth_core/eligibility.py": "edbc38d65f7c18092160fa72cd9716ff2eb68b2eb44cf586ff6fa34d8bae0d24",
+            "shared/stock_strategy_shared/wealth_core/engine.py": "2d4572a08be38e54a156f431df11547d1267ba406275cc111c056faa7fe0b4b2",
+            "shared/stock_strategy_shared/wealth_core/execution_model.py": "d88dc2d791fc91b7106fa9eb2cd91aee63e34b7a53a5e38bf7d50d95230d1c34",
+            "shared/stock_strategy_shared/wealth_core/feed.py": "afa9324811921271a139500764aee19b85dec96f9a499d392c12f25f97e6ee32",
+            "shared/stock_strategy_shared/wealth_core/funding.py": "79ede15adcaa2856ce9f927a0c9de017bf649aafee79bcf176bbf3edab02083d",
+            "shared/stock_strategy_shared/wealth_core/golden.py": "806867531bac6c60f24dcce8f6996c5adb9b289587b55d56adeaccacabe25d71",
+            "shared/stock_strategy_shared/wealth_core/hashes.py": "b900a66a1846446e7fa387aea1dee3110ac33ea194da0223985f6617c2adc9ba",
+            "shared/stock_strategy_shared/wealth_core/ledger.py": "c37a8656cc43a4807bf16e2fc6dcb97758cbe7271fc8d9a736ee526c9a9281f3",
+            "shared/stock_strategy_shared/wealth_core/liquidity.py": "07d8483ed58dd7173263a2e089ca15de1d2e8078c72822ec7fcd46448407177a",
+            "shared/stock_strategy_shared/wealth_core/live.py": "9fbe0cfd4455242262c3b1722394d4d0a5d198965925a15b94113c9d3f12ad9e",
+            "shared/stock_strategy_shared/wealth_core/marks.py": "b53edbf4cd723f5a53dc46e341f2cc8ee7efb891f10be7d5d57a1f2fbf239bd6",
+            "shared/stock_strategy_shared/wealth_core/median5.py": "9c1a30ecf60fd53bbf99bbdd1553b06b1411c199a7c7d58acb547cd736321aeb",
+            "shared/stock_strategy_shared/wealth_core/ordering.py": "7b32d13e2709305742b6cead59c530a4b20c1823f47eea0415b1f539b6d6e86d",
+            "shared/stock_strategy_shared/wealth_core/performance.py": "aac5a3da47028832a4e6b3aa9e2d230558c220b9793c7c0a240d8635b1bb7040",
+            "shared/stock_strategy_shared/wealth_core/prices.py": "8160e46d9d969c14fb1abaf39d6c903d77ef36cbdd842aed765cf1c0d2d33370",
+            "shared/stock_strategy_shared/wealth_core/risk_profile.py": "b312fc40fcf3a1e593a8c334e107e3c282605280858ba87c86871bb66c517faa",
+            "shared/stock_strategy_shared/wealth_core/run.py": "edac1c5e1480a8b830fb3ec95846f42a533730ef0e2ec53d0379cb1547466885",
+            "shared/stock_strategy_shared/wealth_core/settlement.py": "4fcb6e16bf3dfdeb255255fba46b93feff4120ae301310be061660188c7ca2f5",
+            "shared/stock_strategy_shared/wealth_core/sharadar_domains.py": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba",
+            "shared/stock_strategy_shared/wealth_core/shares.py": "2297a6bd6e3d616b4b449fc1cbd8809003ace01e955d8dd06aea66b5b0e76537",
+            "shared/stock_strategy_shared/wealth_core/signals.py": "07e4b878eaac3c1f304af54095bbcba6db1e0487240bd06ba2612f2e391c6bb7",
+            "shared/stock_strategy_shared/wealth_core/state.py": "9833426c8bf222a963def1c69cd6683885f6239ed8dba07a8bfba8c457761ff4",
+            "shared/stock_strategy_shared/wealth_core/state_restore_validation.py": "a709e6ce1de997a8c8a7a6f180d45712e251ec4deb19db656c03711f3e588c83",
+            "shared/stock_strategy_shared/wealth_core/terminal.py": "d145eb0787c58e092618d1b05f5f2d988449351ac146a050debd9e0cec1c44e6",
+            "shared/stock_strategy_shared/wealth_core/terminal_audit.py": "2122f1b39e887e4813f66ceb4f740785a2ca62cef7146de076ce81cbce2ff351",
+            "shared/stock_strategy_shared/wealth_core/v5.py": "f24c25cfea853167564762d02013f64cad992edf8eb714f5d42c12b109972f48",
+            "shared/stock_strategy_shared/wealth_core/window_signals.py": "81ce2cf42260e5bfa45ef27ef8fa7e4031aa6b03c7aadc30498611c5ebdce4ae"
+          },
+          "start": "2018-01-02"
+        },
+        "branch_uncertainty_proof": {
+          "all_comparisons_and_state_sets_verified": true,
+          "all_math_watch_financial_chains_verified": true,
+          "binary64_domain_cardinalities": [
+            [
+              1896129
+            ],
+            [
+              15511681
+            ],
+            [
+              3788801
+            ],
+            [
+              7756545
+            ],
+            [
+              3702753
+            ],
+            [
+              4059297
+            ],
+            [
+              7936897
+            ],
+            [
+              2031057
+            ],
+            [
+              8117153
+            ],
+            [
+              63494865
+            ],
+            [
+              2031057
+            ],
+            [
+              531377
+            ],
+            [
+              543169
+            ],
+            [
+              1038433
+            ],
+            [
+              8108865
+            ],
+            [
+              116832801
+            ],
+            [
+              14450497
+            ],
+            [
+              1722945
+            ],
+            [
+              1681953
+            ]
+          ],
+          "every_binary64_box_covered_disjointly": true,
+          "exhaustive_leaves": 19,
+          "hosted_canonical_transition_oracle_sha256": "1544b7e738972aab0a06fc6e474cf2683341af8c2da1c4ff3c586f1ae417bc51",
+          "maximum_possible_states": 1,
+          "passed": true,
+          "prior_proof_rows_reexecuted": 0,
+          "prior_qualification_reexecuted": false,
+          "retained_rows": 70,
+          "rows": 19
+        },
+        "completed": 543,
+        "disclosure": "Only saved543/2020-02-28/full18 with89 committed branch proofs. Retain70 admitted proofs; independently verify19 new closes,38 accounting snapshots,all33 ordinary observations,one monthly report and28 Decimal metrics. Genuine neutral18 and whole inherited DOVA history checked. March diagnostic tails and HABT March18 failed state excluded. Historical causality UNVERIFIED. No next financial restart is qualified by this admission.",
+        "exact_linux_monthly_proof_sha256": "5925063ca99373cd4585d0f43ed2912da750839807e8b8f0fdcaab0e48acfaf2",
+        "financial_artifact_id": 13556088875,
+        "financial_cipher_sha256": "66862bac3ef6c8bf64be4958f4b531cc016d21eb462b2a69c7d488859988a6bc",
+        "financial_continuation_authorized": true,
+        "financial_head": "9f808eb6e21271a8d1e0d10aeeab528cb533fa00",
+        "financial_run_id": 42327820775,
+        "financial_sessions_added_by_metadata_correction": 0,
+        "financial_source_epoch_unchanged": true,
+        "financial_zip_sha256": "8c39c06fd1f80da4d66a47591c2494771b0db48080d7681eac1333f9df68b68a",
+        "full_financial_validation_completed": false,
+        "independent_accounting_snapshots": 38,
+        "independent_branch_reader_sha256": "10fcdc89c42dad1adb1a3291357507a6d53f30eaa143a9090e48a642604b5d05",
+        "independent_cash_reader_sha256": "10fcdc89c42dad1adb1a3291357507a6d53f30eaa143a9090e48a642604b5d05",
+        "independent_cash_reader_tests_sha256": "f5cf3bd590ecb8794be01a6ca5643bc120f0166370d3c784bac84601ecbb65ac",
+        "independent_core_reader_qualification_reused_from_admitted_root": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "independent_negative_tests_passed": 1,
+        "independent_reader_sha256": "09f0488ae7da10ada83d6858c2b9c4e84b07307de3dfba03d14f2e4501755448",
+        "independent_reader_tests_qualification_reused_from": "financial-readonly-20261104-092/test_initial_data.py",
+        "independent_reader_tests_sha256": "f5cf3bd590ecb8794be01a6ca5643bc120f0166370d3c784bac84601ecbb65ac",
+        "independent_review_sha256": "c38e6101196ef4fbe3ee6293be7a8911ff89a1af6ead764886b3fe524c3bd3e3",
+        "independent_same_prefix_metadata_qualification_sha256": "b11671181c4a3b07ebf133e7feaf4f3b077ddfc415e1f680e53ffdca662ef245",
+        "initial_formation_records": 126,
+        "inner_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+        "input_adoptions_fully_state_neutral": true,
+        "input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+        "journals": {
+          "daily": {
+            "bytes": 26511557,
+            "last_record_sha256": "c1f1746f3cde4de26fcbd3251a3cb910f1a64fc60a414142bbc7edb51c74731d",
+            "prefix_sha256": "a1d9d21c98e40318de0c465ca153f6a769cc3b4e6ae033efe1ebf696f5854fa9"
+          },
+          "formation": {
+            "bytes": 5776539,
+            "last_record_sha256": "97f7ce7786187632d8c94f8c271c1220bc0ebb4669bce0c115ebf936a8b33977",
+            "prefix_sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
+          },
+          "monthly": {
+            "bytes": 94676,
+            "last_record_sha256": "38e2c68a2a4821637db352d2949016d676e085d8a896b73efb0b77666661d247",
+            "prefix_sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+          },
+          "watch": {
+            "bytes": 49906,
+            "last_record_sha256": "6367f2105b2999926c5edc1c78bd7266b833892327c4c8d4b438994b3ab85d98",
+            "prefix_sha256": "14a9c5e8a563339290f21f8b99ea1181a7d634a6ec5005520fdeb93f8a2585d2"
+          }
+        },
+        "local_canonical_runtime_executed": false,
+        "new_daily_records": 19,
+        "new_monthly_reports": 1,
+        "next_session": "2020-03-02",
+        "original_strict_parent_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
+        "original_zero_measurement_checkpoint_sha256": "fa1f7daca5e345490b4938fd786995755701664bdc265876d6d3545ce6fca6e0",
+        "outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+        "parent_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "performance_scoring_authorized": false,
+        "production_contacted": false,
+        "readonly_artifact_id": 13558251810,
+        "readonly_head": "e5965bcf71519e974d6dbe0c1d58d708370817e7",
+        "readonly_run_id": 42331943293,
+        "repairs": [
+          {
+            "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
+            "predecessor_checkpoint_sha256": "16b29a942832d6c91d5ffc90199c1dd85e6719276637e5dc06b21cee4a662ec1",
+            "resume_session": "2017-06-30",
+            "sha256": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea"
+          },
+          {
+            "filename": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775.json",
+            "predecessor_checkpoint_sha256": "1ec15c71d94ec3aed1b8ee1ded544a8ade71f94778d4d44e830d09789953798a",
+            "resume_session": "2017-07-31",
+            "sha256": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775"
+          },
+          {
+            "filename": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472.json",
+            "predecessor_checkpoint_sha256": "460649dc243ac2d4e9bfeddef3c1c7779e0d61da51faa1cbeef8ba9c5181b928",
+            "resume_session": "2018-01-31",
+            "sha256": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472"
+          },
+          {
+            "filename": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb.json",
+            "predecessor_checkpoint_sha256": "384c41289d90c809c35ad761833ea83c6db9ce7da2f15b5e536530da6dd16aa3",
+            "resume_session": "2018-03-29",
+            "sha256": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb"
+          },
+          {
+            "filename": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2.json",
+            "predecessor_checkpoint_sha256": "ddd6b4c4dd77fca13d75dfb24bf7010727fe6d9335b9904cd12b1b3d576688ca",
+            "resume_session": "2018-04-30",
+            "sha256": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2"
+          },
+          {
+            "filename": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249.json",
+            "predecessor_checkpoint_sha256": "8844d300caa2001cca9d7ba28e65e0a6accafbeaca1eaf97b82780b19a0aa06a",
+            "resume_session": "2018-04-30",
+            "sha256": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249"
+          },
+          {
+            "filename": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64.json",
+            "predecessor_checkpoint_sha256": "376c93250410e9fb955581804ca6f94834c5e3e50c3cee81b4767c00877eb612",
+            "resume_session": "2018-06-29",
+            "sha256": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64"
+          },
+          {
+            "filename": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5.json",
+            "predecessor_checkpoint_sha256": "a43253e2ac264992bfc6112a82ad4fb499d844c7c6089cdc914465b8e143aaa6",
+            "resume_session": "2018-08-31",
+            "sha256": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5"
+          },
+          {
+            "filename": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f.json",
+            "predecessor_checkpoint_sha256": "3c9b0be59b4f1eb61783ea84c60f2ef89ef242522c3d652b17712311b8808324",
+            "resume_session": "2018-11-30",
+            "sha256": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f"
+          },
+          {
+            "filename": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6.json",
+            "predecessor_checkpoint_sha256": "1220c51e1de92333aa3c1ff9fd41a353a4258e661202a53850659140c5d72530",
+            "resume_session": "2018-12-31",
+            "sha256": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6"
+          },
+          {
+            "filename": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad.json",
+            "predecessor_checkpoint_sha256": "9ede97b8164de4903bb195ec84989ec21330daa53dcbc22c35ee55269000082c",
+            "resume_session": "2019-01-31",
+            "sha256": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad"
+          },
+          {
+            "filename": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a.json",
+            "predecessor_checkpoint_sha256": "a7ab7a1d7118adc7342747a3f84fe787eb46ea6cda0cde5035245692aa980545",
+            "resume_session": "2019-05-31",
+            "sha256": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a"
+          },
+          {
+            "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+            "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+            "resume_session": "2019-09-30",
+            "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+          },
+          {
+            "filename": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96.json",
+            "predecessor_checkpoint_sha256": "3768dc85eda414bad130fab7490c200f6b1936e492cb50638996023453c1922a",
+            "resume_session": "2019-09-30",
+            "sha256": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96"
+          },
+          {
+            "filename": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1.json",
+            "predecessor_checkpoint_sha256": "f2b2fdc71f3bf8cfea9474a081efb59ec825cd6998e4d67d76d4580922afde32",
+            "resume_session": "2019-09-30",
+            "sha256": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1"
+          },
+          {
+            "filename": "55e9eef76c3a0c837b6a1ad8a526879de9789f89319e15f82036ccd681882195.json",
+            "predecessor_checkpoint_sha256": "108b651b7a14a852bb28306228a460dc0cc671ef6773c1015154329bb7427555",
+            "resume_session": "2019-10-31",
+            "sha256": "55e9eef76c3a0c837b6a1ad8a526879de9789f89319e15f82036ccd681882195"
+          },
+          {
+            "filename": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409.json",
+            "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+            "resume_session": "2019-12-31",
+            "sha256": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409"
+          },
+          {
+            "filename": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946.json",
+            "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
+            "resume_session": "2020-01-31",
+            "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+          }
+        ],
+        "schema": "research.root-financial-continuation-admission/1",
+        "selected_checkpoint": "book/checkpoint.json.gz",
+        "selected_file": {
+          "bytes": 1143759,
+          "sha256": "26662bb56bb5cbae62a0d5df17da65943f6b56d592c3f97fe629efc43ec21c22"
+        },
+        "source_binding_sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9",
+        "source_cursor": "2020-02-28",
+        "source_input_proof": {
+          "March_tails_excluded": true,
+          "all_financial_observer_terms": 33,
+          "financial_transitions_reexecuted": 0,
+          "full_input_proof": {
+            "actual_typed_origin_verified": true,
+            "all_descriptors_bytes_verified": true,
+            "full_inputs": 18,
+            "original_observers": {
+              "all17_initial_forward_terms_preserved": true,
+              "cash_events": [
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2019-10-08",
+                  "ticker": "CBLK"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-01-06",
+                  "ticker": "MDCO"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-01-16",
+                  "ticker": "ARQL"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-01-23",
+                  "ticker": "THOR2"
+                },
+                {
+                  "nominal_cash": "0",
+                  "quantity": 0,
+                  "session": "2020-02-20",
+                  "ticker": "DERM2"
+                }
+              ],
+              "conversion_and_mixed_events": [
+                {
+                  "actual_context_verified": true,
+                  "cash_consideration": "0",
+                  "cash_in_lieu": "0",
+                  "delivered_whole": 0,
+                  "kind": "CASH_PLUS_STOCK",
+                  "session": "2020-02-06",
+                  "source_lots": 0,
+                  "ticker": "WLH"
+                }
+              ],
+              "financial_sessions_reexecuted": 0,
+              "observation_terms": 33,
+              "original_observer_methods_unchanged": true,
+              "passed": true
+            },
+            "whole_original_input_visitor": true
+          },
+          "full_inputs": 18,
+          "genuine_neutral18_boundary": {
+            "actual_neutral_outer_sha256": "fc9b30b33ac8c6a469935a641f7953f88fc55368f7c3722bf3de023d5b6d53af",
+            "all_original_state_journals_and_stats_unchanged": true,
+            "canonical_financial_source_changed": false,
+            "current_inputs": 18,
+            "financial_sessions_advanced": 0,
+            "input_successor": {
+              "earliest_affected_session": "2020-02-19",
+              "overlay": {
+                "filename": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946.json",
+                "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
+                "resume_session": "2020-01-31",
+                "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+              },
+              "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
+              "predecessor_input_sha256": "bcbcd587370d2711d735cc466d9a4a7880cab46dadf07c3aba24617fa3f0624d",
+              "schema": "research.pooled-action-successor/1",
+              "state_sha256": "abf9f3b9deb17e25606ed90a8d547cd03a84d274d5ea275eb821cb0da58e1572",
+              "successor_input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+              "unchanged_through": "2020-01-31"
+            },
+            "neutral_gzip_sha256": "4b11b6982f25b78f21755d19193b45cac930dadc57c52b7e3864ea06438568f1",
+            "original_inputs": 17,
+            "original_parent_outer_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
+            "original_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+            "passed": true,
+            "zero_new_correlation": true
+          },
+          "passed": true
+        },
+        "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
+        "status": "ADMITTED_EXACT_FINANCIAL_CONTINUATION_CHECKPOINT",
+        "superseded_local_metadata_admission_sha256": "b8cf6b7fcc737daf21870dd9cce4874910d3f33139c92201d0c4ae730ea33e43",
+        "uncommitted_tails_are_not_financial_authority": true,
+        "utc": "2026-11-07T03:11:24.988363+00:00"
+      },
+      "admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+      "transport": {
+        "archive_format": "FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1",
+        "arm": "P03",
+        "artifact_id": 13556088875,
+        "base": {
+          "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+          "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+          "capital": "50000",
+          "comparison_files": {
+            "compact/champion-daily.csv": "cda954a33aa4e16d72a8124219ae9eb7f526f003d0c8b4f5dbb88c69e498caeb",
+            "owned55/segment-001/daily.jsonl": "379997093d4912910451e2e0f227e4e95471adc815ad66c9f2d397f192d1da61",
+            "owned55/segment-002/daily.jsonl": "4ec82cfce67d6ef42a60ba5243500016de79330a2c597f0da8bc35b848c1498b",
+            "owned55/segment-003/daily.jsonl": "4d568257fd5bbbdf502dcc7da7bdc08b832383b91eaeacad18783b8bc4ebd488",
+            "owned55/segment-004/daily.jsonl": "e6db8bee030755d3718ad733ca66eaf529673cf59e0f30e9cf9d2555f023b93d",
+            "owned55/segment-005/daily.jsonl": "c0219870196ffa30067862265445f14bd5a622ed93738c68b4f56c6964a24868"
+          },
+          "end": "2026-07-31",
+          "policy": "wealth-core-v5-zero-share-fixed-2008-v1",
+          "schema": "research.pooled-vacancy-backtest/1",
+          "sources": {
+            "research/pooled_input_support/__init__.py": "8e8b661138166a47beec75d442d330ef3e0ea46a85a087044865735fe8bb3695",
+            "research/pooled_input_support/adapter.py": "f14c7c3de0cb55e30f08dea7dfd047e099dcfa794e1a6c020555baf4781d77a4",
+            "research/pooled_input_support/build_prefix.py": "75d4712354473d62464813aaef1943d4b99e7264eb5aa051ce729075ae3b3341",
+            "research/pooled_input_support/bundle.py": "db0ec89096db94603f040f9c9dfaf64a4b9edaaa8250e7b916ec0180655e57e3",
+            "research/pooled_input_support/inputs.py": "04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c",
+            "research/pooled_input_support/prefix_checks.py": "1c4a8f1be4b18afa2e65fd8f7785cf54f01db0fbaef16d3c4da17c0a33a7312b",
+            "research/pooled_input_support/prepare.py": "67493a2fa51140128cc0f32645284cae6d93a7dad727605afcbe5b71bf96bd4e",
+            "research/pooled_input_support/spinoff_inputs.py": "69a17e66966e87fd952890339145795c02bbf834e57c32ed1ced266171aa6c68",
+            "research/pooled_vacancy_funding/__init__.py": "e016d3a2e924e4ebd7de8ac65886667e0232b31cb2bc502ec27fc87cf1fdd9c7",
+            "research/pooled_vacancy_funding/backtest.py": "b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc",
+            "research/pooled_vacancy_funding/journal.py": "feb4b4fd9ec198d1fa831bdea0371b68d803728d363300210a58001450f91ad5",
+            "research/pooled_vacancy_funding/matched_inputs.py": "08d1ee73191887a44b2fd6eb9a32906e5dadad35aeaceb84513252ade8f5d743",
+            "research/pooled_vacancy_funding/matched_launch.py": "a5bb143d075ea1225aedba8da8a4552bdbb205fce2765fd35bbc85d4099a9d20",
+            "research/pooled_vacancy_funding/monthly.py": "7c4676ffad92ee67adf83e95f17be21960ea2d64ec88736dd364e83bf96097bd",
+            "research/pooled_vacancy_funding/prepare_inputs.py": "46f4e7d1d0abb8603eb6711c2dbb01298ae20bdcf110f771f2e6a203518f1293",
+            "research/pooled_vacancy_funding/repair.py": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+            "research/pooled_vacancy_funding/retries.py": "fc22847c199a32e5595213e88fa6cc7c41a8d3027d12d8209931c3ee34755486",
+            "research/pooled_vacancy_funding/runtime.py": "6a1abb031655a8b3a1cd1a3cfc94b596c34d88cdd329cc67f109540e3060b139",
+            "research/pooled_vacancy_funding/source_successor.py": "e2e781f94a4c96e48ffc74426640748117f2c08a334a30fcdcd9810ef831ea40",
+            "sentinel/__init__.py": "94a4acb0177af19ec0a02856b3cdfd159abfe981b7f5780ac9b1ee2cff861d3a",
+            "sentinel/__main__.py": "ec203aa60bb8882895d2b7f27476a4917973f3174f5488e50a0623dabccc1e36",
+            "sentinel/administrative_authority.py": "7096b1671eebb9a7787a5aeefc03b9b237a6d974431d5cd550e22cc60da3ba19",
+            "sentinel/alert_health.py": "ca49465fbc32979f0af8a4bd2726d299abe6eea85f69605763d6e9f24d0569e5",
+            "sentinel/alert_liveness.py": "d354c4e89f3d0ab2d03d402dadcdeefc031f885eb0445ec0cd68bd32d6e88132",
+            "sentinel/alert_service.py": "7c83c955c1388a9cd6536ff80439ee7f214cba1b1f454aea3bfcd8270b7b9a3d",
+            "sentinel/alert_supervisor.py": "8724a717fa79ce8c9f689c849934ac90cb1c1f055ffc68288b156ad31a6edfdd",
+            "sentinel/automation_liveness.py": "11967bddf2a46b31fd964eb7e734dcb689d8c1d0c6c2428037011de6f9e4ec12",
+            "sentinel/automation_recovery.py": "798a7c79afff42ccd05724bf1c4061677c73470b10e8f8129ba3f1d3810c7d5b",
+            "sentinel/automation_resilience.py": "f5a5e7ce395b494e48fde85bab01995b4e3be1d12454508aae4084d8491731a6",
+            "sentinel/automation_runtime.py": "41ec879535c2b9d758ff8798dc0a049592a57f1f0d40da10a94d4f7e10729a71",
+            "sentinel/automation_supervisor.py": "6360a9cd2401df18cdf2cadbae4389821adc4e3d7cf5e075f5e2b21bc5784bdd",
+            "sentinel/automation_worker.py": "29789548d282a0867dd4b258c9f38908c7b301670adae280437d0049ab8d9570",
+            "sentinel/autonomy_runtime_upgrade.py": "9a25f82d6e9f73f699be5773cdd2982f9f5e9032d23eb00dee4ae5b8907a691f",
+            "sentinel/backed_paper_source.py": "4fa844f7c13d017a9306ba858c2770a7347989e7971b8b16e59a1a802763e40a",
+            "sentinel/backup_archive_names.py": "801134448d0dffd25af9cd3ab675047f1a53fe1e00734b97d6e621b880cca583",
+            "sentinel/backup_guard.py": "7ffbe5156e414ef685d1d3e24563aea05389b5598785096566b8f90253939e96",
+            "sentinel/backup_retention.py": "bf3ef0cbb83459775c96f7673a15d496f45ed6c77d8b1035e85ecf52396e542e",
+            "sentinel/backup_runtime_authority.py": "66998ed1daf634929d8ade308b07b113dd90d4e755ba9036cf2b6f94a4b87292",
+            "sentinel/binding.py": "7840b3e39f019c0f9f30aae1f5b0ff4ec33e3a787610fbde413dffc32a94bbe4",
+            "sentinel/broker.py": "7ea6700ab26c6d26db9469d5752860807e4a828d9d5dd1b86bae86ed8aa3dee9",
+            "sentinel/callback_liveness_upgrade.py": "2a68a45b3cf9a4b0ea0e727de23899f49d608b97b4f119b207d1ca765ae2b1f1",
+            "sentinel/clock_sampling_upgrade.py": "2aedd9e6e8dcbfa11baa02c9f26e5a215a6f60ecf211f9cb15be9109cde0afdb",
+            "sentinel/close_cycle_upgrade.py": "486027dafeba53fd14ae734e3d48fb5dbc5800ff350dc6ab87ffeebc61ea35d4",
+            "sentinel/committed_read.py": "7f8bbbceb93b2c669c78849e511d84de08acfe96066bdff580f549f2701f5ef0",
+            "sentinel/config.py": "a7c9c82d286751208ef99e8fb15f68060a3c4a2e6f31e5720bd7efa6067100a4",
+            "sentinel/controller/__init__.py": "6f9ac76cf0b5a030bcaeb556d3d1695708aa53ff024ab5948cf8fb4f10f73dc1",
+            "sentinel/controller/champion.py": "b96dc432492e5e3b098dff6336416bd711e95a01c79b74ab940dec009742049a",
+            "sentinel/controller/champion_config.py": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+            "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+            "sentinel/controller/concordance.py": "a3bb33f131060d72e385051843ecca8a0b1e6ad7cc3238f1b3036c73fc689d04",
+            "sentinel/controller/concordance_parent.py": "9c42ec75133c9a64063636d63975412df550243d57f88a9fc29d7b9e560b62f8",
+            "sentinel/controller/ex3_v6.py": "6735cb78bdf3be44e24fbe7b77f1b9ce4584dc50223e5880c5b859e6b9db6120",
+            "sentinel/controller/frozen_rule.py": "cd4b730ae4b5108626e67f4ce0fbf6a32303960e070b9ab9b99246267cca121e",
+            "sentinel/controller/ldrc.py": "6eedb85005a3843d4b128eac863a525f83657544eba2f08fd1b1986be86b960a",
+            "sentinel/controller/machine.py": "42ccefd7b497da560e611ceda3fd4ed0d40b573617ee8679851b2dd7bad3c797",
+            "sentinel/controller/median5.py": "177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1",
+            "sentinel/controller/median5_breadth.py": "8cd6ac067e9fa004fb7134d5117beb4f45c6175d288a4bf42841be7c0bd55f71",
+            "sentinel/controller/owned_impairment.py": "699286647502b99ea9a3bf7c02b3bd839a43523d613ed3c62ad71271c2de092b",
+            "sentinel/controller/recent_leadership.py": "77fb36065457f85956ab2257bc4ea2054208123d6518ecd01f17e3f24d6ec24c",
+            "sentinel/controller/terminal_returns.py": "172c55b738753bcc9bcf29cf6ab3618d9de42d6f63f7e555d606508f7f740867",
+            "sentinel/core/__init__.py": "dab2bfd96605eca71bebff61bac7798328d91bca32133dc6cce0ac6fe1b5cabf",
+            "sentinel/core/bootstrap.py": "eacbbdd4f0c24930381613c9169a558556d4f6403935169bd427a342e56a24f5",
+            "sentinel/core/cash_distributions.py": "6bfc664500caeda8dcead85fc923c298700167a5d6b2ad28515ea9baa50b8e47",
+            "sentinel/core/cashflow.py": "127f30f023ca04775b3e4ee032734239c816924f70714bc04eee3c76480d1a9d",
+            "sentinel/core/catchup.py": "3e781874da3351510e40d03f22ab82f6248aad82feed67cc7b4101f3ab7a316c",
+            "sentinel/core/decision.py": "f94bd591073ba51ac7cb1b787a7ab0347efa514e65259b615a18106dae192c8a",
+            "sentinel/core/feature_warmup.py": "b13c221d97c06fd0c20dd5135c9ab14cfba05a4e5582b657787d0d34440f04c6",
+            "sentinel/core/formation.py": "0daaf586991853d80a1801f4b9c9317fd3c9b7cc579788ccfa1bc6102d714005",
+            "sentinel/core/formation_features.py": "5d2d7ea24f9bdc921279fffb646b53738f2226bc5768e4f3de54acb647c856a3",
+            "sentinel/core/formation_identity.py": "7df63f700769ee2787efab7783195c940140b59eae1fabe436b04ec27011aebe",
+            "sentinel/core/formation_inputs.py": "81af5d570247f8ee94c052bcf84fdca39a79fa93401886130b9772b7e208a767",
+            "sentinel/core/formation_preview.py": "e95eb5ed012c0d74d85b6d65c66c704703033540ca2591d1da2358ef4317dd97",
+            "sentinel/core/history.py": "2703bf2912fb893e0c30e74556231a7680f03489e02a4e49c8722c66f6d6f9c4",
+            "sentinel/core/input_domains.py": "a823ae244c575e0b1178f7ba6c037f3934ef23716ffcd1af2368a45ee9754419",
+            "sentinel/core/kernel.py": "d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739",
+            "sentinel/core/loader.py": "95c9b96915ac2ab73b4c1d640ec825a6ed1ea7fd37163ffa550b455becf41191",
+            "sentinel/core/migration.py": "89cc16fe329d3be03e229193e4663fc06d96729911d53c64c7078a8e6b0ff0f8",
+            "sentinel/core/price_identity.py": "bb8b1a072069d1393f788a4bc4654d1ab24dc8d655fa472b2aefcd5443c29297",
+            "sentinel/core/production.py": "d8fbdc02c61b632391615dec9faaabc1e1e66d76b756c8f20e5df46c0788616d",
+            "sentinel/core/rolling_continuity.py": "81e89b3fa279736a91efe2c2f8dafc3ccb7dffea7890b008a5cbefceaf1b22e5",
+            "sentinel/core/rolling_inputs.py": "f4092a97e583fcdb6350d6fe68d99f822cda92cd5e32c77aa308a066761a41c5",
+            "sentinel/core/rolling_reader.py": "7f3238e31dceb4a38bfe2a2fb78e1e8387ad03cdcf86c7724c054cab596f1212",
+            "sentinel/core/session.py": "a9a522b36e7d1710041d7b13f1170bfa1ef9051b8d5b82e20778401e404242e4",
+            "sentinel/core/spinoffs.py": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+            "sentinel/core/strategy_profiles.py": "c7184411ccfdc085609d509facbe4008808190826aa3fcebfa3c3403d113e81e",
+            "sentinel/core/terminal.py": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
+            "sentinel/core/window_continuity.py": "deadc644f2564b2b2550731288b5400d315672eb867cff55a4b1bcac98771653",
+            "sentinel/core/window_features.py": "48e94251d4b2df7f6f9876ba5699b28a71a84844f2715fc2290a6f7524550661",
+            "sentinel/core/window_material.py": "3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76",
+            "sentinel/core/window_policy.py": "407710aa1e2a6da40b64aac2411a7a319bbda4de43bdef52cc05fcf170718dc7",
+            "sentinel/corpus_writer_source_basis.py": "6d241eb77aeca336c054853414d2dc4e1022998ba9e216464670e51e93073a3a",
+            "sentinel/dashboard_monitor_upgrade.py": "c4f97b1ae7a657e89d8ac3a54fde85cce2a2898715fc1401875cccec56c031da",
+            "sentinel/dependency_availability.py": "5add39c59d57a7b1b31ec17b4aecdc1edc5e856df87e7acc44fcbf16afe612f0",
+            "sentinel/deployment_fence.py": "42ffe14fa6048bc65f66439eecc883940525d078decade34f6afeaaf68198b15",
+            "sentinel/dual_plan_authority.py": "0f6e530417509c04696768514ccd9a359857e65ec32b26bccf961cd9727329f4",
+            "sentinel/dual_plan_renewal_upgrade.py": "70de1efda4b68ea42c3750d24d0330314f5ea00aac6a1ff15bc79499183c3ca9",
+            "sentinel/dual_reconciliation.py": "bbd603e5033668a279fcbd3d219268fd58bd747f2aab009b0d276a574e2de6a1",
+            "sentinel/economic_manifest.py": "c55e73a7eda54bd4c92cb2a60e3913fd6021441229e288957b43af66645ae03c",
+            "sentinel/economic_migration.py": "5f8630d4c6991e357bd6725aad6f800287871b5079f68866698beacc943d573e",
+            "sentinel/empty_account.py": "611f455b307e4b36c4677f067ac11f1c13d9b8f5ed0086bf00d19eebd63b6d6b",
+            "sentinel/empty_account_authority.py": "b4443920837b473472082190fa5c6eea3fac1a06c694d76c6616f59c5a5d5caf",
+            "sentinel/execution_collector.py": "e62ef87c29435dc56a033b4f79a17caa1532194505e4b108ed1523ead486ff72",
+            "sentinel/execution_upgrade.py": "9e65d218356e49ecc185e918c537b6182ba26641bba20f3345cfac086701494a",
+            "sentinel/formation_bootstrap.py": "a441cf3b20318f05b256e9150b3f8f3d4382beb687982de0aa0dd9dc49eba723",
+            "sentinel/formation_cache.py": "3dcf6df2c3a9080b464fa9616fdece3c48c8414cdc9edae2c285b1f40413158a",
+            "sentinel/formed_economics.py": "34ce8061a3ebc53c208163f4f63049682f8ed9f5110413e0282d857d8fd84ef0",
+            "sentinel/formed_origin.py": "7639b6f746e5a1cca6a0f8a68a68a38bdcf5afee8cce1a525aea881a7cec925b",
+            "sentinel/guarded_administration.py": "a6584181ad79d4e5a521959b1cae0f82038e431097e4a2b794a1942faa59c76f",
+            "sentinel/handover.py": "80f31624d3d271f2774ab3f29f16990e0f70a089cb433bb922fc9f2998e285e4",
+            "sentinel/identity.py": "07865851f32aae555fe85fbf2f0a8063a26ade22d22aa255b96e5af3d0f8ee6a",
+            "sentinel/idle_leader_upgrade.py": "62c75da24a6861bfb570b98bad7e951acca0e790bb8752db3db88703b5db1685",
+            "sentinel/informational_paper_mirror.py": "d33363a24e91ca40e8de61f311ab12cdfa121e4c48b41c66f44956e56095f1bc",
+            "sentinel/live_readiness.py": "1a5c5d924e5d6ecb1c92e5d7b904d59817e279b32b07a7acc1c04a268e386643",
+            "sentinel/local_paper.py": "b3fd1e258a933076014f2c3794ea53d8ccc9ef809303fbb4ae53468a560ee139",
+            "sentinel/mirror_projection.py": "2c29b2cea5db96f68b9cfba7e5ad2a1a1a88eb7714d9ac27abec0d423a556a64",
+            "sentinel/mirror_schema.py": "1fca20eaaf7a4cb029867acf4699c9491817c4cb9a7dd7c301a5f2ef6259aaf6",
+            "sentinel/native_read_upgrade.py": "6dfae675ef72e28f765c1d33a3702899bd86b6c45833a4daded73216a772c4e7",
+            "sentinel/notification_policy.py": "f5805e06d7f4f53a626460d01aebaf3d1d338572bf56bff7ea2c1e07949c36e9",
+            "sentinel/observation_authority.py": "c79bf0d8dc0e17d8b3feea9a7c992353184d13b4f023091f9305428154ca8fb8",
+            "sentinel/observation_startup.py": "4856ddfc0622fd7ed7f4d3f5f58f3bafa51bbf83e3ba6f4b46059ea0029c7618",
+            "sentinel/observation_storage.py": "df7835f6062ef15172cf52f1329ba907ede1c03d81303ee0e6012a6fe19798a3",
+            "sentinel/open_time_upgrade.py": "806f51e51e1d0bb0bb7c56799ef8608e8bf54cf4b9548e2ca76fe23c8ed4b843",
+            "sentinel/opening_latency_upgrade.py": "1fc0319a95d18d39fce23626e28f9861a77f93e3be3c6bb588d6cb4d8b11138f",
+            "sentinel/operational_catalog.py": "9533edea8aaea8af7cef456d416c4308ea4fdeaa021f6f92e65da6aa914b3f36",
+            "sentinel/operational_ddl_epoch.py": "b13648c84d2a677963343500320e973071668734ac5460c32dc90ddf1696abb9",
+            "sentinel/operational_evidence.py": "9425b226dc2ab8c3875070ceb45aae3f6677c616c70b1eb660fcac7f7abfd07f",
+            "sentinel/operational_liveness_upgrade.py": "6c8fb8ba99d67c55c8571580606cc100c16b8276246016d13bece098b3824d45",
+            "sentinel/operational_runtime_upgrade.py": "26a1b3cc6c6816e954f1ea6be053d845a3a7fadd42275130d4bdf64a215bca48",
+            "sentinel/operational_schema.py": "2a63ef4a57d12308c85dfd828f38474caafce602369753d8de3c74bd131863aa",
+            "sentinel/operational_status.py": "5cefa936615889fe6dd5d5cde7e0387a8356fb7f588fda06bbd86782c55e1d1c",
+            "sentinel/ownership.py": "739c11511f08c9d2c07045114c40a3b0756a8faaadd14cf7dda8bc5b655025c5",
+            "sentinel/ownership_view.py": "a9193a8ebf0f8546a2da6bc1fb7c46f9fecd4ae469635e036c48f1c117a560e5",
+            "sentinel/paper_performance.py": "975a86c3663e60f7e3c37d338ada9401946753d67586baaa31b123db8d8d8fd8",
+            "sentinel/paper_plan_preview.py": "33974d4c00820a574acf643bd79e2d34b561476488dd09bb74887f63999d80c4",
+            "sentinel/persistent_share_authority.py": "1ab0a512232cc452351c578e4d781c917dc815fcb9537277977f46c04ec82392",
+            "sentinel/protected_cohort_upgrade.py": "cef5b24fe29a64a7d7a86f16602639fbd59c46d95dd6be8fa2c0bbadd54b7dff",
+            "sentinel/publisher_pipeline_source_basis.py": "2e93edfd1e59dfcf635a38d35fbdda432e4a99a4b155524614769212ec5980f4",
+            "sentinel/push_recipients.py": "6ad78983849bdbd4544b8f88cb4ae5413f18f1eed7ba493905479f32faf102db",
+            "sentinel/receipt_authentication.py": "b7e9aa39858f8b0b7be98f797eda404764f6de1078855f613e947479306dd27c",
+            "sentinel/restore_validation.py": "71469429ba32a7b5878823e811b062444f7b477e2011405f0afdf519eff61ab6",
+            "sentinel/retained_go.py": "fddfa0ba651967cdae82b0960cfbbf3e8cfed8be57940224126481392916ee02",
+            "sentinel/retained_input_namespaces.py": "a6cf3ad730474696bc9cd99b4b46a11960f737d20af801aa8fa964a599e283a6",
+            "sentinel/retained_parity.py": "dd7619f7b5bae1dfa20bc000ad8d1cf1348ca299c6ad38db9cdd77ef37e45963",
+            "sentinel/retained_readiness_upgrade.py": "44938aef8030a216c5e867486a1f125dbb4792cb86069962296d152ac6658eb7",
+            "sentinel/rolling_authority.py": "6c061a75377603a9771633b0d867b8bfa7eb1d28c4bfc20da302fdd694a4489e",
+            "sentinel/rolling_checkpoint.py": "ca31b054df204efcc1b2a2c231ca5faeab51e0032ba1e1cad91188bcbfc40c64",
+            "sentinel/rolling_daily.py": "3c46efb044ff84381341f44790c779ae8fe7a718b9d746d02b6ad5b9fa9a5f3b",
+            "sentinel/rolling_daily_checkpoint.py": "45adfda89b7adf2c7d4c7cb50b7e07d3fab7d9844bfbcf113efddf3bd301607f",
+            "sentinel/rolling_initialization.py": "2e2235afeb2d7f2da2d3fb1c25754de103827a034ff4b30ab0952437a3e831f9",
+            "sentinel/rolling_reconstruction_evidence.py": "6d474dc4b65d88020489d2abb9b533322fe1c9679326341bdabe7341038a3943",
+            "sentinel/rolling_recovery.py": "b01ba5e898da28d3d0205aa79a46e6540b5b7a4e3981e26ca1046b5cdce0f5a0",
+            "sentinel/rolling_rehearsal.py": "cbe29abb63caf5088f9fee08c13a50e07e13eaeec41cae5f4bee45f005bee831",
+            "sentinel/rolling_runtime.py": "6c71a830e653dcca14e8c4633d7da127974245f4a23c7df3a549190c8f3e80e2",
+            "sentinel/runtime_admission.py": "adcbb78fead48c2ea38d72c2da2fa48351451adb0610536d7a6674790a60d9e7",
+            "sentinel/schema.py": "4efca204f0f5e915d3a1c1d835cf00770449651cc5f0cdaa3c406d5bc2582287",
+            "sentinel/semantic_source_basis.py": "877cae7db32c7bc86efa9e6bdb8676687623ffde54856f82937ed6de4a2dc335",
+            "sentinel/shadow_budget.py": "4cd339c141faf3759e2724d9b83a5d4badd1cac44e2ccf9f7e894f53ad0c334b",
+            "sentinel/shadow_dependency_notifications.py": "950276cbf0f25ce4c7579b7848e2e0c316f924f5522d9ed8ba7c16a261498d86",
+            "sentinel/shadow_drain.py": "bf78196874e4cc773a94c20b38df0304bf642b479bb1a4fd9164cbbcd4ff45ba",
+            "sentinel/shadow_drain_compat.py": "b97c24101d962829502622eaeffb35df255552040970f207a354c60c58a684cc",
+            "sentinel/shadow_health_projection.py": "3e95ee0be32ff2020c5ba20fd72cd09aa0e7a755cb2ed8c426c4f8a9e02c8988",
+            "sentinel/shadow_observation.py": "62266616d6f9a78d6ae9eab4d88ee2429d1ce4e08e003afcb6b60a3c2115b957",
+            "sentinel/shadow_recovery.py": "20aa7b13a872092b270235c31c09b836b7e840e694dc1d57e6b73da0ab753e0f",
+            "sentinel/shadow_restart_recovery.py": "e3dc5822fed6fe16de40e9bebeee298124f550979ea9380735c2dcb399c3e9eb",
+            "sentinel/shadow_runtime.py": "ec05fbc58ac44fad5477792f36cdff28d1399590472bd7ec808936b7d3b40f46",
+            "sentinel/shadow_segments.py": "02309d99962792c9cc7853423a450ad58ec722fbb80159bc9b4291a2242f5284",
+            "sentinel/shadow_service.py": "ef0ac9a0a2ef49c680ffcab00b7400b04f833f9ffc5d16c8ddbef10431549043",
+            "sentinel/shadow_service_probe.py": "cf9a56cd7d3d1c44be8943a9f478c61831e77863c90815697f1956d6518683b1",
+            "sentinel/shadow_service_status.py": "2328035c1534bcde2d76586948de163ae5cdff48ebd8a883c5b98fcc67b5b016",
+            "sentinel/shadow_supervisor.py": "aee1a3c34ee247678c5b37993eca2bcc700187ee99615f2d0720380a89f001c2",
+            "sentinel/shadow_ui_upgrade.py": "e6f59359b6ec5ae1d5d9fc4125eb174122c1336a0b08c4f0827b9fe9bc368b9a",
+            "sentinel/shadow_worker.py": "a04d0eda940999154b03dfa7c9993aef06cc7603775276dd3cbe69ddcdb9847b",
+            "sentinel/shadow_worker_liveness.py": "6ade169ab8d44d33f1d757aede2c5d6cfdfd816f30536c53602f5fa30ab44452",
+            "sentinel/source_diagnostic.py": "220b2ed56041a0cfde560ae3b240367c4acbed0c574eacfd4497f687dc579c9e",
+            "sentinel/standing_observation_authority.py": "1f7c43a01dba94561156d76591190e1b9cd5434ac40aadb1194b9bb5460bcf55",
+            "sentinel/startup.py": "92fe5e50df2ae634729d4080e37dc4baa0a659f41ccfbb6fedcb77785f65d177",
+            "sentinel/startup_contention_upgrade.py": "fac86d07c3628146e13873910bbdf68e8c09f3ca981bc74fad738e3052d847c8",
+            "sentinel/store.py": "40267c7f90f6820ddea2a19cf0918d173ee1b63970170078e23cc948e96c98dc",
+            "sentinel/strategy.py": "36d2b1d0e20a4e2bebd0d8c8ecb2399a310f5c4885c2b670644fec08ff429489",
+            "sentinel/structural_refactor_source_basis.py": "15525a4f5b63294343cdf6541a7331eb9dfbf8767f0cd4f665599a099d46a8f4",
+            "sentinel/structural_verification.py": "1b3719543470d53619ee3f77b89138c6fcd44f6b22b7fdd8484998016932dbfc",
+            "sentinel/supervisor_io.py": "78fad1b887b0ffddeeda4962c0a71951c12250068a267d82fa58e074a8e1fc96",
+            "sentinel/trading_environment.py": "5e41099e6cd55f4cb2e6d32aa712aeaa8e83b92b4a7de69350b9def2c35c5a6c",
+            "sentinel/transaction_contract.py": "f31869db57c69fa9e6ebf8822ac2d87644138372eb4c6d46cf10f4ab9d9c0e57",
+            "sentinel/transition_registry.py": "339db86c1a5e1f8c7ecfc36f3860fb5c79ae0a732294ee24388dac3c682796cf",
+            "sentinel/transition_registry_specs.py": "db062fb9e10203c590834f485a6f16b7edacbd99ba23589854feef7bfed704a5",
+            "sentinel/trial.py": "0aa019adb344a35f1256795295a11a88a93cb3b58da645110653ed4c7d986d38",
+            "sentinel/trial_close.py": "938d443d41dcb742b730c3db7bb67ce93b14f12663ee7e6816912a9cfe93ac44",
+            "sentinel/trial_evidence.py": "d3a135aee17bc0df951d49acd5dffedbd2c18dc36378bddcb0d694016716524c",
+            "sentinel/trial_fills.py": "5f3dde71b9fb2113325d4eda805dea0e7821356f105a100969319de26d36e867",
+            "sentinel/unsent_recovery_upgrade.py": "6fd45eb7cebb7ed47abed560a6420178443b861c6115cfd179ad1dcfc5651b9e",
+            "sentinel/web_push.py": "6e87cd42391193a619a04e74c1d0fff195b21bc3ac8eca1d099d7a51a23c4789",
+            "sentinel/worker_notification_source_basis.py": "1b9301e9d1ddc3f75d3276959c4952b38ad8ffb507e4b78adb942b0908d81d08",
+            "shared/stock_strategy_shared/wealth_core/__init__.py": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
+            "shared/stock_strategy_shared/wealth_core/accounting_snapshot.py": "62309cfd4d23470bb8d131ce21ff29be9e21ead44dda5d1e05f695bd599528ed",
+            "shared/stock_strategy_shared/wealth_core/adapter.py": "3c1233a325b99fe50b18079c3db54abdf4392866a5c4932b5ac17475055a0ed9",
+            "shared/stock_strategy_shared/wealth_core/eligibility.py": "edbc38d65f7c18092160fa72cd9716ff2eb68b2eb44cf586ff6fa34d8bae0d24",
+            "shared/stock_strategy_shared/wealth_core/engine.py": "2d4572a08be38e54a156f431df11547d1267ba406275cc111c056faa7fe0b4b2",
+            "shared/stock_strategy_shared/wealth_core/execution_model.py": "d88dc2d791fc91b7106fa9eb2cd91aee63e34b7a53a5e38bf7d50d95230d1c34",
+            "shared/stock_strategy_shared/wealth_core/feed.py": "afa9324811921271a139500764aee19b85dec96f9a499d392c12f25f97e6ee32",
+            "shared/stock_strategy_shared/wealth_core/funding.py": "79ede15adcaa2856ce9f927a0c9de017bf649aafee79bcf176bbf3edab02083d",
+            "shared/stock_strategy_shared/wealth_core/golden.py": "806867531bac6c60f24dcce8f6996c5adb9b289587b55d56adeaccacabe25d71",
+            "shared/stock_strategy_shared/wealth_core/hashes.py": "b900a66a1846446e7fa387aea1dee3110ac33ea194da0223985f6617c2adc9ba",
+            "shared/stock_strategy_shared/wealth_core/ledger.py": "c37a8656cc43a4807bf16e2fc6dcb97758cbe7271fc8d9a736ee526c9a9281f3",
+            "shared/stock_strategy_shared/wealth_core/liquidity.py": "07d8483ed58dd7173263a2e089ca15de1d2e8078c72822ec7fcd46448407177a",
+            "shared/stock_strategy_shared/wealth_core/live.py": "9fbe0cfd4455242262c3b1722394d4d0a5d198965925a15b94113c9d3f12ad9e",
+            "shared/stock_strategy_shared/wealth_core/marks.py": "b53edbf4cd723f5a53dc46e341f2cc8ee7efb891f10be7d5d57a1f2fbf239bd6",
+            "shared/stock_strategy_shared/wealth_core/median5.py": "9c1a30ecf60fd53bbf99bbdd1553b06b1411c199a7c7d58acb547cd736321aeb",
+            "shared/stock_strategy_shared/wealth_core/ordering.py": "7b32d13e2709305742b6cead59c530a4b20c1823f47eea0415b1f539b6d6e86d",
+            "shared/stock_strategy_shared/wealth_core/performance.py": "aac5a3da47028832a4e6b3aa9e2d230558c220b9793c7c0a240d8635b1bb7040",
+            "shared/stock_strategy_shared/wealth_core/prices.py": "8160e46d9d969c14fb1abaf39d6c903d77ef36cbdd842aed765cf1c0d2d33370",
+            "shared/stock_strategy_shared/wealth_core/risk_profile.py": "b312fc40fcf3a1e593a8c334e107e3c282605280858ba87c86871bb66c517faa",
+            "shared/stock_strategy_shared/wealth_core/run.py": "edac1c5e1480a8b830fb3ec95846f42a533730ef0e2ec53d0379cb1547466885",
+            "shared/stock_strategy_shared/wealth_core/settlement.py": "4fcb6e16bf3dfdeb255255fba46b93feff4120ae301310be061660188c7ca2f5",
+            "shared/stock_strategy_shared/wealth_core/sharadar_domains.py": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba",
+            "shared/stock_strategy_shared/wealth_core/shares.py": "2297a6bd6e3d616b4b449fc1cbd8809003ace01e955d8dd06aea66b5b0e76537",
+            "shared/stock_strategy_shared/wealth_core/signals.py": "07e4b878eaac3c1f304af54095bbcba6db1e0487240bd06ba2612f2e391c6bb7",
+            "shared/stock_strategy_shared/wealth_core/state.py": "9833426c8bf222a963def1c69cd6683885f6239ed8dba07a8bfba8c457761ff4",
+            "shared/stock_strategy_shared/wealth_core/state_restore_validation.py": "a709e6ce1de997a8c8a7a6f180d45712e251ec4deb19db656c03711f3e588c83",
+            "shared/stock_strategy_shared/wealth_core/terminal.py": "d145eb0787c58e092618d1b05f5f2d988449351ac146a050debd9e0cec1c44e6",
+            "shared/stock_strategy_shared/wealth_core/terminal_audit.py": "2122f1b39e887e4813f66ceb4f740785a2ca62cef7146de076ce81cbce2ff351",
+            "shared/stock_strategy_shared/wealth_core/v5.py": "f24c25cfea853167564762d02013f64cad992edf8eb714f5d42c12b109972f48",
+            "shared/stock_strategy_shared/wealth_core/window_signals.py": "81ce2cf42260e5bfa45ef27ef8fa7e4031aa6b03c7aadc30498611c5ebdce4ae"
+          },
+          "start": "2018-01-02"
+        },
+        "complete_journals": {
+          "daily": {
+            "bytes": 27039099,
+            "sha256": "b764cddbf69527983f0861cd276f41885784a8c9f943228b04e8b746bd591a4a"
+          },
+          "formation": {
+            "bytes": 5776539,
+            "sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
+          },
+          "monthly": {
+            "bytes": 94676,
+            "sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+          },
+          "watch": {
+            "bytes": 54118,
+            "sha256": "1dedeac962f22639f311b1508ef8595a494e826d2e2f36a1fbba5227b7e032c3"
+          }
+        },
+        "encrypted_output": {
+          "bytes": 131495967,
+          "compression": "TAR_GZIP_V1",
+          "manifest_sha256": "cb08d49e9d1fe4b25e73733a258cfbaedf4541b4ece211f5557e9928ca48609f",
+          "name": "campaign-factual-P03.tar.crseal",
+          "sha256": "66862bac3ef6c8bf64be4958f4b531cc016d21eb462b2a69c7d488859988a6bc"
+        },
+        "financial_authority": false,
+        "financial_entrypoint_sha256": "27ed4a9c20359f86e8c2591e49ab5b783b3a2b542a3e21f7a085d08d65cd7474",
+        "financial_predecessor_admitted": false,
+        "head": "9f808eb6e21271a8d1e0d10aeeab528cb533fa00",
+        "inner_sha256": "9cc9d3e7f4ae7af0fde686edbe1ce878be56def9482b491b0e750eb41e63e328",
+        "input_sha256": "9aa6f5a47a4028702072651e133162798ed97084dd06b59a0b4d56317cedffb8",
+        "inspections": {
+          "parent-preflight/worker-inspect.json": {
+            "correlation_prefix_mounted": false,
+            "exit_code": 0,
+            "id": "8295fc5343f49e941441a8bd72aa17be32d8b7b2f616fe849f3b893e103e858c",
+            "name": "/capital-system-resume-p03-preflight-42327820775-1",
+            "sha256": "939fd0377c7c4a49faeffefb5f17fc4f3ffe9ddf31d93e62fd40f402538359b6",
+            "user": "1001:1001"
+          },
+          "stopped-review/worker-inspect.json": {
+            "correlation_prefix_mounted": false,
+            "exit_code": 0,
+            "id": "25d03f79629b57b27100ef39d29f31116f07e1f30ad3142c2879b1dbb19216ae",
+            "name": "/capital-system-resume-p03-review-42327820775-1",
+            "sha256": "e23943a18b6ae5e33e82bfb2a913a15ed2ebfc4d60af1693e9f7096c5261cb72",
+            "user": "1001:1001"
+          },
+          "worker-inspect.json": {
+            "correlation_prefix_mounted": false,
+            "exit_code": 1,
+            "id": "d846a3daa184398a1737ca4e3c5d6cb8170482e6a724ad71b4f569f401479fac",
+            "name": "/capital-system-resume-p03-worker-42327820775-1",
+            "sha256": "fcac918de40f7b30ee761a9c9178d3e5cf880046d7409157be7622caedefcf55",
+            "user": "1001:1001"
+          }
+        },
+        "journals": {
+          "daily": {
+            "bytes": 26511557,
+            "last_record_sha256": "c1f1746f3cde4de26fcbd3251a3cb910f1a64fc60a414142bbc7edb51c74731d",
+            "prefix_sha256": "a1d9d21c98e40318de0c465ca153f6a769cc3b4e6ae033efe1ebf696f5854fa9"
+          },
+          "formation": {
+            "bytes": 5776539,
+            "last_record_sha256": "97f7ce7786187632d8c94f8c271c1220bc0ebb4669bce0c115ebf936a8b33977",
+            "prefix_sha256": "674e5cca9858cc58fa19f12e1f9e0540cfbb936af3e381fd3e2bcddd07ca0674"
+          },
+          "monthly": {
+            "bytes": 94676,
+            "last_record_sha256": "38e2c68a2a4821637db352d2949016d676e085d8a896b73efb0b77666661d247",
+            "prefix_sha256": "6f056a139615bb3120b71f318f509c4862556a64a54e4978594dbd1291232332"
+          },
+          "watch": {
+            "bytes": 49906,
+            "last_record_sha256": "6367f2105b2999926c5edc1c78bd7266b833892327c4c8d4b438994b3ab85d98",
+            "prefix_sha256": "14a9c5e8a563339290f21f8b99ea1181a7d634a6ec5005520fdeb93f8a2585d2"
+          }
+        },
+        "manifest": {
+          "member_count": 257,
+          "raw_member_bytes": 168155929
+        },
+        "measured_closes": 543,
+        "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "original_parent_index_sha256": "700986329047c4658fd9b98576b2a054b4461c5f5bc7f5856800e09cbbee0f64",
+        "original_request_member": {
+          "bytes": 79027,
+          "sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7"
+        },
+        "outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+        "p03_full18_readonly_reporting_bridge": {
+          "actual_full_input_visitor_required": true,
+          "arm": "P03",
+          "captured_request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
+          "completed": 543,
+          "fact_file": "P03-FIN345-full18-reporting-fact-v1.json",
+          "fact_sha256": "63f4f9f7cb7fbbb7fba0ea83e6bab6a5eaaaf323b28f1d0f2eafd57e13e0b9f7",
+          "financial_resume_authorized": false,
+          "financial_reuse_seed_installed": false,
+          "financial_transitions_reexecuted": 0,
+          "full_inputs": 18,
+          "monthly_seed_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+          "new_financial_rows": 19,
+          "original_B19_and_typed_DOVA_codecs_retained": true,
+          "retained_rows": 70,
+          "root_admitted": false,
+          "schema": "research.p03-full18-readonly-reporting-bridge/1",
+          "source_cursor": "2020-02-28",
+          "target_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+          "whole_monthly_reproduction_unchanged": true
+        },
+        "prior_account_performance_certified": false,
+        "prior_stops": {
+          "preflight": {
+            "exit_code": 0,
+            "oom_killed": false,
+            "stopped": true,
+            "wait_error": null
+          },
+          "reviewer": {
+            "exit_code": 0,
+            "oom_killed": false,
+            "stopped": true,
+            "wait_error": null
+          },
+          "worker": {
+            "exit_code": 1,
+            "oom_killed": false,
+            "stopped": true,
+            "wait_error": null
+          }
+        },
+        "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+        "public_members": {
+          "campaign-factual-P03.json": {
+            "bytes": 1317,
+            "sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70"
+          },
+          "ephemeral-runner-capacity.json": {
+            "bytes": 698,
+            "sha256": "462a74443dc666dd9286877c4d1001f754b3c5c1ff35e700713da616a4ca1402"
+          },
+          "full-core-staging.json": {
+            "bytes": 964,
+            "sha256": "6f1e3c41b20c59e3cb2519e0e032000d2434d76148c3e43d7d2459774f662983"
+          },
+          "resume-export-qualification-P03.json": {
+            "bytes": 149,
+            "sha256": "98d6fe98cff7a393f46535b4e4f58c45c9d5fc4e082ffed55e22aa796b1723e6"
+          }
+        },
+        "receipt_name": "campaign-factual-P03.json",
+        "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
+        "receipt_sha256": "24d0715853593d12168ff3c9fac33625cafec3bd835f25e5dcb3dcbc156ffe70",
+        "receipt_status": "PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT",
+        "repairs": [
+          {
+            "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
+            "predecessor_checkpoint_sha256": "16b29a942832d6c91d5ffc90199c1dd85e6719276637e5dc06b21cee4a662ec1",
+            "resume_session": "2017-06-30",
+            "sha256": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea"
+          },
+          {
+            "filename": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775.json",
+            "predecessor_checkpoint_sha256": "1ec15c71d94ec3aed1b8ee1ded544a8ade71f94778d4d44e830d09789953798a",
+            "resume_session": "2017-07-31",
+            "sha256": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775"
+          },
+          {
+            "filename": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472.json",
+            "predecessor_checkpoint_sha256": "460649dc243ac2d4e9bfeddef3c1c7779e0d61da51faa1cbeef8ba9c5181b928",
+            "resume_session": "2018-01-31",
+            "sha256": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472"
+          },
+          {
+            "filename": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb.json",
+            "predecessor_checkpoint_sha256": "384c41289d90c809c35ad761833ea83c6db9ce7da2f15b5e536530da6dd16aa3",
+            "resume_session": "2018-03-29",
+            "sha256": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb"
+          },
+          {
+            "filename": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2.json",
+            "predecessor_checkpoint_sha256": "ddd6b4c4dd77fca13d75dfb24bf7010727fe6d9335b9904cd12b1b3d576688ca",
+            "resume_session": "2018-04-30",
+            "sha256": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2"
+          },
+          {
+            "filename": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249.json",
+            "predecessor_checkpoint_sha256": "8844d300caa2001cca9d7ba28e65e0a6accafbeaca1eaf97b82780b19a0aa06a",
+            "resume_session": "2018-04-30",
+            "sha256": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249"
+          },
+          {
+            "filename": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64.json",
+            "predecessor_checkpoint_sha256": "376c93250410e9fb955581804ca6f94834c5e3e50c3cee81b4767c00877eb612",
+            "resume_session": "2018-06-29",
+            "sha256": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64"
+          },
+          {
+            "filename": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5.json",
+            "predecessor_checkpoint_sha256": "a43253e2ac264992bfc6112a82ad4fb499d844c7c6089cdc914465b8e143aaa6",
+            "resume_session": "2018-08-31",
+            "sha256": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5"
+          },
+          {
+            "filename": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f.json",
+            "predecessor_checkpoint_sha256": "3c9b0be59b4f1eb61783ea84c60f2ef89ef242522c3d652b17712311b8808324",
+            "resume_session": "2018-11-30",
+            "sha256": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f"
+          },
+          {
+            "filename": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6.json",
+            "predecessor_checkpoint_sha256": "1220c51e1de92333aa3c1ff9fd41a353a4258e661202a53850659140c5d72530",
+            "resume_session": "2018-12-31",
+            "sha256": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6"
+          },
+          {
+            "filename": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad.json",
+            "predecessor_checkpoint_sha256": "9ede97b8164de4903bb195ec84989ec21330daa53dcbc22c35ee55269000082c",
+            "resume_session": "2019-01-31",
+            "sha256": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad"
+          },
+          {
+            "filename": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a.json",
+            "predecessor_checkpoint_sha256": "a7ab7a1d7118adc7342747a3f84fe787eb46ea6cda0cde5035245692aa980545",
+            "resume_session": "2019-05-31",
+            "sha256": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a"
+          },
+          {
+            "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+            "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+            "resume_session": "2019-09-30",
+            "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+          },
+          {
+            "filename": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96.json",
+            "predecessor_checkpoint_sha256": "3768dc85eda414bad130fab7490c200f6b1936e492cb50638996023453c1922a",
+            "resume_session": "2019-09-30",
+            "sha256": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96"
+          },
+          {
+            "filename": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1.json",
+            "predecessor_checkpoint_sha256": "f2b2fdc71f3bf8cfea9474a081efb59ec825cd6998e4d67d76d4580922afde32",
+            "resume_session": "2019-09-30",
+            "sha256": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1"
+          },
+          {
+            "filename": "55e9eef76c3a0c837b6a1ad8a526879de9789f89319e15f82036ccd681882195.json",
+            "predecessor_checkpoint_sha256": "108b651b7a14a852bb28306228a460dc0cc671ef6773c1015154329bb7427555",
+            "resume_session": "2019-10-31",
+            "sha256": "55e9eef76c3a0c837b6a1ad8a526879de9789f89319e15f82036ccd681882195"
+          },
+          {
+            "filename": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409.json",
+            "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+            "resume_session": "2019-12-31",
+            "sha256": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409"
+          },
+          {
+            "filename": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946.json",
+            "predecessor_checkpoint_sha256": "f7dd528d2b047901f408a26e19358fbe3dd4c8e53400c8e2869bced35020a993",
+            "resume_session": "2020-01-31",
+            "sha256": "bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946"
+          }
+        ],
+        "request_sha256": "46219b384b6a09c9f98a2ea3611139143684e379738e1ad5ef88585b0d1a08a7",
+        "retained_uncertainty_model": "research.leadership-branch-uncertainty-input/1",
+        "reuse_closed_hosted_prefix_review": true,
+        "review_sha256": "3194773a75eea1ba188481be42abe69b9ecbe2109229cdb2b966e96c1f6e2f82",
+        "run_id": 42327820775,
+        "selected_checkpoint": "book/checkpoint.json.gz",
+        "selected_file": {
+          "bytes": 1143759,
+          "sha256": "26662bb56bb5cbae62a0d5df17da65943f6b56d592c3f97fe629efc43ec21c22"
+        },
+        "selected_session": "2020-02-28",
+        "source_binding_sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9",
+        "source_files": 515,
+        "source_profile_sha256": "47bdf86184ac6b83c0b3a50ebae646471f08229c7dd81305a97f265b441d68b3",
+        "stage": "campaign-factual-suffix",
+        "state_sha256": "c32d8c3c64563d689b9e346bb899b13c9994dc3bd51ef9d5717bdc7d09b92677",
+        "zip_bytes": 131499865,
+        "zip_sha256": "8c39c06fd1f80da4d66a47591c2494771b0db48080d7681eac1333f9df68b68a"
       }
     },
     "f7421f89b0f7af3abac7cec3c475eb19a18b0c3cfe7094929e55248121125e18": {

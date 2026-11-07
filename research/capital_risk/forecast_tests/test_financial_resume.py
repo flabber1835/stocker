@@ -40,21 +40,20 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r=m.expected_request()
-    assert r['arms']==['P03'] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==1
+    assert r['arms']==[] and r['maximum_parallel_financial_workers']==0 and r['maximum_parallel_readonly_workers']==0
     assert r['readonly_partial_review'] is True and r['readonly_source_witnesses'] is r['financial_resume_authorized'] is False
     assert m.request_authority(r) and r['source_witness_scopes']=={} and len(r['sources'])==666
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
     assert r['selected_p03_full18_reporting_bridges']=={} and r['selected_p03_cash14_ordinary18']=={}
     assert r['selected_p03_HABT_ordinary19']=={}
-    h=r['selected_p03_full19_reporting_bridges']['P03']
-    assert (h['completed'],h['full_inputs'],h['retained_rows'],h['new_financial_rows'])==(606,19,89,63)
+    assert r['selected_p03_full19_reporting_bridges']=={}
     target=json.loads((CAP/m.PARTIALS).read_bytes())['arms']['P03'];seed=m.root_spec('P03')
     assert (target['measured_closes'],target['selected_session'],len(target['repairs']))==(606,'2020-05-29',19)
-    assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(543,'2020-02-28',18)
+    assert (seed['measured_closes'],seed['selected_session'],len(seed['repairs']))==(606,'2020-05-29',19)
     assert target['financial_authority'] is target['financial_predecessor_admitted'] is False
     prior=m.root_spec('P03',target['monthly_seed_root_admission_sha256'])
     assert (prior['measured_closes'],prior['selected_session'])==(543,'2020-02-28')
-    assert seed['root_admission']['branch_uncertainty_proof']['retained_rows']==70
+    assert (seed['root_admission']['branch_uncertainty_proof']['rows'],seed['root_admission']['branch_uncertainty_proof']['retained_rows'])==(63,89)
     p07=m.root_spec('P07')
     assert (p07['measured_closes'],p07['selected_session'],len(p07['repairs']))==(1383,'2023-06-30',25)
     assert p07['root_admission']['branch_uncertainty_proof']['retained_rows']==805
@@ -64,8 +63,8 @@ def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
     import yaml
     workflow = yaml.load((CAP.parent.parent / m.WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
     job = workflow['jobs']['suffix']
-    assert job['strategy']['matrix']['arm']==list(m.SELECTED_ARMS)==['P03']
-    assert not job['if'].startswith('false && ')
+    assert list(m.SELECTED_ARMS)==[] and job['if'].startswith('false && ')
+    assert job['strategy']['matrix']['arm']==['P03']
     assert job['strategy']['max-parallel'] == '4'
     assert 'concurrency' not in workflow
     assert job['concurrency'] == dict(group='system-optimization-002-financial-${{ matrix.arm }}', **{'cancel-in-progress':'false'})
