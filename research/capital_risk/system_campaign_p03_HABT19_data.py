@@ -48,6 +48,7 @@ def catalog():
  term.update(ticker='HABT',security_id=SID,native_session='2020-03-18',native_term_sha256=digest(native),native=native,identity_witness=deepcopy(row['identity_witness']),parent_positions=deepcopy(row['parent_positions']),last_trading_session='2020-03-18',actual_completion_date='2020-03-18',mandatory_common_share_completion_confirmed=True,preopen_completion_confirmed=False,recognition_rule=calendar.NEXT,primary_source=p['primary_sources'][0],timing_source=p['primary_sources'][1],description=description)
  term['added']=dict(term['added'],security_id=SID,session='2020-03-19',cash_per_share=14.0,reference=term['primary_source']+' | '+description)
  term['primary_extraction']=dict(mandatory_common_cash=True,cash_currency='USD',cash_per_share='14.00',completion_date='2020-03-18',source=term['primary_source'],preopen_completion_confirmed=False,qualified_primary_fact_sha256=sha((HERE/PRIMARY).read_bytes()),no_stock_or_contingent_rights_in_common_consideration=True)
+ term['retained_qualified_source']=dict(schema='research.P03-retained-original-source-generation-only/1',source_arm='P03',source_label='SOURCE327',original_parent_root_admission_sha256=prior.old.ROOT,original_parent_outer_sha256=prior.old.OUTER,original_term_sha256=digest(term),originating_book_authority_retained=False,current_root_admission_sha256=ROOT,current_role_basis='SEPARATE_ACTUAL543_COMPLETE_STATE_CONTRACT',future_ownership_inferred=False)
  value.update(selected_source_indices=[index],retained_source_indices=[],terms=[term],loader_sha256=sha(Path(__file__).read_bytes()))
  return value
 def validator_tree():
@@ -73,9 +74,7 @@ def validate(value):
  exec(compile(ast.Module(body=[validator_tree()],type_ignores=[]),'<whole-original-cash-subset-plus-existing-NEXT-calendar-route>','exec'),scope);scope['validate'](value)
  need(encoded(value)==encoded(catalog()),'HABT_EXACT_PRIMARY_NATIVE_CASH_AND_BOTH_CLOCKS');return True
 def terms():
- value=catalog();validate(value);result=deepcopy(value['terms'])
- result[0]['retained_qualified_source']=dict(schema='research.P03-retained-original-source-generation-only/1',source_arm='P03',source_label='SOURCE327',original_parent_root_admission_sha256=prior.old.ROOT,original_parent_outer_sha256=prior.old.OUTER,original_term_sha256=digest(value['terms'][0]),originating_book_authority_retained=False,current_root_admission_sha256=ROOT,current_role_basis='SEPARATE_ACTUAL543_COMPLETE_STATE_CONTRACT',future_ownership_inferred=False)
- return result
+ value=catalog();validate(value);return deepcopy(value['terms'])
 def codec(parent,spec):
  parent_contract(parent,spec);v=catalog();validate(v)
  return SimpleNamespace(catalog=v,catalog_sha=sha(encoded(v)),compiler_sha=sha(Path(__file__).read_bytes()),validator_description='Whole source-subset predicates and original retained NEXT cash-calendar convention; legal and recognition dates distinct.')

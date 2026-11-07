@@ -21,3 +21,18 @@ Rebind the whole qualified cash14 lifecycle to18->19,89/101/12 and March19,
 reusing its ordinary-tail history visitor and consumed-event constructor guards.
 Preflight must pass the whole original two packet checks for the one new term.
 No financial launch until the private qualification and exact request close.
+
+
+## FIN351 actual refusal and source-metadata correction
+
+Actual FIN351 artifact13559346306 authenticated199 members/122081707 bytes.
+Preflight passed2 canonical packets; economic/review both refused before new
+financial closes with THOR_RUNTIME_NO_UNDECLARED_REMAINING_ORDINARY_TERMS.
+The real zero-session neutral19 ac8cac... is diagnostic evidence only, never a
+new root or restart seed. The source catalog omitted retained-source metadata
+which selected/hydrated terms included. Put the same source provenance in the
+catalog term and selected term, keeping the whole equality guard unchanged.
+Retain legal March18, recognition March19, cash14, original source capture,
+root543/full18 and89 proofs unchanged. Never relabel the failed receipt or use
+the old neutral19 as the corrected input. Pin a v2 private qualification and
+require a new hosted preflight/adoption from the original admitted543 root.

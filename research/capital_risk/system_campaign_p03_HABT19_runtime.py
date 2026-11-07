@@ -12,7 +12,7 @@ import system_campaign_bounded_sensor_binding as binding
 HERE = Path(__file__).parent
 MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 FIELD = 'selected_p03_HABT_ordinary19'
-QUALIFICATION = 'P03-own543-HABT19-private-qualification.json'
+QUALIFICATION = 'P03-own543-HABT19-private-qualification-v2.json'
 RECEIPT = 'p03-HABT-exact89-qualification-reuse.json'
 PREPARATION = 'P03-HABT-original2-packet-preparation.json'
 OBSERVER_INVENTORY = 'P03-own543-original33-observer-inventory.json'

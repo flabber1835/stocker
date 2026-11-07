@@ -7492,3 +7492,22 @@ Preflight must pass the whole original two packet checks for the one new term.
 No financial launch until the private qualification and exact request close.
 
 Private source/DATA qualification d320181f72f0eadfa7a4f261b875fa3e959b32e80e91e6430d30a8656856916d:29 checks passed11.15s, two meaningful guard removals and five financial-import fences. Select only actual543/full18/f297 and89 committed proofs; all101 original rows retained with12 tails excluded. Keep all33 prior observers and add HABT as the34th. Original API/packet preflight and full-history visitor remain whole; a hosted two-packet preflight and genuine19 adoption are mandatory before canonical finance. No provider alias asset is needed by this term. Existing lower profiles remain selectable only at their original roots. Source code never grants a later19-root restart.
+
+
+## FIN352 P03 full-catalog provenance alignment
+
+
+
+Actual FIN351 artifact13559346306 authenticated199 members/122081707 bytes.
+Preflight passed2 canonical packets; economic/review both refused before new
+financial closes with THOR_RUNTIME_NO_UNDECLARED_REMAINING_ORDINARY_TERMS.
+The real zero-session neutral19 ac8cac... is diagnostic evidence only, never a
+new root or restart seed. The source catalog omitted retained-source metadata
+which selected/hydrated terms included. Put the same source provenance in the
+catalog term and selected term, keeping the whole equality guard unchanged.
+Retain legal March18, recognition March19, cash14, original source capture,
+root543/full18 and89 proofs unchanged. Never relabel the failed receipt or use
+the old neutral19 as the corrected input. Pin a v2 private qualification and
+require a new hosted preflight/adoption from the original admitted543 root.
+
+Qualification d4e45fc08d37c8ec0fbaedf7b748f1cb60d43bf6f7db6f3ee15a6e49d64e079a:30 passed9.55s, three meaningful guard removals, five financial-import fences and whole-body undo. Actual authenticated FIN351 hydration is the regression input; the original ordinary-term equality guard remains unchanged. All legal/economic fields and the admitted543/full18/89 root are unchanged. Old v1 qualification and failed transport stay preserved. The corrected catalog/selector require fresh canonical packet checks and a fresh19 adoption from that admitted root.

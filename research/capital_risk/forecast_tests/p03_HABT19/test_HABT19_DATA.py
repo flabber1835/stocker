@@ -38,6 +38,20 @@ def test_complete_source_and_next_calendar_policy():
  assert t['retained_qualified_source']['original_parent_root_admission_sha256']!=data.ROOT
  assert t['retained_qualified_source']['originating_book_authority_retained'] is False
  data.completion_session(t,['2020-03-17','2020-03-18','2020-03-19','2020-03-20'])
+def test_actual_FIN351_material_matches_catalog_and_selected_provenance(actual,monkeypatch):
+ F=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial351-P03-source-snapshot/capture-P03-13559346306-001')
+ mf=json.loads((F/'authenticated-manifest.json').read_bytes())['members']
+ name='hydrated-future-financial-terminal-catalog-'+data.OUTER+'.json'
+ raw=Path('\\\\?\\'+str((F/'verified-output'/name).resolve())).read_bytes();assert dict(bytes=len(raw),sha256=data.sha(raw))==mf[name]
+ material=json.loads(raw);assert material['terms']==data.catalog()['terms']==data.terms()
+ statement,=[n for n in life.source_tree('boundary').body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and any(isinstance(a,ast.Constant) and a.value=='THOR_RUNTIME_NO_UNDECLARED_REMAINING_ORDINARY_TERMS' for a in n.value.args)]
+ code=compile(ast.Module(body=[statement],type_ignores=[]),'<whole-original-ordinary-catalog-equality-guard>','exec')
+ exec(code,dict(data=data,material=material))
+ wrong=data.catalog();del wrong['terms'][0]['retained_qualified_source']
+ monkeypatch.setattr(data,'catalog',lambda:wrong)
+ with pytest.raises(ValueError,match='NO_UNDECLARED_REMAINING'):exec(code,dict(data=data,material=material))
+ monkeypatch.setattr(data,'need',lambda *a:None)
+ exec(code,dict(data=data,material=material))
 def test_calendar_guard_and_meaningful_removal(monkeypatch):
  t,=data.terms()
  with pytest.raises(ValueError):data.completion_session(t,['2020-03-18','2020-03-20'])

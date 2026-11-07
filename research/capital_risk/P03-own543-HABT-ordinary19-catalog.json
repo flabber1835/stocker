@@ -2,7 +2,7 @@
   "arm": "P03",
   "canonical_financial_source_changed": false,
   "historical_causality": "UNVERIFIED",
-  "loader_sha256": "010755f2645446cae87688c6aeeee4386cd8f2b24602b429b7a93fa3e8e3870e",
+  "loader_sha256": "3b4e84dfc1fd52685bfdc0ced0abe03ca3d28d5206601b38953becef238d8eb5",
   "parent_cursor": "2019-12-31",
   "parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
   "parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
@@ -14730,6 +14730,18 @@
       },
       "primary_source": "https://www.sec.gov/Archives/edgar/data/1617977/000119312520077250/d143057d8k.htm",
       "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL543_COMPLETE_STATE_CONTRACT",
+        "current_root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "ae4dcdc5f6efb8bcd217b5065621d90e591566224d3dcc0d8c79ee8e7b52ef13",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE327"
+      },
       "security_id": "594373256712467281",
       "source_capture": {
         "artifact_id": 13480030867,

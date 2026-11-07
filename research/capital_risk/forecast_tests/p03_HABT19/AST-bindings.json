@@ -8,15 +8,15 @@
     "19": 33,
     "28": 2,
     "33": 34,
+    "524": 543,
     "70": 89,
-    "81": 101,
-    "524": 543
+    "81": 101
   },
   "runtime_strings": {
     "2020-01-31": "2020-02-28",
     "8ee5499cd9d920b47eccf934c31581e1bb938d722c73e0089652a72bcfaa90a4": "6b6b22a58ba0fb1e51a175d2bbac870a2c86813cd4dcbc5dc3bdf3526798869f",
     "P03-cash14-original28-packet-preparation.json": "P03-HABT-original2-packet-preparation.json",
-    "P03-own524-14cash18-private-qualification.json": "P03-own543-HABT19-private-qualification.json",
+    "P03-own524-14cash18-private-qualification.json": "P03-own543-HABT19-private-qualification-v2.json",
     "P03-own524-original19-observer-inventory.json": "P03-own543-original33-observer-inventory.json",
     "neutral18_known": "neutral19_known",
     "p03-cash14-exact70-qualification-reuse.json": "p03-HABT-exact89-qualification-reuse.json",
