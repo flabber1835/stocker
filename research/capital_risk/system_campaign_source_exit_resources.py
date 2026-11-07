@@ -59,8 +59,12 @@ def verify_preserved(source,destination,spec,*,rows,resolutions):
 def bound_canary(spec):
  fn=original.canary
  need(fn.__closure__ is None,'SOURCE_EXIT_RESOURCES_WHOLE_ORIGINAL_CANARY_WITH_EXPLICIT_CLOSURE')
+ def closed_inventory(member,resolutions):
+  value=plan(spec)
+  return dict(passed=True,plan_sha256=PLAN_SHA,resources=value['resources'],financial_authority=False,
+   financial_book_aliases_created=False,financial_sessions_reexecuted=0,dependency_closure=closure(member,spec,resolutions))
  scope=dict(fn.__globals__,data=SimpleNamespace(parent_contract=history.parent_contract,need=need),
-  closed_inventory=lambda member,actual:closure(member,spec,actual))
+  closed_inventory=closed_inventory,plan=lambda:plan(spec))
  bound=FunctionType(fn.__code__,scope,fn.__name__,fn.__defaults__);bound.__kwdefaults__=fn.__kwdefaults__
  need(bound.__code__ is fn.__code__,'SOURCE_EXIT_RESOURCES_IDENTICAL_COMPLETE_OWNED_COPY_CANARY_CODE')
  return bound

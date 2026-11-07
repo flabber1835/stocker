@@ -61,6 +61,19 @@ def test_copy_canary_retains_entire_original_code_object():
  bound=p.bound_canary(root_spec('P06'));assert bound.__code__ is p.original.canary.__code__
  assert bound.__globals__['data'].parent_contract is p.history.parent_contract
 
+def test_whole_canary_gets_complete_original_inventory_shape_and_new_plan(member):
+ s=root_spec('P06');value=p.plan(s);bound=p.bound_canary(s)
+ result=bound.__globals__['closed_inventory'](member,value['event_resolutions'])
+ assert result['passed'] is True and result['resources']==value['resources']
+ assert len(result['dependency_closure']['requirements'])==104
+ assert bound.__globals__['plan']()==value
+ assert result['dependency_closure']==p.closure(member,s,value['event_resolutions'])
+
+def test_original_canary_schema_and_plan_bindings_cannot_fall_back_to_old89():
+ s=root_spec('P06');bound=p.bound_canary(s)
+ assert bound.__globals__['plan'] is not p.original.plan
+ assert bound.__globals__['plan']()['requirements']==104
+
 @pytest.mark.parametrize('operation',['preserve','canary'])
 def test_local_copy_entrypoints_refuse_before_creation(tmp_path,monkeypatch,operation):
  monkeypatch.delenv('FULL_SYSTEM_HOSTED',raising=False);out=tmp_path/'must-not-exist';s=root_spec('P06')
