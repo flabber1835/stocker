@@ -15,11 +15,11 @@ def batch_request():return json.loads((C/p.REQUEST).read_bytes())
 
 def test_exact_batch_covers_all_missing_source_blockers_without_financial_authority(batch_request):
  assert p.validate_files(batch_request) is None
- assert {q['arm'] for q in batch_request['observations']}=={'P03','P05','P07'}
- assert len(batch_request['observations'])==8 and len(batch_request['native_groups'])==3
+ assert {q['arm'] for q in batch_request['observations']}=={'P06'}
+ assert len(batch_request['observations'])==3 and len(batch_request['native_groups'])==1
  assert batch_request['financial_authority'] is batch_request['input_adopted'] is False
  assert batch_request['maximum_parallel_financial_workers']==0
- assert next(q for q in batch_request['observations'] if q['name']=='p07-phin-event')['security_id'] is None
+ assert all(q['security_id']=='896501989594575427' and q['ticker'] is None for q in batch_request['observations'])
 
 @pytest.mark.parametrize('change',['authority','adopt','workers','duplicate','past','missing_parent'])
 def test_financial_or_unbounded_scope_refused(batch_request,change):
@@ -39,7 +39,7 @@ def test_source_only_guard_removal_is_meaningful(batch_request,monkeypatch):
  assert p.validate(value) is True
 
 def test_capture_context_cannot_be_relabelled_as_another_date(batch_request,monkeypatch):
- value=deepcopy(batch_request);value['admitted_context']['P07']['through']='2022-12-30'
+ value=deepcopy(batch_request);value['admitted_context']['P06']['through']='2022-12-30'
  with pytest.raises(ValueError,match='EXACT_ADMITTED_CAPTURE_CONTEXT'):p.validate_files(value)
  original=p.need;monkeypatch.setattr(p,'need',lambda value,label:None if label=='SOURCE_BATCH_EXACT_ADMITTED_CAPTURE_CONTEXT_NOT_EVENT_DATE_ROLES' else original(value,label))
  assert p.validate_files(value) is None
@@ -58,6 +58,18 @@ def test_complete_source_row_preserved_and_missing_quote_stays_explicit():
  assert value['event_date_ownership']=='UNKNOWN_NOT_CAPTURED' and value['financial_authority'] is False
  missing=p.select_observations(queries(),[])[0]
  assert missing['status']=='NOT_FOUND' and missing['rows']==[]
+
+def test_known_sid_query_retains_actual_ticker_without_inventing_identity():
+ q=queries();q[0]['ticker']=None;q[0]['security_id']='EXPLICIT_NONCANONICAL_ID'
+ value=p.select_observations(q,[row()])[0]
+ assert value['status']=='FOUND' and value['rows'][0]['source_row']['ticker']=='PHIN'
+ assert value['query']['ticker'] is None
+ other=row();other['security_id']='OTHER_EXPLICIT_NONCANONICAL_ID'
+ assert p.select_observations(q,[other])[0]['status']=='NOT_FOUND'
+
+def test_query_without_both_ticker_and_sid_is_forbidden(batch_request):
+ value=deepcopy(batch_request);value['observations'][0]['security_id']=None
+ with pytest.raises(ValueError,match='FUTURE_QUERY_CONTEXT'):p.validate(value)
 
 def test_ambiguous_frozen_identity_refused_and_guard_removal_is_meaningful(monkeypatch):
  with pytest.raises(ValueError,match='AMBIGUOUS'):p.select_observations(queries(),[row(),row()])

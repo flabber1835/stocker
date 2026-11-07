@@ -25,10 +25,11 @@ def validate(request):
     need(1<=len(request['observations'])<=32 and 1<=len(request['native_groups'])<=8,'SOURCE_BATCH_BOUNDED_QUERY_COUNTS')
     names=[]
     for q in request['observations']+request['native_groups']:
-        need(q['arm'] in ('P03','P05','P07') and q['arm'] in request['admitted_context']
+        need(q['arm'] in ('P03','P05','P06','P07') and q['arm'] in request['admitted_context']
             and date.fromisoformat(q['session']).isoformat()==q['session']
             and request['admitted_context'][q['arm']]['through']<q['session']<='2026-07-31'
-            and q['ticker'] and 1<=len(q['ticker'])<=16,'SOURCE_BATCH_EXACT_FUTURE_QUERY_CONTEXT')
+            and (q.get('ticker') is None or isinstance(q['ticker'],str) and 1<=len(q['ticker'])<=16)
+            and (q.get('security_id') or q.get('ticker')),'SOURCE_BATCH_EXACT_FUTURE_QUERY_CONTEXT')
         names.append(q['name'])
     need(len(names)==len(set(names)) and all(n.replace('-','').isalnum() for n in names),'SOURCE_BATCH_UNIQUE_QUERY_NAMES')
     need(all(q.get('security_id') for q in request['native_groups']),'SOURCE_BATCH_NATIVE_PARENT_IDENTITY_REQUIRED')
@@ -53,7 +54,7 @@ def select_observations(queries,rows):
     found={q['name']:[] for q in queries}
     for row in rows:
         for q in queries:
-            if row['session']==q['session'] and row['ticker']==q['ticker'] and (q.get('security_id') is None or row['security_id']==q['security_id']):
+            if row['session']==q['session'] and (q.get('ticker') is None or row['ticker']==q['ticker']) and (q.get('security_id') is None or row['security_id']==q['security_id']):
                 found[q['name']].append(row)
     need(all(len(v)<=1 for v in found.values()),'SOURCE_BATCH_AMBIGUOUS_OBSERVATION_REFUSED')
     return [dict(query=q,status='FOUND' if found[q['name']] else 'NOT_FOUND',

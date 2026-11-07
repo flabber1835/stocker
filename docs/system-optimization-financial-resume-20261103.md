@@ -1,5 +1,22 @@
 # Resume the eight unfinished financial paths
 
+## Source-only TBIO classification after the admitted1677 P06 root
+
+The actual next refusal is September27,2024 for SID896501989594575427. Its genuine
+admitted feed identifies TBIO; the August30 state is unheld/unordered/unselected.
+These are prior-state facts, not event-date ownership or consideration authority.
+Collect complete September26/27/30 raw quotes and the complete September27 native
+group against the new ed91 root as source-only context. Delisting does not imply
+zero cash, an extinguished common claim or disappearance of an OTC security.
+
+Reuse the generic source collector with the same original frozen readers and
+networkless encrypted positive-stop envelope. Permit P06 capture context and
+queries pinned by security ID when a ticker is not yet independently closed;
+every query must bind at least one identity, multiple matching rows still refuse,
+and complete original rows retain their actual tickers. Native groups still need
+an explicit security ID. No financial parent or event-date role is invented.
+Keep the completed SOURCE357 batch immutable in its captured source snapshot.
+
 ## November7 authenticated source batch and current blockers
 
 FIN356 subsequently stopped at the next unsupported September27,2024 source
