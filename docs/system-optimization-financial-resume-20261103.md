@@ -45,6 +45,27 @@ watch/correlation proofs. This replaces further count-specific rewrites of
 already qualified nested history validators. Hosted preflight and actual worker
 constructor checks must validate the composed history before financial main.
 
+### Separate positive review capsules from original financial transports
+
+The saved1677 financial artifact retains its failed0/1/1 receipt. REVIEW359 is a
+distinct, three-member encrypted review capsule with no financial book, receipt
+arm field or source-bindings file. Authenticate each format on its own terms.
+Reuse the original financial quarantine transport with exact admitted-root
+metadata and original failure proof. For the positive review capsule, retain the
+entire original cryptographic, extraction, member-completeness and stopped-worker
+guards; adapt only its public receipt/inventory format and replace financial-book
+tail checks with complete review-specific checks. Verify core, branch, monthly,
+observer and actual-conversion proofs against the separate root admission,
+original parent specification and immutable source epoch. Require an explicit
+qualified profile validator before either transport can enter financial launch.
+
+Create a fresh hosted owned view containing every original financial file
+unchanged plus a separate root-qualified-review directory. Never replace the
+original book, failed receipt or original review files. Verify every original
+file hash before and after adding the separate positive proofs. Local creation,
+copying or staging of this financial view is forbidden. The same loader API is
+intended for later separately admitted roots; record paths and hashes are data.
+
 ## November7 authenticated source batch and current blockers
 
 FIN356 subsequently stopped at the next unsupported September27,2024 source
@@ -7815,3 +7836,5 @@ Source batch validation:103 targeted source/control/stage-transport tests passed
 ## REVIEW359 independent admission of saved P06 FIN356
 
 Genuine saved1677/2024-08-30/full12. Independently verified251 new financial closes,502 accounting snapshots,173+251 committed branch proofs,89 resource closure, original historical observer, neutral WWE12 adoption and actual27-for27 zero-cash conversion,12 exact monthly reports/336 Decimal metrics. FIN356 remains failed0/1/1; REVIEW359 is separate positive read-only evidence. All18 September daily tails excluded. Historical causality UNVERIFIED. Continuation from this new full12 root requires separate qualification. Qualification fe388887656434b8e00f2d0623051f7a739074f7709761a7ee1800ead450fd30. New root ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845. Preserve the prior edfe root, failed FIN356 receipt and separately authenticated REVIEW359 transport. No unqualified future worker is selected by this admission.
+
+The transport DATA gate now passes23 targeted checks, including a meaningful receipt-authority guard-removal falsifier, the entire original crypto-prefix AST undo, five financial-import fences and three local side-effect entrypoint refusals. Both actual public archives and all34 already authenticated REVIEW359 members validate. This does not qualify hosted execution or select a financial worker; full12-to13 runtime and424-row factory qualification remain required.
