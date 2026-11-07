@@ -11,7 +11,9 @@ from full_system_benchmark import need
 def paths(spec):
  saved.metadata(spec);prefix='distribution-successors/'+spec['root_admission_sha256']
  return dict(PARENT=prefix+'/origin/parent-checkpoint.json.gz',NEUTRAL=prefix+'/adoption/checkpoint.json.gz',
-  PROOF=prefix+'/adoption/proof.json',DIRECTORY=prefix+'/adoption',OVERLAY=prefix+'/input-overlay.json')
+  PROOF=prefix+'/adoption/proof.json',DIRECTORY=prefix+'/adoption',OVERLAY=prefix+'/input-overlay.json',
+  PAYLOAD=prefix+'/source-payload.json',QUALIFICATION=prefix+'/packet-qualification.json',
+  RETAINED_QUALIFICATION=prefix+'/retained-input-stack.json',OBSERVATION=prefix+'/observation')
 
 def archived_parent(spec,member):
  raw=member(paths(spec)['PARENT'])

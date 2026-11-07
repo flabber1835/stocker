@@ -81,6 +81,38 @@ their function identities, and restore the complete prior loader/apply pair
 on exit. Actual financial use remains hosted and requires the separate
 complete restart qualification and original financial observer/kernel review.
 
+## Hosted input and financial checks
+
+Reconstruct the BWA source using the unchanged distribution-only source
+collector against the frozen archive, then compare the entire result with
+the independently qualified normalization. Payload and descriptor files
+remain separate from the financial book.
+
+Reuse the complete original v2 financial observer with a distinct output
+folder. Its runtime, kernel and spinoff source identities, actual kernel
+caller check, parent-role check, receipt/sale/cash/reference/lot postconditions
+and duplicate-cash guard remain intact. P07 uses its existing primitive
+source; the different standard-book reference-floor implementation is not
+selected for this parent.
+
+The hosted packet qualifier retains the original v2 packet, native-refusal,
+canonical primitive, quote/proxy/duplicate-native and ownership checks.
+Replace its new-cash activation block with verification that every retained
+descriptor loads through the original installed chain. The new standalone
+input has no new ordinary cash term. Its parser falsifiers exercise the new
+typed loader. Preserve all retained ordinary observers and their complete
+financial reviews in the eventual restart route; this component does not
+claim that an empty new-cash set reviews those retained events.
+
+The runtime component passed 24 targeted DATA tests in 16.54 seconds,
+including the genuine previous-parent history reader. The original observer's
+complete method code objects are identical, and reversing the qualifier's
+explicit input bindings restores its entire original syntax tree. Hosted
+entry guards and a packet-result guard-removal test passed. These tests
+execute no canonical financial code and add zero trading days. The complete
+hosted restart, resource transport, constructor and financial admission remain
+required; this component is unselected.
+
 ## Source qualification
 
 The source normalization, independent reconstruction and packet-codec checks passed 21 tests in 4.08 seconds. They read the genuine admitted 1383-day checkpoint and authentic SOURCE357 data, retain all three complete observations and both native records, and verify the actual frozen trading axis. The term builder and packet projection retain their complete original function bodies. Two guard-removal tests cover date relabeling and independent full-witness comparison. No financial state was created or advanced. Source closure is complete; the financial profile remains closed pending the full history, 929-proof preservation and hosted gates above.

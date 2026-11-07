@@ -38,8 +38,8 @@
       "sha256": "87b4c0110e3d46af35491389fd301cb49e11ac6b71d8ec0610e74f3c3a417968"
     },
     "system_campaign_postclose_distribution_history.py": {
-      "bytes": 3322,
-      "sha256": "3b5c9807fe8ea48f80a3e76c2c4e62cf3a9bd18443c80d8e66221e7d13acdad8"
+      "bytes": 3509,
+      "sha256": "f6f11a4467a2d261634abde25d0559b2d0d50c61e8b355cc82870121029cfbba"
     }
   },
   "financial_authority": false,
@@ -60,6 +60,12 @@
   ],
   "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
   "schema": "research.P07-saved-restart-DATA-qualification/1",
+  "supplemental_path_verification": {
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_runtime.py forecast_tests/test_p07_saved_proofs.py::test_generic_next_input_reader_uses_genuine_complete_previous_parent -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-runtime-20261107-001",
+    "financial_sessions_advanced": 0,
+    "passed": 24,
+    "seconds": 16.54
+  },
   "tests": {
     "affected_command": "python -B -m pytest forecast_tests/test_p07_saved_proofs.py::test_entire_saved_factory_metadata_on_actual_historical_archive -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-saved-proof-restart-20261107-002",
     "affected_rerun_passed": 1,

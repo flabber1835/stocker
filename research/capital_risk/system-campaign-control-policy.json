@@ -49,6 +49,7 @@
         "actual canonical adoption and certificate constructor",
         "financial run and independent admission"
       ],
+      "runtime_component_qualification": "P07-BWA-runtime-DATA-qualification.json",
       "saved_restart_qualification": "P07-BWA-saved-restart-DATA-qualification.json",
       "source_observations": "SOURCE357 complete BWA July3/July5 and PHIN July5 rows plus both native distribution records independently verified; unchanged frozen axis confirms July5 follows July3; legal July3 17:00 EDT and later July10 filing remain separate; source-only qualification passed21 tests",
       "source_qualification": "P07-BWA-source-DATA-qualification.json",
