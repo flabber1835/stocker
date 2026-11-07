@@ -166,6 +166,75 @@ def test_actual_sequence_records_before_and_after_capacity_and_one_literal_remov
     capacity.validate_prepared_receipt(value, head="a" * 40, run_id="12345", source_sha256=source)
 
 
+def test_sufficient_space_keeps_android_and_rechecks_measured_reserve(monkeypatch):
+    receipts, removed, source = install_prepare_stubs(monkeypatch)
+    free = iter((86 * 1024**3, 85 * 1024**3))
+    monkeypatch.setattr(capacity, "free_bytes", lambda: next(free))
+    def must_not_check_absence():
+        pytest.fail("Android removal was not attempted")
+    monkeypatch.setattr(capacity, "target_absent", must_not_check_absence)
+    value = capacity.prepare(Path("unused-stub-output.json"), environment())
+    assert not removed and [r["phase"] for r in receipts] == ["VALIDATING", "PREPARED"]
+    assert value["removal_attempted"] is value["target_removed"] is False
+    capacity.validate_prepared_receipt(value, head="a" * 40, run_id="12345", source_sha256=source)
+
+
+def test_sufficient_space_still_requires_fresh_reserve_measurement(monkeypatch):
+    _, removed, _ = install_prepare_stubs(monkeypatch)
+    free = iter((capacity.MIN_FREE, capacity.MIN_FREE - 1))
+    monkeypatch.setattr(capacity, "free_bytes", lambda: next(free))
+    value = capacity.prepare(Path("unused-stub-output.json"), environment())
+    assert not removed and value["phase"] == "REFUSED"
+    assert value["error_code"] == "REFUSED_CAPACITY_ALREADY_SUFFICIENT_RESERVE"
+
+
+def test_no_removal_receipt_cannot_claim_low_initial_capacity(monkeypatch):
+    _, _, source = install_prepare_stubs(monkeypatch)
+    monkeypatch.setattr(capacity, "free_bytes", lambda: capacity.MIN_FREE)
+    value = capacity.prepare(Path("unused-stub-output.json"), environment())
+    value["free_before_bytes"] = capacity.MIN_FREE - 1
+    with pytest.raises(capacity.Refusal, match="ACTUAL_REMOVAL_OR_ALREADY_SUFFICIENT"):
+        capacity.validate_prepared_receipt(value, head="a" * 40, run_id="12345", source_sha256=source)
+
+
+def test_no_removal_reserve_guard_removal_falsifier(monkeypatch):
+    _, _, source = install_prepare_stubs(monkeypatch)
+    monkeypatch.setattr(capacity, "free_bytes", lambda: capacity.MIN_FREE)
+    value = capacity.prepare(Path("unused-stub-output.json"), environment())
+    value["free_before_bytes"] = capacity.MIN_FREE - 1
+    with pytest.raises(capacity.Refusal):
+        capacity.validate_prepared_receipt(value, head="a" * 40, run_id="12345", source_sha256=source)
+    original = capacity.need
+    monkeypatch.setattr(capacity, "need", lambda valid, code: None if code == "REFUSED_CAPACITY_ACTUAL_REMOVAL_OR_ALREADY_SUFFICIENT" else original(valid, code))
+    capacity.validate_prepared_receipt(value, head="a" * 40, run_id="12345", source_sha256=source)
+
+
+def test_fresh_sufficient_reserve_guard_removal_falsifier(monkeypatch):
+    install_prepare_stubs(monkeypatch)
+    def measurements():
+        free = iter((capacity.MIN_FREE, capacity.MIN_FREE - 1))
+        monkeypatch.setattr(capacity, "free_bytes", lambda: next(free))
+    measurements()
+    assert capacity.prepare(Path("unused-stub-output.json"), environment())["phase"] == "REFUSED"
+    tree = ast.parse(Path(capacity.__file__).read_bytes())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "prepare")
+    class Remove(ast.NodeTransformer):
+        hits = 0
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call) and any(isinstance(a, ast.Constant) and a.value == "REFUSED_CAPACITY_ALREADY_SUFFICIENT_RESERVE" for a in node.value.args):
+                self.hits += 1
+                return None
+            return self.generic_visit(node)
+    remove = Remove()
+    fn = ast.fix_missing_locations(remove.visit(fn))
+    assert remove.hits == 1
+    scope = dict(vars(capacity))
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "<removed-fresh-reserve-guard>", "exec"), scope)
+    measurements()
+    scope["free_bytes"] = capacity.free_bytes
+    assert scope["prepare"](Path("unused-stub-output.json"), environment())["phase"] == "PREPARED"
+
+
 def test_wrong_actual_host_never_writes_receipt_or_attempts_removal(monkeypatch):
     receipts, removed, _ = install_prepare_stubs(monkeypatch)
     monkeypatch.setattr(capacity, "host_metadata", lambda: dict(HOST, system="Windows"))

@@ -103,6 +103,64 @@ def test_local_review_refuses_before_reading_or_writing(tmp_path,monkeypatch):
  with pytest.raises(ValueError,match='HOSTED_CORE_ONLY'):p.review({}, {},tmp_path,out,spec=root_spec('P06'),old=tmp_path,neutral={},api=None)
  assert not out.exists()
 
+
+@pytest.fixture(scope='module')
+def actual_FIN366_source_interface():
+ root=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial366-source-snapshot/authenticated-artifact-13587599730')
+ if not root.exists():pytest.skip('authenticated FIN366 DATA artifact required')
+ members=json.loads((root/'authenticated-manifest.json').read_bytes())['members']
+ output=Path('\\\\?\\'+str((root/'verified-output').resolve()))
+ def member(name):
+  raw=(output/name).read_bytes()
+  assert dict(bytes=len(raw),sha256=p.sha(raw))==members[name]
+  return raw
+ current=json.loads(gzip.decompress(member('book/checkpoint.json.gz')))
+ assert (current['completed'],current['source_cursor'],current['sha256'])==(1821,'2025-03-31','8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7')
+ rows=[json.loads(v) for v in member('book/daily.jsonl').splitlines()]
+ i,=[i for i,r in enumerate(rows) if r['session']=='2024-09-27']
+ before=rows[i-1]['evidence']['research_entry_audit']['closing_accounting']
+ opened=rows[i]['evidence']['research_entry_audit']['opening_accounting']
+ origin=json.loads(member(p.DIRECTORY+'/'+p.ORIGIN))
+ scope,=[s for s in origin['active_and_retained_scopes'] if s['session']=='2024-09-27']
+ name='hydrated-source-exit-successor-catalog-3a7dbe9befba4316481b5955203302edd057e5e90b655ba2531c8ccd92f5d12a.json'
+ term,=[t for t in json.loads(member(name))['terms'] if t['security_id']==scope['security_id'] and t['added']['session']==scope['session']]
+ record=json.loads(member(p.DIRECTORY+'/actual-future-event-2024-09-27.json'))
+ cert,=[json.loads(v) for v in member('uncertainty-certificate.jsonl').splitlines() if json.loads(v)['session']=='2024-09-27']
+ selected=scope['security_id'] in [v['security_id'] for v in cert['material']['rows']]
+ return record,term,scope,before,opened,current['run']['state']['ledger']['events'],selected
+
+
+def test_actual_FIN366_compact_interface_regression_preserves_original_validator_and_evidence(actual_FIN366_source_interface):
+ record,term,scope,before,opened,events,selected=actual_FIN366_source_interface
+ unchanged=p.digest(actual_FIN366_source_interface)
+ # Reproduce the exact failed interface with genuine saved evidence.
+ with pytest.raises(KeyError,match='events'):
+  p.previous.prior.source_record(record,term,scope,before,opened,events,source_was_selected=selected)
+ result=p.source_record(record,term,scope,before,opened,events,source_was_selected=selected)
+ assert result==dict(ticker='TBIO',session='2024-09-27',actual_noop=True,original_kernel_source_delegated=True,
+  portfolio_completion_authorized=False,actual_settlement_claimed=False)
+ assert p.digest(actual_FIN366_source_interface)==unchanged
+ for snapshot in (before,opened):
+  full=p.accounting_snapshot(snapshot,events)
+  assert full['ledger']['events']==events[:snapshot['ledger']['event_count']]
+  assert full['ledger']['receivables']==snapshot['ledger']['receivables']
+
+
+@pytest.mark.parametrize('count',[True,-1,1561,None,'1455'])
+def test_actual_FIN366_invalid_compact_count_refused(actual_FIN366_source_interface,count):
+ *_,before,opened,events,selected=actual_FIN366_source_interface
+ snapshot=deepcopy(before);snapshot['ledger']['event_count']=count
+ with pytest.raises(ValueError,match='EXACT_COMPACT_LEDGER_PREFIX'):p.accounting_snapshot(snapshot,events)
+
+
+def test_actual_FIN366_compact_bound_guard_removal_falsifier(actual_FIN366_source_interface,monkeypatch):
+ _,_,_,before,_,events,_=actual_FIN366_source_interface
+ snapshot=deepcopy(before);snapshot['ledger']['event_count']=len(events)+1
+ with pytest.raises(ValueError,match='EXACT_COMPACT_LEDGER_PREFIX'):p.accounting_snapshot(snapshot,events)
+ original=p.need
+ monkeypatch.setattr(p,'need',lambda value,label:None if label=='SOURCE_EXIT_OBSERVER_EXACT_COMPACT_LEDGER_PREFIX' else original(value,label))
+ assert len(p.accounting_snapshot(snapshot,events)['ledger']['events'])!=snapshot['ledger']['event_count']
+
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])
 def test_five_financial_import_fences(name):
  assert not any(n==name or n.startswith(name+'.') for n in sys.modules)

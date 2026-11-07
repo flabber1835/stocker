@@ -1097,6 +1097,9 @@ launch = _p06_WWE12_stage.bind_launch(launch, sys.modules[__name__])
 import system_campaign_source_exit_entry as _source_exit_entry
 launch = _source_exit_entry.bind_launch(launch, sys.modules[__name__])
 
+import system_campaign_progress_observer as _progress_observer
+launch = _progress_observer.bind_launch(launch, sys.modules[__name__])
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--probe', action='store_true')

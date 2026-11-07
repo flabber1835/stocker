@@ -7884,3 +7884,69 @@ Request224 selects only P06, with716 exact source pins and one financial worker.
 ## FIN365 actual hosted preflight refusal and targeted correction
 
 FIN365/run42402873507 at426de320d47bd3ffd290f83bf8ad120375eac385 passed runner setup, exact launcher probe, frozen staging and original parent transport. Its actual preflight then stopped1/non-OOM before any financial worker or new checkpoint. Authenticated artifact13586486394 is185332 bytes/SHA25637ae1f13839ca83c30aa44b2f6767bb84d805683430e1e43a53a640d17f4236c (22 members,498597 logical bytes). The exact failure was KeyError: dependency_closure in the original copy canary. The adapter supplied a bare manifest rather than the original inventory wrapper and inherited the old plan callback. Both bindings now use the complete new104 closure and the whole original canary code object. One targeted validation pass after this fix:24 tests passed in4.17 seconds. Request225 retries from the same genuine1677/full12/424 parent after the first job is terminal. No financial session was executed or admitted by FIN365. Whole-profile SHA256 d45374e52ee0eeab48984979261282b3271ed26acacd5748eb5973bfc636d86c.
+
+### Produce the reporting proof in the existing stopped-result review
+
+After the complete original financial core/branch/event review succeeds, use the entire existing `monthly_reproduction` code object in that same read-only worker. Bind only its reporting-seed selector to the exact already admitted financial baseline supplied to the worker. That argument is a baseline spec rather than a newly manufactured future transport; no checkpoint is projected, rewritten or synthesized. All original actual-gzip, source-index, parent/source, committed-prefix, frozen-axis, physical monthly-source and exact report/state guards stay intact. The reporter reads the genuine predecessor archive already retained by canonical adoption, recalculates only recorded reporting values, and writes its own zero-financial-transition proof. This avoids a second hosted job solely for the proof. The running FIN366 generation remains frozen and may still need a separate reporting review because its published source predates this integration.
+
+### Observe phase timings and checkpoint counters without exporting a book
+
+A launch-only observer wraps the existing stopped-run orchestration, leaving all four mature worker bodies and their actual stop/UNKNOWN behavior unchanged. It reports phase elapsed time and, when available, only the actual checkpoint's scalar completed count/date and whether the constructor marker is present. Counts remain explicitly unverified and grant zero admitted sessions. The observer never restores, modifies, stages or exports a financial checkpoint, journal, price, quantity, position, return or account value. It reads a bounded existing gzip/JSON file and exports only a closed scalar whitelist into a separate temporary metadata directory. A failed read stays UNKNOWN; observation or upload failure cannot fail, retry or alter financial work. While active, the host publishes small progress-only artifacts at most once per minute through the already pinned upload-artifact action; the isolated financial worker receives no network or new credentials. The action subprocess is bounded and uses no shell. The final financial artifact still requires the original positive writer stop and independent admission. Current frozen runs receive no instrumentation changes.
+# FIN366 saved-prefix reviewer correction (2026-11-07)
+
+The recovery job is explicitly read-only and selects the exact authenticated
+FIN366 archive, genuine original 1677-session admitted parent and captured
+request225. It runs the complete mature core/branch/event review followed by the
+complete original monthly reproduction under the full13 input context. Disable
+both financial entry points before entering that context. Mount the original
+parent, financial evidence and built source read-only. No financial main, neutral
+adoption, checkpoint replacement or financial rerun is authorized by this job.
+
+Keep all716 captured source pins as provenance. The new review request records
+each explicitly allowed source difference separately, pins every current review
+source, and carries zero financial workers. The differences are the compact
+accounting adapter correction, reporting/progress hooks, runner fast path and
+their profile metadata. Preserve the original failed receipts and their actual
+inspection identities. Use the existing complete failed-artifact transport with
+its existing1GiB crypto option selected only for this exact authenticated
+737497136-byte ZIP; its actual byte count, hash and manifest remain required.
+The existing512MiB bound is smaller than the preserved archive. A positive stopped
+review capsule still needs independent DATA review and a separate root admission.
+The existing stopped-review workflow selects this recovery by an explicit request
+profile; its historical FIN356 path remains available unchanged.
+
+FIN366 authenticated 144 additional saved P06 sessions through 2025-03-31.
+The financial worker refused the next session for a missing leadership terminal
+input. Its separate reviewer failed because the source-only reviewer passed a
+compact accounting ledger directly to the unchanged original scope validator.
+The compact schema carries `event_count` and `receivables`, not `events`.
+
+Use the existing independent-reader convention at this interface: copy each
+actual accounting snapshot and materialize only the exact prefix of the actual
+checkpoint ledger selected by its integer event count. Require the exact compact
+ledger schema and a count within the available ledger. Preserve the saved files,
+snapshot inputs, original scope validator and whole original source-record
+reviewer. This is a read-only accounting view, with no canonical restoration or
+financial transition. Regression coverage must exercise the genuine FIN366 TBIO
+record, adjacent saved accounting and checkpoint ledger, demonstrate the original
+KeyError, and check malformed counts and unchanged evidence. Review this saved
+prefix independently; never rerun its financial sessions to obtain reports.
+
+FIN366 capture: artifact13587599730, ZIP737497136 bytes, SHA256
+079552b2cf2ccd1f11ee3a9efbd082f2a7908784bbd1c39b64bf02af3f1c3a6a.
+The complete authenticated456-member output has980668378 logical bytes. Its
+saved1821-session/full13 checkpoint is8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7.
+Original stops remain0/1/1, non-OOM; next-session source refusal is2025-04-01.
+No root admission or completed-session credit is asserted by this recovery.
+
+Validation of the coherent correction/capacity/reporting/progress batch:151
+passed in11.35s. Seven genuine-artifact tests initially hit the Windows path
+limit in their fixture; after using the existing extended-path convention, only
+those seven were rerun:7passed4.80s. The new read-only launch assembly and metadata
+checks:20passed3.55s; its two failing loader-namespace cases exposed a real host
+wiring issue before publication. After the correction those two passed3.44s.
+Two added tests (actual archive crypto option and progress-credit guard removal)
+passed2.33s. All182 selected cases passed across those targeted runs; unchanged
+broad suites were not repeated. Syntax checks, all383 original source pins and
+the four mature financial worker function ASTs also passed. Financial request225
+remains byte-identical; only the zero-financial stopped-review request changes.

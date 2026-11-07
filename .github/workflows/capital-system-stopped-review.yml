@@ -41,7 +41,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_stopped_review.py --mode launch --request research/capital_risk/system-campaign-stopped-review-request.json --staging artifacts/capital-risk/stopped-review-staging.json --output artifacts/capital-risk/stopped-review-receipt.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_source_exit_stopped_review.py --mode launch --request research/capital_risk/system-campaign-stopped-review-request.json --staging artifacts/capital-risk/stopped-review-staging.json --output artifacts/capital-risk/stopped-review-receipt.json'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

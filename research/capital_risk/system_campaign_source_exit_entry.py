@@ -17,7 +17,7 @@ def source_names():
   'system_campaign_full_history_successor.py','system_campaign_retained_seed_successor.py','system-campaign-retained-seed-successors.json','P06-retained424-successor-DATA-qualification.json',
   'system_campaign_stopped_parent.py','system-campaign-stopped-parent-transports.json','P06-stopped-parent-transport-DATA-qualification.json',
   'system_campaign_source_exit_resources.py','system-campaign-source-exit-successor-resources.json','system_campaign_source_exit_observer.py',
-  'P06-source-exit-API-history-DATA-qualification.json',runtime.QUALIFICATION)
+  'P06-source-exit-API-history-DATA-qualification.json','system_campaign_source_exit_reporting.py','system_campaign_progress_observer.py',runtime.QUALIFICATION)
  return names if (HERE/runtime.QUALIFICATION).is_file() else tuple(n for n in names if n!=runtime.QUALIFICATION)
 
 def expected_request(original,*,execution_mode,selected_arms,root_lookup):
@@ -106,6 +106,10 @@ def context(module,spec,*,mode,old,out,request,evidence=None):
     need(evidence is not None,'SOURCE_EXIT_ENTRY_REVIEW_REQUIRES_GENUINE_EVIDENCE');current=strict_json((Path(evidence)/'book/checkpoint.json.gz').read_bytes())
     scratch=Path(out)/'source-exit-review-codecs';scratch.mkdir();stack.enter_context(partial.financial_inputs(Path(evidence),current,scratch,spec))
    yield
+   if mode=='review':
+    from system_campaign_source_exit_reporting import reader as reporting_reader
+    current=strict_json((Path(evidence)/'book/checkpoint.json.gz').read_bytes())
+    reporting_reader(spec)(Path(evidence),Path(out),spec,current)
  finally:
   for n,v in saved_partial.items():setattr(partial,n,v)
   for n,v in saved_dispatch.items():setattr(dispatch,n,v)

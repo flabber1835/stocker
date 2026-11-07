@@ -1,4 +1,4 @@
-"""Prepare only an unused Android tree on a dedicated hosted research runner."""
+"""Verify hosted capacity and remove the unused Android tree only if needed."""
 from __future__ import annotations
 
 import argparse
@@ -232,15 +232,23 @@ def prepare(output: Path, env: Mapping[str, str]) -> dict:
         context(env, host_metadata())
         need(checkout(env) == source and admit_layout(layout()) == identity,
              "REFUSED_CAPACITY_TARGET_CHANGED")
-        receipt.update(phase="REMOVAL_ATTEMPTED", removal_attempted=True,
-                       phase_history=[*receipt["phase_history"], "REMOVAL_ATTEMPTED"])
-        write_receipt(output, receipt)
-        remove_android()
-        receipt["target_removed"] = target_absent()
-        receipt["free_after_bytes"] = free_bytes()
-        need(receipt["target_removed"] is True, "REFUSED_CAPACITY_TARGET_REMAINS")
-        need(type(receipt["free_after_bytes"]) is int and receipt["free_after_bytes"] >= MIN_FREE,
-             "REFUSED_CAPACITY_AFTER_REMOVAL_RESERVE")
+        need(type(receipt["free_before_bytes"]) is int and receipt["free_before_bytes"] >= 0,
+             "REFUSED_CAPACITY_BEFORE_RESERVE_MEASUREMENT")
+        if receipt["free_before_bytes"] >= MIN_FREE:
+            receipt["target_removed"] = False
+            receipt["free_after_bytes"] = free_bytes()
+            need(type(receipt["free_after_bytes"]) is int and receipt["free_after_bytes"] >= MIN_FREE,
+                 "REFUSED_CAPACITY_ALREADY_SUFFICIENT_RESERVE")
+        else:
+            receipt.update(phase="REMOVAL_ATTEMPTED", removal_attempted=True,
+                           phase_history=[*receipt["phase_history"], "REMOVAL_ATTEMPTED"])
+            write_receipt(output, receipt)
+            remove_android()
+            receipt["target_removed"] = target_absent()
+            receipt["free_after_bytes"] = free_bytes()
+            need(receipt["target_removed"] is True, "REFUSED_CAPACITY_TARGET_REMAINS")
+            need(type(receipt["free_after_bytes"]) is int and receipt["free_after_bytes"] >= MIN_FREE,
+                 "REFUSED_CAPACITY_AFTER_REMOVAL_RESERVE")
         receipt.update(phase="PREPARED", phase_history=[*receipt["phase_history"], "PREPARED"])
     except Exception as error:
         code = str(error) if isinstance(error, Refusal) else "REFUSED_CAPACITY_PREPARATION_OPERATION"
@@ -257,13 +265,17 @@ def validate_prepared_receipt(value: dict, *, head: str, run_id: str, source_sha
          and value["head"] == head and value["run_id"] == run_id and value["ref"] == REF
          and value["source_sha256"] == source_sha256 and value["target"] == TARGET,
          "REFUSED_CAPACITY_PREPARED_IDENTITY")
-    need(value["phase"] == "PREPARED" and value["phase_history"] ==
-         ["VALIDATING", "REMOVAL_ATTEMPTED", "PREPARED"] and value["removal_attempted"] is True
-         and value["target_removed"] is True and value["error_code"] is None
+    need(value["phase"] == "PREPARED" and value["error_code"] is None
          and type(value["free_before_bytes"]) is int and value["free_before_bytes"] >= 0
          and type(value["free_after_bytes"]) is int and value["free_after_bytes"] >= MIN_FREE
          and value["production_contacted"] is False and value["financial_or_market_payload_included"] is False,
          "REFUSED_CAPACITY_NOT_ACTUALLY_PREPARED")
+    removed = (value["phase_history"] == ["VALIDATING", "REMOVAL_ATTEMPTED", "PREPARED"]
+               and value["removal_attempted"] is True and value["target_removed"] is True)
+    sufficient = (value["phase_history"] == ["VALIDATING", "PREPARED"]
+                  and value["removal_attempted"] is False and value["target_removed"] is False
+                  and value["free_before_bytes"] >= MIN_FREE)
+    need(removed or sufficient, "REFUSED_CAPACITY_ACTUAL_REMOVAL_OR_ALREADY_SUFFICIENT")
 
 
 def main() -> int:

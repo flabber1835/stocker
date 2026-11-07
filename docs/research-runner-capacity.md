@@ -56,8 +56,18 @@ flush/fsync and replacement. Its schema is
 `NONFINANCIAL_HOST_PREPARATION`. It records source/run identity, fixed target,
 bounded phase history, actual free bytes before/after, whether removal was
 attempted/confirmed, and a static error code. It contains no financial, market,
-credential or exception-message payload. `PREPARED` requires confirmed absence
-of the target and at least 12 GiB actually free afterward. Failed checks or
+credential or exception-message payload. `PREPARED` requires at least 12 GiB
+actually free afterward. If the initial measured free space is already at least
+12 GiB, the helper repeats the same host/checkout/layout checks, measures free
+space again and leaves the Android tree untouched. That receipt uses phase
+history `VALIDATING, PREPARED`, `removal_attempted=false` and
+`target_removed=false`; both measurements must meet the reserve. Otherwise the
+existing removal path requires confirmed target absence and phase history
+`VALIDATING, REMOVAL_ATTEMPTED, PREPARED`. The validator retains compatibility
+with every original removal receipt and never relabels unknown removal outcomes.
+FIN365 measured92,056,403,968 bytes before preparation yet spent150 seconds
+removing Android. The sufficient-space path avoids that observed overhead
+without weakening the12 GiB initial or10 GiB preworker gates. Failed checks or
 removal refuse; a removal timeout remains `UNKNOWN_REMOVAL_OUTCOME`, with no
 retry or fallback. Invalid host context emits only a closed refusal code.
 

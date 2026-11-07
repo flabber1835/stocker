@@ -2,7 +2,7 @@
   "actual_event_date_roles_verified": false,
   "actual_neutral13_known": false,
   "canonical_runtime_executed": false,
-  "closed_utc": "2026-11-07T18:58:37.487763+00:00",
+  "closed_utc": "2026-11-07T20:05:30.949476+00:00",
   "excluded_old_tail_rows": 18,
   "files": {
     "P06-TBIO-source-exit-DATA-qualification.json": {
@@ -45,6 +45,10 @@
       "bytes": 4566,
       "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
     },
+    "system_campaign_progress_observer.py": {
+      "bytes": 6126,
+      "sha256": "2228a45797e15f69b735a2b52b02f24ae47ad54981455d1bbb60647958e13d89"
+    },
     "system_campaign_retained_seed_successor.py": {
       "bytes": 9648,
       "sha256": "0c973ba9ed9c9d1151f6906cd83b47e48445e7183f36e7f93c4b07cd533e4ded"
@@ -54,8 +58,8 @@
       "sha256": "b514eaf9ca1af4fd31b47eab0fc51dd36b9880b614c722160539f7c20cae6da5"
     },
     "system_campaign_source_exit_entry.py": {
-      "bytes": 10352,
-      "sha256": "bfc55aea5dd97a40845018ad1d37e79b54691947a4a8123f3d677732db49ac34"
+      "bytes": 10684,
+      "sha256": "3374d2a0c92723936c7410d83732052c48cf750b1253bbd4d87b243a03fe05a5"
     },
     "system_campaign_source_exit_history.py": {
       "bytes": 6661,
@@ -66,8 +70,12 @@
       "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
     },
     "system_campaign_source_exit_observer.py": {
-      "bytes": 10718,
-      "sha256": "b59d0a07e3633e9d784807d07afd9c73da46c58a5e213940a8bf839a5336024d"
+      "bytes": 11313,
+      "sha256": "0b8085da00b68bbd2a230ff2630aac6d10f499bed8270a5d67203e3781404dd6"
+    },
+    "system_campaign_source_exit_reporting.py": {
+      "bytes": 1007,
+      "sha256": "dea2b436ac4973e16b5cc2d1ff3b8c40677c4dec52ebc378fccd8394427a6752"
     },
     "system_campaign_source_exit_resources.py": {
       "bytes": 4566,
@@ -96,6 +104,15 @@
   "final_integrated_checks_required_before_publication": false,
   "financial_authority": false,
   "held_settlement_authorized": false,
+  "latest_review_fix": {
+    "actual_saved_sessions": 1821,
+    "batch_tests": "151passed11.35s plus7 affected fixture tests passed4.80s after Windows long-path fixture correction",
+    "financial_sessions_admitted": 0,
+    "new_sessions_pending_review": 144,
+    "original_failure": "KeyError: events in compact accounting snapshot",
+    "regression": "Actual authenticated FIN366 source event and adjacent accounting; original error reproduced, corrected interface passed;7tests4.80s",
+    "run_id": 42403944223
+  },
   "latest_targeted_fix": {
     "batch_validation_after_change": true,
     "cause": "Original canary requires inventory.dependency_closure and a matching complete plan; adapter supplied the bare manifest and inherited old89 plan.",
@@ -124,7 +141,7 @@
   "parent_inputs": 12,
   "parent_source_cursor": "2024-08-30",
   "passed": true,
-  "previous_full_profile_sha256": "052d25e7ba4b4e4dc5a6dbca9daed21306ed905c41f28eb242d31d41b10abbd1",
+  "previous_full_profile_sha256": "0a1c591f3ecfc26e5c59a564e1b008db77a9b16df30f73175a5551c4b216a66a",
   "qualification_scope": "INPUT_AND_WHOLE_SOURCE_DATA_ONLY",
   "ready_for_hosted_gated_continuation": true,
   "required_genuine_neutral_inputs": 13,

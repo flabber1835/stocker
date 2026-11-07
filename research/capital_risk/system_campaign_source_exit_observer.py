@@ -87,10 +87,22 @@ def excluded_refusal(record,status,current):
   'SOURCE_EXIT_OBSERVER_ONLY_GENUINE_DIAGNOSTIC_REFUSAL_AFTER_SAVED_PREFIX')
  return dict(session=record['session'],record_sha256=digest(record),status_sha256=digest(status),financial_sessions_admitted=0,excluded_from_saved_prefix=True)
 
+def accounting_snapshot(snapshot,events):
+ # Match the mature independent reader: a compact accounting snapshot selects
+ # its exact historical prefix from the authenticated checkpoint ledger.
+ ledger=snapshot['ledger'];count=ledger.get('event_count')
+ need(set(ledger)=={'event_count','receivables'} and type(count)is int
+  and 0<=count<=len(events),'SOURCE_EXIT_OBSERVER_EXACT_COMPACT_LEDGER_PREFIX')
+ result=deepcopy(snapshot);result['ledger'].pop('event_count')
+ result['ledger']['events']=deepcopy(events[:count])
+ return result
+
+
 def source_record(record,term,scope,before,opened,events,*,source_was_selected):
  # The complete original reviewer checks the actual no-op, entire call set,
  # historical absence, original source delegation and unchanged source phase.
- result=previous.prior.source_record(record,term,scope,before,opened,events,source_was_selected=source_was_selected)
+ result=previous.prior.source_record(record,term,scope,accounting_snapshot(before,events),
+  accounting_snapshot(opened,events),events,source_was_selected=source_was_selected)
  return dict(result,ticker=term['ticker'])
 
 def review(parent,current,evidence,out,*,spec,old,neutral,api):
