@@ -7963,3 +7963,16 @@ passed2.33s. All182 selected cases passed across those targeted runs; unchanged
 broad suites were not repeated. Syntax checks, all383 original source pins and
 the four mature financial worker function ASTs also passed. Financial request225
 remains byte-identical; only the zero-financial stopped-review request changes.
+
+
+## Next P06 terminal source batch (2026-11-07)
+
+Reuse the existing unchanged source-batch collector for SID698514937491238880:
+actual2025-03-31/2025-04-01/2025-04-02 quotes and the original2025-04-01 native
+action group. The authentic FIN366 worker reported that SID at its next-session
+refusal. Its saved1821-session checkpoint is unheld and unordered for that SID;
+this is diagnostic evidence, not an admitted event-date ownership claim. Keep
+the separately admitted1677 root as source-query context only. This job reads
+immutable source data, carries zero financial workers, adopts no input, and may
+run alongside the independent saved-prefix review. No new collector or launcher
+code is introduced. The existing complete request/file validator passed.
