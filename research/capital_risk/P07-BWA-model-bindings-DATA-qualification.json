@@ -1,0 +1,79 @@
+{
+  "actual_financial_constructor_executed": false,
+  "actual_neutral26_known": false,
+  "canonical_runtime_executed": false,
+  "files": {
+    "P07-BWA-runtime-DATA-qualification.json": {
+      "bytes": 2862,
+      "sha256": "91371866da7ff227aeccc437ac826b9e050968669763f824873dd74200f99378"
+    },
+    "P07-BWA-saved-resources-DATA-qualification.json": {
+      "bytes": 2387,
+      "sha256": "0d4dd70329e60937f1af955d574a96351be4d371048a1f1fbcfdbf2ec30bc8e9"
+    },
+    "system_campaign_p07_abmd_legacy.py": {
+      "bytes": 12921,
+      "sha256": "d41fccdc9ecb3dbaa4165329812ea3037b15ea316e073e9c6af50a71a9f4ab7c"
+    },
+    "system_campaign_p07_abmd_lifecycle.py": {
+      "bytes": 14707,
+      "sha256": "05a34b6b3d849a81d632fb035675b88ccb8a7ad938ea7066689e6ec60ece5f81"
+    },
+    "system_campaign_p07_saved_proofs.py": {
+      "bytes": 11066,
+      "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
+    },
+    "system_campaign_p07_vivo_models.py": {
+      "bytes": 3664,
+      "sha256": "30249f9bdc16b332a8f2354f0d367d0c2c33db26d806c7beaa5c75886f7c6e09"
+    },
+    "system_campaign_p07_vivo_retained.py": {
+      "bytes": 10492,
+      "sha256": "87b4c0110e3d46af35491389fd301cb49e11ac6b71d8ec0610e74f3c3a417968"
+    },
+    "system_campaign_postclose_distribution_history.py": {
+      "bytes": 3509,
+      "sha256": "f6f11a4467a2d261634abde25d0559b2d0d50c61e8b355cc82870121029cfbba"
+    },
+    "system_campaign_postclose_distribution_models.py": {
+      "bytes": 5265,
+      "sha256": "e1d8d7848dd58e7dbd1e834bb73f924ec5023e52d1d48c89db7aa712f374dca9"
+    },
+    "system_campaign_postclose_distribution_runtime.py": {
+      "bytes": 11472,
+      "sha256": "3009a67fd86300d38701d101c89290b0f417e5baad7d740dfee117eb1a52b9d0"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "future26_reader_executed": false,
+  "genuine_complete_old_parent_history_verified": true,
+  "old_model_result_and_old_event_archive_axis_verified": true,
+  "parent_completed": 1383,
+  "parent_cursor": "2023-06-30",
+  "parent_root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "passed": true,
+  "private_lifecycle_phase_rows": 929,
+  "remaining": [
+    "complete original runtime orchestration and old ordinary observer/reviewer integration",
+    "authenticated stopped-parent transport",
+    "actual hosted copy, canonical adoption and constructor qualification",
+    "financial execution and independent admission"
+  ],
+  "schema": "research.postclose-distribution-retained-model-bindings-DATA-qualification/1",
+  "tests": {
+    "affected_command": "python -B -m pytest forecast_tests/test_postclose_distribution_models.py::test_actual_old_model_result_and_entire_original_function_bodies forecast_tests/test_postclose_distribution_models.py::test_old_origin_verifier_remains_whole_and_hosted forecast_tests/test_postclose_distribution_models.py::test_lifecycle_bindings_are_private_and_preserve_complete_code forecast_tests/test_postclose_distribution_models.py::test_exact_payload_guard_removal_on_explicit_noncanonical_input_DTO -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-models-20261107-002",
+    "affected_passed": 4,
+    "affected_seconds": 6.57,
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_models.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-models-20261107-001",
+    "distinct_passed": 13,
+    "financial_import_fences": 5,
+    "initial_failed": 3,
+    "initial_failures": "Test assertions compared code-object identity across separate AST compilations; capture the same factory result for identity and compare the preserved phase AST plus actual phase values.",
+    "initial_passed": 9,
+    "initial_seconds": 14.73,
+    "meaningful_guard_removals": 1
+  },
+  "whole_legacy_routing_AST_undo": true
+}

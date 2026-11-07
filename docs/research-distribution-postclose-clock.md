@@ -113,6 +113,60 @@ execute no canonical financial code and add zero trading days. The complete
 hosted restart, resource transport, constructor and financial admission remain
 required; this component is unselected.
 
+## Saved resource preservation
+
+Build a finite resource plan from the authenticated FIN343 inventory and
+reads made by the complete existing full25 history, saved-proof and factory
+metadata readers. Include every file named by the older origin manifests,
+their immutable preparation directories, original source material and
+committed ordinary-event observations. Preserve the genuine named pre-event
+archives through the accepted June 30 endpoint. A file's presence grants no
+event permission; ABMD's existing proof permissions remain separate.
+
+The current book, journals, lineage and input descriptors continue through
+the original financial retention path. This historical-resource plan creates
+no alternate book or checkpoint. Retain the entire original 930-row file in
+a distinct provenance path, while the certificate seed remains its exact
+accepted 929-row prefix. Exclude the later July 5 archive from the accepted
+historical resource list. Keep the original stopped source unchanged.
+
+Reuse the complete existing owned-copy canary and dependency copy/verification
+functions. Real copying, preservation and removal are hosted operations;
+local qualification reads authentic DATA and tests source bindings only.
+The actual hosted copy canary must pass before calculation.
+
+The authenticated plan contains 158 historical assets and seven genuine
+pre-event archives, totaling 287,155,235 bytes. It covers all 91 reads traced
+through the complete previous history, saved-proof and factory metadata
+readers. Thirteen targeted DATA tests passed in 3.18 seconds. The actual
+hosted copy canary has not run; this adds zero trading days.
+
+## Complete history in retained runtime callbacks
+
+For a 26-input descendant, first verify the complete genuine archived
+25-input parent, the original canonical neutral26 archive, the exact new
+typed document, hosted packet qualification and every original input byte.
+Historical ABMD and ordinary receipt callbacks may then read that genuine
+archived parent with their complete original readers. They never receive a
+shortened copy of the current checkpoint or a substituted input hash.
+
+The old model results remain historical metadata; the new wrapper reports
+the actual current descriptor count separately. Preserve the original
+readers for all previously supported generations. Extend only the finite
+legacy suffix and typed-descriptor routing sites needed by generation26.
+Resolve ABMD permissions against its genuine original24 event archive after
+verifying the new boundary; preserving other archives grants no permissions.
+These bindings remain unselected until actual hosted adoption and constructor
+qualification succeed.
+
+Thirteen distinct targeted DATA checks passed for these model bindings.
+The nine initially passing checks took 14.73 seconds with three test assertion
+failures; those assertions compared objects from separate compilations.
+The corrected assertions and added source-payload guard-removal check passed
+four tests in 6.57 seconds. The genuine existing parent and private
+929-row lifecycle phase passed. No future26 checkpoint or constructor was
+created or executed locally.
+
 ## Source qualification
 
 The source normalization, independent reconstruction and packet-codec checks passed 21 tests in 4.08 seconds. They read the genuine admitted 1383-day checkpoint and authentic SOURCE357 data, retain all three complete observations and both native records, and verify the actual frozen trading axis. The term builder and packet projection retain their complete original function bodies. Two guard-removal tests cover date relabeling and independent full-witness comparison. No financial state was created or advanced. Source closure is complete; the financial profile remains closed pending the full history, 929-proof preservation and hosted gates above.
