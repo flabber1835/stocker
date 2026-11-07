@@ -9,8 +9,8 @@ def stop(code=0,oom=False):return dict(stopped=True,exit_code=code,oom_killed=oo
 
 def test_actual_admitted_dates_and_counts_are_primary_reporting():
  rows=p.accepted_status();assert len(rows)==12 and sum(r['complete'] for r in rows)==7
- assert sum(r['completed'] for r in rows)==20395
- assert next(r for r in rows if r['arm']=='P06')['through']=='2023-08-31'
+ assert sum(r['completed'] for r in rows)==20646
+ assert next(r for r in rows if r['arm']=='P06')['through']=='2024-08-30'
 
 @pytest.mark.parametrize('role',['preflight','worker','reviewer'])
 def test_noncanonical_stopped_failure_receipts_classified_by_primary_stage(role):

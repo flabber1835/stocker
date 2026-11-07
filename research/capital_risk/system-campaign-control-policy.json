@@ -26,15 +26,19 @@
       "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
     },
     {
+      "admitted_root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
       "arm": "P06",
-      "event": "WWE/TKO 1:1 stock conversion",
-      "family": "STOCK_CONVERSION",
+      "completed_previous_event": "WWE/TKO original27-for27 conversion independently verified and admitted within saved1677/full12",
+      "event": "September27,2024 incomplete leadership terminal",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
-        "fresh complete dependency canary",
-        "fresh actual constructor canary",
-        "independent financial review"
+        "qualified full12 retained424 continuation loader",
+        "complete native/quote/identity/role evidence for September27 SID896501989594575427",
+        "correct event-family terms and independent source qualification",
+        "hosted canonical tests and fresh constructor canary"
       ],
-      "profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json"
+      "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
+      "source_observations": "Exact unsupported SID896501989594575427; native ticker/terms/event-date roles not yet classified"
     },
     {
       "arm": "P07",

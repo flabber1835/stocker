@@ -8,8 +8,8 @@ permissions:
   actions: read
 jobs:
   suffix:
-    # Fin356 P06 complete dependency closure and hosted constructor canary.
-    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    # FIN356 own1677 admitted; future full12 continuation remains unselected.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     concurrency:
