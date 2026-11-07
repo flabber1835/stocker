@@ -14,6 +14,7 @@ FUNCTIONS=('hydrate','document','qualify','prepare','review_input','source_scope
 OVERLAY='source-exit-successor-overlay.json'
 HYDRATED='hydrated-source-exit-successor-catalog.json'
 QUALIFICATION='source-exit-successor-input-qualification.json'
+SOURCE_SCOPES='source-exit-successor-scopes.json'
 
 def typed_descriptor(root,current,visitor):
  need(callable(visitor),'SOURCE_EXIT_API_EXPLICIT_COMPLETE_HISTORY_VISITOR')
@@ -45,7 +46,7 @@ def api(parent,spec,*,visitor):
    need(value['passed'] is True and type(value['financial_sessions_advanced']) is int and value['financial_sessions_advanced']==0,'SOURCE_EXIT_API_ORIGINAL_ZERO_FINANCIAL_PACKET_QUALIFICATION')
    path=path.with_name(QUALIFICATION)
   return original.save(path,value)
- namespace=dict(vars(original),selected=source.selected,OVERLAY=OVERLAY,HYDRATED=HYDRATED,
+ namespace=dict(vars(original),selected=source.selected,OVERLAY=OVERLAY,HYDRATED=HYDRATED,SOURCE_SCOPES=SOURCE_SCOPES,
   validate_input=validate_input,validate_typed_input=validate_typed_input,TYPED_SCHEMA=SCHEMA,save=save)
  exec(compile(ast.Module(body=[previous.remaining_tree(raw)],type_ignores=[]),'<whole-original-remaining-terms-qualified-typed-dispatch>','exec'),namespace)
  for name in FUNCTIONS:
@@ -53,4 +54,4 @@ def api(parent,spec,*,visitor):
   bound=FunctionType(fn.__code__,namespace,fn.__name__,fn.__defaults__);bound.__kwdefaults__=deepcopy(fn.__kwdefaults__)
   need(bound.__code__ is fn.__code__,'SOURCE_EXIT_API_IDENTICAL_COMPLETE_ORIGINAL_FUNCTION_CODE')
   namespace[name]=bound
- return SimpleNamespace(**{n:namespace[n] for n in (*FUNCTIONS,'remaining_ordinary_terms')},selected=source.selected,OVERLAY=OVERLAY,QUALIFICATION=QUALIFICATION)
+ return SimpleNamespace(**{n:namespace[n] for n in (*FUNCTIONS,'remaining_ordinary_terms')},selected=source.selected,OVERLAY=OVERLAY,QUALIFICATION=QUALIFICATION,SOURCE_SCOPES=SOURCE_SCOPES)

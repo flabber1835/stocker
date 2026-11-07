@@ -35,6 +35,8 @@ def test_all_seven_functions_retain_entire_original_code_objects(actual):
  for name in ('original_ordinary_selection','original_delivery_selection','supplemental_selection','qualified_own_batch_selection','contractual_delivery_selection'):
   assert globals[name] is getattr(p.original,name)
  assert api.prepare.__globals__['hydrate'] is api.hydrate and api.review_input.__globals__['document'] is api.document
+ assert api.SOURCE_SCOPES==api.prepare.__globals__['SOURCE_SCOPES']==api.review_input.__globals__['SOURCE_SCOPES']=='source-exit-successor-scopes.json'
+ assert p.original.SOURCE_SCOPES=='future-source-only-scopes.json' and api.QUALIFICATION!='future-input-qualification.json'
 
 def test_entire_actual12_history_and_typed_descriptor_use_original_dispatch(actual):
  root,parent,visitor,seen=actual;before=len(seen);api=p.api(parent,root_spec('P06'),visitor=visitor)
