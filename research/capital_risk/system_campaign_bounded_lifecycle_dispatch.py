@@ -30,9 +30,10 @@ def source_names():
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     import system_campaign_p07_lossless_export_host as lossless_export
     import system_campaign_p03_cash14_runtime as cash14
+    import system_campaign_p03_HABT19_runtime as habt
     import system_campaign_p07_full25_reporting as report25
     import system_campaign_p03_full18_reporting as report18
-    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names()))))
+    return tuple(sorted(set((Path(__file__).name,*dova.source_names(),*p06.source_names(),*p07.source_names(),*p05.source_names(),*reporting.source_names(),*retained.source_names(),*recovery.source_names(),*retained_reporting.source_names(),*composite.source_names(),*admitted_source.source_names(),*thor.source_names(),*bbig.source_names(),*vivo.source_names(),*remaining.source_names(),'P05-retained18-financial-runtime-v2-preparation.json',*reuse.source_names(),*report3.source_names(),*report5.source_names(),*review6.source_names(),*lossless_export.source_names(),*cash14.source_names(),*report25.source_names(),*report18.source_names(),*habt.source_names()))))
 
 def p06_declaration(spec):
     import system_campaign_p06_abmd_lifecycle_data as data
@@ -107,7 +108,9 @@ def expected_request(original,*,execution_mode,selected_arms):
     result=admitted_source.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_runtime as thor
     import system_campaign_p03_cash14_runtime as cash14
-    result=cash14.expected_thor_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    import system_campaign_p03_HABT19_runtime as habt
+    thor_request=habt.expected_thor_request if habt.selected(root_spec('P03')) else cash14.expected_thor_request
+    result=thor_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p03_thor_qualification_reuse as reuse
     result=reuse.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p06_BBIG_runtime as bbig
@@ -123,6 +126,7 @@ def expected_request(original,*,execution_mode,selected_arms):
     import system_campaign_p06_fin339_readonly_recovery_v2 as review6
     result=review6.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     result=cash14.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
+    result=habt.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,root_lookup=root_spec)
     import system_campaign_p07_full25_reporting as report25
     result=report25.expected_request(lambda:result,execution_mode=execution_mode,selected_arms=selected_arms,target_lookup=target_lookup)
     import system_campaign_p03_full18_reporting as report18
@@ -196,7 +200,10 @@ def entry(module,spec,*,mode,evidence=None,out=None):
             import system_campaign_p03_thor_qualification_reuse as reuse
             import system_campaign_p03_full17_reporting as report3
             import system_campaign_p03_cash14_runtime as cash14
-            if cash14.request_selected(spec,request):
+            import system_campaign_p03_HABT19_runtime as habt
+            if habt.request_selected(spec,request):
+                with habt.entry_context(module,spec,request):yield
+            elif cash14.request_selected(spec,request):
                 with cash14.entry_context(module,spec,request):yield
             else:
                 with reuse.entry_context(module,spec,request):

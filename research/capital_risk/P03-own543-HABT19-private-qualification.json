@@ -1,0 +1,61 @@
+{
+  "actual_canonical_packet_checks_executed_locally": false,
+  "canonical_runtime_executed": false,
+  "files": {
+    "P03-HABT-mandatory-common-cash-primary.json": {
+      "bytes": 1216,
+      "sha256": "a939f9adb6069af1fb66ddf4eef92b35fe3debbceced1bf2d8fd22c59ee693f7"
+    },
+    "P03-own543-HABT-ordinary19-catalog.json": {
+      "bytes": 607083,
+      "sha256": "afca80ed3e8387d578f42a8d60fab44014396defe272356dee9f6a09db68dd2c"
+    },
+    "P03-own543-HABT19-finite-facts.json": {
+      "bytes": 44173,
+      "sha256": "2f88bf1c1281cf0016926877206573fe740a847e4c2ad47da0fc1fd69eca4f4d"
+    },
+    "P03-own543-original33-observer-inventory.json": {
+      "bytes": 115532,
+      "sha256": "6b6b22a58ba0fb1e51a175d2bbac870a2c86813cd4dcbc5dc3bdf3526798869f"
+    },
+    "system_campaign_p03_HABT19_api.py": {
+      "bytes": 2205,
+      "sha256": "5daeb1b488a3c145bdf19bea27171c693cf0a559d552e888b418445ae8dc0d3b"
+    },
+    "system_campaign_p03_HABT19_data.py": {
+      "bytes": 8000,
+      "sha256": "010755f2645446cae87688c6aeeee4386cd8f2b24602b429b7a93fa3e8e3870e"
+    },
+    "system_campaign_p03_HABT19_lifecycle.py": {
+      "bytes": 4141,
+      "sha256": "6e76174038fc074f2016e22454898537b6c82cae560865ca5142ab06005851e4"
+    },
+    "system_campaign_p03_HABT19_runtime.py": {
+      "bytes": 14231,
+      "sha256": "865d22003bcae4e4e35cf2844b2518695e9d0cb2ed226823e1a61ecb145d36b7"
+    },
+    "system_campaign_p03_HABT19_stage.py": {
+      "bytes": 1897,
+      "sha256": "1ed670614f154c4ed8595f33f0cec6cc34cd891d1cfea59f90b6d7d9951d7203"
+    }
+  },
+  "financial_authority": false,
+  "hosted_packet_checks_required": 2,
+  "neutral19_known": false,
+  "new_observer_terms": 1,
+  "old_committed_proof_rows": 89,
+  "old_observer_terms": 33,
+  "old_raw_proof_rows": 101,
+  "passed": true,
+  "root_admission_sha256": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+  "schema": "research.P03-own543-HABT19-private-qualification/1",
+  "tests": {
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 29,
+    "seconds": 11.15,
+    "whole_lifecycle_runtime_packet_preflight_AST_undo": true,
+    "whole_original_API_code_objects": true
+  },
+  "utc": "2026-11-07T03:32:12.966397+00:00"
+}

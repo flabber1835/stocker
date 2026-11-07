@@ -7463,3 +7463,32 @@ Only saved543/2020-02-28/full18 with89 committed branch proofs. Retain70 admitte
 ## Accepted-prefix checkpoint after REPORT348 and REPORT349
 
 Both completed reporting jobs are immutable evidence, not templates for duplicate reruns. Publish their independently closed P03543/full18 and P071383/full25 roots together. Until a successor financial or source bridge is separately qualified, select zero arms and disable the automatic campaign job at this metadata checkpoint. The request remains an explicit reporting-mode metadata snapshot with zero financial and zero readonly workers; no saved checkpoint is advanced by this publication. Reactivation must explicitly select qualified successor profiles and restore the workflow condition. Preserve all prior captured requests, roots and source snapshots. This does not change any financial policy or grant production authority.
+
+
+## FIN351 P03 actual543 HABT ordinary19 continuation
+
+# P03 actual543/full18 to genuine HABT ordinary19
+
+Use only the independently admitted f297 actual543 checkpoint and89 committed
+proof rows. All101 original raw rows remain evidence;12 later tails never seed.
+Preserve full15/typed16/ordinary17/ordinary18 history, original DOVA archive,
+all33 prior observer terms and all six controller source identities. Add exactly
+one mandatory HABT common-share cash consideration14USD. The SEC records legal
+completion March18; Nasdaq records last trading March18 and suspension March19.
+No preopen assertion is authorized. Apply the already existing retained NEXT
+session cash-calendar convention: suppress the incomplete March18 native and
+recognize March19. Payment timing and future holding quantities are not asserted.
+
+Keep whole qualified source-subset validation. Lift only its PREOPEN-only route
+to PREOPEN-or-existing-NEXT, delegating both to the unchanged cash-calendar
+validate_term and keeping every source/native/primary/role guard. The source327
+generation retains its actual503 clock; independently bind actual543 roles.
+Keep the original future hydration/document/qualification code objects and full
+input visitor. The new genuine19 checkpoint must be made by hosted canonical
+zero-session adoption; no local checkpoint creation/projection/restore/replay.
+Rebind the whole qualified cash14 lifecycle to18->19,89/101/12 and March19,
+reusing its ordinary-tail history visitor and consumed-event constructor guards.
+Preflight must pass the whole original two packet checks for the one new term.
+No financial launch until the private qualification and exact request close.
+
+Private source/DATA qualification d320181f72f0eadfa7a4f261b875fa3e959b32e80e91e6430d30a8656856916d:29 checks passed11.15s, two meaningful guard removals and five financial-import fences. Select only actual543/full18/f297 and89 committed proofs; all101 original rows retained with12 tails excluded. Keep all33 prior observers and add HABT as the34th. Original API/packet preflight and full-history visitor remain whole; a hosted two-packet preflight and genuine19 adoption are mandatory before canonical finance. No provider alias asset is needed by this term. Existing lower profiles remain selectable only at their original roots. Source code never grants a later19-root restart.
