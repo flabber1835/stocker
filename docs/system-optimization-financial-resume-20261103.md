@@ -7442,3 +7442,9 @@ REPORT346 returned only four public metadata files before a worker was launched.
 ## REPORT348 positive transport metadata correction
 
 REPORT347 precisely identified FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL: the new positive FIN343 reporting target had inherited its older d9 predecessor refusal label. Move only that historical refusal/log/qualified-transport metadata into an explicit inherited namespace. Original crypto guards and all failed historical receipts remain unchanged; the actual positive FIN343 status, full25 checkpoint, zip/cipher and529 physical members remain identical. Preserve v1 fact/request history. The unmodified refusal validator must accept absent current-refusal metadata and reject the old stale label.
+
+
+## REPORT349 P03 genuine543 full18 monthly reproduction
+
+Use only genuine FIN345 saved543/full18 and independently admitted524/bff8 monthly seed. Reuse the entire qualified full17 readonly bridge with explicit immutable case literals (18 inputs,70 retained+19 new proofs), original full DOVA history and all original financial/monthly bodies. No financial context or new input adoption is installed. March diagnostic tails and HABT failure are not seeds. Whole AST undo and actual full input validation are required; no local canonical execution.
+Private full18 target/literal AST undo/import validation:11passed6.24s. Select P03 only, zero financial/one readonly worker. P07 reporting remains a separate immutable request. FIN345 positive hosted review and19 saved closes remain unadmitted until original monthly reproduction and independent DATA.
