@@ -62,6 +62,44 @@ def observe(state_dir: Path):
     return {'critical': False, 'pending': pending, 'status': value, 'latest_pending': latest}
 
 
+def _changing_attempt(snapshot):
+    """Collection coherence only; the caller still authenticates every byte."""
+    if snapshot['critical']:
+        return False
+    try:
+        wrapped = json.loads(snapshot['status'])
+        value = wrapped['status']
+        if (not isinstance(value, dict)
+                or value.get('schema') != 'sentinel.shadow-service-status/1'
+                or value.get('state') != 'RUNNING'):
+            return False
+        attempts = []
+        for key in ('pending', 'latest_pending'):
+            item = json.loads(snapshot[key]) if snapshot[key] is not None else None
+            if item is not None and (
+                    not isinstance(item, dict)
+                    or item.get('schema') not in {
+                        'sentinel.shadow-supervisor-pending/2',
+                        'sentinel.shadow-supervisor-pending/3'}
+                    or not _nonce(item.get('attempt_id'))):
+                return False
+            attempts.append(item)
+    except (ValueError, TypeError, KeyError):
+        return False
+    attempt, latest = attempts
+    return (latest is not None and latest != attempt
+            or attempt is not None and value.get('attempt_id') != attempt['attempt_id'])
+
+
+def _observe_coherent(state_dir):
+    """Run only in the killable child, under the request's parent deadline."""
+    while True:
+        snapshot = observe(state_dir)
+        if not _changing_attempt(snapshot):
+            return snapshot
+        time.sleep(.005)
+
+
 def _encode_frame(snapshot):
     if (not isinstance(snapshot, dict) or set(snapshot) != {'critical', *_BLOBS}
             or type(snapshot['critical']) is not bool
@@ -378,7 +416,7 @@ def _serve(state_dir):
         if nonce == previous:
             raise ValueError('worker snapshot request nonce repeated')
         previous = nonce
-        sys.stdout.buffer.write(_response(observe(state_dir), nonce))
+        sys.stdout.buffer.write(_response(_observe_coherent(state_dir), nonce))
         sys.stdout.buffer.flush()
 
 
@@ -417,7 +455,7 @@ def main(argv=None):
         _parent_death(parent_pid)
         if len(args) == 3:
             return _serve(Path(args[0]))
-        frame = _encode_frame(observe(Path(args[0])))
+        frame = _encode_frame(_observe_coherent(Path(args[0])))
         sys.stdout.buffer.write(frame)
         sys.stdout.buffer.flush()
         return 0

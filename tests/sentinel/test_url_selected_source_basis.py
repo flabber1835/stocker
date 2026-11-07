@@ -25,6 +25,7 @@ ACCESS_PATH_ADDITIONS = {'checkpoint_lineage_access.py', 'operational_ddl_handof
 ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
+STARTUP_CHANGES = {'shadow_service_probe.py'}
 RECOVERY_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
                 'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py',
                 'execution/authority_gate.py', 'paper/validation.py', 'operational_schema.py',
@@ -221,7 +222,7 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
         'panel/sources.py',
-        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -233,7 +234,7 @@ def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display
     actual = _actual()
     assert set(actual) == set(previous) | {'panel/feed_display.py'} | CASH_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
-        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES
+        'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
 
 
@@ -244,8 +245,37 @@ def test_running_feed_display_source_is_retained_without_claiming_completed_inst
     assert admission.source_closure(previous) == 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'
     actual = _actual()
     assert set(actual) == set(previous) | CASH_ADDITIONS
-    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | {'url_selected_source_basis.py'}
+    assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | {'url_selected_source_basis.py'}
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+def test_installed_pr570_is_preserved_and_only_coherent_worker_collection_changes():
+    previous = basis._profile()['retained_predecessors'][basis.STARTUP_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    actual = _actual()
+    assert len(previous) == 455
+    assert admission.source_closure(previous) == '5470089498b2e6341865fd5483732c07f347e0019de71376dfdbbc8b2121c344'
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == {
+        'shadow_service_probe.py', 'url_selected_source_basis.py'}
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_pr570(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.STARTUP_PREDECESSOR_REVISION]
+    if defect == 'changed': prior['files']['shadow_service_probe.py'] = 'f'*64
+    elif defect == 'missing': prior['files'].pop('shadow_service_probe.py')
+    elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
+    else: prior['files']['url_selected_source_basis.py'] = 'f'*64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path/'changed-startup-predecessor.json'; path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
