@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[2]
-LAUNCHER = ROOT / "scripts" / "sentinel-go-validate.sh"
+from tests.production_composition.test_operator_entry_process import (
+    _run as operator_run, private_operator_checkout,  # noqa: F401
+)
 
 STAGES = (
     ("bootstrap", "scripts/sentinel_deployment_bootstrap.py"),
@@ -18,85 +15,15 @@ STAGES = (
     # output_guard owns certification, Phase C schema/Sharadar/publication work,
     # read-only readiness, and final validation-bundle creation.
     ("validation_phase_c_bundle", "scripts/sentinel_go_output_guard.py"),
-    ("promotion_pointer", "scripts/sentinel_go_promote.py"),
+    ("promotion_pointer", "in-process:sentinel_go_promote.main"),
     ("panel_handoff", "scripts/sentinel_go_post_validate.py"),
 )
 
 
-def _write_env(path: Path):
-    path.write_text("\n".join([
-        "SENTINEL_BACKUP_DIR=/tmp/sentinel-composition-backup",
-        "SENTINEL_POSTGRES_PASSWORD=compositionpassword",
-        "SHARADAR_API_KEY=composition-sharadar",
-        "ALPACA_API_KEY=composition-alpaca-key",
-        "ALPACA_SECRET_KEY=composition-alpaca-secret",
-        "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=https://example.invalid/sentinel",
-        "SENTINEL_GITHUB_READ_TOKEN=github_pat_composition_fixture",
-        "",
-    ]), encoding="utf-8")
-
-
-def _shim(tmp_path: Path):
-    path = tmp_path / "python-shim"
-    path.write_text("""#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\\n' "$*" >> "$COMPOSITION_KILL_LOG"
-script="${1:-}"
-case "$script" in
-  scripts/sentinel_host_python.py|scripts/sentinel_go_lock.py|scripts/sentinel_env.py)
-    exec "$REAL_PYTHON" "$@"
-    ;;
-esac
-if [ -n "${COMPOSITION_KILL_SCRIPT:-}" ] && [ "$script" = "$COMPOSITION_KILL_SCRIPT" ]; then
-  exit "${COMPOSITION_KILL_RC:-137}"
-fi
-exit 0
-""", encoding="utf-8")
-    path.chmod(0o755)
-    return path
-
-
-def _clean(env):
-    for key in list(env):
-        if key.startswith("COMPOSE_") or key.startswith("DOCKER_"):
-            env.pop(key, None)
-    for key in (
-        "SENTINEL_GO_LOCK_HELD", "SENTINEL_GO_LOCK_FD", "SENTINEL_GO_RUN_TOKEN",
-        "SENTINEL_GITHUB_READ_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
-    ):
-        env.pop(key, None)
-
-
 def _run(tmp_path: Path, *, kill_script=None, kill_rc=None):
-    env_file = ROOT / ".env"
-    original = env_file.read_bytes() if env_file.exists() else None
-    _write_env(env_file)
-    log = tmp_path / "kill-calls.log"
-    env = dict(os.environ)
-    _clean(env)
-    env.update({
-        "SENTINEL_HOST_PYTHON": str(_shim(tmp_path)),
-        "REAL_PYTHON": sys.executable,
-        "COMPOSITION_KILL_LOG": str(log),
-    })
-    if kill_script:
-        env["COMPOSITION_KILL_SCRIPT"] = kill_script
-        env["COMPOSITION_KILL_RC"] = str(kill_rc)
-    try:
-        completed = subprocess.run(
-            ["bash", str(LAUNCHER)], cwd=ROOT, env=env, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=30, check=False)
-        calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-        return completed, calls
-    finally:
-        if original is None:
-            try:
-                env_file.unlink()
-            except FileNotFoundError:
-                pass
-        else:
-            env_file.write_bytes(original)
+    env = ({'COMPOSITION_FAIL_SCRIPT':kill_script,'COMPOSITION_FAIL_RC':str(kill_rc)}
+           if kill_script else {})
+    return operator_run(tmp_path, process_env=env)
 
 
 def _index(calls, script):
