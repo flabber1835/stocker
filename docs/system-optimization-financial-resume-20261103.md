@@ -1,5 +1,33 @@
 # Resume the eight unfinished financial paths
 
+## November7 authenticated source batch and current blockers
+
+SOURCE357 completed at5be1be10d66c703af04adb8efce2ca8e43fbf599, run42388826916,
+artifact13580637335. The complete48413-byte ZIP SHA256 is
+342b8110eac0159379d076e2c001585284f0d563adff5ec9250c42bb33740594.
+The unchanged crypto reader authenticated all four private output members
+(114117 logical bytes); actual stopped worker identity, entrypoint, network,
+mount, resource and credential fences passed. Source collection advances zero
+financial sessions and does not establish event-date ownership or input authority.
+
+All three native groups and seven of eight requested quotes were found. STML's
+June10 event quote is present; preserve11.50 common cash plus a contingent right
+bounded0..1.00, not12.50 certain cash. P03 still needs a second bounded input and
+full19-to20 history/152-proof qualification while preserving DOVA's original input.
+BRG's October6 quote is genuinely absent; BHM's quote and BRG's October5 quote are
+present. P05 needs the terminal-parent distribution contract and cannot substitute
+the prior quote as a current bar. PHIN's actual July5 row resolves its identity to
+SID801672850394475146/CIK1968915. BWA's two original typed source_row_ids are
+bfabd3cca383bffe4224fb7b29f685796d26f29b33da13d807179e2543465666 and
+2846a5bb34692c13798508fb2efe3da08db284a21851dc7cd94b5d2d241d46a6.
+Preserve July3 postclose legal distribution versus July5 native recognition.
+P07's event source review, full25-to26 visitor and929-proof binding remain required.
+
+FIN356 remains the sole active financial P06 generation at77544e71403fdc0732dbb054e2e70b345ca1ddc8.
+Do not duplicate it or treat running canaries as passed. P09's quantity choice is
+still pending; general unattended authorization does not answer that question.
+Current independently admitted progress remains20395/25872, seven completed arms.
+
 ## Parallel source evidence batch for remaining November7 blockers
 
 The owner explicitly authorized unattended repair/push/qualified research launches
@@ -71,12 +99,11 @@ equate workflow success with final financial admission, count an unreviewed suff
 launch a duplicate arm, or execute source paths supplied by an artifact. Shared
 logic is read-only by default; state reports are atomic derived metadata.
 
-Use one read-only thread heartbeat every20minutes to inspect completed runs and
-report completion or idle state, with quiet checks for unchanged running jobs.
-Unattended code edits, pushes and new financial launches were rejected by automatic
-approval review and are not enabled; those actions continue in foreground turns.
-The read-only monitor has no financial execution or repair authority. Preserve
-the separate paused automations for unrelated historical campaigns. Up to four
+Use the campaign thread heartbeat every20minutes, with quiet checks for unchanged
+running jobs. Following the initial automatic review rejection, the owner explicitly
+authorized unattended repairs, PR pushes and qualified launches; that authorization
+is now enabled for this campaign. Preserve the separate paused automations for
+unrelated historical campaigns. Up to four
 qualified arms may run independently, with one active job per arm; unresolved
 event contracts or P09 representation authority do not become ready by waiting.
 Report actual admitted gains and completed variants first; preparation/canary
