@@ -1,0 +1,71 @@
+# P10 AHL2 own diagnostic successor: implementation handoff003
+
+This design governs the authorized P10 diagnostic engineering and extends retained design002/worknote27f316d41569f0b39cc342625ec29eb2aa39656dd6dfde19ac6b0f84826e35a5. Engineering creates separate versioned drivers and a future-only ordinary input; no financial admission or workflow selection follows from implementation. Root alone publishes/selects; P01 financial work retains priority. P02 models and P01 source/input epochs provide no authority here.
+
+## Own source and exact predecessor
+
+p10-own-source-map-count-proof-001.json binds actual OWN source-bindings1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652, old427 requestbcaa266acd6ba06e193f71748dff7c6b9a85ccf3c25c7502ecdc60c11ba9d5c8, strict-parent gzip7937d0fe/outer451a2b and diagnostic gzip647f7095. Original V source has514 original physical files,516 variant physical files and224 canonical financial commitments. Added files are accounting_snapshot.py and capital_risk.py, no CELG files. Same counts in P01 are coincidental: exact own maps/module bytes/parameters/policy are required, with no fallback to another map or epoch.
+
+The sole runtime seed is own Feb1/one committed transition, runtime2e7fbe8b16a4cea0c866c7c9254ac457fe46486a479ec06fee5f692803ce27b1/state88660c2d7191167e054111926948429fb1d035369fe325f7a7e4e93b3f7fa330/input4b729049e78470685594a0b55a1753e2c287c30564bc05098dc7093b27a4e6b7. Strict financial Jan31/272 remains separate provenance. Preserve original three raw documents/descriptors and all original CP/proof/index/stream bytes plus ALL nine unsent Feb4-14 daily/event rows once in flattened lineage. Actual Journal.recover runs only on fresh disjoint copies. Never adopt a tail/qualifier state or restart Jan31; first computation is Feb4.
+
+Ordinary repair1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152 was inspected as text only: load_repair binds exact raw file SHA and separate canonical model hash, predecessor, future cursor, strict complete AddedTerm and native suppression. The incidental source-fixed backtest has a different full SHA than own b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc. It must not supply executable AST for this carrier. Render/authenticate the exact own source before extracting canonical input_hash/overlay operations.
+
+## Fourth input and diagnostic epoch
+
+Proposed ordinary terminal-repair/1 is bound to Feb1 runtime2e7f..., suppresses ONLY Feb14 SID1144531901989620662 native term70a2ce0de45c9f0fe0cdb52fc06d0c3644ea1c61f701a74c6d6dda0a4f8e2000 and adds ONLY complete Feb15 CASH_MERGER/HOLDER42.75 with unused fields explicitly null. SEC ordinary-share release plus OCC44575 before-open language supports OPEN processing, not an invented statutory minute. Retain Feb14 observation098bdd77102d01e150bb71c7b59898f05c5b6afd2902451210dbcab5bf934958; there is no Feb15 AHL2 quote. AHL2 historical endpoint inference/SEC_UNKNOWN/ineligibility remain unchanged; no later relisted AHL/preferred substitution. Raw file SHA, model SHA, descriptor and successor input are separately derived, currently UNBOUND. No DM/LOXO batch, old-wrapper guard removal or packet injection retaining old input hash.
+
+New filenames use disjoint system_campaign_p10_ahl2_ prefix. Proposed APIs:
+
+- parent.py: specification(), validate_contents(previous,spec), admit(root,key,spec); exact old427 request/source/inspection/crypto with old and new entrypoint validators kept distinct.
+- input.py: expected_document(spec), load(path,spec,canonical_loader), descriptor(document,parsed,spec); old3 bytes/order plus future-only ordinary fourth, no custom financial schema.
+- epoch.py: prepare_epoch(binding,out); canonical old restore/roundtrip then source-bound canonical input-overlay sequence. Only input/runtime-checkpoint identity changes; every SessionState byte/hash/policy/strategy/cursor remains equal.
+- replay.py: exact counted source_iterator/checkpoint AST adapters reusing Buffer, canonical runtime, context, journal and frozen writer24f4; no parallel book.
+- gate.py: qualify(binding,out); run.py --mode qualify|discovery|review --spec /out/spec.json --request /out/request.json, fixed armP10.
+- review.py: immutable-record source/input/role/FAST-REFERENCE/CP/prefix/epoch/index/tail proof, no account performance/financial admission.
+- job.py/export.py/probe.py, system-campaign-p10-ahl2-request-001.json and capital-system-p10-ahl2.yml; exact closure and safe hosted transport.
+
+A separate append-only diagnostic-input-epochs.jsonl commits old/new input, original own diagnostic CP/runtime/state/source, old3/new4 descriptors and previous epoch hash. It is a zero-session nonfinancial boundary, not a trade/adoption event. An explicitly versioned P10 diagnostic CP carrier stores active canonical runtime, four descriptors, epoch commitment and original diagnostic/strict references. Old CP stays verbatim lineage. Zero keeps cursor/count and old event/transition chains. Historical records retain old input; future records use the new epoch. Reader refuses absent/repeated boundary, changed old state/prefix, wrong parent, fourth-input omission or any financial/qualifier book substituted as own state.
+
+Old anchor/proof index prefix is empty, still verified/preserved. New writer binds own source/new input/epoch plus predecessor reference to the exact old empty commitment. It is not relabeled flat proof or erased old epoch. Future nonempty committed indexes/proof files/tails use frozen24f4 and committed-prefix reading with no overwrite/nonce reuse. Full original streams, tails and flat lineage remain independently available.
+
+## Changed hosted gate and fresh suffix
+
+Reuse completed native427/reference/crypto audits. New qualification covers only changed input behavior on independent canonical disposable paths:
+
+1. Old3: recreate Feb4-14 and Feb15 original REFUSED_VOLATILITY_CAUSAL_AXIS with full prior/error, immutable caller/ledger and zero committed failed transition. Old nine tails are comparison witnesses only.
+2. New4: fresh zero seed FAST and REFERENCE through Feb15; compare COMPLETE publications/runtime CPs/controller/leadership/pending/ledger/event/proof paths, no exclusions. Feb14 suppression is first affected publication, Feb15 cash addition is separate. Do not assume old/new Feb14 states equal. Verify all source packet fields except those exact terminal changes unchanged.
+3. Inspect actual new Feb15 roles. If held, prove42.75*ACTUAL quantity under unchanged operation order, ledger/cash/slot/pending/claim postconditions and prior immutability. Never assume69 from old tail. If unheld, qualify actual no-holding branch and supported held synthetic canonical state separately; never claim actual held settlement. Unsupported pending/fraction/identity/sensor scope refuses before commit.
+4. Instrument/delegate unchanged canonical phases: terminal settlement precedes engine V21 loop. Every surviving held episode still executes exact21 causal dates/prices; AHL2 leaves only by terminal removal, never missing-bar exception or fake window. Actual selected-witness terminal sensor binds42.75 consideration to prior signal/raw anchor without turning cash into a quote.
+5. Full canonical state/runtime/CP roundtrips and exact source/AST commitments. No-input/incomplete/wrong-date/wrong-native-hash/mutated-document/identity/epoch/prefix/risk-axis negatives refuse. A hosted isolated function clone with one causal-axis predicate removed must detect the guard loss on a disposable bad fixture; production candidate/suffix source keeps the original invariant.
+
+Export/authenticate successfully stopped qualification before launching SEPARATE fresh suffix. It starts original Feb1 again, recreates the same zero boundary and computes Feb4 onward, never adopting qualifier state or old tails. Full target is Jul31,2026; processing budget may yield a truthful new committed partial prefix. Future continuation uses that exact new CP, not blind replay. Failed Q exports durable partial/error proofs and launches no suffix.
+
+## Proposed bounded host/export contract
+
+Single-job proposed outer355min; explicit step caps checkout3/bootstrap3/capacity5/deps4/encrypted staging12/orchestration285/upload10 sum322min, leaving33min outer margin. Orchestration caps: source/parent15, changed qualifier90, bounded suffix120, stopped immutable review20, two encrypt/export phases20, stop/phase reserve20 =285min. These are implementation requirements to verify against actual nested waits, not observed timings or a completion promise. If this envelope is insufficient, retain a qualified diagnostic CP and use an explicit later bounded request; never consume export headroom silently.
+
+Capacityc7e90 before staging;12GiB initial/10GiB downstream guards. Actual new-scope marker encryption/authentication/decryption BEFORE parent fetch/workers. One2CPU8GiB/noSwap/network-none/nonroot worker at a time per VM, read-only /variant,/frozen,/driver,/old,/previous, writable /out; review also /evidence read-only. Exact proposed namespace capital-system-p10-ahl2-{qualify,worker,review}-RUN-1 is checked independently of old native namespace/CLI. Actual safe stop/inspection/error receipts precede snapshot; UNKNOWN has no mutable snapshot. Qcipher exported before suffix. All receipts remain diagnostic/financial_authorityFalse; encrypted7day output/keyseparate flow retained.
+
+Roots spec/request/source-bindings/source-map are exact raw copies, no426 serialization exception. Q includes old refusal, zero epoch, source packet diff, actual old/FAST/REFERENCE path gzip records, first affected settlement/sensor/V proofs, source contract/falsifiers/summary and actual stop/log. Partial actual paths are retained per session. Discovery includes current/retained/pre-event CPs, committed journals/events/anchors/index/proofs, all claim registry prefixes/tails, flat lineage, four raw inputs/epoch, Journal.recover receipt, Qreference/outcome/stopped review/stop/log. Exact member inventory/count comes from code; none is guessed now.
+
+## Source/client handoff and unresolved gates
+
+New closure is exact old427 unchanged plus its archived request, required immutable generic suffix/index/epoch reader dependencies, capacity helper and new P10 files. Compute complete import closure/Git blob mapping at freeze; no P01 request/map reuse. New source count/request/head/run/job remain UNBOUND until root publication/selection.
+
+Clients start with bounded declared-gzip/strictJSON/native extended paths. Before diagnostic-record parse authenticate selected metadata, every source/raw request, capacity/actual marker, each cipher size/hash/GCM/full inventory and actual stop fences. Pin physical516 parser separately from canonical224 map without fallback. Validate oldCP/fullstreams/nine tails, zero/input4/fullchangedQ/freshsuffix/everyCPepoch/indexprefix/tail/claim registry. No CAGR or financial metrics. Public-only/Q-only/knownnonzero/refusal/UNKNOWN are explicit. Freeze narrow pure/stub/source-AST/guard-removal tests and client binding before selection.
+
+Primary cash and OPEN clock are resolved. Remaining actual gates: canonical new parser/zero epoch; actual old refusal; actual role-specific candidate settlement/sensor; complete changed FAST-REFERENCE equality; unchanged V21 and full CP/prefix/tail proofs. No actual future holding/quantity/settlement/later completion is assumed. The separately approved engineering creates only the named diagnostic drivers. It does not admit financial inputs, permit edits to frozen sources, select a workflow, or permit local canonical execution.
+
+## Implementation budget and evidence handoff refinement
+
+The workflow orchestration step is300min, exceeding the mechanically summed285min admission/worker/export/stop envelope by15min. Seven explicit step caps checkout3/capacity5/dependencies4/metadata3/staging12/orchestration300/upload10 sum337min; outer355min retains18min margin. The earlier285min figure remains the internal bounded envelope, not the workflow step ceiling. Capacity precedes staging. Actual Qcipher sealing plus durable receipt precedes fresh suffix launch. Each seal has a600second host deadline; parent/source preparation has900seconds, workers5400/7200/1200seconds plus the separately budgeted stop/metadata reserve.
+
+The fresh diagnostic payload retains all NEW qualification proof files except copied old lineage/books, under retained-qualification. It never uses a qualifier checkpoint as a seed. The original old inventory remains once in flat lineage. The full separate Qcipher preserves all three disposable qualification paths and their books. A later reader authenticates both cipher inventories; the fresh path must reproduce the qualified first10 full records exactly.
+
+Before any restore, each changed-input worker verifies only the exact AHL2 raw observation preimage098bdd and frozen native terminal70a2 against the authenticated retained subset. It records SEC_UNKNOWN/first-session/ineligibility unchanged, without another-arm catalog hydration or whole historical audit. The witness fields and hashes are public descriptor metadata; actual raw source rows stay exclusively inside encrypted output.
+
+## Unknown reviewer preservation
+
+A reviewer writes only its separate rout and mounts the already stopped diagnostic dout read-only. If reviewer stop becomes UNKNOWN, preserve the proven stopped worker dout and the already exported Qcipher, without copying any reviewer scratch into dout. Label review_stop_unknown explicitly; no canonical-review success or admission is claimed. An UNKNOWN actual qualifier or diagnostic writer still forbids its own mutable snapshot. Track the active role at launch and clear it only on a proven stop; a single global UNKNOWN flag must not discard a disjoint immutable worker result.
+
+Pre-event outer CP archives are written before preparing any native terminal/spinoff packet, and the first successful February15 transition is checkpointed immediately. A postcondition refusal retains the complete attempted prior/publication/next runtime separately without committing it. All20 NEW candidate FAST/REFERENCE runtime checkpoints are canonically restored under the exact old codecs and four parsed documents; completed historic cases are not re-executed.

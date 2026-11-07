@@ -1,0 +1,48 @@
+{
+  "context_aborts_restore_hooks": true,
+  "files": {
+    "P06-SOURCE335-query-preparation.json": {
+      "bytes": 10571,
+      "sha256": "65d160cbf4bb3a72c687311ad508fe8420b6d49573ea4f749f5a308ada20efa2"
+    },
+    "system-campaign-p06-own1383-forward-source-queries-batch1.json": {
+      "bytes": 41774,
+      "sha256": "3348aba42e05c142a8c6ba25eed465147740b90c9f1e8d54447928873e04db29"
+    },
+    "system_campaign_p06_admitted_source_bridge.py": {
+      "bytes": 4077,
+      "sha256": "7040e7978944b0e5114e0bbe8b330431d7972162b7d9f9afc3bf1bdabe47708b"
+    },
+    "system_campaign_p06_forward_source_queries.py": {
+      "bytes": 3772,
+      "sha256": "61beaf13a4a62a2db223ced0b80e2dc638aa9d94587e5c9cba68143c091c18de"
+    },
+    "test_p06_source335.py": {
+      "bytes": 5735,
+      "sha256": "d82d2d10eca309c6d13ddc4ae20e6da270184004282487beeb3135ff44239bf3"
+    }
+  },
+  "financial_authority": false,
+  "local_canonical_runtime_executed": false,
+  "new_input_adopted": false,
+  "original_retention_context_source_sha256": "2faa1a5c3af0a36fc8ea51d813bcb1ed264de3dbbdf53890d45dde365209ae9f",
+  "passed": true,
+  "query_count": 128,
+  "query_dates": [
+    "2023-07-05",
+    "2023-12-06"
+  ],
+  "root_admission_sha256": "28c768af0d50047f04ddd6924c1500bf768cc138f41808cd1c0a0b5321eb64b8",
+  "schema": "research.P06-admitted-full10-source-bridge-private-qualification/1",
+  "tests": {
+    "actual_import_fences": 5,
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p06-source335-private-tests-003 test_p06_source335.py",
+    "meaningful_guard_removals": 1,
+    "passed": 18,
+    "seconds": 4.16
+  },
+  "utc": "2026-11-06T15:10:37.467898+00:00",
+  "whole_original_context_code_preserved": true,
+  "whole_original_query_AST_undo": true,
+  "zero_financial_request_required": true
+}

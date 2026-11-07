@@ -1,0 +1,14 @@
+{
+  "actual_refused_items": 370,
+  "archive_sha256": "9930b7c3d8762fe46268ab1686bf2c62ea42824769e7f5cba83e68d5b2bb0edd",
+  "artifact_id": 13454418166,
+  "canonical_schema_source": "research/pooled_vacancy_funding/repair.py",
+  "canonical_schema_source_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+  "field": "Repair.source_evidence",
+  "financial_authority": false,
+  "maximum_items": 128,
+  "schema": "research.authenticated-repair-evidence-capacity-DATA/1",
+  "source_head": "f8e5af856986072f15495c3c834fcd3dce155893",
+  "source_run": 42112780381,
+  "worker_log_sha256": "49b538d2b5b61bd930e779c336a55b061650eab743b8721e1527653c07580286"
+}

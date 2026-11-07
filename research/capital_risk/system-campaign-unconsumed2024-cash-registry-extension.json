@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "catalog_file": "system-campaign-unconsumed2024-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "unconsumed2024-cash-calendar-overlay.json",
+      "private_file": "hydrated-unconsumed2024-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-unconsumed2024/1/"
+    }
+  ],
+  "required_q4_extension_sha256": "af88d038acf2ce147a3809b536748af2e5d3a0105afc6ff7ce7bfa919adb3f87",
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}

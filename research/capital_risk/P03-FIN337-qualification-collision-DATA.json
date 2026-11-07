@@ -1,0 +1,55 @@
+{
+  "actual_neutral17_outer_sha256": "5fb4362552632deb492c59b4348c73aa3be0b18733c2a7a4303c482efef191fc",
+  "actual_selected_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+  "admitted_seed_rows": 49,
+  "all_frozen_source_closure_pins_verified": true,
+  "all_full_member_hashes_verified": true,
+  "artifact_id": 13520549642,
+  "boundary": {
+    "actual_neutral_outer_sha256": "5fb4362552632deb492c59b4348c73aa3be0b18733c2a7a4303c482efef191fc",
+    "all_original_state_journals_and_stats_unchanged": true,
+    "canonical_financial_source_changed": false,
+    "current_inputs": 17,
+    "financial_sessions_advanced": 0,
+    "input_successor": {
+      "earliest_affected_session": "2020-01-23",
+      "overlay": {
+        "filename": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409.json",
+        "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+        "resume_session": "2019-12-31",
+        "sha256": "ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409"
+      },
+      "predecessor_checkpoint_sha256": "46747314187b705910d44fb62c49bbb9256bedbab307d83c14919c5e3b87b1e5",
+      "predecessor_input_sha256": "8bf58124318903d17c309e69daecb50ae201f1ee803a70bcc6945cc95aad3760",
+      "schema": "research.pooled-action-successor/1",
+      "state_sha256": "b980ea280a50bac6089b365024bbf841f6bd2d622bbb2f5d29adad1f513ff43b",
+      "successor_input_sha256": "bcbcd587370d2711d735cc466d9a4a7880cab46dadf07c3aba24617fa3f0624d",
+      "unchanged_through": "2019-12-31"
+    },
+    "neutral_gzip_sha256": "b5c8d4c4a11a33a3d82426ef2346f5c08dba8cbf2d4486f1c3b7644a21131c11",
+    "original_inputs": 16,
+    "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+    "original_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+    "passed": true,
+    "zero_new_correlation": true
+  },
+  "downstream_review_passed": false,
+  "downstream_uncertainty_certificate_absent_before_original_Certificate_construction": true,
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "head": "d2088351f2f0bf15d5ea6b6a3ca2992341b6acc5",
+  "local_canonical_runtime_executed": false,
+  "logical_bytes": 120869438,
+  "members": 182,
+  "passed": true,
+  "qualification_bytes": 922,
+  "qualification_sha256": "0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56",
+  "schema": "research.P03-FIN337-qualification-collision-DATA/1",
+  "source_hashes": {
+    "system_campaign_bounded_sensor_runtime_v2.py": "4a261717829b227a29d01bd2c746c88554467645608a7b4476dd4f523b161096",
+    "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
+    "system_campaign_p03_thor_runtime.py": "a06bafcd0999f918df7369f4f73526042a22ae5b917be9f30da90c414f9449b7"
+  },
+  "unadmitted_tail_rows": 14,
+  "whole_retained_raw_rows": 63
+}

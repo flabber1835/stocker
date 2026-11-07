@@ -1,0 +1,174 @@
+{
+  "actual_event_date_roles_verified": false,
+  "actual_neutral13_known": false,
+  "canonical_runtime_executed": false,
+  "closed_utc": "2026-11-07T20:05:30.949476+00:00",
+  "excluded_old_tail_rows": 18,
+  "files": {
+    "P06-TBIO-source-exit-DATA-qualification.json": {
+      "bytes": 2695,
+      "sha256": "499da3de1f79dec86bca0d7c8d3aceef20ca71ce4e400441705ee14bf9dc1063"
+    },
+    "P06-TBIO-source-exit-input-catalog.json": {
+      "bytes": 19467,
+      "sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c"
+    },
+    "P06-retained424-successor-DATA-qualification.json": {
+      "bytes": 1426,
+      "sha256": "27e0fa8ca90b96139ee0cb8b52b1080169dc16804307499b428400ac85fa0c16"
+    },
+    "P06-source-exit-API-history-DATA-qualification.json": {
+      "bytes": 2674,
+      "sha256": "c0dc5c6d5e0dc341949daaaeb291e3ef1097cddaad4872f01836851580ef6dfe"
+    },
+    "P06-stopped-parent-transport-DATA-qualification.json": {
+      "bytes": 1443,
+      "sha256": "b6bc23bc4ab022b6d1cae3cac738357aab9e57ca9cde2f47aee4f922f60708f2"
+    },
+    "system-campaign-retained-seed-successors.json": {
+      "bytes": 5843,
+      "sha256": "080d960c9bd576963706f9bf7c47b744ded279e419b7843d863f53c24cba259e"
+    },
+    "system-campaign-source-exit-successor-resources.json": {
+      "bytes": 25618,
+      "sha256": "cd94bcaf5a27da1438722c111cd2a868d93523bfcec64149fa4dd4c31cf833d1"
+    },
+    "system-campaign-stopped-parent-transports.json": {
+      "bytes": 41656,
+      "sha256": "a6a69b63c6ac98ad2c4f2f2c931826e2e843d5878fcec7f04e440aafc3e57d1f"
+    },
+    "system_campaign_bounded_lifecycle_dispatch.py": {
+      "bytes": 18204,
+      "sha256": "a810bec49185ad83b79b7abca96b6fa84d13ae9c7034de94482d35df04ac7723"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_progress_observer.py": {
+      "bytes": 6126,
+      "sha256": "2228a45797e15f69b735a2b52b02f24ae47ad54981455d1bbb60647958e13d89"
+    },
+    "system_campaign_retained_seed_successor.py": {
+      "bytes": 9648,
+      "sha256": "0c973ba9ed9c9d1151f6906cd83b47e48445e7183f36e7f93c4b07cd533e4ded"
+    },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 3929,
+      "sha256": "b514eaf9ca1af4fd31b47eab0fc51dd36b9880b614c722160539f7c20cae6da5"
+    },
+    "system_campaign_source_exit_entry.py": {
+      "bytes": 10684,
+      "sha256": "3374d2a0c92723936c7410d83732052c48cf750b1253bbd4d87b243a03fe05a5"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 6661,
+      "sha256": "bb8e97cd0f3d5d376ab52362a0bba5a1423240118ba5943f175c25c08d41c2d6"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
+    },
+    "system_campaign_source_exit_observer.py": {
+      "bytes": 11313,
+      "sha256": "0b8085da00b68bbd2a230ff2630aac6d10f499bed8270a5d67203e3781404dd6"
+    },
+    "system_campaign_source_exit_reporting.py": {
+      "bytes": 1007,
+      "sha256": "dea2b436ac4973e16b5cc2d1ff3b8c40677c4dec52ebc378fccd8394427a6752"
+    },
+    "system_campaign_source_exit_resources.py": {
+      "bytes": 4566,
+      "sha256": "f36b588b30a09c303a8915cef4fd42145820ce7da49a9bd2d8b22d4ee9477bc2"
+    },
+    "system_campaign_source_exit_runtime.py": {
+      "bytes": 15695,
+      "sha256": "458d7cdee6f9b67275e736a5d01fb3bad9bcbf1cac6da3cda6f738fcc2642460"
+    },
+    "system_campaign_stopped_parent.py": {
+      "bytes": 12764,
+      "sha256": "0a516071d5db217392d2c8f2db941d8ae4b76631d8a83b75cdba47d713efbb5c"
+    }
+  },
+  "final_integrated_checks": {
+    "actual_original_public_archives_reverified": 2,
+    "basetemp": "C:/GitHub/stocker/.codex-tmp/source-exit-whole-profile-tests-20261107-a",
+    "command": "python -B -m pytest forecast_tests/test_source_exit_input.py forecast_tests/test_source_exit_api.py forecast_tests/test_source_exit_history.py forecast_tests/test_source_exit_resources.py forecast_tests/test_source_exit_observer.py forecast_tests/test_source_exit_runtime.py forecast_tests/test_source_exit_entry.py forecast_tests/test_stopped_parent.py forecast_tests/test_retained_seed_successor.py forecast_tests/test_bounded_lifecycle_dispatch.py forecast_tests/test_campaign_control.py forecast_tests/test_P06_FIN356_admission.py forecast_tests/test_financial_partial.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/source-exit-whole-profile-tests-20261107-a",
+    "complete_readonly_capsule_members_reverified": 34,
+    "launcher_exact_request_probe_passed": true,
+    "local_financial_runtime_executed": false,
+    "original_383_sources_B19_Future_uncertainty_and_four_mature_worker_ASTs_unchanged": true,
+    "passed": 224,
+    "seconds": 81.66
+  },
+  "final_integrated_checks_required_before_publication": false,
+  "financial_authority": false,
+  "held_settlement_authorized": false,
+  "latest_review_fix": {
+    "actual_saved_sessions": 1821,
+    "batch_tests": "151passed11.35s plus7 affected fixture tests passed4.80s after Windows long-path fixture correction",
+    "financial_sessions_admitted": 0,
+    "new_sessions_pending_review": 144,
+    "original_failure": "KeyError: events in compact accounting snapshot",
+    "regression": "Actual authenticated FIN366 source event and adjacent accounting; original error reproduced, corrected interface passed;7tests4.80s",
+    "run_id": 42403944223
+  },
+  "latest_targeted_fix": {
+    "batch_validation_after_change": true,
+    "cause": "Original canary requires inventory.dependency_closure and a matching complete plan; adapter supplied the bare manifest and inherited old89 plan.",
+    "command": "python -B -m pytest forecast_tests/test_source_exit_resources.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/source-exit-canary-fix-tests-20261107-a",
+    "financial_sessions_advanced": 0,
+    "financial_worker_started": false,
+    "fix": "Bind exact original inventory wrapper and the new104 plan in the whole unchanged canary code object.",
+    "original_artifact": 13586486394,
+    "original_artifact_zip_sha256": "37ae1f13839ca83c30aa44b2f6767bb84d805683430e1e43a53a640d17f4236c",
+    "original_failed_run": 42402873507,
+    "passed": 24,
+    "preflight_exit": 1,
+    "preflight_oom_killed": false,
+    "seconds": 4.17,
+    "unchanged_full_suite_not_repeated": true
+  },
+  "mature_original_function_AST_sha256": {
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "native_event_raw_close_preserved": "3.23",
+  "original_raw_proof_rows": 442,
+  "parent_completed": 1677,
+  "parent_inputs": 12,
+  "parent_source_cursor": "2024-08-30",
+  "passed": true,
+  "previous_full_profile_sha256": "0a1c591f3ecfc26e5c59a564e1b008db77a9b16df30f73175a5551c4b216a66a",
+  "qualification_scope": "INPUT_AND_WHOLE_SOURCE_DATA_ONLY",
+  "ready_for_hosted_gated_continuation": true,
+  "required_genuine_neutral_inputs": 13,
+  "required_hosted_gates": [
+    "authenticated_original_failed_book_and_separate_positive_review",
+    "complete_parent_roundtrip_and_journals",
+    "fresh104_resource_copy_verification_and_cleanup",
+    "whole_original_packet_and_source_scope_preparation_with_no_financial_advance",
+    "genuine_canonical_neutral13_archive_watch_and_correlation_proof",
+    "literal424_seed_equals_actual_parent",
+    "actual_certificate_and_original_observer_constructor_canary",
+    "original_actual_adapter_kernel_noop_and_source_delegation_guards",
+    "full_core_branch_event_and_monthly_review_before_root_admission"
+  ],
+  "resource_logical_bytes": 202909585,
+  "resource_requirements": 104,
+  "retained_proofs": 424,
+  "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+  "schema": "research.source-exit-successor-whole-profile-DATA-qualification/1",
+  "source_return_proxy": "3.99",
+  "targeted_component_results": {
+    "entry": "12passed1.53s",
+    "observer": "25passed7.33s",
+    "parent_transport": "23passed2.92s",
+    "resources": "22passed3.90s",
+    "retained_seed": "22passed31.12s",
+    "runtime": "16passed1.90s",
+    "source_API_history": "26passed27.92s"
+  }
+}

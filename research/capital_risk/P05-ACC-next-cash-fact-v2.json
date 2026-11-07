@@ -1,0 +1,360 @@
+{
+  "arm": "P05",
+  "independent_native_quote": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "11 Money",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1283630",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2004-08-16",
+    "metadata_admitted": "1",
+    "raw_close": "65.420000000000002",
+    "raw_compatible_volume": "18855710",
+    "raw_open": "65.370000000000005",
+    "reported_volume": "18855710",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "209530306982231273",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2022-08-09",
+    "sic": "6798",
+    "signal_close": "65.420000000000002",
+    "split_ratio": "1",
+    "ticker": "ACC",
+    "tradeable": "1"
+  },
+  "interpretation_scope": {
+    "existing_calendar_NEXT_unchanged": true,
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "historical_causality": "UNVERIFIED",
+    "ordinary_owned_common_cash": true,
+    "production_contacted": false,
+    "provider_metadata_upgraded": false,
+    "source_only_authority_upgraded": false
+  },
+  "original_calendar_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "original_cash_batch_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f",
+  "parent_ACC_pending": [],
+  "parent_ACC_positions": [
+    {
+      "entry_date": "2022-06-30",
+      "quantity": 29,
+      "slot_id": 16,
+      "ticker": "ACC"
+    }
+  ],
+  "parent_completed": 1152,
+  "parent_cursor": "2022-07-29",
+  "parent_descriptors": [
+    {
+      "filename": "98595c6129ee68ece000f0611190c9e30e35e579690ef488467d7570c76d7427.json",
+      "predecessor_checkpoint_sha256": "5dff853a3dc7d8ce384cb17049fdff3d18ca35f10458352b725e1fd9633219f9",
+      "resume_session": "2017-06-30",
+      "sha256": "98595c6129ee68ece000f0611190c9e30e35e579690ef488467d7570c76d7427"
+    },
+    {
+      "filename": "57fae5dc8aa9ab80cacfe8ac30a080aaf40306ec887cde40ce78781c92aeefb8.json",
+      "predecessor_checkpoint_sha256": "00f25323aec9165765120aeeb79b924332d0472b7310bb56ea0f1458c289a0f7",
+      "resume_session": "2018-01-31",
+      "sha256": "57fae5dc8aa9ab80cacfe8ac30a080aaf40306ec887cde40ce78781c92aeefb8"
+    },
+    {
+      "filename": "5c2b92d1c76f2bde85ecc7d9c238197764079b9ecbfb5e97f5c24727a699996f.json",
+      "predecessor_checkpoint_sha256": "82e177b75a9b872b821cd91e4425c8606b7fd56f1f0c212eb82798950b4b9ec4",
+      "resume_session": "2018-01-31",
+      "sha256": "5c2b92d1c76f2bde85ecc7d9c238197764079b9ecbfb5e97f5c24727a699996f"
+    },
+    {
+      "filename": "ffce60fd26a675d48cb6ddb3378956179ee334e409d5a322ef2c317eed92b279.json",
+      "predecessor_checkpoint_sha256": "e2ba67c32033b748545032b716904810679772b36f12b5bc3fe65faf760b3d24",
+      "resume_session": "2018-10-31",
+      "sha256": "ffce60fd26a675d48cb6ddb3378956179ee334e409d5a322ef2c317eed92b279"
+    },
+    {
+      "filename": "2500ddb069f4ee34b9563691144f038aa18658095958a54d74dcbec488f73d8d.json",
+      "predecessor_checkpoint_sha256": "c068679cf18ef7310f62ea42e9fd4f933f3dca0a8634501f0b93c0d316bcd105",
+      "resume_session": "2018-11-30",
+      "sha256": "2500ddb069f4ee34b9563691144f038aa18658095958a54d74dcbec488f73d8d"
+    },
+    {
+      "filename": "c0084fdbcb388176c585d2926cb9235f556276932b65a7cb056d0f2d0d09c5ca.json",
+      "predecessor_checkpoint_sha256": "04d628f7350147abe5a91516645a3c2b728d4953cf3b8b5604ece6feb8a07e1c",
+      "resume_session": "2019-12-31",
+      "sha256": "c0084fdbcb388176c585d2926cb9235f556276932b65a7cb056d0f2d0d09c5ca"
+    },
+    {
+      "filename": "253dd3a1135a6fa3906926dcc13e482a4d2e24aa45177d1549552005aae14541.json",
+      "predecessor_checkpoint_sha256": "1d58b3721dce8c7e8a6a76afd7d52b465a88cfe6aeb6567dea3338f297158e3e",
+      "resume_session": "2020-01-31",
+      "sha256": "253dd3a1135a6fa3906926dcc13e482a4d2e24aa45177d1549552005aae14541"
+    },
+    {
+      "filename": "63feceb1d7473f48b1629a53d61c2272cece5153913d0fb44fd7586a63a64dbd.json",
+      "predecessor_checkpoint_sha256": "d94dd56717cb4f0a2fdb3687bb2d46c5d91ede5b70decaaea0b1307f761b9081",
+      "resume_session": "2020-06-30",
+      "sha256": "63feceb1d7473f48b1629a53d61c2272cece5153913d0fb44fd7586a63a64dbd"
+    },
+    {
+      "filename": "b4493a5301316fc174236faf4453a9571afa0fc7c861300486fe19861b4deab1.json",
+      "predecessor_checkpoint_sha256": "44083d009975092ce92e41b1188a4758b32398a7057232c84c56076a9401f510",
+      "resume_session": "2020-11-30",
+      "sha256": "b4493a5301316fc174236faf4453a9571afa0fc7c861300486fe19861b4deab1"
+    },
+    {
+      "filename": "eb5cfe789a0d1563991d65c4a6ab2bacfa58b15491adc3c58091b4f7f5040bef.json",
+      "predecessor_checkpoint_sha256": "bf4f0d89004bf029c6de9e6dcbbaffd64f68a991b708f48fcee24497450712a5",
+      "resume_session": "2020-12-31",
+      "sha256": "eb5cfe789a0d1563991d65c4a6ab2bacfa58b15491adc3c58091b4f7f5040bef"
+    },
+    {
+      "filename": "058741572236af1b5ac04e036cc1667df030211762c4bc27b1cca81547e7db82.json",
+      "predecessor_checkpoint_sha256": "1b6c31a97836f3b22975e779b6179cfa59b24a91886ca4c1b27e4e03d4782fb0",
+      "resume_session": "2021-03-31",
+      "sha256": "058741572236af1b5ac04e036cc1667df030211762c4bc27b1cca81547e7db82"
+    },
+    {
+      "filename": "e0e482d8c2736eb8aa00452b27388f1be7c43dcee25d652cfbf67ba2bfe0ae2c.json",
+      "predecessor_checkpoint_sha256": "3fda1621facbf3524420cfd834b2d92415132fe74c57a5e5b973ba57a877c753",
+      "resume_session": "2021-10-29",
+      "sha256": "e0e482d8c2736eb8aa00452b27388f1be7c43dcee25d652cfbf67ba2bfe0ae2c"
+    },
+    {
+      "filename": "0efa9243489bcc2eb3ae43cc0cf167477ecc080c943adfb6c018f443d51559a7.json",
+      "predecessor_checkpoint_sha256": "92d12bb1c31d384503cc3c2a73ccf6e57ea7f7460d5410d1514ad39fde60707e",
+      "resume_session": "2021-11-30",
+      "sha256": "0efa9243489bcc2eb3ae43cc0cf167477ecc080c943adfb6c018f443d51559a7"
+    },
+    {
+      "filename": "fefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560.json",
+      "predecessor_checkpoint_sha256": "8e70c96910863f2943df4f9985b1c3b5a15a41c357db8e907a426f6a81c9654b",
+      "resume_session": "2022-03-31",
+      "sha256": "fefabf36c75e46f84a1fa0d393e056ab9f04f2924f107f4232131e9ea7bd7560"
+    },
+    {
+      "filename": "1412f0ff12b759dd1f4a22ba9fe9f72339168e6ab220f785162a844509de69ea.json",
+      "predecessor_checkpoint_sha256": "9155977924cb039ba56e090d568734154e8ab22dad2924878f2af12d75705865",
+      "resume_session": "2022-05-31",
+      "sha256": "1412f0ff12b759dd1f4a22ba9fe9f72339168e6ab220f785162a844509de69ea"
+    },
+    {
+      "filename": "1268ae32ad729019837c616a836135ac7ecaeff7dc0a2d8084a4deef1fd61761.json",
+      "predecessor_checkpoint_sha256": "56f0f42eb73f40c85be528121f46796e35e383c1089993b9b1bd5368cc0a722d",
+      "resume_session": "2022-06-30",
+      "sha256": "1268ae32ad729019837c616a836135ac7ecaeff7dc0a2d8084a4deef1fd61761"
+    }
+  ],
+  "parent_inner_sha256": "fa8abf6ad672ee88523e4c9668cd6ebbfcefdca15b58cc8d0bd9c1fda02e629a",
+  "parent_input_sha256": "dd2661f50008f62db6a6b3e259fb88adb4e11619ca10fa5bca9a93aae859578c",
+  "parent_outer_sha256": "69f529dc4a2b6790257068be6cf75455b9aaa87264cdd2d536120145a6afd399",
+  "parent_state_sha256": "2399eaa29d90b0847fc93c4f32669836c587b30ec4e1ffc508b0bc541e3741db",
+  "primary_legal_facts": {
+    "authority_items": [
+      "Introductory Note",
+      "Item2.01 Common Stock",
+      "Item3.01"
+    ],
+    "broker_settlement_date": "UNKNOWN",
+    "completion_date": "2022-08-09",
+    "currency": "USD",
+    "holder_exceptions": [
+      "Company or Company subsidiary holdings",
+      "Company rabbi-trust holdings",
+      "Parent Parties or their respective subsidiary holdings"
+    ],
+    "interest": false,
+    "mandatory_common_cash_per_share": "65.47",
+    "primary_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm",
+    "recognition_is_broker_settlement_date": false,
+    "recognition_is_legal_completion_date": false,
+    "stock_or_contingent_right_consideration": false,
+    "suspension_preopen_time": "UNKNOWN",
+    "suspension_requested_date": "2022-08-09"
+  },
+  "qualified_term": {
+    "actual_completion_date": "2022-08-09",
+    "added": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 65.47,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm | Mandatory common-share USD65.47 cash merger completed August9,2022; preopen time unconfirmed; existing retained next-session convention recognizes August10,2022.",
+      "security_id": "209530306982231273",
+      "session": "2022-08-10"
+    },
+    "arm": "P05",
+    "description": "Mandatory common-share USD65.47 cash merger completed August9,2022; preopen time unconfirmed; existing retained next-session convention recognizes August10,2022.",
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1283630",
+      "listing_first_session": "2004-08-16",
+      "security_id": "209530306982231273",
+      "security_type_eligible": "1",
+      "session": "2022-08-08",
+      "source_observation_sha256": "2fd3533e995b74c14502c28c5eb0c6dd8b512296a7b4ccd5533dd6f2c74a3bcc",
+      "ticker": "ACC"
+    },
+    "last_trading_session": "2022-08-09",
+    "mandatory_common_share_completion_confirmed": true,
+    "native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=9125",
+      "security_id": "209530306982231273",
+      "session": "2022-08-09"
+    },
+    "native_session": "2022-08-09",
+    "native_term_sha256": "dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7",
+    "parent_cursor": "2022-07-29",
+    "parent_outer_sha256": "69f529dc4a2b6790257068be6cf75455b9aaa87264cdd2d536120145a6afd399",
+    "parent_positions": [
+      {
+        "entry_date": "2022-06-30",
+        "quantity": 29,
+        "slot_id": 16,
+        "ticker": "ACC"
+      }
+    ],
+    "parent_root_admission_sha256": "e50bb7bb725c4636ad882b8b36b69aa1de9b7decc90fc611aa922f27b3e602c6",
+    "preopen_completion_confirmed": false,
+    "primary_extraction": {
+      "cash_currency": "USD",
+      "cash_per_share": "65.47",
+      "completion_date": "2022-08-09",
+      "mandatory_common_cash": true,
+      "preopen_completion_confirmed": false,
+      "source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm"
+    },
+    "primary_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm",
+    "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+    "security_id": "209530306982231273",
+    "source_capture": {
+      "artifact_id": 13474058928,
+      "head": "0c494870485ca7b940079a4848f3eaa5b783a53a",
+      "independent_data_review_sha256": "f2668ab9da00bd0f041a89a339125be0acd885f00c81c2c08b26a2ed4baa0cd2",
+      "independent_qualification_sha256": "6efd1c0bcd083bc313a1ed2c7a05537be54ddb39a9fa13d72fa115237d874857",
+      "payload_sha256": "d6625a14a9476ddc0df9e86c302d911cfcd9a7d998ececb47177ae1c9a33e150",
+      "run_id": 42156516022,
+      "scope_sha256": "6bca61ce8a03a51382d82db768e549e4d692d47aab253bf916825d395530fbd6"
+    },
+    "ticker": "ACC",
+    "timing_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm"
+  },
+  "raw_DATA_file": "ACC-native-last-trade-raw-DATA.json",
+  "raw_DATA_sha256": "9176ce10e23ba17688e5f1af5210dbde26f5d7f2cc55c83c3e3e4dcb273d1360",
+  "root_admission_sha256": "e50bb7bb725c4636ad882b8b36b69aa1de9b7decc90fc611aa922f27b3e602c6",
+  "schema": "research.p05-acc-mandatory-cash-next-fact/2",
+  "source_payload_sha256": "d6625a14a9476ddc0df9e86c302d911cfcd9a7d998ececb47177ae1c9a33e150",
+  "source_qualification_sha256": "6efd1c0bcd083bc313a1ed2c7a05537be54ddb39a9fa13d72fa115237d874857",
+  "source_review_sha256": "f2668ab9da00bd0f041a89a339125be0acd885f00c81c2c08b26a2ed4baa0cd2",
+  "source_scope_sha256": "6bca61ce8a03a51382d82db768e549e4d692d47aab253bf916825d395530fbd6",
+  "source_term": {
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1283630",
+      "listing_first_session": "2004-08-16",
+      "security_id": "209530306982231273",
+      "security_type_eligible": "1",
+      "session": "2022-08-08",
+      "source_observation_sha256": "2fd3533e995b74c14502c28c5eb0c6dd8b512296a7b4ccd5533dd6f2c74a3bcc",
+      "ticker": "ACC"
+    },
+    "native_term": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=9125",
+      "security_id": "209530306982231273",
+      "session": "2022-08-09"
+    },
+    "parent_positions": [
+      {
+        "entry_date": "2022-06-30",
+        "quantity": 29,
+        "slot_id": 16,
+        "ticker": "ACC"
+      }
+    ],
+    "source_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "11 Money",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1283630",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2004-08-16",
+      "metadata_admitted": "1",
+      "raw_close": "65.370000000000005",
+      "raw_compatible_volume": "3017037",
+      "raw_open": "65.409999999999997",
+      "reported_volume": "3017037",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "209530306982231273",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2022-08-08",
+      "sic": "6798",
+      "signal_close": "65.370000000000005",
+      "split_ratio": "1",
+      "ticker": "ACC",
+      "tradeable": "1"
+    }
+  },
+  "supersedes_sha256": "19e67645f232df759384bc91b846adf90a2120d4237b2e6192f446cdb4beba99",
+  "term": {
+    "actual_completion_date": "2022-08-09",
+    "added": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 65.47,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm | Mandatory common-share USD65.47 cash merger completed August9,2022; preopen time unconfirmed; existing retained next-session convention recognizes August10,2022.",
+      "security_id": "209530306982231273",
+      "session": "2022-08-10"
+    },
+    "description": "Mandatory common-share USD65.47 cash merger completed August9,2022; preopen time unconfirmed; existing retained next-session convention recognizes August10,2022.",
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1283630",
+      "listing_first_session": "2004-08-16",
+      "security_id": "209530306982231273",
+      "security_type_eligible": "1",
+      "session": "2022-08-08",
+      "source_observation_sha256": "2fd3533e995b74c14502c28c5eb0c6dd8b512296a7b4ccd5533dd6f2c74a3bcc",
+      "ticker": "ACC"
+    },
+    "last_trading_session": "2022-08-09",
+    "mandatory_common_share_completion_confirmed": true,
+    "native_session": "2022-08-09",
+    "native_term_sha256": "dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7",
+    "preopen_completion_confirmed": false,
+    "primary_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm",
+    "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+    "security_id": "209530306982231273",
+    "ticker": "ACC",
+    "timing_source": "https://www.sec.gov/Archives/edgar/data/1283630/000119312522216177/d390151d8k.htm"
+  }
+}

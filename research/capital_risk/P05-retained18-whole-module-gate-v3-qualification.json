@@ -1,0 +1,68 @@
+{
+  "W_files_changed": false,
+  "actual_cursor": "2022-08-31",
+  "actual_economic_packet_checks": 36,
+  "actual_full_inputs": 19,
+  "actual_imported_all_five_gate_method_shapes_equal": true,
+  "actual_measured_closes": 1175,
+  "actual_neutral20_positive_unknown": true,
+  "actual_packet_gate_positive_DATA": true,
+  "actual_preflight_packet_checks": 36,
+  "all_five_method_substitution_falsifiers": true,
+  "canonical_checkpoint_staging_or_restore": false,
+  "canonical_writer_called": false,
+  "compiled_whole_module_executed": false,
+  "complete_original_gate_validator_AST_undo": true,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 2511,
+      "sha256": "8639c696e383bdab66a0279c65501e99c8ca9c4def5441f8363dbba3d6b2d586"
+    },
+    "INTEGRATION.md": {
+      "bytes": 3201,
+      "sha256": "3107038d2fb143a2ec2764309966c098397c7e32ec48689536fec9becb81f515"
+    },
+    "P05-FIN338-actual-packet-and-whole-module-gate-DATA.json": {
+      "bytes": 2027,
+      "sha256": "250e7c4696a1fea7b80de7494d5f12555349d296dc539e8f552e03bf751a6b35"
+    },
+    "review_actual_FIN338_packet_and_gate_DATA.py": {
+      "bytes": 4356,
+      "sha256": "e358742f0cc95c8a88629bbadf83e211b5c181901c617106c509c5b6c80a255a"
+    },
+    "system_campaign_p05_remaining_runtime_v3.py": {
+      "bytes": 4856,
+      "sha256": "abb721b005f821a0502e21311a1a1ebc2b8c0de71f161804932119196cafb8e1"
+    },
+    "test_gate_v3_DATA.py": {
+      "bytes": 11242,
+      "sha256": "afd004b94c31b88cb242cbe643ae79eed76fe4bf5998868ea31ad2fe36dafafb"
+    }
+  },
+  "financial_authority": false,
+  "financial_import_fences": 5,
+  "financial_workers_launched": 0,
+  "isolated_class_mismatch_is_only_write": true,
+  "local_canonical_runtime_executed": false,
+  "meaningful_guard_removals": 1,
+  "new_financial_closes": 0,
+  "new_financial_root_admitted": false,
+  "original_class_AST_and_all_five_method_guards_retained": true,
+  "original_v1_v2_qualification_files_unchanged": true,
+  "passed": true,
+  "prepared": true,
+  "pytest_seconds": 8.11,
+  "schema": "research.P05-retained18-whole-module-gate-v3-qualification/1",
+  "tests": 26,
+  "unchanged_runtime_pins": {
+    "system_campaign_p05_remaining_runtime.py": {
+      "bytes": 17702,
+      "sha256": "d2628d901977407e068922a05b493a20ad6815ff948ededb2c162794a58a3392"
+    },
+    "system_campaign_p05_remaining_runtime_v2.py": {
+      "bytes": 8935,
+      "sha256": "31d8b6c1110cc2add682687eb0959d90cf3713d10e9421464bd855a04c04536d"
+    }
+  },
+  "whole_v1_and_v2_gate_wrapper_code_objects_retained": true
+}

@@ -1,0 +1,374 @@
+{
+  "artifact_id": 13525611349,
+  "authenticated_manifest_sha256": "f6aa833d5cb4592550a8e6019180367c03dc47a0e0aade1167163cc43d29915d",
+  "completed": 1426,
+  "cursor": "2023-08-31",
+  "financial_authority": false,
+  "financial_book_aliases_created": false,
+  "financial_sessions_reexecuted": 0,
+  "full_inputs": 11,
+  "lineage_preservation_owner": "UNCHANGED_ORIGINAL_RESUME_PRESERVE_ORIGINALS",
+  "observer_prefix": "p06-BBIG-combined-original-observation/",
+  "raw_proof": {
+    "bytes": 3055015,
+    "sha256": "1162fbdb259e959d0f659660e695a569b9cf02fdb2ad11176ea418672a62ae34"
+  },
+  "raw_proof_destination": "p06-WWE-ordinary12-origin/actual-old-full179-uncertainty-certificate.jsonl",
+  "raw_proof_source": "uncertainty-certificate.jsonl",
+  "resources": {
+    "P06-BBIG-SOURCE335-closed-source-DATA.json": {
+      "bytes": 604810,
+      "sha256": "9973a607fd6bdc12ce962d3237c190c99ed59b65dcc9770baae8b95cb591cfb0"
+    },
+    "P06-BBIG-source-exit-raw-quote-axis-DATA.json": {
+      "bytes": 3279,
+      "sha256": "9387fc465d7eca0393eb47fd43af84bfc85c7bdec594551ee23a764cb1b98bb4"
+    },
+    "P06-own1383-BBIG-source-only-ordinary11-catalog.json": {
+      "bytes": 153280,
+      "sha256": "2f87d2be007222865d2abaa93458b8b167a8eac7f4e990b290c0d99c6f9477b0"
+    },
+    "abmd-bounded-input-adoption-correlation-inputs.jsonl.gz": {
+      "bytes": 42919877,
+      "sha256": "ca67483ec1f4f23f34b739de51d79687bc63a9da444fef1d2b0e0763e1032a71"
+    },
+    "abmd-bounded-input-adoption/checkpoint.json.gz": {
+      "bytes": 1331216,
+      "sha256": "21c8b9104478aaf41cec54778ef36a8b4d54249f351f6392fd8d745dcebde15c"
+    },
+    "abmd-bounded-input-adoption/proof.json": {
+      "bytes": 1163,
+      "sha256": "240caa96e01567013a1208502159a96a1a9758997015cef131a8da7272e284c5"
+    },
+    "abmd-bounded-sensor-input.json": {
+      "bytes": 3259,
+      "sha256": "642df855388f4f56c55eb088c5ec9d9363bfa1039e0e7fa3d25451317d271ef1"
+    },
+    "abmd-initial-origin/initial-parent-checkpoint.json.gz": {
+      "bytes": 1331036,
+      "sha256": "91a10a269612734976ee441ba4e322ac7cd6366127f27df26241a771bea6f701"
+    },
+    "abmd-initial-origin/ordinary-neutral-checkpoint.json.gz": {
+      "bytes": 1331130,
+      "sha256": "01968e0ac1897a5e80e999c171d284b952a2c9c19641de48ec10539a21ef7193"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-05-13.json": {
+      "bytes": 816,
+      "sha256": "e6e05719375ffcd9b9f7c4fcb8a7dd7acaf7072645ba78ba106dd4f9e1224171"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-05-19.json": {
+      "bytes": 519,
+      "sha256": "359133d7cf9abebbf8a4d31493b75d02b9a558256a2c87b599a90b14ddc62f29"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-10-14.json": {
+      "bytes": 516,
+      "sha256": "26b6da34a12de6be9999bab92415bc6bb9ca2fe089c2956b2b300cb0a1897b9d"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-10-18.json": {
+      "bytes": 514,
+      "sha256": "cb64e941c74b794a51f21e1eb6aac94eecc1cb1e6fa095c2f5f31b48ffbbf9b6"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-10-19.json": {
+      "bytes": 816,
+      "sha256": "83fc9c598c5451bf393c9badc47702e8f9c05787b49fef4fa3c797c6a67cfaba"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-10-20.json": {
+      "bytes": 516,
+      "sha256": "7d8427ec51e848b40cb083c323eb07f64effb7307e436c3598d6fb360422df3d"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-11-04.json": {
+      "bytes": 516,
+      "sha256": "e90a99feb55e127d113a27c0e3ad54c5cea8d6d3e6d99740d5429554677faca4"
+    },
+    "abmd-initial-origin/prior-resources/actual-future-event-2022-11-22.json": {
+      "bytes": 516,
+      "sha256": "977fc7b5e7b3fe76cac92195fa562fcfc3fff544cfbf5cf8b7f0762c5c142f61"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-additional-terminal-catalog.json": {
+      "bytes": 7076,
+      "sha256": "d3e3eecbd6ba468481d3f0724c3571fdb44ba6c02e02661d23fd0273cab59cd2"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-compound-input.json": {
+      "bytes": 45482,
+      "sha256": "368890613636cd2e3f4889a01efc002aa27a7ea852a15ed28b135cf99c05c20c"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194.json": {
+      "bytes": 4741,
+      "sha256": "f0837fcf4f476bba01905b32c850dab3b8d0ace7b33f49039779655add569e83"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246.json": {
+      "bytes": 38506,
+      "sha256": "dfadb5c759e540f10866ff7e096459d7f9a6d4aca5cacf7d81809f8b83b93c28"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-55d61959194c0572a9a686a1ace6202255296ec1cae81127a170a7785a5bcb2a.json": {
+      "bytes": 5171,
+      "sha256": "334343d2dc102920794718d6b1e8305d6b9789c1c613b2f506d2c6a4db6beaaf"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-67f3063f3fd68a79dd83189fb1c29173dda651fe399f235272d019f486c2fbb1.json": {
+      "bytes": 4935,
+      "sha256": "3d41ef3644f381d4d66b1c12db81a85d86c9978b305fd93e75b6bc3dc3eb3ffe"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde.json": {
+      "bytes": 34150,
+      "sha256": "2316762051669d9e596c612cd920ee56b56fbca4a813ffe04a561593ca295033"
+    },
+    "abmd-initial-origin/prior-resources/hydrated-future-financial-terminal-catalog-f6b6bba7a1830835fbe385199e23723fe5bdef0a5e3ea4383a842fe6227e5340.json": {
+      "bytes": 15832,
+      "sha256": "381895f2f11f5c600c4b5433e5e2fcdc32117b437d292943392570386ab6c60e"
+    },
+    "abmd-initial-origin/prior-resources/source-bindings.json": {
+      "bytes": 61203,
+      "sha256": "57f41c1d743fcc57e8b050e6b4480d4c762ec3acc1dd7be5dc4987df135b3bf5"
+    },
+    "abmd-initial-origin/typed-neutral-checkpoint.json.gz": {
+      "bytes": 1331216,
+      "sha256": "21c8b9104478aaf41cec54778ef36a8b4d54249f351f6392fd8d745dcebde15c"
+    },
+    "branch-controller-qualification.json": {
+      "bytes": 922,
+      "sha256": "0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56"
+    },
+    "future-input-qualification.json": {
+      "bytes": 330,
+      "sha256": "cf4c411935399fc6b8fabe78bba4a3468a618f15c9fa5026c6b0120c409f66f4"
+    },
+    "future-source-only-scopes.json": {
+      "bytes": 817,
+      "sha256": "d3d29b213e661caf0fe3c12fd13e5268b64d4039814d6043ef724c70ff5eb2b3"
+    },
+    "hydrated-abmd-bounded-event.json": {
+      "bytes": 2779,
+      "sha256": "0b700c747dc276b06f1cea9018049e78de4f31e9c494405a89901487b747339b"
+    },
+    "hydrated-additional-terminal-catalog.json": {
+      "bytes": 7076,
+      "sha256": "d3e3eecbd6ba468481d3f0724c3571fdb44ba6c02e02661d23fd0273cab59cd2"
+    },
+    "hydrated-compound-input.json": {
+      "bytes": 45482,
+      "sha256": "368890613636cd2e3f4889a01efc002aa27a7ea852a15ed28b135cf99c05c20c"
+    },
+    "hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "hydrated-future-financial-terminal-catalog-129e006cdcb66fe02dbe443560b7fbcc09c48acae521a781915efbce3ad1b194.json": {
+      "bytes": 4741,
+      "sha256": "f0837fcf4f476bba01905b32c850dab3b8d0ace7b33f49039779655add569e83"
+    },
+    "hydrated-future-financial-terminal-catalog-41eb70aa3f3feab4190426a9b17e0ea3f20499607ccfa1e4e86d39c309355246.json": {
+      "bytes": 38506,
+      "sha256": "dfadb5c759e540f10866ff7e096459d7f9a6d4aca5cacf7d81809f8b83b93c28"
+    },
+    "hydrated-future-financial-terminal-catalog-55d61959194c0572a9a686a1ace6202255296ec1cae81127a170a7785a5bcb2a.json": {
+      "bytes": 5171,
+      "sha256": "334343d2dc102920794718d6b1e8305d6b9789c1c613b2f506d2c6a4db6beaaf"
+    },
+    "hydrated-future-financial-terminal-catalog-615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f.json": {
+      "bytes": 9816,
+      "sha256": "1c5a04be0115a84c6fe737166bd51f63684d35e31e744145f7ee314051df9262"
+    },
+    "hydrated-future-financial-terminal-catalog-67f3063f3fd68a79dd83189fb1c29173dda651fe399f235272d019f486c2fbb1.json": {
+      "bytes": 4935,
+      "sha256": "3d41ef3644f381d4d66b1c12db81a85d86c9978b305fd93e75b6bc3dc3eb3ffe"
+    },
+    "hydrated-future-financial-terminal-catalog-7edc9c1ea24c4c353ae50644ff7423f1f7f23f18f0cf2135050c0e360220ecde.json": {
+      "bytes": 34150,
+      "sha256": "2316762051669d9e596c612cd920ee56b56fbca4a813ffe04a561593ca295033"
+    },
+    "hydrated-future-financial-terminal-catalog-bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08.json": {
+      "bytes": 5113,
+      "sha256": "e8f88906d3235d9806d837d1a2c292f0f5d52c2b37def22089bdbce626cecd41"
+    },
+    "hydrated-future-financial-terminal-catalog-f6b6bba7a1830835fbe385199e23723fe5bdef0a5e3ea4383a842fe6227e5340.json": {
+      "bytes": 15832,
+      "sha256": "381895f2f11f5c600c4b5433e5e2fcdc32117b437d292943392570386ab6c60e"
+    },
+    "ordinary-input-adoption-correlation-inputs.jsonl.gz": {
+      "bytes": 42919873,
+      "sha256": "d07c76437b4344f41d8158f05789330d4b4065e47e6dc80126f104039491367e"
+    },
+    "ordinary-input-adoption/checkpoint.json.gz": {
+      "bytes": 1331130,
+      "sha256": "01968e0ac1897a5e80e999c171d284b952a2c9c19641de48ec10539a21ef7193"
+    },
+    "ordinary-input-adoption/proof.json": {
+      "bytes": 1163,
+      "sha256": "3aa7d66b9cb2bfe24c7d44423d84217063ffd492b020a4646e3107ab9f316dbf"
+    },
+    "own-uncertainty-admission.json": {
+      "bytes": 1405,
+      "sha256": "f041eea1c3e3d139d5d33d01d3b0bec1a31f3539546b972c8ca7dd27fbdc84bb"
+    },
+    "p06-BBIG-combined-original-observation/actual-future-event-2023-07-27.json": {
+      "bytes": 827,
+      "sha256": "3e43fe84d5169b43575598e3b3293741017a99eca56acc30538d57c98d4f5e43"
+    },
+    "p06-BBIG-combined-original-observation/future-source-only-scopes.json": {
+      "bytes": 817,
+      "sha256": "d3d29b213e661caf0fe3c12fd13e5268b64d4039814d6043ef724c70ff5eb2b3"
+    },
+    "p06-BBIG-combined-original-observation/hydrated-future-financial-terminal-catalog-bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08.json": {
+      "bytes": 5113,
+      "sha256": "e8f88906d3235d9806d837d1a2c292f0f5d52c2b37def22089bdbce626cecd41"
+    },
+    "p06-BBIG-combined-original-observation/observer-origin.json": {
+      "bytes": 1327,
+      "sha256": "9f0678b3774a5e14b98061ebba23185d7737c6ce64ede4d359324696984694e8"
+    },
+    "p06-BBIG-combined-original-observation/p06-BBIG-source-only-ordinary11-overlay.json": {
+      "bytes": 3403,
+      "sha256": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396"
+    },
+    "p06-BBIG-genuine-neutral11-boundary-review.json": {
+      "bytes": 1552,
+      "sha256": "7cfb3404b4b31bb7f5472a17158b85b872a8ee5f3f0bfa7c793f0705d409530f"
+    },
+    "p06-BBIG-ordinary11-adopted-input-receipt.json": {
+      "bytes": 1552,
+      "sha256": "7cfb3404b4b31bb7f5472a17158b85b872a8ee5f3f0bfa7c793f0705d409530f"
+    },
+    "p06-BBIG-ordinary11-adoption-correlation-inputs.jsonl.gz": {
+      "bytes": 47594314,
+      "sha256": "c4c3dee9d995f8d5e9f91778d5de2b34b7e7f207b37254f2885bdc5468888abe"
+    },
+    "p06-BBIG-ordinary11-adoption/checkpoint.json.gz": {
+      "bytes": 1357039,
+      "sha256": "adc81dbd33bc20f20a83487a33c80208f42a6aedc481bc0e9024b6da2d727de1"
+    },
+    "p06-BBIG-ordinary11-adoption/proof.json": {
+      "bytes": 1163,
+      "sha256": "776c499f372ba16aaa0d8a182a5796532074a62e3d2bf8b81f9d88388d30c17b"
+    },
+    "p06-BBIG-ordinary11-input-qualification.json": {
+      "bytes": 330,
+      "sha256": "eb9a49b48126a49bfc5fc826e5a72dffda4713706d0d5e70dff1596ce93546c8"
+    },
+    "p06-BBIG-ordinary11-origin/actual-future-event-2022-12-16.json": {
+      "bytes": 530,
+      "sha256": "0bff1f64c88d6abb1f7646ce8fc1e14235f1a5561d131c842347ecc99157a76c"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata-preservation.json": {
+      "bytes": 22040,
+      "sha256": "3f51af2f30087f4fad3ef979d195d02a7d58829f17ca2fa8808d6ffcb40243bb"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-abmd-initial-synthetic-gateway.json": {
+      "bytes": 988,
+      "sha256": "0888edbf7922358c42ba66baf7e8ddf9c25c4e86c51f4d6b694c11ead2627286"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/actual-future-event-2022-12-16.json": {
+      "bytes": 530,
+      "sha256": "0bff1f64c88d6abb1f7646ce8fc1e14235f1a5561d131c842347ecc99157a76c"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/old-full-uncertainty-certificate.jsonl": {
+      "bytes": 280948,
+      "sha256": "fa575114e290733777eeaba5f1e2724e6a233d40844cbd71d8b33ae5c0ae74b0"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/p06-abmd-initial-synthetic-gateway.json": {
+      "bytes": 988,
+      "sha256": "0888edbf7922358c42ba66baf7e8ddf9c25c4e86c51f4d6b694c11ead2627286"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/prefix-preservation.json": {
+      "bytes": 451,
+      "sha256": "e544ab6d7609a2c3d414a3df382f8cf6b6ba0aed41f176dbf1b6af2a0a16212a"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/prior-hosted-branch-review.json": {
+      "bytes": 573,
+      "sha256": "f06db1f7abbd1111a9134ff920edd833db916e629d2d8e53f73136604dd6d3da"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-point-retained-origin/uncertainty-capture.json": {
+      "bytes": 279,
+      "sha256": "8dce9d4533293aa4d97972e5a1b81032b0425dd6cf2ee31861f21cd3f7b38a67"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-retained-ordinary-observation/actual-future-event-2023-03-10.json": {
+      "bytes": 516,
+      "sha256": "bafe82d31c6ff5554dcdc7bf039b0b16260470a280653f6dfd09d9b928e3536e"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-retained-ordinary-observation/actual-future-event-refusal.json": {
+      "bytes": 284,
+      "sha256": "1c634d61cdc4e372cddb564f3a43ee63281abeddc4bd440c69164ab83f2c3ff4"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-retained-ordinary-observation/future-financial-overlay.json": {
+      "bytes": 4180,
+      "sha256": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-retained-ordinary-observation/hydrated-future-financial-terminal-catalog-615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f.json": {
+      "bytes": 9816,
+      "sha256": "1c5a04be0115a84c6fe737166bd51f63684d35e31e744145f7ee314051df9262"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/p06-retained-ordinary-observation/observer-origin.json": {
+      "bytes": 636,
+      "sha256": "b02d78d19896bb0e151dbee19fad3424257d1fd240ced3fad0e3f18ce88ec9dc"
+    },
+    "p06-BBIG-ordinary11-origin/actual-prior-metadata/uncertainty-capture.json": {
+      "bytes": 280,
+      "sha256": "1a81c1cb2c9b9616a1b213291d5139bb340ae8d0b8a6502272f0e6556e61fbe2"
+    },
+    "p06-BBIG-ordinary11-origin/actual-selected-parent10.json.gz": {
+      "bytes": 1356937,
+      "sha256": "1b36eafb2e6a3101dac4a0934bd58657db807da8484c126fe95129d98994d375"
+    },
+    "p06-BBIG-ordinary11-origin/old-full-uncertainty-certificate.jsonl": {
+      "bytes": 2510480,
+      "sha256": "fbb3fb5eaebb71ac6c4489d537968fd015832c8444402ec5bafb0f3b9b6ee56e"
+    },
+    "p06-BBIG-ordinary11-origin/p06-abmd-initial-synthetic-gateway.json": {
+      "bytes": 988,
+      "sha256": "0888edbf7922358c42ba66baf7e8ddf9c25c4e86c51f4d6b694c11ead2627286"
+    },
+    "p06-BBIG-ordinary11-origin/prefix-preservation.json": {
+      "bytes": 454,
+      "sha256": "d0dc88e4e10ab7d33fd0abcc2d28cf63ccf8f4cba9b1c8ad435fe649621cfe04"
+    },
+    "p06-BBIG-ordinary11-origin/prior-hosted-branch-review.json": {
+      "bytes": 609,
+      "sha256": "a3df1a00336b1e096746991c085b46ecac2275c031c8fd33ad84340ffcc75aa0"
+    },
+    "p06-BBIG-ordinary11-origin/prior-ordinary-observation/actual-future-event-2023-03-10.json": {
+      "bytes": 516,
+      "sha256": "bafe82d31c6ff5554dcdc7bf039b0b16260470a280653f6dfd09d9b928e3536e"
+    },
+    "p06-BBIG-ordinary11-origin/prior-ordinary-observation/actual-future-event-refusal.json": {
+      "bytes": 284,
+      "sha256": "1c634d61cdc4e372cddb564f3a43ee63281abeddc4bd440c69164ab83f2c3ff4"
+    },
+    "p06-BBIG-ordinary11-origin/prior-ordinary-observation/future-financial-overlay.json": {
+      "bytes": 4180,
+      "sha256": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d"
+    },
+    "p06-BBIG-ordinary11-origin/prior-ordinary-observation/hydrated-future-financial-terminal-catalog-615f8daa736504d3ee8f9c17515e6fc4d014fd4f5a2fa4bd5e1af640249c942f.json": {
+      "bytes": 9816,
+      "sha256": "1c5a04be0115a84c6fe737166bd51f63684d35e31e744145f7ee314051df9262"
+    },
+    "p06-BBIG-ordinary11-origin/prior-ordinary-observation/observer-origin.json": {
+      "bytes": 636,
+      "sha256": "b02d78d19896bb0e151dbee19fad3424257d1fd240ced3fad0e3f18ce88ec9dc"
+    },
+    "p06-BBIG-ordinary11-origin/temporary-seed-view-cleanup.json": {
+      "bytes": 174,
+      "sha256": "f01882a21cc476f47aa844a734e3fdfb26bb969b0e8540af93ea244e6323a76c"
+    },
+    "p06-BBIG-ordinary11-origin/temporary-seed-view-receipt.json": {
+      "bytes": 2859,
+      "sha256": "22aeeb75a29c9283e30814fea3c7baf51e815255a1eeff05d01259db49d339a2"
+    },
+    "p06-BBIG-ordinary11-origin/uncertainty-capture.json": {
+      "bytes": 280,
+      "sha256": "1a81c1cb2c9b9616a1b213291d5139bb340ae8d0b8a6502272f0e6556e61fbe2"
+    },
+    "p06-BBIG-source-only-ordinary11-overlay.json": {
+      "bytes": 3403,
+      "sha256": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396"
+    },
+    "p06-abmd-initial-synthetic-gateway.json": {
+      "bytes": 988,
+      "sha256": "0888edbf7922358c42ba66baf7e8ddf9c25c4e86c51f4d6b694c11ead2627286"
+    }
+  },
+  "root_admission_sha256": "edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f",
+  "schema": "research.P06-WWE12-authenticated-retained-resources/1"
+}

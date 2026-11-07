@@ -1,0 +1,80 @@
+{
+  "actual_corrected_positive_unknown": true,
+  "assets": [
+    {
+      "bytes": 2526,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P03-FIN337-downstream-writer-audit.json",
+      "name": "P03-FIN337-downstream-writer-audit.json",
+      "sha256": "a6ecce786ca4e8a8475dfd6c448096d362ac12120aee93b921c952f376660e69",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\P03-FIN337-downstream-writer-audit.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1754,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P03-FIN337-exact-qualification-reuse-fact-v1.json",
+      "name": "P03-FIN337-exact-qualification-reuse-fact-v1.json",
+      "sha256": "f2d3a1f3121d9d33e03db90ae9f5487a2179ff4d0b25663f980e444ee5b218c8",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\P03-FIN337-exact-qualification-reuse-fact-v1.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2968,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P03-FIN337-qualification-collision-DATA.json",
+      "name": "P03-FIN337-qualification-collision-DATA.json",
+      "sha256": "6740c0a3afed021d7137bd501cd4fdac98171dfe50569bbf833c131f7b63422c",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\P03-FIN337-qualification-collision-DATA.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 4568,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P03-THOR-qualification-reuse-preparation.json",
+      "name": "P03-THOR-qualification-reuse-preparation.json",
+      "sha256": "6207b0ca5b5a37bb1a4744d6acb029899b04c7a80474dcb62479cd62622602c4",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\P03-THOR-qualification-reuse-preparation.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 15354,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p03_thor_qualification_reuse.py",
+      "name": "system_campaign_p03_thor_qualification_reuse.py",
+      "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\system_campaign_p03_thor_qualification_reuse.py",
+      "status": "NEW"
+    }
+  ],
+  "comparison_worktree": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105",
+  "existing_unchanged_dependencies": [
+    {
+      "bytes": 1501,
+      "name": "P03-THOR2-qualified-preopen-fact-v2.json",
+      "sha256": "09a99b90808f083d8a8cd6a50ad1d1efeb5687fb8aa4ff3a9ad2afa985236f69"
+    },
+    {
+      "bytes": 607121,
+      "name": "P03-own503-THOR2-preopen-ordinary17-catalog.json",
+      "sha256": "ef38b769e585915aefce44232fa51cd7302da7c642df2feefc690c26a2941d10"
+    },
+    {
+      "bytes": 5064,
+      "name": "system_campaign_p03_thor_api.py",
+      "sha256": "2498a096294562a6c7a635df0bf7f0653be531f3f61a44513086c0c826618ca5"
+    },
+    {
+      "bytes": 7400,
+      "name": "system_campaign_p03_thor_data.py",
+      "sha256": "a2436167aa69099f22beb43679cf9d7c4e25f065a7ae633459f896a4c8a698d4"
+    },
+    {
+      "bytes": 18743,
+      "name": "system_campaign_p03_thor_runtime.py",
+      "sha256": "a06bafcd0999f918df7369f4f73526042a22ae5b917be9f30da90c414f9449b7"
+    }
+  ],
+  "financial_authority": false,
+  "review_design_files": [
+    "DESIGN.md",
+    "INTEGRATION.md"
+  ],
+  "schema": "research.P03-THOR-qualification-reuse-static-delivery/1",
+  "test_file": "test_THOR_qualification_reuse.py"
+}

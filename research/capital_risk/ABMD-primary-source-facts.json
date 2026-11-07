@@ -1,0 +1,24 @@
+{
+  "currency": "USD",
+  "event_date": "2022-12-22",
+  "financial_input_selected": false,
+  "historical_causality": "UNVERIFIED",
+  "last_trading_session": "2022-12-21",
+  "portfolio_completion_authorized": false,
+  "preopen_completion_confirmed": true,
+  "probability_selected": false,
+  "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+  "right_lower_per_share": "0",
+  "right_transferable": false,
+  "right_upper_per_share": "35.00",
+  "rights_per_share": "1",
+  "schema": "research.bounded-contingent-primary-facts-preparation/1",
+  "settlement_authorized": false,
+  "sources": [
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-460",
+    "https://www.sec.gov/Archives/edgar/data/815094/000119312522310626/d434768dex99a5h.htm",
+    "https://www.sec.gov/Archives/edgar/data/815094/000119312522285216/d411777dex99a1a.htm"
+  ],
+  "ticker": "ABMD",
+  "upfront_cash_per_share": "380.00"
+}

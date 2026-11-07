@@ -1,0 +1,159 @@
+{
+  "accepted": [
+    {
+      "arm": "P00",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P01",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P02",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P03",
+      "complete": false,
+      "completed": 606,
+      "root": "3ee60adb5326914846a052e26310d62045dd39b838a923378c9a84b6f230e7d4",
+      "through": "2020-05-29"
+    },
+    {
+      "arm": "P04",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P05",
+      "complete": false,
+      "completed": 1196,
+      "root": "ca722bb750ee34ed6f7db8e114b1561f4988f08385fccd91ddc2d0867f1ba209",
+      "through": "2022-09-30"
+    },
+    {
+      "arm": "P06",
+      "complete": false,
+      "completed": 1677,
+      "root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+      "through": "2024-08-30"
+    },
+    {
+      "arm": "P07",
+      "complete": false,
+      "completed": 1383,
+      "root": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+      "through": "2023-06-30"
+    },
+    {
+      "arm": "P08",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P09",
+      "complete": false,
+      "completed": 692,
+      "through": "2020-09-30"
+    },
+    {
+      "arm": "P10",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P11",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    }
+  ],
+  "events_file": "system-campaign-event-inventory.events.json.gz",
+  "events_file_bytes": 681194,
+  "events_file_sha256": "3c37500e6542b667b21d8d2dfea194362246bafb3239bbc712823b5819e91046",
+  "families": {
+    "CONSIDERATION_REVIEW": 1182,
+    "DISTRIBUTION": 139,
+    "EXIT_CLASSIFICATION": 6784,
+    "STOCK_OR_MIXED_CONSIDERATION": 34,
+    "UNKNOWN_COMMON_RIGHTS": 1476
+  },
+  "financial_authority": false,
+  "full_frozen_native_event_coverage_verified": false,
+  "groups": 6922,
+  "next_events": [
+    {
+      "arm": "P03",
+      "event": "STML cash plus contingent right",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "independent STML event source qualification",
+        "second bounded-event input preserving DOVA",
+        "complete19-to20 history visitor and retained152 proof binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "STML priorJune9 and nativeJune10 quotes present; original incomplete terminal retained"
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model terminal-parent distribution without a fictitious parent quote",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+      "arm": "P06",
+      "completed_previous_event": "WWE/TKO original27-for27 conversion independently verified and admitted within saved1677/full12",
+      "event": "September27,2024 incomplete leadership terminal",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "qualified full12 retained424 continuation loader",
+        "complete native/quote/identity/role evidence for September27 SID896501989594575427",
+        "correct event-family terms and independent source qualification",
+        "hosted canonical tests and fresh constructor canary"
+      ],
+      "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
+      "source_observations": "Exact unsupported SID896501989594575427; native ticker/terms/event-date roles not yet classified"
+    },
+    {
+      "arm": "P07",
+      "event": "BWA/PHIN post-close distribution",
+      "family": "DISTRIBUTION",
+      "missing": [
+        "independent event source qualification from authenticated full native/PHIN rows",
+        "legalJuly3-postclose/nativeJuly5 clock adapter",
+        "full25-to26 history visitor and929-row binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BWA priorJuly3/eventJuly5 and PHIN July5 present; PHIN SID801672850394475146/CIK1968915; both original typed distribution source_row_ids authenticated"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "explicit exact-fraction versus12-decimal owner choice"
+      ],
+      "requires_owner_choice": true
+    }
+  ],
+  "provider_dates_are_not_legal_or_native_recognition_clocks": true,
+  "provider_file": "P06-WWE-original-provider-SHARADAR_ACTIONS.zip",
+  "provider_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "raw_rows": 9922,
+  "schema": "research.full-remaining-provider-event-inventory/1",
+  "scope": "ALL_PROVIDER_CANDIDATES_NOT_FUTURE_HOLDING_PREDICTIONS"
+}

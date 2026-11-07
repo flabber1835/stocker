@@ -1,0 +1,72 @@
+{
+  "actual_original_source_record_refusal_reproduced": true,
+  "actual_saved_completed": 1426,
+  "actual_saved_inputs": 11,
+  "actual_saved_through": "2023-08-31",
+  "actual_source_record_passes_with_authentic_compact_accounting_prefixes": true,
+  "canonical_checkpoint_restored_or_staged": false,
+  "canonical_engine_imported": false,
+  "committed_proof_rows": 173,
+  "engine_import_fences": 5,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 2845,
+      "sha256": "ef6afa6e1f1de0f2081da51da11d54eb2b1a021afba9cc1f0cb064f6c68e59b8"
+    },
+    "INTEGRATION.md": {
+      "bytes": 3103,
+      "sha256": "bca75b88550ad00a7cd469a5a45b967b9d3bf4c3e5459435e24e28aab655e083"
+    },
+    "P06-FIN339-captured-financial-request.json": {
+      "bytes": 76744,
+      "sha256": "6672860c06e73047952b7b08bed1c69d81ec37ff894edddc7b09d90fe70cf101"
+    },
+    "P06-FIN339-failed-review-target.json": {
+      "bytes": 36604,
+      "sha256": "6124a681f560b9012cd060daaa43b1bca28c0638b3cd670a648a648a898888bf"
+    },
+    "P06-FIN339-readonly-recovery-fact.json": {
+      "bytes": 40285,
+      "sha256": "675f05967aaadd64604ddf5a11a565c8ff5769972ff19d804b45cfb2ba73c5a3"
+    },
+    "system_campaign_p06_BBIG_accounting_review.py": {
+      "bytes": 4535,
+      "sha256": "486abcb5fc9b3dcd7ad00c365ab64a48e3e9ad9cd5c182a5a86bdc7919477043"
+    },
+    "system_campaign_p06_fin339_readonly_recovery.py": {
+      "bytes": 15237,
+      "sha256": "7cf0a53697391b7fedb8f831ce48aca8277e813fdcbd4c9ca24f90d134685783"
+    },
+    "test_recovery_DATA.py": {
+      "bytes": 15854,
+      "sha256": "bfd42dcafdbacaf1ace868bb55634e4448b634716c1b73040bcbbf4b0c7001d3"
+    }
+  },
+  "financial_resume_authorized": false,
+  "financial_root_admitted": false,
+  "financial_sessions_reexecuted": 0,
+  "financial_workers": 0,
+  "hosted_fresh_review_pending": true,
+  "independent_saved_result_DATA_pending": true,
+  "meaningful_guard_removal_falsifiers": 2,
+  "new_saved_closes": 43,
+  "original4_financial_AST_unchanged": true,
+  "original_failed_financial_stops": [
+    0,
+    1,
+    1
+  ],
+  "original_failed_receipt_relabelled": false,
+  "passed": true,
+  "readonly_workers": 1,
+  "retained_rows": 130,
+  "schema": "research.P06-FIN339-readonly-recovery-private-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest test_recovery_DATA.py -q -p no:cacheprovider",
+    "passed": 50,
+    "seconds": 15.51
+  },
+  "uncommitted_proof_tails_excluded": 6,
+  "whole_frozen_quarantine_code_objects_preserved": true,
+  "whole_original_observer_review_AST_undo": true
+}

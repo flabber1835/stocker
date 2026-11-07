@@ -1,0 +1,2121 @@
+{
+  "financial_authority": false,
+  "original_contract_sha256": "cca0b898ee527be716cfe15d37efd1b54da252bcece70e11276c8d2023f2f63d",
+  "parent_outer_sha256": "50529edab057a7f1a835f3ebb6e947efc5b4f10b64ca941d12f212cd709d1f8a",
+  "resources": {
+    "bounded-contingent-observer/materials/bd1f481a423647023b78072642add8079581d0ff90aced5b88d888158f69b946/hydrated-future-financial-terminal-catalog-7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b.json": {
+      "bytes": 55772,
+      "sha256": "0505ef95f3ac0537f50e3578b23269956599d2904533879541a5ec2a6d9589e9"
+    },
+    "bounded-contingent-observer/materials/ed1a6ceeb6841c16b9ab352442b108dd3faba7ae7817a78f0c1b866e58ff1409/hydrated-future-financial-terminal-catalog-7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567.json": {
+      "bytes": 4609,
+      "sha256": "bbb506520c77f97ab8365aeb19047535cce00bd6034c5bd5a0a859c0bc673f09"
+    }
+  },
+  "schema": "research.P03-own543-original33-observer-inventory/1",
+  "terms": [
+    {
+      "actual_completion_date": "2019-10-08",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm | Issuer8K confirms mandatory26USD cash conversion of eligible remaining common shares on October8,2019 after the October7 tender deadline. Recognize cash at the October8 research opening boundary under an explicit daily-model assumption. Market-open trading cessation does not prove preopen legal completion or cash availability; actual settlement and fees are not claimed. Preserve October7 native trading and all frozen identity metadata.",
+        "security_id": "325066623134917949",
+        "session": "2019-10-08"
+      },
+      "arm": "P03",
+      "description": "Issuer8K confirms mandatory26USD cash conversion of eligible remaining common shares on October8,2019 after the October7 tender deadline. Recognize cash at the October8 research opening boundary under an explicit daily-model assumption. Market-open trading cessation does not prove preopen legal completion or cash availability; actual settlement and fees are not claimed. Preserve October7 native trading and all frozen identity metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1366527",
+        "listing_first_session": "2018-05-04",
+        "security_id": "325066623134917949",
+        "security_type_eligible": "1",
+        "session": "2019-10-04",
+        "source_observation_sha256": "1194b8c3777f365d607d740ee257aba9b904cc63aa2004b1fe727eacdb2259e7",
+        "ticker": "CBLK"
+      },
+      "last_trading_session": "2019-10-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1912.3",
+        "security_id": "325066623134917949",
+        "session": "2019-10-07"
+      },
+      "native_session": "2019-10-07",
+      "native_term_sha256": "bc11617318adfe6fa2f2b9d4d5fa2fdf1b302adc31bfe89ef0191d08dc25ab9b",
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "26.00",
+        "recognition_session": "2019-10-08",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "325066623134917949",
+      "source_capture": {
+        "artifact_id": 13391196722,
+        "head": "51a1d68b1a615af2e80937f11e22a60510802185",
+        "independent_data_review_sha256": "579437a1a8ca1e414adbc4081f67c97ab83507fda650261e30781e8e43c9dcfa",
+        "payload_sha256": "44aba88bb172c2f9a5227a85ee665426f52ee5603a532fc0b8b73c83d49d8b0f",
+        "run_id": 41974204844,
+        "scope_sha256": "62e0dc2c7aa979f13a8d7ba8a02691468228a88c89b8ce78605d33494e16b7fc"
+      },
+      "ticker": "CBLK",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 23.85,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm | Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+        "security_id": "66103160004367746",
+        "session": "2020-04-16"
+      },
+      "description": "Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:791915",
+        "listing_first_session": "1997-12-31",
+        "security_id": "66103160004367746",
+        "security_type_eligible": "1",
+        "session": "2020-04-15",
+        "source_observation_sha256": "caf80e486185008de50f8fd6fad2e496128c2460169fe0d22dd25e1cb3d11ee0",
+        "ticker": "CY"
+      },
+      "last_trading_session": "2020-04-15",
+      "native_session": "2020-04-16",
+      "native_term_sha256": "4745eb950f7793984bd07b0bec1d77f7d7281e0e7b1406ff1927f66aade35afb",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-spring2020-cash-terminal-facts.json",
+        "catalog_sha256": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122",
+        "selected_tickers": [
+          "CY",
+          "MLNX",
+          "WBC"
+        ],
+        "term_sha256": "9fe36632ef5f8ae77fc494ac516406bddc32238366994bc1f2ba3271e4d4cfc4",
+        "validator_file": "system_campaign_spring2020_cash_facts.py",
+        "validator_sha256": "86bc30b7b2078f28fa2abe403e7c869624d2865e7aac48b41e34facb8e6116f7"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm",
+      "security_id": "66103160004367746",
+      "ticker": "CY",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 125.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm | Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+        "security_id": "597162481941536532",
+        "session": "2020-04-27"
+      },
+      "description": "Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1356104",
+        "listing_first_session": "2007-02-08",
+        "security_id": "597162481941536532",
+        "security_type_eligible": "1",
+        "session": "2020-04-23",
+        "source_observation_sha256": "d3754962234cfce8e2f4fc5a79a2a8cc0f7b94845ff52ea50a93d0d9f284dbc6",
+        "ticker": "MLNX"
+      },
+      "last_trading_session": "2020-04-24",
+      "native_session": "2020-04-24",
+      "native_term_sha256": "cacb190ef70a64f296e675e382cbd7d5ea3a4ffe54b908992827b7ab7ff324ea",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-spring2020-cash-terminal-facts.json",
+        "catalog_sha256": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122",
+        "selected_tickers": [
+          "CY",
+          "MLNX",
+          "WBC"
+        ],
+        "term_sha256": "558d7df274760d52c6cbbf7264c26f089ce5563d34d528159d9264b2815e5e78",
+        "validator_file": "system_campaign_spring2020_cash_facts.py",
+        "validator_sha256": "86bc30b7b2078f28fa2abe403e7c869624d2865e7aac48b41e34facb8e6116f7"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm",
+      "security_id": "597162481941536532",
+      "ticker": "MLNX",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 136.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm | Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+        "security_id": "384188467071429790",
+        "session": "2020-05-29"
+      },
+      "description": "Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1390844",
+        "listing_first_session": "2007-08-01",
+        "security_id": "384188467071429790",
+        "security_type_eligible": "1",
+        "session": "2020-05-27",
+        "source_observation_sha256": "ec6c48d4b06fcd0ddc0b885538011d580b6ea930c85b065a2e54524a54f8d22d",
+        "ticker": "WBC"
+      },
+      "last_trading_session": "2020-05-28",
+      "native_session": "2020-05-28",
+      "native_term_sha256": "f7141a474101c3787b9ebf4ff76bc4f1aa3f43337e43f501743805f0d0d9eeda",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-spring2020-cash-terminal-facts.json",
+        "catalog_sha256": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122",
+        "selected_tickers": [
+          "CY",
+          "MLNX",
+          "WBC"
+        ],
+        "term_sha256": "a10d75ebd85982b093b2157e26358d1b3876c1d8d823d7e8e8f19ea9aae407f7",
+        "validator_file": "system_campaign_spring2020_cash_facts.py",
+        "validator_sha256": "86bc30b7b2078f28fa2abe403e7c869624d2865e7aac48b41e34facb8e6116f7"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm",
+      "security_id": "384188467071429790",
+      "ticker": "WBC",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 52.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm | Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+        "security_id": "510659411298086546",
+        "session": "2020-10-01"
+      },
+      "description": "Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1235010",
+        "listing_first_session": "2004-06-22",
+        "security_id": "510659411298086546",
+        "security_type_eligible": "1",
+        "session": "2020-09-29",
+        "source_observation_sha256": "c304ba1b01808b29d06d9660f60c3712d5f31b4bf255173105c2d47063cee832",
+        "ticker": "MNTA"
+      },
+      "last_trading_session": "2020-09-30",
+      "native_session": "2020-09-30",
+      "native_term_sha256": "33f886da0ae216c99de493cb3db5a849d18f11a6b3a7b600fde5644aab7afc5a",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-autumn2020-cash-terminal-facts.json",
+        "catalog_sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7",
+        "selected_tickers": [
+          "MNTA",
+          "AIMT",
+          "IMMU",
+          "MYOK"
+        ],
+        "term_sha256": "5e4ae08de274ee139133059196e251066fe35a80c173d54bea79994b2c101a02",
+        "validator_file": "system_campaign_autumn2020_cash_facts.py",
+        "validator_sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm",
+      "security_id": "510659411298086546",
+      "ticker": "MNTA",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 34.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm | Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+        "security_id": "557908413825257346",
+        "session": "2020-10-13"
+      },
+      "description": "Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1631650",
+        "listing_first_session": "2015-08-06",
+        "security_id": "557908413825257346",
+        "security_type_eligible": "1",
+        "session": "2020-10-09",
+        "source_observation_sha256": "ef8a202744a83165dbde30223b60f492d823d3a4204fd1923773d5a6933c3e10",
+        "ticker": "AIMT"
+      },
+      "last_trading_session": "2020-10-12",
+      "native_session": "2020-10-12",
+      "native_term_sha256": "3fb89333ef204d5bded06009c3e2f1ef7c9b550818d8b1ff21abb85ffd9d19a7",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-autumn2020-cash-terminal-facts.json",
+        "catalog_sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7",
+        "selected_tickers": [
+          "MNTA",
+          "AIMT",
+          "IMMU",
+          "MYOK"
+        ],
+        "term_sha256": "cdfc04fc681e4b2b6798f1e452c4a92b97f83bea8c6d7e565956e70af160f542",
+        "validator_file": "system_campaign_autumn2020_cash_facts.py",
+        "validator_sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm",
+      "security_id": "557908413825257346",
+      "ticker": "AIMT",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 88.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm | Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+        "security_id": "158295011127936997",
+        "session": "2020-10-23"
+      },
+      "description": "Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:722830",
+        "listing_first_session": "1997-12-31",
+        "security_id": "158295011127936997",
+        "security_type_eligible": "1",
+        "session": "2020-10-21",
+        "source_observation_sha256": "7fbcec32597086b7bd85097fa96d4176c7227b9de4963b56a1cf412822c78f32",
+        "ticker": "IMMU"
+      },
+      "last_trading_session": "2020-10-22",
+      "native_session": "2020-10-22",
+      "native_term_sha256": "16dc36e02a1191dc3674bda1667d57e761df0582e29df74263daf3122260f4ac",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-autumn2020-cash-terminal-facts.json",
+        "catalog_sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7",
+        "selected_tickers": [
+          "MNTA",
+          "AIMT",
+          "IMMU",
+          "MYOK"
+        ],
+        "term_sha256": "f8481d05375128e013aec33c89afbeec79611227e11f13b70fc5812468ba7b66",
+        "validator_file": "system_campaign_autumn2020_cash_facts.py",
+        "validator_sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm",
+      "security_id": "158295011127936997",
+      "ticker": "IMMU",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 225.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm | Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+        "security_id": "6711969151821433",
+        "session": "2020-11-17"
+      },
+      "description": "Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1552451",
+        "listing_first_session": "2015-10-29",
+        "security_id": "6711969151821433",
+        "security_type_eligible": "1",
+        "session": "2020-11-13",
+        "source_observation_sha256": "5902d07f5d9ab19958507c4b6567549ad44a949f9a2b993b21bfd9658789cdb2",
+        "ticker": "MYOK"
+      },
+      "last_trading_session": "2020-11-16",
+      "native_session": "2020-11-16",
+      "native_term_sha256": "e63adffc3e0218fdf41fbca1981d3c6f51797aedf0352d7d57c99b527c93eb9c",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-autumn2020-cash-terminal-facts.json",
+        "catalog_sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7",
+        "selected_tickers": [
+          "MNTA",
+          "AIMT",
+          "IMMU",
+          "MYOK"
+        ],
+        "term_sha256": "43d58263c0ac430e029019945ea32f7f95fed2b0de646820c5e7762b7dc2796f",
+        "validator_file": "system_campaign_autumn2020_cash_facts.py",
+        "validator_sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm",
+      "security_id": "6711969151821433",
+      "ticker": "MYOK",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": 82.99,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:1283699",
+        "delivered_security_id": "36692955301160544",
+        "delivered_ticker": "TMUS",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "0.10256",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm | April1preopen completed ordinary-holder Sprint merger exchanges each share for0.10256TMUS; holder aggregate fractional cash only. S2 provider alias proven from originalACTIONS source. Frozen unknown issuer/eligible0 unchanged. FractionalCIL uses declared frozen delivered raw-open proxy, not actual issuer settlement.",
+        "security_id": "957008674074369745",
+        "session": "2020-04-01"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1283699",
+        "listing_first_session": "2007-04-19",
+        "security_id": "36692955301160544",
+        "security_type_eligible": "1",
+        "session": "2020-04-01",
+        "source_observation_sha256": "50b9829cb66fd616b7cab6f886bed61f3afd8facdf887d129fb171ea07423bf1",
+        "ticker": "TMUS"
+      },
+      "description": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm | April1preopen completed ordinary-holder Sprint merger exchanges each share for0.10256TMUS; holder aggregate fractional cash only. S2 provider alias proven from originalACTIONS source. Frozen unknown issuer/eligible0 unchanged. FractionalCIL uses declared frozen delivered raw-open proxy, not actual issuer settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:957008674074369745",
+        "listing_first_session": "1997-12-31",
+        "security_id": "957008674074369745",
+        "security_type_eligible": "0",
+        "session": "2020-03-30",
+        "source_observation_sha256": "dd51c6a23681ecedbb6d597697de3a60f49ff9447ffd4ff2278e2ea981e61a90",
+        "ticker": "S2"
+      },
+      "last_trading_session": "2020-03-31",
+      "native_session": "2020-03-31",
+      "native_term_sha256": "19de7e96860750033acdad9dbf88ae9471f95a6abfc65047f398cbe932e889a5",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-sprint-terminal-facts.json",
+        "catalog_sha256": "d30f52b302557445f8ed85e6314b7deb16e04f77009c5491c9de6287515116fe",
+        "selected_tickers": [
+          "S2"
+        ],
+        "term_sha256": "a7e499e652502e4db7b7ddec554c3f92af6482b3bbddc23354d736c5deccaeba",
+        "validator_file": "system_campaign_sprint_facts.py",
+        "validator_sha256": "1f532038b78a89c1ddac805a786f14cf516707b69ecdad4ef621c1902e93fd3b"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm",
+      "security_id": "957008674074369745",
+      "ticker": "S2",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 85.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm | Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions.",
+        "security_id": "1000604417782241778",
+        "session": "2020-01-06"
+      },
+      "description": "Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions.",
+      "exchange_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-296",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1113481",
+        "listing_first_session": "2000-08-08",
+        "security_id": "1000604417782241778",
+        "security_type_eligible": "1",
+        "session": "2020-01-02",
+        "source_observation_sha256": "8947be1f2fa3a307eaac1f0bf8e41fcac93457f986cdda6cf0b996db719141e6",
+        "ticker": "MDCO"
+      },
+      "last_trading_session": "2020-01-03",
+      "native_session": "2020-01-03",
+      "native_term_sha256": "ca502fd6aa774d0e1c671f4d1996c82335eedd337d69e97c72fe78806f6ee4ff",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-medicines-terminal-facts.json",
+        "catalog_sha256": "6331ed5c48e09492cc0c15db2dac69ae0b31ce761a00bd443af7015ced1179e2",
+        "selected_tickers": [
+          "MDCO"
+        ],
+        "term_sha256": "07292ed0a67dc3ab4d81e8ccc9f3e4f6e8ca3551819554cf1e978f9b97608cc2",
+        "validator_file": "system_campaign_medicines_facts.py",
+        "validator_sha256": "4d77a4ad59ed8a626502573decfd7b842812228aa9c6cdf1c1f05a064b1717d5"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm",
+      "security_id": "1000604417782241778",
+      "ticker": "MDCO",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-296"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 20.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm | Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference.",
+        "security_id": "37487278358102709",
+        "session": "2020-01-16"
+      },
+      "description": "Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference.",
+      "exchange_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-6",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1019695",
+        "listing_first_session": "1997-12-31",
+        "security_id": "37487278358102709",
+        "security_type_eligible": "1",
+        "session": "2020-01-14",
+        "source_observation_sha256": "ee7ff42e89bb8de39b2e3262da62dd7277514d5a20bc03945fbd93784730143e",
+        "ticker": "ARQL"
+      },
+      "last_trading_session": "2020-01-15",
+      "native_session": "2020-01-15",
+      "native_term_sha256": "f3ed4f220db858a202c05a3efc4b1e16a55ee6be33ff580a23fb2a28129a8e1c",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-arqule-terminal-facts.json",
+        "catalog_sha256": "a785c139eeea04306948fd7a62cca4d6d9b0dd9211dba30123dad4892a150aa4",
+        "selected_tickers": [
+          "ARQL"
+        ],
+        "term_sha256": "761a668f5d9c2af6f98454bee7ea7c9dab66a3523679ac56379e9c1c2fecf60f",
+        "validator_file": "system_campaign_arqule_facts.py",
+        "validator_sha256": "2ce2a4b4dcf0cb7573c3a724b1aea7d95327ed58b3b0d01a008225bb069b176a"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm",
+      "security_id": "37487278358102709",
+      "ticker": "ARQL",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-6"
+    },
+    {
+      "actual_completion_date": "2020-02-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": 27.55,
+        "cash_per_share": 2.5,
+        "delivered_issuer_id": "SEC_CIK:1562476",
+        "delivered_security_id": "13062188894457483",
+        "delivered_ticker": "TMHC",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.8,
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm | Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+        "security_id": "355892456681242666",
+        "session": "2020-02-06"
+      },
+      "arm": "P03",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1562476",
+        "listing_first_session": "2013-04-10",
+        "security_id": "13062188894457483",
+        "security_type_eligible": "1",
+        "session": "2020-02-06",
+        "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+        "ticker": "TMHC"
+      },
+      "description": "Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1095996",
+        "listing_first_session": "2013-05-17",
+        "security_id": "355892456681242666",
+        "security_type_eligible": "1",
+        "session": "2020-02-04",
+        "source_observation_sha256": "f4f1b4c9f0376c5eb41e72b2dcbba80de496c793f15b35ccb25b5ddad90727d0",
+        "ticker": "WLH"
+      },
+      "last_trading_session": "2020-02-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3603",
+        "security_id": "355892456681242666",
+        "session": "2020-02-05"
+      },
+      "native_session": "2020-02-05",
+      "native_term_sha256": "431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-selected-own-cash-terminal-facts.json",
+        "catalog_sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b",
+        "original_generation_term_pins": [
+          {
+            "generation_length": 17,
+            "generation_sha256": "c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89",
+            "term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d"
+          },
+          {
+            "generation_length": 22,
+            "generation_sha256": "f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e",
+            "term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6"
+          },
+          {
+            "generation_length": 25,
+            "generation_sha256": "712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28",
+            "term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67"
+          },
+          {
+            "generation_length": 23,
+            "generation_sha256": "c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516",
+            "term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97"
+          }
+        ],
+        "qualified_input_catalog": "system-campaign-qualified-own-uncertainty-input-facts.json",
+        "qualified_input_sha256": "75639e35fe4ed78b15eacdc808347c1932aa6e2cdbc4d7733cd836d1e532defc",
+        "selected_tickers": [
+          "WLH",
+          "WAAS",
+          "LM",
+          "BMCH"
+        ],
+        "term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d",
+        "validator_file": "system_campaign_financial_future.py",
+        "validator_sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+      },
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "preserved_factual_record": {
+        "action_id": "WLH-2020-02-06",
+        "filename": "p01_factual_batch_facts.json",
+        "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+        "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+        "record_sha256": "77d7548a2035f6c611a7e0284a8e5ba4f70489d730d959f14e54fa549d6ff5d3",
+        "sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "13062188894457483",
+        "session": "2020-02-06",
+        "source_observation_sha256": "a08bf595ba2f598f4c96fe0d0459185920cdbffc52f189216045f3f77f7720a3",
+        "ticker": "TMHC"
+      },
+      "recognition_rule": "RESEARCH_DAILY_MIXED_CONSIDERATION_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "fractional_cash_proxy": "FROZEN_DELIVERED_RAW_OPEN_NOT_ACTUAL_SETTLEMENT_RATE",
+        "opening_availability_assumed": true,
+        "published_cash_is_approximate": false,
+        "published_cash_per_share": "2.50",
+        "published_exchange_ratio": "0.8000",
+        "recognition_session": "2020-02-06",
+        "schema": "research.daily-mixed-consideration-assumption/2",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "355892456681242666",
+      "source_capture": {
+        "artifact_id": 13398394021,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+        "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+        "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+        "run_id": 41992111094,
+        "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+      },
+      "ticker": "WLH",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm"
+    },
+    {
+      "actual_completion_date": "2020-03-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 27.1,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm | Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+        "security_id": "879124841538592826",
+        "session": "2020-03-30"
+      },
+      "arm": "P03",
+      "description": "Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1422841",
+        "listing_first_session": "2016-10-06",
+        "security_id": "879124841538592826",
+        "security_type_eligible": "1",
+        "session": "2020-03-26",
+        "source_observation_sha256": "8b2bcd4ea1fc90bdac97ba328d1b80767a56a5ede898d63d44d3bc518030d004",
+        "ticker": "WAAS"
+      },
+      "last_trading_session": "2020-03-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=864.1",
+        "security_id": "879124841538592826",
+        "session": "2020-03-27"
+      },
+      "native_session": "2020-03-27",
+      "native_term_sha256": "9a5c400fd2d72a73e3a4765f8e76b2cca33a5d10d8aefe9357a6b0b323b7dc83",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-selected-own-cash-terminal-facts.json",
+        "catalog_sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b",
+        "original_generation_term_pins": [
+          {
+            "generation_length": 17,
+            "generation_sha256": "c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89",
+            "term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d"
+          },
+          {
+            "generation_length": 22,
+            "generation_sha256": "f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e",
+            "term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6"
+          },
+          {
+            "generation_length": 25,
+            "generation_sha256": "712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28",
+            "term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67"
+          },
+          {
+            "generation_length": 23,
+            "generation_sha256": "c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516",
+            "term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97"
+          }
+        ],
+        "qualified_input_catalog": "system-campaign-qualified-own-uncertainty-input-facts.json",
+        "qualified_input_sha256": "75639e35fe4ed78b15eacdc808347c1932aa6e2cdbc4d7733cd836d1e532defc",
+        "selected_tickers": [
+          "WLH",
+          "WAAS",
+          "LM",
+          "BMCH"
+        ],
+        "term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6",
+        "validator_file": "system_campaign_financial_future.py",
+        "validator_sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+      },
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "27.10",
+        "recognition_session": "2020-03-30",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "879124841538592826",
+      "source_capture": {
+        "artifact_id": 13398394021,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+        "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+        "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+        "run_id": 41992111094,
+        "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+      },
+      "ticker": "WAAS",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094d1_ex99-1.htm"
+    },
+    {
+      "actual_completion_date": "2020-07-31",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 50.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm | Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+        "security_id": "986298677409235360",
+        "session": "2020-07-31"
+      },
+      "arm": "P03",
+      "description": "Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:704051",
+        "listing_first_session": "1997-12-31",
+        "security_id": "986298677409235360",
+        "security_type_eligible": "1",
+        "session": "2020-07-29",
+        "source_observation_sha256": "bd91c16eadfd29de9462216101e31368c3de17b6cd51161df9ef93f2bc6cd661",
+        "ticker": "LM"
+      },
+      "last_trading_session": "2020-07-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4446.5",
+        "security_id": "986298677409235360",
+        "session": "2020-07-30"
+      },
+      "native_session": "2020-07-30",
+      "native_term_sha256": "6b60c2374934a08916f197cd917df1a40074fe15818797d6d02b4c942d07917d",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-selected-own-cash-terminal-facts.json",
+        "catalog_sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b",
+        "original_generation_term_pins": [
+          {
+            "generation_length": 17,
+            "generation_sha256": "c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89",
+            "term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d"
+          },
+          {
+            "generation_length": 22,
+            "generation_sha256": "f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e",
+            "term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6"
+          },
+          {
+            "generation_length": 25,
+            "generation_sha256": "712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28",
+            "term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67"
+          },
+          {
+            "generation_length": 23,
+            "generation_sha256": "c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516",
+            "term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97"
+          }
+        ],
+        "qualified_input_catalog": "system-campaign-qualified-own-uncertainty-input-facts.json",
+        "qualified_input_sha256": "75639e35fe4ed78b15eacdc808347c1932aa6e2cdbc4d7733cd836d1e532defc",
+        "selected_tickers": [
+          "WLH",
+          "WAAS",
+          "LM",
+          "BMCH"
+        ],
+        "term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67",
+        "validator_file": "system_campaign_financial_future.py",
+        "validator_sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+      },
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "50.00",
+        "recognition_session": "2020-07-31",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "986298677409235360",
+      "source_capture": {
+        "artifact_id": 13398394021,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+        "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+        "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+        "run_id": 41992111094,
+        "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+      },
+      "ticker": "LM",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm"
+    },
+    {
+      "actual_completion_date": "2021-01-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": 41.25,
+        "cash_per_share": 0.0,
+        "delivered_issuer_id": "SEC_CIK:1316835",
+        "delivered_security_id": "314959357206229827",
+        "delivered_ticker": "BLDR",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 1.3125,
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm | Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+        "security_id": "344954105397997801",
+        "session": "2021-01-04"
+      },
+      "arm": "P03",
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1316835",
+        "listing_first_session": "2005-06-28",
+        "security_id": "314959357206229827",
+        "security_type_eligible": "1",
+        "session": "2021-01-04",
+        "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+        "ticker": "BLDR"
+      },
+      "description": "Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1574815",
+        "listing_first_session": "2013-08-09",
+        "security_id": "344954105397997801",
+        "security_type_eligible": "1",
+        "session": "2020-12-30",
+        "source_observation_sha256": "7e1044dc5befe473bc4edba307518adec40783163a2464a0406f86c05aa4d981",
+        "ticker": "BMCH"
+      },
+      "last_trading_session": "2020-12-31",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=3611.6",
+        "security_id": "344954105397997801",
+        "session": "2020-12-31"
+      },
+      "native_session": "2020-12-31",
+      "native_term_sha256": "9a81db8dd2d4cce361f65bea04e15e7c9b311d8c035b84cb310fcd8e547e2c27",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-selected-own-cash-terminal-facts.json",
+        "catalog_sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b",
+        "original_generation_term_pins": [
+          {
+            "generation_length": 17,
+            "generation_sha256": "c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89",
+            "term_sha256": "e0639fccf7a476eb520cd51f0d6a514506deaeb57b6ad4a317a46a4a7fed424d"
+          },
+          {
+            "generation_length": 22,
+            "generation_sha256": "f9f1ee6486767af7597a34be9425b22d6856bc26237255b1465055289494468e",
+            "term_sha256": "186d6a625d8deaa8b8deefc1757a56089cca69fb67d45a6323e3aa5e1a0fafb6"
+          },
+          {
+            "generation_length": 25,
+            "generation_sha256": "712cec77c23fa188787daaf158e4f9d8fa1bbbc5c733537cfcaf9b5c1c17db28",
+            "term_sha256": "75999f5eed7e3915db7207434182923a998b7d450d7bd9673064bdd93a157e67"
+          },
+          {
+            "generation_length": 23,
+            "generation_sha256": "c5acabb2180a38d530f61d9200fcd3bd730395e6a90c34bd4e331d8dab269516",
+            "term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97"
+          }
+        ],
+        "qualified_input_catalog": "system-campaign-qualified-own-uncertainty-input-facts.json",
+        "qualified_input_sha256": "75639e35fe4ed78b15eacdc808347c1932aa6e2cdbc4d7733cd836d1e532defc",
+        "selected_tickers": [
+          "WLH",
+          "WAAS",
+          "LM",
+          "BMCH"
+        ],
+        "term_sha256": "ebb8ce28af4d83f24d3d882a6a6c0bfcc805da02339aea7379b55815526a9d97",
+        "validator_file": "system_campaign_financial_future.py",
+        "validator_sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+      },
+      "parent_cursor": "2019-09-30",
+      "parent_outer_sha256": "a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bd698ea48738875baa59796f671ccf7439885976a5b439bf4d9bd4cddeb9164f",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2021-01-01",
+        "cash_per_ordinary_common_share": "0",
+        "exchange_ratio": "1.3125",
+        "mandatory_conversion": true,
+        "preopen_time_established": false,
+        "recognition_convention": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+      "proxy": {
+        "actual_settlement_rate_observed": false,
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "security_id": "314959357206229827",
+        "session": "2021-01-04",
+        "source_observation_sha256": "a1f7b152918eff73069646585c491b5dc89fc381a79e3808cf59cffaad6fcf54",
+        "ticker": "BLDR"
+      },
+      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_STOCK_ONLY_COMPLETION",
+      "retained_original_legal_record": {
+        "catalog_file": "p01_factual_batch_facts.json",
+        "catalog_sha256": "bd4a4e393bb5d0c02cb54d0d77407703afdf73e40496e396a531273c51336a0d",
+        "original_fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+        "original_held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+        "original_kind": "CONVERSION",
+        "proxy_authority_reused": false,
+        "record_sha256": "0a2136247c0a046e10c9cc7abebe370c8eccf59e003be7917ad81181e6c3e2d5"
+      },
+      "security_id": "344954105397997801",
+      "source_capture": {
+        "artifact_id": 13398394021,
+        "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+        "independent_data_review_sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9",
+        "independent_qualification_sha256": "5938be200dafdd7c55aa656530f9db924dd4b8e8d7b6a8e9ff8b067982d7e020",
+        "payload_sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31",
+        "run_id": 41992111094,
+        "scope_sha256": "d6fd9e6d748f877a7028079877730d6454a303d4575010a676e029b0a9897981"
+      },
+      "ticker": "BMCH",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 27.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "SEC Myovant 8-K accession0001140361-23-011046:27USD cash March10,2023;ceased before market open",
+        "security_id": "362949419836618645",
+        "session": "2023-03-10"
+      },
+      "security_id": "362949419836618645",
+      "ticker": "MYOV"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm | Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+        "security_id": "498918945550351909",
+        "session": "2025-07-25"
+      },
+      "security_id": "498918945550351909",
+      "ticker": "TGI"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 35.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm | Issuercompleted-acquisitionrelease confirms35USD commonsharecash. OCC46596 confirmsconsummationbeforeMarch9,2020open: https://www.miaxglobal.com/sites/default/files/alert-files/ZAYO_Merger_46596.pdf . PreserveMarch6.",
+        "security_id": "272838527679530510",
+        "session": "2020-03-09"
+      },
+      "security_id": "272838527679530510",
+      "ticker": "ZAYO"
+    },
+    {
+      "actual_completion_date": "2020-01-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 68.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1609727/000119312520013091/d858447d8k.htm | Mandatory Synthorx ordinary common shares converted to68USD cash; issuer reports completed merger by08:52ET January23,2020. Exact legal minute and holder payment time are not asserted.",
+        "security_id": "731910459224080858",
+        "session": "2020-01-23"
+      },
+      "arm": "P03",
+      "description": "Mandatory Synthorx ordinary common shares converted to68USD cash; issuer reports completed merger by08:52ET January23,2020. Exact legal minute and holder payment time are not asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:731910459224080858",
+        "listing_first_session": "2018-12-07",
+        "security_id": "731910459224080858",
+        "security_type_eligible": "0",
+        "session": "2020-01-22",
+        "source_observation_sha256": "5398cca3b2a8bf703aba0a2534b227deadd600c1d0de5fbca65d560287adcb58",
+        "ticker": "THOR2"
+      },
+      "last_trading_session": "2020-01-22",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2198.6",
+        "security_id": "731910459224080858",
+        "session": "2020-01-23"
+      },
+      "native_session": "2020-01-23",
+      "native_term_sha256": "df4e376fe9cd5cd24a28dadcbefb3cf534a6e7667713febd42e46faa0e6ec912",
+      "parent_cursor": "2019-12-31",
+      "parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_currency": "USD",
+        "cash_per_share": "68.00",
+        "completion_date": "2020-01-23",
+        "mandatory_common_cash": true,
+        "no_stock_or_contingent_rights_in_common_consideration": true,
+        "preopen_completion_confirmed": true,
+        "qualified_preopen_fact_sha256": "09a99b90808f083d8a8cd6a50ad1d1efeb5687fb8aa4ff3a9ad2afa985236f69",
+        "source": "https://www.sec.gov/Archives/edgar/data/1609727/000119312520013091/d858447d8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1609727/000119312520013091/d858447d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "731910459224080858",
+      "source_capture": {
+        "artifact_id": 13480030867,
+        "head": "dbf8ab5b99a00a150a36920a7eb87165756cfa62",
+        "independent_data_review_sha256": "4f67a09f08c3fb7af99e7cdc1021d4af2a4bf34a8573fb9a04c75db8f1b3e725",
+        "independent_qualification_sha256": "aa802805042661ea6750915c947918cd0622b9364009a579fbcc889ea2381de1",
+        "payload_sha256": "d436c38ad21473bf5dbea8c064f883b93ff47a429196163b894d32e3b53d7c13",
+        "run_id": 42166970437,
+        "scope_sha256": "f86015e954834bda3c8291e508cb25a57f02d44340d09727bd02ec3402886090"
+      },
+      "ticker": "THOR2",
+      "timing_source": "https://www.globenewswire.com/news-release/2020/01/23/1974331/0/en/sanofi-sanofi-completes-acquisition-of-synthorx-inc.html"
+    },
+    {
+      "actual_completion_date": "2020-02-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 18.75,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1557883/000162828020001842/dermira8-k22020.htm | Dermira mandatory ordinary common-share merger consideration18.75USD; completed before2020-02-20 open. Preserve2020-02-19 native and final tradeable source quote; no payment timestamp asserted.",
+        "security_id": "739966891811158555",
+        "session": "2020-02-20"
+      },
+      "arm": "P03",
+      "description": "Dermira mandatory ordinary common-share merger consideration18.75USD; completed before2020-02-20 open. Preserve2020-02-19 native and final tradeable source quote; no payment timestamp asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:739966891811158555",
+        "listing_first_session": "2014-10-03",
+        "security_id": "739966891811158555",
+        "security_type_eligible": "0",
+        "session": "2020-02-18",
+        "source_observation_sha256": "579413b3b0037435acfb6c146c53fd4f2c0f7ee4db5568977c21c60dbd4d8018",
+        "ticker": "DERM2"
+      },
+      "last_trading_session": "2020-02-19",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1022.3",
+        "security_id": "739966891811158555",
+        "session": "2020-02-19"
+      },
+      "native_session": "2020-02-19",
+      "native_term_sha256": "33bc154443b9b126fbf5248966e6ba3e205e698b0b26e7432a700102f5a804f1",
+      "parent_cursor": "2019-12-31",
+      "parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_currency": "USD",
+        "cash_per_share": "18.75",
+        "completion_date": "2020-02-20",
+        "mandatory_common_cash": true,
+        "no_stock_or_contingent_rights_in_common_consideration": true,
+        "preopen_completion_confirmed": true,
+        "qualified_preopen_fact_sha256": "746014dd9afbfcc106b6fe076dd5f544052f82c3aaf92449c1368d6f68119ffb",
+        "source": "https://www.sec.gov/Archives/edgar/data/1557883/000162828020001842/dermira8-k22020.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1557883/000162828020001842/dermira8-k22020.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "bce4a6bd44e9e22be91fb4b2fc3ccf34778f63415c814b017f867c66287efaf6",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE327"
+      },
+      "security_id": "739966891811158555",
+      "source_capture": {
+        "artifact_id": 13480030867,
+        "head": "dbf8ab5b99a00a150a36920a7eb87165756cfa62",
+        "independent_data_review_sha256": "4f67a09f08c3fb7af99e7cdc1021d4af2a4bf34a8573fb9a04c75db8f1b3e725",
+        "independent_qualification_sha256": "aa802805042661ea6750915c947918cd0622b9364009a579fbcc889ea2381de1",
+        "payload_sha256": "d436c38ad21473bf5dbea8c064f883b93ff47a429196163b894d32e3b53d7c13",
+        "run_id": 42166970437,
+        "scope_sha256": "f86015e954834bda3c8291e508cb25a57f02d44340d09727bd02ec3402886090"
+      },
+      "ticker": "DERM2",
+      "timing_source": "https://www.miaxglobal.com/sites/default/files/alert-files/DERM_Merger_46508.pdf"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 72.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1574774/000119312521034268/d91269d8k.htm | Completed mandatory common-share transaction before open on2021-02-09; preserve2021-02-08 trading and exact frozen source classifications.",
+        "security_id": "67573316626643986",
+        "session": "2021-02-09"
+      },
+      "description": "Completed mandatory common-share transaction before open on2021-02-09; preserve2021-02-08 trading and exact frozen source classifications.",
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:67573316626643986",
+        "listing_first_session": "2008-03-19",
+        "security_id": "67573316626643986",
+        "security_type_eligible": "0",
+        "session": "2021-02-05",
+        "source_observation_sha256": "97f2e6aadcd65e8c7b2ae66364e1c401be03ce8086682661f2cdfe924e8c5145",
+        "ticker": "BEAT1"
+      },
+      "last_trading_session": "2021-02-08",
+      "native_session": "2021-02-08",
+      "native_term_sha256": "61ae8c758f78cf78e5ba10830395ff7bfc4c3f247f8235a44bd28854b3791370",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-2021-completions-terminal-facts.json",
+        "catalog_sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb",
+        "selected_tickers": [
+          "BEAT1",
+          "MIK",
+          "VAR",
+          "NAV",
+          "HOME"
+        ],
+        "term_sha256": "1b589061fe56d268d46ead687c7772ef94de5f9704db19ca30e8e27064f594fc",
+        "validator_file": "system_campaign_2021_completions_facts.py",
+        "validator_sha256": "c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1574774/000119312521034268/d91269d8k.htm",
+      "provider_alias_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "company": "BIOTELEMETRY INC",
+        "counterparty_name": "KONINKLIJKE PHILIPS NV",
+        "counterparty_ticker": "PHG",
+        "original_ticker": "BEAT",
+        "rows_sha256": "70edd4731f9296c975a93bb10d77f6a1ce845b6a026e00e4d7e6ab9b7c05d07f",
+        "selected_row_sha256": [
+          "a943a5db8b5f0368906006d92d9461d5bb59e5fa822390b0eb99eb9ccfc2291d",
+          "d30fccfedf2eb729f5a0ccfdd58c572a42a2145765e5a43207c25d7f74eff664",
+          "09165707d80ede62cddbe4a4e686d5a1a851827be185d3a2b7c75c5add2ea6b9",
+          "f370f968b66fe0caff1edeb61f3cc6253e420df55f414765a4a8360915ebe4f9",
+          "d4e9013b0f1463d99a98debc8eb9557ef6d66046961ecd23a693ad47c54605da"
+        ],
+        "session": "2021-02-08",
+        "ticker": "BEAT1"
+      },
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "1b589061fe56d268d46ead687c7772ef94de5f9704db19ca30e8e27064f594fc",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "67573316626643986",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "BEAT1",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-16"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 22.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1593936/000119312521117263/d145352d8k.htm | Completed mandatory common-share transaction pays gross22.00USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+        "security_id": "350829412574453923",
+        "session": "2021-04-15"
+      },
+      "description": "Completed mandatory common-share transaction pays gross22.00USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1593936",
+        "listing_first_session": "2014-06-27",
+        "security_id": "350829412574453923",
+        "security_type_eligible": "1",
+        "session": "2021-04-13",
+        "source_observation_sha256": "8abc5a8b0d0f62863a693cf3a7183cadb7716bbac91be7df1d35b7d7071a7f3c",
+        "ticker": "MIK"
+      },
+      "last_trading_session": "2021-04-14",
+      "native_session": "2021-04-14",
+      "native_term_sha256": "92b5b048e834f32ec0b4b8679cbace152ec986b064e5d0637c80a937ea472202",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-2021-completions-terminal-facts.json",
+        "catalog_sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb",
+        "selected_tickers": [
+          "BEAT1",
+          "MIK",
+          "VAR",
+          "NAV",
+          "HOME"
+        ],
+        "term_sha256": "1b2b705a021645acb471895e976db20599085381375c67ef8a139e7a0477eaec",
+        "validator_file": "system_campaign_2021_completions_facts.py",
+        "validator_sha256": "c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1593936/000119312521117263/d145352d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "1b2b705a021645acb471895e976db20599085381375c67ef8a139e7a0477eaec",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "350829412574453923",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "MIK",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-60"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 177.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/203527/000119312521117256/d171798d8k.htm | Completed mandatory common-share transaction pays gross177.50USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+        "security_id": "258412215698403601",
+        "session": "2021-04-15"
+      },
+      "description": "Completed mandatory common-share transaction pays gross177.50USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:203527",
+        "listing_first_session": "1997-12-31",
+        "security_id": "258412215698403601",
+        "security_type_eligible": "1",
+        "session": "2021-04-13",
+        "source_observation_sha256": "5ccfe907847c45fa7582d0b54c45e6ce1540d5d6cd4497b5caad8dc0dbdd4da7",
+        "ticker": "VAR"
+      },
+      "last_trading_session": "2021-04-14",
+      "native_session": "2021-04-14",
+      "native_term_sha256": "a184b667de19c35ba2c9a3ba3e1b80e0e132ef9c20d6bae283ef5d5644fde7d8",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-2021-completions-terminal-facts.json",
+        "catalog_sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb",
+        "selected_tickers": [
+          "BEAT1",
+          "MIK",
+          "VAR",
+          "NAV",
+          "HOME"
+        ],
+        "term_sha256": "a0e068b0c139ce2951122ea3f077650bdb8b4570a5e05cc435d784ca9d5c414c",
+        "validator_file": "system_campaign_2021_completions_facts.py",
+        "validator_sha256": "c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/203527/000119312521117256/d171798d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "a0e068b0c139ce2951122ea3f077650bdb8b4570a5e05cc435d784ca9d5c414c",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "258412215698403601",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "VAR",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=48577"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 44.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000808450/36edd933-a4be-4d7c-94f7-969619fa3b93.pdf | Completed mandatory common-share transaction pays gross44.50USD per eligible share before market open on2021-07-01. Preserve2021-06-30 trading and all frozen source classifications.",
+        "security_id": "515332170991709358",
+        "session": "2021-07-01"
+      },
+      "description": "Completed mandatory common-share transaction pays gross44.50USD per eligible share before market open on2021-07-01. Preserve2021-06-30 trading and all frozen source classifications.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:808450",
+        "listing_first_session": "1997-12-31",
+        "security_id": "515332170991709358",
+        "security_type_eligible": "1",
+        "session": "2021-06-29",
+        "source_observation_sha256": "9a69687b778668530f3a9c9140abf32958e4a6c1489bf4499e4f5182b9a52946",
+        "ticker": "NAV"
+      },
+      "last_trading_session": "2021-06-30",
+      "native_session": "2021-06-30",
+      "native_term_sha256": "87224dc2937f8eba47e669e77e4f4ad676c56da6102f9975987482009709b621",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-2021-completions-terminal-facts.json",
+        "catalog_sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb",
+        "selected_tickers": [
+          "BEAT1",
+          "MIK",
+          "VAR",
+          "NAV",
+          "HOME"
+        ],
+        "term_sha256": "d2f0f222166575b9b94520a9365964543be74253812a3c6f0c6400413357b0c4",
+        "validator_file": "system_campaign_2021_completions_facts.py",
+        "validator_sha256": "c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2"
+      },
+      "primary_source": "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000808450/36edd933-a4be-4d7c-94f7-969619fa3b93.pdf",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "d2f0f222166575b9b94520a9365964543be74253812a3c6f0c6400413357b0c4",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "515332170991709358",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "NAV",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=48931"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 37.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1646228/000110465921095264/tm2122752d3_8k.htm | Completed mandatory common-share transaction pays gross37.00USD per eligible share before market open on2021-07-23. Preserve2021-07-22 trading and all frozen source classifications.",
+        "security_id": "914962085458002202",
+        "session": "2021-07-23"
+      },
+      "description": "Completed mandatory common-share transaction pays gross37.00USD per eligible share before market open on2021-07-23. Preserve2021-07-22 trading and all frozen source classifications.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1646228",
+        "listing_first_session": "2016-08-04",
+        "security_id": "914962085458002202",
+        "security_type_eligible": "1",
+        "session": "2021-07-21",
+        "source_observation_sha256": "a4455778e7fbd21b46e441007100efe308f1d921cca190eed01884062db31094",
+        "ticker": "HOME"
+      },
+      "last_trading_session": "2021-07-22",
+      "native_session": "2021-07-22",
+      "native_term_sha256": "7d3c8178c314fbdc8ae67722803989e46fa94e91c9843a2fe15602bd2823ac97",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-2021-completions-terminal-facts.json",
+        "catalog_sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb",
+        "selected_tickers": [
+          "BEAT1",
+          "MIK",
+          "VAR",
+          "NAV",
+          "HOME"
+        ],
+        "term_sha256": "d65db4f9bce8e4edc69692b5c2ef15690bdba1bffd4d3ef92b8448718c000c99",
+        "validator_file": "system_campaign_2021_completions_facts.py",
+        "validator_sha256": "c56061f9a7341dbb84c6314aeafeda50ce32eeac9286f6a0c055f166f07e36a2"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1646228/000110465921095264/tm2122752d3_8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "d65db4f9bce8e4edc69692b5c2ef15690bdba1bffd4d3ef92b8448718c000c99",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "914962085458002202",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "HOME",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=49025"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 51.35,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1207074/000110465921020825/tm216112d10_8k.htm | Completed mandatory common-share merger pays gross51.35USD per eligible share before market open on2021-02-11. Preserve2021-02-10 trading and all frozen identity/classification/input conventions.",
+        "security_id": "148561310122246389",
+        "session": "2021-02-11"
+      },
+      "description": "Completed mandatory common-share merger pays gross51.35USD per eligible share before market open on2021-02-11. Preserve2021-02-10 trading and all frozen identity/classification/input conventions.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1207074",
+        "listing_first_session": "2007-08-03",
+        "security_id": "148561310122246389",
+        "security_type_eligible": "1",
+        "session": "2021-02-09",
+        "source_observation_sha256": "4fedab52031b7093f2550b3911fe28e55db7756db7ea44d9ac4f861b103f6e69",
+        "ticker": "VRTU"
+      },
+      "last_trading_session": "2021-02-10",
+      "native_session": "2021-02-10",
+      "native_term_sha256": "0f9384af445d749b38084dd39e6e18486bf1d548cb595573818dbaee455bc8ec",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-autumn2020-cash-terminal-facts.json",
+        "catalog_sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7",
+        "selected_tickers": [
+          "VRTU"
+        ],
+        "term_sha256": "1b27c2a6a0a8b45523f7b9485df941b47835e6472c345c526c54b33e18ed5dbe",
+        "validator_file": "system_campaign_autumn2020_cash_facts.py",
+        "validator_sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1207074/000110465921020825/tm216112d10_8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "1b27c2a6a0a8b45523f7b9485df941b47835e6472c345c526c54b33e18ed5dbe",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "148561310122246389",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "VRTU",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-222"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 115.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1651235/000119312521062708/d143111d8k.htm | Mandatory ordinary common-share completion; preserve2021-02-26 trading and use the existing next-session convention on2021-03-01.",
+        "security_id": "43443874000076334",
+        "session": "2021-03-01"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve2021-02-26 trading and use the existing next-session convention on2021-03-01.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1651235",
+        "listing_first_session": "2016-05-13",
+        "security_id": "43443874000076334",
+        "security_type_eligible": "1",
+        "session": "2021-02-25",
+        "source_observation_sha256": "f92049d1d50aa6451a6a5e715c944749d3bbbad7010f6655a0a5bee0b0d0c56d",
+        "ticker": "ACIA"
+      },
+      "last_trading_session": "2021-02-26",
+      "native_session": "2021-02-26",
+      "native_term_sha256": "34e39e53f1bd2e528acb414422fc3c0e9cde54d3811b556e7f96d64fde390cce",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-following-completions-terminal-facts.json",
+        "catalog_sha256": "bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d",
+        "selected_tickers": [
+          "ACIA",
+          "CATM"
+        ],
+        "term_sha256": "291022add36fcabbea92f52ca6021142e9bf46888f79dba0ec0216d2f944d250",
+        "validator_file": "system_campaign_following_completions_facts.py",
+        "validator_sha256": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1651235/000119312521062708/d143111d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "291022add36fcabbea92f52ca6021142e9bf46888f79dba0ec0216d2f944d250",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "43443874000076334",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "ACIA",
+      "timing_source": "https://www.miaxglobal.com/sites/default/files/alert-files/ACIA_merger_48363.pdf"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 39.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1671013/000110465921083463/tm2119314d2_8k.htm | Mandatory ordinary common-share completion; preserve2021-06-18 trading and use the existing next-session convention on2021-06-21.",
+        "security_id": "1127660475946542495",
+        "session": "2021-06-21"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve2021-06-18 trading and use the existing next-session convention on2021-06-21.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1671013",
+        "listing_first_session": "2007-12-13",
+        "security_id": "1127660475946542495",
+        "security_type_eligible": "1",
+        "session": "2021-06-17",
+        "source_observation_sha256": "890648463f943d47b80dbbb9b2957478284735a70680f4a4388cb19c68dbc96a",
+        "ticker": "CATM"
+      },
+      "last_trading_session": "2021-06-18",
+      "native_session": "2021-06-18",
+      "native_term_sha256": "070bed00fbafec28dd4c16c22728f6655e10bb1c1f67468bc06265bb33acb8cc",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-following-completions-terminal-facts.json",
+        "catalog_sha256": "bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d",
+        "selected_tickers": [
+          "ACIA",
+          "CATM"
+        ],
+        "term_sha256": "90d84832a8087d52c612fe3e3884c1eafdd5835012a9e4973bd71aa046c423e7",
+        "validator_file": "system_campaign_following_completions_facts.py",
+        "validator_sha256": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1671013/000110465921083463/tm2119314d2_8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "90d84832a8087d52c612fe3e3884c1eafdd5835012a9e4973bd71aa046c423e7",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "1127660475946542495",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "CATM",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-107"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 38.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1175505/000119312521118566/d153048d8k.htm | Mandatory ordinary common-share completion; preserve 2021-04-15 trading and recognize confirmed preopen cash on 2021-04-16.",
+        "security_id": "254703587432034241",
+        "session": "2021-04-16"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve 2021-04-15 trading and recognize confirmed preopen cash on 2021-04-16.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1175505",
+        "listing_first_session": "2013-09-18",
+        "security_id": "254703587432034241",
+        "security_type_eligible": "1",
+        "session": "2021-04-14",
+        "source_observation_sha256": "0e950b8898a46ecd63988aac843db2cea86386271dfe29ed84fdfe66da84def0",
+        "ticker": "FPRX"
+      },
+      "last_trading_session": "2021-04-15",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2021-04-15",
+      "native_term_sha256": "3e760dba39d4afce65d3ad3cd4b7ae373392e5d44f7c2303a3c65d8bf5cdb3b3",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-future-input-amendment-catalog.json",
+        "catalog_sha256": "8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066",
+        "selected_tickers": [
+          "FPRX",
+          "GNMK",
+          "GLUU",
+          "WIFI",
+          "PFPT"
+        ],
+        "term_sha256": "d81f10e1567fdfbce3907b61df459682e17c8a8cd851a69751e53c0308941a80",
+        "validator_file": "system_campaign_cash_batch.py",
+        "validator_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f"
+      },
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1175505/000119312521118566/d153048d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "d81f10e1567fdfbce3907b61df459682e17c8a8cd851a69751e53c0308941a80",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "254703587432034241",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "FPRX",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-61"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 24.05,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1487371/000119312521125815/d150773d8k.htm | Mandatory ordinary common-share completion; preserve 2021-04-21 trading and recognize confirmed preopen cash on 2021-04-22.",
+        "security_id": "927385262443509079",
+        "session": "2021-04-22"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve 2021-04-21 trading and recognize confirmed preopen cash on 2021-04-22.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1487371",
+        "listing_first_session": "2010-05-28",
+        "security_id": "927385262443509079",
+        "security_type_eligible": "1",
+        "session": "2021-04-20",
+        "source_observation_sha256": "2c0ff1d30ff444ce2b71f0afadba74e4fd284d0d9b3ac609db7eca3959f54f6b",
+        "ticker": "GNMK"
+      },
+      "last_trading_session": "2021-04-21",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2021-04-21",
+      "native_term_sha256": "11758620a6a33a88cc2164d6778c859346616fd811d63ba16592368cbd9be639",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-future-input-amendment-catalog.json",
+        "catalog_sha256": "8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066",
+        "selected_tickers": [
+          "FPRX",
+          "GNMK",
+          "GLUU",
+          "WIFI",
+          "PFPT"
+        ],
+        "term_sha256": "bdf7eae1f675b1a441b17c4d8a4b4333222493dabe6b2f464db9bf67e87dc279",
+        "validator_file": "system_campaign_cash_batch.py",
+        "validator_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f"
+      },
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1487371/000119312521125815/d150773d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "bdf7eae1f675b1a441b17c4d8a4b4333222493dabe6b2f464db9bf67e87dc279",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "927385262443509079",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "GNMK",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=48614"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 12.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/712515/000071251521000033/ea-20210429.htm | Mandatory ordinary common-share completion; preserve 2021-04-28 trading and recognize confirmed preopen cash on 2021-04-29.",
+        "security_id": "767244870412520032",
+        "session": "2021-04-29"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve 2021-04-28 trading and recognize confirmed preopen cash on 2021-04-29.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1366246",
+        "listing_first_session": "2007-03-22",
+        "security_id": "767244870412520032",
+        "security_type_eligible": "1",
+        "session": "2021-04-27",
+        "source_observation_sha256": "152dd730689fbea644d5b12b0819482333129638e322673b750ad6a145916a51",
+        "ticker": "GLUU"
+      },
+      "last_trading_session": "2021-04-28",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2021-04-28",
+      "native_term_sha256": "969155161e7f3aa14896fefd0e003f9db7fb2b33f25243a0a17307de67f3c6a1",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-future-input-amendment-catalog.json",
+        "catalog_sha256": "8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066",
+        "selected_tickers": [
+          "FPRX",
+          "GNMK",
+          "GLUU",
+          "WIFI",
+          "PFPT"
+        ],
+        "term_sha256": "dcc5b9f8cf7d399975686d38a0ecc41b5ab833639a9e19951fee2da15e56c694",
+        "validator_file": "system_campaign_cash_batch.py",
+        "validator_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f"
+      },
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/712515/000071251521000033/ea-20210429.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "dcc5b9f8cf7d399975686d38a0ecc41b5ab833639a9e19951fee2da15e56c694",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "767244870412520032",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "GLUU",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-69"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 14.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1169988/000110465921075581/tm2117856d2_8k.htm | Mandatory ordinary common-share completion; preserve 2021-06-01 trading and recognize confirmed preopen cash on 2021-06-02.",
+        "security_id": "1039218454988767954",
+        "session": "2021-06-02"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve 2021-06-01 trading and recognize confirmed preopen cash on 2021-06-02.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1169988",
+        "listing_first_session": "2011-05-04",
+        "security_id": "1039218454988767954",
+        "security_type_eligible": "1",
+        "session": "2021-05-28",
+        "source_observation_sha256": "6859f9433172a464f48bf9589982c00dc7a11aaaa7fe94ee5a547e07da8d0076",
+        "ticker": "WIFI"
+      },
+      "last_trading_session": "2021-06-01",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2021-06-01",
+      "native_term_sha256": "911f9c94fb9a50e1568a25692e56cb8fec347b5363e5a81bf6ceb1b9b5de3761",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-future-input-amendment-catalog.json",
+        "catalog_sha256": "8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066",
+        "selected_tickers": [
+          "FPRX",
+          "GNMK",
+          "GLUU",
+          "WIFI",
+          "PFPT"
+        ],
+        "term_sha256": "5f670620dbe9718337eedb86125d6878eb46a5265569dde2691dde1166d353a2",
+        "validator_file": "system_campaign_cash_batch.py",
+        "validator_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f"
+      },
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1169988/000110465921075581/tm2117856d2_8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "5f670620dbe9718337eedb86125d6878eb46a5265569dde2691dde1166d353a2",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "1039218454988767954",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "WIFI",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-89"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 176.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1212458/000119312521261338/d219408d8k.htm | Mandatory ordinary common-share completion; preserve 2021-08-30 trading and recognize confirmed preopen cash on 2021-08-31.",
+        "security_id": "1056504011927217944",
+        "session": "2021-08-31"
+      },
+      "description": "Mandatory ordinary common-share completion; preserve 2021-08-30 trading and recognize confirmed preopen cash on 2021-08-31.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1212458",
+        "listing_first_session": "2012-04-20",
+        "security_id": "1056504011927217944",
+        "security_type_eligible": "1",
+        "session": "2021-08-27",
+        "source_observation_sha256": "c4b7531a1371a555c6176f157f702c0371dc4b865bbf0477041b66cb3c5f4565",
+        "ticker": "PFPT"
+      },
+      "last_trading_session": "2021-08-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2021-08-30",
+      "native_term_sha256": "8150945eab7394886682815f53b5d82495c7372a7019187d1ca643e793a821ab",
+      "original_ordinary_source": {
+        "catalog_file": "system-campaign-future-input-amendment-catalog.json",
+        "catalog_sha256": "8764d9c2a4c53578b7bfcbbfe86ee49b050c8934e755e0bab7eaf16f4c576066",
+        "selected_tickers": [
+          "FPRX",
+          "GNMK",
+          "GLUU",
+          "WIFI",
+          "PFPT"
+        ],
+        "term_sha256": "89f9669185d6ce05c764cfa5bb6ce1ba18568985dd58d7cc40c104d9705b3f7b",
+        "validator_file": "system_campaign_cash_batch.py",
+        "validator_sha256": "29da1d97e921ca8886d18365b16c944461090302df8da63f4f4d7cfeee1e972f"
+      },
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1212458/000119312521261338/d219408d8k.htm",
+      "retained_qualified_source": {
+        "current_role_basis": "SEPARATE_ACTUAL524_FULL_STATE_CONTRACT",
+        "current_root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+        "future_ownership_inferred": false,
+        "original_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+        "original_parent_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+        "original_term_sha256": "89f9669185d6ce05c764cfa5bb6ce1ba18568985dd58d7cc40c104d9705b3f7b",
+        "originating_book_authority_retained": false,
+        "schema": "research.P03-retained-original-source-generation-only/1",
+        "source_arm": "P03",
+        "source_label": "SOURCE334"
+      },
+      "security_id": "1056504011927217944",
+      "source_capture": {
+        "artifact_id": 13512081844,
+        "head": "fdb5b187f94f2a39b85bb732e51f4a8ece5200e6",
+        "independent_data_review_sha256": "03d969723396b42e39595a6abf232877c75bb0b9315c023e30c86479b4669638",
+        "independent_qualification_sha256": "4499c4f362cad601153a013712e852aece5243087c6ae34257d2d3559917ff89",
+        "payload_sha256": "5c4b08225590369aa2dc7446f0188592a512c4f8cd27b6b106759c31d602088c",
+        "run_id": 42236479768,
+        "scope_sha256": "d42ada0d92e4805ef4b85326ad14536536e044df0b33a2c8ea12c2eddae8747a"
+      },
+      "ticker": "PFPT",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-185"
+    }
+  ]
+}

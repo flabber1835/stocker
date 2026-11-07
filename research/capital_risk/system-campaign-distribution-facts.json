@@ -1,0 +1,127 @@
+{
+  "schema": "research.system-campaign-distributions-2019-facts/1",
+  "spins": [
+    {
+      "native": [
+        {
+          "term_sha256": "490f6589415f9ba2756bf2644b6ff28d6c14a883df39e6a2abda1095bc74ac86",
+          "source_row_id": "a77e5fd4f48e81815f8160af1275215a3fc4ee68b51356c8c5014ded83aa2c36"
+        },
+        {
+          "term_sha256": "27a08e9f6abc4446f334417d1119d224859b888ea0b873719b36cf981439c793",
+          "source_row_id": "4bd0b9f65a095ec7b545935440ad2e65f156a8f613799bc216ad9deaa0905801"
+        }
+      ],
+      "added": {
+        "session": "2019-04-09",
+        "parent_ticker": "NVS",
+        "parent_security_id": "35236694394768611",
+        "child_ticker": "ALC",
+        "child_security_id": "495423651304945316",
+        "source_row_id": "a77e5fd4f48e81815f8160af1275215a3fc4ee68b51356c8c5014ded83aa2c36",
+        "value_evidence": "https://www.novartis.com/news/media-releases/novartis-plans-alcon-spin-april-9-2019 | Issuer-confirmed child entitlement; retained canonical liquidation and raw-open fractional CIL research convention, not actual agent net proceeds.",
+        "child_shares_per_parent": "0.2",
+        "child_price": null,
+        "cash_in_lieu_price": null,
+        "policy": "LIQUIDATE_CHILD_AT_OPEN"
+      },
+      "parent_bar_sha256": "6a126e1b4e195ca9bdcd25c311114a1698e1f51c4353c3cab1da08dc184b5c25",
+      "child_bar_sha256": "44cc268c0194245fe64fdf176dc18d80550b7df77c3fbfddb9851245fa8fc777",
+      "parent_observation_sha256": "3bc448beb321db014c2dd5e02a06f7477a7a6e4fe06c96e6d24327636d2424f1",
+      "child_observation_sha256": "aeaa87b7fda44ddd4f408c3874cc48eaa57e29e6ead4166c0fb8708577d1e454",
+      "cash_proxy_semantics": "IN_KIND_CHILD_DISTRIBUTION_NOT_ADDITIONAL_CASH",
+      "metadata_limitation": "Frozen provider identities and unknown/ineligible metadata retained; external issuer evidence does not upgrade eligibility."
+    },
+    {
+      "native": [
+        {
+          "term_sha256": "b8487b78f9ff24a4be168909436db6ccb833d9977499c21b6396ab054e1a6ad2",
+          "source_row_id": "9a7ac4c452d62a5363c36ae83668cac16ee400e1bca715bfa6fe4a76eca84026"
+        },
+        {
+          "term_sha256": "f612c4659a44d97882bd03cddd76b4f04abcb149e8fe82d670478263a6b7fc5c",
+          "source_row_id": "0fafd3eca838047cc5b64f1caa561f54925ff0b385eaa9041936fcef8c200620"
+        }
+      ],
+      "added": {
+        "session": "2019-06-28",
+        "parent_ticker": "OPLN",
+        "parent_security_id": "380320910009786790",
+        "child_ticker": "IAA",
+        "child_security_id": "196896286149315402",
+        "source_row_id": "9a7ac4c452d62a5363c36ae83668cac16ee400e1bca715bfa6fe4a76eca84026",
+        "value_evidence": "https://www.sec.gov/Archives/edgar/data/1745041/000162828019010696/iaa-20190630x10q.htm | Issuer-confirmed child entitlement; retained canonical liquidation and raw-open fractional CIL research convention, not actual agent net proceeds.",
+        "child_shares_per_parent": "1",
+        "child_price": null,
+        "cash_in_lieu_price": null,
+        "policy": "LIQUIDATE_CHILD_AT_OPEN"
+      },
+      "parent_bar_sha256": "ca6434f0e012bef7322f947ee2951df5d9beffe30ac44e54d06da98678d68ad8",
+      "child_bar_sha256": "5f14385ed51edcd8ebc2f5b74d78677024f300edc3effdb5bc6d87c3890aa4ae",
+      "parent_observation_sha256": "426050b9cc8c77366ad6ac82b07bde9295570744fee6446d331a45e1be8973b3",
+      "child_observation_sha256": "aba34ebe044aea9d556e73b1d84211abd202b9569d9839878021e14e26030078",
+      "cash_proxy_semantics": "IN_KIND_CHILD_DISTRIBUTION_NOT_ADDITIONAL_CASH",
+      "metadata_limitation": "Frozen provider identities and unknown/ineligible metadata retained; external issuer evidence does not upgrade eligibility."
+    }
+  ],
+  "terms": [
+    {
+      "ticker": "LLL1",
+      "security_id": "149209101404250271",
+      "native_session": "2019-06-28",
+      "native_term_sha256": "5d5d2d1fa84cd9783e53ed4308d182d04cd259136439c271abd0219fbcb20a50",
+      "added": {
+        "security_id": "149209101404250271",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1039101/000114036119012103/form8k.htm | Completed June29 stock merger. OCC45285 beforeJuly1open; preserveJune28. No basecash. Fractional CIL retained frozenJuly1LHX raw-open proxy, not agent proceeds; SEC_UNKNOWN unchanged.",
+        "delivered_security_id": "821698168806940222",
+        "delivered_ticker": "LHX",
+        "delivered_issuer_id": "SEC_UNKNOWN:821698168806940222",
+        "session": "2019-07-01",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 1.3,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1039101/000114036119012103/form8k.htm",
+      "description": "Completed June29 stock merger. OCC45285 beforeJuly1open; preserveJune28. No basecash. Fractional CIL retained frozenJuly1LHX raw-open proxy, not agent proceeds; SEC_UNKNOWN unchanged.",
+      "proxy": {
+        "session": "2019-07-01",
+        "security_id": "821698168806940222",
+        "source_observation_sha256": "f4ae045ec2ef53ceba3ca9e1c6d581f9bb73f8dfa758b9381b83884addf3be79",
+        "convention": "RETAINED_RAW_OPEN_RESEARCH_PROXY"
+      }
+    },
+    {
+      "ticker": "APHA",
+      "security_id": "1056418588994492299",
+      "native_session": "2021-04-30",
+      "native_term_sha256": "31b315bf0ae426ae1216fb3fa44dc6d4d084313ce05786b4c7b2082a62b5f6bb",
+      "added": {
+        "security_id": "1056418588994492299",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1731348/000114036121015755/nt10023917x2_8k.htm | Completed April30 stock arrangement. NasdaqECA2021-71 keepsApril30 lasttrading; May3conversion. PlanofArrangement SEC1731348/000119312521049399/d64377dex21.htm rounds holder entitlement down, no fractional payment; encode exact zero fractional consideration, never raw-open proxy.",
+        "delivered_security_id": "653423826172679659",
+        "delivered_ticker": "TLRY",
+        "delivered_issuer_id": "SEC_CIK:1731348",
+        "session": "2021-05-03",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 0.8381,
+        "cash_in_lieu_price_per_delivered_share": 0.0
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1731348/000114036121015755/nt10023917x2_8k.htm",
+      "description": "Completed April30 stock arrangement. NasdaqECA2021-71 keepsApril30 lasttrading; May3conversion. PlanofArrangement SEC1731348/000119312521049399/d64377dex21.htm rounds holder entitlement down, no fractional payment; encode exact zero fractional consideration, never raw-open proxy.",
+      "proxy": {
+        "session": "2021-05-03",
+        "security_id": "653423826172679659",
+        "source_observation_sha256": "73ba6d30c2699f8c1ca3c416aa072f1853fff0dd274a0f3d1fb405e080894984",
+        "convention": "CONTRACTUAL_ZERO_FRACTIONAL_CONSIDERATION"
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

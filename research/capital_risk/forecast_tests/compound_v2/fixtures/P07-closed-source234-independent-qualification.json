@@ -1,0 +1,60 @@
+{
+  "arm": "P07",
+  "artifact_id": 13376335918,
+  "checks": {
+    "actual_worker_request_verified": true,
+    "all_35_manifest_members_verified": true,
+    "all_411_producer_sources_verified": true,
+    "complete_material_independently_reconstructed": true,
+    "fresh_archive_sha256_verified": true,
+    "full_raw_rows": 3,
+    "native_preimages": 2,
+    "original_distribution_count_all_parent_date_before_hash_filter": 2,
+    "original_repairs_and_APHA_projection_retained_byte_identical": true,
+    "preflight_zero_only": true,
+    "producer_validate_imported_or_called": false
+  },
+  "commands": [
+    "python.exe -B review_p07_distribution_source_data.py",
+    "python.exe -B -m pytest test_p07_distribution_source_data.py -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/source234-P07-independent-DATA-tests"
+  ],
+  "commit_push_launch_or_root_admission": false,
+  "files": {
+    "P07-independent-review-DESIGN.json": {
+      "bytes": 1565,
+      "sha256": "129fec9ebf8d896b048e21ac4ec6af1ddccddc8d68a43e94c53f32583f539657"
+    },
+    "P07-independent-source-data-review.json": {
+      "bytes": 6611,
+      "sha256": "03262b38e00587f40bd0a5eb3f1f6a49a5f85d0a1d4d89da8d632b4da9d1ec99"
+    },
+    "review_p07_distribution_source_data.py": {
+      "bytes": 20084,
+      "sha256": "5e4900783baea0c61bc4d5be09e45ae7a3f58d8add02ae17738acb15100bda11"
+    },
+    "test_p07_distribution_source_data.py": {
+      "bytes": 9621,
+      "sha256": "348ef7c4b979bb3b0f080d1f66e8d1f560f0f6a1bfb6dfc5bd5ff0799070b1e6"
+    }
+  },
+  "financial_authority": false,
+  "financial_restore_or_canonical_serialization": false,
+  "financial_sessions_advanced": 0,
+  "head": "0e8dcd539f7e473f206285e44c8db523c41e7d73",
+  "independent_review_sha256": "03262b38e00587f40bd0a5eb3f1f6a49a5f85d0a1d4d89da8d632b4da9d1ec99",
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "payload_sha256": "e8c0188f0db9c4f80352b829c23658728bc2e87f465375f480f07ad8c82eca03",
+  "run_id": 41939321606,
+  "schema": "research.independent-distribution-source-data-validation/1",
+  "scope_sha256": "81479e9410752be9d91464bd9281eb8f91e8c1f0ebec9cc2990cde09765a1087",
+  "shared_repository_edits": false,
+  "test_result": "58 passed in2.40s",
+  "tests": {
+    "canonical_import_fences": 5,
+    "guard_removal_falsifiers": 52,
+    "passed": 58
+  },
+  "utc": "2026-11-05T00:30:25.307830+00:00"
+}

@@ -1,0 +1,98 @@
+{
+  "arm": "P05",
+  "complete_captured_source_rows": 37,
+  "complete_native_identities": 36,
+  "explicit_additional_rows": 1,
+  "files": {
+    "P05-SOURCE331-independent-source-data-review.json": {
+      "bytes": 75023,
+      "sha256": "a62adf3765cec7ea1d4db0b515dfdcdd000c27d9000a852baca36de6e92d8644"
+    },
+    "SOURCE331-independent-DATA-DESIGN.md": {
+      "bytes": 1965,
+      "sha256": "ae5d9b81fedcb29634e5f5b8c3a5688b896e9c517e50eb4b189c7e5f16aec990"
+    },
+    "SOURCE331-whole-reader-undo-plan.json": {
+      "bytes": 22736,
+      "sha256": "7f920096c2c18a4c1cd91bc356995b903c60dfeefcfa6c0e30cc5e0291acf62b"
+    },
+    "review_SOURCE331_DATA.py": {
+      "bytes": 20808,
+      "sha256": "570d155719baca1d690e64292b585da79cedb1d4b1c53a3d111af5e02b4ff24b"
+    },
+    "test_SOURCE331_DATA.py": {
+      "bytes": 7314,
+      "sha256": "d4b20a2eefdcc8c4d2dcb5f85e6fa5836534faa72b5f9e0138d3dc4a3ff2e3c3"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "independent_raw_source_proof": {
+    "all_observation_and_action_fields_checked": true,
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "fresh_whole_archive_rehash_at_DATA_use": true,
+    "full_observation_rows": 37,
+    "independently_read_native_observations": {
+      "CTXS": {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "06 BusEq",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:877890",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "103.90000000000001",
+        "raw_compatible_volume": "6615236.0000000009",
+        "raw_open": "103.91",
+        "reported_volume": "6615236.0000000009",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "554480052825212855",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-09-29",
+        "sic": "7372",
+        "signal_close": "103.90000000000001",
+        "split_ratio": "1",
+        "ticker": "CTXS",
+        "tradeable": "1"
+      }
+    },
+    "native_identities": 36,
+    "native_observation_claimed_source_captured": true,
+    "native_raw_action_rows": 78,
+    "passed": true,
+    "rows_scanned": {
+      "2022": 2080223,
+      "2023": 1834182,
+      "2024": 1647175,
+      "2025": 1546125,
+      "2026": 904798
+    }
+  },
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "payload_sha256": "e3b43db8d53d13d60e249131fe523d746a658ab3a995598216df96810ffdd38e",
+  "review_sha256": "a62adf3765cec7ea1d4db0b515dfdcdd000c27d9000a852baca36de6e92d8644",
+  "root_admission_sha256": "baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026",
+  "schema": "research.P05-SOURCE331-independent-source2-DATA-validation/1",
+  "scope_sha256": "db3cb5dbe9d7d32792c2145f29a9fd4607c62e50801b7c58d8a705064ad5bd48",
+  "source_identity_qualified_for_separate_future_input_review": true,
+  "source_value_or_settlement_timing_qualified": false,
+  "tests": {
+    "canonical_import_fences": 5,
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-source331-independent-tests-001 test_SOURCE331_DATA.py",
+    "meaningful_guard_removals": 3,
+    "passed": 36,
+    "seconds": 18.05,
+    "semantic_corruptions": 26,
+    "whole_SOURCE327_reader_AST_undo": true,
+    "whole_original_source2_constructor_and_reviewer_reproduced": true
+  },
+  "utc": "2026-11-06T15:02:40.173918+00:00"
+}

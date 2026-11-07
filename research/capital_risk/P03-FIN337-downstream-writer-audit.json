@@ -1,0 +1,53 @@
+{
+  "all324_original_members_hashed": 166,
+  "all337_members_hashed": 182,
+  "blanket_IO_or_overwrite_changes_authorized": false,
+  "downstream_actual_financial_and_review_positive_unknown": true,
+  "exclusive_directory_absent": "retained-proof-admission",
+  "existing_exclusive_writer_collision": {
+    "bytes": 922,
+    "name": "branch-controller-qualification.json",
+    "sha256": "0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56"
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "known_retained_constructor_blocker": {
+    "actual_seed_last": "2019-12-31",
+    "already_consumed_native": "2019-11-12",
+    "guard": "PRIOR_COMMITTED_B19_SEED",
+    "original_predicate": false
+  },
+  "local_canonical_runtime_executed": false,
+  "original_Certificate_construction_must_remain": true,
+  "original_Certificate_exclusive_stream_path_absent": true,
+  "original_DOVA_preserve_target": {
+    "name": "book/pre-event/2019-11-12-46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3.json.gz",
+    "old_actual_name": "book/pre-event/2019-11-12-46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3.json.gz",
+    "old_pin": {
+      "bytes": 1073978,
+      "sha256": "448273305e095c25db002fbb52b98332c7d961e2880fd1b3546859315f1f9e22"
+    },
+    "writer": "existing exact() helper"
+  },
+  "original_archive_preserve_target": {
+    "name": "book/pre-event/2019-10-22-85985110d7766258542746e9bc3b9ca56033c59ceb49271ce497734cdc6e5e96.json.gz",
+    "old_actual_name": "book/pre-event/2019-10-22-85985110d7766258542746e9bc3b9ca56033c59ceb49271ce497734cdc6e5e96.json.gz",
+    "old_pin": {
+      "bytes": 1041162,
+      "sha256": "464a6ed9aff6f28a5943c42e0fad32ddf90efca78b810475507322ffa7ff75aa"
+    }
+  },
+  "original_current_parent_and_full_proof_bytes_equal": true,
+  "passed": true,
+  "projection_for_P03": "original P07-specific initial_context returns nullcontext; qualify_initial returns without writing",
+  "schema": "research.P03-FIN337-complete-downstream-writer-audit/1",
+  "subsequent_new_resource_names_absent": [
+    "retained-proof-admission/alder-source.json",
+    "retained-proof-admission/seed.json",
+    "retained-proof-admission/unchanged-input.json",
+    "uncertainty-certificate.jsonl",
+    "uncertainty-event-archive-preservation.json",
+    "book/pre-event/2019-10-22-85985110d7766258542746e9bc3b9ca56033c59ceb49271ce497734cdc6e5e96.json.gz",
+    "book/pre-event/2019-11-12-46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3.json.gz"
+  ]
+}

@@ -1,0 +1,55 @@
+name: Funded actions and historical raw prices only
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/holding-action-request.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holding-action-price-001
+  cancel-in-progress: false
+
+jobs:
+  qualification:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+            .github/workflows
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Verify pure and static research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -q'
+      - name: Authenticate existing encrypted input and runtime
+        timeout-minutes: 7
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/holding-action-staging.json'
+      - name: Qualify funded actions and read-only raw price coverage
+        timeout-minutes: 9
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/holding_action_job.py --request research/capital_risk/holding-action-request.json --staging-receipt artifacts/capital-risk/holding-action-staging.json --output artifacts/capital-risk/holding-action-price.json'
+      - name: Preserve encrypted qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: holding-action-price-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/holding-action-staging.json
+            artifacts/capital-risk/holding-action-price.json
+            artifacts/capital-risk/holding-action-price.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7

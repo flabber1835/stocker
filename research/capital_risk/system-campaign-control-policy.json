@@ -1,0 +1,79 @@
+{
+  "financial_authority": false,
+  "maximum_active_jobs_per_arm": 1,
+  "maximum_independent_arms": 4,
+  "next_events": [
+    {
+      "arm": "P03",
+      "event": "STML cash plus contingent right",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "independent STML event source qualification",
+        "second bounded-event input preserving DOVA",
+        "complete19-to20 history visitor and retained152 proof binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "STML priorJune9 and nativeJune10 quotes present; original incomplete terminal retained"
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model terminal-parent distribution without a fictitious parent quote",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+      "arm": "P06",
+      "completed_previous_event": "WWE/TKO original27-for27 conversion independently verified and admitted within saved1677/full12",
+      "event": "September27,2024 incomplete leadership terminal",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "qualified full12 retained424 continuation loader",
+        "complete native/quote/identity/role evidence for September27 SID896501989594575427",
+        "correct event-family terms and independent source qualification",
+        "hosted canonical tests and fresh constructor canary"
+      ],
+      "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
+      "source_observations": "Exact unsupported SID896501989594575427; native ticker/terms/event-date roles not yet classified"
+    },
+    {
+      "arm": "P07",
+      "event": "BWA/PHIN post-close distribution",
+      "family": "DISTRIBUTION",
+      "missing": [
+        "independent event source qualification from authenticated full native/PHIN rows",
+        "legalJuly3-postclose/nativeJuly5 clock adapter",
+        "full25-to26 history visitor and929-row binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BWA priorJuly3/eventJuly5 and PHIN July5 present; PHIN SID801672850394475146/CIK1968915; both original typed distribution source_row_ids authenticated"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "explicit exact-fraction versus12-decimal owner choice"
+      ],
+      "requires_owner_choice": true
+    }
+  ],
+  "schema": "research.campaign-next-event-policy/1",
+  "source_capture": {
+    "artifact": 13580637335,
+    "artifact_bytes": 48413,
+    "artifact_sha256": "342b8110eac0159379d076e2c001585284f0d563adff5ec9250c42bb33740594",
+    "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+    "financial_sessions_advanced": 0,
+    "head": "5be1be10d66c703af04adb8efce2ca8e43fbf599",
+    "native_groups_found": 3,
+    "observations_found": 7,
+    "observations_missing": 1,
+    "run": 42388826916,
+    "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION"
+  }
+}

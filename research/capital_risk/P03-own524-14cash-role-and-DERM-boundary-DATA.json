@@ -1,0 +1,607 @@
+{
+  "Feb19_quote_present": true,
+  "Feb20_quote_present": false,
+  "actual524_candidate_roles": {
+    "1039218454988767954": {
+      "all_state_references": [
+        "/feed/series/1039218454988767954",
+        "/feed/series/1039218454988767954/security_id",
+        "/median5/peer_keys/1039218454988767954",
+        "/median5/peer_keys/1039218454988767954/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "1056504011927217944": {
+      "all_state_references": [
+        "/feed/series/1056504011927217944",
+        "/feed/series/1056504011927217944/security_id",
+        "/median5/peer_keys/1056504011927217944",
+        "/median5/peer_keys/1056504011927217944/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "1127660475946542495": {
+      "all_state_references": [
+        "/feed/series/1127660475946542495",
+        "/feed/series/1127660475946542495/security_id",
+        "/last_evidence/research_entry_audit/closing_accounting/wealth_core/median5/rank_history/0/22",
+        "/last_evidence/research_entry_audit/opening_accounting/wealth_core/median5/rank_history/0/13",
+        "/median5/peer_keys/1127660475946542495",
+        "/median5/peer_keys/1127660475946542495/2",
+        "/wealth_core/median5/rank_history/0/22"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "148561310122246389": {
+      "all_state_references": [
+        "/feed/series/148561310122246389",
+        "/feed/series/148561310122246389/security_id",
+        "/median5/peer_keys/148561310122246389",
+        "/median5/peer_keys/148561310122246389/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "254703587432034241": {
+      "all_state_references": [
+        "/feed/series/254703587432034241",
+        "/feed/series/254703587432034241/security_id",
+        "/median5/peer_keys/254703587432034241",
+        "/median5/peer_keys/254703587432034241/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "258412215698403601": {
+      "all_state_references": [
+        "/feed/series/258412215698403601",
+        "/feed/series/258412215698403601/security_id",
+        "/median5/peer_keys/258412215698403601",
+        "/median5/peer_keys/258412215698403601/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "350829412574453923": {
+      "all_state_references": [
+        "/feed/series/350829412574453923",
+        "/feed/series/350829412574453923/security_id",
+        "/median5/peer_keys/350829412574453923",
+        "/median5/peer_keys/350829412574453923/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "43443874000076334": {
+      "all_state_references": [
+        "/feed/series/43443874000076334",
+        "/feed/series/43443874000076334/security_id",
+        "/median5/peer_keys/43443874000076334",
+        "/median5/peer_keys/43443874000076334/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "515332170991709358": {
+      "all_state_references": [
+        "/feed/series/515332170991709358",
+        "/feed/series/515332170991709358/security_id",
+        "/median5/peer_keys/515332170991709358",
+        "/median5/peer_keys/515332170991709358/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "67573316626643986": {
+      "all_state_references": [
+        "/feed/series/67573316626643986",
+        "/feed/series/67573316626643986/security_id",
+        "/median5/peer_keys/67573316626643986",
+        "/median5/peer_keys/67573316626643986/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "739966891811158555": {
+      "all_state_references": [
+        "/feed/series/739966891811158555",
+        "/feed/series/739966891811158555/security_id",
+        "/last_evidence/research_entry_audit/closing_accounting/wealth_core/median5/rank_history/0/91",
+        "/median5/peer_keys/739966891811158555",
+        "/median5/peer_keys/739966891811158555/2",
+        "/median5/selected/10",
+        "/median5/selected_closes/739966891811158555",
+        "/wealth_core/median5/rank_history/0/91"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "767244870412520032": {
+      "all_state_references": [
+        "/feed/series/767244870412520032",
+        "/feed/series/767244870412520032/security_id",
+        "/median5/peer_keys/767244870412520032",
+        "/median5/peer_keys/767244870412520032/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "914962085458002202": {
+      "all_state_references": [
+        "/feed/series/914962085458002202",
+        "/feed/series/914962085458002202/security_id",
+        "/median5/peer_keys/914962085458002202",
+        "/median5/peer_keys/914962085458002202/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    },
+    "927385262443509079": {
+      "all_state_references": [
+        "/feed/series/927385262443509079",
+        "/feed/series/927385262443509079/security_id",
+        "/median5/peer_keys/927385262443509079",
+        "/median5/peer_keys/927385262443509079/2"
+      ],
+      "current_financial_role_references": {
+        "episodes": [],
+        "pending": [],
+        "receivables": [],
+        "slots": [],
+        "terminal_carry_audit": [],
+        "terminal_pending_sessions": [],
+        "terminal_pending_terms": [],
+        "unresolved_terminals": []
+      },
+      "current_state_is_not_new_financial_authority": true,
+      "future_holding_or_ordered_role_inferred": false
+    }
+  },
+  "actual_checkpoint": {
+    "completed": 524,
+    "cursor": "2020-01-31",
+    "full_inputs": 17,
+    "input_sha256": "bcbcd587370d2711d735cc466d9a4a7880cab46dadf07c3aba24617fa3f0624d",
+    "outer_sha256": "7b1a0140089732de1dc6c77a4d4cc996f79883be3d5b721c30cf9b41d85cac5b",
+    "raw_sha256": "f7670c418d3a09df3645ef139f41d94e2864e57d79b61d757cb97ac42a8ba49f",
+    "state_sha256": "abf9f3b9deb17e25606ed90a8d547cd03a84d274d5ea275eb821cb0da58e1572"
+  },
+  "all_DERM2_2020_row_hashes": [
+    {
+      "session": "2020-01-02",
+      "sha256": "d872f6fc4a4cd6a65957b729c8feb2270930782580bc55b3605719bdaf682c8a",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-03",
+      "sha256": "77c167a448e872a639f859daf57c10302e6ba9e53871d79862614dc06aef7b45",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-06",
+      "sha256": "f1060401ccd3514bcfb0763fb67387efb38d09b5dd90a719e03a3fc854bb717e",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-07",
+      "sha256": "487d7a456f35a409d6bd7b15b1ff1e47099c907310613cd192dd21a810fc93d2",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-08",
+      "sha256": "a8047845ca0de38c5348313a6ca2696b65458b7e831f6a3afa45daf687d4bfb3",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-09",
+      "sha256": "b9a8f09833118d3ed7f851aac0d9bb8b68c56d3d70f1175a441ba246a5e7e016",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-10",
+      "sha256": "3935cb686c5f9e1dd70190710a8c50578214600c367b1b56da580e851d41030c",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-13",
+      "sha256": "dc9ccb9eaa9ebbfb1ee0dd5bd67cfc64ff2c36285ded812f30b1b3051578444f",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-14",
+      "sha256": "b5ad023ad6e98078390dc7cd9a3cba63c89f8eb0cf4a7d67d15da324c7d7a98c",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-15",
+      "sha256": "5a0e47cc681c215f11fb0774a888988f3ce31e256b014065b50eb3461acff7b6",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-16",
+      "sha256": "96dc24799f32bdbc247f459e1322ef00b20fa4e4eea0de5090e143a50cef1c8e",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-17",
+      "sha256": "4ee6f629780a3f88f4048458bbd638af1a75d6cf7732160dc2c555bcf02983ca",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-21",
+      "sha256": "81174b5692b025238f47a3a3e13d6ed6241e62de6584f64e064db8559c3d9eb0",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-22",
+      "sha256": "4529f048f109ac9f22cab6a96211142aae2ba7d822392da54904ff7beb60b85f",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-23",
+      "sha256": "245e33bab0d186bd35a794508161da1837f1ba0cdcbbbbf3b9c09a85e382c8a2",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-24",
+      "sha256": "83d6f1290200c57ada742310283a966e2c61928605406d1838aab1021b53a988",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-27",
+      "sha256": "d857aae7e9172704168df54d0bf4ff7cef276755faee7f4d6d991b8436eb5952",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-28",
+      "sha256": "06a600d488617b4fe079958bf44240d6d28649807bf2eeb645a291511aa3656a",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-29",
+      "sha256": "8fa8c1ddb5d67f225360cf438e0ae3f4e40ac26fd95ae43e3922101dccce0e68",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-30",
+      "sha256": "95cff9faffb208a5c913f7a170f9dc7591e1d291af3dc61541d2b020ff22c138",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-01-31",
+      "sha256": "555b91e4a1321cadfaf6f9c5bec5ad2f036a0cc162b4d6cb47add09ebdea57b0",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-03",
+      "sha256": "c78e6e6aa91d822a237f0e89ddb0b3cdd00da1b74468460a8f70e568b158f7be",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-04",
+      "sha256": "d2d7b5ac719483d2ea21c0f775b3c33c05ef79c9fe9197967f705b965e59aaa0",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-05",
+      "sha256": "b8bb3ffaba45d8cc66e3e2bdbbc467dd18a0131073c847d1310c6997b94b6e4b",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-06",
+      "sha256": "bc3b648899f1fe94e6244c6f033094b66701cd0a3cd6f7583a8747d839afad75",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-07",
+      "sha256": "76322dc58ccc037e2e51121564ca389d48ef67e1ad5bc8a96304c9e68772bb4d",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-10",
+      "sha256": "b0bf8868e834313b54be7f50bc746a2f01d94d6543437aa49d1b6734eb35b31b",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-11",
+      "sha256": "b2a8ed4d9d046bfc949d67b48f9881dbfa49e4000118aedbfd7d3d3e3d0dbac8",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-12",
+      "sha256": "d9de7766502aedc1d7b4336f85f42c9002b48a2cbdd634a2831f020c672171c3",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-13",
+      "sha256": "0e5f664af0c740ce8b7bd2ec9c55f6a0225e058147904aea113decd39ce2abb1",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-14",
+      "sha256": "c0037a1e3455de657dc75186d98e54c3b66ebf422b80e95fa2ef1fbbfdabeb6d",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-18",
+      "sha256": "579413b3b0037435acfb6c146c53fd4f2c0f7ee4db5568977c21c60dbd4d8018",
+      "tradeable": "1"
+    },
+    {
+      "session": "2020-02-19",
+      "sha256": "817248b3a2a4342b917cf8c78bcfd1a33e9cec10dad4f585e79eb4ae06909aa2",
+      "tradeable": "1"
+    }
+  ],
+  "archive_bytes": 1505197418,
+  "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+  "canonical_state_serialized_or_staged": false,
+  "complete_native_boundary_rows": {
+    "2020-02-18": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "UNKNOWN:739966891811158555",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_UNKNOWN:739966891811158555",
+      "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+      "listing_active": "1",
+      "listing_first_session": "2014-10-03",
+      "metadata_admitted": "0",
+      "raw_close": "18.739999999999998",
+      "raw_compatible_volume": "676790",
+      "raw_open": "18.739999999999998",
+      "reported_volume": "676790",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "739966891811158555",
+      "security_type": "unknown",
+      "security_type_eligible": "0",
+      "security_type_source": "NO_STRICT_PRIOR_POSITIVE_EVIDENCE",
+      "session": "2020-02-18",
+      "sic": "",
+      "signal_close": "18.739999999999998",
+      "split_ratio": "1",
+      "ticker": "DERM2",
+      "tradeable": "1"
+    },
+    "2020-02-19": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "UNKNOWN:739966891811158555",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_UNKNOWN:739966891811158555",
+      "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+      "listing_active": "1",
+      "listing_first_session": "2014-10-03",
+      "metadata_admitted": "0",
+      "raw_close": "18.75",
+      "raw_compatible_volume": "1072156",
+      "raw_open": "18.75",
+      "reported_volume": "1072156",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "739966891811158555",
+      "security_type": "unknown",
+      "security_type_eligible": "0",
+      "security_type_source": "NO_STRICT_PRIOR_POSITIVE_EVIDENCE",
+      "session": "2020-02-19",
+      "sic": "",
+      "signal_close": "18.75",
+      "split_ratio": "1",
+      "ticker": "DERM2",
+      "tradeable": "1"
+    }
+  },
+  "entire_year_rows_scanned": 1541141,
+  "financial_authority": false,
+  "financial_runtime_executed": false,
+  "input_selected": false,
+  "later_state_roles_inferred": false,
+  "native_raw_action_rows_all_before_filter": [
+    {
+      "action": "listed",
+      "authority": "PIT_ACTIONS",
+      "canonical_value": "",
+      "disposition": "PIT_ACTION_DIRECT",
+      "effective_session": "2014-10-03",
+      "evidence_hash": "",
+      "known_by": "2014-10-03",
+      "security_id": "739966891811158555",
+      "sep_derived_value": "",
+      "ticker": "DERM2",
+      "vendor_value": ""
+    },
+    {
+      "action": "acquisitionby",
+      "authority": "PIT_ACTIONS",
+      "canonical_value": "1022.3",
+      "disposition": "PIT_ACTION_DIRECT",
+      "effective_session": "2020-02-19",
+      "evidence_hash": "",
+      "known_by": "2020-02-19",
+      "security_id": "739966891811158555",
+      "sep_derived_value": "",
+      "ticker": "DERM2",
+      "vendor_value": "1022.3"
+    },
+    {
+      "action": "delisted",
+      "authority": "PIT_ACTIONS",
+      "canonical_value": "1022.3",
+      "disposition": "PIT_ACTION_DIRECT",
+      "effective_session": "2020-02-19",
+      "evidence_hash": "",
+      "known_by": "2020-02-19",
+      "security_id": "739966891811158555",
+      "sep_derived_value": "",
+      "ticker": "DERM2",
+      "vendor_value": "1022.3"
+    },
+    {
+      "action": "tickerchangefrom",
+      "authority": "PIT_ACTIONS",
+      "canonical_value": "",
+      "disposition": "PIT_ACTION_DIRECT",
+      "effective_session": "2020-02-19",
+      "evidence_hash": "",
+      "known_by": "2020-02-19",
+      "security_id": "739966891811158555",
+      "sep_derived_value": "",
+      "ticker": "DERM2",
+      "vendor_value": ""
+    },
+    {
+      "action": "tickerchangeto",
+      "authority": "PIT_ACTIONS",
+      "canonical_value": "",
+      "disposition": "PIT_ACTION_DIRECT",
+      "effective_session": "2020-02-19",
+      "evidence_hash": "",
+      "known_by": "2020-02-19",
+      "security_id": "739966891811158555",
+      "sep_derived_value": "",
+      "ticker": "DERM2",
+      "vendor_value": ""
+    }
+  ],
+  "observation_member_sha256": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf",
+  "old503_roles_reused": false,
+  "passed": true,
+  "root_admitted": false,
+  "schema": "research.P03-DERM2-native-boundary-and-actual524-role-DATA/1",
+  "security_id": "739966891811158555",
+  "source_year": "2020"
+}

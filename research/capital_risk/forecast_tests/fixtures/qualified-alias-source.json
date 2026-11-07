@@ -1,0 +1,42 @@
+{
+  "schema": "research.synthetic-qualified-alias-stage-fixture/1",
+  "synthetic_asset_only": true,
+  "synthetic_rows": [
+    {
+      "action": "tickerchangefrom",
+      "contraname": "",
+      "contraticker": "S",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "synthetic_fixture": "case_0",
+      "ticker": "S2"
+    },
+    {
+      "action": "acquisitionby",
+      "contraname": "T-MOBILE US INC",
+      "contraticker": "TMUS",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "synthetic_fixture": "case_1",
+      "ticker": "S2"
+    },
+    {
+      "action": "delisted",
+      "contraname": "",
+      "contraticker": "",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "synthetic_fixture": "case_2",
+      "ticker": "S2"
+    },
+    {
+      "action": "tickerchangeto",
+      "contraname": "",
+      "contraticker": "",
+      "date": "2020-03-31",
+      "name": "SPRINT CORP",
+      "synthetic_fixture": "case_3",
+      "ticker": "S2"
+    }
+  ]
+}

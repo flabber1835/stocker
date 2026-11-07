@@ -1,0 +1,25 @@
+{
+  "canonical_runtime_executed": false,
+  "completion_date": "2020-03-18",
+  "currency": "USD",
+  "current_root": "f297ca81235193b7403b80a5badc5be199035d3550c5a893c2e0c3dc0a3e0eb8",
+  "exchange_last_trading_date": "2020-03-18",
+  "exchange_suspension_date": "2020-03-19",
+  "financial_authority": false,
+  "input_qualified": false,
+  "limits": [
+    "Do not assert preopen completion. Exchange date is independent of frozen-source bar availability.",
+    "SOURCE327 retains actual prior March17 quote; inspect native March18 full frozen row before choosing the ordinary completion convention.",
+    "Do not infer missing bars or held quantities from the prior-source query. Require actual543 and genuine successor source guards."
+  ],
+  "mandatory_common_cash": "14.00",
+  "native_session": "2020-03-18",
+  "native_term_sha256": "5af92efec422c16add595de92f884a603ea00b1ffada13d949948348c9cd931d",
+  "preopen_completion_confirmed": false,
+  "primary_sources": [
+    "https://www.sec.gov/Archives/edgar/data/1617977/000119312520077250/d143057d8k.htm",
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-46"
+  ],
+  "schema": "research.P03-HABT-primary-preparation/1",
+  "security_id": "594373256712467281"
+}

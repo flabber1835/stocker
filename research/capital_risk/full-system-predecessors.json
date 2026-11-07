@@ -1,0 +1,297 @@
+{
+  "schema": "research.full-system-predecessors/1",
+  "run_id": 40895864995,
+  "head": "5916e314693835c8ee650407f7df4377a95b143b",
+  "arms": {
+    "B": {
+      "artifact_id": 12907268700,
+      "zip_bytes": 16588739,
+      "zip_sha256": "ce5a82b4771b5079d84efac836410f524030fc03ff2e434f76d9286714d8548f",
+      "receipt_sha256": "b5f01baf6da9dda528d8518d72d220bbb7345a1b4ec3d30dd8e7b8237111dfa0",
+      "selected_checkpoint": "pre-event/2017-07-17-1b500069aa2c49ce3404766be6f274801d6c80951505f763a45be1349b2e11a1.json.gz",
+      "selected_file_sha256": "834168840967c125c17951cdf3aa0178404587f9a1c4f8f1a68aa35a81ce9686",
+      "outer_sha256": "1b500069aa2c49ce3404766be6f274801d6c80951505f763a45be1349b2e11a1",
+      "inner_sha256": "4f7de966756c3b0b4881fb3a4cd9d161b6b33f7c0213f83086afeae8be5d78dd",
+      "state_sha256": "934998a1e3523e44f7d3f67a4aa88d3f1281d07c4a322efea010ad3872965cc1",
+      "input_sha256": "fc0282ada2ee1beaf75537970705ec4760881691eb3aa36bd1fec8f192131ce9",
+      "cursor": "2017-07-14",
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 567776,
+          "last_record_sha256": "1922b04c022d32c9c46ea0a3a4d7a75bad8d30f5822d0ec839449d6a540b6585",
+          "prefix_sha256": "9e07c730d8eaf5c040c5d78b296cbbe142f3911c9be3f411355adf6a2b08630e"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 789,
+          "last_record_sha256": "0a994fec0dbb35231606c1a0299a138b36a65a742e31dff2ea8c159153fb0473",
+          "prefix_sha256": "0a994fec0dbb35231606c1a0299a138b36a65a742e31dff2ea8c159153fb0473"
+        }
+      },
+      "inspections": {
+        "economic-worker-inspect.json": "481855ce19905a7335ae7193e24b83d542cd03262fa8c48c67c58e158c61276f",
+        "independent-review-stop/worker-inspect.json": "ec0e582bca99e15fa6087aa714c2f582913d5bc286fb8faf832808591fab0064"
+      },
+      "review_sha256": "2826ba749ec3b8709d9177fae7f24e2f13b88cc1cb9a5767b740bcfc5f39d024",
+      "tails": {
+        "daily": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 73747,
+          "sha256": "e879c0cd8fe257a4b2c0377e5c33ed6d83f844e9be5728043619847ccef41010"
+        },
+        "monthly": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 1274,
+          "sha256": "719de6cd8892d426f76de689210389571aefdac6db9267b73993d784711e89e2"
+        }
+      }
+    },
+    "B0": {
+      "artifact_id": 12907581843,
+      "zip_bytes": 16588728,
+      "zip_sha256": "7970326ea6dbdc85b3bfdd3ce8531b04c482ead44464bc671277124dec2e5cdd",
+      "receipt_sha256": "2b2a06a094904a789f2d1c1572fa6766bcaaab334bc7d3d99a397e021eba587f",
+      "selected_checkpoint": "pre-event/2017-07-17-1b500069aa2c49ce3404766be6f274801d6c80951505f763a45be1349b2e11a1.json.gz",
+      "selected_file_sha256": "834168840967c125c17951cdf3aa0178404587f9a1c4f8f1a68aa35a81ce9686",
+      "outer_sha256": "1b500069aa2c49ce3404766be6f274801d6c80951505f763a45be1349b2e11a1",
+      "inner_sha256": "4f7de966756c3b0b4881fb3a4cd9d161b6b33f7c0213f83086afeae8be5d78dd",
+      "state_sha256": "934998a1e3523e44f7d3f67a4aa88d3f1281d07c4a322efea010ad3872965cc1",
+      "input_sha256": "fc0282ada2ee1beaf75537970705ec4760881691eb3aa36bd1fec8f192131ce9",
+      "cursor": "2017-07-14",
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 567776,
+          "last_record_sha256": "1922b04c022d32c9c46ea0a3a4d7a75bad8d30f5822d0ec839449d6a540b6585",
+          "prefix_sha256": "9e07c730d8eaf5c040c5d78b296cbbe142f3911c9be3f411355adf6a2b08630e"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 789,
+          "last_record_sha256": "0a994fec0dbb35231606c1a0299a138b36a65a742e31dff2ea8c159153fb0473",
+          "prefix_sha256": "0a994fec0dbb35231606c1a0299a138b36a65a742e31dff2ea8c159153fb0473"
+        }
+      },
+      "inspections": {
+        "economic-worker-inspect.json": "d04b66d6b2e2e4cb9dfcda68e477c589002aaa79895a40209e6877946adf80f8",
+        "independent-review-stop/worker-inspect.json": "03736648cbcb9f67af93a443a502464e1718cb96217ce05e655021d33695e973"
+      },
+      "review_sha256": "2826ba749ec3b8709d9177fae7f24e2f13b88cc1cb9a5767b740bcfc5f39d024",
+      "tails": {
+        "daily": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 73747,
+          "sha256": "e879c0cd8fe257a4b2c0377e5c33ed6d83f844e9be5728043619847ccef41010"
+        },
+        "monthly": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 1274,
+          "sha256": "719de6cd8892d426f76de689210389571aefdac6db9267b73993d784711e89e2"
+        }
+      }
+    },
+    "C1": {
+      "artifact_id": 12908056699,
+      "zip_bytes": 14908105,
+      "zip_sha256": "81d567ac151d30ea073a281b7814c14d886d0a4f0015f3c05d2c84d159837633",
+      "receipt_sha256": "c4e52c48d3cc8637b32c1f39a512015efed3a0996b97be1c17faf6415d118b5b",
+      "selected_checkpoint": "predecessor-checkpoints/4c8ee320ec5461267358b884a5f122ba1462f24d0d767c828abe61173a610108.json.gz",
+      "selected_file_sha256": "d660e0bfcf7f9e228b6619b09eea51269d47ded13f98e0c99a562ceed1d5e63e",
+      "outer_sha256": "4c8ee320ec5461267358b884a5f122ba1462f24d0d767c828abe61173a610108",
+      "inner_sha256": "e253bd101830e5c6776ba731d5d0bb1fcd8d321c030e07c763bd6b21f4128c97",
+      "state_sha256": "22645a7cdcfd131c7a3a7c64502ab43b102c1839b9d89686f1f03f98f9d5d92f",
+      "input_sha256": "7eaaab2d2177c02a2a128af0a251fecb9ff0f6f96f8a8f72c95e7710fec2adaf",
+      "cursor": "2017-06-30",
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "inspections": {
+        "economic-worker-inspect.json": "07649c31930fefce1b3db9564dddb26d4a0c70a0f64972315714c03d0a5e55cf",
+        "independent-review-stop/worker-inspect.json": "e6da7998bc61334326ffa0f97c45a65edf73c33fe918a6270f7c61179df55b39"
+      },
+      "review_sha256": "db057ba3d4deb9b8dad5c969554bdcc080073597b239790e6f5cb1e36a4ed144",
+      "tails": {
+        "daily": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 1068417,
+          "sha256": "84ad594049ba1298ba2b51800f4a28d27c886c5f3650ddd9e299962914cc03c8"
+        },
+        "monthly": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 789,
+          "sha256": "008d590c3e986a8ecd44f493562abad7be4330731a20f05d6d1984e648d852e0"
+        }
+      }
+    },
+    "C2": {
+      "artifact_id": 12907273159,
+      "zip_bytes": 16523031,
+      "zip_sha256": "b9e6499a32a5ec9753df4a7f7d8d15242b22dcfabce258a9e3a63aded87263b1",
+      "receipt_sha256": "a171111358eaacbaa0e5e94333c41f208e9b188da9a2fc492dd1d2c2b5bee3f5",
+      "selected_checkpoint": "pre-event/2017-07-17-f561765fb87b3842ccfaf05780c83b4eca64b4c9128a012612dee3fdf7fe8311.json.gz",
+      "selected_file_sha256": "484b229ab0e9c0d567d8ce7d26b42890bb84f47208c6c916e3f6e52a18ad9f94",
+      "outer_sha256": "f561765fb87b3842ccfaf05780c83b4eca64b4c9128a012612dee3fdf7fe8311",
+      "inner_sha256": "7741b49f573eccdfda0c7e1e81859d76cfdd97a943304d70e8f982f1f6792b32",
+      "state_sha256": "9b435c3bc5ba93d40c8186e895b3c3c14e8c2c32e8c78e362dd0f681946ab9b1",
+      "input_sha256": "992f4de9e139dce1c10ecbcfa900822f9ebfff94ec1ed2c85d68ad4d5266385b",
+      "cursor": "2017-07-14",
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 398140,
+          "last_record_sha256": "4f3ced456cc59de1fa703ba125792f50ca698e59a56435e70e8c5a8e2e58e0c7",
+          "prefix_sha256": "4bc2dc77050280e1c66b1a9c4bb02cd6eb757bd51ca48b87fb68b7ad3bb305a8"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 789,
+          "last_record_sha256": "eb22fe98ca42a5dc12dbe31b486b6d88d788ec50d4d846ce893227fba177cc6a",
+          "prefix_sha256": "eb22fe98ca42a5dc12dbe31b486b6d88d788ec50d4d846ce893227fba177cc6a"
+        }
+      },
+      "inspections": {
+        "economic-worker-inspect.json": "477bbf32f7c5045b5af5cf0631c996b7857081647244476ef0d385f6a6d77296",
+        "independent-review-stop/worker-inspect.json": "3745b82c828fce40a92411699911b4b925c9e8dea718c7e545dc51f4c7695e02"
+      },
+      "review_sha256": "1c5ec562809187aef49d2b4c62b20088ca38e1ca54a179cac86cb60fc92e5c79",
+      "tails": {
+        "daily": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 46897,
+          "sha256": "f1841d7c16fff30c3ef173f1cc0320bc61ef6bb7cb637c1b01d46701381270aa"
+        },
+        "monthly": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 1274,
+          "sha256": "719de6cd8892d426f76de689210389571aefdac6db9267b73993d784711e89e2"
+        }
+      }
+    },
+    "C3": {
+      "artifact_id": 12908176213,
+      "zip_bytes": 16634501,
+      "zip_sha256": "684fe3b7f5ad10c2bc64fe3e8274c426313e4204f9e633b82c4cfb38b47cd85f",
+      "receipt_sha256": "6132e59a22d26b8371df51f52e928ad6cf1b1bdeef0fb550753aaa9a90cbec00",
+      "selected_checkpoint": "pre-event/2017-07-17-5afeb78dd30f5d7381399f2420728afe5fcc9e67f19cce2a445904ed295370d7.json.gz",
+      "selected_file_sha256": "19d51a5e95bedc7ddd36c5fd3325a3f2862b0e78124650b49221e11f6eab2d4b",
+      "outer_sha256": "5afeb78dd30f5d7381399f2420728afe5fcc9e67f19cce2a445904ed295370d7",
+      "inner_sha256": "4259c2c8a87ce7cd7918cf51d99d81c58ff5dadc92c257072e455b9e7527d6d1",
+      "state_sha256": "9e5d7b58c618e5da1b45caa197c90f89f066272b36959ec7d99c51dbf154a8f1",
+      "input_sha256": "297ef142e1d55bfc2021d5bd129b17565d1c71c2774186430fb8dca6288d2f2e",
+      "cursor": "2017-07-14",
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 616094,
+          "last_record_sha256": "e0f7fae7f3deb5b034d923f4349abc72952aefa00e8c5d5d9e5f6d526853918d",
+          "prefix_sha256": "29b09c77fce55c925c03def60426d08b173dd6ab961acf40b083f801788849d0"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 789,
+          "last_record_sha256": "eda2ca18bda4a2f771e004b5c314da09b6ba7b0cedfd3301c053d2477521edce",
+          "prefix_sha256": "eda2ca18bda4a2f771e004b5c314da09b6ba7b0cedfd3301c053d2477521edce"
+        }
+      },
+      "inspections": {
+        "economic-worker-inspect.json": "627875cc4789e13b7a321d0a34a31c647dbd0e38559bcb7ed29dda1a7907a7e3",
+        "independent-review-stop/worker-inspect.json": "70e53f2461ac008170bdcf9375ace81834bff93b9281127e34a6171f83696d75"
+      },
+      "review_sha256": "9b17e29648af02dae49c48d0f5035b56b4ffd4bdbb477a398d65046d7d1b17e3",
+      "tails": {
+        "daily": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 100929,
+          "sha256": "9354bd6704a5ec1901454aae74dd73a4f3b569487a966b91f5051b664b0d591e"
+        },
+        "monthly": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 1274,
+          "sha256": "719de6cd8892d426f76de689210389571aefdac6db9267b73993d784711e89e2"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "actual_failed_FIN355_preserved": {
+    "artifact_id": 13569129128,
+    "artifact_zip_sha256": "80ead1128f95d6abab80727ae0ef67163575290561a6682b92fd5640ad3135f5",
+    "diagnostic_neutral12_used_as_financial_seed": false,
+    "new_committed_sessions": 0,
+    "run_id": 42360342457
+  },
+  "actual_neutral12_known": false,
+  "actual_parent_completed": 1426,
+  "actual_parent_full_inputs": 11,
+  "all88_historical_resources_preserved": true,
+  "canonical_runtime_executed": false,
+  "committed_seed_rows": 173,
+  "dependency_closure": {
+    "current_book_aliases_forbidden": true,
+    "manual_list_is_not_completeness": true,
+    "required_references": "ALL_ACTUAL_RETAINED_EVENT_RESOLUTIONS",
+    "static_historical_assets": 88
+  },
+  "excluded_tail_rows": 6,
+  "files": {
+    "P06-FIN339-exact-failed-target.json": {
+      "bytes": 36604,
+      "sha256": "6124a681f560b9012cd060daaa43b1bca28c0638b3cd670a648a648a898888bf"
+    },
+    "P06-REVIEW344-positive-requalified-transport.json": {
+      "bytes": 3467,
+      "sha256": "36a68f0c46a295c5c4dc4e8a4233eeb6d2bdfff2dbfe2349c4b7687be1ec89f5"
+    },
+    "P06-WWE-original-provider-SHARADAR_ACTIONS.zip": {
+      "bytes": 9855560,
+      "sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02"
+    },
+    "P06-WWE-root-loader-v2-DESIGN.md": {
+      "bytes": 1281,
+      "sha256": "35eb94757583bc27c6236cbb59421115e96030a30237e894a140854231cc0172"
+    },
+    "P06-WWE-source-asset-protocol.json": {
+      "bytes": 2450,
+      "sha256": "0d1ad5b5cf3284d1441938019454d62bcd80feae7d698f7bddce22a51d38e4e8"
+    },
+    "P06-WWE12-actual-admission-fact.json": {
+      "bytes": 82405,
+      "sha256": "96afb2e7a49532f6aa9b4eb2f3b8f51d3513fdd1f9f0dfee19bf1b91b515daad"
+    },
+    "P06-WWE12-admission-binding-pending.json": {
+      "bytes": 362,
+      "sha256": "1a533ff7c3b3d66e154239123249dfc9352be40f11fa25247df73baef4245f5b"
+    },
+    "P06-WWE12-authenticated-retained-resources-v2.json": {
+      "bytes": 18402,
+      "sha256": "4dac453c6d203136ee074407dc16fba81c2531fd141e5ecba19019040a01b1af"
+    },
+    "P06-WWE12-history-observation-DESIGN.md": {
+      "bytes": 2089,
+      "sha256": "7f0e5ba4b3615c2b868b9b113ef5dde941fdff6387ce8ceb4e148d7a80724d1d"
+    },
+    "P06-WWE12-private-root-loader-source-qualification.json": {
+      "bytes": 2207,
+      "sha256": "9d200319a189b7bdc6de9a69f79ff0ac5f107744a71b9d57461554aa8af02fc8"
+    },
+    "P06-WWE12-retained173-private-runtime-source-preparation-qualification.json": {
+      "bytes": 4031,
+      "sha256": "3789f4152d02258fdb14f20968547f004275cf0b7e1361b80f80c15d49464145"
+    },
+    "P06-WWE12-runtime-DESIGN.md": {
+      "bytes": 3111,
+      "sha256": "179a81bfec0cfd0aa40783975c09c0213c6c068dab530e120af4f0d7d661bae1"
+    },
+    "P06-WWE173-private-seed-source-qualification.json": {
+      "bytes": 2584,
+      "sha256": "f6322f8dc0203f8fbc9f9fba2186d46f09ed8db4e5c69baf73190346cdf717be"
+    },
+    "P06-actual1426-full11-retained173-preconditions.json": {
+      "bytes": 7817,
+      "sha256": "ad4f104054eb8b754756e62cedeec469308858501f3ad7bcbacaf11744677ac6"
+    },
+    "system-campaign-ordinary-catalog-registry.json": {
+      "bytes": 2778,
+      "sha256": "2c1bc3be34ec240a141eca69f5b020dde0f33db28e78e4d720276cc7b7b1d5b7"
+    },
+    "system-campaign-wwe-registry-extension.json": {
+      "bytes": 514,
+      "sha256": "c59ac5bc05412ad7ae367982637e2e485d2479ab64c262562c048c4a2b685384"
+    },
+    "system-campaign-wwe-tko-terminal-facts.json": {
+      "bytes": 4221,
+      "sha256": "385b8abbcfd0b26e411678cd65f2014309012778d0fbd173ed68635cfe1ff1bd"
+    },
+    "system_campaign_action_preflight.py": {
+      "bytes": 3127,
+      "sha256": "0145e6ce84048faf80f49ae20095f29eaf8dc479be4dfd932ec648326d5cf68c"
+    },
+    "system_campaign_dependencies.py": {
+      "bytes": 3963,
+      "sha256": "49f74f093f1a206a6de27da7c355d57aa669b8dc2218c3fbabe115150f6f6869"
+    },
+    "system_campaign_p06_FIN339_requalified_parent.py": {
+      "bytes": 10791,
+      "sha256": "d96ffe1bc505953b7fe45ddbf6d87071ee43b8c6b0e7762c99744b8b7cfaf4bc"
+    },
+    "system_campaign_p06_WWE12_api.py": {
+      "bytes": 6634,
+      "sha256": "96ab01a8035bc92a49aa24ee80e4702f1f13cafe3de664a54f43cac5d9c37e27"
+    },
+    "system_campaign_p06_WWE12_data.py": {
+      "bytes": 620,
+      "sha256": "5f916f5577d76eb8a57bd7112f776cb750236ee66929f9bc6cc774a00ab9c80e"
+    },
+    "system_campaign_p06_WWE12_models.py": {
+      "bytes": 7658,
+      "sha256": "21e8cb607eced5f1be9b74c5468101fec9b04a03f516e22f0db688a49a98653d"
+    },
+    "system_campaign_p06_WWE12_observer.py": {
+      "bytes": 5568,
+      "sha256": "a091a44855a9caacede61fee9b6d6eb2439fb1ff1e32e234ddf35189d56a879a"
+    },
+    "system_campaign_p06_WWE12_resources.py": {
+      "bytes": 5077,
+      "sha256": "2060ec2778cce557e4dcbac5fcc889033806b3bfc4647626b0255a7b41de684a"
+    },
+    "system_campaign_p06_WWE12_runtime.py": {
+      "bytes": 23039,
+      "sha256": "b9ad0886b22a54aebe8a4d59152b3fd02d3e12b44e8c80b9e96e1c1ad8692b8f"
+    },
+    "system_campaign_p06_WWE12_stage.py": {
+      "bytes": 1012,
+      "sha256": "d7d1350febab09ee73753c10fbfabd11877ee7a1f2b98ee888c7dbfb04a244f1"
+    },
+    "system_campaign_p06_WWE12_stock.py": {
+      "bytes": 2864,
+      "sha256": "12acf4b72a4297f330a20d6ae3f178d19050fb90db3ec3e6a21f64b91f820568"
+    },
+    "system_campaign_p06_WWE173_preconditions.py": {
+      "bytes": 6377,
+      "sha256": "5f94f9af015b7a90fe8969960289076867246370feb12c1957f4b07809c82c98"
+    },
+    "system_campaign_p06_WWE173_seed.py": {
+      "bytes": 10134,
+      "sha256": "cd13094c049a228c5a199e44918ee012cb6eb3166aad0cff4e7a7599c2320bbe"
+    },
+    "system_campaign_p06_WWE27_qualifiers.py": {
+      "bytes": 2453,
+      "sha256": "35626341907ddfb8de48bebf3b05bb5864db3b444778c8a8df020bb1349dae49"
+    },
+    "system_campaign_p06_WWE_admission.py": {
+      "bytes": 2798,
+      "sha256": "7c5188c8d0f643e1e0e6d509a1abc909473e4adf9eae398d612f80a7c70f6956"
+    },
+    "system_campaign_p06_WWE_source_asset.py": {
+      "bytes": 4604,
+      "sha256": "241f6764d0f49ab3d78fdf6a91167252865cfc92311229b6612c8bd6af1c949c"
+    },
+    "system_campaign_p06_WWE_stock_source.py": {
+      "bytes": 3499,
+      "sha256": "b28be292d5e3112db6ac54231d545969a2d2776a055b3b4859f83b93bf594aa6"
+    },
+    "system_campaign_registry_extension.py": {
+      "bytes": 2505,
+      "sha256": "8ca27ea8c86dcc97d633f4c4a97c5b1ff6554bfbc78fd7eaa65defcb11e59d08"
+    },
+    "system_campaign_stock_calendar.py": {
+      "bytes": 13146,
+      "sha256": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d"
+    },
+    "system_campaign_wwe_facts.py": {
+      "bytes": 2261,
+      "sha256": "86bf03e3a5e5c8c427a0ad9da53a1e3c08a00b79c551d6af02ac4a2a7f95d631"
+    },
+    "system_campaign_wwe_gate.py": {
+      "bytes": 4408,
+      "sha256": "b460c03694fa4f7edf2a36177042f22f19e2cc2a18bf59552edcc7324fe4e904"
+    },
+    "system_campaign_wwe_review.py": {
+      "bytes": 3819,
+      "sha256": "b4c27858fc3e4dcae5e0b5ad1a393fd2b79de7cbec5f13ce13ee9bd414bae2fd"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": true,
+  "hosted_requirements": [
+    "Authenticate FIN339 and positive REVIEW344 separately.",
+    "Pass stopped two-packet and canonical-copy27 gate without financial main/advance.",
+    "Create and independently verify genuine zero-session ordinary12 adoption.",
+    "Seed all173 committed rows and retain179 raw rows only as provenance.",
+    "Require every reachable canonical controller decision to match original point arithmetic.",
+    "Independently rehydrate stock witnesses and review actual resumed27-share conversion."
+  ],
+  "original_WWE_gate_role_only_16_to27": true,
+  "original_failed_FIN339_and_positive344_distinct": true,
+  "original_financial_engine_and_controller_sources_changed": false,
+  "passed": true,
+  "prior_qualification_sha256": "46b2207e7a504bc8ea7a0b44d60be1f2b2143a4d2901338c9d024b442c91d248",
+  "raw_proof_rows": 179,
+  "required_hosted_canaries": [
+    "actual temporary complete dependency copy, verification and cleanup in preflight",
+    "actual certificate and original observer construction plus verified output dependency closure before first financial main"
+  ],
+  "required_real_neutral_inputs": 12,
+  "root_admission_sha256": "edfe96119e6f8bf833e54189452698bca2bfca65676e2d0a861bb6a9ea69bf0f",
+  "schema": "research.P06-WWE12-dependency-closure-profile-qualification/2",
+  "stock_collision_reader_preserves_all_checks_with_exact_ABMD_tenth_descriptor": true,
+  "test_source_pins": {
+    "test_WWE12_final_profile_DATA.py": {
+      "bytes": 1994,
+      "sha256": "b79c96a3efb9a0bd22223f573ac516c0a7761adf46329878b26536b9ce69165e"
+    },
+    "test_WWE12_history_observer_DATA.py": {
+      "bytes": 6372,
+      "sha256": "06bd46edfed527bf339e1a7ac05b0151ae282a9738778d1a68a52a4af499338d"
+    },
+    "test_WWE12_runtime_DATA.py": {
+      "bytes": 9696,
+      "sha256": "4995d88a674b9a4a111a5d371984cbc67f80ddf41a0ea9edc791619c0920f10b"
+    },
+    "test_WWE12_stock_API_DATA.py": {
+      "bytes": 10353,
+      "sha256": "422c4ba1109fe8c3fb13878b67605cc3f6f27cbc074444d0945da1202e9ced53"
+    },
+    "test_WWE173_seed_DATA.py": {
+      "bytes": 4791,
+      "sha256": "e1bd7b125775b483abed5a8a23e6d7a645db732ee19d75b81a62e51b45126b29"
+    },
+    "test_WWE_root_loader_DATA.py": {
+      "bytes": 5204,
+      "sha256": "bc9d4f121f639b9cf54a12a13e4add84ab7d1cedc205765ef5a1aaeb6cf50d14"
+    },
+    "test_dependency_closure_DATA.py": {
+      "bytes": 4242,
+      "sha256": "39753b8aecd4aa16300823e215efbba28647c023d31371314f08ca1962d6f6ef"
+    }
+  },
+  "tests": {
+    "actual_FIN355_missing_archive_falsified": true,
+    "campaign_control_passed": 18,
+    "campaign_control_seconds": 1.45,
+    "complete_integration_command": "python -B -m pytest -q -p no:cacheprovider --tb=line --basetemp=<fresh-owned-noncanonical-temp> forecast_tests/test_financial_resume.py forecast_tests/test_bounded_lifecycle_dispatch.py forecast_tests/test_campaign_control.py forecast_tests/p06_WWE12",
+    "complete_integration_passed": 205,
+    "complete_integration_required_before_push": false,
+    "complete_integration_seconds": 67.14,
+    "dependency_and_handoff_seconds": 17.89,
+    "dependency_and_handoff_targeted_passed": 50,
+    "previous_whole_source_tests": 75
+  },
+  "utc": "2026-11-07T15:14:51.464930+00:00"
+}

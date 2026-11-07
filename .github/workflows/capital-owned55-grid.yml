@@ -1,0 +1,52 @@
+name: Sharadar Owned55 nine-parameter numerical study
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/owned-grid-request.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sharadar-owned55-grid-001
+  cancel-in-progress: false
+
+jobs:
+  numerical-study:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install hash-locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Authenticate retained historical inputs and runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/owned-grid-staging.json'
+      - name: Evaluate the frozen class and independently review stopped evidence
+        timeout-minutes: 130
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/owned_grid_job.py --request research/capital_risk/owned-grid-request.json --staging artifacts/capital-risk/owned-grid-staging.json --output artifacts/capital-risk/owned-grid.json'
+      - name: Preserve encrypted research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sharadar-owned55-grid-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/owned-grid-staging.json
+            artifacts/capital-risk/owned-grid.json
+            artifacts/capital-risk/owned-grid-*.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,54 @@
+{
+  "functions": {
+    "_apply_spinoff_repair": {
+      "ast_sha256": "9f862d4ff00a8506e76a98970902db65e4c2a4c4ff0585927fcdee0f125f2cca",
+      "origin": "repair",
+      "original_module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+      "source": "def _apply_spinoff_repair(packet, repair):\n    \"\"\"Review one in-kind event; preserve all prices and suppress its cash proxy.\"\"\"\n    session = _session(packet.day)\n    if session <= repair._resume_session or session != repair.earliest_affected_session:\n        return packet\n    original = tuple(packet.spins)\n    if any(row.session != session for row in original):\n        raise ValueError(\"misdated original spinoff\")\n    suppress = {row.term_sha256 for row in repair.suppress}\n    actual = [_digest(asdict(row)) for row in original]\n    if len(actual) != len(set(actual)) or not suppress <= set(actual):\n        raise ValueError(\"suppressed original spinoff differs\")\n    remaining = [row for row, digest in zip(original, actual) if digest not in suppress]\n    if any(row.parent_security_id == \"224580439420294771\" for row in remaining):\n        raise ValueError(\"unsuppressed GE distribution would duplicate economics\")\n    by_id = {bar.security_id: bar for bar in packet.bars}\n    if len(by_id) != len(packet.bars):\n        raise ValueError(\"duplicate spinoff opening bar\")\n    parent = by_id.get(\"224580439420294771\")\n    child = by_id.get(\"37439132904117100\")\n    if (parent is None or child is None\n            or _digest(asdict(parent)) != repair.parent_bar_sha256\n            or _digest(asdict(child)) != repair.child_bar_sha256):\n        raise ValueError(\"spinoff source opening bar differs\")\n    if (parent.session != session or child.session != session\n            or parent.ticker != \"GE\" or child.ticker != \"GEV\"\n            or not child.tradeable or child.raw_open is None):\n        raise ValueError(\"spinoff source opening identity differs\")\n    if Decimal(str(parent.dividend_per_share)) != Decimal(repair.cash_proxy_per_parent):\n        raise ValueError(\"spinoff cash proxy differs\")\n    if Decimal(repair.add[0].cash_in_lieu_price) != Decimal(str(child.raw_open)):\n        raise ValueError(\"CIL research proxy must equal retained child raw open\")\n    changed = replace(parent, dividend_per_share=0.0)\n    bars = tuple(changed if bar.security_id == parent.security_id else bar for bar in packet.bars)\n    return replace(packet, bars=bars, spins=tuple(remaining)+(repair.add[0].terms(),))\n",
+      "source_sha256": "39b2fd76e400e9d54e165ce2670c1436006da086b81b3b0dc42997d98cdedacf"
+    },
+    "_digest": {
+      "ast_sha256": "64c60de603f484b1a68da7797be91ec81b995917cf7177f652c49bd3be6d3e13",
+      "origin": "repair",
+      "original_module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+      "source": "def _digest(value):\n    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                                    allow_nan=False).encode()).hexdigest()\n",
+      "source_sha256": "210f362beba7c1b56130626b907ecf2d4bfc47ce9e11c933d0874c82bd6770ef"
+    },
+    "_positive_fraction": {
+      "ast_sha256": "bf1f7b5adfb5e3b1ba42a2e789f6be95091ff3f62295f885e8d0c8dcfdcd23a3",
+      "origin": "spinoffs",
+      "original_module_sha256": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+      "source": "def _positive_fraction(value, label: str) -> Fraction:\n    try:\n        parsed = Fraction(str(value))\n    except (TypeError, ValueError, ZeroDivisionError) as exc:\n        raise SpinoffTermsRequired(f\"invalid {label}\") from exc\n    if parsed <= 0:\n        raise SpinoffTermsRequired(f\"invalid {label}\")\n    return parsed\n",
+      "source_sha256": "7afd8843983b2796a87f433dde38df70f10a22ad621afcf2e28c628c0fa53872"
+    },
+    "_session": {
+      "ast_sha256": "4095d75a5f875e615eb5735d10a6763e5778e85a2e10e287603026d0c89c5ee9",
+      "origin": "repair",
+      "original_module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+      "source": "def _session(value):\n    if date.fromisoformat(value).isoformat() != value or len(value) != 10:\n        raise ValueError(\"canonical ISO session required\")\n    return value\n",
+      "source_sha256": "bcb678b1e09394bbc7ed88614457766cbf243ff8d86f904b5275049f42dd3c65"
+    }
+  },
+  "no_financial_runtime_or_book_material": true,
+  "origins": {
+    "repair": {
+      "functions": [
+        "_session",
+        "_digest",
+        "_apply_spinoff_repair"
+      ],
+      "module_path": "research/pooled_vacancy_funding/repair.py",
+      "module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152"
+    },
+    "spinoffs": {
+      "functions": [
+        "_positive_fraction"
+      ],
+      "module_path": "sentinel/core/spinoffs.py",
+      "module_sha256": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2"
+    }
+  },
+  "purpose": "Synthetic packet/ratio tests only; no production engine, book or return data.",
+  "repair_container_sha256": "c75ab4890f26af2186117918588dcced4302ae7ca1143a2dac7f0cd721e000e0",
+  "schema": "research.frozen-pure-distribution-input-test-functions/1"
+}

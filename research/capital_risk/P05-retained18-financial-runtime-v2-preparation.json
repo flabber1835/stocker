@@ -1,0 +1,53 @@
+{
+  "actual20_origin_positive_unknown": true,
+  "actual_admitted20_retained_restart_positive_unknown": true,
+  "actual_hosted18_packet_positive_unknown": true,
+  "actual_hosted36_preflight_checks_required_before_economic_launch": true,
+  "base_qualification_sha256": "ebf8f627595d5df822afade6b2e46e2984229f91c0958ac5966976e2c35c93c0",
+  "base_runtime_byte_identical": true,
+  "files": {
+    "P05-retained18-FINANCIAL-v2-INTEGRATION.md": {
+      "bytes": 2243,
+      "sha256": "456e281a358f6f681055f48f29264a0d8bd9be6b563c48d450bef63f175723e4"
+    },
+    "remaining18-financial-runtime-v2-DESIGN.md": {
+      "bytes": 1919,
+      "sha256": "7e1d2f4507322c1c91b02afff86dda5687eb39b613667f2cfb086c9eca8841e5"
+    },
+    "system_campaign_p05_remaining_runtime_v2.py": {
+      "bytes": 8935,
+      "sha256": "31d8b6c1110cc2add682687eb0959d90cf3713d10e9421464bd855a04c04536d"
+    },
+    "test_remaining18_runtime_v2_conformance.py": {
+      "bytes": 8953,
+      "sha256": "30a626bed10a12f48acbd52220a1491e5bc44e4c9dacea521cd03d55e0662a79"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "origin_validation_failure_recloses_original_advance_guard": true,
+  "passed": true,
+  "post_event_DATA_positive_unknown": true,
+  "prepared": true,
+  "resource_bound_actual_preflight_packet_gate_before_backtest_main": true,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-financial-runtime-v2-preparation/1",
+  "separate_SOURCE_request_required": false,
+  "tests": {
+    "actual_FIN326_parent_used": true,
+    "actual_SOURCE331_strict_and_accounting_proofs_used": true,
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-runtime-v2-tests-001 test_remaining18_runtime_v2_conformance.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "packet_guard_inputs_are_explicit_noncanonical_metadata_DTOs": true,
+    "passed": 22,
+    "seconds": 38.71,
+    "synthetic_future_checkpoint_or_accounting_state_used": false
+  },
+  "unfinished": "Private prepared conformance only. Parent must integrate/review/validate/publish338. The actual hosted preflight36 result, real neutral20 and financial/post-event DATA, and actual admitted20 restart remain unknown until genuine hosted outputs close.",
+  "utc": "2026-11-06T16:32:33.575154+00:00",
+  "whole_original_economic36_packet_checks_repeated": true
+}

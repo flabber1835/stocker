@@ -1,0 +1,98 @@
+{
+  "approved_members": {
+    "qualification-failure/reference/zero-session-boundaries.json": {
+      "bytes": 26516617,
+      "sha256": "a2bd4e3e5d26261e263693309616ce50a6e1cf39dd7d1e7353acbd9b4477a9ac"
+    },
+    "qualification/unit-normalization-component.json.gz": {
+      "bytes": 14617713,
+      "sha256": "19b826649a66e26340b4368aa2976c57cc025db05d126928d7324aa9bcc673bd"
+    }
+  },
+  "final_review_sha256": "04c45e720268a16a279320075b649bedc9b3aa1e740261f7629ac931ee5790f9",
+  "financial_authority": false,
+  "financial_predecessor_admitted": false,
+  "metadata_review_sha256": "5d4121f98bd9fb79282539eb432a98f4237b56fdff47c5cc57cdfbe2562153bd",
+  "origin": {
+    "actual_worker_stop": {
+      "inspection": {
+        "bytes": 11925,
+        "id": "f3144232596620f0b9568ac9154b697d40c97353173690b0b6357e872a571c9d",
+        "member": "qualification/worker-inspect.json",
+        "sha256": "8a003e6f879023a6b1f502a91769d5d74036c06ce984f5eed285b65816563b89"
+      },
+      "metadata": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      }
+    },
+    "artifact_id": 13149998336,
+    "authenticated_manifest": {
+      "bytes": 40776,
+      "inventory_sha256": "ac88499696cbb7faa1749773a7aae56fb7c439736b58e41a364021a6e325e81f",
+      "members_count": 163,
+      "raw_members_bytes": 511200486,
+      "sha256": "ebc316c73d589474e30beb939501fbd626e3c2bab4b3ac5a5495bb68db729e99"
+    },
+    "capacity": {
+      "bytes": 698,
+      "name": "ephemeral-runner-capacity.json",
+      "sha256": "aa59f4ea1e8dda122ecd006532839d721ee547ba4eb6571d52ff433797bd9c40"
+    },
+    "driver_source_count": 497,
+    "head": "4e0940c4ef12036a04d54d28000b5e0368c63a88",
+    "marker": {
+      "bytes": 539,
+      "name": "p01-iac-unit-fixture-export-qualification.json",
+      "sha256": "dcb0b33b471432e1f454bee9ffe838496e0afee6c816599c46accdab12143de8"
+    },
+    "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+    "public_members": {
+      "ephemeral-runner-capacity.json": {
+        "bytes": 698,
+        "sha256": "aa59f4ea1e8dda122ecd006532839d721ee547ba4eb6571d52ff433797bd9c40"
+      },
+      "full-core-staging.json": {
+        "bytes": 964,
+        "sha256": "34c88fa99e8c0f510fe22a50e87aabe57c483fd57b56a962c9ebd4ca8a1e251e"
+      },
+      "p01-iac-unit-fixture-export-qualification.json": {
+        "bytes": 539,
+        "sha256": "dcb0b33b471432e1f454bee9ffe838496e0afee6c816599c46accdab12143de8"
+      },
+      "p01-iac-unit-fixture-phase.json": {
+        "bytes": 2554,
+        "sha256": "22fea42cf6c5dd3380053cde9fc2af84964377851a3bd6f2fe0dbdc7ba7307aa"
+      },
+      "p01-iac-unit-fixture.json": {
+        "bytes": 1260,
+        "sha256": "ccd467c55727c52864654f3803e0d2c51b2aced99d6f17c089b556ac95d3f4e0"
+      }
+    },
+    "qualification_cipher": {
+      "bytes": 238091358,
+      "compression": "TAR_GZIP_V1",
+      "manifest_sha256": "ebc316c73d589474e30beb939501fbd626e3c2bab4b3ac5a5495bb68db729e99",
+      "name": "p01-iac-unit-fixture-qualification.tar.crseal",
+      "sha256": "f6a10dd9cc86535ab81c37fb550564cf400e441e1b9f8cffa566d4857b9778b8"
+    },
+    "receipt": {
+      "bytes": 1260,
+      "name": "p01-iac-unit-fixture.json",
+      "sha256": "ccd467c55727c52864654f3803e0d2c51b2aced99d6f17c089b556ac95d3f4e0"
+    },
+    "request_file": "p01_iac_unit_fixture_request.json",
+    "request_sha256": "fd2ff79b00472f482e53df2b411cdeec5c999e27529be287bcfc6f9c914216a7",
+    "run_id": 41462104626,
+    "stage": "campaign-p01-iac-unit-fixture-qualification",
+    "zip": {
+      "bytes": 238098345,
+      "sha256": "48ef3308369c2e10896cad4c62de19b609b74d500163b42dbd26e3af51adde71"
+    }
+  },
+  "partial_review_sha256": "5e28e96830b23e1b511c8b537f22a08fe55bbd4eedaa6e508dae98a262ee5a82",
+  "root_reuse_admission_sha256": "4939701ac1df8cfacf7e3a6012b3c1e94d33ec12dbe5fb511951ca4c8e1f6827",
+  "schema": "research.p01-approved-reference-evidence-spec/1"
+}

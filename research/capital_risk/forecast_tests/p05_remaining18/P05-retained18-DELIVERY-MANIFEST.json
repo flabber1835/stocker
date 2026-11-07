@@ -1,0 +1,558 @@
+{
+  "actual_positive_results_unknown": true,
+  "assets": [
+    {
+      "bytes": 20476,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-CTX-source-only-fact-v1.json",
+      "name": "P05-CTX-source-only-fact-v1.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "6bd4c8d5dc3e9f07f66713c8f044497a4b2e4fe52a093457619e89fcc4990b4b",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-CTX-source-only-fact-v1.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 82508,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-CTX-source-payload-v1.json",
+      "name": "P05-CTX-source-payload-v1.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "e3b43db8d53d13d60e249131fe523d746a658ab3a995598216df96810ffdd38e",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-CTX-source-payload-v1.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 3864,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-CTX-source-qualification-v1.json",
+      "name": "P05-CTX-source-qualification-v1.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "4712fe21fdf966cd74f8ee37a328fcd3207e685659898aae1bfadae552f1eae9",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-CTX-source-qualification-v1.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 75023,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-CTX-source-review-v1.json",
+      "name": "P05-CTX-source-review-v1.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "a62adf3765cec7ea1d4db0b515dfdcdd000c27d9000a852baca36de6e92d8644",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-CTX-source-review-v1.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 22908,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained-DRE-LSI-MTTR-stock-DATA-review.json",
+      "name": "P05-retained-DRE-LSI-MTTR-stock-DATA-review.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "47471fba1720b3c3b5327ed3509d6756ceef15af4d6962fb6a28846718b54864",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained-DRE-LSI-MTTR-stock-DATA-review.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1196,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained-NEXT-cash-DATA-qualification.json",
+      "name": "P05-retained-NEXT-cash-DATA-qualification.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "1d3dcb91f924e5faebdb17a220d4a5c1a5e918cbe3d4009e7b9534536b83364c",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained-NEXT-cash-DATA-qualification.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1188,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained-stock-DATA-qualification.json",
+      "name": "P05-retained-stock-DATA-qualification.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "a80eccae343a4495c32e64753edd67eaaab93bd30915dadae507b367bbc1261b",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained-stock-DATA-qualification.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 84273,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained14-NEXT-cash-DATA-review.json",
+      "name": "P05-retained14-NEXT-cash-DATA-review.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "d055c9ed6e4727b0ee1f03b97d5e1a294eb2654d90420f7565e09823cad98888",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained14-NEXT-cash-DATA-review.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2261,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-data-API-qualification.json",
+      "name": "P05-retained18-data-API-qualification.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "058ab93b6ad968075424d5432be576e5027446f15be5036212e292db260d552e",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-data-API-qualification.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 3686,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-financial-lifecycle-preparation.json",
+      "name": "P05-retained18-financial-lifecycle-preparation.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "ebf8f627595d5df822afade6b2e46e2984229f91c0958ac5966976e2c35c93c0",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-financial-lifecycle-preparation.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2549,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-financial-runtime-v2-preparation.json",
+      "name": "P05-retained18-financial-runtime-v2-preparation.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "2f0993882df2cdeec70dfcffbde522e5e9c95455977a191559cafdff0542a8db",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-financial-runtime-v2-preparation.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1899,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-origin-inventory-DATA-preparation.json",
+      "name": "P05-retained18-origin-inventory-DATA-preparation.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "35b1a903790db3c95691e03a12df25e54b120704b50e28fdde8439ebe72b3625",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-origin-inventory-DATA-preparation.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1865,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-single-observer-DATA-preparation.json",
+      "name": "P05-retained18-single-observer-DATA-preparation.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "94c1912514845d377a5ac6e6fa0b3c12b6b27840ddd95b4df18bdadbced2ac57",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-single-observer-DATA-preparation.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2346,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-source-preparation-qualification.json",
+      "name": "P05-retained18-source-preparation-qualification.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "b703f44d56d4b83d093b30a43806724a6451b966665fa5f48814d2cfe5ac4d0e",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-source-preparation-qualification.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2047,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P05-retained18-source-preparation-v2-qualification.json",
+      "name": "P05-retained18-source-preparation-v2-qualification.json",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "e07ba5b60ef7caee51acb3f059b4e0d61a22233d5bfdadd3bcb435aa10553cb6",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-source-preparation-v2-qualification.json",
+      "status": "NEW"
+    },
+    {
+      "bytes": 2049,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_ctxs_api.py",
+      "name": "system_campaign_p05_ctxs_api.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "4cec753808470071ea46fb72fd68b92e670fc113dfb8ac3e1dc3917df1a97fd8",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_ctxs_api.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 7788,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_ctxs_data.py",
+      "name": "system_campaign_p05_ctxs_data.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "798811df52a491884ccaec805b639c35b5666f1930d38ccd1031c2be66442d13",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_ctxs_data.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 3463,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_batch_api.py",
+      "name": "system_campaign_p05_remaining_batch_api.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "52022d4960b575aac49f20acffacefeeaa50ba793c1c0d331ebdcd8a64eda22b",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_batch_api.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 7483,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_batch_data.py",
+      "name": "system_campaign_p05_remaining_batch_data.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "717452b71400945d0fbb8ebec8a862382cf0290e5061478694953419b34bf1ad",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_batch_data.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 8726,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_observer_data.py",
+      "name": "system_campaign_p05_remaining_observer_data.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "daef7fa958ab564269e3de87b40e78a538833fe725fe95b9cf729ba6875f74a4",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_observer_data.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 12845,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_origin_data.py",
+      "name": "system_campaign_p05_remaining_origin_data.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "2168229da2736b823a8c5bc85db972509161eefe09f2db9b31d40bc8339055cd",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_origin_data.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 17702,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_runtime.py",
+      "name": "system_campaign_p05_remaining_runtime.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "d2628d901977407e068922a05b493a20ad6815ff948ededb2c162794a58a3392",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_runtime.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 8935,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_runtime_v2.py",
+      "name": "system_campaign_p05_remaining_runtime_v2.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "31d8b6c1110cc2add682687eb0959d90cf3713d10e9421464bd855a04c04536d",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_runtime_v2.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 10529,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_source_preparation.py",
+      "name": "system_campaign_p05_remaining_source_preparation.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "260cc0d5a9a30deced07bf55b8cbfe8c0b8e4f57e0356f0e146a33126bdefe9e",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_source_preparation.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 4493,
+      "destination": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p05_remaining_source_preparation_v2.py",
+      "name": "system_campaign_p05_remaining_source_preparation_v2.py",
+      "role": "required_runtime_or_factual_or_qualification",
+      "sha256": "fd332e01907bd4cc96a2a9cff5dbdd595c1afad8a6d9d6518fcdd703bca9d1c4",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\system_campaign_p05_remaining_source_preparation_v2.py",
+      "status": "NEW"
+    },
+    {
+      "bytes": 1011,
+      "name": "audit_remaining18_lifecycle_sources.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "f3109ca751bfbc112ef436e05ef657b3bd3db222b5e88ea7534d1c447d64f2c0",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\audit_remaining18_lifecycle_sources.py"
+    },
+    {
+      "bytes": 2099,
+      "name": "close_CTXS_data_api.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "d9a0551b224ee363f5ed81fe2c9e14ea38c32947e728e4b54cbdb2b651092347",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_CTXS_data_api.py"
+    },
+    {
+      "bytes": 1963,
+      "name": "close_remaining18_batch_API.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "5dd7b32f76a89c3dd41ae25346042d6834bbd52bd1a6ce7c783d6bed2b70fdc1",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_batch_API.py"
+    },
+    {
+      "bytes": 3419,
+      "name": "close_remaining18_financial_lifecycle_preparation.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "2e7b6a9c7c4f5f69ac2417e26bbd74ce899f9d69b6429875a6e287e79665b6d0",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_financial_lifecycle_preparation.py"
+    },
+    {
+      "bytes": 2580,
+      "name": "close_remaining18_financial_runtime_v2.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "39eefbce1f8a1c639ffb98e19942292f77704d2fe8990edfe52e0ee0a9229019",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_financial_runtime_v2.py"
+    },
+    {
+      "bytes": 1934,
+      "name": "close_remaining18_observer_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "c3bcc6a55ee182a6417517fda9cd21bf1df7dfe37ad9f2a72da9c1161bfbf2e2",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_observer_DATA.py"
+    },
+    {
+      "bytes": 1972,
+      "name": "close_remaining18_origin_inventory_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "f78268b074b85fb44b4f74f9359076bfa97e80585465859c4424b19e441b7228",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_origin_inventory_DATA.py"
+    },
+    {
+      "bytes": 2342,
+      "name": "close_remaining18_source_preparation.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "96fd590b4ba1e836ce132784c8348f53c0e5f5772f94043138625c9dfb8b520c",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_source_preparation.py"
+    },
+    {
+      "bytes": 2095,
+      "name": "close_remaining18_source_preparation_v2.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "4b5ded683bbb3c20e36bb36bd75c9307665df859f3f6d48f0ac02ce32dba516a",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_remaining18_source_preparation_v2.py"
+    },
+    {
+      "bytes": 1685,
+      "name": "close_retained_stock_cash_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "ee98b2f6fa66d2333a79de5f6e705683f56a907ca771b53b9f432411c2f22e81",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\close_retained_stock_cash_DATA.py"
+    },
+    {
+      "bytes": 3310,
+      "name": "CTX-source-only-lifecycle-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "e0ae4eea0366b3839083ac32418ba23c49c862843bdbc6fe972dacf5cb0834ab",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\CTX-source-only-lifecycle-DESIGN.md"
+    },
+    {
+      "bytes": 1284,
+      "name": "inspect_remaining_catalog_matches_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "6241dca5048a6fd2fb45371dd6b314d7a69c42b2791decab36eed9bb946cdec6",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\inspect_remaining_catalog_matches_DATA.py"
+    },
+    {
+      "bytes": 2598,
+      "name": "P05-CTX-source-only-data-API-qualification.json",
+      "role": "supporting_review_test_or_design",
+      "sha256": "b5fc5aae077963c0ad1297876318db949e3dd01aa6f3bc3e5230e807c0351a37",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-CTX-source-only-data-API-qualification.json"
+    },
+    {
+      "bytes": 6208,
+      "name": "P05-retained18-FINANCIAL-INTEGRATION.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "f1ca3e805087d936957a51aba75d4cb4e766f25863d40d269a03d04994b7615a",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-FINANCIAL-INTEGRATION.md"
+    },
+    {
+      "bytes": 2243,
+      "name": "P05-retained18-FINANCIAL-v2-INTEGRATION.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "456e281a358f6f681055f48f29264a0d8bd9be6b563c48d450bef63f175723e4",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-FINANCIAL-v2-INTEGRATION.md"
+    },
+    {
+      "bytes": 3802,
+      "name": "P05-retained18-private-INTEGRATION.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "ff19da78debf39c258bf803f7b7219c1c924aed389df5d20a9fdbabb013961eb",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-private-INTEGRATION.md"
+    },
+    {
+      "bytes": 1306,
+      "name": "P05-retained18-SOURCE-v2-INTEGRATION.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "4bd8150dcd858da253aef52c74702c0872799f97165782ef53dfa0cb6e4b09df",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\P05-retained18-SOURCE-v2-INTEGRATION.md"
+    },
+    {
+      "bytes": 4656,
+      "name": "prepare_CTXS_fact_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "ad8819aecf69afaf32446125528f7363f03c41edfa445a11e6945de41beb7250",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\prepare_CTXS_fact_DATA.py"
+    },
+    {
+      "bytes": 2619,
+      "name": "remaining18-batch-API-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "2e5371238d2dbd5effc745a4865f790a4dacd436e7f3eea29799cb9279584faf",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-batch-API-DESIGN.md"
+    },
+    {
+      "bytes": 3753,
+      "name": "remaining18-financial-lifecycle-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "0259a74450c5593b069118e28626376f9dff9eae3a590c113c231a534d754523",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-financial-lifecycle-DESIGN.md"
+    },
+    {
+      "bytes": 1919,
+      "name": "remaining18-financial-runtime-v2-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "7e1d2f4507322c1c91b02afff86dda5687eb39b613667f2cfb086c9eca8841e5",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-financial-runtime-v2-DESIGN.md"
+    },
+    {
+      "bytes": 2544,
+      "name": "remaining18-observer-review-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "644946635ddc1f84d4b6de60342426d9241796d225ebdb3a2bee0d8eb5a3ff60",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-observer-review-DESIGN.md"
+    },
+    {
+      "bytes": 2616,
+      "name": "remaining18-origin-inventory-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "9a35b5087b91728070056dbaca69d1648e691d835c2833c60086b8b4058114b6",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-origin-inventory-DESIGN.md"
+    },
+    {
+      "bytes": 2981,
+      "name": "remaining18-source-preparation-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "22c231c6407d7a6005889466cd2ea248e6a4df7e96188cbcdfd5991a2095e01f",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-source-preparation-DESIGN.md"
+    },
+    {
+      "bytes": 1347,
+      "name": "remaining18-source-preparation-v2-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "51c30ca6ca40083d77e610151e33be26bf77d73744eeb11ea3db54e0181de70a",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\remaining18-source-preparation-v2-DESIGN.md"
+    },
+    {
+      "bytes": 2486,
+      "name": "retained-NEXT-cash-batch-DATA-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "ca3019c7c7a3c2d4bb80f69c05aa4019c1b640ca94a538c43cf3ac4f6eded8a2",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\retained-NEXT-cash-batch-DATA-DESIGN.md"
+    },
+    {
+      "bytes": 1725,
+      "name": "retained-stock-batch-DATA-DESIGN.md",
+      "role": "supporting_review_test_or_design",
+      "sha256": "cae73418269ed3b129995744ac813e718a8158f4162964e170a2645188f66885",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\retained-stock-batch-DATA-DESIGN.md"
+    },
+    {
+      "bytes": 5934,
+      "name": "review_retained_NEXT_cash_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "9e54950fb5b7103a2b9c588dcdd614709ed100a2ecb2aee80d11e82613247642",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\review_retained_NEXT_cash_DATA.py"
+    },
+    {
+      "bytes": 6779,
+      "name": "review_retained_stock_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "08e768fbd34e5bc4cbd288631d95d77126a208dc06714362746bf3926cc17a5f",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\review_retained_stock_DATA.py"
+    },
+    {
+      "bytes": 7115,
+      "name": "test_CTXS_data_api.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "be02219cd527e1aae6bffa35c927d4399c2ec41770a365bb89e647f7b74845f3",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_CTXS_data_api.py"
+    },
+    {
+      "bytes": 6086,
+      "name": "test_remaining18_batch_API.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "b5903088e4dcc3fd82be22e06b8cf00ab757b58bd36cfaaa57bf7aad6d6512fc",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_batch_API.py"
+    },
+    {
+      "bytes": 6066,
+      "name": "test_remaining18_observer_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "525e57aa3ff047437d0bfadc6c5394c780f232665d97a6d4f538538152fd120f",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_observer_DATA.py"
+    },
+    {
+      "bytes": 6653,
+      "name": "test_remaining18_origin_inventory_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "4d9f3dd9c63567bac8044f6653a03738bcabe25785d6afe00dfaee8fbc90086e",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_origin_inventory_DATA.py"
+    },
+    {
+      "bytes": 8876,
+      "name": "test_remaining18_runtime_conformance.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "57adafd123ea0c9668b6f98642f23c1ccde97cf36eed18622438660ea077ccb7",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_runtime_conformance.py"
+    },
+    {
+      "bytes": 8953,
+      "name": "test_remaining18_runtime_v2_conformance.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "30a626bed10a12f48acbd52220a1491e5bc44e4c9dacea521cd03d55e0662a79",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_runtime_v2_conformance.py"
+    },
+    {
+      "bytes": 8707,
+      "name": "test_remaining18_source_preparation.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "8755a7fdb5173f529f45fe28bed06dc4f8df3974ebc28a55a4a49b45ecfac460",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_source_preparation.py"
+    },
+    {
+      "bytes": 4596,
+      "name": "test_remaining18_source_preparation_v2.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "50bcd32a3ec68d9162a04016181e30e927473f71fe580e628b435a4412a34abb",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_remaining18_source_preparation_v2.py"
+    },
+    {
+      "bytes": 4040,
+      "name": "test_retained_NEXT_cash_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "acaa8ec29afa173187b5140269a2432579d05bfa08cbbeb0551d18ecd845919b",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_retained_NEXT_cash_DATA.py"
+    },
+    {
+      "bytes": 4661,
+      "name": "test_retained_stock_DATA.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "481914f13666ad8884dfe2447074423c66ac6b2dd5a5716156db0fe06c985199",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\test_retained_stock_DATA.py"
+    },
+    {
+      "bytes": 2609,
+      "name": "write_remaining18_delivery_manifest.py",
+      "role": "supporting_review_test_or_design",
+      "sha256": "6919aaa6326993acc7783c669dd452abad310cc7357a2aa85c5d2858544915ce",
+      "source": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106\\write_remaining18_delivery_manifest.py"
+    }
+  ],
+  "comparison_worktree": "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105",
+  "conflicting_existing_runtime_assets": [],
+  "financial_authority": false,
+  "new_runtime_assets": [
+    "P05-CTX-source-only-fact-v1.json",
+    "P05-CTX-source-payload-v1.json",
+    "P05-CTX-source-qualification-v1.json",
+    "P05-CTX-source-review-v1.json",
+    "P05-retained-DRE-LSI-MTTR-stock-DATA-review.json",
+    "P05-retained-NEXT-cash-DATA-qualification.json",
+    "P05-retained-stock-DATA-qualification.json",
+    "P05-retained14-NEXT-cash-DATA-review.json",
+    "P05-retained18-data-API-qualification.json",
+    "P05-retained18-financial-lifecycle-preparation.json",
+    "P05-retained18-financial-runtime-v2-preparation.json",
+    "P05-retained18-origin-inventory-DATA-preparation.json",
+    "P05-retained18-single-observer-DATA-preparation.json",
+    "P05-retained18-source-preparation-qualification.json",
+    "P05-retained18-source-preparation-v2-qualification.json",
+    "system_campaign_p05_ctxs_api.py",
+    "system_campaign_p05_ctxs_data.py",
+    "system_campaign_p05_remaining_batch_api.py",
+    "system_campaign_p05_remaining_batch_data.py",
+    "system_campaign_p05_remaining_observer_data.py",
+    "system_campaign_p05_remaining_origin_data.py",
+    "system_campaign_p05_remaining_runtime.py",
+    "system_campaign_p05_remaining_runtime_v2.py",
+    "system_campaign_p05_remaining_source_preparation.py",
+    "system_campaign_p05_remaining_source_preparation_v2.py"
+  ],
+  "private_root": "C:\\GitHub\\stocker\\.codex-tmp\\p05-ctxs-own1175-20261106",
+  "runtime_v2_qualification": {
+    "name": "P05-retained18-financial-runtime-v2-preparation.json",
+    "sha256": "2f0993882df2cdeec70dfcffbde522e5e9c95455977a191559cafdff0542a8db"
+  },
+  "schema": "research.P05-retained18-static-private-delivery-manifest/1",
+  "unchanged_existing_runtime_dependencies": [
+    {
+      "bytes": 15349,
+      "name": "system-campaign-stock-calendar-terminal-facts.json",
+      "sha256": "47db40bdca2a776b1860540149c135a09b4c54ecdd7828f5fef9443c9483f137"
+    },
+    {
+      "bytes": 13146,
+      "name": "system_campaign_stock_calendar.py",
+      "sha256": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d"
+    }
+  ]
+}

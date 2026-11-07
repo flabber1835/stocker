@@ -1,0 +1,75 @@
+{
+  "actual_neutral13_known": false,
+  "actual_parent_full_inputs": 12,
+  "all_original_additional_source_selections_unchanged": true,
+  "complete_original_function_code_objects": [
+    "hydrate",
+    "document",
+    "qualify",
+    "prepare",
+    "review_input",
+    "source_scopes",
+    "hydration_name"
+  ],
+  "complete_parent_resource_trace": {
+    "hosted_copy_canary_passed": false,
+    "logical_bytes": 202909585,
+    "requirements": 104,
+    "resources": 103,
+    "sha256": "8be3881db9ef666a7ad52c16618d533b28d3e6baaaeb53aeab0a3d1442eaa77d"
+  },
+  "entire_original_typed_dispatch_AST_undo": true,
+  "files": {
+    "P06-TBIO-source-exit-input-catalog.json": {
+      "bytes": 19467,
+      "sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c"
+    },
+    "forecast_tests/test_source_exit_api.py": {
+      "bytes": 4529,
+      "sha256": "9d1c3fd42fe8e295e866b5e7dd75fba9f392db25f47774945afab8473566b458"
+    },
+    "forecast_tests/test_source_exit_history.py": {
+      "bytes": 4714,
+      "sha256": "ea38d328ab62f0ee632b3eb8407e012ceb45a3912d9d346b50d468841ff9618a"
+    },
+    "system_campaign_financial_future.py": {
+      "bytes": 371399,
+      "sha256": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 3929,
+      "sha256": "b514eaf9ca1af4fd31b47eab0fc51dd36b9880b614c722160539f7c20cae6da5"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 6661,
+      "sha256": "bb8e97cd0f3d5d376ab52362a0bba5a1423240118ba5943f175c25c08d41c2d6"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "full_original_parent_history_traversed": true,
+  "historical_parent_root_lookup_pinned_independently_of_latest_root": true,
+  "hosted_packet_execution_qualified": false,
+  "local_canonical_runtime_executed": false,
+  "new_scope_filename_preserves_old_scope_file": true,
+  "passed": true,
+  "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+  "schema": "research.source-exit-API-history-DATA-qualification/1",
+  "tests": {
+    "financial_import_fences": 5,
+    "local_hydration_refused": true,
+    "meaningful_guard_removal_falsifiers": 1,
+    "passed": 26,
+    "seconds": 27.92
+  },
+  "utc": "2026-11-07T18:15:23.690832+00:00"
+}

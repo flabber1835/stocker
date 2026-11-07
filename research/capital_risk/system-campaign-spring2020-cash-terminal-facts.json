@@ -1,0 +1,106 @@
+{
+  "schema": "research.system-campaign-spring2020-cash-facts/1",
+  "terms": [
+    {
+      "ticker": "CY",
+      "security_id": "66103160004367746",
+      "native_session": "2020-04-16",
+      "native_term_sha256": "4745eb950f7793984bd07b0bec1d77f7d7281e0e7b1406ff1927f66aade35afb",
+      "added": {
+        "session": "2020-04-16",
+        "security_id": "66103160004367746",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm | Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 23.85,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-04-15",
+        "security_id": "66103160004367746",
+        "ticker": "CY",
+        "issuer_id": "SEC_CIK:791915",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "caf80e486185008de50f8fd6fad2e496128c2460169fe0d22dd25e1cb3d11ee0"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-64",
+      "description": "Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+      "last_trading_session": "2020-04-15"
+    },
+    {
+      "ticker": "MLNX",
+      "security_id": "597162481941536532",
+      "native_session": "2020-04-24",
+      "native_term_sha256": "cacb190ef70a64f296e675e382cbd7d5ea3a4ffe54b908992827b7ab7ff324ea",
+      "added": {
+        "session": "2020-04-27",
+        "security_id": "597162481941536532",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm | Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 125.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-04-23",
+        "security_id": "597162481941536532",
+        "ticker": "MLNX",
+        "issuer_id": "SEC_CIK:1356104",
+        "listing_first_session": "2007-02-08",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "d3754962234cfce8e2f4fc5a79a2a8cc0f7b94845ff52ea50a93d0d9f284dbc6"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm",
+      "timing_source": "https://www.miaxglobal.com/sites/default/files/alert-files/MLNX_Merger_46898.pdf",
+      "description": "Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+      "last_trading_session": "2020-04-24"
+    },
+    {
+      "ticker": "WBC",
+      "security_id": "384188467071429790",
+      "native_session": "2020-05-28",
+      "native_term_sha256": "f7141a474101c3787b9ebf4ff76bc4f1aa3f43337e43f501743805f0d0d9eeda",
+      "added": {
+        "session": "2020-05-29",
+        "security_id": "384188467071429790",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm | Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 136.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-05-27",
+        "security_id": "384188467071429790",
+        "ticker": "WBC",
+        "issuer_id": "SEC_CIK:1390844",
+        "listing_first_session": "2007-08-01",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "ec6c48d4b06fcd0ddc0b885538011d580b6ea930c85b065a2e54524a54f8d22d"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=47060",
+      "description": "Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+      "last_trading_session": "2020-05-28"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "provider_metadata_upgraded": false,
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "cash_model": "INHERITED_PRETAX_GROSS_COMMON_SHARE_CASH_NO_INDIVIDUAL_WITHHOLDING_OR_OPTION_SETTLEMENT_MODEL"
+}

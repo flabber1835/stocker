@@ -1,0 +1,20 @@
+{
+  "schema": "research.financial-branch-uncertainty-contract/1",
+  "factual_scope": "Same ALDR October22,2019 gross18USD cash plus one nontransferable conditional right capped at2USD; no chosen CVR price or probability.",
+  "input_schema": "research.leadership-branch-uncertainty-input/1",
+  "treatment": "ALL_REACHABLE_CANONICAL_DECISIONS_MUST_BE_IDENTICAL",
+  "prior_strict_contract_unchanged": true,
+  "prior_strict_comparison_refusal_preserved": true,
+  "require_unowned_and_unordered": true,
+  "sensor_only": true,
+  "complete_binary64_domain_partitions_required": true,
+  "every_possible_controller_state_retained": true,
+  "entire_canonical_decision_including_reason_identical": true,
+  "all_other_state_fields_unchanged": true,
+  "actual_representative_belongs_to_complete_state_set": true,
+  "bounded_exploration_refuses_instead_of_truncates": true,
+  "canonical_financial_source_changed": false,
+  "alternative_probe_state_adopted": false,
+  "owned_right_valuation_authorized": false,
+  "production_contacted": false
+}

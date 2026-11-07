@@ -1,0 +1,40 @@
+{
+  "actual_broker_settlement_asserted": false,
+  "cash_per_eligible_common_share": "55.00",
+  "common_stock_or_contingent_right_components": [],
+  "completion_date": "2022-07-01",
+  "currency": "USD",
+  "eligible_common_consideration_components": [
+    {
+      "amount_per_share": "55.00",
+      "currency": "USD",
+      "kind": "CASH"
+    }
+  ],
+  "excluded_common_categories": [
+    "treasury shares",
+    "GSK or acquisition-subsidiary holdings",
+    "valid appraisal claimants"
+  ],
+  "existing_checkpoint_rewrite_proposed": false,
+  "financial_authority": false,
+  "financial_input_selected": false,
+  "historical_causality": "UNVERIFIED",
+  "issuer_confirmation": "https://www.gsk.com/en-gb/media/press-releases/gsk-completes-acquisition-of-sierra-oncology/",
+  "last_trading_session": "2022-06-30",
+  "native_incomplete_session": "2022-06-30",
+  "original_unheld_only_records_unchanged": true,
+  "past_native_suppression_proposed": false,
+  "preopen_completion_confirmed": true,
+  "primary_sections": [
+    "Item2.01: mandatory eligible-common55USD cash onJuly1",
+    "Item3.01: suspension beforeJuly1opening"
+  ],
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/1290149/000119312522187182/d361322d8k.htm",
+  "recognition_session_proposed": "2022-07-01",
+  "schema": "research.separate-primary-pending-common-cash-preparation/1",
+  "security_id": "324793693976033682",
+  "ticker": "SRRA",
+  "timing_confirmation": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-160",
+  "utc": "2026-11-06T01:24:45.641239+00:00"
+}

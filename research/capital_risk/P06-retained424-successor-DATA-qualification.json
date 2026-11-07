@@ -1,0 +1,40 @@
+{
+  "actual_neutral13_known": false,
+  "actual_parent_full_inputs": 12,
+  "committed_rows": 424,
+  "entire_original_seed_exercised_on_actual_readonly_parent": true,
+  "excluded_tail_rows": 18,
+  "files": {
+    "forecast_tests/test_retained_seed_successor.py": {
+      "bytes": 5865,
+      "sha256": "0af0ac4de40847b793fe345e8dc671346bf620854ad4125d29a5868bfa6e9183"
+    },
+    "system-campaign-retained-seed-successors.json": {
+      "bytes": 5843,
+      "sha256": "080d960c9bd576963706f9bf7c47b744ded279e419b7843d863f53c24cba259e"
+    },
+    "system_campaign_retained_seed_successor.py": {
+      "bytes": 9648,
+      "sha256": "0c973ba9ed9c9d1151f6906cd83b47e48445e7183f36e7f93c4b07cd533e4ded"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "historical_ABMD_input_epoch": 10,
+  "hosted_factory_execution_qualified": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "raw_rows": 442,
+  "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+  "schema": "research.retained424-successor-DATA-qualification/1",
+  "tests": {
+    "financial_import_fences": 5,
+    "local_side_effect_entrypoints_refused": 3,
+    "meaningful_guard_removal_falsifiers": 1,
+    "passed": 22,
+    "seconds": 31.12,
+    "whole_original_seed_AST_import_binding_undo": true
+  },
+  "utc": "2026-11-07T17:57:51.678383+00:00"
+}

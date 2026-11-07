@@ -1,0 +1,72 @@
+{
+  "bundle_schedule_sha256": "95ddb3e98d56b910529ed2bf8d1640f6cb89ce0b493dba2ae56f8328e6f1059e",
+  "native": [
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=4456.8",
+      "security_id": "1079367959124332531",
+      "session": "2024-05-17"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=12567.7",
+      "security_id": "158012003593585084",
+      "session": "2024-05-30"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=2212.9",
+      "security_id": "710952026927009495",
+      "session": "2024-06-10"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=1456.6",
+      "security_id": "741035362761868119",
+      "session": "2024-07-01"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=2670.5",
+      "security_id": "183768544366008802",
+      "session": "2024-10-01"
+    }
+  ],
+  "no_financial_state_or_engine": true,
+  "schema": "research.original-five-native-terminal-preimages-test-data/1"
+}

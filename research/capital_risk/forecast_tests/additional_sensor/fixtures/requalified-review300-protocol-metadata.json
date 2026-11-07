@@ -1,0 +1,82 @@
+{
+  "branch": {
+    "additional_model_descriptor": {
+      "filename": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38.json",
+      "predecessor_checkpoint_sha256": "79279eb9cbee5fb5ae93e781b22fe5c0f426ac310f695edf88c7eca6fd9269b7",
+      "resume_session": "2022-02-28",
+      "sha256": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38"
+    },
+    "all_financial_watch_and_proof_identities_verified": true,
+    "all_original_and_added_uncertainty_retained": true,
+    "checkpoint_sha256": "6e3e15d25a055f5025e51b08712b56cadf8e396eb5866918d43ec4fe08fb4917",
+    "event_resolution": [
+      {
+        "file_sha256": "384946c7585a4f9f8a02d0ef7910a5c972a03e0de856564ba5dbfe82c5ef8b75",
+        "outer_sha256": "aa670d3402c9e9f32a2d92443e3fb858a765ff66104c94fc6fc5402503ecb47f",
+        "path": "book/pre-event/2022-03-07-aa670d3402c9e9f32a2d92443e3fb858a765ff66104c94fc6fc5402503ecb47f.json.gz"
+      }
+    ],
+    "every_reachable_decision_identical": true,
+    "exhaustive_leaves": 149,
+    "full_input_descriptors": 22,
+    "full_period_complete": false,
+    "maximum_possible_states": 1,
+    "original593_prefix_sha256": "f05bf4dcb4e5b8f78089b27d661fa58dab095740b2d014ccd90ed3d21d222263",
+    "original_model_origin": {
+      "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+      "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+      "resume_session": "2019-09-30",
+      "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+    },
+    "parent_sha256": "d4845ce85600d202fe99e3a67bc7241c14c93279edd51992fea0db0b5a19b058",
+    "passed": true,
+    "prior_proof_rows_reexecuted": 0,
+    "retained_rows": 593,
+    "rows": 149,
+    "schema": "research.retained-additional-sensor-branch-review/1",
+    "through": "2022-09-30"
+  },
+  "core": {
+    "accounting_snapshots": 2644,
+    "all_daily_factors_and_chains_verified": true,
+    "all_prefixes_verified": true,
+    "canonical_checkpoints": 16,
+    "checkpoint_sha256": "6e3e15d25a055f5025e51b08712b56cadf8e396eb5866918d43ec4fe08fb4917",
+    "complete": false,
+    "counts": {
+      "daily": 1196,
+      "formation": 126
+    },
+    "monthly_metrics": null,
+    "preserved_tails": {
+      "daily": {
+        "bytes": 96164,
+        "sha256": "a597dad386153323aa1b01cd3e0c7e8afc16a0892ccbcf3137964aa76a6a0ebc"
+      },
+      "formation": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "monthly": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "watch": {
+        "bytes": 1162,
+        "sha256": "fbe06107184124a92777b238eed27a68a34310b07bc74460e2adf8f8ff6efb80"
+      }
+    },
+    "production_contacted": false,
+    "schema": "research.full-system-core-review/1",
+    "status": "PARTIAL_CORE_PREFIX_REVIEWED"
+  },
+  "proof": {
+    "branch_review_sha256": "8513db43ab9329fd5272bf01dd42939dc58dd127106f65d82462e39f8584fea7",
+    "checkpoint_sha256": "6e3e15d25a055f5025e51b08712b56cadf8e396eb5866918d43ec4fe08fb4917",
+    "core_review_sha256": "93cb1130f8ae3016ffc1f8d3698b612e8cec20eaa1ef64527ec5057ea9451300",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "original_financial_artifact_id": 13433939196,
+    "passed": true
+  }
+}

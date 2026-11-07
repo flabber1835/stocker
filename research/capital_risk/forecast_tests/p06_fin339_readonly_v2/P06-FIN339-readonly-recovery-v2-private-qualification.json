@@ -1,0 +1,72 @@
+{
+  "REVIEW342_preworker_failure_preserved": true,
+  "active_launch_context_binds_original_code_not_dispatch_hook": true,
+  "engine_import_fences": 5,
+  "exact_active_context_preworker_refusal_reproduced": true,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 1902,
+      "sha256": "c47faa79d38f75eb3ba5a00fbb0ecd4990dab68d69e8c8407b205a61a213b143"
+    },
+    "INTEGRATION.md": {
+      "bytes": 2138,
+      "sha256": "ec02570af62f25f116a623094c90af4cb29996366404505db7c811e07437092f"
+    },
+    "P06-FIN339-captured-financial-request.json": {
+      "bytes": 76744,
+      "sha256": "6672860c06e73047952b7b08bed1c69d81ec37ff894edddc7b09d90fe70cf101"
+    },
+    "P06-FIN339-failed-review-target.json": {
+      "bytes": 36604,
+      "sha256": "6124a681f560b9012cd060daaa43b1bca28c0638b3cd670a648a648a898888bf"
+    },
+    "P06-FIN339-readonly-recovery-fact.json": {
+      "bytes": 40285,
+      "sha256": "675f05967aaadd64604ddf5a11a565c8ff5769972ff19d804b45cfb2ba73c5a3"
+    },
+    "system_campaign_p06_BBIG_accounting_review.py": {
+      "bytes": 4535,
+      "sha256": "486abcb5fc9b3dcd7ad00c365ab64a48e3e9ad9cd5c182a5a86bdc7919477043"
+    },
+    "system_campaign_p06_fin339_readonly_recovery_v2.py": {
+      "bytes": 15838,
+      "sha256": "c78cb41ab09c62fcfd5231e31906c291221ff0bbe91101ebcfb160eaf03d52d2"
+    },
+    "test_recovery_v2_DATA.py": {
+      "bytes": 19228,
+      "sha256": "4ba69b7f14689dbc2849c4397af09eb499a85efdffacbdca591d940e79d08c74"
+    }
+  },
+  "financial_checkpoint_restored_or_staged": false,
+  "financial_engine_imported": false,
+  "financial_resume_authorized": false,
+  "financial_root_admitted": false,
+  "financial_sessions_reexecuted": 0,
+  "financial_workers": 0,
+  "frozen_v1_preserved": true,
+  "hosted_fresh_readonly_review_pending": true,
+  "immutable_original_function_map_captured_before_hooks": true,
+  "meaningful_falsifiers": 3,
+  "original4_financial_and_partial_input_monthly_AST_unchanged": true,
+  "original_50_checks_passed": true,
+  "original_FIN339_failed_receipt_relabelled": false,
+  "original_FIN339_failed_stops": [
+    0,
+    1,
+    1
+  ],
+  "original_accounting_and_facts_target_bytes_unchanged": true,
+  "original_quarantine_function_code_objects_preserved": true,
+  "passed": true,
+  "prior_qualification_sha256": "0bfcf95da6cb9c95a0d71e915cc1da5e26104aefe731775eb4e2784bb0bc6614",
+  "quarantine_or_admit_body_executed_locally": false,
+  "readonly_workers": 1,
+  "restoring_old_mutable_lookup_reproduces_exact_refusal": true,
+  "schema": "research.P06-FIN339-readonly-recovery-v2-private-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest test_recovery_v2_DATA.py -q -p no:cacheprovider",
+    "passed": 53,
+    "seconds": 17.78
+  },
+  "whole_v1_v2_source_AST_undo": true
+}

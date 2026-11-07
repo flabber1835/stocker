@@ -1,0 +1,771 @@
+{
+  "arm": "P07",
+  "event": {
+    "cash_settlement_authorized": false,
+    "currency": "USD",
+    "effective_session": "2022-12-22",
+    "historical_causality": "UNVERIFIED",
+    "native_session": "2022-12-21",
+    "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
+    "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+    "price_or_probability_selected": false,
+    "prior_session": "2022-12-21",
+    "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+    "right_lower_per_share": "0",
+    "right_upper_per_share": "35.00",
+    "security_id": "1050970006012443443",
+    "ticker": "ABMD",
+    "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+    "upfront_cash_per_share": "380.00"
+  },
+  "financial_authority": false,
+  "identity_witness": {
+    "issuer_id": "SEC_CIK:815094",
+    "listing_first_session": "1997-12-31",
+    "security_id": "1050970006012443443",
+    "security_type_eligible": "1",
+    "session": "2022-12-20",
+    "source_observation_sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540",
+    "ticker": "ABMD"
+  },
+  "input_adopted": false,
+  "input_semantics_sources": {
+    "system_campaign_abmd_bounded_catalog.py": "663a2ccd12bfd9bb27008f57407f2a83acf5133324688259b2f38767797e89b1",
+    "system_campaign_abmd_bounded_hydration.py": "1091ea25621f9b9ebb5b7f113ecb6adbd8e6e8e876b29a7492e93776fe7d64f7",
+    "system_campaign_bounded_sensor_binding.py": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d",
+    "system_campaign_bounded_sensor_input.py": "f0d20a5ad48ea5672d868a016118b136a6a68fc5b2225088b9ef2a4e93a94857",
+    "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_p07_abmd_certificate.py": "4f3db7f1cefffbad4c6eb48c0efe82678282c96c2a7b97c039db2307b9d86baa",
+    "system_campaign_p07_abmd_models.py": "1364500287d8962e836368db3269d6c1dddea0512421087df1ab796a49d091bf",
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213"
+  },
+  "local_canonical_runtime_executed": false,
+  "market_source": {
+    "actual_sid_rows": 245,
+    "annual_member_sha256": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc",
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "event_contract_sha256": "59858c2c5fda36a39e0234f9a9fe6d608aac9d46c8d2269828763774aedec285",
+    "financial_authority": false,
+    "full_annual_rows_scanned": 2080223,
+    "last_actual_source_session": "2022-12-21",
+    "portfolio_cash_settlement_authorized": false,
+    "raw_event_row": null,
+    "raw_identity_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:815094",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "raw_close": "380.79000000000002",
+      "raw_compatible_volume": "2400964",
+      "raw_open": "381.20999999999998",
+      "reported_volume": "2400964",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "1050970006012443443",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2022-12-20",
+      "sic": "3841",
+      "signal_close": "380.79000000000002",
+      "split_ratio": "1",
+      "ticker": "ABMD",
+      "tradeable": "1"
+    },
+    "raw_prior_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:815094",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "raw_close": "381.01999999999998",
+      "raw_compatible_volume": "20571701",
+      "raw_open": "380.77999999999997",
+      "reported_volume": "20571701",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "1050970006012443443",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2022-12-21",
+      "sic": "3841",
+      "signal_close": "381.01999999999998",
+      "split_ratio": "1",
+      "ticker": "ABMD",
+      "tradeable": "1"
+    },
+    "raw_quote_preparation_sha256": "cd9153160449aa28b5f11634fa91a5a7baa19d59f590086a43d69397e81d2a91",
+    "right_price_selected": false,
+    "schema": "research.abmd-absent-completion-quote-source/1",
+    "security_id": "1050970006012443443",
+    "session": "2022-12-22",
+    "source_observation_sha256": null,
+    "source_quote_present": false,
+    "split_ratio": "1",
+    "split_rule": "CANONICAL_NO_EVENT_BAR_UNIT_SPLIT"
+  },
+  "market_source_sha256": "0b700c747dc276b06f1cea9018049e78de4f31e9c494405a89901487b747339b",
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=17180.6",
+    "security_id": "1050970006012443443",
+    "session": "2022-12-21"
+  },
+  "parent_completed": 1238,
+  "parent_cursor": "2022-11-30",
+  "parent_descriptors": [
+    {
+      "filename": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f.json",
+      "predecessor_checkpoint_sha256": "a29daf20ca984e35f402a194b19e8a330007984e4f9d44a8832cf1286845258f",
+      "resume_session": "2017-06-30",
+      "sha256": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f"
+    },
+    {
+      "filename": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467.json",
+      "predecessor_checkpoint_sha256": "4eb1fe08e2e3f94b8a3589ca2f790261ef680d99cf80782eacbf17101231c186",
+      "resume_session": "2018-01-31",
+      "sha256": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467"
+    },
+    {
+      "filename": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a.json",
+      "predecessor_checkpoint_sha256": "a1a925ac21f467be8a2c446fc80cd502f382e6227c9b6f79ff07130f84eb3ff1",
+      "resume_session": "2018-03-29",
+      "sha256": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a"
+    },
+    {
+      "filename": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d.json",
+      "predecessor_checkpoint_sha256": "8094481314c62f325a3f6b7370c447f20f05e0474e3976d766e5d67995968bd0",
+      "resume_session": "2018-04-30",
+      "sha256": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d"
+    },
+    {
+      "filename": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507.json",
+      "predecessor_checkpoint_sha256": "5e5839e623220b43c1ca6b857dc5d9b840855c24fdee9d9966b17b6e08ce0122",
+      "resume_session": "2018-06-29",
+      "sha256": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507"
+    },
+    {
+      "filename": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474.json",
+      "predecessor_checkpoint_sha256": "d0c05c9d81e3f563e0e482daca523369bd4a84ecb2e6a5f8d87e9043ca0840d5",
+      "resume_session": "2018-10-31",
+      "sha256": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474"
+    },
+    {
+      "filename": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e.json",
+      "predecessor_checkpoint_sha256": "98b5e126a2597927f2f874c279a0bb5df38d703e843c75747c8b94b472a047f9",
+      "resume_session": "2018-11-30",
+      "sha256": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e"
+    },
+    {
+      "filename": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2.json",
+      "predecessor_checkpoint_sha256": "08be90956c853198deb8388e5f12349ecc71372d6f5d9bb2f22e2556383619ad",
+      "resume_session": "2018-12-31",
+      "sha256": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2"
+    },
+    {
+      "filename": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266.json",
+      "predecessor_checkpoint_sha256": "19908f470468144ba9c96ca6f22a4dab5cdd3e5faad55d031fa9387cf3f43b54",
+      "resume_session": "2019-03-29",
+      "sha256": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266"
+    },
+    {
+      "filename": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3.json",
+      "predecessor_checkpoint_sha256": "293a1b16b669f4b23e2e27c1631e7fe1e9c07be42f8b76dcc998d48b8b77dd5f",
+      "resume_session": "2019-06-28",
+      "sha256": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3"
+    },
+    {
+      "filename": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0.json",
+      "predecessor_checkpoint_sha256": "90ee3f3bfc2a577d9ad5e4720bbc52f4a3549bc10e9b959917f242319a5c9461",
+      "resume_session": "2019-09-30",
+      "sha256": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0"
+    },
+    {
+      "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+      "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+      "resume_session": "2019-09-30",
+      "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+    },
+    {
+      "filename": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52.json",
+      "predecessor_checkpoint_sha256": "7aefaf2f14244798f84c435c1fda433436635063118929ea86def0c52aa13847",
+      "resume_session": "2019-12-31",
+      "sha256": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52"
+    },
+    {
+      "filename": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563.json",
+      "predecessor_checkpoint_sha256": "522a3a34ca26f8421650552a0d2095f3ab00470f95e72b1298149c114bf81ba5",
+      "resume_session": "2020-02-28",
+      "sha256": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563"
+    },
+    {
+      "filename": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0.json",
+      "predecessor_checkpoint_sha256": "0ff53c327e423b1dd3fc1d82f29ccf0c64e2e5b0dac531903f7dc21ce2bc548f",
+      "resume_session": "2020-03-31",
+      "sha256": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0"
+    },
+    {
+      "filename": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97.json",
+      "predecessor_checkpoint_sha256": "f719f39376e987bddd3a2a7db55ef71d1c8959b68f6afad1659649fb1ef8ca74",
+      "resume_session": "2020-06-30",
+      "sha256": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97"
+    },
+    {
+      "filename": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777.json",
+      "predecessor_checkpoint_sha256": "52687f6b0962cbbbb6c8a5e74bb6ebec7180c63582cef6a394f3cd5a2ed756eb",
+      "resume_session": "2021-01-29",
+      "sha256": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777"
+    },
+    {
+      "filename": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52.json",
+      "predecessor_checkpoint_sha256": "ad7dfe3c328fb91d1fd043d6f902dbbb842e93c3a127b6a6a8fd21e49769a400",
+      "resume_session": "2021-03-31",
+      "sha256": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52"
+    },
+    {
+      "filename": "ffa0c08af0629f44aebf8ec97f4f50fc811afcf8dee8aef48106118f2ee012c3.json",
+      "predecessor_checkpoint_sha256": "2874cdc3db6fc9bf951b2ac324a030ed0578a0a6c8c018d863ec271ee19cfd6c",
+      "resume_session": "2021-04-30",
+      "sha256": "ffa0c08af0629f44aebf8ec97f4f50fc811afcf8dee8aef48106118f2ee012c3"
+    },
+    {
+      "filename": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc.json",
+      "predecessor_checkpoint_sha256": "172057e58743c80f101e6eb7e1feabbadf564ffd84af00ca3c10450bf49f4932",
+      "resume_session": "2021-11-30",
+      "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+    },
+    {
+      "filename": "e4bbe8db6bb9e7def9f883a386affbe8d77ccb88ee7620688d9dd92eac603e16.json",
+      "predecessor_checkpoint_sha256": "3029058df5eddd2cd88ae61a6eeb01538381b7a8daeee67391df241ec0b703de",
+      "resume_session": "2022-02-28",
+      "sha256": "e4bbe8db6bb9e7def9f883a386affbe8d77ccb88ee7620688d9dd92eac603e16"
+    },
+    {
+      "filename": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38.json",
+      "predecessor_checkpoint_sha256": "79279eb9cbee5fb5ae93e781b22fe5c0f426ac310f695edf88c7eca6fd9269b7",
+      "resume_session": "2022-02-28",
+      "sha256": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38"
+    },
+    {
+      "filename": "21b692ce3c2f77a90fc144f1a32b771895ef03b9a01a5c5377513fec77e304ad.json",
+      "predecessor_checkpoint_sha256": "1442a73cc49c1fd45ac2f3e9708207bb1be2f9c55616487da4e789dde8a2d49d",
+      "resume_session": "2022-09-30",
+      "sha256": "21b692ce3c2f77a90fc144f1a32b771895ef03b9a01a5c5377513fec77e304ad"
+    }
+  ],
+  "parent_inner_sha256": "1735d980caaeeaf7773888504feb8ddf9f0e65a447106ac9bfee94c858359233",
+  "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+  "parent_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+  "primary_facts": {
+    "currency": "USD",
+    "event_date": "2022-12-22",
+    "financial_input_selected": false,
+    "historical_causality": "UNVERIFIED",
+    "last_trading_session": "2022-12-21",
+    "portfolio_completion_authorized": false,
+    "preopen_completion_confirmed": true,
+    "probability_selected": false,
+    "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+    "right_lower_per_share": "0",
+    "right_transferable": false,
+    "right_upper_per_share": "35.00",
+    "rights_per_share": "1",
+    "schema": "research.bounded-contingent-primary-facts-preparation/1",
+    "settlement_authorized": false,
+    "sources": [
+      "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-460",
+      "https://www.sec.gov/Archives/edgar/data/815094/000119312522310626/d434768dex99a5h.htm",
+      "https://www.sec.gov/Archives/edgar/data/815094/000119312522285216/d411777dex99a1a.htm"
+    ],
+    "ticker": "ABMD",
+    "upfront_cash_per_share": "380.00"
+  },
+  "primary_facts_sha256": "dbbd6ef79557720f8e2f60ce4336bc684dab88303451a8bd78c97127b1289e81",
+  "raw_quote_preparation": {
+    "actual_completion_quote_present": false,
+    "actual_native_quote_present": true,
+    "actual_sid_rows": 245,
+    "annual_member": "observations-2022.csv.gz",
+    "annual_member_sha256": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc",
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "expected_native_session": "2022-12-21",
+    "financial_authority": false,
+    "financial_input_selected": false,
+    "full_annual_rows_scanned": 2080223,
+    "last_actual_source_session": "2022-12-21",
+    "legal_completion_session": "2022-12-22",
+    "local_canonical_runtime_executed": false,
+    "primary_facts_sha256": "dbbd6ef79557720f8e2f60ce4336bc684dab88303451a8bd78c97127b1289e81",
+    "row_commitments": [
+      {
+        "session": "2022-12-16",
+        "sha256": "29acfd4b4e9dd589b5dccb3e26fb026cf6aa184619d766bbee8c6851d66a53be"
+      },
+      {
+        "session": "2022-12-19",
+        "sha256": "371e6a83cbeb81b6c1b35443949268c8d877c03aec55855f1fe7f62d859ce298"
+      },
+      {
+        "session": "2022-12-20",
+        "sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540"
+      },
+      {
+        "session": "2022-12-21",
+        "sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d"
+      }
+    ],
+    "rows": [
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:815094",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "381",
+        "raw_compatible_volume": "1538409",
+        "raw_open": "380.75",
+        "reported_volume": "1538409",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "1050970006012443443",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-12-16",
+        "sic": "3841",
+        "signal_close": "381",
+        "split_ratio": "1",
+        "ticker": "ABMD",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:815094",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "381.30000000000001",
+        "raw_compatible_volume": "1365586",
+        "raw_open": "381.25",
+        "reported_volume": "1365586",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "1050970006012443443",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-12-19",
+        "sic": "3841",
+        "signal_close": "381.30000000000001",
+        "split_ratio": "1",
+        "ticker": "ABMD",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:815094",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "380.79000000000002",
+        "raw_compatible_volume": "2400964",
+        "raw_open": "381.20999999999998",
+        "reported_volume": "2400964",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "1050970006012443443",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-12-20",
+        "sic": "3841",
+        "signal_close": "380.79000000000002",
+        "split_ratio": "1",
+        "ticker": "ABMD",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:815094",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "381.01999999999998",
+        "raw_compatible_volume": "20571701",
+        "raw_open": "380.77999999999997",
+        "reported_volume": "20571701",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "1050970006012443443",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-12-21",
+        "sic": "3841",
+        "signal_close": "381.01999999999998",
+        "split_ratio": "1",
+        "ticker": "ABMD",
+        "tradeable": "1"
+      }
+    ],
+    "schema": "research.bounded-contingent-market-source-preparation/1",
+    "security_id": "1050970006012443443",
+    "source_identity_only": true,
+    "ticker": "ABMD",
+    "utc": "2026-11-05T21:40:36.051887+00:00"
+  },
+  "raw_quote_preparation_sha256": "cd9153160449aa28b5f11634fa91a5a7baa19d59f590086a43d69397e81d2a91",
+  "schema": "research.qualified-abmd-bounded-sensor-catalog/1",
+  "source_data": {
+    "payload": {
+      "additional_rows": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:815094",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1050970006012443443",
+            "security_type_eligible": "1",
+            "session": "2022-12-21",
+            "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+            "ticker": "ABMD"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:815094",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "381.01999999999998",
+            "raw_compatible_volume": "20571701",
+            "raw_open": "380.77999999999997",
+            "reported_volume": "20571701",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "1050970006012443443",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-12-21",
+            "sic": "3841",
+            "signal_close": "381.01999999999998",
+            "split_ratio": "1",
+            "ticker": "ABMD",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "arm": "P07",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "input_adopted": false,
+      "parent_cursor": "2022-11-30",
+      "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+      "producer_sha256": "be20544b111e9b1ba3659bc466ef9713ce456da4fc2c207b688bf6bd7b3fbc5c",
+      "production_contacted": false,
+      "provider_metadata_upgraded": false,
+      "schema": "research.own-parent-frozen-source-witnesses/2",
+      "scope": {
+        "additional_rows": [
+          {
+            "parent_positions": [],
+            "security_id": "1050970006012443443",
+            "session": "2022-12-21",
+            "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+            "ticker": "ABMD"
+          }
+        ],
+        "parent_cursor": "2022-11-30",
+        "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+        "terms": [
+          {
+            "native_session": "2022-12-21",
+            "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
+            "parent_positions": [],
+            "security_id": "1050970006012443443",
+            "session": "2022-12-20",
+            "ticker": "ABMD"
+          }
+        ]
+      },
+      "scope_sha256": "f26efcf168f9f849bafc255e6ad1ae111cf1379f5aa873d6a08283b1fb6a8063",
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:815094",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1050970006012443443",
+            "security_type_eligible": "1",
+            "session": "2022-12-20",
+            "source_observation_sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540",
+            "ticker": "ABMD"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=17180.6",
+            "security_id": "1050970006012443443",
+            "session": "2022-12-21"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:815094",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "380.79000000000002",
+            "raw_compatible_volume": "2400964",
+            "raw_open": "381.20999999999998",
+            "reported_volume": "2400964",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "1050970006012443443",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-12-20",
+            "sic": "3841",
+            "signal_close": "380.79000000000002",
+            "split_ratio": "1",
+            "ticker": "ABMD",
+            "tradeable": "1"
+          }
+        }
+      ]
+    },
+    "payload_sha256": "c1e381ac683e9dbe54970ae99988bef88152384ed4d8cc2047d151f5ec9fe647",
+    "qualification": {
+      "actual_current_root_roles_verified": true,
+      "arm": "P07",
+      "design_sha256": "235ff23ef92678d28c83908fbbb98044813e2c56b77709691938f8a952c5679e",
+      "financial_authority": false,
+      "financial_root_admitted": false,
+      "financial_workers_launched": 0,
+      "future_roles_not_predicted": true,
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "model_activated": false,
+      "native_action_rows_this_case": 2,
+      "original_input_count": 23,
+      "parent_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "passed": true,
+      "payload_sha256": "c1e381ac683e9dbe54970ae99988bef88152384ed4d8cc2047d151f5ec9fe647",
+      "review_sha256": "c7d51f4a387190c4b883365317c708c599cc435124efccff27b3486e6de5e44d",
+      "schema": "research.independent-frozen-source-data-validation/1",
+      "scope_sha256": "f26efcf168f9f849bafc255e6ad1ae111cf1379f5aa873d6a08283b1fb6a8063",
+      "shared_reader_sha256": "4340daab6db1d102fcd062c23649c4ea1e78ccc8f9c37e467bd06d6aa458e5b7",
+      "shared_tests_sha256": "6eeb365cb9a44201156714089934181475865878834fb6172d771e9665f9282d",
+      "source2_schema_preserved": true,
+      "source_identity_only": true,
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_rows_this_case": 2,
+      "source_value_or_settlement_timing_qualified": false,
+      "tests": {
+        "command": "python -B -m pytest -q -p no:cacheprovider --tb=short test_focused_source_DATA.py",
+        "corrected_parent_namespace_fence_cases_passed": 5,
+        "fence_seconds": 0.1,
+        "financial_import_fences": 5,
+        "initial_passed": 46,
+        "meaningful_guard_removals": 8,
+        "seconds": 7.02,
+        "semantic_mutations": 32,
+        "total_cases": 47
+      },
+      "utc": "2026-11-05T22:31:00.815411+00:00"
+    },
+    "qualification_sha256": "97fca41a1f66d9abaec1e064b6dca68c34ffb0403f9b4fba29f804eeb842e472",
+    "review": {
+      "actual_worker_request_bytes_verified": true,
+      "additional_rows": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:815094",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1050970006012443443",
+            "security_type_eligible": "1",
+            "session": "2022-12-21",
+            "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+            "ticker": "ABMD"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:815094",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "381.01999999999998",
+            "raw_compatible_volume": "20571701",
+            "raw_open": "380.77999999999997",
+            "reported_volume": "20571701",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "1050970006012443443",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-12-21",
+            "sic": "3841",
+            "signal_close": "381.01999999999998",
+            "split_ratio": "1",
+            "ticker": "ABMD",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "arm": "P07",
+      "artifact_id": 13457531930,
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_raw_row_digest_verified": true,
+      "head": "e9f3761b4992da400583c9c4a7b2b3f946178645",
+      "independent_raw_source_proof": {
+        "all_observation_and_action_fields_checked": true,
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+        "fresh_whole_archive_rehash_at_DATA_use": true,
+        "full_observation_rows": 4,
+        "native_raw_action_rows": 4,
+        "passed": true,
+        "rows_scanned": {
+          "2022": 2080223
+        }
+      },
+      "independent_reader_sha256": "4340daab6db1d102fcd062c23649c4ea1e78ccc8f9c37e467bd06d6aa458e5b7",
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "old_financial_rows_reaudited": 0,
+      "parent_outer_sha256": "efc954aafff81ce10213b5a6ec62f765b7120734a076459e0b04d9b468ed6277",
+      "parent_pending_context": {
+        "1050970006012443443": []
+      },
+      "parent_root_admission_sha256": "475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d",
+      "parent_selected": {
+        "1050970006012443443": true
+      },
+      "passed": true,
+      "payload_sha256": "c1e381ac683e9dbe54970ae99988bef88152384ed4d8cc2047d151f5ec9fe647",
+      "run_id": 42116848017,
+      "schema": "research.independent-frozen-source-data-review/1",
+      "scope_sha256": "f26efcf168f9f849bafc255e6ad1ae111cf1379f5aa873d6a08283b1fb6a8063",
+      "source_closure": {
+        "all_selected_sources_exact": true,
+        "original383_exact": true,
+        "producer_source_count": 462
+      },
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:815094",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1050970006012443443",
+            "security_type_eligible": "1",
+            "session": "2022-12-20",
+            "source_observation_sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540",
+            "ticker": "ABMD"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=17180.6",
+            "security_id": "1050970006012443443",
+            "session": "2022-12-21"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:815094",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "380.79000000000002",
+            "raw_compatible_volume": "2400964",
+            "raw_open": "381.20999999999998",
+            "reported_volume": "2400964",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "1050970006012443443",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-12-20",
+            "sic": "3841",
+            "signal_close": "380.79000000000002",
+            "split_ratio": "1",
+            "ticker": "ABMD",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "utc": "2026-11-05T22:27:10.230765+00:00"
+    },
+    "review_sha256": "c7d51f4a387190c4b883365317c708c599cc435124efccff27b3486e6de5e44d"
+  }
+}

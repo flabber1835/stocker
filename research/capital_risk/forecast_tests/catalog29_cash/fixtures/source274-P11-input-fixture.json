@@ -1,0 +1,290 @@
+{
+  "bindings": {
+    "actual_settlement_claimed": false,
+    "all28_prior_records_and_envelope_byte_exact": true,
+    "all_existing_function_and_class_ASTs_unchanged": true,
+    "catalog_after_sha256": "51674fc83cb9240168b27c2566edff62f44089cb4e00e57ce2e8f06b8a50277e",
+    "catalog_before_sha256": "b199b6df1b4e34e1b98336795dc3eeb62caa9981f3f9a96b2b1edb1704aa6581",
+    "design_sha256": "2194dbdac3f3db7ed767769620bd3bca37fe0b6272223ee9a9c440b46583452d",
+    "financial_authority": false,
+    "future_after_sha256": "a798a92a2a086d5dd1a2b5126858731fc2ea9e15e65b513e2557448a1b6ac59c",
+    "future_before_sha256": "91d2193ad19e0001b17c7bf7165836d7b57c080b55f240ff446eb5ef3fe1e5f3",
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "original_input_documents": 12,
+    "primary_extraction_sha256": "420b600f36eabd7f08bb4d7f70d22045e00d3e772967b007f7e769cd4766a8ca",
+    "schema": "research.closed-P11-catalog29-input-proposal/1",
+    "source_capture": {
+      "artifact_id": 13398956926,
+      "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+      "independent_data_review_sha256": "de63d5bc769d01c9e7504ae83e205eb9a5e0965d962cd8ffdeed306a77f4c74a",
+      "independent_qualification_sha256": "c208a4ac9b572900990cbb565dcb809d8d612d33d13eb8303818f10bd6cb5550",
+      "payload_sha256": "99144b6bf33601c21cf3b4bf73247de02f6874313ddd57527468b8d84ec6cecf",
+      "run_id": 41992111094,
+      "scope_sha256": "b96159c90fa04135da0bd04541306ebc0d4325f39a41a8a7f9bdc51cf26f19c2"
+    },
+    "source_qualification_sha256": "c208a4ac9b572900990cbb565dcb809d8d612d33d13eb8303818f10bd6cb5550",
+    "source_review_sha256": "de63d5bc769d01c9e7504ae83e205eb9a5e0965d962cd8ffdeed306a77f4c74a"
+  },
+  "primary": {
+    "SEC_company_preopen_legal_completion_explicitly_observed": false,
+    "actual_cash_payment_or_settlement_observed": false,
+    "actual_opening_cash_availability_proved": false,
+    "benchmark_sha256": "cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a",
+    "committed_parent": {
+      "completed": 2050,
+      "cursor": "2026-02-27",
+      "outer_sha256": "29fe6110159e24934ea521d15d72ff6c4d08d2b3e4c7bf904ebd1fb5b377ceb4",
+      "pending": [],
+      "positions": [
+        {
+          "entry_date": "2026-02-10",
+          "quantity": 79,
+          "slot_id": 13,
+          "ticker": "EXAS"
+        }
+      ],
+      "root_admission_pending_R271": true,
+      "selected": false
+    },
+    "currency": "USD",
+    "exact_legal_effective_minute_observed": false,
+    "exclusions": [
+      "certain excluded shares",
+      "dissenting shares under applicable merger terms"
+    ],
+    "financial_authority": false,
+    "financial_input_model_selected": false,
+    "frozen_boundary": {
+      "following_frozen_session": "2026-03-24",
+      "identity_session": "2026-03-19",
+      "native_last_trade_session": "2026-03-20",
+      "next_frozen_session": "2026-03-23"
+    },
+    "input_adopted": false,
+    "last_trading_session": "2026-03-20",
+    "legal_completion_date": "2026-03-23",
+    "local_canonical_runtime_executed": false,
+    "mandatory_eligible_common_conversion": true,
+    "native_term": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=20026.1",
+      "security_id": "637262944715750985",
+      "session": "2026-03-20"
+    },
+    "native_term_sha256": "689adccb69cd2f499298678e43c60d83e73de51f1af1ba8f4de739aabc85ccbd",
+    "new_policy_proposed": false,
+    "no_preopen_inference_from_halt_alone": true,
+    "no_settlement_study_performed": true,
+    "official_exchange_preopen_legal_completion_explicitly_confirmed": true,
+    "ordinary_common_cash_per_share": "105.00",
+    "primary_sources": [
+      {
+        "form": "8-K",
+        "issuer": "Abbott Laboratories",
+        "paraphrase": "Abbott reports March23 completion; eligible outstanding Exact common shares automatically became a105USD cash right, subject to stated exclusions and withholding.",
+        "sections": [
+          "8.01"
+        ],
+        "signature_date": "2026-03-23",
+        "url": "https://www.sec.gov/Archives/edgar/data/1800/000110465926033079/tm268709d2_8k.htm"
+      },
+      {
+        "form": "Issuer completion release",
+        "issuer": "Abbott Laboratories",
+        "paraphrase": "Completion announced March23. The issuer expressly identifies March20 as the last day Exact Sciences shares traded on Nasdaq.",
+        "publication_date": "2026-03-23",
+        "url": "https://abbott.mediaroom.com/2026-03-23-Abbott-completes-acquisition-of-Exact-Sciences"
+      }
+    ],
+    "schema": "research.EXAS-mandatory-common-cash-primary-extraction/1",
+    "security_id": "637262944715750985",
+    "shared_repository_changed": false,
+    "source_capture_pending_R271_root_admission": true,
+    "supplementary_official_exchange_source": {
+      "authority": "Nasdaq Corporate Actions Alert2026-178",
+      "displayed_base_date": "2026-03-20",
+      "paraphrase": "Updated exchange alert explicitly confirms completion before the March23 open, March20 last trading, and105USD per held common share. Formal suspension isMarch24; this is separate from the March23 closing-day halt.",
+      "update_publication_time_observed": false,
+      "updated_to_merger_closed": true,
+      "url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-178"
+    },
+    "ticker": "EXAS"
+  },
+  "source_review": {
+    "actual_worker_request_bytes_verified": true,
+    "additional_rows": [],
+    "arm": "P11",
+    "artifact_id": 13398956926,
+    "closed_generic_predicate_reader_sha256": "3e4e72bd95cb9c83ecd5a181f6c28b270ea23625b56949cc4271493ef500dc26",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "full_raw_row_digest_verified": true,
+    "head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+    "independent_raw_source_proof": {
+      "all_parent_date_action_rows": 2,
+      "all_parent_date_action_rows_sha256": "2c418428237b4d5bb525d3028100c872d98a9958ad7af7e75bfc03ad137e9267",
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "fresh_full_archive_rehash_at_DATA_use": true,
+      "full_rows": 1,
+      "native_term_sha256": [
+        "689adccb69cd2f499298678e43c60d83e73de51f1af1ba8f4de739aabc85ccbd"
+      ],
+      "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+      "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+      "passed": true,
+      "rows": {
+        "2026-03-19:637262944715750985": "c6ca39535f34fbd43201d52abde0a8d740befb5a5b1d939a60e212e153fce5eb"
+      },
+      "rows_scanned_by_year": {
+        "2026": 904798
+      }
+    },
+    "independent_reader_sha256": "83519d0d5be72a70a2601deaa5da487c65d061e0d3733542aabec2816d5b5ca0",
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "old_financial_rows_reaudited": 0,
+    "original_factual_source_closure": {
+      "economic_record_appended": false,
+      "original_UFS_scope_preserved": false,
+      "original_source_files": {},
+      "passed": true,
+      "source_identity_only": true,
+      "value_or_timing_requalified": false
+    },
+    "parent_outer_sha256": "29fe6110159e24934ea521d15d72ff6c4d08d2b3e4c7bf904ebd1fb5b377ceb4",
+    "parent_pending_context": {
+      "637262944715750985": []
+    },
+    "parent_root_admission_sha256": "4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a",
+    "parent_selected": {
+      "637262944715750985": false
+    },
+    "passed": true,
+    "payload_sha256": "99144b6bf33601c21cf3b4bf73247de02f6874313ddd57527468b8d84ec6cecf",
+    "run_id": 41992111094,
+    "schema": "research.independent-frozen-source-data-review/1",
+    "scope_sha256": "b96159c90fa04135da0bd04541306ebc0d4325f39a41a8a7f9bdc51cf26f19c2",
+    "source_closure": {
+      "all_selected_sources_exact": true,
+      "original383_exact": true,
+      "original_factual_source_pins": {},
+      "producer_source_count": 433
+    },
+    "source_identity_qualified_for_separate_future_input_review": true,
+    "source_value_or_settlement_timing_qualified": false,
+    "terms": [
+      {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1124140",
+          "listing_first_session": "2001-02-01",
+          "security_id": "637262944715750985",
+          "security_type_eligible": "1",
+          "session": "2026-03-19",
+          "source_observation_sha256": "c6ca39535f34fbd43201d52abde0a8d740befb5a5b1d939a60e212e153fce5eb",
+          "ticker": "EXAS"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=20026.1",
+          "security_id": "637262944715750985",
+          "session": "2026-03-20"
+        },
+        "parent_positions": [
+          {
+            "entry_date": "2026-02-10",
+            "quantity": 79,
+            "slot_id": 13,
+            "ticker": "EXAS"
+          }
+        ]
+      }
+    ],
+    "utc": "2026-11-05T08:22:56.378298+00:00"
+  },
+  "source_validation": {
+    "actual_EXAS_pending": [],
+    "actual_EXAS_role": [
+      {
+        "entry_date": "2026-02-10",
+        "quantity": 79,
+        "slot_id": 13,
+        "ticker": "EXAS"
+      }
+    ],
+    "actual_EXAS_selected": false,
+    "actual_schema": "research.own-parent-frozen-source-witnesses/1",
+    "all383_original_financial_sources_exact": true,
+    "all_original_input_documents_byte_exact": 12,
+    "artifact_id": 13398956926,
+    "artifact_zip_bytes": 256617,
+    "artifact_zip_sha256": "5e371257803571dbbdba6d41f5a648de300fde6651a709ab397ddf434d91a124",
+    "closed_five_helper_ASTs_unchanged": true,
+    "extra_child_field_refused": true,
+    "financial_authority": false,
+    "financial_import_fences": 5,
+    "financial_sessions_advanced": 0,
+    "full_raw_rows": 1,
+    "independent_reader_sha256": "83519d0d5be72a70a2601deaa5da487c65d061e0d3733542aabec2816d5b5ca0",
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "manual_native_preimages": 1,
+    "meaningful_guard_removal_cases": 6,
+    "parent_outer_sha256": "29fe6110159e24934ea521d15d72ff6c4d08d2b3e4c7bf904ebd1fb5b377ceb4",
+    "parent_root_admission_sha256": "4a8df8bc01d3bbf40621bf30797fa36d2139dff9369e3f3e2791305922e1002a",
+    "passed": true,
+    "payload_sha256": "99144b6bf33601c21cf3b4bf73247de02f6874313ddd57527468b8d84ec6cecf",
+    "preparation_schema2_assumption_corrected_to_exact_producer_schema1": true,
+    "producer_source_count": 433,
+    "raw_source": {
+      "all_parent_date_action_rows": 2,
+      "all_parent_date_action_rows_sha256": "2c418428237b4d5bb525d3028100c872d98a9958ad7af7e75bfc03ad137e9267",
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "fresh_full_archive_rehash_at_DATA_use": true,
+      "full_rows": 1,
+      "native_term_sha256": [
+        "689adccb69cd2f499298678e43c60d83e73de51f1af1ba8f4de739aabc85ccbd"
+      ],
+      "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+      "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+      "passed": true,
+      "rows": {
+        "2026-03-19:637262944715750985": "c6ca39535f34fbd43201d52abde0a8d740befb5a5b1d939a60e212e153fce5eb"
+      },
+      "rows_scanned_by_year": {
+        "2026": 904798
+      }
+    },
+    "request_sha256": "1d87069fe9a903a5e4bc06119a9d8245605f5143af42bf003a197cbd852e716c",
+    "review_sha256": "de63d5bc769d01c9e7504ae83e205eb9a5e0965d962cd8ffdeed306a77f4c74a",
+    "schema": "research.independent-source274-P11-DATA-qualification/1",
+    "shared_repository_changed": false,
+    "source_head": "e0272a24fc706b2f35c5310f89718cc418b49c37",
+    "source_primary_or_settlement_study_repeated": false,
+    "source_run_id": 41992111094,
+    "source_scope_sha256": "b96159c90fa04135da0bd04541306ebc0d4325f39a41a8a7f9bdc51cf26f19c2",
+    "source_value_or_settlement_timing_requalified": false,
+    "test_mode": "ACTUAL_AUTHENTICATED_SOURCE274_P11_PAYLOAD",
+    "test_seconds": 9.29,
+    "test_sha256": "3ea25a0f88ddb8857691fcb72021b6979146c3fd12124c94bc7421351f960ac1",
+    "tests_deselected": 32,
+    "tests_failed": 0,
+    "tests_passed": 32
+  }
+}

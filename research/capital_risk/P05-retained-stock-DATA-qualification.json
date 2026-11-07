@@ -1,0 +1,34 @@
+{
+  "files": {
+    "P05-retained-DRE-LSI-MTTR-stock-DATA-review.json": {
+      "bytes": 22908,
+      "sha256": "47471fba1720b3c3b5327ed3509d6756ceef15af4d6962fb6a28846718b54864"
+    },
+    "retained-stock-batch-DATA-DESIGN.md": {
+      "bytes": 1725,
+      "sha256": "cae73418269ed3b129995744ac813e718a8158f4162964e170a2645188f66885"
+    },
+    "review_retained_stock_DATA.py": {
+      "bytes": 6779,
+      "sha256": "08e768fbd34e5bc4cbd288631d95d77126a208dc06714362746bf3926cc17a5f"
+    },
+    "test_retained_stock_DATA.py": {
+      "bytes": 4661,
+      "sha256": "481914f13666ad8884dfe2447074423c66ac6b2dd5a5716156db0fe06c985199"
+    }
+  },
+  "financial_authority": false,
+  "hosted_packet_neutral_adoption_observer_and_financial_restart_still_required": true,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "review_sha256": "47471fba1720b3c3b5327ed3509d6756ceef15af4d6962fb6a28846718b54864",
+  "schema": "research.P05-own1175-retained-stock-DATA-qualification/1",
+  "tests": {
+    "canonical_import_fences": 5,
+    "meaningful_new_guard_removals": 1,
+    "passed": 24,
+    "seconds": 12.54
+  },
+  "utc": "2026-11-06T15:29:12.905290+00:00"
+}

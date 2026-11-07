@@ -1,0 +1,102 @@
+{
+  "actual_failed_FIN337_members": 182,
+  "actual_original_FIN324_members": 166,
+  "admitted_seed_rows": 49,
+  "all_complete_member_hashes_checked": true,
+  "blanket_IO_or_overwrite_allowances": false,
+  "canonical_checkpoint_staged_or_serialized": false,
+  "complete_downstream_writer_targets_audited": true,
+  "exact_qualified_file_bytes": 922,
+  "exact_qualified_file_sha256": "0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56",
+  "files": {
+    "DESIGN.md": {
+      "bytes": 3627,
+      "sha256": "5423dc48591b7aedd654799da62c8f04a6111819a4189708d8d3ed1dff175d84"
+    },
+    "INTEGRATION.md": {
+      "bytes": 3585,
+      "sha256": "9b3c238a38b7977b7cc8be21217c0553fa5f169b4a7ef96f07f4052cc97f4d35"
+    },
+    "P03-FIN337-downstream-writer-audit.json": {
+      "bytes": 2526,
+      "sha256": "a6ecce786ca4e8a8475dfd6c448096d362ac12120aee93b921c952f376660e69"
+    },
+    "P03-FIN337-exact-qualification-reuse-fact-v1.json": {
+      "bytes": 1754,
+      "sha256": "f2d3a1f3121d9d33e03db90ae9f5487a2179ff4d0b25663f980e444ee5b218c8"
+    },
+    "P03-FIN337-qualification-collision-DATA.json": {
+      "bytes": 2968,
+      "sha256": "6740c0a3afed021d7137bd501cd4fdac98171dfe50569bbf833c131f7b63422c"
+    },
+    "system_campaign_p03_thor_qualification_reuse.py": {
+      "bytes": 15354,
+      "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee"
+    },
+    "test_THOR_qualification_reuse.py": {
+      "bytes": 11715,
+      "sha256": "5c45dfb4566798afeda05599fbccacfd41b5717fef3175a021e79d6cee0d87e7"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "frozen_sources": {
+    "system_campaign_bounded_sensor_binding.py": {
+      "bytes": 7186,
+      "sha256": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d"
+    },
+    "system_campaign_bounded_sensor_runtime_v2.py": {
+      "bytes": 21748,
+      "sha256": "4a261717829b227a29d01bd2c746c88554467645608a7b4476dd4f523b161096"
+    },
+    "system_campaign_financial_uncertainty.py": {
+      "bytes": 56107,
+      "sha256": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8"
+    },
+    "system_campaign_p03_thor_api.py": {
+      "bytes": 5064,
+      "sha256": "2498a096294562a6c7a635df0bf7f0653be531f3f61a44513086c0c826618ca5"
+    },
+    "system_campaign_p03_thor_data.py": {
+      "bytes": 7400,
+      "sha256": "a2436167aa69099f22beb43679cf9d7c4e25f065a7ae633459f896a4c8a698d4"
+    },
+    "system_campaign_p03_thor_runtime.py": {
+      "bytes": 18743,
+      "sha256": "a06bafcd0999f918df7369f4f73526042a22ae5b917be9f30da90c414f9449b7"
+    }
+  },
+  "future17_root_restart_selected": false,
+  "local_canonical_runtime_executed": false,
+  "new_actual_corrected_financial_progress_unknown": true,
+  "new_actual_downstream_certificate_review_unknown": true,
+  "original_exclusive_writer_preserved_for_missing_file": true,
+  "original_financial_certificate_operations_unchanged": true,
+  "original_four_m_and_gate_AST": {
+    "AdoptionGate": "90b75c2165958da9a7ffe97db60f639d9199d8d43a876e01ed07398c87ecc2f6",
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "original_raw_provenance_rows": 63,
+  "passed": true,
+  "prepared": true,
+  "schema": "research.P03-THOR-exact-qualification-reuse-preparation/1",
+  "subsequent_new_resource_targets_absent": 7,
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p03-thor-qualification-reuse-tests-004 test_THOR_qualification_reuse.py",
+    "constructor_guard_tests_use_explicit_noncanonical_seed_DTO_only": true,
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 3,
+    "passed": 27,
+    "seconds": 24.87
+  },
+  "unadmitted_tail_rows_seeded": 0,
+  "unfinished": "Parent integration/review/required checks and genuine hosted corrected execution remain pending. The known failed neutral17 is never adopted as a financial root; actual new financial closes, certificate suffix, post-event accounting and read-only review remain unknown.",
+  "utc": "2026-11-06T17:04:06.957471+00:00",
+  "whole_original_constructor_code_closure_and_caller_guard_preserved": true,
+  "whole_original_run_retained_AST_undo_verified": true,
+  "whole_typed_run_code_object_preserved": true
+}

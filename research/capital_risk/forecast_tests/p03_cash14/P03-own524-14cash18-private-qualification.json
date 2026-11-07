@@ -1,0 +1,80 @@
+{
+  "actual_doc_evidence_entries": 82,
+  "canonical_runtime_executed": false,
+  "files": {
+    "P03-DERM2-preopen-common-cash-fact.json": {
+      "bytes": 2300,
+      "sha256": "746014dd9afbfcc106b6fe076dd5f544052f82c3aaf92449c1368d6f68119ffb"
+    },
+    "P03-DERM2-retained503-source-subset-template.json": {
+      "bytes": 607082,
+      "sha256": "f684168d5f71a78d6e39506bf61510a825748e3aa17d142b19e2f1d38aa70be8"
+    },
+    "P03-own524-14cash-role-and-DERM-boundary-DATA.json": {
+      "bytes": 20361,
+      "sha256": "72e1bfe92d10a1486959951ec4cd6426627a0443b69e035fcbbf4468e3c2ad42"
+    },
+    "P03-own524-14cash18-finite-facts.json": {
+      "bytes": 64614,
+      "sha256": "6fb9e2b93c2fbe864a26701efb3c84732c2e19eb08f284710080245d520b4b6a"
+    },
+    "P03-own524-DERM2-and13-ordinary18-catalog.json": {
+      "bytes": 692005,
+      "sha256": "c8924616d61042ac2a89c0875841f928e0a7fcd6a9404e469508f2a1e0aa991d"
+    },
+    "P03-own524-original19-observer-inventory.json": {
+      "bytes": 62105,
+      "sha256": "8ee5499cd9d920b47eccf934c31581e1bb938d722c73e0089652a72bcfaa90a4"
+    },
+    "P03-retained-SOURCE327-full-factual-generation.json": {
+      "bytes": 573276,
+      "sha256": "183bc9e86aa008dbf1ddfed38360e2913f6d5adce603b922c5126a402a729fe7"
+    },
+    "P03-retained-SOURCE334-full-factual-generation.json": {
+      "bytes": 574442,
+      "sha256": "97a82d9b7e3050602937eb94890a6a2ed1a2a76b0b655bae613e301f8ae4faa7"
+    },
+    "system_campaign_p03_cash14_api.py": {
+      "bytes": 5589,
+      "sha256": "68b3c1f3addc4fb25e4d5ef0122825ae50689b48d3f40fb2280968afc33c8498"
+    },
+    "system_campaign_p03_cash14_data.py": {
+      "bytes": 12617,
+      "sha256": "046fb247c470f7fe60c8add7cea94d912912d38f72817b3878a5277a71294197"
+    },
+    "system_campaign_p03_cash14_lifecycle.py": {
+      "bytes": 4154,
+      "sha256": "c9667cefec4d84f1eb23d67cd85804e6be266d8f5c21d34c38022ddfd47aa793"
+    },
+    "system_campaign_p03_cash14_runtime.py": {
+      "bytes": 13536,
+      "sha256": "a776f35c7748b1bda45d8ca1c50c4936bdac17b9844f9a647d461d3a07d571d8"
+    },
+    "system_campaign_p03_cash14_stage.py": {
+      "bytes": 6637,
+      "sha256": "3017c1356d7a9bbe28c06eb56edd267424aebbfe7e78c7d2bdab95ed62484023"
+    }
+  },
+  "financial_authority": false,
+  "neutral18_known": false,
+  "new_terms": 14,
+  "original_observer_terms": 19,
+  "passed": true,
+  "prospective_inputs": 18,
+  "raw_proof_rows": 81,
+  "required_hosted_packet_checks": 28,
+  "retained_proof_rows": 70,
+  "root_admission_sha256": "bff8b5f2dea2bba80ed2da03053e95246cce401db749c4a0d4f54302cd5f2877",
+  "schema": "research.P03-own524-cash14-ordinary18-private-qualification/1",
+  "selected_parent_inputs": 17,
+  "tests": {
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 3,
+    "passed": 36,
+    "seconds": 17.26,
+    "whole12_lifecycle_AST_undo": true,
+    "whole_original_API_code_preserved": true
+  },
+  "total_observer_terms": 33,
+  "unchanged_evidence_cap": 128
+}

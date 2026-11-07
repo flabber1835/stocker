@@ -1,0 +1,820 @@
+{
+  "arm": "P03",
+  "canonical_runtime_executed_locally": false,
+  "conversion_review_required": true,
+  "financial_authority": false,
+  "full_input_descriptors": 15,
+  "future_inputs": [
+    {
+      "descriptor": {
+        "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
+        "predecessor_checkpoint_sha256": "16b29a942832d6c91d5ffc90199c1dd85e6719276637e5dc06b21cee4a662ec1",
+        "resume_session": "2017-06-30",
+        "sha256": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea"
+      },
+      "future_terms": [
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 27.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "SEC Myovant 8-K accession0001140361-23-011046:27USD cash March10,2023;ceased before market open",
+          "security_id": "362949419836618645",
+          "session": "2023-03-10"
+        }
+      ],
+      "schema": "terminal-repair/1",
+      "source_evidence": [
+        {
+          "description": "Exact common primary-source factual catalog; declared CIL/daily-boundary proxies retained.",
+          "reference": "research:system-optimization-002/common-factual-catalog/1",
+          "sha256": "b5c36c6f2ceab45a0bfb699ea1b5309b459df305b383b17b9a273bbaf65be050"
+        },
+        {
+          "description": "Exact scoped packet input compiler; canonical financial source unchanged.",
+          "reference": "research:system-optimization-002/factual-input-compiler/1",
+          "sha256": "b767206d4fc6fca42f57a5117ad45bddc59494b841fcb343433a338262fcc482"
+        },
+        {
+          "description": "Exact privately hydrated quote catalog from the frozen archive, retained only in encrypted evidence.",
+          "reference": "research:system-optimization-002/private-hydrated-factual-catalog/1",
+          "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+        },
+        {
+          "description": "Myovant SEC8-K: completion March10,2023;27USD cash per share; cessation before open. Retained tool extraction primary-source-extraction.json",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1679082/000114036123011046/ny20008100x2_8k.htm",
+          "sha256": "755ad620547b8e9f0a4c6f95b2f3f888e9692c25fcdd08c9c53fc820752db730"
+        },
+        {
+          "description": "SEC accession0001193125-17-229854: July18 completion,315USD cash per share.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/724606/000119312517229854/d425559d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuer July18,2017 08:36ET announcement confirms completion before regular open.",
+          "reference": "https://www.globenewswire.com/news-release/2017/7/18/1047853/0/en/JAB-Completes-Acquisition-of-Panera-Bread-Company.html",
+          "sha256": null
+        }
+      ]
+    },
+    {
+      "descriptor": {
+        "filename": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2.json",
+        "predecessor_checkpoint_sha256": "ddd6b4c4dd77fca13d75dfb24bf7010727fe6d9335b9904cd12b1b3d576688ca",
+        "resume_session": "2018-04-30",
+        "sha256": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2"
+      },
+      "future_terms": [
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 26.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm | Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+          "security_id": "498918945550351909",
+          "session": "2025-07-25"
+        }
+      ],
+      "schema": "terminal-repair/1",
+      "source_evidence": [
+        {
+          "description": "Exact additional issuer completion terms and declared fractional proxy.",
+          "reference": "research:system-optimization-002/followup-terminal-catalog/1",
+          "sha256": "046cac14b87a620ac922e6f10a96682943952f9ba7ce3cd2f99a3decffa13222"
+        },
+        {
+          "description": "Exact ordinary terminal input compiler; financial sources unchanged.",
+          "reference": "research:system-optimization-002/followup-terminal-compiler/1",
+          "sha256": "33e23f906c69ad6437d9173060b23cb03bf4a616ef816a1b48a588fa7d28a9a9"
+        },
+        {
+          "description": "Exact private quote hydration from the frozen archive.",
+          "reference": "research:system-optimization-002/followup-private-terminal-catalog/1",
+          "sha256": "62ab62941cc5e43aece93d8632a704cf57fb3ce0324d984cb32ea22c5bb8ceee"
+        },
+        {
+          "description": "OCC43039 confirms consummation before May15 open and conversion of every existing common share into 218 USD cash. Nasdaq May16 administrative suspension does not move the explicit merger boundary. Issuer-distributed SEC disclosure covers mandatory remaining eligible-holder conversion. https://www.sec.gov/Archives/edgar/data/1114448/000110465918033207/a18-10056_9ex99da5g.htm",
+          "reference": "https://www.miaxglobal.com/sites/default/files/alert-files/AVXS_Merger_43039.pdf",
+          "sha256": null
+        },
+        {
+          "description": "Issuer8K confirms mandatory 20 USD cash plus .42 PENN shares. OCC43835 confirms consummation before October15 open. Preserve October12 trading. https://www.miaxglobal.com/sites/default/files/alert-files/PNK_Merger_43835.pdf",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1656239/000119312518298904/d639383d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuer8K confirms35 USD cash for nonelecting eligible holders and no stock-election proration. Legal completionNovember2, suspensionbeforeNovember5open/OCC43946. Explicit next-session daily convention preservesNovember2trading. No shadow stock election assumed. https://www.miaxglobal.com/sites/default/files/alert-files/KS_Merger_43946.pdf",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1325281/000117184318007571/f8k_110518.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuer completion, cash terms and next-session boundary.",
+          "reference": "research:system-optimization-002/tgi-cash-catalog/1",
+          "sha256": "e485e0998e487cbfa39d6d9ed9a2f0efb1317f7098d5b1462977e00cd8dd6f5f"
+        },
+        {
+          "description": "Ordinary input compiler; financial sources unchanged.",
+          "reference": "research:system-optimization-002/tgi-cash-compiler/1",
+          "sha256": "d1e40a1e8260e38c75bc07712026ed5197bc32947784909777cb56e69bafea19"
+        },
+        {
+          "description": "Exact native input qualification; no quote proxy.",
+          "reference": "research:system-optimization-002/tgi-private-cash-catalog/1",
+          "sha256": "11e107f760a0860219abdc80f61985d201c0b509fdda0fa58289e88af7c00f61"
+        },
+        {
+          "description": "Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm",
+          "sha256": null
+        }
+      ]
+    },
+    {
+      "descriptor": {
+        "filename": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f.json",
+        "predecessor_checkpoint_sha256": "3c9b0be59b4f1eb61783ea84c60f2ef89ef242522c3d652b17712311b8808324",
+        "resume_session": "2018-11-30",
+        "sha256": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f"
+      },
+      "future_terms": [
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 35.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm | Issuercompleted-acquisitionrelease confirms35USD commonsharecash. OCC46596 confirmsconsummationbeforeMarch9,2020open: https://www.miaxglobal.com/sites/default/files/alert-files/ZAYO_Merger_46596.pdf . PreserveMarch6.",
+          "security_id": "272838527679530510",
+          "session": "2020-03-09"
+        }
+      ],
+      "schema": "terminal-repair/1",
+      "source_evidence": [
+        {
+          "description": "Unchanged literal ordinary completion catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/catalog",
+          "sha256": "332a92d9dbfaea1b9154fbb2c2e0f397dbd5fa96686d148401d3607cce3a6a03"
+        },
+        {
+          "description": "Shared source-bound mandatory cash right with explicit first-session-after-confirmed-completion timing convention.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/validator",
+          "sha256": "48976f80fc64715be3fc8f526f999189f245cbac551a240aa4a3e4c557c99708"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-late-terminal-facts.json",
+          "sha256": "0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_late_facts.py",
+          "sha256": "ac77d968aee0ffc769bfba22e69ca16daa5bac6c723997fc947a0612596236ca"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-yearend-terminal-facts.json",
+          "sha256": "967d6fd19080f08142f5d93620ab832e10481b4c828d2a062cc9b1ca7166c7cb"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_yearend_facts.py",
+          "sha256": "b4318a6ea900586e72e663aac9da28a607f415bb4a881a1c9061dc97bde2aa6e"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-followon-terminal-facts.json",
+          "sha256": "7ed27c0e6d9a7b79192b026a2d02036a0e6360c8a7e49f1069435cf537477822"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_followon_facts.py",
+          "sha256": "05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15"
+        },
+        {
+          "description": "Own-parent future-only selected ordinary input.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/selector",
+          "sha256": "48976f80fc64715be3fc8f526f999189f245cbac551a240aa4a3e4c557c99708"
+        },
+        {
+          "description": "Actual frozen native and complete identity/delivery witnesses.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/hydrated",
+          "sha256": "aea16ea0dd7b6c31a75c540b689b3d99ce8e96eeec564d67282393189bb8987e"
+        },
+        {
+          "description": "Issuer completion8K confirms December5,2018 consummation and suspension beforeDecember6open. Issuer October22agreement8K and controlling-shareholder December5completion release confirm70USD mandatory common-share cash consideration. Preserve all December4trading and recognize onDecember6, the first frozen session strictly after the confirmed nontrading completion date. Actual exchange-agent payment time is not claimed.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "d7c8989e311964723c5264befb8c8c797bcede9e3a00bec7dba60c0a23179841"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "99f47476f23d72b2f89e9dfe4b78e5cb66669d8ea6534b02133df772ae6efc9e"
+        },
+        {
+          "description": "Issuercompletion8K confirmsfinal5.60USD plus.0636LITE. OCC44173 confirmscompletionbeforeDecember10open; preserveDecember7. https://www.miaxglobal.com/sites/default/files/alert-files/OCLR_Merger_44173.pdf",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1110647/000119312518346220/d672294d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1110647/000119312518346220/d672294d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompletion8K confirmsmandatory38USD eligibleClassAconversion. OCC44383 confirmsJanuary10preopen completion; preserveJanuary9. https://www.miaxglobal.com/sites/default/files/alert-files/APTI_Merger_44383.pdf",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1419625/000119312519005899/d670038d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1419625/000119312519005899/d670038d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompletion8K Item2.01 confirmsmandatory53USD remaining-holder cash; Item3.01 confirmsNYSEhaltbeforeOctober7open. PreserveOctober4.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1660690/000119312519263471/d814588d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1660690/000119312519263471/d814588d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompleted6K confirms29.25USD perordinary/twoordinaryperADS; completedrelease confirms58.50USD perADS. https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/exhibit_99-1.htm . NasdaqECA2018-230 identifiesADS/suspensionDecember20: https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2018-230 . Retainednext-sessiondailyconventionDecember20 afterlegalDecember19, exactlegalminuteunobserved; preserveDecember19. StoredSEC_UNKNOWN identityretained. Grossmodeledcash beforeapplicablewithholding/fees.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/zk1822382.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/zk1822382.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuer8K andGSKcompletion confirmmandatory75USD eligible remaining-holder conversion January22,2019. OCC44449 explicitlybeforeJanuary22open: https://www.miaxglobal.com/sites/default/files/alert-files/TSRO_Merger_44449.pdf . TenderexpirationJanuary18 andNasdaqJanuary23administrativesuspension areNOTeffectiveconversion; preserveJanuary18.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1491576/000110465919003151/a19-1062_58k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1491576/000110465919003151/a19-1062_58k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompleted-acquisitionrelease confirms35USD commonsharecash. OCC46596 confirmsconsummationbeforeMarch9,2020open: https://www.miaxglobal.com/sites/default/files/alert-files/ZAYO_Merger_46596.pdf . PreserveMarch6.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuer completion8K confirms35USD eligible common share mandatory conversion, legalDecember21,2018 and suspension BEFORE December21NYSEopen. PreserveDecember20. No appraisal election/tax/fee inference.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1062292/000114420418066063/tv509729_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1062292/000114420418066063/tv509729_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompletion8K andOCC44577 confirm36.50USD ClassA mandatory conversion BEFORE February15,2019open. https://www.miaxglobal.com/sites/default/files/alert-files/MB_Merger_44577.pdf . February14 shareholdervote isNOTconversion. FrozenMB2alias mapping is declared inference from matchingJune19,2015listing/February14,2019terminal endpoints, issuer10K https://www.sec.gov/Archives/edgar/data/1458962/000145896217000005/mb_12-31x2016x10xk.htm . Preserve SEC_UNKNOWN and unknown/ineligible classification, not an issuer upgrade.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1458962/000119312519041728/d659409d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1458962/000119312519041728/d659409d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Issuercompletion8K confirms48.75USD plus0.2434newCI common shares, legalDecember20,2018 with oldstocks cease/newCI starts BEFORE December21open. OldCI1:1newCI continuity isexplicit; preserve provider CI security/stored oldCIK701221, no identity upgrade. OCC44234 confirms terms https://www.miaxglobal.com/sites/default/files/alert-files/ESRX_Merger_44234.pdf . PreserveDecember20. Fractional holdercash uses frozenDecember21raw-open proxy, not actual agent net sale rate.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1532063/000114036118045477/form8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1532063/000114036118045477/form8k.htm",
+          "sha256": null
+        }
+      ]
+    },
+    {
+      "descriptor": {
+        "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+        "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+        "resume_session": "2019-09-30",
+        "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+      },
+      "future_terms": [
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 23.85,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm | Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+          "security_id": "66103160004367746",
+          "session": "2020-04-16"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 125.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm | Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+          "security_id": "597162481941536532",
+          "session": "2020-04-27"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 136.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm | Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+          "security_id": "384188467071429790",
+          "session": "2020-05-29"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 52.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm | Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+          "security_id": "510659411298086546",
+          "session": "2020-10-01"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 34.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm | Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+          "security_id": "557908413825257346",
+          "session": "2020-10-13"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 88.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm | Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+          "security_id": "158295011127936997",
+          "session": "2020-10-23"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 225.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm | Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+          "security_id": "6711969151821433",
+          "session": "2020-11-17"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": 82.99,
+          "cash_per_share": null,
+          "delivered_issuer_id": "SEC_CIK:1283699",
+          "delivered_security_id": "36692955301160544",
+          "delivered_ticker": "TMUS",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": "0.10256",
+          "kind": "CONVERSION",
+          "reference": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm | April1preopen completed ordinary-holder Sprint merger exchanges each share for0.10256TMUS; holder aggregate fractional cash only. S2 provider alias proven from originalACTIONS source. Frozen unknown issuer/eligible0 unchanged. FractionalCIL uses declared frozen delivered raw-open proxy, not actual issuer settlement.",
+          "security_id": "957008674074369745",
+          "session": "2020-04-01"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 85.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm | Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions.",
+          "security_id": "1000604417782241778",
+          "session": "2020-01-06"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 20.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm | Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference.",
+          "security_id": "37487278358102709",
+          "session": "2020-01-16"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": 27.55,
+          "cash_per_share": 2.5,
+          "delivered_issuer_id": "SEC_CIK:1562476",
+          "delivered_security_id": "13062188894457483",
+          "delivered_ticker": "TMHC",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.8,
+          "kind": "CASH_PLUS_STOCK",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm | Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "security_id": "355892456681242666",
+          "session": "2020-02-06"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 27.1,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm | Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "security_id": "879124841538592826",
+          "session": "2020-03-30"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 50.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm | Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "security_id": "986298677409235360",
+          "session": "2020-07-31"
+        },
+        {
+          "cash_in_lieu_price_per_delivered_share": 41.25,
+          "cash_per_share": 0.0,
+          "delivered_issuer_id": "SEC_CIK:1316835",
+          "delivered_security_id": "314959357206229827",
+          "delivered_ticker": "BLDR",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 1.3125,
+          "kind": "CASH_PLUS_STOCK",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm | Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "security_id": "344954105397997801",
+          "session": "2021-01-04"
+        }
+      ],
+      "schema": "terminal-repair/1",
+      "source_evidence": [
+        {
+          "description": "Unchanged literal ordinary completion catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/catalog",
+          "sha256": "69cace876439b11fd0d9b48f8a6c8faa2ee149be9c6ffaf2e54dda034292feca"
+        },
+        {
+          "description": "Published cash consideration with explicit research opening availability on the completion calendar date; actual settlement and preopen completion are not claimed.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/validator",
+          "sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-spring2020-cash-terminal-facts.json",
+          "sha256": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_spring2020_cash_facts.py",
+          "sha256": "86bc30b7b2078f28fa2abe403e7c869624d2865e7aac48b41e34facb8e6116f7"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-autumn2020-cash-terminal-facts.json",
+          "sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_autumn2020_cash_facts.py",
+          "sha256": "dedd4a1a314a74301805c7e7ea6ef2fe4e4c86ed549bebe0ad9a217d6399d020"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-sprint-terminal-facts.json",
+          "sha256": "d30f52b302557445f8ed85e6314b7deb16e04f77009c5491c9de6287515116fe"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_sprint_facts.py",
+          "sha256": "1f532038b78a89c1ddac805a786f14cf516707b69ecdad4ef621c1902e93fd3b"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-medicines-terminal-facts.json",
+          "sha256": "6331ed5c48e09492cc0c15db2dac69ae0b31ce761a00bd443af7015ced1179e2"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_medicines_facts.py",
+          "sha256": "4d77a4ad59ed8a626502573decfd7b842812228aa9c6cdf1c1f05a064b1717d5"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-arqule-terminal-facts.json",
+          "sha256": "a785c139eeea04306948fd7a62cca4d6d9b0dd9211dba30123dad4892a150aa4"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_arqule_facts.py",
+          "sha256": "2ce2a4b4dcf0cb7573c3a724b1aea7d95327ed58b3b0d01a008225bb069b176a"
+        },
+        {
+          "description": "Unchanged original ordinary cash catalog.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system-campaign-selected-own-cash-terminal-facts.json",
+          "sha256": "7e497c722993513994326293e7703abb54161ed952ed0b99e3d8043a51475c9b"
+        },
+        {
+          "description": "Unchanged original ordinary cash validator.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/system_campaign_financial_future.py",
+          "sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+        },
+        {
+          "description": "Own-parent future-only selected ordinary input.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/selector",
+          "sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa"
+        },
+        {
+          "description": "Actual frozen native and complete identity/delivery witnesses.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/hydrated",
+          "sha256": "73d198187aca06ffb20d535ff0a44c1879b83d375acc6bae8c5edb40f4627302"
+        },
+        {
+          "description": "Issuer8K confirms mandatory26USD cash conversion of eligible remaining common shares on October8,2019 after the October7 tender deadline. Recognize cash at the October8 research opening boundary under an explicit daily-model assumption. Market-open trading cessation does not prove preopen legal completion or cash availability; actual settlement and fees are not claimed. Preserve October7 native trading and all frozen identity metadata.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1366527/000110465919053623/a19-19650_38k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "44aba88bb172c2f9a5227a85ee665426f52ee5603a532fc0b8b73c83d49d8b0f"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "579437a1a8ca1e414adbc4081f67c97ab83507fda650261e30781e8e43c9dcfa"
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross23.85USD per eligible share before market open on2020-04-16. Retain original frozen identity/classification and other input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/791915/000110465920047540/tm2015973d1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross125.00USD per eligible share before market open on2020-04-27. Retain original frozen identity/classification and other input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1356104/000135610420000035/mellanoxs-8posno333x186875.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross136.50USD per eligible share before market open on2020-05-29. Retain original frozen identity/classification and other input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1390844/000119312520155112/d928343d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm | April1preopen completed ordinary-holder Sprint merger exchanges each share for0.10256TMUS; holder aggregate fractional cash only. S2 provider alias proven from originalACTIONS source. Frozen unknown issuer/eligible0 unchanged. FractionalCIL uses declared frozen delivered raw-open proxy, not actual issuer settlement.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-296",
+          "sha256": null
+        },
+        {
+          "description": "Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-6",
+          "sha256": null
+        },
+        {
+          "description": "Retain the original WLH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9"
+        },
+        {
+          "description": "Retain the original WAAS consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094-1_8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1422841/000110465920040378/tm2014094d1_ex99-1.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9"
+        },
+        {
+          "description": "Retain the original LM consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/38777/000119312520206678/d28734d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9"
+        },
+        {
+          "description": "Retain the original BMCH consideration, recognition rule and any declared fractional raw-open proxy. This separately source-qualified P03 own439 input uses its actual current empty parent role; the original donor parent holding is provenance only. The unchanged canonical event path determines future holdings. Actual settlement, fees and information availability are not newly certified.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Actual mandatory completion; preserve native trading history.",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+          "sha256": null
+        },
+        {
+          "description": "Authenticated frozen source/native payload from the exact own admitted parent.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/payload",
+          "sha256": "efa1af61f550350f3137e2444ea88e91c04e9608e78746ae45c31c5b0b02fd31"
+        },
+        {
+          "description": "Separate DATA review of the complete row/native and admitted parent role.",
+          "reference": "research:system-optimization-002/selected-future-ordinary-input/1/source-capture/P03/independent-data-review",
+          "sha256": "3d3d9435c82d652f60182fb96588202c6e620a7012ada74276f88da0d47b85f9"
+        }
+      ]
+    }
+  ],
+  "future_term_count": 17,
+  "input_adopted": false,
+  "legacy_forward_term_count": 3,
+  "ordinary_descriptor": {
+    "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+    "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+    "resume_session": "2019-09-30",
+    "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+  },
+  "ordinary_future_term_count": 14,
+  "ordinary_material_file": "hydrated-future-financial-terminal-catalog-a685ba1c6d4d0c6401f974cb681f02c08bb477e9498f468a6224dffa0d0184f0.json",
+  "ordinary_material_sha256": "73d198187aca06ffb20d535ff0a44c1879b83d375acc6bae8c5edb40f4627302",
+  "original_ordinary_producer_sha256": "1eb58a9c12c71407534b95b5ff1671bb9308bf8650809e8fce308f36c2e801aa",
+  "outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+  "passed": true,
+  "root_admission_sha256": "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0",
+  "schema": "research.actual-own-bounded-sensor-inherited-observer-inventory/1",
+  "source_capture_reference_only": true
+}

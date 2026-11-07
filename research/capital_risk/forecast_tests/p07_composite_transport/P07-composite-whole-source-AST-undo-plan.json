@@ -1,0 +1,79 @@
+{
+  "catalog": "system-campaign-p07-fin326-requalified-review-transport.json",
+  "catalog_sha256": "28ea72e665ed42fecc7439a30bcf5f7858e917075408c3ace0ca7ac6427b1c9d",
+  "changes": [
+    {
+      "original": "import system_campaign_financial_review_repair as quarantine",
+      "replacement": "import system_campaign_p07_readonly_review_recovery as quarantine"
+    },
+    {
+      "original": "FLAG = 'root_requalified_failed_review_parent'",
+      "replacement": "FLAG = 'root_requalified_fin326_failed_review_parent'"
+    },
+    {
+      "original": "CATALOG = 'system-campaign-p07-requalified-review-transport.json'",
+      "replacement": "CATALOG = 'system-campaign-p07-fin326-requalified-review-transport.json'"
+    },
+    {
+      "original": "CATALOG_SHA = '48b9993c84484b264fb2740692faa71c900a8f81ef7910c5b5aaaf747a06e7a2'",
+      "replacement": "CATALOG_SHA = '28ea72e665ed42fecc7439a30bcf5f7858e917075408c3ace0ca7ac6427b1c9d'"
+    },
+    {
+      "original": "QUARANTINE_SHA = '485b3c13e3c911690efc3500e1e50cf778f8c3a50f14fe90609793bb9c9b32aa'",
+      "replacement": "QUARANTINE_SHA = '4e894728900896e3e1fb36c9ef5fc6a0dda9eaedbd9917bb645827ac97d51b41'\nROOT_SHA = 'd9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b'"
+    },
+    {
+      "original": "('P07', 42078149007, '554095dbe35cc76d114cc6b6fce20c63dd99a8d8', 13439737997,\n          '3ef67ccbd507c56915e09a118f741a40b9d981ecded13d8d14dfedaf94941e49')",
+      "replacement": "('P07', 42178048589, '5c22eb3ea156cabcbb723a3ddc67d680d3128bc0', 13484691480,\n          'bf6eb592c65070eeb0536dd842f78ff13dfb6a8c5330f23c176f99af193d6834')"
+    },
+    {
+      "original": "'REQUALIFIED_ONLY_EXACT_SUCCESSFUL_REVIEW300'",
+      "replacement": "'REQUALIFIED_ONLY_EXACT_SUCCESSFUL_REVIEW332'"
+    },
+    {
+      "original": "def validated(spec):\n    import system_campaign_financial_partial as partial",
+      "replacement": "def validated(spec):\n    require_closed_binding(spec)\n    import system_campaign_financial_partial as partial"
+    },
+    {
+      "original": "and quarantine.FLAG not in spec and 'root_admission' in spec",
+      "replacement": "and quarantine.FLAG not in spec and quarantine.MARKER not in spec and 'root_admission' in spec"
+    },
+    {
+      "original": "    target[quarantine.FLAG] = True",
+      "replacement": "    target[quarantine.FLAG] = True\n    target[quarantine.MARKER] = True"
+    },
+    {
+      "original": "'3eb2e4182f5ff02d406d1477be44faedb0c7642c4ee9b21351a6e74ac1b21470'",
+      "replacement": "'74762af37dd69927a58fad586665ba8be4cd06f120c085e1c008a7167a52cfd8'"
+    },
+    {
+      "original": "'dd1a0a1d5deb2fce3181baabecaab738d2c9ad00dacd7c8148b94de67201c533'",
+      "replacement": "'4399ca8407933809db82c0d994721baf4664443203b5ff074c0e7e904f05ede1'"
+    },
+    {
+      "original": "def qualified_view(financial, reviewed, view, target, review):",
+      "replacement": "def qualified_view(financial, reviewed, view, target, review):\n    quarantine.launcher_guard()"
+    },
+    {
+      "original": "def admit(spec, root, key, inspector):",
+      "replacement": "def admit(spec, root, key, inspector):\n    quarantine.launcher_guard()"
+    },
+    {
+      "original": "    original = quarantine.admit",
+      "replacement": "    original = quarantine.bound('admit')"
+    },
+    {
+      "original": "        need(actual == target, 'REQUALIFIED_ROOT_AUTHORITY_ONLY_FOR_EXACT_ORIGINAL_TRANSPORT')",
+      "replacement": "        need(actual == target, 'REQUALIFIED_ROOT_AUTHORITY_ONLY_FOR_EXACT_ORIGINAL_TRANSPORT')\n        request_only_source(request,spec)"
+    }
+  ],
+  "extra": "\n\ndef require_closed_binding(spec):\n    import re\n    need(re.fullmatch('[a-f0-9]{64}',ROOT_SHA) is not None\n         and spec.get('root_admission_sha256')==ROOT_SHA,\n         'P07_COMPOSITE_ONLY_REAL_FINALIZED_ROOT_BINDING_NO_DRAFT_AUTHORITY')\n    admission=spec.get('root_admission',{})\n    need(admission.get('completed')==1259 and admission.get('source_cursor')=='2022-12-30'\n         and admission.get('parent_root_admission_sha256')=='475af771e38bc5bb9600bdf0031fbb1036304a5e36348dc82cf8fbac4497098d'\n         and admission.get('outer_sha256')=='1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a'\n         and len(admission.get('repairs',[]))==24,\n         'P07_COMPOSITE_EXACT_REAL1259_FULL24_ORIGINAL1238_LINEAGE')\n\n\ndef source_names():\n    return tuple(sorted(set(quarantine.source_names())|{Path(__file__).name,CATALOG}))\n\n\nfrom contextlib import contextmanager\n\n\n@contextmanager\ndef context(spec,*,mode):\n    if mode=='launch':quarantine.launcher_guard()\n    else:\n        from full_system_core import hosted\n        hosted()\n    need(mode in ('launch','preflight'),'P07_COMPOSITE_SOURCE_ONLY_LAUNCH_AND_PREFLIGHT')\n    if not applies(spec):yield;return\n    validated(spec)\n    import system_campaign_financial_requalified_parent as original\n    saved={name:getattr(original,name) for name in ('applies','admit','accounting_review')}\n    original.applies=lambda value:applies(value) or saved['applies'](value)\n    original.admit=lambda value,*args,**kwargs:admit(value,*args,**kwargs) if applies(value) else saved['admit'](value,*args,**kwargs)\n    original.accounting_review=lambda value:accounting_review(value) if applies(value) else saved['accounting_review'](value)\n    try:yield\n    finally:\n        for name,value in saved.items():setattr(original,name,value)\n\n\ndef bind_launch(original):\n    def launch(args):\n        quarantine.launcher_guard()\n        request=json.loads(Path(args.request).read_bytes())\n        if args.arm!='P07':\n            return original(args)\n        from system_campaign_financial_partial import root_spec\n        spec=root_spec('P07')\n        if not applies(spec):return original(args)\n        request_only_source(request,spec)\n        with context(spec,mode='launch'):return original(args)\n    return launch\n\n\nSOURCE_MODE='READONLY_FROZEN_SOURCE_WITNESSES'\nSOURCE_FIELD='selected_p07_composite_source_bridges'\n\n\ndef source_declaration(spec):\n    validated(spec)\n    proof=spec['root_admission']['branch_uncertainty_proof']\n    need(proof['passed'] is proof['all_comparisons_and_state_sets_verified']\n         is proof['all_math_watch_financial_chains_verified'] is True\n         and type(proof['rows']) is type(proof['retained_rows']) is int\n         and (proof['rows'],proof['retained_rows'])==(21,784),\n         'P07_COMPOSITE_SOURCE_ONLY_EXACT805_ADMITTED_PROOFS')\n    return dict(schema='research.P07-FIN326-composite-source-only-declaration/1',arm='P07',\n        root_admission_sha256=ROOT_SHA,outer_sha256=spec['outer_sha256'],completed=1259,source_cursor='2022-12-30',\n        full_input_descriptors=24,committed_proof_rows=805,original_retained_proofs=784,new_committed_proofs=21,\n        qualified_review_transport_sha256=CATALOG_SHA,independent_validation_sha256='74762af37dd69927a58fad586665ba8be4cd06f120c085e1c008a7167a52cfd8',\n        financial_authority=False,financial_transitions_reexecuted=0,new_factual_overlay=False,\n        new_input_adoption=False,certificate_factory_installed=False,full_original_model_route_required=True)\n\n\ndef request_only_source(request,spec):\n    expected=source_declaration(spec)\n    need(request.get('execution_mode')==SOURCE_MODE and request.get('readonly_source_witnesses') is True\n         and request.get('financial_resume_authorized') is request.get('readonly_partial_review') is False\n         and type(request.get('maximum_parallel_financial_workers')) is int and request['maximum_parallel_financial_workers']==0\n         and type(request.get('maximum_parallel_readonly_workers')) is int and 1<=request['maximum_parallel_readonly_workers']<=4\n         and 'P07' in request.get('arms',[]) and request.get('admitted_checkpoints',{}).get('P07')==spec['outer_sha256']\n         and request.get('arm_inputs',{}).get('P07')==dict(new_factual_overlay=False,restored_correlation=False)\n         and request.get(SOURCE_FIELD,{}).get('P07')==expected,\n         'P07_COMPOSITE_EXPLICIT_EXACT_SOURCE_ONLY_REQUEST_NO_FINANCIAL_ENABLE')\n    return expected\n\n\ndef expected_request(original,*,execution_mode,selected_arms,root_lookup,source_bytes=None):\n    result=original();declared={}\n    if 'P07' in selected_arms:\n        spec=root_lookup('P07')\n        if applies(spec):\n            need(execution_mode==SOURCE_MODE,'P07_COMPOSITE_FINANCIAL805_CONTINUATION_NOT_YET_QUALIFIED')\n            declared['P07']=source_declaration(spec)\n    result[SOURCE_FIELD]=declared\n    reader=(lambda name:(Path(__file__).parent/name).read_bytes()) if source_bytes is None else source_bytes\n    for name in source_names():\n        pin=sha(reader(name));need(name not in result['sources'] or result['sources'][name]==pin,\n            'P07_COMPOSITE_NO_SOURCE_PIN_REPLACEMENT')\n        result['sources'][name]=pin\n    return result\n\n\n@contextmanager\ndef source_context(module,spec,*,mode,request):\n    from full_system_core import hosted\n    hosted()\n    if not applies(spec):yield;return\n    need(mode=='preflight','P07_COMPOSITE_SOURCE_CONTEXT_PREFLIGHT_ONLY')\n    request_only_source(request,spec)\n    import system_campaign_p07_abmd_lifecycle as lifecycle\n    need(lifecycle.selected(spec) and lifecycle.valid_retained(spec),\n         'P07_COMPOSITE_UNCHANGED_FULL24_LIFECYCLE_ROUTE_REQUIRED')\n    phase=lifecycle.phase(spec)\n    need((phase['completed'],phase['source_cursor'],phase['proof_rows'],phase['proof_new_rows'],phase['proof_retained_rows'])\n         ==(1259,'2022-12-30',805,21,784),\n         'P07_COMPOSITE_EXACT_SOURCE_ONLY_FULL24_AND805_LIFECYCLE_PHASE')\n    with context(spec,mode='preflight'):yield\n",
+  "local_financial_runtime_executed": false,
+  "module": "system_campaign_p07_fin326_requalified_parent.py",
+  "original_file": "system_campaign_financial_requalified_parent.py",
+  "original_sha256": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
+  "real_prospective_root_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+  "root_binding_pending": false,
+  "root_registry_activated": false,
+  "schema": "research.P07-composite-whole-source-AST-undo/1"
+}

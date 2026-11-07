@@ -158,10 +158,24 @@ def _repository_checkout_jobs():
 
 @pytest.mark.parametrize('workflow_name,job_name', _repository_checkout_jobs())
 def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_name, job_name):
-    path = Path(__file__).resolve().parents[2] / '.github/workflows' / workflow_name
-    job = yaml.safe_load(path.read_text(encoding='utf-8'))['jobs'][job_name]
+    root = Path(__file__).resolve().parents[2]
+    path = root / '.github/workflows' / workflow_name
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    job = workflow['jobs'][job_name]
     budget = job.get('timeout-minutes')
-    if type(budget) is int:
+    policy = json.loads((root / 'tests/fixtures/research_checkout_budgets.json').read_text(encoding='utf-8'))
+    assert policy['schema'] == 'sentinel.ci.research-checkout-budgets/1'
+    research_budget = policy['deadlines'].get(workflow_name + '/' + job_name)
+    if research_budget is not None:
+        # Frozen research probes/campaigns retain only their exact reviewed budgets.
+        trigger = workflow.get('on', workflow.get(True))
+        assert set(trigger) <= {'push', 'workflow_dispatch'}
+        assert trigger['push']['branches'] == ['codex/capital-risk-research']
+        permissions = job.get('permissions', workflow.get('permissions', {}))
+        assert permissions.get('contents') == 'read' and set(permissions.values()) == {'read'}
+        assert type(research_budget) is int and 5 <= research_budget <= 360
+        assert type(budget) is int and budget == research_budget, (workflow_name, job_name, budget)
+    elif type(budget) is int:
         # Checkout exhausted both ten- and fifteen-minute CI jobs before tests.
         # Short jobs reserve setup time; existing long campaigns stay bounded.
         assert 30 <= budget <= 60, (workflow_name, job_name, budget)
@@ -173,6 +187,85 @@ def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_
             "startsWith(matrix.lane, 'sentinel-current-')) && 60 || 45 }}",
             "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
         }, (workflow_name, job_name, budget)
+
+
+@pytest.mark.parametrize('change', ['deadline', 'unbounded', 'missing', 'main', 'write', 'job_write', 'pull_request'])
+def test_research_checkout_exception_rejects_changed_deadline_or_scope(monkeypatch, change):
+    path = Path(__file__).resolve().parents[2] / '.github/workflows/p01_iac_namespace_financial.yml'
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    job = workflow['jobs']['iac-namespace']
+    trigger = workflow.get('on', workflow.get(True))
+    if change == 'deadline': job['timeout-minutes'] -= 1
+    elif change == 'unbounded': job['timeout-minutes'] = 361
+    elif change == 'missing': job.pop('timeout-minutes')
+    elif change == 'main': trigger['push']['branches'] = ['main']
+    elif change == 'write': workflow['permissions']['actions'] = 'write'
+    elif change == 'job_write': job['permissions'] = {'contents': 'read', 'actions': 'write'}
+    else: trigger['pull_request'] = {}
+    monkeypatch.setattr(yaml, 'safe_load', lambda _: workflow)
+    with pytest.raises(AssertionError):
+        test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines('p01_iac_namespace_financial.yml', 'iac-namespace')
+
+
+def test_unlisted_research_checkout_job_keeps_ordinary_ci_bounds(monkeypatch):
+    path = Path(__file__).resolve().parents[2] / '.github/workflows/p01_iac_namespace_financial.yml'
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    workflow['jobs']['unlisted'] = deepcopy(workflow['jobs']['iac-namespace'])
+    monkeypatch.setattr(yaml, 'safe_load', lambda _: workflow)
+    with pytest.raises(AssertionError):
+        test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines('p01_iac_namespace_financial.yml', 'unlisted')
+
+
+def test_research_checkout_exact_deadline_guard_falsifier(monkeypatch):
+    import ast
+    path = Path(__file__).resolve()
+    workflow = yaml.safe_load((path.parents[2] / '.github/workflows/p01_iac_namespace_financial.yml').read_text(encoding='utf-8'))
+    workflow['jobs']['iac-namespace']['timeout-minutes'] -= 1
+    monkeypatch.setattr(yaml, 'safe_load', lambda _: workflow)
+    with pytest.raises(AssertionError):
+        test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines('p01_iac_namespace_financial.yml', 'iac-namespace')
+    fn, = [n for n in ast.parse(path.read_text(encoding='utf-8')).body
+           if isinstance(n, ast.FunctionDef) and n.name == 'test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines']
+    removed = []
+    class RemoveExactBudget(ast.NodeTransformer):
+        def visit_Assert(self, node):
+            if any(isinstance(n, ast.Compare) and ast.unparse(n) == 'budget == research_budget' for n in ast.walk(node)):
+                removed.append(node)
+                return None
+            return node
+    fn.decorator_list = []
+    fn = RemoveExactBudget().visit(fn)
+    assert len(removed) == 1
+    scope = dict(globals())
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), '<exact-deadline-guard-removed>', 'exec'), scope)
+    scope[fn.name]('p01_iac_namespace_financial.yml', 'iac-namespace')
+
+
+def test_sealed_research_checkout_crlf_preserves_bytes_and_rejects_spaces(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    attributes = (root / '.gitattributes').read_bytes().replace(b'\r\n', b'\n')
+    relative = 'research/capital_risk/system_campaign_finish_job.py'
+    assert (relative + ' -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol').encode() in attributes
+    def git(*args):
+        return subprocess.run(['git', *args], cwd=tmp_path, capture_output=True)
+    assert git('init', '-q').returncode == 0
+    (tmp_path / '.gitattributes').write_bytes(attributes)
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True)
+    raw = b'synthetic_marker = True\r\n'
+    target.write_bytes(raw)
+    assert git('-c', 'core.autocrlf=true', 'add', '--', '.gitattributes', relative).returncode == 0
+    assert git('show', ':' + relative).stdout == raw
+    check = ('-c', 'core.whitespace=blank-at-eol,blank-at-eof,space-before-tab', 'diff', '--cached', '--check')
+    assert git(*check).returncode == 0
+    target.write_bytes(b'synthetic_marker = True \r\n')
+    assert git('add', '--', relative).returncode == 0
+    failed = git(*check)
+    assert failed.returncode != 0 and b'trailing whitespace' in failed.stdout
+    # Removing the real-space guard admits the same invalid bytes.
+    (tmp_path / '.gitattributes').write_bytes(attributes.replace(b'whitespace=blank-at-eol,', b'whitespace=-blank-at-eol,'))
+    assert git('add', '--', '.gitattributes').returncode == 0
+    assert git(*check).returncode == 0
 
 
 def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():
