@@ -205,6 +205,7 @@ fi
 docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
   --label sentinel.restore-drill=v1 --memory 1g --cpus 0.5 --pids-limit 128 \
   -e "SENTINEL_RESTORE_TARGET_LSN=$TARGET_LSN" \
+  -e "SENTINEL_RESTORE_PHASE_TOKEN=$TOKEN" \
   "${DATA_IDENTITY_ENV[@]}" \
   --network-alias restored-postgres \
   -v "$LATEST:/source:ro" -v "$BACKUP_ROOT/base:/backup-lock" \
@@ -216,13 +217,7 @@ docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
   --kill-after=30s "$("$PYTHON" scripts/sentinel_backup_deadlines.py restore-worker)" sh /restore-worker >/dev/null
 CONTAINER_STARTED=1
 
-for _ in $(seq 1 1200); do
-  if docker exec "$CONTAINER" pg_isready -U sentinel -d sentinel >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-docker exec "$CONTAINER" pg_isready -U sentinel -d sentinel >/dev/null
+"$PYTHON" scripts/sentinel_restore_readiness.py --container "$CONTAINER" --token "$TOKEN"
 for _ in $(seq 1 60); do
   REPLAYED="$(docker exec "$CONTAINER" psql -U sentinel -d sentinel -Atc \
     "SELECT CASE WHEN pg_last_wal_replay_lsn() >= '$TARGET_LSN'::pg_lsn

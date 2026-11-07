@@ -129,7 +129,7 @@ def commit_boundary(runner):
 
 
 def reuse(root, command):
-    """Return None only before mutation when a fresh full milestone is needed.
+    """Return None only before mutation when no authenticated base is available.
 
     command owns the outer invocation deadline and verified target lock. Failed
     archive/identity proof after selecting reuse refuses; it cannot fall back to
@@ -149,20 +149,25 @@ def reuse(root, command):
     image = maintenance.runtime_image(runner)
     before = maintenance.observe_primary(runner)
     selected = maintenance.worker('observe', image, str(root), before, runner)
-    if maintenance.renewal_due(selected, before):
-        return None
+    renewed = maintenance.renewal_due(selected, before)
+    if renewed:
+        selected, before = maintenance.renew_base(str(root), image, runner)
     backup = str(root / 'base' / selected['name'])
     receipt = maintenance.verified_base_receipt(selected, before, runner)
     verified_base = receipt is not None
     if receipt is None:
+        if renewed:
+            raise RuntimeError('renewed activation base lacks authenticated producer evidence')
         # An older base may have genuine semantic restore evidence. Its
         # immutable application image does not have to be the current image.
         receipt = maintenance._selected_full_restore_receipt(selected, before, runner)
     if receipt is None:
         return None
-    method = ('REUSED_VERIFIED_BASE_AND_ARCHIVED_STATE' if verified_base
+    method = ('VERIFIED_NEW_BASE_AND_ARCHIVED_STATE' if renewed else
+              'REUSED_VERIFIED_BASE_AND_ARCHIVED_STATE' if verified_base
               else 'REUSED_FULL_RESTORE_AND_ARCHIVED_STATE')
-    print('activation recovery: reusing proven base; archiving saved state', flush=True)
+    print('activation recovery: ' + ('verified renewed base' if renewed else 'reusing proven base')
+          + '; archiving saved state', flush=True)
     # The statement commits before the next psql invocation captures the flush
     # boundary. Earlier plan/authority commits are therefore before this LSN.
     marker, barrier = commit_boundary(runner)
@@ -207,7 +212,7 @@ def reuse(root, command):
         base_evidence_sha256=evidence_sha256,
         marker=marker, state_lsn=barrier['lsn'], state_wal=barrier['wal'],
         recoverable_through_wal=proof['recoverable_through_wal'],
-        new_base_created=False, full_restore_performed=False)
+        new_base_created=renewed, full_restore_performed=False)
     if not verified_base:
         checkpoint['full_restore_receipt_sha256'] = evidence_sha256
     print('activation_recovery_checkpoint:' + json.dumps(checkpoint, sort_keys=True), flush=True)

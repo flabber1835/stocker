@@ -1,5 +1,6 @@
 """The local overlay runs the same real-child contracts over pinned base code."""
 import importlib.util
+import gzip
 import json
 from pathlib import Path
 import re
@@ -13,8 +14,11 @@ from tests.sentinel import test_go_probe_artifact_identity as contract
 
 @pytest.fixture
 def base_sources():
-    new_go = (contract.ROOT/'scripts/sentinel_go_validate.py').read_bytes()
-    new_entry = (contract.ROOT/'scripts/sentinel_go_validate_entry.py').read_bytes()
+    fixtures = Path(__file__).with_name('fixtures')
+    new_go = gzip.decompress((fixtures/'go-host-c0d4ed7b.py.gz').read_bytes())
+    new_entry = gzip.decompress((fixtures/'go-entry-host-c0d4ed7b.py.gz').read_bytes())
+    assert patch.sha(new_go) == '4d6bc501a035b450d6d3d1b750ab2785fc5a4ca8489acb150e11fab0efc4120b'
+    assert patch.sha(new_entry) == 'f2ed521a8c97f5e0e3abb9a5163664fee151fd1da33203b8cc3bb547c1216e5c'
     old_go, count = re.subn(rb'^ *"--env", "SENTINEL_TEST_IMAGE_DIGEST",\n', b'', new_go, flags=re.M)
     assert count == 3
     old_entry = new_entry.replace(b'    "SENTINEL_TEST_IMAGE_DIGEST",\n', b'')
@@ -23,6 +27,13 @@ def base_sources():
     assert patch.sha(old_go) == '66cd2d8493e7e722bb5fad95003a3e969e9e56a7ed88b863d2b4bc07f60cca79'
     assert patch.sha(old_entry) == 'f1155a3e73d2cd8abf15150f939f171c3cbbd6c382a27b950980cc7e50f57c8e'
     return old_go, old_entry, new_go, new_entry
+
+
+def test_historical_source_follows_imported_test_not_current_metadata(monkeypatch,tmp_path,request):
+    monkeypatch.setattr(contract,'ROOT',tmp_path)
+    old_go,old_entry,*_=request.getfixturevalue('base_sources')
+    assert patch.sha(old_go)==patch.BASE_FILES['scripts/sentinel_go_validate.py']
+    assert patch.sha(old_entry)==patch.BASE_FILES['scripts/sentinel_go_validate_entry.py']
 
 
 @pytest.fixture
@@ -43,9 +54,11 @@ def local_overlay(base_sources, tmp_path, monkeypatch):
     monkeypatch.setattr(contract, 'go', go)
     monkeypatch.setattr(contract, 'entry', entry)
     monkeypatch.setattr(contract.source_final, 'go', go)
+    reviewed_source = tmp_path/'reviewed-go.py'
+    reviewed_source.write_bytes(base_sources[2])
     patch.install(go, entry, old_go=base_sources[0], old_entry=base_sources[1],
         new_go=base_sources[2], new_entry=base_sources[3],
-        filename=str(contract.ROOT/'scripts/sentinel_go_validate.py'))
+        filename=str(reviewed_source))
 
 
 @pytest.mark.parametrize('route', contract.ROUTES[:-1])

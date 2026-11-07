@@ -2618,7 +2618,8 @@ def _shadow_holdings(state, session, nav):
 
 
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
-                               propagate_read_unavailability: bool = False):
+                               propagate_read_unavailability: bool = False,
+                               project_execution_context: bool = True):
     """Project the actual canonical shadow; never create a catchup book."""
     if result is None or not verified:
         detail = "current canonical shadow verification is unavailable"
@@ -2632,14 +2633,26 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
         state = result.state.to_dict()
         view = _state_view(dict(session=result.session, state=state, updated_at=now),
                            expected_version=ENVELOPE_VERSION)
-        plan, rollout = _current_plan(conn), _rollout_state(conn)
+        plan, rollout = ((_current_plan(conn), _rollout_state(conn))
+                         if project_execution_context else (None, None))
         # Execution may still retain another decision's unsuperseded plan.
         # Only this verified strategy session can establish plan adoption or
         # contribute its unpriced counts to the canonical book projection.
         if plan is not None and plan["decision_session"] != view["session"]:
             plan = None
-        exposure = _exposure_row(
-            view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
+        if project_execution_context:
+            exposure = _exposure_row(
+                view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
+        else:
+            decision = view['decision'] or {}
+            if decision.get('session') != view['session']:
+                raise ValueError('canonical controller decision session changed')
+            basis = model.ShadowProjectionBasis(session=view['session'], observed_at=now,
+                target_core_exposure=str(decision['target_core_exposure']),
+                **{key: view[key] for key in ('slots_used','slots_total','blocked','unresolved','carried','pending')},
+                nav=str(view['nav']), cash=str(view['cash']))
+            exposure = model.exposure_row(exposure=float(basis.target_core_exposure),
+                controller_active=True, adopted=False, session=basis.session, as_of=now)
         book = model.book_row(
             available=True, slots_used=view['slots_used'], slots_total=view['slots_total'],
             nav=view['nav'], cash=view['cash'], blocked=view['blocked'],
@@ -2647,6 +2660,8 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
             unpriced_securities=len(plan['unpriced_securities']) if plan else None,
             as_of=now)
         book = replace(book, shadow_book=_shadow_holdings(state, result.session, Decimal(str(view['nav']))))
+        if not project_execution_context:
+            book = replace(book, shadow_projection=basis)
         terminals = model.terminals_row(
             current_unresolved=view['unresolved'], current_pending=view['carried'],
             as_of=now)
@@ -2664,7 +2679,8 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
 
 def _dual_authority_rows(
         database_url: str, *, now: datetime, include_paper: bool = True,
-        propagate_corpus_lock: bool = False, propagate_read_unavailability: bool = False
+        propagate_corpus_lock: bool = False, propagate_read_unavailability: bool = False,
+        project_execution_context: bool = True
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
@@ -2763,7 +2779,8 @@ def _dual_authority_rows(
         book_rows, book_errors = _verified_shadow_book_rows(
             conn, result, verified=(verified or source_wait is not None),
             now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)),
-            propagate_read_unavailability=propagate_read_unavailability)
+            propagate_read_unavailability=propagate_read_unavailability,
+            project_execution_context=project_execution_context)
         if source_wait is not None:
             book_rows = [replace(row, status=model.WARN,
                 value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",

@@ -309,6 +309,9 @@ def _write_python_proxy(path: Path) -> Path:
         """#!/usr/bin/env bash
 set -euo pipefail
 script="${1:-}"
+if [ "${E2E_FAIL_SCRIPT:-}" = scripts/sentinel_go_promote.py ] && [ "$script" = scripts/sentinel_go_verified_entry.py ]; then
+  exec "$E2E_REAL_PYTHON" -c 'import sys; from tools.production_go_stage_faults import promotion_main; promotion_main(sys.argv[1:])' "$@"
+fi
 if [ -n "${E2E_FAIL_SCRIPT:-}" ] && [ "$script" = "$E2E_FAIL_SCRIPT" ]; then
   printf 'E2E_STAGE_FAULT:%s\\n' "$script" >&2
   exit 97

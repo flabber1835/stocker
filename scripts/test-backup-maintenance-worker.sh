@@ -4,6 +4,7 @@ set -euo pipefail
 test "$(id -u)" = 0
 test ! -e /tmp/maintenance-primary
 export POSTGRES_USER=sentinel POSTGRES_DB=sentinel
+export SENTINEL_RESTORE_PHASE_TOKEN="maintenance-worker-qualification-$$"
 mkdir /tmp/maintenance-primary /tmp/maintenance-socket /archive /source /backup-lock
 chown postgres:postgres /tmp/maintenance-primary /tmp/maintenance-socket /archive
 gosu postgres initdb -D /tmp/maintenance-primary -U sentinel -A trust --no-locale >/dev/null
@@ -66,6 +67,9 @@ test "$(psql -h /tmp/maintenance-socket -U sentinel -d sentinel -Atc 'SELECT pg_
 echo 'PG16_RESTORE_WORKER: explicit promotion succeeded after target pause'
 gosu postgres pg_ctl -D /var/lib/postgresql/data -m fast -w stop >/dev/null
 wait "$worker"
+diff -u <(printf 'SENTINEL_RESTORE_PHASE=%s:%s\n' "$SENTINEL_RESTORE_PHASE_TOKEN" COPYING \
+  "$SENTINEL_RESTORE_PHASE_TOKEN" VERIFYING "$SENTINEL_RESTORE_PHASE_TOKEN" STARTING) \
+  <(grep '^SENTINEL_RESTORE_PHASE=' /tmp/restored.log)
 flock -x -n /backup-lock/.sentinel-maintenance.lock true
 echo 'PG16_RESTORE_WORKER: shutdown released media lock'
 # A changed source relation must be rejected by the real verification tool.

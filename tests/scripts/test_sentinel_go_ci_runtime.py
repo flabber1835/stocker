@@ -208,7 +208,7 @@ def test_ci_promotion_selects_registry_digest_only_after_target_proof():
     assert "verifier.verify_current" in source
     assert "runtime._write_pointer(certified_image)" in source
     assert source.index("_current_run_target_pass(head)") < source.index(
-        "_promote_ci(head=head, runner=runner)")
+            "_promote_ci(head=head, runner=runner,")
 
 
 def test_compose_pointer_accepts_registry_digest_and_rejects_mutable_tag():

@@ -57,6 +57,25 @@ def condition_evidence(panel, keys):
             'value_sha256': hashlib.sha256(row.value.encode('utf-8')).hexdigest(),
             'detail_sha256': hashlib.sha256(row.detail.encode('utf-8')).hexdigest()}
         failure = panel.trial_details.get('worker_observation_failure')
+        if key == 'operational_projection' and row.status == UNKNOWN:
+            from sentinel.panel.observer_failure import Failure
+            try:
+                diagnostic = Failure.model_validate(panel.trial_details.get('operational_failure'))
+            except (ValueError,TypeError):
+                diagnostic = None
+            if diagnostic is not None:
+                result[key].update(code='OPERATIONAL_COLLECTION_'+diagnostic.code,
+                    exception_type=diagnostic.exception_type,
+                    diagnostic_sha256=diagnostic.fingerprint)
+                context = panel.trial_details.get('operational_failure_context')
+                if (isinstance(context,dict) and set(context)=={'schema','stage','attempts','elapsed_ms'}
+                        and context['schema']=='sentinel.operational-failure-context/1'
+                        and context['stage'] in {'NOT_STARTED','COORDINATES','COLLECT','CONNECT',
+                            'OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS','REVIEW','ENCODE','PUBLISH','COMMIT'}
+                        and type(context['attempts']) is int and 1<=context['attempts']<=2
+                        and type(context['elapsed_ms']) is int and 0<=context['elapsed_ms']<=30000):
+                    result[key].update(collector_stage=context['stage'],
+                        attempts=context['attempts'],elapsed_ms=context['elapsed_ms'])
         if (key == 'shadow_worker' and row.status == UNKNOWN
                 and isinstance(failure, dict)
                 and set(failure) == {'schema', 'code', 'stage'}

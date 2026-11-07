@@ -39,7 +39,7 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
     def quiesce():
         quiesces.append(True)
         fenced[0]=True
-        if len(quiesces)==2:
+        if len(quiesces)==1:
             if fault=='publication':host.publication=dict(gate.PUBLICATION,publication_fingerprint='9'*64)
             if fault=='configuration':env['SENTINEL_SHADOW_STARTING_CASH']='200000'
         return True
@@ -71,7 +71,8 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
         software_calls.append(True)
         return software(*a,**k)
     monkeypatch.setattr(core,'verify_reviewed_software_environment',verify)
-    request=dict(source_commit=gate.COMMIT,mode='dual',installation_sha256='a'*64)
+    request=dict(source_commit=gate.COMMIT,mode='dual',installation_sha256='a'*64,
+                 bundle=str(bundle.path),bundle_sha256=bundle.sha256)
     if fault:
         with pytest.raises(core.DeployRefused):
             activate.attempt(tmp_path/'activation-request.json',request,dict(runtime_image=gate.RUNTIME))
@@ -83,6 +84,7 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
         assert lineage==['read'] and events[-1]=='success'
         assert json.loads((tmp_path/'activation-result.json').read_text())['activation_state']=='ACTIVE'
     assert software_calls==[True]
+    assert quiesces==[True]
 
 
 def test_removed_final_fenced_guard_is_detected(monkeypatch,tmp_path):

@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Removing redundant operational work](redundant-operational-work.md) separates
+restore worker phases and genuine daily renewal from avoidable repeated work;
+fresh financial and recovery admission guards retain their named boundaries.
+
 [Physical backup client writeback budget](backup-client-writeback-budget.md)
 records the measured client-cache OOM and its finite resource-envelope correction.
 It requires qualified delivery before changing recurring maintenance configuration.

@@ -37,7 +37,7 @@ class ShellLab:
         self.scripts.mkdir(parents=True)
         for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
                      "sentinel-backup-verify-chain.py", "sentinel-backup-verify-chain.sh",
-                     "sentinel-restore-drill.sh", "sentinel_host_python.py",
+                     "sentinel-restore-drill.sh", "sentinel_restore_readiness.py", "sentinel_host_python.py",
                      "sentinel_backup_lock.py", "sentinel_lock_ownership.py",
                      "sentinel-backup-metadata-access.sh",
                      "sentinel-backup-publish-selection.sh",

@@ -36,9 +36,13 @@ def test_launcher_serializes_and_uses_guarded_verified_entry():
     assert "sentinel_go_data_preflight.py" not in text
     assert "scripts/sentinel_go_lock.py" in text
     assert 'scripts/sentinel_go_verified_entry.py "$@"' in text
-    assert 'scripts/sentinel_go_promote.py "$@"' in text
-    assert text.index("sentinel_go_verified_entry.py") < text.index(
-        "sentinel_go_promote.py")
+    assert 'scripts/sentinel_go_promote.py "$@"' not in text
+    owner = VERIFIED_SCRIPT.read_text(encoding='utf-8')
+    validation = owner.index('rc = controller.main(raw)')
+    proof = owner.index('_write_run_pass(target=target)', validation)
+    promotion = owner.index('rc = promote.main(', proof)
+    assert validation < proof < promotion
+    assert 'software_verification=software_verification' in owner[promotion:]
     assert 'if [ "$VALIDATION_RC" -ne 0 ]' in text
 
 
@@ -159,7 +163,7 @@ def test_promotion_requires_current_run_go_and_exact_certified_runtime_for_each_
     run_pass = text.index("_current_run_target_pass(head)")
     select = text.index("selected = (", run_pass)
     local_full = text.index("_promote_local_full(head=head, runner=runner)", select)
-    ci = text.index("_promote_ci(head=head, runner=runner)", select)
+    ci = text.index("_promote_ci(head=head, runner=runner,", select)
     verify = text.index("validated runtime pointer verification failed", ci)
     consume = text.index("_consume_run_pass()", verify)
     assert run_pass < select < local_full < verify < consume

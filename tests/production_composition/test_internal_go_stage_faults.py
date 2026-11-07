@@ -203,6 +203,25 @@ def test_host_evidence_fault_occurs_when_writer_is_called(monkeypatch, capsys):
     assert "E2E_STAGE_FAULT:validation-evidence" in capsys.readouterr().out
 
 
+def test_promotion_fault_reaches_same_owner_after_validation(monkeypatch, capsys):
+    events=[]
+    promotion=SimpleNamespace(main=lambda **kwargs:events.append('unmodified promotion'))
+    def main():
+        events.append('preceding real validation')
+        promotion.main(software_verification=object())
+        events.append('following handoff')
+    entry=SimpleNamespace(main=main)
+    monkeypatch.setattr(faults.importlib,'import_module',lambda name:
+        promotion if name=='sentinel_go_promote' else entry)
+    monkeypatch.setattr(faults.sys,'path',list(faults.sys.path))
+    monkeypatch.setattr(faults.sys,'argv',[])
+    with pytest.raises(SystemExit) as refused:
+        faults.promotion_main(['scripts/sentinel_go_verified_entry.py','--target','SHADOW'])
+    assert refused.value.code==97
+    assert events==['preceding real validation']
+    assert 'E2E_STAGE_FAULT:scripts/sentinel_go_promote.py' in capsys.readouterr().out
+
+
 def test_operational_fault_retains_canonical_parity_cli_arguments():
     original = ["compose", "run", "sentinel", "-m", "tools.sentinel_operational_parity",
                 "--starting-cash", "100000", "--expected-commit", "a" * 40]

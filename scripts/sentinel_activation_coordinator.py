@@ -254,10 +254,14 @@ def attempt(path, request, receipt):
         raise core.DeployRefused('activation runtime differs from installed software')
     # Readiness waits begin only after installed state exists. No competing source writer.
     with obj.activation_transition():
-        if not obj._quiesce_database():
-            raise core.DeployRefused('activation could not confirm execution fence')
-        if request['mode'] != 'shadow':
-            obj.read_paper_account()
+        # Supplied bundles need only byte parsing here. run_activation owns the
+        # fresh fence before lineage/mutation. GO may start source services, so
+        # a generated bundle still needs both the pre-GO and post-GO boundaries.
+        if request['bundle'] is None:
+            if not obj._quiesce_database():
+                raise core.DeployRefused('activation could not confirm execution fence')
+            if request['mode'] != 'shadow':
+                obj.read_paper_account()
         bundle, confirmation = financial_bundle(obj, request)
         # Parse the signed proposal here; run_activation binds software/account
         # and reads current financial lineage once after confirming its fence.

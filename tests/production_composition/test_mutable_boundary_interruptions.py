@@ -15,6 +15,7 @@ import sentinel_go_backup_refresh as backup  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_go_validate_entry as entry  # noqa: E402
 import sentinel_go_verified_entry as verified  # noqa: E402
+import sentinel_go_promote as promotion  # noqa: E402
 import sentinel_go_24x7_entry as install_entry  # noqa: E402
 
 COMMIT = "a" * 40
@@ -135,6 +136,12 @@ def test_kill_inside_schema_ingest_preparation_child_is_not_converted_to_success
 
 
 def _configure_verified_main(monkeypatch, *, controller_rc: int, written: list):
+    promoted = []
+    def promote(*args, **kwargs):
+        assert written == [True]
+        promoted.append(kwargs['software_verification'])
+        return 0
+    monkeypatch.setattr(promotion, 'main', promote)
     monkeypatch.setattr(verified.phase, "_strict_target", lambda _raw: None)
     monkeypatch.setattr(
         verified.controller, "_target_from_argv",
@@ -154,26 +161,36 @@ def _configure_verified_main(monkeypatch, *, controller_rc: int, written: list):
     monkeypatch.setattr(verified.observability, "install", lambda **_k: None)
     monkeypatch.setattr(verified.controller, "main", lambda _raw: controller_rc)
     monkeypatch.setattr(verified, "_write_run_pass", lambda **_k: written.append(True))
+    return promoted
 
 
 def test_nonzero_controller_result_cannot_create_requested_target_pass(monkeypatch):
     written = []
-    _configure_verified_main(monkeypatch, controller_rc=137, written=written)
+    promoted = _configure_verified_main(monkeypatch, controller_rc=137, written=written)
 
     rc = verified.main([])
 
     assert rc == 137
     assert written == []
+    assert promoted == []
 
 
 def test_run_pass_is_created_only_after_successful_controller_completion(monkeypatch):
     written = []
-    _configure_verified_main(monkeypatch, controller_rc=0, written=written)
+    promoted = _configure_verified_main(monkeypatch, controller_rc=0, written=written)
 
     rc = verified.main([])
 
     assert rc == 0
     assert written == [True]
+    assert len(promoted) == 1
+
+
+def test_in_process_promotion_refusal_cannot_be_reported_as_success(monkeypatch):
+    written=[]
+    _configure_verified_main(monkeypatch,controller_rc=0,written=written)
+    monkeypatch.setattr(promotion,'main',lambda *a,**k:41)
+    assert verified.main([])==41 and written==[True]
 
 
 def test_bundle_emission_exception_cannot_be_misrepresented_as_completed_evidence(monkeypatch):

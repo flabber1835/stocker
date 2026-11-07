@@ -112,6 +112,21 @@ def python_main(argv: list[str], fault: str) -> None:
     os.execv(os.environ["E2E_REAL_PYTHON"], [os.environ["E2E_REAL_PYTHON"], *argv])
 
 
+def promotion_main(argv: list[str]) -> None:
+    """Refuse the real in-process promotion after all preceding GO work."""
+    if not argv or argv[0] != 'scripts/sentinel_go_verified_entry.py':
+        raise ValueError('promotion fault must enter the verified GO owner')
+    sys.path.insert(0, str(ROOT/'scripts'))
+    promotion = importlib.import_module('sentinel_go_promote')
+    entry = importlib.import_module('sentinel_go_verified_entry')
+    def refuse(*args, **kwargs):
+        print('E2E_STAGE_FAULT:scripts/sentinel_go_promote.py', flush=True)
+        raise SystemExit(97)
+    promotion.main = refuse
+    sys.argv = list(argv)
+    raise SystemExit(entry.main())
+
+
 def main(kind: str) -> None:
     fault = os.environ.get("E2E_INTERNAL_STAGE", "")
     if kind == "python":
