@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Physical backup client writeback budget](backup-client-writeback-budget.md)
+records the measured client-cache OOM and its finite resource-envelope correction.
+It requires qualified delivery before changing recurring maintenance configuration.
+
 [Independent operational state](operational-state-contract.md) defines the
 November 5 dashboard/orchestration redesign: background-owned health history,
 typed bounded snapshots, diagnosable finite verification and explicit source

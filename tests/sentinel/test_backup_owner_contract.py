@@ -58,6 +58,8 @@ def _require_isolated_client(service):
     assert service['profiles'] == ['backup-client']
     assert service['entrypoint'] == ['timeout'] and service['command'] == ['--help']
     assert service['init'] is True and service['restart'] == 'no'
+    assert service.get('mem_limit') == '2g' and service.get('memswap_limit') == '2g'
+    assert service.get('cpus') == 0.5
     assert set(service['environment']) == {'POSTGRES_PASSWORD'}
     assert {v['target'] for v in service['volumes']} == {'/usr/local/libexec', '/sentinel-backup/base'}
 
@@ -79,6 +81,18 @@ def test_shared_pid_namespace_falsifier_is_rejected(pid):
     service = yaml.safe_load(_read('docker-compose.sentinel-backup.yml'))['services']['sentinel-backup-client']
     service['pid'] = pid
     with pytest.raises(AssertionError): _require_isolated_client(service)
+
+
+@pytest.mark.parametrize(('key', 'value'), [
+    ('mem_limit', '256m'), ('mem_limit', '3g'),
+    ('memswap_limit', None), ('memswap_limit', '4g'),
+    ('cpus', None), ('cpus', 1),
+])
+def test_finite_client_budget_falsifier_is_rejected(key, value):
+    service = yaml.safe_load(_read('docker-compose.sentinel-backup.yml'))['services']['sentinel-backup-client']
+    service[key] = value
+    with pytest.raises(AssertionError):
+        _require_isolated_client(service)
 
 
 def test_base_worker_grace_fits_host_deadline():
