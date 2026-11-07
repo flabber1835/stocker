@@ -28,4 +28,8 @@ def test_failed_financial_receipt_and_separate_positive_review_are_preserved():
 def test_new_root_does_not_select_an_unqualified_future_financial_worker():
  import system_campaign_financial_resume as resume
  import system_campaign_p06_WWE12_runtime as old_profile
- assert resume.SELECTED_ARMS==() and old_profile.candidate(p.root_spec('P06')) is False
+ assert old_profile.candidate(p.root_spec('P06')) is False
+ if resume.SELECTED_ARMS:
+  import system_campaign_source_exit_runtime as successor
+  assert resume.SELECTED_ARMS==('P06',) and successor.qualification(p.root_spec('P06'))
+  assert successor.request_financial(resume.expected_request(),p.root_spec('P06')) is True

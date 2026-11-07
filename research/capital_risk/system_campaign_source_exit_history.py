@@ -60,7 +60,8 @@ def full(root,current):
  from research.pooled_vacancy_funding import backtest
  from system_campaign_financial_partial import root_spec
  import system_campaign_p06_WWE12_models as previous
- root=Path(root);return history(root,current,root_spec('P06'),member=lambda n:(root/n).read_bytes(),previous_history=previous.full,input_hash=backtest.input_hash)
+ root=Path(root);parent_root=source.catalog()['term']['parent_root_admission_sha256']
+ return history(root,current,root_spec('P06',parent_root),member=lambda n:(root/n).read_bytes(),previous_history=previous.full,input_hash=backtest.input_hash)
 
 def packet_qualification(member,terms):
  q=json.loads(member(api_module.QUALIFICATION));checks=sum(len({t['native_session'],t['added']['session']}) for t in terms)

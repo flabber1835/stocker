@@ -1,5 +1,5 @@
 """Whole legacy mode wrappers and exact selected metadata, without replay."""
-import ast,sys
+import ast,json,sys
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -27,7 +27,10 @@ def test_financial_request_is_three_distinct_qualified_input_histories(monkeypat
     assert set(value['selected_abmd_bounded_inputs'])=={'P06','P07'}
     assert value['selected_abmd_bounded_inputs']['P06']['prior_seed_rows']==0
     assert value['selected_abmd_bounded_inputs']['P07']['old_models_and_784_source_proofs_preserved']
-    assert len(value['sources'])==697 and len(data.source_names())==len(set(data.source_names()))
+    import system_campaign_source_exit_entry as successor
+    original_names=set(json.loads((Path(data.__file__).parent/'P06-FIN356-captured-financial-request.json').read_bytes())['sources'])
+    assert len(original_names)==697 and set(value['sources'])==original_names|set(successor.source_names())
+    assert len(data.source_names())==len(set(data.source_names()))
 
 @pytest.mark.parametrize('change',['root','outer','count','cursor','input'])
 def test_p06_declaration_has_no_unregistered_or_truncated_source(change):

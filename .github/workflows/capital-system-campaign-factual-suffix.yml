@@ -8,8 +8,9 @@ permissions:
   actions: read
 jobs:
   suffix:
-    # FIN356 own1677 admitted; future full12 continuation remains unselected.
-    if: ${{ false }}
+    # Source/whole-profile checks close first; real preparation, neutral13 and
+    # constructor canaries must then pass before financial main can advance.
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     concurrency:

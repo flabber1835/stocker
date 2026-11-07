@@ -45,8 +45,8 @@
       "sha256": "b514eaf9ca1af4fd31b47eab0fc51dd36b9880b614c722160539f7c20cae6da5"
     },
     "system_campaign_source_exit_history.py": {
-      "bytes": 6579,
-      "sha256": "4e499c2191efd45c278641d95c85a52daab8bbb4a4257518455b2790a1572d92"
+      "bytes": 6661,
+      "sha256": "bb8e97cd0f3d5d376ab52362a0bba5a1423240118ba5943f175c25c08d41c2d6"
     },
     "system_campaign_source_exit_input.py": {
       "bytes": 5479,
@@ -57,6 +57,7 @@
   "financial_profile_ready": false,
   "financial_sessions_advanced": 0,
   "full_original_parent_history_traversed": true,
+  "historical_parent_root_lookup_pinned_independently_of_latest_root": true,
   "hosted_packet_execution_qualified": false,
   "local_canonical_runtime_executed": false,
   "new_scope_filename_preserves_old_scope_file": true,
