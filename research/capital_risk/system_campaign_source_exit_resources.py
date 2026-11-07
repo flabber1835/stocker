@@ -9,6 +9,7 @@ import system_campaign_dependencies as dependencies
 import system_campaign_source_exit_history as history
 import system_campaign_retained_seed_successor as seeds
 import system_campaign_p06_WWE12_resources as original
+import system_campaign_source_exit_profiles as profiles
 HERE=Path(__file__).parent
 PLAN='system-campaign-source-exit-successor-resources.json'
 PLAN_SHA='cd94bcaf5a27da1438722c111cd2a868d93523bfcec64149fa4dd4c31cf833d1'
@@ -23,13 +24,15 @@ def validate_plan(value,spec):
   and value['raw_proof']==seed['raw_proof'] and value['raw_proof_rows']==seed['raw_rows']
   and value['event_resolutions']==[seed['historical_event_resolution']],
   'SOURCE_EXIT_RESOURCES_EXACT_ENTIRE_PARENT_AND_ORIGINAL_PROOF_ARCHIVE_CONTEXT')
- need(len(value['resources'])==103 and value['requirements']==104 and value['raw_proof_destination']==history.OLD_PROOF,
+ need(len(value['resources'])==value['requirements']-1 and value['requirements']>=104 and value['raw_proof_destination']==profiles.paths(spec)['OLD_PROOF'],
   'SOURCE_EXIT_RESOURCES_COMPLETE_FINITE_TRACE_NOT_CURRENT_BOOK_ALIASES')
  for n,pin in value['resources'].items():dependencies.Requirement(path=n,role='historical_asset',**pin)
  return value
 
 def plan(spec):
- raw=(HERE/PLAN).read_bytes();need(len(PLAN_SHA)==64 and sha(raw)==PLAN_SHA,'SOURCE_EXIT_RESOURCES_EXACT_AUTHENTICATED_TRACE_PLAN')
+ name=profiles.profile(spec)['resource_plan'];raw=(HERE/name).read_bytes()
+ if name==PLAN:need(len(PLAN_SHA)==64 and sha(raw)==PLAN_SHA,'SOURCE_EXIT_RESOURCES_EXACT_AUTHENTICATED_TRACE_PLAN')
+ else:need(sha(raw)==profiles.profile(spec)['resource_plan_sha256'],'SOURCE_EXIT_RESOURCES_EXACT_PROFILE_RESOURCE_PLAN')
  return validate_plan(json.loads(raw),spec)
 
 def closure(member,spec,resolutions):
@@ -45,15 +48,16 @@ def preserve(root,out,parent,spec,*,rows,resolutions):
  value=plan(spec);manifest=closure(read,spec,resolutions)
  dependencies.copy_checked(manifest,read,lambda n,b:exact(out/n,b))
  dependencies.verify(manifest,value['resources'],resolutions,read,lambda n:(out/n).read_bytes())
- raw=read('uncertainty-certificate.jsonl');seeds.literal_prefix(raw,rows,spec);exact(out/history.OLD_PROOF,raw)
- exact(out/RECEIPT,(json.dumps(manifest,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())
+ names=profiles.paths(spec);raw=read('uncertainty-certificate.jsonl');seeds.literal_prefix(raw,rows,spec);exact(out/names['OLD_PROOF'],raw)
+ exact(out/names['PROVENANCE']+'/resource-preservation.json',(json.dumps(manifest,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())
  return manifest
 
 def verify_preserved(source,destination,spec,*,rows,resolutions):
  value=plan(spec);manifest=closure(source,spec,resolutions)
  dependencies.verify(manifest,value['resources'],resolutions,source,destination)
  raw=source('uncertainty-certificate.jsonl');seeds.literal_prefix(raw,rows,spec)
- need(destination(history.OLD_PROOF)==raw and json.loads(destination(RECEIPT))==manifest,'SOURCE_EXIT_RESOURCES_WHOLE442_PROOF_AND_ORIGINAL_CLOSURE_PRESERVED')
+ names=profiles.paths(spec)
+ need(destination(names['OLD_PROOF'])==raw and json.loads(destination(names['PROVENANCE']+'/resource-preservation.json'))==manifest,'SOURCE_EXIT_RESOURCES_WHOLE442_PROOF_AND_ORIGINAL_CLOSURE_PRESERVED')
  return True
 
 def bound_canary(spec):
@@ -61,7 +65,7 @@ def bound_canary(spec):
  need(fn.__closure__ is None,'SOURCE_EXIT_RESOURCES_WHOLE_ORIGINAL_CANARY_WITH_EXPLICIT_CLOSURE')
  def closed_inventory(member,resolutions):
   value=plan(spec)
-  return dict(passed=True,plan_sha256=PLAN_SHA,resources=value['resources'],financial_authority=False,
+  return dict(passed=True,plan_sha256=sha((HERE/profiles.profile(spec)['resource_plan']).read_bytes()),resources=value['resources'],financial_authority=False,
    financial_book_aliases_created=False,financial_sessions_reexecuted=0,dependency_closure=closure(member,spec,resolutions))
  scope=dict(fn.__globals__,data=SimpleNamespace(parent_contract=history.parent_contract,need=need),
   closed_inventory=closed_inventory,plan=lambda:plan(spec))

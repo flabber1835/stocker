@@ -8,7 +8,7 @@ from system_campaign_facts import sha
 from seal import sha256_file
 HERE=Path(__file__).parent
 CATALOG='system-campaign-stopped-parent-transports.json'
-CATALOG_SHA='a6a69b63c6ac98ad2c4f2f2c931826e2e843d5878fcec7f04e440aafc3e57d1f'
+CATALOG_SHA='35f67f300f16acedf0ae5df332f54b404f6e8e8f8a51386cffd59a0e367a93ad'
 CRYPTO_SHA='63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4'
 
 def encoded(v):return (json.dumps(v,sort_keys=True,indent=2,allow_nan=False)+'\n').encode()
@@ -29,7 +29,7 @@ def record(spec):
  proof=a['fresh_readonly_financial_review_requalification']
  need(proof['passed'] is proof['original_failed_stops_preserved'] is True and proof['financial_sessions_advanced']==0
   and proof['checkpoint_sha256']==spec['outer_sha256']
-  and all(proof[k]==value['proof_sha256s'][n] for k,n in (('core_review_sha256','core-review.json'),('branch_review_sha256','uncertainty-certificate-review.json'),('source_review_sha256','p06-WWE-historical-observation-review.json'),('monthly_reproduction_sha256','monthly-reproduction.json'))),
+  and all(proof[k]==value['proof_sha256s'][n] for k,n in (('core_review_sha256','core-review.json'),('branch_review_sha256','uncertainty-certificate-review.json'),('source_review_sha256',value.get('source_review_name','p06-WWE-historical-observation-review.json')),('monthly_reproduction_sha256','monthly-reproduction.json'))),
   'STOPPED_PARENT_COMPLETE_ADMISSION_REVIEW_PROOF_BINDINGS')
  return value
 def review_record(spec):
@@ -85,7 +85,9 @@ def validate_capsule(spec,inventory,root):
  need(json.loads(member('spec.json'))==original and original['base']==parent['base'] and original['source_binding_sha256']==parent['source_binding_sha256'],'STOPPED_PARENT_ORIGINAL_REVIEW_PARENT_AND_SAME_FINANCIAL_SOURCE_EPOCH')
  import system_campaign_financial_resume as resume
  raw=Path(resume.__file__).read_bytes();fn,=[n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='inspect']
- site,=[n for n in ast.walk(fn) if isinstance(n,ast.Constant) and n.value=='/driver/system_campaign_financial_resume.py'];site.value='/driver/system_campaign_stopped_review.py'
+ command=value.get('review_command','/driver/system_campaign_stopped_review.py')
+ need(command in ('/driver/system_campaign_stopped_review.py','/driver/system_campaign_source_exit_stopped_review.py'),'STOPPED_PARENT_EXACT_KNOWN_READONLY_REVIEW_COMMAND')
+ site,=[n for n in ast.walk(fn) if isinstance(n,ast.Constant) and n.value=='/driver/system_campaign_financial_resume.py'];site.value=command
  scope=dict(vars(resume));exec(compile(ast.Module(body=[fn],type_ignores=[]),'<whole-original-inspector-positive-review-command-only>','exec'),scope)
  for n,expected in spec['inspections'].items():archived_inspection(dict(spec,archive_format='FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1'),expected,json.loads(member(n)),scope['inspect'])
  for n,pin in value['proof_sha256s'].items():need(sha(member(n))==pin,'STOPPED_PARENT_SEPARATE_POSITIVE_PROOF_BYTES:'+n)
@@ -130,8 +132,16 @@ def admit(spec,root,key,inspector,*,request,profile_validator):
  def guard(requested,actual):exact(actual);need(profile_validator(requested,spec) is True,'STOPPED_PARENT_EXACT_ACTIVE_REQUEST_AT_QUARANTINE')
  def refusal(actual,inventory,folder):
   exact(actual);raw=(folder/'stopped-review/worker.log').read_bytes()
-  need(sha(raw)==target['review_log_sha256']==inventory['stopped-review/worker.log']['sha256'] and b'P06_WWE12_NO_REEXECUTED_OLD_CASH_SOURCE_OBSERVATIONS_OR_REFUSAL' in raw,'STOPPED_PARENT_ORIGINAL_FAILED_REVIEW_PRESERVED')
- financial=bind(original.admit,public_names=public,prove_refusal=refusal,request_only_readonly=guard,RUN=target['run_id'],HEAD=target['head'])(target,root,key,inspector)
+  marker=value.get('original_review_failure_marker','P06_WWE12_NO_REEXECUTED_OLD_CASH_SOURCE_OBSERVATIONS_OR_REFUSAL').encode()
+  need(sha(raw)==target['review_log_sha256']==inventory['stopped-review/worker.log']['sha256'] and marker in raw,'STOPPED_PARENT_ORIGINAL_FAILED_REVIEW_PRESERVED')
+ fn,=[n for n in ast.parse(Path(original.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='admit']
+ limit=value.get('archive_limit',512*1024**2)
+ need(limit in (512*1024**2,1024**3) and target['zip_bytes']<limit,'STOPPED_PARENT_EXACT_EXISTING_ARCHIVE_SIZE_OPTION')
+ site,=[kw for n in ast.walk(fn) if isinstance(n,ast.Call) for kw in n.keywords if kw.arg=='max_zip_bytes']
+ need(ast.unparse(site.value)=='512 * 1024 ** 2','STOPPED_PARENT_ONE_ORIGINAL_DOWNLOAD_BOUND_SITE');site.value=ast.Constant(limit)
+ scope=dict(vars(original),public_names=public,prove_refusal=refusal,request_only_readonly=guard,RUN=target['run_id'],HEAD=target['head'])
+ exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<whole-original-failed-parent-transport-existing-bound-option>','exec'),scope)
+ financial=scope['admit'](target,root,key,inspector)
  import system_campaign_financial_partial as partial
  scope=dict(vars(partial.crypto),public_names=public_names,review_receipt_valid=review_receipt_valid,validate_capsule=validate_capsule)
  exec(compile(ast.Module(body=[capsule_tree(Path(partial.crypto.__file__).read_bytes())],type_ignores=[]),'<whole-original-authentication-positive-capsule-format>','exec'),scope)

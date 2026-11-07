@@ -98,3 +98,29 @@ UNKNOWN/live/OOM refusal, exact copy equivalence and exception cleanup.
 These components do not select a writer. The complete14-input visitor, retained
 568 seed/observer registration, actual canonical neutral adoption and hosted
 constructor gates remain required before the next financial request.
+
+## Shared restart implementation
+
+Use one profile registry for the old TBIO step and the next DM step. A record
+selects the exact admitted root, source catalog/compiler, complete preceding
+history reader, retained proof count, resource plan and distinct output paths.
+Keep the original TBIO paths unchanged; put the next step under a namespace
+derived from the complete admitted root hash. Read the genuine archived parent
+at every step and recursively validate its complete earlier history.
+
+Parameterize the existing original-Future API, retained worker bindings and
+resource/observer handlers from that record. Preserve the four mature financial
+entry bodies and original B19/Future/uncertainty sources. Do not create a second
+financial book, project a checkpoint to an older input count, replay retained
+events or add another per-event launcher. Extend the stopped-parent table with
+the exact original FIN366 failure and separate positive REVIEW368 transport.
+Only the complete source-pinned profile can select the next gated financial run.
+
+
+## DM restart DATA gate
+
+The integrated restart checks passed 175 tests in 106.41 seconds. The genuine FIN366 parent retains all 1821 completed days, 13 inputs and 568 daily proofs. All four historical cash terms and both historical source scopes remain intact; the separately authenticated positive REVIEW368 capsule and all 122 required resources validate. Tests for the old TBIO step now name its original admitted root explicitly rather than depending on whichever root is latest. The original 383 sources, protected B19/Future/uncertainty files and four mature worker function bodies remain unchanged.
+
+Request226 selects one P06 worker at March 31, 2025. It must first produce the actual canonical zero-day input update, preserve all 568 proofs and construct the original observer and certificate successfully. Those gates have not been executed locally. DM uses the existing never-held source proxy at 4.91 on the native April 1 date; the real April 1 quote remains 4.96. Legal April 2 cash of 5.295 is separate and does not authorize a portfolio settlement. The request explicitly selects the bounded nonfinancial export policy. Financial progress remains 20790 of 25872 days until new saved results pass independent review.
+
+The final request, boundary, export and campaign-control checks passed 55 tests in 11.03 seconds. The exact launcher import/request probe passed. Request226 has 726 source pins and SHA256 f28be7d7a87e035d428a8fd3e4d82f99251c04b269e02880a344b3bb85986f18. Publication starts the existing P06 workflow; a queued job is not counted as completed trading days.

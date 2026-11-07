@@ -8,7 +8,8 @@ class Fence:
   if n.startswith(('research.pooled_','stock_strategy_shared','sentinel','numpy','pandas')):raise ImportError('SOURCE_EXIT_HISTORY_DATA_ONLY:'+n)
 sys.meta_path.insert(0,Fence())
 import system_campaign_source_exit_history as p
-from system_campaign_financial_partial import root_spec
+from system_campaign_financial_partial import root_spec as admitted_root
+def root_spec(arm):return admitted_root(arm,p.profiles.LEGACY_ROOT) if arm=='P06' else admitted_root(arm)
 
 def test_actual_parent_uses_complete_visitor_and_remains_unchanged():
  R=Path('C:/Users/mbron/.codex/visualizations/2026/11/05/01a1ac36-4c96-7aa1-82ca-4efb70a86ea8/financial356-P06-source-snapshot/capture-P06-13581395529-001')

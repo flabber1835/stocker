@@ -9,7 +9,8 @@ class Fence:
   if n.startswith(('research.pooled_','stock_strategy_shared','sentinel','numpy','pandas')):raise ImportError('STOPPED_PARENT_DATA_ONLY:'+n)
 sys.meta_path.insert(0,Fence())
 import system_campaign_stopped_parent as p
-from system_campaign_financial_partial import root_spec
+from system_campaign_financial_partial import root_spec as admitted_root
+def root_spec(arm):return admitted_root(arm,'ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845') if arm=='P06' else admitted_root(arm)
 
 def test_exact_failed_original_and_separate_positive_review_metadata():
  s=root_spec('P06');v=p.record(s);r=v['review']

@@ -9,7 +9,8 @@ class Fence:
   if n.startswith(('research.pooled_','stock_strategy_shared','sentinel','numpy','pandas')):raise ImportError('RETAINED_SUCCESSOR_DATA_ONLY:'+n)
 sys.meta_path.insert(0,Fence())
 import system_campaign_retained_seed_successor as p
-from system_campaign_financial_partial import root_spec
+from system_campaign_financial_partial import root_spec as admitted_root
+def root_spec(arm):return admitted_root(arm,'ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845') if arm=='P06' else admitted_root(arm)
 
 @pytest.fixture(scope='module')
 def actual():

@@ -18,56 +18,64 @@ def source_names():
   'system_campaign_stopped_parent.py','system-campaign-stopped-parent-transports.json','P06-stopped-parent-transport-DATA-qualification.json',
   'system_campaign_source_exit_resources.py','system-campaign-source-exit-successor-resources.json','system_campaign_source_exit_observer.py',
   'P06-source-exit-API-history-DATA-qualification.json','system_campaign_source_exit_reporting.py','system_campaign_progress_observer.py','system_campaign_preflight_export.py',runtime.QUALIFICATION)
- return names if (HERE/runtime.QUALIFICATION).is_file() else tuple(n for n in names if n!=runtime.QUALIFICATION)
+ extra=['system_campaign_source_exit_profiles.py',runtime.profiles.CATALOG]
+ for value in runtime.profiles.records().values():
+  extra.extend(n for n in (value['resource_plan'],value['qualification']) if (HERE/n).is_file())
+ return tuple(dict.fromkeys(n for n in (*names,*extra) if n!=runtime.QUALIFICATION or (HERE/n).is_file()))
 
 def expected_request(original,*,execution_mode,selected_arms,root_lookup):
  result=original();active=execution_mode==runtime.MODE and 'P06' in selected_arms and runtime.candidate(root_lookup('P06'))
  need(runtime.FIELD not in result,'SOURCE_EXIT_ENTRY_NO_REPLACED_DECLARATION')
  result[runtime.FIELD]={'P06':runtime.declaration(root_lookup('P06'))} if active else {}
- if active:result['arm_inputs']['P06']['new_factual_overlay']=True
+ if active:
+  result['arm_inputs']['P06']['new_factual_overlay']=True
+  from system_campaign_preflight_export import FIELD,POLICY
+  if runtime.profiles.profile(root_lookup('P06'))['parent_inputs']>12:result[FIELD]=POLICY
  for n in source_names():
   pin=sha((HERE/n).read_bytes());need(n not in result['sources'] or result['sources'][n]==pin,'SOURCE_EXIT_ENTRY_NO_SOURCE_PIN_REPLACEMENT:'+n);result['sources'][n]=pin
  return result
 
 def receipt(parent,spec,root):
- root=Path(root);api=runtime.input_api(parent,spec);doc=runtime.models.document(parent,spec,lambda n:(root/n).read_bytes(),visitor=runtime.previous.full)
- material=json.loads((root/api.hydration_name(parent)).read_bytes());runtime.models.packet_qualification(lambda n:(root/n).read_bytes(),material['terms'])
- canary=json.loads((root/CANARY).read_bytes());scopes=api.source_scopes(parent,material,sha((root/api.OVERLAY).read_bytes()),sha((root/api.hydration_name(parent)).read_bytes()))
- term=runtime.api_module.source.catalog()['term']
+ root=Path(root);names=runtime.profiles.paths(spec);api=runtime.input_api(parent,spec);doc=runtime.models.document(parent,spec,lambda n:(root/n).read_bytes(),visitor=runtime.previous_for(spec))
+ material=json.loads((root/api.hydration_name(parent)).read_bytes());runtime.models.packet_qualification(lambda n:(root/n).read_bytes(),material['terms'],name=api.QUALIFICATION)
+ canary=json.loads((root/names['CANARY']).read_bytes());scopes=api.source_scopes(parent,material,sha((root/api.OVERLAY).read_bytes()),sha((root/api.hydration_name(parent)).read_bytes()))
+ term=runtime.profiles.source(spec).catalog()['term']
  need(len(scopes)==1 and scopes[0]['security_id']==term['security_id'] and scopes[0]['require_never_held'] is True
   and json.loads((root/api.SOURCE_SCOPES).read_bytes())==scopes,'SOURCE_EXIT_ENTRY_EXACT_SOURCE_EXIT_SCOPE_BEFORE_FINANCE')
  other=[t for t in material['terms'] if t['security_id']!=term['security_id']]
  need(all(t['added']['kind']=='CASH_MERGER' and t['added']['session']!=term['added']['session'] for t in other),
   'SOURCE_EXIT_ENTRY_EVERY_ORIGINAL_FORWARD_TERM_HAS_COMPLETE_OBSERVER_REVIEW')
  need(canary['passed'] is canary['actual_copy_verified'] is canary['owned_copy_removed'] is True and canary['financial_sessions_advanced']==0
-  and len(canary['dependency_closure']['requirements'])==104 and canary['dependency_closure']['event_resolutions']==runtime.resources.plan(spec)['event_resolutions'],
+  and len(canary['dependency_closure']['requirements'])==runtime.resources.plan(spec)['requirements'] and canary['dependency_closure']['event_resolutions']==runtime.resources.plan(spec)['event_resolutions'],
   'SOURCE_EXIT_ENTRY_FRESH_ACTUAL104_RESOURCE_COPY_AND_REMOVAL_CANARY')
  need(json.loads((root/api.OVERLAY).read_bytes())==doc,'SOURCE_EXIT_ENTRY_COMPLETE_ORIGINAL_PREPARED_DOCUMENT')
  return dict(schema='research.source-exit-successor-zero-financial-preparation/1',passed=True,root_admission_sha256=spec['root_admission_sha256'],
   parent_outer_sha256=parent['sha256'],earliest_affected_session=runtime.models.earliest(doc),financial_sessions_advanced=0,parent_unchanged=True,checkpoint_adopted=False,
-  files={n:dict(bytes=len((root/n).read_bytes()),sha256=sha((root/n).read_bytes())) for n in (api.OVERLAY,api.hydration_name(parent),api.SOURCE_SCOPES,api.QUALIFICATION,CANARY,runtime.resources.RECEIPT)})
+  files={n:dict(bytes=len((root/n).read_bytes()),sha256=sha((root/n).read_bytes())) for n in (api.OVERLAY,api.hydration_name(parent),api.SOURCE_SCOPES,api.QUALIFICATION,names['CANARY'],names['PROVENANCE']+'/resource-preservation.json')})
 
 def preflight(parent,out,spec,old,request):
  from full_system_core import hosted
  hosted();runtime.request_financial(request,spec)
  from research.pooled_vacancy_funding import backtest,runtime as financial
- out,old=Path(out),Path(old);before=runtime.encoded(parent);forbidden=[out/'book/checkpoint.json.gz',out/runtime.models.NEUTRAL]
+ out,old=Path(out),Path(old);names=runtime.profiles.paths(spec);before=runtime.encoded(parent);forbidden=[out/'book/checkpoint.json.gz',out/names['NEUTRAL']]
  need(not any(p.exists() for p in forbidden),'SOURCE_EXIT_ENTRY_PREFLIGHT_HAS_NO_FINANCIAL_OR_NEUTRAL_BOOK')
  def refuse(*a,**k):raise ValueError('SOURCE_EXIT_ENTRY_PREFLIGHT_FINANCIAL_ADVANCE_FORBIDDEN')
  saved=backtest.main,financial.advance;backtest.main=financial.advance=refuse
  try:
-  baseline=runtime.seeds.original_seed(old,parent,spec,visitor=runtime.previous.full)
-  result=runtime.resources.canary(old,out,parent,spec,resolutions=[baseline[3]]);exact(out/CANARY,runtime.encoded(result))
+  baseline=runtime.seeds.original_seed(old,parent,spec,visitor=runtime.previous_for(spec))
+  provider=runtime.profiles.source(spec)
+  if provider.version==2:provider.module.validate_parent(provider.catalog(),parent,root_lookup=__import__('system_campaign_financial_partial').root_spec)
+  result=runtime.resources.canary(old,out,parent,spec,resolutions=[baseline[3]]);exact(out/names['CANARY'],runtime.encoded(result))
   runtime.resources.preserve(old,out,parent,spec,rows=baseline[1],resolutions=[baseline[3]])
   for entry in parent['repairs']:
    raw=(old/'book/repairs'/entry['filename']).read_bytes();need(sha(raw)==entry['sha256'],'SOURCE_EXIT_ENTRY_EXACT_ORIGINAL_INPUT_BYTES');exact(out/'book/repairs'/entry['filename'],raw)
   runtime.input_api(parent,spec).prepare(parent,out,spec['arm'])
  finally:backtest.main,financial.advance=saved
  need(runtime.encoded(parent)==before and not any(p.exists() for p in forbidden),'SOURCE_EXIT_ENTRY_NO_PREFLIGHT_FINANCIAL_STATE_MUTATION_OR_ADOPTION')
- result=receipt(parent,spec,out);exact(out/PREPARATION,runtime.encoded(result));return result
+ result=receipt(parent,spec,out);exact(out/names['PREPARATION'],runtime.encoded(result));return result
 
 def require_preflight(parent,spec,proof,root):
- expected=receipt(parent,spec,root);need(proof['composite_preparation']==expected==json.loads((Path(root)/PREPARATION).read_bytes()),'SOURCE_EXIT_ENTRY_EXACT_STOPPED_PREPARATION_BEFORE_FINANCE');return True
+ expected=receipt(parent,spec,root);need(proof['composite_preparation']==expected==json.loads((Path(root)/runtime.profiles.paths(spec)['PREPARATION']).read_bytes()),'SOURCE_EXIT_ENTRY_EXACT_STOPPED_PREPARATION_BEFORE_FINANCE');return True
 
 @contextmanager
 def context(module,spec,*,mode,old,out,request,evidence=None):
@@ -79,7 +87,7 @@ def context(module,spec,*,mode,old,out,request,evidence=None):
  saved_partial={n:getattr(partial,n) for n in ('retained_models','model_context')};saved_dispatch={n:getattr(dispatch,n) for n in ('applies','accounting_review')}
  saved_legacy={n:getattr(runtime.legacy,n) for n in ('uncertainty_phase','run','review')}
  saved_module={n:getattr(module,n) for n in ('factual_overlay_needed','prepare_composite_before_finance','require_composite_preparation')}
- def retained_models(root,current,target):return runtime.models.full(root,current)['full_inputs'] in (12,13) if runtime.candidate(target) else saved_partial['retained_models'](root,current,target)
+ def retained_models(root,current,target):return runtime.models.full(root,current)['full_inputs'] in (len(target['repairs']),len(target['repairs'])+1) if runtime.candidate(target) else saved_partial['retained_models'](root,current,target)
  @contextmanager
  def model_context(root,current,target):
   if not runtime.candidate(target):

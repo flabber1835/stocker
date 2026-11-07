@@ -12,32 +12,54 @@ import system_campaign_source_exit_history as history
 import system_campaign_source_exit_input as source
 import system_campaign_p06_WWE12_observer as previous
 import system_campaign_p06_WWE12_models as previous_models
+import system_campaign_source_exit_profiles as profiles
 DIRECTORY='source-exit-successor-observation'
 ORIGIN='observer-origin.json'
 
 def historical(parent,spec,member):
  from system_campaign_financial_partial import root_spec
+ if profiles.profile(spec)['parent_inputs']>12:
+  history.parent_contract(parent,spec);oldspec=root_spec('P06',profiles.LEGACY_ROOT);names=profiles.paths(oldspec)
+  prior=history.archived_parent(oldspec,member);record=historical(prior,oldspec,member)
+  api=history.input_api(prior,oldspec,previous_models.full);neutral=history.strict_json(member(names['NEUTRAL']))
+  material=json.loads(member(api.hydration_name(prior)))
+  scopes=json.loads(member(api.SOURCE_SCOPES))
+  prior_origin=json.loads(member(names['OBSERVATION']+'/'+ORIGIN))
+  need(prior_origin==origin(prior,neutral,record,scopes+record['scopes'])
+   and parent['repairs']==neutral['repairs'] and parent['source_cursor']>prior['source_cursor'],
+   'SOURCE_EXIT_OBSERVER_EXACT_COMPLETE_PREVIOUS_SOURCE_HISTORY')
+  for name in (api.OVERLAY,api.hydration_name(prior),api.SOURCE_SCOPES):
+   need(member(names['OBSERVATION']+'/'+name)==member(name),'SOURCE_EXIT_OBSERVER_UNCHANGED_PREVIOUS_SOURCE_PAYLOAD:'+name)
+  terms=record['terms']+[deepcopy(t['added']) for t in material['terms'] if prior['source_cursor']<t['added']['session']<=parent['source_cursor']]
+  retained=scopes+record['scopes']
+  need(len(retained)==profiles.profile(spec)['retained_scope_count'] and len(terms)==4
+   and all(t['session']<parent['source_cursor'] for t in terms),'SOURCE_EXIT_OBSERVER_ALL_PREVIOUS_SOURCE_TERMS_STRICTLY_HISTORICAL')
+  return dict(schema='research.source-exit-original-observer-history/2',parent_sha256=parent['sha256'],
+   previous_parent_sha256=prior['sha256'],original_origin=prior_origin,terms=terms,scopes=retained,historical_financial_sessions_reexecuted=0)
  history.parent_contract(parent,spec);oldspec=root_spec('P06',previous.data.ROOT)
  raw=member(previous_models.PARENT)
  need(dict(bytes=len(raw),sha256=sha(raw))==oldspec['selected_file'],'SOURCE_EXIT_OBSERVER_GENUINE_PARENT11_ARCHIVE')
  parent11=strict_json(raw);previous.data.parent_contract(parent11,oldspec)
  need(parent11['repairs']==parent['repairs'][:-1] and parent11['source_cursor']<parent['source_cursor'],
   'SOURCE_EXIT_OBSERVER_HISTORICAL_PARENT11_RETAINED_IN_ENTIRE_PARENT12')
- historical,_,payloads,scopes=previous.historical_contract(parent11,oldspec,member)
- origin=json.loads(member(previous.DIRECTORY+'/'+previous.ORIGIN));terms=origin['old_cash_terms']
- need(origin==previous.origin(parent11,historical,payloads,terms,scopes),'SOURCE_EXIT_OBSERVER_UNCHANGED_ORIGINAL_HISTORICAL_ORIGIN')
+ historical_checkpoint,_,payloads,scopes=previous.historical_contract(parent11,oldspec,member)
+ old_origin=json.loads(member(previous.DIRECTORY+'/'+previous.ORIGIN));terms=old_origin['old_cash_terms']
+ need(old_origin==previous.origin(parent11,historical_checkpoint,payloads,terms,scopes),'SOURCE_EXIT_OBSERVER_UNCHANGED_ORIGINAL_HISTORICAL_ORIGIN')
  for n,b in payloads.items():need(member(previous.DIRECTORY+'/'+n)==b,'SOURCE_EXIT_OBSERVER_EXACT_ORIGINAL_HISTORICAL_PAYLOAD:'+n)
  added=[deepcopy(t['added']) for t in terms]+json.loads(payloads[previous.prior_models.OVERLAY])['add']
  need(len(added)==3 and len(scopes)==1 and len({(t['session'],t['security_id']) for t in added})==3
   and all(t['session']<parent['source_cursor'] for t in added) and all(s['session']<parent['source_cursor'] for s in scopes),
   'SOURCE_EXIT_OBSERVER_ALL_THREE_RETAINED_TERMS_AND_SCOPE_STRICTLY_HISTORICAL')
  return dict(schema='research.source-exit-original-observer-history/1',parent12_sha256=parent['sha256'],
-  historical_parent11_sha256=parent11['sha256'],historical_parent10_sha256=historical['sha256'],
-  original_origin=origin,terms=added,scopes=scopes,historical_financial_sessions_reexecuted=0)
+  historical_parent11_sha256=parent11['sha256'],historical_parent10_sha256=historical_checkpoint['sha256'],
+  original_origin=old_origin,terms=added,scopes=scopes,historical_financial_sessions_reexecuted=0)
 
-def merge_history(event,record,parent):
- term=source.catalog()['term'];scopes=deepcopy(event.scopes)
- need(record['parent12_sha256']==parent['sha256'] and len(scopes)==1 and scopes[0]['security_id']==term['security_id']
+def merge_history(event,record,parent,*,spec=None):
+ if spec is None:
+  from system_campaign_financial_partial import root_spec
+  spec=root_spec('P06',profiles.LEGACY_ROOT)
+ term=profiles.source(spec).catalog()['term'];scopes=deepcopy(event.scopes)
+ need(record.get('parent_sha256',record.get('parent12_sha256'))==parent['sha256'] and len(scopes)==1 and scopes[0]['security_id']==term['security_id']
   and scopes[0]['session']==term['added']['session'] and scopes[0]['require_never_held'] is True
   and scopes[0]['terminal_sha256']==digest(term['added']),'SOURCE_EXIT_OBSERVER_ONLY_ORIGINAL_NEW_TBIO_SCOPE')
  for t in record['terms']:
@@ -50,7 +72,8 @@ def merge_history(event,record,parent):
   need(s['session']<parent['source_cursor'] and s['require_never_held'] is True and s not in event.scopes
    and key in event.terms and digest(event.terms[key])==s['terminal_sha256'],'SOURCE_EXIT_OBSERVER_EXACT_HISTORICAL_BBIG_SCOPE_AND_TERM')
   event.scopes.append(deepcopy(s))
- need(event.scopes[:len(scopes)]==scopes and len(event.scopes)==2,'SOURCE_EXIT_OBSERVER_NEW_SCOPE_UNCHANGED_AND_ORIGINAL_OLD_SCOPE_RETAINED')
+ need(event.scopes[:len(scopes)]==scopes and len(record['scopes'])==profiles.profile(spec)['retained_scope_count']
+  and len(event.scopes)==1+len(record['scopes']),'SOURCE_EXIT_OBSERVER_NEW_SCOPE_UNCHANGED_AND_ORIGINAL_OLD_SCOPE_RETAINED')
  return event
 
 def initializer(api):
@@ -71,9 +94,9 @@ def observer(root,out,current,parent,spec,api):
  hosted();root,out=Path(root),Path(out);record=historical(parent,spec,lambda n:(root/n).read_bytes())
  need(current['base']==parent['base'] and current['repairs'][:-1]==parent['repairs'] and current['run']['state']==parent['run']['state'],
   'SOURCE_EXIT_OBSERVER_ACTUAL_NEUTRAL_WITHOUT_FINANCIAL_STATE_CHANGE')
- folder=out/DIRECTORY
+ folder=out/profiles.paths(spec)['OBSERVATION']
  for n in (api.OVERLAY,api.hydration_name(parent),api.SOURCE_SCOPES):exact(folder/n,(out/n).read_bytes())
- event=original.ActualEvents.__new__(original.ActualEvents);initializer(api)(event,folder,spec['arm'],cp=parent);merge_history(event,record,parent)
+ event=original.ActualEvents.__new__(original.ActualEvents);initializer(api)(event,folder,spec['arm'],cp=parent);merge_history(event,record,parent,spec=spec)
  need(all(getattr(event,n).__func__ is getattr(original.ActualEvents,n) for n in ('advance','terminal','source_values')),
   'SOURCE_EXIT_OBSERVER_ALL_ORIGINAL_ADAPTER_KERNEL_CALLER_FRAME_METHODS')
  exact(folder/ORIGIN,(json.dumps(origin(parent,current,record,event.scopes),sort_keys=True,indent=2,allow_nan=False)+'\n').encode())
@@ -110,7 +133,7 @@ def review(parent,current,evidence,out,*,spec,old,neutral,api):
  hosted()
  from system_campaign_uncertainty_review import committed_rows
  from system_campaign_retained_forward_cash import verify_records
- evidence,out,old=Path(evidence),Path(out),Path(old);folder=evidence/DIRECTORY
+ evidence,out,old=Path(evidence),Path(out),Path(old);folder=evidence/profiles.paths(spec)['OBSERVATION']
  record=historical(parent,spec,lambda n:(old/n).read_bytes())
  material=json.loads((evidence/api.hydration_name(parent)).read_bytes());overlay=(evidence/api.OVERLAY).read_bytes()
  scopes=api.source_scopes(parent,material,sha(overlay),sha((evidence/api.hydration_name(parent)).read_bytes()))

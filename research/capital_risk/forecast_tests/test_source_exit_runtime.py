@@ -56,7 +56,8 @@ def test_constructor_canary_precedes_original_financial_main_context():
 def test_history_pins_source_parent_root_instead_of_latest_admission():
  raw=Path(p.models.__file__).read_bytes();fn=next(n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='full')
  calls=[n for n in ast.walk(fn) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='root_spec']
- assert len(calls)==1 and len(calls[0].args)==2 and ast.unparse(calls[0].args[1])=='parent_root'
+ assert len(calls)==1 and len(calls[0].args)==2 and ast.unparse(calls[0].args[1])=='key'
+ assert "value['parent_inputs'] == count - 1" in ast.unparse(fn)
 
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])
 def test_five_financial_import_fences(name):

@@ -9,7 +9,8 @@ class Fence:
   if n.startswith(('research.pooled_','stock_strategy_shared','sentinel','numpy','pandas')):raise ImportError('SOURCE_EXIT_RESOURCES_DATA_ONLY:'+n)
 sys.meta_path.insert(0,Fence())
 import system_campaign_source_exit_resources as p
-from system_campaign_financial_partial import root_spec
+from system_campaign_financial_partial import root_spec as admitted_root
+def root_spec(arm):return admitted_root(arm,p.profiles.LEGACY_ROOT) if arm=='P06' else admitted_root(arm)
 
 def test_actual_plan_has_entire103_assets_and_one_original_archive():
  s=root_spec('P06');v=p.plan(s)

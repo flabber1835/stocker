@@ -28,10 +28,11 @@ def typed_descriptor(root,current,visitor):
  need(len(matches)==1,'SOURCE_EXIT_API_ONE_TYPED_ABMD_DESCRIPTOR_IN_ENTIRE_HISTORY')
  return matches[0]
 
-def api(parent,spec,*,visitor):
+def api(parent,spec,*,visitor,source_provider=None,paths=None):
  from system_campaign_financial_partial import validate_root_spec
  from system_campaign_full_history_successor import current_commitments
- validate_root_spec(spec);value=source.catalog();term=value['term']
+ validate_root_spec(spec);provider=source if source_provider is None else source_provider
+ value=provider.catalog();term=value['term'];names=paths or dict(OVERLAY=OVERLAY,HYDRATED=HYDRATED,QUALIFICATION=QUALIFICATION,SOURCE_SCOPES=SOURCE_SCOPES)
  current_commitments(parent,spec,lambda base,repairs:digest(dict(base=base,repairs=repairs)))
  need(parent['sha256']==spec['outer_sha256']==term['parent_outer_sha256'] and parent['repairs']==spec['repairs']
   and parent['base']==spec['base'] and parent['source_cursor']==spec['selected_session']==term['parent_cursor']
@@ -44,9 +45,10 @@ def api(parent,spec,*,visitor):
   path=Path(path)
   if path.name=='future-input-qualification.json':
    need(value['passed'] is True and type(value['financial_sessions_advanced']) is int and value['financial_sessions_advanced']==0,'SOURCE_EXIT_API_ORIGINAL_ZERO_FINANCIAL_PACKET_QUALIFICATION')
-   path=path.with_name(QUALIFICATION)
+   path=path.parent/names['QUALIFICATION']
   return original.save(path,value)
- namespace=dict(vars(original),selected=source.selected,OVERLAY=OVERLAY,HYDRATED=HYDRATED,SOURCE_SCOPES=SOURCE_SCOPES,
+ namespace=dict(vars(original),selected=provider.selected,OVERLAY=names['OVERLAY'],HYDRATED=names['HYDRATED'],SOURCE_SCOPES=names['SOURCE_SCOPES'],
+  research_source_exit_term=getattr(provider,'validate_term',original.research_source_exit_term),
   validate_input=validate_input,validate_typed_input=validate_typed_input,TYPED_SCHEMA=SCHEMA,save=save)
  exec(compile(ast.Module(body=[previous.remaining_tree(raw)],type_ignores=[]),'<whole-original-remaining-terms-qualified-typed-dispatch>','exec'),namespace)
  for name in FUNCTIONS:
@@ -54,4 +56,5 @@ def api(parent,spec,*,visitor):
   bound=FunctionType(fn.__code__,namespace,fn.__name__,fn.__defaults__);bound.__kwdefaults__=deepcopy(fn.__kwdefaults__)
   need(bound.__code__ is fn.__code__,'SOURCE_EXIT_API_IDENTICAL_COMPLETE_ORIGINAL_FUNCTION_CODE')
   namespace[name]=bound
- return SimpleNamespace(**{n:namespace[n] for n in (*FUNCTIONS,'remaining_ordinary_terms')},selected=source.selected,OVERLAY=OVERLAY,QUALIFICATION=QUALIFICATION,SOURCE_SCOPES=SOURCE_SCOPES)
+ return SimpleNamespace(**{n:namespace[n] for n in (*FUNCTIONS,'remaining_ordinary_terms')},selected=provider.selected,
+  OVERLAY=names['OVERLAY'],QUALIFICATION=names['QUALIFICATION'],SOURCE_SCOPES=names['SOURCE_SCOPES'],provider=provider)

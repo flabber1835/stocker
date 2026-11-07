@@ -2,11 +2,13 @@
 from types import FunctionType
 from full_system_benchmark import need
 import system_campaign_financial_partial as original
+import system_campaign_source_exit_profiles as profiles
 ROOT='ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845'
 
 def reader(spec):
  original.validate_root_spec(spec)
- need(spec['arm']=='P06' and spec['root_admission_sha256']==ROOT,'SOURCE_EXIT_REPORTING_EXACT_OWN_ADMITTED_BASELINE')
+ need(profiles.candidate(spec),'SOURCE_EXIT_REPORTING_EXACT_OWN_ADMITTED_BASELINE')
+ profiles.profile(spec)
  def reporting_seed(requested):
   need(requested==spec,'SOURCE_EXIT_REPORTING_ONLY_EXACT_ACTUAL_BASELINE_SPEC')
   original.validate_root_spec(requested)
