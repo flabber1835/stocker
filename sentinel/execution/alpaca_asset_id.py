@@ -12,6 +12,7 @@ implementation.  Only the mutation address changes.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 from sentinel.execution.alpaca import (
@@ -35,6 +36,16 @@ from sentinel.execution.guarded import BrokerAuthorityRefused
 
 class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
     """Selected Alpaca transport whose orders are bound to ``asset_id``."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        from sentinel.trading_environment import TradingEnvironment
+        if self.environment is TradingEnvironment.PAPER:
+            # Current owned-account cash only. The independent fill-interval,
+            # historical close and finality capabilities remain quarantined.
+            self.capabilities = replace(
+                self.capabilities, account_cash_activity_evidence=True)
+            self.financial_activity_sse = True
 
     async def submit(
         self,

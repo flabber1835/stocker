@@ -28,6 +28,9 @@ COMPONENTS = (
 # Presentation metadata is not part of the immutable financial installation
 # marker. Its exact catalog is recognized when present, never silently hidden.
 PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)
+# Access paths have independent installation witnesses; never re-sign the
+# original immutable operational contracts map to add one.
+ACCESS_PATH_COMPONENTS = ('sentinel.checkpoint_lineage_access',)
 _LOCK = (1397706832, 1330660145)
 _FUNCTION = 'sentinel_operational_installation_guard'
 _TRIGGER = 'sentinel_operational_installation_guard'
@@ -86,6 +89,10 @@ def components():
 
 def presentation_components():
     return tuple(importlib.import_module(name) for name in PRESENTATION_COMPONENTS)
+
+
+def access_path_components():
+    return tuple(importlib.import_module(name) for name in ACCESS_PATH_COMPONENTS)
 
 
 def contracts():
@@ -163,10 +170,7 @@ def legacy_catalog(conn, catalog):
     """Validated historical view; unknown objects and edits are never hidden."""
     relations, columns, constraints, indexes, triggers = catalog
     modules = components()
-    optional = presentation_components()
-    # Also detect orphaned functions/triggers when both tables were lost.
-    optional_present = [module for module in optional
-                        if module.require_schema(conn, allow_absent=True)]
+    optional = (*presentation_components(), *access_path_components())
     names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
     present = any(names(module) & set(relations) for module in modules)
     marker_possible = 'sentinel_processed_sessions' in relations
@@ -179,15 +183,23 @@ def legacy_catalog(conn, catalog):
                        for name, definition in required.items())):
             raise InstallationCatalogRefused(
                 'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
+    # Optional installations read the same marker columns; validate those
+    # columns before any component can query them in the caller's transaction.
+    # Also detect orphaned functions/triggers when both tables were lost.
+    optional_present = [module for module in optional
+                        if module.require_schema(conn, allow_absent=True)]
     marker = installation(conn, required=False) if marker_possible else None
     if not present and marker is None and not optional_present:
         return catalog
     excluded_tables = set()
+    excluded_indexes = set()
+    from sentinel.operational_catalog import _index_pairs
     excluded_triggers = {('sentinel_processed_sessions', _TRIGGER),
                          ('sentinel_processed_sessions', _TRUNCATE_TRIGGER)} if marker else set()
     for module in optional_present:
         excluded_tables.update(names(module))
         excluded_triggers.update(module.extension_triggers)
+        excluded_indexes.update(_index_pairs(module))
     for module in modules:
         active = bool(names(module) & set(relations))
         if marker or active:
@@ -195,13 +207,17 @@ def legacy_catalog(conn, catalog):
                      'OPERATIONAL_COMPONENT_ABSENT: '+module.__name__)
             excluded_tables.update(names(module))
             excluded_triggers.update(getattr(module, 'extension_trigger_pairs', module.extension_triggers))
+            excluded_indexes.update(_index_pairs(module))
     def without_extensions(mapping):
         return {name: value for name, value in mapping.items() if name not in excluded_tables}
     filtered_triggers = {
         name: {key: value for key, value in values.items() if (name, key) not in excluded_triggers}
         for name, values in triggers.items() if name not in excluded_tables}
-    return (*(without_extensions(item) for item in (relations, columns, constraints, indexes)),
-            filtered_triggers)
+    filtered_indexes = {
+        name: {key: value for key, value in values.items() if (name, key) not in excluded_indexes}
+        for name, values in indexes.items() if name not in excluded_tables}
+    return (*(without_extensions(item) for item in (relations, columns, constraints)),
+            filtered_indexes, filtered_triggers)
 
 
 def require_idle_connection(conn):
@@ -238,6 +254,38 @@ def _financial_writer(conn):
     yield
 
 
+def _require_quiescence(conn):
+    uncertain = conn.execute(
+        "SELECT COUNT(*) FROM sentinel_commands WHERE state IN "
+        "('SEND_PENDING','UNKNOWN','ACKNOWLEDGED','PARTIALLY_FILLED','CANCEL_PENDING')"
+    ).fetchone()[0]
+    active_jobs = conn.execute(
+        "SELECT COUNT(*) FROM sentinel_snapshot_jobs WHERE state NOT IN "
+        "('PUBLISHED','REFUSED','ABORTED') AND reason<>'COMPARISON_ONLY'"
+    ).fetchone()[0]
+    active_cycles = conn.execute(
+        "SELECT COUNT(*) FROM sentinel_automation_cycles WHERE state NOT IN "
+        "('WAITING_OPEN','SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')"
+    ).fetchone()[0]
+    _require(not uncertain and not active_jobs and not active_cycles,
+             'OPERATIONAL_MIGRATION_REQUIRES_QUIESCENCE')
+
+
+def _install_access_paths(conn, original, *, quiescent=False):
+    pending = [module for module in access_path_components()
+               if not module.require_schema(conn, allow_absent=True)]
+    if not pending:
+        return
+    if not quiescent:
+        _require_quiescence(conn)
+    for module in pending:
+        module.install(conn)
+        _require(module.require_schema(conn, allow_absent=False) is not False,
+                 'OPERATIONAL_ACCESS_PATH_ABSENT: '+module.__name__)
+    _require(installation(conn, required=True) == original,
+             'OPERATIONAL_INSTALLATION_CHANGED_DURING_ACCESS_PATH_INSTALL')
+
+
 def install_quiescent(conn):
     """Explicit additive extension install under the existing single writer.
 
@@ -250,21 +298,9 @@ def install_quiescent(conn):
             current = installation(conn, required=False)
             if current is not None:
                 require_schema(conn)
+                _install_access_paths(conn, current)
                 return current
-            uncertain = conn.execute(
-                "SELECT COUNT(*) FROM sentinel_commands WHERE state IN "
-                "('SEND_PENDING','UNKNOWN','ACKNOWLEDGED','PARTIALLY_FILLED','CANCEL_PENDING')"
-            ).fetchone()[0]
-            active_jobs = conn.execute(
-                "SELECT COUNT(*) FROM sentinel_snapshot_jobs WHERE state NOT IN "
-                "('PUBLISHED','REFUSED','ABORTED') AND reason<>'COMPARISON_ONLY'"
-            ).fetchone()[0]
-            active_cycles = conn.execute(
-                "SELECT COUNT(*) FROM sentinel_automation_cycles WHERE state NOT IN "
-                "('WAITING_OPEN','SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')"
-            ).fetchone()[0]
-            _require(not uncertain and not active_jobs and not active_cycles,
-                     'OPERATIONAL_MIGRATION_REQUIRES_QUIESCENCE')
+            _require_quiescence(conn)
             for module in components():
                 module.install(conn)
             for statement in DDL:
@@ -279,4 +315,5 @@ def install_quiescent(conn):
                 (CURSOR, at.date(), _canonical({'installation': value,
                     'hmac_sha256': _signature(value)}).decode('ascii')))
             require_schema(conn)
+            _install_access_paths(conn, value, quiescent=True)
             return value

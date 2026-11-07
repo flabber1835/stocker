@@ -190,3 +190,23 @@ candidate environment is an idempotent replay after a lost host acknowledgement;
 other states refuse. Record this separately as qualified host-tool provenance,
 preserving the already-qualified application source, image, request, journal,
 financial controls and original finite handoff deadline.
+
+## PRE_OPEN software completion with operator review (November 5, 2026)
+
+The owner authorized a locally qualified PAPER patch before later PR delivery.
+The PRE_OPEN final reader may retain a planned restart or recovered-incident
+`REVIEW` amber headline without acknowledging it: require a CURRENT, unexpired
+operational observation, typed review with no active conditions or material
+warnings, all named current capability facts, the exact saved future plan and
+bounded WAITING_OPEN facts. Preserve every original observation, row, leader and
+history deadline. A scheduled workflow may legitimately have no observation time;
+require its typed waiting fact and original recovery or plan boundary instead of
+inventing a timestamp. A non-required notification-history warning may remain visible;
+failed delivery, unknown facts, unrelated warnings and current failures refuse.
+The existing `SCHEDULED_WITH_HISTORY` branch still validates its exact typed flag,
+saved plan and execution-minus-one-microsecond boundary when present. Record the
+actual native and human headline, original review head/status and validity as
+software-only completion with `operational_ready=false`; never POST an ACK or
+claim a new clean interval. All admission, canonical/account/zero-order, source
+idle, drain, backup, preservation and fifteen-minute handoff gates remain unchanged.
+POST_TRADE and POST_TRADE_SUCCESSOR retain their existing separate contracts.

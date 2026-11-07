@@ -104,7 +104,7 @@ def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worke
     (ValueError('private malformed source'), 'FAILED'),
 ])
 def test_only_typed_collection_supersession_is_expected_work(monkeypatch, exception, outcome):
-    def refused(*_): raise exception
+    def refused(*_, **_options): raise exception
     monkeypatch.setattr(producer, 'publish_once', refused)
     def unavailable_fallback(*_): raise RuntimeError('private unavailable fallback')
     monkeypatch.setattr(producer, 'publish_failure', unavailable_fallback)
@@ -131,9 +131,9 @@ def test_role_health_requires_fresh_valid_independent_heartbeats(monkeypatch, tm
     assert verifier.health() == (0 if defect == 'none' else 1)
 
 
-@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 26), (10, 6, 2),
+@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 8), (10, 6, .25),
     (90, 1, 30), (2, 6, .25)])
-def test_adaptive_refresh_accounts_for_original_expiry_and_measured_cost(remaining, cost, expected):
+def test_adaptive_refresh_reserves_original_ceiling_and_measured_cost(remaining, cost, expected):
     now = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
     expiry = now+timedelta(seconds=remaining)
     assert producer.refresh_delay(expiry, now=now, elapsed=cost) == expected
@@ -145,6 +145,123 @@ def test_adaptive_refresh_refuses_expiry_or_invalid_measurement(remaining, cost)
     now = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
     with pytest.raises((ValueError, TimeoutError)):
         producer.refresh_delay(now+timedelta(seconds=remaining), now=now, elapsed=cost)
+
+
+def test_variable_collection_cost_does_not_add_a_gap_between_short_native_leases(monkeypatch, tmp_path):
+    """A quick previous call cannot justify sleeping through the next slow one."""
+    anchor = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
+    clock = SimpleNamespace(seconds=0.0)
+    costs = [2.0, 8.0, 7.0, 8.0]
+    intervals = []
+    stop = Stop()
+    class Wall(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return anchor+timedelta(seconds=clock.seconds)
+    def wait(seconds):
+        stop.waits.append(seconds)
+        clock.seconds += seconds
+        return stop.stopped
+    stop.wait = wait
+    monkeypatch.setattr(producer, 'datetime', Wall)
+    monkeypatch.setattr(producer, 'time', SimpleNamespace(monotonic=lambda: clock.seconds))
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'bounded-heartbeat')
+    def runner(*args, **kwargs):
+        clock.seconds += costs[len(intervals)]
+        # The late native read sees a 12s lease renewed on its original 3s cadence.
+        heartbeat = 3*(clock.seconds//3)
+        expiry = heartbeat+12
+        intervals.append((clock.seconds, expiry))
+        if len(intervals) == len(costs):
+            stop.set()
+        return {'outcome':'PUBLISHED', 'valid_until':(anchor+timedelta(seconds=expiry)).isoformat()}
+    producer.Publisher('private-db', 'same-owner', stopped=stop, runner=runner).run()
+    assert len(intervals) == 4
+    assert all(current[0] < prior[1] for prior, current in zip(intervals, intervals[1:]))
+    assert all(expiry-finished <= 12 for finished, expiry in intervals)
+
+
+def test_optimistic_previous_call_delay_is_detected(monkeypatch, tmp_path):
+    def old_delay(expiry, *, now, elapsed):
+        return max(.25, min(30, (expiry-now).total_seconds()-elapsed-2))
+    monkeypatch.setattr(producer, 'refresh_delay', old_delay)
+    with pytest.raises(AssertionError):
+        test_variable_collection_cost_does_not_add_a_gap_between_short_native_leases(monkeypatch, tmp_path)
+
+
+def test_superseded_collection_retries_before_original_short_lease_expires(monkeypatch, tmp_path):
+    anchor = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
+    clock = SimpleNamespace(seconds=0.0)
+    stop, calls, publications = Stop(), [], []
+    heartbeat = tmp_path/'supersession-heartbeat'
+    class Wall(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return anchor+timedelta(seconds=clock.seconds)
+    def wait(seconds):
+        stop.waits.append(seconds)
+        if len(calls) == 2:
+            assert heartbeat.read_text() == anchor.isoformat(), 'supersession renewed success heartbeat'
+        clock.seconds += seconds
+        return stop.stopped
+    stop.wait = wait
+    monkeypatch.setattr(producer, 'datetime', Wall)
+    monkeypatch.setattr(producer, 'time', SimpleNamespace(monotonic=lambda: clock.seconds))
+    monkeypatch.setattr(producer, 'HEARTBEAT', heartbeat)
+    def runner(_function, *args, **options):
+        calls.append((args, options))
+        assert options == {'timeout': 20, 'start_method': 'spawn'}
+        if len(calls) == 2:
+            # A receipt changes during this eight-second collection. Its
+            # superseded result publishes no replacement for the t12 proof.
+            clock.seconds += 8
+            return {'outcome': 'SUPERSEDED'}
+        if len(calls) == 3:
+            clock.seconds += 2
+            stop.set()
+        native_heartbeat = 3*(clock.seconds//3)
+        expiry = native_heartbeat+12
+        publications.append((clock.seconds, native_heartbeat, expiry))
+        return {'outcome': 'PUBLISHED', 'valid_until':
+                (anchor+timedelta(seconds=expiry)).isoformat()}
+    producer.Publisher('private-db', 'same-owner', stopped=stop, runner=runner).run()
+    assert len(calls) == 3 and [args[-1] for args, _ in calls] == [False, False, False]
+    assert publications[0] == (0, 0, 12)
+    assert publications[1][0] < publications[0][2], 'superseded collection left an expiry gap'
+    assert publications[1][0] == 10.5
+    assert all(expiry-native == 12 for _, native, expiry in publications)
+    assert stop.waits[:2] == [.25, .25]
+
+
+def test_five_second_supersession_backoff_falsifier(monkeypatch, tmp_path):
+    monkeypatch.setattr(producer, 'SUPERSEDED_RETRY_SECONDS', 5)
+    with pytest.raises(AssertionError, match='superseded collection left an expiry gap'):
+        test_superseded_collection_retries_before_original_short_lease_expires(monkeypatch, tmp_path)
+
+
+@pytest.mark.parametrize('prior_failure', [False, True])
+def test_repeated_supersessions_yield_keep_failure_and_stop_without_heartbeat(
+        monkeypatch, tmp_path, prior_failure):
+    stop, calls = Stop(), []
+    answers = (['FAILED'] if prior_failure else [])+['SUPERSEDED']*4
+    heartbeat = tmp_path/'never-successful'
+    monkeypatch.setattr(producer, 'HEARTBEAT', heartbeat)
+    def runner(_function, *args, **options):
+        calls.append((args, options))
+        assert not heartbeat.exists()
+        return {'outcome': answers[len(calls)-1]}
+    def wait(seconds):
+        stop.waits.append(seconds)
+        if len(calls) == len(answers):
+            stop.set()
+        return stop.stopped
+    stop.wait = wait
+    producer.Publisher('private-db', 'same-owner', stopped=stop, runner=runner).run()
+    assert len(calls) == len(answers) and not heartbeat.exists()
+    assert [args[-1] for args, _ in calls] == [False]+[prior_failure]*(len(answers)-1)
+    superseded_waits = stop.waits[1:] if prior_failure else stop.waits
+    assert superseded_waits == [.25]*4 and all(value > 0 for value in superseded_waits)
+    assert all(options == {'timeout': 20, 'start_method': 'spawn'} for _, options in calls)
 
 
 @pytest.mark.parametrize('refusal', [verifier.QueryCanceled, verifier.LockNotAvailable])

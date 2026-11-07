@@ -2012,6 +2012,8 @@ def backup_restore_row(
     return Row(
         "backup_restore", "Backup / Restore", value,
         WARN if recoverable else (FAIL if failures else OK), detail, as_of,
+        valid_until=min(bound for bound in (base_at+timedelta(hours=26),
+            restore_at+timedelta(days=31), runtime_valid_until) if bound is not None),
         required_current=True, recovery=(recovery if recoverable else None))
 
 

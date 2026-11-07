@@ -1,7 +1,7 @@
 """Plain-language display only; never alter a financial or operational verdict."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo
@@ -609,7 +609,7 @@ def dashboard_health(panel) -> dict:
             boundaries.append(boundary)
         if work.active_at(panel.now) and not (stage == 'Publishing closing data'):
             boundaries.append(work.active_until)
-    boundary = min(boundaries) if boundaries else None
+    boundary = min(boundaries).astimezone(timezone.utc) if boundaries else None
     if not panel.observation_current and not negative:
         return dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,

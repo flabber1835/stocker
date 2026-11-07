@@ -92,6 +92,7 @@ def test_public_gateways_admit_only_the_issued_bare_transport(
 def test_shared_composition_checks_seal_and_retains_fresh_read_guards(monkeypatch, scope):
     broker, http = transport()
     calls = []
+    guard_options = []
     async def before(grant, operation):
         calls.append(("before", operation))
     async def after(grant, operation, result):
@@ -99,8 +100,10 @@ def test_shared_composition_checks_seal_and_retains_fresh_read_guards(monkeypatc
     async def mutate(*_args):
         calls.append(("mutation", None))
         raise BrokerAuthorityRefused("fixture revoked mutation")
-    monkeypatch.setattr(validation, "build_fresh_execution_guard",
-                        lambda **kwargs: ExecutionBrokerGuard(before, after, mutate))
+    def compose(**kwargs):
+        guard_options.append(kwargs)
+        return ExecutionBrokerGuard(before, after, mutate)
+    monkeypatch.setattr(validation, "build_fresh_execution_guard", compose)
     wrapped = validation._guard_broker(
         conn=SimpleNamespace(info=SimpleNamespace(dsn="dbname=fixture")),
         broker=broker,
@@ -109,6 +112,7 @@ def test_shared_composition_checks_seal_and_retains_fresh_read_guards(monkeypatc
         base_url=config.DEFAULT_BASE_URL,
         now_provider=lambda: None, strategy_provider=lambda: {})
     inspection._require_certified_paper_broker(wrapped)
+    assert guard_options[0]['publish_operational_evidence'] is False
     account = asyncio.run(wrapped.account_snapshot())
     assert account.identity.account_id == "SIM-PAPER"
     assert [call[0] for call in calls] == ["before", "after"]

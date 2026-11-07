@@ -125,6 +125,12 @@ Freshness follows producer cadence rather than a four-calendar-day tolerance:
 - a backup proof is current only inside the configured 26-hour base-backup
   objective and its continuous WAL/integrity coverage remains valid.
 
+[The independent backup display clock](backup-dashboard-producer-clock.md)
+makes the runtime-chain display lifetime ten minutes from its original producer
+observation, alongside the base and semantic-restore objectives. A trading retry
+wake cannot expire or renew this independent evidence. Financial backup guards
+retain their separate current-media/WAL authority checks.
+
 No panel fetch may contact the broker merely to make a row fresh.
 
 ## 3. Required operator facts

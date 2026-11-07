@@ -21,9 +21,10 @@ def component(monkeypatch):
                             extension_triggers={('sentinel_commands', 'known_extension')},
                             require_schema=lambda conn, **kw: True)
     monkeypatch.setattr(op, 'components', lambda: (value,))
-    # This unit double models a predecessor with no presentation addon. The
-    # addon has its own exact-catalog and orphan/refusal integration tests.
+    # This unit double models a predecessor without optional components. Their
+    # real index/catalog and orphan/refusal paths have separate PG tests.
     monkeypatch.setattr(op, 'presentation_components', lambda: ())
+    monkeypatch.setattr(op, 'access_path_components', lambda: ())
     monkeypatch.setattr(op, 'installation', lambda conn, **kw: None)
     return value
 

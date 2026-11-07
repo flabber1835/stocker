@@ -499,11 +499,16 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
     }) for sid, meta in feed_inputs.metadata(conn).items()}
     http = Httpx(routes={**assets, "/v2/account": Response({
         "id": "native-paper-fixture", "account_number": "paper-fixture",
+        "created_at": "2026-02-12T00:00:00Z",
         "equity": "250000", "cash": "250000", "buying_power": "250000",
         "multiplier": "1", "status": "ACTIVE", "trading_blocked": False,
         "account_blocked": False, "trade_suspended_by_user": False,
-    })})
+    }), "/v2beta1/events/activities": Response(text="")})
     broker._http_provider = lambda: http
+    # The native cash reader now enforces the binding's lower time boundary.
+    # This historical fixture's account and binding must both predate NOW.
+    conn.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z' WHERE id=1")
+    conn.commit()
     # Restore the actual shared constructor: the general strategy fixture
     # substitutes it to keep unrelated economic tests independent of guards.
     monkeypatch.setattr(preparation, "_guard_broker", validation._guard_broker)
@@ -532,7 +537,11 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
     assert result.reconciliation.observation.terminal_recovery_through is None
     assert not broker.capabilities.recent_fill_history
     assert http.calls and all(call[0] == "GET" for call in http.calls)
-    assert not any("activities" in call[1] for call in http.calls)
+    assert any("activities" in call[1] for call in http.calls)
+    from sentinel.execution import broker_cash
+    baseline = broker_cash.load_plan_baseline(conn, plan_id=result.plan.plan_id)
+    assert baseline.activity_identity_authoritative
+    assert not baseline.close_cash_finality_authoritative
     assert not journal.load_commands(conn, bound.identity)
     assert binding.require(conn) == original_binding
     assert conn.execute("SELECT cursor_name,state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-%%' ORDER BY cursor_name").fetchall() == original_shadow

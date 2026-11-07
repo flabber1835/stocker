@@ -146,7 +146,7 @@ class Reader:
     def __init__(self, *, runner=None, clock=time.monotonic, wall_clock=None,
                  evidence_reader=None, observer=None, expected_keys=None,
                  unknown_factory=None, execution_slot=None, scope_label=None,
-                 key_factory=None):
+                 key_factory=None, retain_failed_attempt=False):
         self.runner = runner or supervisor_io.run
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
@@ -157,6 +157,8 @@ class Reader:
         self.unknown = unknown_factory or _unknown
         self.execution_slot = execution_slot
         self.scope_label = scope_label or 'full retained financial verification'
+        self.retain_failed_attempt = retain_failed_attempt
+        self._failed_attempt_handoff = None
         self.lock = Lock()
         self.pending = None
         self.answer = None
@@ -189,22 +191,40 @@ class Reader:
     def attempt_state(self):
         """Small validated parent-owned diagnostics for the background projector."""
         with self.lock:
-            if self.attempt_id is None:
-                return None
-            return observer_failure.Attempt.model_validate(dict(
-                schema=observer_failure.ATTEMPT_SCHEMA,
-                attempt_id=self.attempt_id, subject_sha256=self.attempt_subject,
-                outcome=self.attempt_outcome, admitted_at=self.attempt_admitted_at,
-                deadline=self.attempt_deadline, completed_at=self.attempt_completed_at,
-                work_started_at=self.work_started,
-                work_deadline=(min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
-                    self.attempt_deadline) if self.work_started is not None else None),
-                supersession_started_at=self.supersession_at,
-                supersession_deadline=(self.supersession_at+timedelta(
-                    seconds=observer_failure.SUPERSESSION_SECONDS)
-                    if self.supersession_at is not None else None),
-                diagnostic=self.diagnostic, latched_failure=self.failure_diagnostic
-            )).model_dump(mode='json', by_alias=True)
+            return self._attempt_state_locked()
+
+    def _attempt_state_locked(self):
+        if self.attempt_id is None:
+            return None
+        return observer_failure.Attempt.model_validate(dict(
+            schema=observer_failure.ATTEMPT_SCHEMA,
+            attempt_id=self.attempt_id, subject_sha256=self.attempt_subject,
+            outcome=self.attempt_outcome, admitted_at=self.attempt_admitted_at,
+            deadline=self.attempt_deadline, completed_at=self.attempt_completed_at,
+            work_started_at=self.work_started,
+            work_deadline=(min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
+                self.attempt_deadline) if self.work_started is not None else None),
+            supersession_started_at=self.supersession_at,
+            supersession_deadline=(self.supersession_at+timedelta(
+                seconds=observer_failure.SUPERSESSION_SECONDS)
+                if self.supersession_at is not None else None),
+            diagnostic=self.diagnostic, latched_failure=self.failure_diagnostic
+        )).model_dump(mode='json', by_alias=True)
+
+    def pending_failed_attempt(self):
+        """One historical failure awaiting its background owner's commit."""
+        with self.lock:
+            return (self._failed_attempt_handoff.model_dump(mode='json', by_alias=True)
+                    if self._failed_attempt_handoff is not None else None)
+
+    def ack_failed_attempt(self, attempt_id):
+        """The verifier calls this only after committing that exact history."""
+        with self.lock:
+            if (self._failed_attempt_handoff is not None
+                    and self._failed_attempt_handoff.attempt_id == attempt_id):
+                self._failed_attempt_handoff = None
+                return True
+            return False
 
     def _start_supersession(self, *, from_attempt=False):
         if self.supersession_at is None:
@@ -411,7 +431,15 @@ class Reader:
             refresh_due = (fresh is None or self.failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
             if (allow_start and refresh_due and self.pending is None
+                    and (not self.retain_failed_attempt or self._failed_attempt_handoff is None)
                     and self.clock()-self.last_attempt >= RETRY_SECONDS):
+                if (self.retain_failed_attempt and self.attempt_outcome == 'FAILED'
+                        and self.attempt_id is not None):
+                    failed = self._attempt_state_locked()
+                    if failed['diagnostic'] is None or failed['diagnostic']['outcome'] != 'FAILED':
+                        raise ValueError('closed failed attempt diagnostic missing')
+                    self._failed_attempt_handoff = observer_failure.Attempt.model_validate_json(
+                        json.dumps(failed, allow_nan=False))
                 self.check_reason = ('PRIOR_CHECK_FAILED' if self.failure is not None else
                                      'PERIODIC_REFRESH' if fresh is not None else self.check_reason)
                 self.last_attempt = self.clock()
@@ -429,6 +457,8 @@ class Reader:
                     seconds=2*DEADLINE_SECONDS if self.execution_slot is not None else DEADLINE_SECONDS)
                 self.attempt_completed_at = None
                 self.attempt_outcome = 'QUEUED'
+                if self.retain_failed_attempt:
+                    self.diagnostic = None
                 self.pending = Thread(target=self._work,
                     args=(key, database_url, include_paper), daemon=True,
                     name='sentinel-panel-financial-observer')

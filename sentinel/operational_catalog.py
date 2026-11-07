@@ -13,7 +13,7 @@ from pathlib import Path
 
 SCHEMA = 'sentinel.operational-catalog/1'
 CATALOG_PATH = Path(__file__).with_name('operational-catalog-v1.json')
-CATALOG_SHA256 = '7c8a9c1ae968e244a462731ebdcd4c99c8631d0cf80414308959407c766f18c2'
+CATALOG_SHA256 = '45d2f6d9f17e4c05fc0a553dbea548e541e84ceadcc99c57a8326fb990bc110d'
 
 
 class OperationalCatalogRefused(RuntimeError):
@@ -38,10 +38,23 @@ def _pairs(module):
     return values
 
 
+def _index_pairs(module):
+    values = getattr(module, 'extension_index_pairs', ())
+    _require(isinstance(values, (tuple, list, set, frozenset))
+             and all(isinstance(item, tuple) and len(item) == 2
+                     and all(isinstance(name, str) and name for name in item)
+                     for item in values), 'OPERATIONAL_INDEX_DECLARATION_INVALID')
+    pairs = set(values)
+    _require(len({name for _, name in pairs}) == len(pairs),
+             'OPERATIONAL_INDEX_DECLARATION_INVALID')
+    return pairs
+
+
 def capture_extension(conn, module):
     """Read a deterministic exact structural witness; no data or DDL writes."""
     tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
     pairs = _pairs(module)
+    index_pairs = _index_pairs(module)
     functions = sorted(module.extension_functions)
     names = sorted(tables)
     relations = conn.execute(
@@ -69,7 +82,9 @@ def capture_extension(conn, module):
         'x.indisvalid,x.indisready,x.indislive '
         'FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid '
         'JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace '
-        'WHERE n.nspname=\'public\' AND t.relname=ANY(%s) ORDER BY t.relname,i.relname', (names,)).fetchall()
+        'WHERE n.nspname=\'public\' AND (t.relname=ANY(%s) OR i.relname=ANY(%s)) '
+        'ORDER BY t.relname,i.relname',
+        (names, sorted({name for _, name in index_pairs}))).fetchall()
     all_triggers = conn.execute(
         'SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid,true),t.tgenabled '
         'FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid '
@@ -121,7 +136,12 @@ def require_extension(conn, module_name, *, allow_absent=False):
     found = conn.execute(
         "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
         "WHERE n.nspname='public' AND c.relname=ANY(%s)", (tables,)).fetchone()[0]
-    if not found and allow_absent:
+    index_pairs = _index_pairs(module)
+    found_indexes = (conn.execute(
+        "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname='public' AND c.relname=ANY(%s)",
+        (sorted({name for _, name in index_pairs}),)).fetchone()[0] if index_pairs else 0)
+    if not found and not found_indexes and allow_absent:
         functions = conn.execute(
             "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
             "WHERE n.nspname='public' AND p.proname=ANY(%s)",
@@ -145,9 +165,13 @@ def require_extension(conn, module_name, *, allow_absent=False):
         _require(not marker and not authority,
                  'OPERATIONAL_INSTALLED_COMPONENT_LOST: '+module_name)
         return False
-    _require(found == len(tables), 'OPERATIONAL_CATALOG_PARTIAL: '+module_name)
+    _require(found == len(tables) and found_indexes == len(index_pairs),
+             'OPERATIONAL_CATALOG_PARTIAL: '+module_name)
     expected = _catalog().get(module_name)
     _require(isinstance(expected, dict), 'OPERATIONAL_CATALOG_COMPONENT_UNQUALIFIED')
-    _require(capture_extension(conn, module) == expected,
+    actual = capture_extension(conn, module)
+    _require(index_pairs <= {tuple(row[:2]) for row in actual['indexes']},
+             'OPERATIONAL_CATALOG_CHANGED: '+module_name)
+    _require(actual == expected,
              'OPERATIONAL_CATALOG_CHANGED: '+module_name)
     return True

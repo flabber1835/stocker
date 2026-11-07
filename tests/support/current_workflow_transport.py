@@ -23,6 +23,7 @@ class NativeWorkflowAlpaca(LocalAlpaca):
         result = super().get(url,params)
         if path == '/v2/account':
             result.payload['currency'] = 'USD'
+            result.payload['created_at'] = '2026-02-12T00:00:00Z'
         return result
 
     def post(self,url,body):

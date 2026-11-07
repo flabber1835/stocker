@@ -52,7 +52,13 @@ def scheduled_page():
             paper_alignment=row.paper_alignment,
             paper_plan=row.paper_plan.model_dump(mode='json') if row.paper_plan else None))
     page = dict(as_of=now.isoformat(), overall=panel.overall, operational=panel.operational,
-        color=color(panel.operational), source_errors=[], rows=encoded)
+        color=color(panel.operational), source_errors=[], rows=encoded,
+        observation=dict(current=True, changed_scopes=[], revalidated_keys=[],
+            valid_until=(now+timedelta(seconds=30)).isoformat()),
+        operator_review=dict(scope='a'*64, head=1, reviewed_head=1, status='CLEAN',
+            observed_at=now.isoformat(), reviewed_at=now.isoformat(), active=[], warnings=[]),
+        dashboard_health=dict(status='ok', color='green', label='Healthy · Waiting for market open',
+            valid_until=(now+timedelta(seconds=30)).isoformat(), active_conditions=[], review_conditions=[]))
     return page, dict(plan='future-plan', decision=decision, effective=effective)
 
 
@@ -61,7 +67,9 @@ def execute_reader(monkeypatch, page, expected, *, code=None):
     def read(url, *, timeout):
         calls.append((url, timeout))
         assert url == 'http://127.0.0.1:8000/panel.json' and timeout == 25
-        return io.StringIO(json.dumps(page))
+        response = io.StringIO(json.dumps(page))
+        response.headers = {'X-Sentinel-Panel-Status':'CURRENT'}
+        return response
     monkeypatch.setattr(urllib.request, 'urlopen', read)
     monkeypatch.setattr(sys, 'argv', ['reader', json.dumps(expected)])
     printed = []

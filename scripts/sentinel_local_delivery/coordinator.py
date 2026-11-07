@@ -4,15 +4,18 @@ from __future__ import annotations
 from datetime import datetime
 import time
 
-from . import evidence
+from . import access_path_qualification, evidence
 from .host import RUNTIME_KEYS, SERVICES
-from .model import digest, handoff_mode, require, utcnow
+from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH,
+                    canonical_proof_phase, digest, handoff_mode, require, utcnow)
 
 # Source tampering is checked before every real mutation, and on final
 # observation. Intent-only journal transitions do not launch an image probe.
 SOURCE_CHECK_STAGES = frozenset({'NEW','DRAIN_REQUESTED','STOP_REQUESTED',
     'SCHEMA_INSTALL_REQUESTED','COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED',
     'START_REQUESTED','APPLICATIONS_STARTED'})
+ACCESS_PATH_QUALIFIED_STAGES = frozenset({'COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED',
+    'SHADOW_STARTED','SHADOW_VERIFIED','START_REQUESTED','APPLICATIONS_STARTED','VERIFIED'})
 
 
 class Delivery:
@@ -86,6 +89,49 @@ class Delivery:
         require(observed.utcoffset() is not None, 'PROOF_TIME_INVALID')
         require(-5 <= (utcnow()-observed).total_seconds() <= 900, 'PROOF_HANDOFF_INTERVAL_EXPIRED')
 
+    def _post_schema_access_path(self):
+        selected = canonical_proof_phase(self.host.request)==POST_SCHEMA_ACCESS_PATH
+        if selected:
+            require(self.host.request['schema']==ACCESS_PATH_SCHEMA
+                and handoff_mode(self.host.request)=='PRE_OPEN'
+                and getattr(self.host,'supports_post_schema_access_path',False) is True
+                and self.host.request==self.journal.request,
+                'ACCESS_PATH_CANONICAL_BOOTSTRAP_UNSUPPORTED')
+        return selected
+
+    def _access_path_contract(self, artifacts):
+        return access_path_qualification.require_contract(
+            self.host.request,self.journal.subject,artifacts)
+
+    def _access_path_installation(self, contract, installed):
+        return access_path_qualification.require_installation(contract,installed)
+
+    def _require_access_path_qualification(self, artifacts):
+        return access_path_qualification.require_qualification(
+            self.host.request,self.journal.subject,artifacts)
+
+    def _qualify_access_path(self, artifacts, old, candidate):
+        contract=self._access_path_contract(artifacts)
+        self._fresh(artifacts['preflight_at'])
+        self._stopped_for_install();self._unchanged(artifacts)
+        installed=self._access_path_installation(contract,
+            self.host.verify_access_path_canonical_installation(artifacts['preserved'],contract))
+        proof=evidence.canonical_check(self.host,candidate,artifacts['preserved'])
+        require(proof==artifacts['predecessor_canonical_proof'],'CANONICAL_ECONOMIC_PROOF_CHANGED')
+        current,previous,selected=self._values(artifacts)
+        require(current==previous==old and selected==candidate,'PREMATURE_RUNTIME_INSTALLATION')
+        self._fresh(artifacts['preflight_at'])
+        self._stopped_for_install();self._unchanged(artifacts)
+        after=self._access_path_installation(contract,
+            self.host.verify_access_path_canonical_installation(artifacts['preserved'],contract))
+        require(after==installed,'ACCESS_PATH_CANONICAL_INSTALLATION_CHANGED')
+        self._fresh(artifacts['preflight_at'])
+        return dict(canonical_proof=proof,access_path_canonical_qualification=dict(
+            schema='sentinel.checkpoint-access-canonical-qualification/1',authority_effect='NONE',
+            request_sha256=self.journal.subject,state_sha256=contract['state_sha256'],
+            contract_sha256=digest(contract),installation=installed,
+            canonical_proof_sha256=digest(proof),qualified_at=utcnow().isoformat()))
+
     def _wait_shadow(self):
         deadline = self.monotonic()+180
         while True:
@@ -114,9 +160,14 @@ class Delivery:
 
     def step(self):
         receipt = self.journal.read(); stage = receipt['stage']; artifacts = receipt['artifacts']
+        access_path=self._post_schema_access_path()
+        if access_path and stage in ACCESS_PATH_QUALIFIED_STAGES:
+            self._require_access_path_qualification(artifacts)
         if stage=='VERIFIED':
             return receipt
         if stage in SOURCE_CHECK_STAGES:
+            self.host.verify_candidate()
+        elif access_path and stage=='SCHEMA_INSTALLED':
             self.host.verify_candidate()
         values = self.host.load_values()
         if stage=='NEW':
@@ -137,21 +188,30 @@ class Delivery:
             candidate = self.host.candidate_values(values)
             evidence.compare_configuration(self.host,values,candidate,state)
             retained=getattr(self.host,'predecessor_canonical_proof',lambda _state:None)(state)
-            old_proof = retained if retained is not None else evidence.canonical_check(self.host,values,state)
-            new_proof = evidence.canonical_check(self.host,candidate,state)
-            require(old_proof==new_proof, 'CANONICAL_ECONOMIC_PROOF_CHANGED')
+            extra={}
+            if access_path:
+                require(isinstance(retained,dict) and bool(retained),
+                        'ACCESS_PATH_RETAINED_PREDECESSOR_PROOF_REQUIRED')
+                contract=self.host.access_path_canonical_bootstrap(state,retained)
+                extra.update(predecessor_canonical_proof=retained,
+                             access_path_canonical_contract=contract)
+                self._access_path_contract(dict(preserved=state,**extra))
+            else:
+                old_proof = retained if retained is not None else evidence.canonical_check(self.host,values,state)
+                new_proof = evidence.canonical_check(self.host,candidate,state)
+                require(old_proof==new_proof, 'CANONICAL_ECONOMIC_PROOF_CHANGED')
+                extra['canonical_proof']=new_proof
             require(evidence.snapshot(self.host)==state and self.host.postgres()==pg,
                     'STATE_CHANGED_DURING_PREFLIGHT')
             native = evidence.native_positions(self.host,values)
             if handoff_mode(self.host.request) in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
                 require(native==new_proof.get('settled_native_positions'),
                         'POST_TRADE_NATIVE_RECONCILIATION_CHANGED')
-            extra={}
             if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR':
                 worker=applications['sentinel-automation']
                 extra['predecessor_automation']=dict(container=worker['Id'],image=worker['Image'])
             return self.journal.advance(stage,'PREFLIGHT_PASS',preserved=state,postgres=pg,
-                canonical_proof=new_proof,preflight_at=utcnow().isoformat(),native_positions=native,
+                preflight_at=utcnow().isoformat(),native_positions=native,
                 predecessor_runtime={key:values[key] for key in RUNTIME_KEYS},
                 configuration_sha256=digest(values),notification_history=evidence.notification_history(self.host),**extra)
         current,old,candidate = self._values(artifacts)
@@ -201,7 +261,8 @@ class Delivery:
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
             self._stopped_for_install()
-            return self.journal.advance(stage,'COMPOSE_INSTALL_REQUESTED')
+            qualified=self._qualify_access_path(artifacts,old,candidate) if access_path else {}
+            return self.journal.advance(stage,'COMPOSE_INSTALL_REQUESTED',**qualified)
         if stage=='COMPOSE_INSTALL_REQUESTED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at']);self._unchanged(artifacts,native=False)

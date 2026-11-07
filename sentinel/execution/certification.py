@@ -99,8 +99,9 @@ REGISTRY: Mapping[str, AdapterCertification] = {
             "PAPER scope only; LIVE requires its own signed account admission "
             "and adapter identity. Certified for deterministic client keys, single-order "
             "cancel, DAY market orders addressed by durable Alpaca asset_id, "
-            "and account-bound observations. Candidate Activity-SSE parsing "
-            "has local fixture coverage, not accepted financial authority. Open-order REST "
+            "and account-bound observations. The selected asset-ID PAPER adapter "
+            "also has accepted owned-account Activity-SSE current-cash evidence; "
+            "other variants retain their declared cash quarantine. Open-order REST "
             "pagination is NOT certified as a proof that an unknown stale-restore "
             "order was not omitted; physical PostgreSQL incarnation/takeover "
             "fencing blocks restored transport until predecessor completeness "
@@ -108,7 +109,7 @@ REGISTRY: Mapping[str, AdapterCertification] = {
             "Recent fill history is intentionally not advertised as a complete "
             "accounting ledger because trade corrections/busts are explicit "
             "refusals. Account REST payload timing is not treated as freshness; "
-            "cash producer completeness and finality remain unaccepted. "
+            "cash publication finality remains unaccepted. "
             "The adapter contains a quarantined Portfolio History 1D wire "
             "reader for real-paper acceptance testing, but historical close "
             "valuation remains explicitly UNcertified and its capability bit "
@@ -191,9 +192,12 @@ _CERTIFIED_CAPABILITIES = {
     }),
 }
 _CERTIFIED_CAPABILITIES["alpaca-live"] = _CERTIFIED_CAPABILITIES["alpaca"]
+# Scope current-cash acceptance to PAPER; the LIVE capability set above retains
+# its original value. The declared adapter bit independently gates the reader.
+_CERTIFIED_CAPABILITIES["alpaca"] |= frozenset({"cash_observable"})
 
 _CONFORMANCE_SUITES = {
-    "alpaca": "sentinel.alpaca-paper-conformance/1",
+    "alpaca": "sentinel.alpaca-paper-conformance/2",
     "alpaca-live": "sentinel.alpaca-live-software-conformance/1",
     "simulator": "sentinel.execution-contract-oracle/1",
 }

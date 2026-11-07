@@ -59,14 +59,17 @@ def test_quiescent_install_preserves_old_rows_and_identity_and_is_idempotent(con
     store.require_feed_schema(conn)
 
 
-@pytest.mark.parametrize('statement', [
-    "DELETE FROM sentinel_processed_sessions WHERE cursor_name='operational-schema:v1'",
-    "UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name='operational-schema:v1'",
-    'TRUNCATE sentinel_processed_sessions',
+@pytest.mark.parametrize('statement,guard', [
+    ("DELETE FROM sentinel_processed_sessions WHERE cursor_name='operational-schema:v1'",
+     'operational installation authority'),
+    ("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name='operational-schema:v1'",
+     'operational installation authority'),
+    # PostgreSQL fires the new table-wide immutable guard first by trigger name.
+    ('TRUNCATE sentinel_processed_sessions', 'checkpoint lineage installation authority'),
 ])
-def test_installation_marker_cannot_be_removed_or_rewritten(conn, statement):
+def test_installation_marker_cannot_be_removed_or_rewritten(conn, statement, guard):
     extension.install_quiescent(conn)
-    with pytest.raises(Exception, match='operational installation authority'):
+    with pytest.raises(Exception, match=guard):
         conn.execute(statement)
     conn.rollback()
     assert extension.require_schema(conn)
@@ -112,7 +115,10 @@ def test_connection_owner_refuses_without_rolling_back_caller_work(conn, validat
 def test_catalog_pin_tamper_has_a_falsifier(conn, monkeypatch, tmp_path):
     extension.install_quiescent(conn)
     bad = tmp_path / 'changed-catalog.json'
-    bad.write_bytes(catalog.CATALOG_PATH.read_bytes().replace(b'indexes', b'indexez', 1))
+    altered = json.loads(catalog.CATALOG_PATH.read_bytes())
+    component = altered['components'][extension.COMPONENTS[0]]
+    component['indexez'] = component.pop('indexes')
+    bad.write_bytes(catalog.canonical(altered)+b'\n')
     monkeypatch.setattr(catalog, 'CATALOG_PATH', bad)
     with pytest.raises(catalog.OperationalCatalogRefused, match='PIN_CHANGED'):
         catalog.require_extension(conn, extension.COMPONENTS[0])

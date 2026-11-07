@@ -79,9 +79,10 @@ def conn(pg):
     c.close()
 
 def assert_quarantined(b):
-    assert not b.financial_activity_sse
+    # Current cash acceptance does not promote this nested fill producer.
+    assert b.financial_activity_sse
     assert not b.capabilities.recent_fill_history
-    assert not b.supports_account_cash_activities
+    assert b.supports_account_cash_activities
     assert not b.supports_account_fill_interval_evidence
 
 def test_ordinary_observation_control_never_reads_candidate_sse(conn):

@@ -153,41 +153,71 @@ def arm_or_drain(state, database_url, incarnation, arm, *, now=None):
         return arm()
 
 
+def _prior_acknowledgement(value, request_value, *, now):
+    """A genuine older ACK can mean pending, never current quiescence."""
+    try:
+        if (set(value) != {'schema','kind','request','request_digest','quiescent_at'}
+                or value['schema'] != SCHEMA or value['kind'] != 'DRAINED'
+                or not isinstance(value['request'],dict) or value['request'] == request_value
+                or value['request_digest'] != _digest(value['request'])):
+            return False
+        prior = value['request']
+        validate_request(prior,binding=prior.get('binding_sha256'),
+                         incarnation=prior.get('incarnation'),now=now)
+        start, expiry = (datetime.fromisoformat(prior[key]) for key in ('requested_at','expires_at'))
+        quiescent = datetime.fromisoformat(value['quiescent_at'])
+        return (quiescent.utcoffset() == timedelta(0)
+                and start < datetime.fromisoformat(request_value['requested_at'])
+                and start <= quiescent < expiry and quiescent <= now)
+    except (ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
+def _acknowledged(state, database_url, request_value, *, now, remaining_seconds=180,
+                  pending_prior=False):
+    """Caller holds admission across status, request and ACK reads."""
+    current = status._load(state/status.NAME)
+    if (not validate_request(request_value,binding=status.binding(database_url),incarnation=current.incarnation,now=now)
+            or datetime.fromisoformat(request_value['expires_at'])-now < timedelta(seconds=remaining_seconds)
+            or current.state != 'RUNNING' or current.reason != 'IDLE'
+            or current.binding_sha256 != request_value['binding_sha256']
+            or not timedelta(0) <= now-current.observed_at <= timedelta(seconds=status.MAX_AGE_SECONDS)
+            or _load(state/REQUEST_NAME) != request_value
+            or (state/status.PENDING_NAME).exists() or (state/status.CRITICAL_NAME).exists()):
+        raise ValueError('shadow drain quiescence unavailable')
+    value = _load(state/ACK_NAME)
+    if (set(value) != {'schema','kind','request','request_digest','quiescent_at'}
+            or value['schema'] != SCHEMA or value['kind'] != 'DRAINED'
+            or value['request'] != request_value or value['request_digest'] != _digest(request_value)):
+        if pending_prior and _prior_acknowledgement(value,request_value,now=now):
+            return None
+        raise ValueError('shadow drain acknowledgement identity refused')
+    quiescent = datetime.fromisoformat(value['quiescent_at'])
+    if not datetime.fromisoformat(request_value['requested_at']) <= quiescent <= now:
+        raise ValueError('shadow drain acknowledgement clock refused')
+    return value
+
+
 def acknowledged(state, database_url, request_value, *, now=None, remaining_seconds=180):
     now = now or _now()
     with admission(state):
-        current = status._load(state/status.NAME)
-        if (not validate_request(request_value,binding=status.binding(database_url),incarnation=current.incarnation,now=now)
-                or datetime.fromisoformat(request_value['expires_at'])-now < timedelta(seconds=remaining_seconds)
-                or current.state != 'RUNNING' or current.reason != 'IDLE'
-                or current.binding_sha256 != request_value['binding_sha256']
-                or not timedelta(0) <= now-current.observed_at <= timedelta(seconds=status.MAX_AGE_SECONDS)
-                or _load(state/REQUEST_NAME) != request_value
-                or (state/status.PENDING_NAME).exists() or (state/status.CRITICAL_NAME).exists()):
-            raise ValueError('shadow drain quiescence unavailable')
-        value = _load(state/ACK_NAME)
-        if (set(value) != {'schema','kind','request','request_digest','quiescent_at'}
-                or value['schema'] != SCHEMA or value['kind'] != 'DRAINED'
-                or value['request'] != request_value or value['request_digest'] != _digest(request_value)):
-            raise ValueError('shadow drain acknowledgement identity refused')
-        quiescent = datetime.fromisoformat(value['quiescent_at'])
-        if not datetime.fromisoformat(request_value['requested_at']) <= quiescent <= now:
-            raise ValueError('shadow drain acknowledgement clock refused')
-        return value
+        return _acknowledged(state,database_url,request_value,now=now,
+                             remaining_seconds=remaining_seconds)
 
 
 def poll(state, database_url, request_value, *, now=None):
     instant = now or _now()
-    current = status._load(state/status.NAME)
-    if (not validate_request(request_value,binding=status.binding(database_url),
-            incarnation=current.incarnation,now=instant)
-            or _load(state/REQUEST_NAME) != request_value):
-        raise ValueError('shadow drain request no longer current')
-    if current.state=='RUNNING' and current.reason=='ACTIVE_WORKER':
-        return None
-    if not (state/ACK_NAME).exists():
-        return None
-    return acknowledged(state,database_url,request_value,now=instant)
+    with admission(state):
+        current = status._load(state/status.NAME)
+        if (not validate_request(request_value,binding=status.binding(database_url),
+                incarnation=current.incarnation,now=instant)
+                or _load(state/REQUEST_NAME) != request_value):
+            raise ValueError('shadow drain request no longer current')
+        if current.state=='RUNNING' and current.reason=='ACTIVE_WORKER':
+            return None
+        if not (state/ACK_NAME).exists():
+            return None
+        return _acknowledged(state,database_url,request_value,now=instant,pending_prior=True)
 
 
 def main(argv=None):

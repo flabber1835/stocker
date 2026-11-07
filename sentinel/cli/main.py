@@ -244,6 +244,13 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument('--initial-paper-recovery-reason')
     prep.add_argument('--confirm-initial-paper-recovery', action='store_true')
     prep.add_argument('--confirm-retain-current-paper-credentials', action='store_true')
+    prep.add_argument('--retire-legacy-cash-plan')
+    prep.add_argument('--retire-legacy-cash-plan-fingerprint')
+    prep.add_argument('--retirement-native-dividend-id')
+    prep.add_argument('--retirement-observed-cash')
+    prep.add_argument('--retirement-actor')
+    prep.add_argument('--retirement-reason')
+    prep.add_argument('--confirm-prospective-cash-retirement', action='store_true')
     sub.add_parser(
         "current-paper-plan",
         help="inspect the durable current paper plan; contacts no broker")

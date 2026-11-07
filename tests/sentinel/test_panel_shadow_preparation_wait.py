@@ -8,7 +8,7 @@ import pytest
 from sentinel import prepare_shadow_wait
 from sentinel.automation import closing_data_notifications
 from sentinel.feed import calendar, store
-from sentinel.panel import model, observer_codec, presentation, read_projection, render
+from sentinel.panel import model, observer_codec, observer_failure, presentation, read_projection, render
 from sentinel.panel import postclose_feed_wait, retry_status, shadow_source_wait, verification_service
 
 NOW = datetime(2026, 10, 27, 20, 45, tzinfo=timezone.utc)
@@ -120,10 +120,59 @@ def test_current_or_unqualified_proof_retains_canonical_financial_observation(mo
     assert owned.rolled_back and owned.closed
 
 
-def test_changed_projection_subject_cannot_publish_wait(monkeypatch):
-    observer_setup(monkeypatch, proof(), subjects=['key', 'other'])
-    with pytest.raises(ValueError, match='subject changed'):
-        shadow_source_wait.observe_preparation('private', False, 'key')
+@pytest.mark.parametrize('paper', [False, True])
+@pytest.mark.parametrize('phase', ['BEFORE_OBSERVATION', 'AFTER_OBSERVATION'])
+def test_changed_projection_subject_is_captured_as_superseded_without_a_payload(
+        monkeypatch, paper, phase):
+    subjects = ['other'] if phase == 'BEFORE_OBSERVATION' else ['key', 'other']
+    owned, calls = observer_setup(monkeypatch, proof(), subjects=subjects)
+    monkeypatch.setattr(verification_service, '_observe_once',
+                        lambda *args: pytest.fail('changed subject reached financial closure'))
+    result = verification_service.diagnosed_observe('private', paper, 'key')
+    failure = observer_failure.decode(result)
+    assert failure.outcome == 'SUPERSEDED', f'subject change was classified as {failure.outcome}'
+    assert failure.code == 'SUBJECT_CHANGED' and failure.phase == phase
+    assert failure.exception_type == 'ObservationSuperseded'
+    assert set(result) == {'schema', 'outcome', 'code', 'phase', 'exception_type', 'fingerprint'}
+    if phase == 'BEFORE_OBSERVATION':
+        assert calls == [] and not owned.rolled_back and not owned.closed
+    else:
+        assert len(calls) == 2 and owned.rolled_back and owned.closed
+
+
+@pytest.mark.parametrize('paper', [False, True])
+@pytest.mark.parametrize('phase', ['BEFORE_OBSERVATION', 'AFTER_OBSERVATION'])
+def test_old_value_error_subject_classification_is_detected(monkeypatch, paper, phase):
+    test_changed_projection_subject_is_captured_as_superseded_without_a_payload(
+        monkeypatch, paper, phase)
+    message = ('shadow preparation subject changed before observation'
+               if phase == 'BEFORE_OBSERVATION' else
+               'shadow preparation subject changed during observation')
+    source = inspect.getsource(shadow_source_wait.observe_preparation)
+    original = ("raise observer_failure.ObservationSuperseded(\n"
+                f"            '{phase}', '{message}')")
+    assert source.count(original) == 1
+    namespace = {}
+    exec(compile(source.replace(original, f'raise ValueError({message!r})'),
+                 '<old-preparation-subject-classification>', 'exec'),
+         vars(shadow_source_wait), namespace)
+    monkeypatch.setattr(shadow_source_wait, 'observe_preparation', namespace['observe_preparation'])
+    with pytest.raises(AssertionError, match='subject change was classified as FAILED'):
+        test_changed_projection_subject_is_captured_as_superseded_without_a_payload(
+            monkeypatch, paper, phase)
+
+
+@pytest.mark.parametrize('paper', [False, True])
+def test_preparation_path_does_not_reclassify_unrelated_financial_validation(monkeypatch, paper):
+    owned, _ = observer_setup(monkeypatch, None)
+    monkeypatch.setattr(verification_service.financial, 'retry_observation_read', lambda operation: operation())
+    def refused(*args):
+        raise ValueError('unrelated immutable binding changed')
+    monkeypatch.setattr(verification_service, '_observe_once', refused)
+    failure = observer_failure.decode(verification_service.diagnosed_observe('private', paper, 'key'))
+    assert failure.outcome == 'FAILED' and failure.code == 'VALIDATION_REFUSED'
+    assert failure.phase == 'OBSERVATION' and failure.exception_type == 'ValueError'
+    assert owned.rolled_back and owned.closed
 
 
 def test_positive_background_proof_skips_expensive_financial_closure(monkeypatch):

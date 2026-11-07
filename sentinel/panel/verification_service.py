@@ -199,16 +199,24 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 financial_changed = True
             else:
                 conn.rollback()
+        retained_reader = getattr(reader, 'pending_failed_attempt', None)
+        retained = retained_reader() if retained_reader is not None else None
         attempt = reader.attempt_state()
         diagnostic_key = attempt_store.scope_key(scope)
         diagnostic_changed = False
-        if attempt is not None and previous.get(diagnostic_key) != attempt:
+        if retained is not None:
             _require_iteration_time(deadline)
             diagnostic_changed = attempt_store.publish_owned(conn, owner_id=owner_id,
-                scope=scope, attempt=attempt, now=datetime.now(timezone.utc))
-        if financial_changed or diagnostic_changed:
+                scope=scope, attempt=retained, now=datetime.now(timezone.utc))
+        if attempt is not None and (retained is not None or previous.get(diagnostic_key) != attempt):
+            _require_iteration_time(deadline)
+            diagnostic_changed = attempt_store.publish_owned(conn, owner_id=owner_id,
+                scope=scope, attempt=attempt, now=datetime.now(timezone.utc)) or diagnostic_changed
+        if financial_changed or diagnostic_changed or retained is not None:
             _require_iteration_time(deadline)
             conn.commit()
+            if retained is not None:
+                reader.ack_failed_attempt(retained['attempt_id'])
             _require_iteration_time(deadline)
             if financial_changed:
                 previous[scope] = value
@@ -281,6 +289,7 @@ def run(*, stopped=None):
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
             key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
+            retain_failed_attempt=True,
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
             for scope in ('SHADOW','PAPER')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))

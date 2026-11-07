@@ -193,13 +193,15 @@ async def _broker_cash_state_or_refuse(
     """Ingest one complete broker-cash interval under the caller's writer lock."""
     if not getattr(broker, "supports_account_cash_activities", False):
         return None
+    from sentinel.execution.alpaca import ActivityCorrectionRequiresRecovery
     try:
         return await broker_cash.ingest_account_cash(
             conn, broker_adapter=broker, broker=binding.broker,
             account_id=binding.broker_account_id, through=through)
     except BrokerAuthorityRefused:
         raise
-    except broker_cash.BrokerCashAuthorityRefused as exc:
+    except (broker_cash.BrokerCashAuthorityRefused, MalformedBrokerEvidence,
+            ActivityCorrectionRequiresRecovery) as exc:
         raise PaperActivationRefused(
             f"broker cash authority is inconsistent: {exc}") from exc
     except Exception as exc:                                  # noqa: BLE001
@@ -274,6 +276,17 @@ def _cash_authority_or_refuse(
     exact_expected = expected_without_activity + activity_delta
     expected = _cash_decimal(exact_expected)
     if abs(Fraction(account.cash) - exact_expected) > 1:
+        if (permit_new_activity and activity_state is not None
+                and baseline.activity_identity_authoritative
+                and activity_delta > 0
+                and Fraction(account.cash) == expected_without_activity):
+            # A native credit may be visible before the balance endpoint
+            # reflects it. This read-only wait earns no cash/plan authority and
+            # never renews the separate generic endpoint-lag clock.
+            raise PaperRetryableRefused(
+                'account cash is not yet coherent with known positive native '
+                'cash activity; preparation/recovery must wait for the full '
+                'cash equation before adopting a new plan or baseline')
         if (endpoint_lag_observed_at is not None
                 and _account_endpoint_lag_is_live(
                     conn, plan=plan, deployment=deployment,

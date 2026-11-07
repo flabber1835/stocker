@@ -19,6 +19,7 @@ from sentinel.panel import operational_schema as schema
 
 DEADLINE_SECONDS = 20
 POLL_SECONDS = 5
+SUPERSEDED_RETRY_SECONDS = .25
 MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
 HEARTBEAT = Path('/tmp/sentinel-operational-projection-heartbeat')
@@ -29,11 +30,12 @@ class CollectionSuperseded(ValueError):
 
 
 def refresh_delay(expiry, *, now, elapsed):
-    """Budget the measured next collection before original evidence expires."""
+    """Reserve the original call ceiling, not an optimistic previous runtime."""
     remaining = (expiry-now).total_seconds()
     if remaining <= 0 or not math.isfinite(elapsed) or elapsed < 0:
         raise TimeoutError('operational publication has no remaining delivery budget')
-    return max(.25, min(MAX_REFRESH_SECONDS, remaining-elapsed-REFRESH_MARGIN_SECONDS))
+    budget = max(DEADLINE_SECONDS, elapsed)
+    return max(.25, min(MAX_REFRESH_SECONDS, remaining-budget-REFRESH_MARGIN_SECONDS))
 
 
 def _coordinates(database_url):
@@ -56,20 +58,15 @@ def lock_inputs(conn):
                  "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
 
 
-def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False):
+def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
+                 *, shadow_observer=None):
     from sentinel.feed import store
     from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources
 
     context, subjects = _coordinates(database_url)
     panel = segment_disclosure.disclose(sources.build_panel(
-        state_dir=Path(state_dir), database_url=database_url), database_url)
-    # Collect the shortest-lived leader facts last. Their original lease clocks
-    # still govern expiry; collection and publication cannot renew them.
-    automation, errors = sources._automation_rows(database_url)
-    current = {row.key: row for row in automation if row.key == 'automation_leader'}
-    panel = replace(panel, rows=[current.get(row.key, row) for row in panel.rows],
-                    now=datetime.now(timezone.utc),
-                    source_errors=list(dict.fromkeys([*panel.source_errors, *errors])))
+        state_dir=Path(state_dir), database_url=database_url,
+        shadow_observer=shadow_observer), database_url)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
@@ -86,6 +83,10 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         if (snapshots.context(conn, database_url) != context
                 or snapshots.subjects(conn, database_url) != subjects):
             raise CollectionSuperseded('operational projection inputs changed')
+        # Full automation composition can outlive a 12-second leader lease.
+        # Sample its bounded native liveness facts after fencing, without
+        # repeating authority, alert and cycle-history composition.
+        panel = replace(panel, rows=sources._late_automation_rows(conn, panel.rows))
         # Publisher and acknowledgement acquire the receipt before review state.
         # A common order avoids a receipt/state lock inversion.
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
@@ -155,11 +156,13 @@ def publish_failure(database_url, owner_id, instance, diagnostic):
         conn.close()
 
 
-def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False):
+def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
+                   *, shadow_observer=None):
     """Classify child refusals before the generic process wrapper loses type."""
     try:
         return {'outcome':'PUBLISHED', **publish_once(
-            database_url, owner_id, state_dir, instance, prior_failed)}
+            database_url, owner_id, state_dir, instance, prior_failed,
+            shadow_observer=shadow_observer)}
     except CollectionSuperseded:
         return {'outcome':'SUPERSEDED'}
     except Exception as exc:
@@ -169,6 +172,28 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             return {'outcome':'PUBLISHED', **publish_failure(database_url, owner_id, instance, diagnostic)}
         except Exception:
             return {'outcome':'FAILED', 'type':type(exc).__name__}
+
+
+class Collector:
+    """Own the reusable filesystem observer only inside the spawned collector."""
+
+    def __init__(self):
+        # This object is pickled by spawn. Allocate no child or descriptor here.
+        self.observer = None
+
+    def __call__(self, database_url, owner_id, state_dir, instance, prior_failed=False):
+        if self.observer is None:
+            from sentinel.shadow_service_probe import Observer
+            self.observer = Observer(Path(state_dir))
+        elif self.observer.state_dir != Path(state_dir):
+            raise ValueError('collector observer state directory changed')
+        return collect_result(database_url, owner_id, state_dir, instance, prior_failed,
+                              shadow_observer=self.observer)
+
+    def close(self):
+        if self.observer is not None:
+            self.observer.close()
+            self.observer = None
 
 
 class Publisher:
@@ -182,7 +207,7 @@ class Publisher:
         self.stopped = stopped or Event()
         self.runner = runner
         from sentinel.panel.projection_worker import Worker
-        self.worker = Worker(collect_result, self.database_url, self.owner_id,
+        self.worker = Worker(Collector(), self.database_url, self.owner_id,
                              self.state_dir, self.instance) if runner is None else None
         self.thread = Thread(target=self.run, name='sentinel-operational-projection', daemon=True)
         self.started = False
@@ -207,7 +232,9 @@ class Publisher:
                                           elapsed=time.monotonic()-started)
                     failed = False
                     HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
-                elif result.get('outcome') != 'SUPERSEDED':
+                elif result.get('outcome') == 'SUPERSEDED':
+                    delay = SUPERSEDED_RETRY_SECONDS
+                else:
                     failed = True
             except Exception as exc:
                 failed = True

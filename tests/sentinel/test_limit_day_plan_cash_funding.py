@@ -11,6 +11,7 @@ import pytest
 from sentinel import binding
 from sentinel.execution import journal, protected_funding as funding, protected_limits, target_reprojection
 from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+from sentinel.execution.alpaca import FinancialGradeAlpacaExecutionBroker
 from sentinel.execution.certification import certify_adapter, require_certified_adapter
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerAccountIdentity, BrokerAccountSnapshot, BrokerObservation, OrderTerms, Side
@@ -33,7 +34,9 @@ ACCOUNT = "PAPER-CASH-FUNDING"
 
 def native_wrapper(*, inner=None):
     if inner is None:
-        inner = AssetIdAlpacaExecutionBroker(api_key="fixture", secret_key="fixture",
+        # Retain the explicit no-activity variant. The selected asset-ID PAPER
+        # adapter now requires accepted activity-backed cash instead of /2.
+        inner = FinancialGradeAlpacaExecutionBroker(api_key="fixture", secret_key="fixture",
             base_url=PAPER, http_provider=lambda: pytest.fail("unexpected provider request"))
         certify_adapter(inner, name="alpaca", mode="ALPACA_PAPER")
     return Recorder().wrap(inner)
@@ -44,7 +47,7 @@ def account(value="1000", bp=None):
         buying_power=D(value if bp is None else bp), multiplier=D(1), status="ACTIVE")
 
 
-def test_real_asset_id_composition_selects_no_activity_variant_across_restart():
+def test_retained_no_activity_composition_is_stable_across_restart():
     first, restarted = native_wrapper(), native_wrapper()
     assert first.capabilities.account_cash_activity_evidence is False
     assert first.supports_account_cash_activities is False
@@ -52,6 +55,14 @@ def test_real_asset_id_composition_selects_no_activity_variant_across_restart():
     assert require_certified_adapter(first).composition_sha256 != require_certified_adapter(restarted).composition_sha256
     assert funding._plan_cash_composition(first) == funding._plan_cash_composition(restarted)
     assert funding._plan_cash_composition(None) is None
+
+
+def test_selected_cash_capability_cannot_fall_back_to_no_activity_funding():
+    inner = AssetIdAlpacaExecutionBroker(api_key='fixture', secret_key='fixture', base_url=PAPER)
+    certify_adapter(inner, name='alpaca', mode='ALPACA_PAPER')
+    wrapped = native_wrapper(inner=inner)
+    assert wrapped.supports_account_cash_activities and wrapped.financial_activity_sse
+    assert funding._plan_cash_composition(wrapped) is None
 
 
 @pytest.mark.parametrize("damage", ["fake", "simulator", "bare", "rewrapped", "callback", "inner-capability", "live-endpoint"])

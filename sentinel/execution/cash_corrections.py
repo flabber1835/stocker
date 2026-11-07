@@ -78,9 +78,26 @@ def _matches(item, sid, ticker):
 class CashAddition:
     proof: CashOnlyAdditionProof
     source: dict
-    bar: tuple
-    predecessor: tuple
-    identity: dict
+    bar: tuple | None
+    predecessor: tuple | None
+    identity: dict | None
+
+
+def _defensive_mark(original, observed, *, sid, ticker, session):
+    from sentinel.feed import calendar
+
+    _require(sid == 'SENTINEL:BIL' and ticker == 'BIL')
+    # The fixed sleeve has benchmark marks, not an equity listing or bar.
+    _require(not any(_matches(row, sid, ticker) for row in observed['identity_rows']))
+    _require(not any(row[0] == sid or row[1] == ticker for row in observed['bars']))
+    _require(not any(row[0] == sid for row in observed['predecessors']))
+    pair = observed['defensive']
+    _require(len(pair) == 2 and all(isinstance(row, list) and len(row) == 3 for row in pair))
+    _require([row[0] for row in pair] == [calendar.previous_sessions(session, 2)[0], session])
+    for row in pair:
+        _positive(row[1]); _positive(row[2])
+    _require(digest(original['defensive']) == digest(pair))
+    return _positive(pair[-1][1]), _positive(pair[-1][2])
 
 
 def classify(marker, original, correction, *, publication_version, coverage_sha256,
@@ -103,8 +120,9 @@ def classify(marker, original, correction, *, publication_version, coverage_sha2
         _require(isinstance(marker, dict) and set(marker) == _MARKER_KEYS)
         sid, ticker, session = marker['security_id'], marker['ticker'], marker['session']
         _require(isinstance(sid, str) and sid and isinstance(ticker, str)
-                 and ticker == ticker.strip().upper() and ticker and ticker != 'BIL'
-                 and sid != 'SENTINEL:BIL' and date.fromisoformat(session).isoformat() == session)
+                 and ticker == ticker.strip().upper() and ticker
+                 and (sid == 'SENTINEL:BIL') == (ticker == 'BIL')
+                 and date.fromisoformat(session).isoformat() == session)
         _require(marker['action'] == 'historycorrection' and marker['value'] is None
                  and marker['contraticker'] is None and marker['reason'] == 'RETAINED_ACTION_MEANING_CHANGED'
                  and marker['evidence_kind'] == 'retained_action_correction'
@@ -141,24 +159,31 @@ def classify(marker, original, correction, *, publication_version, coverage_sha2
         _require(isinstance(source['source_row_id'], str)
                  and re.fullmatch('[0-9a-f]{64}', source['source_row_id']) is not None)
         _positive(source['value'])
-        identities = [row for row in observed['identity_rows'] if _matches(row, sid, ticker)]
-        _require(len(identities) == 1 and identities[0].get('permaticker') == sid
-                 and identities[0].get('ticker') == ticker
-                 and IdentityResolver(listings_from_rows(identities)).resolve(ticker, session) == sid)
-        bars = [row for row in observed['bars'] if row[0] == sid or row[1] == ticker]
-        _require(len(bars) == 1 and len(bars[0]) == 6 and bars[0][0] == sid and bars[0][1] == ticker)
-        bar = bars[0]
-        signal, raw, per_share = map(_positive, bar[2:5])
-        _require(Decimal(str(bar[5])) == 1)
-        predecessors = [row for row in observed['predecessors'] if row[0] == sid]
-        _require(len(predecessors) == 1 and len(predecessors[0]) == 4
-                 and predecessors[0][1] == calendar.previous_sessions(session, 2)[0])
-        _positive(predecessors[0][2]); _positive(predecessors[0][3])
         resolution = resolve_dividends([source], [session], disputed_events=tuple(
             item for item in DISPUTED_CASH_EVENTS if item['ticker'] == ticker),
             authorities=tuple(item for item in CASH_ADJUDICATION_AUTHORITIES if item['ticker'] == ticker))
-        canonical = Decimal(str(raw_dividend_per_share(signal, raw, resolution.dividends[(ticker, session)])))
-        _require(canonical.is_finite() and canonical > 0 and canonical == per_share)
+        if sid == 'SENTINEL:BIL':
+            signal, raw = _defensive_mark(original, observed, sid=sid, ticker=ticker, session=session)
+            per_share = Decimal(str(raw_dividend_per_share(signal, raw, resolution.dividends[(ticker, session)])))
+            _positive(per_share)
+            bar, predecessor, identity = None, None, None
+        else:
+            identities = [row for row in observed['identity_rows'] if _matches(row, sid, ticker)]
+            _require(len(identities) == 1 and identities[0].get('permaticker') == sid
+                     and identities[0].get('ticker') == ticker
+                     and IdentityResolver(listings_from_rows(identities)).resolve(ticker, session) == sid)
+            bars = [row for row in observed['bars'] if row[0] == sid or row[1] == ticker]
+            _require(len(bars) == 1 and len(bars[0]) == 6 and bars[0][0] == sid and bars[0][1] == ticker)
+            bar = bars[0]
+            signal, raw, per_share = map(_positive, bar[2:5])
+            _require(Decimal(str(bar[5])) == 1)
+            predecessors = [row for row in observed['predecessors'] if row[0] == sid]
+            _require(len(predecessors) == 1 and len(predecessors[0]) == 4
+                     and predecessors[0][1] == calendar.previous_sessions(session, 2)[0])
+            _positive(predecessors[0][2]); _positive(predecessors[0][3])
+            canonical = Decimal(str(raw_dividend_per_share(signal, raw, resolution.dividends[(ticker, session)])))
+            _require(canonical.is_finite() and canonical > 0 and canonical == per_share)
+            bar, predecessor, identity = tuple(bar), tuple(predecessors[0]), deepcopy(identities[0])
         proof = CashOnlyAdditionProof(publication_version=publication_version,
             original_publication_version=original['publication_version'],
             correction_publication_version=marker['publication_version'], security_id=sid,
@@ -168,7 +193,7 @@ def classify(marker, original, correction, *, publication_version, coverage_sha2
             correction_coverage_sha256=correction_coverage_sha256,
             correction_evidence_sha256=digest(correction), publication_receipt_sha256=publication_receipt_sha256,
             original_receipt_sha256=original_receipt_sha256, correction_receipt_sha256=correction_receipt_sha256)
-        return CashAddition(proof, deepcopy(source), tuple(bar), tuple(predecessors[0]), deepcopy(identities[0]))
+        return CashAddition(proof, deepcopy(source), bar, predecessor, identity)
     except (KeyError, TypeError, ValueError, InvalidOperation, IndexError, ArithmeticError):
         return None
 
@@ -188,9 +213,10 @@ class CashCorrectionView:
         value = deepcopy(original)
         for item in selected:
             value['sources'].append(deepcopy(item.source))
-            value['bars'].append(list(item.bar))
-            value['predecessors'].append(list(item.predecessor))
-            value['identity_rows'].append(deepcopy(item.identity))
+            if item.proof.security_id != 'SENTINEL:BIL':
+                value['bars'].append(list(item.bar))
+                value['predecessors'].append(list(item.predecessor))
+                value['identity_rows'].append(deepcopy(item.identity))
         value['cash_correction_classifications'] = [item.proof.model_dump(mode='json', by_alias=True) for item in selected]
         return value
 

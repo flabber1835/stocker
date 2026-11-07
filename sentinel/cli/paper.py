@@ -232,6 +232,21 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
         dual_kwargs = {}
+        retirement_fields = {
+            'plan_id': getattr(args, 'retire_legacy_cash_plan', None),
+            'plan_fingerprint': getattr(args, 'retire_legacy_cash_plan_fingerprint', None),
+            'native_activity_id': getattr(args, 'retirement_native_dividend_id', None),
+            'observed_cash': getattr(args, 'retirement_observed_cash', None),
+            'actor': getattr(args, 'retirement_actor', None),
+            'reason': getattr(args, 'retirement_reason', None),
+        }
+        retirement_confirmed = getattr(args, 'confirm_prospective_cash_retirement', False)
+        if any(value is not None for value in retirement_fields.values()) or retirement_confirmed:
+            from sentinel.paper.cash_retirement import Request
+            if not getattr(args, 'reviewed_informational_dual', False):
+                raise paper.PaperActivationRefused('cash retirement requires explicit informational dual mode')
+            dual_kwargs['legacy_cash_retirement'] = Request.model_validate(dict(
+                retirement_fields, confirm_prospective_retirement=retirement_confirmed)).model_dump()
         initial_sid = getattr(args, 'initial_paper_recovery_system_identifier', None)
         initial_confirmed = getattr(args, 'confirm_initial_paper_recovery', False)
         initial_retained = getattr(args, 'confirm_retain_current_paper_credentials', False)

@@ -324,6 +324,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              dual_shadow_observation_id: str | None = None,
                              dual_shadow_starting_cash: Decimal | str | None = None,
                              initial_paper_recovery: Mapping | None = None,
+                             legacy_cash_retirement: Mapping | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
     _require_mutation_backup(conn, operation="paper plan preparation")
@@ -352,6 +353,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             "dual PAPER preparation requires both reviewed shadow identity "
             "and starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
+    retirement_request = None
+    if legacy_cash_retirement is not None:
+        if not dual_mode or automation_grant is not None:
+            raise PaperActivationRefused(
+                'legacy cash retirement requires attended informational dual preparation')
+        from .cash_retirement import Request
+        retirement_request = Request.model_validate(legacy_cash_retirement)
     # A reviewed deploy may perform this preparation through the read-only
     # PaperPreparationGrant while automation remains killed. That grant cannot
     # cross any broker mutation method. Actual informational transport remains
@@ -443,6 +451,10 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn, required_operation='PREPARE_READ', **authority_kwargs).certificate_sha256)
 
             existing_plan = _latest_plan_or_refuse(conn)
+            if retirement_request is not None:
+                from .cash_retirement import pending_request
+                retirement_request = pending_request(
+                    conn, retirement_request, existing_plan, decision_session=through_date)
             dual_result = None
             dual_state = None
             if dual_mode:
@@ -709,16 +721,33 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding,
                 through=account_observed_at)
+            prepared_retirement = None
+            if retirement_request is not None:
+                from .reconciliation_evidence import _settled_account_evidence_bracket
+                from .cash_retirement import qualify
+                rec, account, activity_state, _, account_observed_at = (
+                    await _settled_account_evidence_bracket(
+                        conn=conn, broker=broker, binding=binding,
+                        expected_account=expected_account, deployment=binding.identity,
+                        initial_result=rec, actions=actions, dual_mode=dual_mode, clock=clock))
+                observation = _clean_or_refuse(rec, purpose='legacy cash retirement')
+                prepared_retirement = qualify(
+                    conn, request=retirement_request, plan=existing_plan, binding=binding,
+                    grant=grant, broker=broker, decision_session=through_date,
+                    account=account, observation=observation, activity_state=activity_state,
+                    observed_at=account_observed_at, now=clock(),
+                    certificate_sha256=certificate.certificate_sha256)
             if existing_plan is not None:
                 from sentinel.paper_performance import scan_entitlements
                 scan_entitlements(
                     conn, binding=binding.to_dict(), through=through_date, account=account,
                     informational_only=dual_mode)
-                _cash_authority_or_refuse(
-                    conn, plan=existing_plan, deployment=binding.identity,
-                    account=account, observation=observation,
-                    activity_state=activity_state,
-                    permit_new_activity=True)
+                if prepared_retirement is None:
+                    _cash_authority_or_refuse(
+                        conn, plan=existing_plan, deployment=binding.identity,
+                        account=account, observation=observation,
+                        activity_state=activity_state,
+                        permit_new_activity=True)
                 if due_existing_cycle and not dual_mode:
                     await _finalize_due_succeeded_cycle_or_refuse(
                         conn, broker=broker, deployment=binding.identity,
@@ -799,6 +828,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         raise PaperActivationRefused(
                             "cannot establish immutable dual plan cash "
                             f"baseline: {exc}") from exc
+                if prepared_retirement is not None:
+                    from .cash_retirement import record
+                    fresh = require_current_authority(
+                        conn, required_operation='PREPARE_READ', **authority_kwargs)
+                    if fresh.certificate_sha256 != certificate.certificate_sha256:
+                        raise PaperActivationRefused('cash retirement signed authority changed')
+                    record(conn, prepared=prepared_retirement, successor=latest)
                 conn.commit()
                 return PreparationResult(
                     plan=latest, sessions_replayed=0, warmup_sessions=0,

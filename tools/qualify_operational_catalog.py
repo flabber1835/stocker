@@ -27,7 +27,8 @@ def capture():
             # Raw reviewed DDL is installed once in this new disposable cluster.
             # Calling runtime validators before a qualification pin exists would
             # either refuse correctly or require an impermissible bootstrap bypass.
-            modules = (*operational_schema.components(), *operational_schema.presentation_components())
+            modules = (*operational_schema.components(), *operational_schema.presentation_components(),
+                       *operational_schema.access_path_components())
             for module in modules:
                 for statement in module.DDL:
                     conn.execute(statement)

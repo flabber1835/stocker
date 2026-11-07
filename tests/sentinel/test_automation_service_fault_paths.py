@@ -396,18 +396,19 @@ def restricted_preparation_result():
 
 
 @pytest.mark.parametrize('prior_attempt,terminal', [(0, False), (1, True)])
+@pytest.mark.parametrize('phase', ['PREFLIGHT_RECOVER', 'RECOVER'])
 def test_corporate_preflight_result_remains_bounded_not_availability(
-        monkeypatch, prior_attempt, terminal):
+        monkeypatch, prior_attempt, terminal, phase):
     from sentinel.automation_resilience import RecoveryAutomationService
 
     service = RecoveryAutomationService(
-        config=AutomationConfig(preflight_recover_max_attempts=2),
+        config=AutomationConfig(preflight_recover_max_attempts=2, recover_max_attempts=2),
         holder_id='recovery-test', refresh=None, prepare=None,
         recover=None, execute=None)
     now = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
     cycle = module.CycleRecord.model_construct(
         cycle_id='restricted-preflight', state=module.CycleState.DISCOVERED,
-        control_generation=1, diagnostic={'retry_phase': 'PREFLIGHT_RECOVER',
+        control_generation=1, diagnostic={'retry_phase': phase,
             'phase_attempt_count': prior_attempt})
     permit = module.LeaderPermit(holder_id='recovery-test', fence_token=1,
         control_generation=1, acquired_at=now, expires_at=now+timedelta(seconds=30))
@@ -419,7 +420,7 @@ def test_corporate_preflight_result_remains_bounded_not_availability(
 
     monkeypatch.setattr(service, '_recover_transition', transition)
     result = service._handle_retry_result(object(), now=now, cycle=cycle,
-        permit=permit, phase='PREFLIGHT_RECOVER', failure_code='CORPORATE_ACTION_PENDING',
+        permit=permit, phase=phase, failure_code='CORPORATE_ACTION_PENDING',
         failure_detail='one permanent security remains restricted',
         result_diagnostic={'restricted_securities': {'SEC-AAA': 'pending'}},
         recovery_transition=True)
@@ -436,7 +437,7 @@ def test_corporate_preflight_result_remains_bounded_not_availability(
 
 @pytest.mark.parametrize('method,guard', [
     ('_failure_diagnostic', 'isinstance(exc, CorporateActionPending)'),
-    ('_handle_retry_result', 'phase == "PREFLIGHT_RECOVER"'),
+    ('_handle_retry_result', 'phase in {"PREFLIGHT_RECOVER", "RECOVER"}'),
 ])
 def test_removed_corporate_retry_classification_is_detected(monkeypatch, method, guard):
     import inspect
@@ -450,7 +451,7 @@ def test_removed_corporate_retry_classification_is_detected(monkeypatch, method,
     monkeypatch.setattr(module.AutomationService, method, namespace[method])
     with pytest.raises(AssertionError):
         test_corporate_preflight_result_remains_bounded_not_availability(
-            monkeypatch, 0, False)
+            monkeypatch, 0, False, 'RECOVER')
 
 
 @pytest.mark.parametrize('phase,state', [

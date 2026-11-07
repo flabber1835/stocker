@@ -51,6 +51,10 @@ class RecordingCursor:
             self._row = (0,)
         elif "SELECT EXISTS(SELECT 1 FROM pg_proc" in text:
             self._row = (False,)
+        elif text == "SELECT to_regclass('public.sentinel_processed_sessions')":
+            self._row = (None,)  # PostgreSQL returns one null row for an absent relation.
+        elif text.startswith('SELECT to_regclass(%s) IS NOT NULL OR EXISTS('):
+            self._row = (False,)  # This empty catalog has no orphaned access-path objects.
         else:
             self._row = None
 

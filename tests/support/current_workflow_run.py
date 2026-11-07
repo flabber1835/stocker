@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import Event, Thread
@@ -126,11 +126,16 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
         assert read_projection.subject(conn,dsn,scope)==key
         read_projection.publish(conn,owner_id=owner,value=value,signature=signature)
         conn.commit()
-    current_rows,_,_,errors = read_projection.read(dsn,now=clock.now())
+    current_rows,_,_,errors = read_projection.read(dsn,now=datetime.now(timezone.utc))
     assert not errors
     assert {row.key for row in current_rows} == read_projection.SHADOW_KEYS | read_projection.PAPER_KEYS
-    assert expected_rows['shadow_verification'].status == model.OK
+    assert expected_rows['shadow_verification'].status == model.OK, (
+        expected_rows['shadow_verification'].status,
+        expected_rows['shadow_verification'].value,
+        expected_rows['shadow_verification'].detail, clock.now(), cycle.decision_session)
     assert expected_rows['paper_reconciliation'].status not in {model.UNKNOWN,model.FAIL}
+    assert expected_rows['book'].shadow_book is not None
+    assert len(expected_rows['book'].shadow_book.slots)==20
     monkeypatch.setenv('SENTINEL_STATE_DIR',str(tmp_path/'state'))
     monkeypatch.setenv('SENTINEL_DATABASE_URL',dsn)
     with TestClient(app.app) as client:
@@ -141,7 +146,8 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
         collection = projection_worker.Worker(_current_operational_collection,
             dsn, owner, str(tmp_path/'state'), 'current-workflow-verifier',
             str(tmp_path/'current-workflow-public-roots.json'),
-            str(issuer_reference.BUNDLED_PATH), issuer_reference.BUNDLED_SNAPSHOT_SHA256)
+            str(issuer_reference.BUNDLED_PATH), issuer_reference.BUNDLED_SNAPSHOT_SHA256,
+            clock.wall_offset)
         started = time.monotonic()
         try:
             published = collection.call(False, timeout=projection_service.DEADLINE_SECONDS)
@@ -155,9 +161,13 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
         assert response.status_code==200,response.text
         payload = response.json()
         rows = {row['key']:row for row in payload['rows']}
-        assert rows['shadow_verification']['status']==model.OK
+        assert rows['shadow_verification']['status']==model.OK, (
+            rows['shadow_verification']['status'], rows['shadow_verification']['value'],
+            rows['shadow_verification']['detail'])
         assert rows['paper_reconciliation']['status'] not in {model.UNKNOWN,model.FAIL}
-        assert rows['book']['shadow_book'] is not None
+        assert rows['book']['shadow_book'] is not None, (
+            {key:rows['book'][key] for key in ('status','detail','as_of','future','stale','current')},
+            payload['source_errors'])
         assert len(rows['book']['shadow_book']['slots'])==20
         # The business session is prospective while DB lease/mutation clocks
         # stay real. Production correctly keeps a future-dated run out of
@@ -174,16 +184,21 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
 
 def _current_operational_collection(database_url, owner_id, state_dir, instance,
                                   roots_file, reference_file, reference_sha256,
-                                  prior_failed):
-    """Give the spawned real collector the same disposable external inputs."""
+                                  market_wall_offset, prior_failed):
+    """Give the spawned collector the same external files and market clock."""
     from pytest import MonkeyPatch
     from sentinel.authority import validation
     from sentinel.feed import issuer_reference
     from sentinel.panel import projection_service
     original_loader = validation.load_trust_roots
     with MonkeyPatch.context() as inputs:
-        # Only external issuer files differ. The original public-file parsers,
-        # source collector, snapshot writer and finite Worker are unchanged.
+        from tests.support.current_workflow_clock import BusinessClock
+        assert isinstance(market_wall_offset, timedelta) and market_wall_offset >= timedelta(0)
+        private_clock = BusinessClock(datetime.now(timezone.utc)+market_wall_offset)
+        private_clock.wall_offset = market_wall_offset
+        private_clock.install(inputs)
+        # Only external inputs differ. Public-file parsers, source collection,
+        # snapshot writing, native SQL clocks and finite deadlines stay real.
         inputs.setattr(validation, 'load_trust_roots',
             lambda _path=None: original_loader(Path(roots_file)))
         inputs.setattr(issuer_reference, 'BUNDLED_PATH', Path(reference_file))

@@ -82,6 +82,41 @@ def tracked_modules(root: Path) -> list[str]:
     return sorted(modules)
 
 
+def refine_balance(lanes: list[list[str]], estimates: dict[str, int], default: int) -> None:
+    """Strict integer-cost descent, preserving complete whole-module ownership."""
+    cost = lambda name: estimates.get(name, default)
+    totals = [sum(map(cost, lane)) for lane in lanes]
+    while True:
+        best = None
+        for high in range(len(lanes)):
+            for low in range(len(lanes)):
+                gap = totals[high] - totals[low]
+                if gap <= 0:
+                    continue
+                for outgoing in sorted(lanes[high]):
+                    alternatives = ([None] if len(lanes[high]) > 1 else []) + sorted(lanes[low])
+                    for incoming in alternatives:
+                        delta = cost(outgoing) - (0 if incoming is None else cost(incoming))
+                        if not 0 < delta < gap:
+                            continue
+                        gain = 2 * delta * (gap - delta)
+                        candidate = (-gain, high, low, outgoing, incoming or '', delta)
+                        if best is None or candidate < best:
+                            best = candidate
+        if best is None:
+            break
+        _, high, low, outgoing, incoming, delta = best
+        lanes[high].remove(outgoing)
+        lanes[low].append(outgoing)
+        if incoming:
+            lanes[low].remove(incoming)
+            lanes[high].append(incoming)
+        totals[high] -= delta
+        totals[low] += delta
+    for lane in lanes:
+        lane.sort(key=lambda name: (-cost(name), name))
+
+
 def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
     if (GENERAL_SHARDS, ROLLING_SHARDS) != (8, 4):
         raise ValueError("incomplete reviewed family shard inventory")
@@ -105,6 +140,7 @@ def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
             index = min(range(count), key=lambda item: (totals[item], item))
             groups[f"sentinel-{family}-{index}"].append(name)
             totals[index] += estimates.get(name, default)
+        refine_balance([groups[f"sentinel-{family}-{i}"] for i in range(count)], estimates, default)
 
     selected = [name for files in groups.values() for name in files]
     if (any(not files for files in groups.values()) or len(selected) != len(set(selected))

@@ -235,6 +235,161 @@ explicit measured resource concerns. Do not relax their safety limits or exempt
 namespaces from foreign-lineage validation. Any compact lineage inventory must
 be independently tamper-invalidated and qualified before replacing that guard.
 
+## Post-installation observation patch
+
+Decision, 2026-11-05, before patch implementation. The owner requested triage
+and a patch after installing merged `35e3a118a8ee4d4efea5857f6e96d4dd8e23724a`.
+A finite 90-second production observation recorded three expired DASHBOARD
+samples and six worker-status failures among ten samples. Authenticated review
+events identify `WORKER STATUS UNREADABLE` and
+`No current worker-liveness proof: TimeoutError`; independent signed worker
+status and native container checks remained healthy. A later recurrence and
+recovery were recorded at 20:33:21 and 20:33:25 UTC. These observations do not
+prove a halted worker or establish the precise contribution of CPU throttling.
+
+Keep the two-second filesystem-observation deadline and the supervisor's
+separate one-second dependency budget. Replace the dashboard's spawn of the
+heavy importing parent with a tiny stdlib-only entry in the existing
+`shadow_service_probe` module. It reads the same bounded files in the same
+critical/pending/status order. A closed, bounded wire frame carries raw evidence
+only; the parent retains canonical HMAC, runtime binding, attempt-coherence and
+original-clock validation. The subprocess receives no database, broker, receipt
+or push credentials. Parent-death enforcement, exact PID ownership, finite
+kill/reap and refusal after unreaped I/O remain mandatory. No extra persistent
+worker, cached liveness PASS, direct unbounded filesystem read in the collector,
+fork of a threaded caller, wider deadline or new service is selected.
+
+The operational producer must not repeat the full automation/authority/cycle/
+notification composition merely to refresh its final leader fact. Select a
+dedicated bounded, consistent control/lease read for that late observation,
+inside the existing publication transaction, after owner/input fencing and
+unchanged-context/subject checks, before snapshot/review publication. Sample
+control, lease, its holder instance and current-generation cycle existence in one
+statement using the same database clock. Renew the discovery-wait projection
+only from that newly sampled native evidence and verified cycle absence; the
+cycle and discovery-step recovery deadlines share the lease boundary too.
+Its native lease expiry and heartbeat age
+remain unchanged. Current negative, missing or contradictory evidence remains
+visible; the reader cannot synthesize a renewed lease or borrow another control
+generation. The existing owner, context, subject and atomic review fences still
+govern publication. Refresh scheduling reserves the existing 20-second collection
+ceiling, or a larger measured completed-call cost, before sleeping. A short
+previous call is not a safe estimate for the next one under shared CPU/I/O load.
+When that budget does not fit, start the next collection after only the existing
+250-ms yield; do not add an optimistic idle delay. An actually expired proof
+still withdraws currentness. Continuous delivery still requires collection itself
+to fit the original evidence lifetime; qualification must measure that cost.
+
+Qualification must exercise the actual lightweight subprocess from a heavy
+caller, bounded output, original timeout, parent death, cleanup/replacement,
+critical-marker precedence and canonical evidence rejection. Use a deterministic
+multi-cycle clock witness and actual PostgreSQL control/lease observations for
+short-deadline publication; arithmetic-only scheduling assertions are insufficient.
+Preserve all original row/financial/token deadlines and demonstrate that their
+removal or extension fails a behavioral assertion. The owner's subsequent
+instruction selects a locally qualified backed PAPER application patch first,
+with PR delivery held until observed stability. Use the supported local patch
+lifecycle and its actual authority, preservation and backup gates. This is not
+permission to acknowledge unresolved incidents or widen a financial admission rule.
+
+Seal the complete patched source inventory and retain installed `35e3a118` as
+an independently pinned 451-file predecessor, including its original checker.
+Keep all prior predecessor, economic and historical maps unchanged. The 450
+mapped candidate modules plus separately normalized checker remain the same
+inventory; the patch adds no runtime module or financial authority.
+
+### Follow-up after the extended observation
+
+Decision, 2026-11-05, before follow-up implementation. The first ten-minute
+window did not establish sustained stability. A later immutable review event
+at 23:35:02.610 UTC recorded another worker-observation `TimeoutError`, followed
+by recovery at 23:35:04.762 UTC. A separate six-row negative SHADOW observation
+at 23:23:38 must retain its own cause and history; it is not attributed to the
+worker probe. Do not merge the candidate on the strength of the short window.
+
+The installed verifier shares its 0.5-CPU quota between the financial observer,
+operational collector and native probes. A ten-second process sample measured
+3.21 CPU-seconds in the financial child and at least 1.15 in the operational
+collector and its probes. That sample overlapped diagnostic processes and is
+not a clean production benchmark. Six bounded diagnostic reads subsequently
+spent 0.689--1.207 seconds each and approximately 0.16 child CPU-seconds per
+read; the receive/child-exit phase dominated. All scheduling periods sampled
+during those reads were throttled. These measurements establish avoidable
+per-read process/import cost under contention, not the historical timeout's
+precise internal phase or a guarantee that host stalls can be eliminated.
+
+Supersede the one-process-per-observation choice above with one explicitly
+owned, credential-free filesystem observer inside the existing reusable
+operational collector. This is not a new Compose role or an independent
+background publisher. Create it lazily in the spawned collector, never in its
+threaded parent. Each request carries a fresh nonce and performs the original
+critical/pending/status/critical/latest-pending reads. A bounded response must
+echo that nonce; unsolicited, previous-request, malformed, oversized, partial,
+late or dead-child responses refuse. No status bytes or positive result are
+cached between requests. Parent authentication and all original evidence clocks
+remain unchanged. Standalone callers may retain the one-shot reader.
+
+The same two-second absolute observation budget covers admission, first launch,
+request transmission, response framing and decoding. Do not warm up outside
+that budget, retry within a failed observation, extend it, change process
+priorities or enlarge resource quotas. A failed exchange kills and reaps its
+exact child before any replacement; an unreaped child refuses replacement.
+The collector closes the observer explicitly on normal exit, and kernel
+parent-death supervision covers collector death, including its outer deadline.
+Every actual timeout remains UNKNOWN and produces ordinary durable failure and
+recovery history. Add bounded closed stage diagnostics to the existing
+nonfinancial snapshot/review metadata so the next failure is distinguishable
+without persisting credentials, paths, arbitrary exception text or worker bytes.
+
+Qualification must compare repeated fresh observations under a shared
+half-core contention workload, exercise first-launch and per-request deadlines,
+and detect cached bytes, stale/foreign nonces, blocked request/response,
+oversized/partial frames, parent death, explicit close and unreaped-child
+replacement. Include executed removed-guard falsifiers and the real collector
+lifecycle. Requalify and install the new local candidate through a new backed
+operation, then observe beyond multiple financial-refresh/maintenance cycles
+before updating the PR. Preserve the original failed candidate and evidence.
+The next complete source seal retains installed local `4a395bfb4f13ba0f34fa0121fa62991fe7b38fed`
+as an additional independently pinned predecessor, alongside `35e3a118` and all
+older maps. It authenticates the full unchanged module inventory, grants no
+financial authority and never substitutes the old bytes for current identity.
+
+The extended review also found a diagnostic handoff defect: a financial reader
+can classify a completed negative result, immediately admit its due retry, and
+replace the failed attempt identity before the owning verifier persists it.
+Restore the existing failed-attempt-history contract. In the background-owned
+reader only, retain one closed failed attempt before replacement; publish it
+through the existing owner-fenced diagnostic/review transaction and discard it
+only after that transaction commits. A refused/rolled-back write retains it for
+the next ordinary retry. Do not admit another replacement while that bounded
+slot is occupied. Keep current attempt and current financial rows distinct from
+this historical diagnostic, preserve original attempt clocks and failure
+identity, and retain existing non-background reader behavior. This does not turn
+a completed negative result into a positive or alter financial work/retry
+deadlines. Qualify same-call retry, transaction failure/retry, restart deduplication
+and first-failure history with real PostgreSQL; removing the handoff guard must
+make a behavioral assertion fail. The old incident's missing message cannot be
+reconstructed by this correction.
+
+The installed follow-up's retained startup diagnostic also identified an exact
+classification defect. A queued PAPER attempt raised
+`ValueError("shadow preparation subject changed before observation")`, producing
+`VALIDATION_REFUSED`; its fingerprint matches review event726 at
+2026-11-06T00:54:35 UTC. The changed underlying dependency is not identified.
+Restore the existing typed supersession contract at both preparation-subject
+comparisons: raise `ObservationSuperseded` with BEFORE_OBSERVATION or
+AFTER_OBSERVATION, as the ordinary observation path already does. A changed
+subject never yields a usable result. Keep the reader's original queue, work,
+supersession and retry clocks, including finite supersession exhaustion and
+current negative precedence. This corrects presentation diagnostics; it grants
+no financial authority and does not erase the original incident. Qualify both
+scopes and both comparisons through the actual capture/classification boundary,
+with an executed old-ValueError falsifier and the existing exhaustion tests.
+Retain installed `4a08f5961a2dd0d5b174509b6afa4aa7d61d88a3` as a complete
+independently pinned predecessor in the next source seal, preserving all prior
+maps and the original economic extraction. The classification correction adds
+no runtime module or financial permission.
+
 ## Qualification and delivery
 
 ### Typed row facts and producer ownership
@@ -279,3 +434,37 @@ candidate source seal and retain the independently authenticated installed
 predecessor and all earlier economic/history mappings. Run exact-head required CI
 and verify the ready PR targets main. Installation/activation remain a later
 owner action.
+
+### Superseded operational collection scheduling
+
+Decision, 2026-11-06, before implementation. The post-VERIFIED observation of
+local release 4a08f5961 contained two expired native snapshots. The retained
+samples do not identify the intervening collector outcomes or their timing;
+attribution of either expiry to supersession remains unproven. The lineage
+access-path work addresses its separately evidenced SQL timeout and does not
+establish that it resolves every operational freshness gap.
+
+Independently, the publisher has a deterministic scheduling defect: successful
+publication uses the original expiry to choose its next wake, while a typed
+SUPERSEDED collection falls back to a five-second polling delay. With an original
+snapshot expiring at t12, a next collection admitted at t0.25 and superseded after
+eight seconds leaves only 3.75 seconds of that proof. A five-second delay followed
+by a two-second current collection publishes at t15.25. A 0.25-second yield
+instead publishes at t10.5, before the unchanged original expiry.
+
+Select the existing fixed 0.25-second positive yield for typed SUPERSEDED work.
+Retain one worker and owner, the original 20-second per-call cap and every source
+deadline. Supersession neither clears a prior failure latch nor writes a success
+heartbeat or successful review/publication evidence. Repeated supersessions keep
+that positive bounded yield and remain interruptible by shutdown. Real failures
+retain their existing handling. Do not extend or renew the previous receipt.
+
+Qualify the complete publisher loop with the stated deterministic chronology,
+native three-second heartbeat/twelve-second lease boundaries, a restored
+five-second-backoff falsifier, repeated supersessions with/without a prior
+failure, no supersession heartbeat and shutdown without another admission.
+This corrects the demonstrated avoidable delay; repeated full collections can
+still exceed a short native proof's remaining lifetime. It does not prove
+uninterrupted freshness under arbitrary collection cost or dependency churn;
+the installed candidate needs further end-to-end observation and any remaining
+composition-boundary cause must be addressed from its own evidence.

@@ -110,11 +110,12 @@ def observe_preparation(database_url, include_paper, expected_key):
     Its ordinary-current fast path avoids a second full authenticated closure.
     No panel HTTP request calls this observer or promotes its result to GO.
     """
-    from sentinel.panel import observer_codec, read_projection
+    from sentinel.panel import observer_codec, observer_failure, read_projection
     if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual', 'shadow'}:
         return None
     if read_projection.subject_for(database_url, include_paper) != expected_key:
-        raise ValueError('shadow preparation subject changed before observation')
+        raise observer_failure.ObservationSuperseded(
+            'BEFORE_OBSERVATION', 'shadow preparation subject changed before observation')
     conn, proof = None, None
     try:
         from sentinel import prepare_shadow_wait
@@ -145,7 +146,8 @@ def observe_preparation(database_url, include_paper, expected_key):
     result = observer_codec.pack(preparation_rows(proof, include_paper=include_paper), [],
                                  observed_at=proof.observed_at)
     if read_projection.subject_for(database_url, include_paper) != expected_key:
-        raise ValueError('shadow preparation subject changed during observation')
+        raise observer_failure.ObservationSuperseded(
+            'AFTER_OBSERVATION', 'shadow preparation subject changed during observation')
     return result
 
 

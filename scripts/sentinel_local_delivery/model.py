@@ -11,6 +11,8 @@ import tempfile
 
 SCHEMA = 'sentinel.local-paper-delivery/3'
 SUCCESSOR_SCHEMA = 'sentinel.local-paper-delivery/4'
+ACCESS_PATH_SCHEMA = 'sentinel.local-paper-delivery/5'
+POST_SCHEMA_ACCESS_PATH = 'POST_SCHEMA_ACCESS_PATH'
 PREVIOUS_SCHEMA = 'sentinel.local-paper-delivery/2'
 LEGACY_SCHEMA = 'sentinel.local-paper-delivery/1'
 LEGACY_STAGES = ('NEW', 'PREFLIGHT_PASS', 'STOP_REQUESTED', 'APPLICATIONS_STOPPED',
@@ -94,14 +96,19 @@ def validate_request(value):
         'schema', 'operation_id', 'source', 'deployment', 'predecessor',
         'candidate', 'qualification', 'allowed_delta', 'created_at'}
     require(isinstance(value,dict), 'REQUEST_SHAPE')
-    if value.get('schema') in {SCHEMA,SUCCESSOR_SCHEMA}:
+    if value.get('schema') in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA}:
         fields.add('handoff_mode')
+    if value.get('schema') == ACCESS_PATH_SCHEMA:
+        fields.add('canonical_proof_phase')
     require(set(value)==fields, 'REQUEST_SHAPE')
-    require(value['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA}, 'REQUEST_SCHEMA')
+    require(value['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA},
+            'REQUEST_SCHEMA')
     require(isinstance(handoff_mode(value),str)
-        and (handoff_mode(value)=='POST_TRADE_SUCCESSOR' if value['schema']==SUCCESSOR_SCHEMA
+        and (handoff_mode(value)=='PRE_OPEN' if value['schema']==ACCESS_PATH_SCHEMA
+             else handoff_mode(value)=='POST_TRADE_SUCCESSOR' if value['schema']==SUCCESSOR_SCHEMA
              else handoff_mode(value) in {'PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'}),
         'REQUEST_HANDOFF_MODE')
+    canonical_proof_phase(value)
     require(isinstance(value['operation_id'], str) and
             re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', value['operation_id']) is not None,
             'REQUEST_OPERATION_ID')
@@ -163,6 +170,15 @@ def handoff_mode(request):
     return request.get('handoff_mode','PRE_OPEN')
 
 
+def canonical_proof_phase(request):
+    if request.get('schema') == ACCESS_PATH_SCHEMA:
+        require(request.get('canonical_proof_phase') == POST_SCHEMA_ACCESS_PATH,
+                'REQUEST_CANONICAL_PROOF_PHASE')
+        return POST_SCHEMA_ACCESS_PATH
+    require('canonical_proof_phase' not in request, 'REQUEST_CANONICAL_PROOF_PHASE')
+    return 'PRE_DRAIN'
+
+
 class Journal:
     """A single-operation stage journal with a checked digest-linked history."""
     def __init__(self, folder):
@@ -174,7 +190,8 @@ class Journal:
     def read(self):
         path = self.folder/'receipt.json'
         if not path.exists():
-            require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,PREVIOUS_SCHEMA},'LEGACY_DELIVERY_CANNOT_RESUME')
+            require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA},
+                    'LEGACY_DELIVERY_CANNOT_RESUME')
             return dict(schema=self.request['schema'], operation_id=self.request['operation_id'],
                         request_sha256=self.subject, stage='NEW', history=[], artifacts={})
         value = read_json(path)
@@ -203,7 +220,8 @@ class Journal:
         return value
 
     def advance(self, expected, stage, **artifacts):
-        require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,PREVIOUS_SCHEMA},'LEGACY_DELIVERY_CANNOT_RESUME')
+        require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA},
+                'LEGACY_DELIVERY_CANNOT_RESUME')
         current = self.read()
         require(current['stage'] == expected and STAGES.index(stage) == STAGES.index(expected)+1,
                 'RECEIPT_STAGE_CONFLICT')

@@ -1,5 +1,44 @@
 # Readiness workflow qualification
 
+## Private current-workflow clock boundary, 2026-11-06
+
+The complete current-workflow campaign completed formation, restart and PAPER
+execution, then failed its shadow-status assertion just after the real close.
+Its private clock selected the open following the latest actually closed source
+session even when that open was already in the past. The observation phase then
+followed real time across a new close while retaining the earlier source day.
+
+Select a strictly future opening for this synthetic business scenario. When
+today's opening has passed, advance the virtual source day and opening together.
+The source day is closed relative to the injected market clock; it can be later
+than the actual wall-clock source frontier. All providers and trust roots remain
+disposable test inputs. Native PostgreSQL lease, ownership and mutation clocks
+stay real; calendar calculations and financial validators remain unchanged.
+This campaign does not qualify actual provider finality or real clock skew.
+
+Keep both dashboard green assertions and add their actual row diagnostics.
+Exercise pre-open, open, regular-session, close and weekend selections, advance
+wall time across a real close, and remove the future-opening branch to falsify
+the same coherent-source-day oracle. Production timeouts, freshness rules,
+calendars and broker behavior are not changed by this fixture correction.
+
+The spawned test collector receives the same live wall-following market offset
+as its parent, alongside the existing private issuer files. Its public parsers,
+collector, snapshot writer and finite worker stay unchanged. Propagate only the
+market inputs. Financial observation, receipt and dashboard clocks stay on real
+wall time, alongside native SQL sampling and monotonic work/reap deadlines.
+The first clock-handoff run passed financial-status assertions but correctly
+hid its future-dated book at HTTP delivery: patching the observation modules
+had stamped prospective market time onto evidence collected now. Remove those
+three observation modules from the market-clock injection; collect, sign and
+consume their evidence under the unchanged real observation clock. Do not
+backdate receipts, change stored facts or weaken the future-evidence guard.
+
+Qualify both clock domains and removed-injection controls before rerunning the
+complete strict PAPER/notification/HTTP path. Keep the financial-status and
+20-slot HTTP book assertions, and also check the observer's book before handing
+it to the collector. Retain both earlier failed runs and their diagnostics.
+
 Local qualification uses Python 3.12.13, Node 20.19.2 and disposable PostgreSQL
 databases. Test containers have no network, production database mounts or broker
 credentials. CPU is bounded while the installed paper system continues running.

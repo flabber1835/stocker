@@ -61,7 +61,81 @@ _PRESENTATION_OVERLAY = (
 )
 
 
+# Reverse only exact reviewed common-access-path hunks. Every predecessor
+# SHA and immutable contracts pin below remains independently unchanged.
+_CATALOG_START = (
+    '    relations, columns, constraints, indexes, triggers = catalog\n'
+    '    modules = components()\n'
+    '    optional = (*presentation_components(), *access_path_components())\n')
+_MARKER_CATALOG_GUARD = '''    names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
+    present = any(names(module) & set(relations) for module in modules)
+    marker_possible = 'sentinel_processed_sessions' in relations
+    if marker_possible:
+        required = {'cursor_name': ('text', True), 'session': ('date', True),
+                    'state': ('jsonb', False)}
+        observed = columns.get('sentinel_processed_sessions', {})
+        if (relations['sentinel_processed_sessions'] != ('r', 'p', False, False, False)
+                or any(observed.get(name, ())[:2] != definition
+                       for name, definition in required.items())):
+            raise InstallationCatalogRefused(
+                'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
+'''
+_OPTIONAL_INSTALLATIONS = (
+    '    # Also detect orphaned functions/triggers when both tables were lost.\n'
+    '    optional_present = [module for module in optional\n'
+    '                        if module.require_schema(conn, allow_absent=True)]\n')
+_READ_ORDER_COMMENT = (
+    '    # Optional installations read the same marker columns; validate those\n'
+    "    # columns before any component can query them in the caller's transaction.\n")
+
+_ACCESS_PATH_OVERLAY = {
+    "operational_catalog.py": (
+        ("\n\ndef _index_pairs(module):\n    values = getattr(module, 'extension_index_pairs', ())\n    _require(isinstance(values, (tuple, list, set, frozenset))\n             and all(isinstance(item, tuple) and len(item) == 2\n                     and all(isinstance(name, str) and name for name in item)\n                     for item in values), 'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    pairs = set(values)\n    _require(len({name for _, name in pairs}) == len(pairs),\n             'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    return pairs\n\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    index_pairs = _index_pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n",
+         "\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n"),
+        ("        'FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid '\n        'JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace '\n        'WHERE n.nspname=\\'public\\' AND (t.relname=ANY(%s) OR i.relname=ANY(%s)) '\n        'ORDER BY t.relname,i.relname',\n        (names, sorted({name for _, name in index_pairs}))).fetchall()\n    all_triggers = conn.execute(\n        'SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid,true),t.tgenabled '\n",
+         "        'FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid '\n        'JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace '\n        'WHERE n.nspname=\\'public\\' AND t.relname=ANY(%s) ORDER BY t.relname,i.relname', (names,)).fetchall()\n    all_triggers = conn.execute(\n        'SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid,true),t.tgenabled '\n"),
+        ("        \"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \"\n        \"WHERE n.nspname='public' AND c.relname=ANY(%s)\", (tables,)).fetchone()[0]\n    index_pairs = _index_pairs(module)\n    found_indexes = (conn.execute(\n        \"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \"\n        \"WHERE n.nspname='public' AND c.relname=ANY(%s)\",\n        (sorted({name for _, name in index_pairs}),)).fetchone()[0] if index_pairs else 0)\n    if not found and not found_indexes and allow_absent:\n        functions = conn.execute(\n            \"SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \"\n",
+         "        \"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \"\n        \"WHERE n.nspname='public' AND c.relname=ANY(%s)\", (tables,)).fetchone()[0]\n    if not found and allow_absent:\n        functions = conn.execute(\n            \"SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \"\n"),
+        ("                 'OPERATIONAL_INSTALLED_COMPONENT_LOST: '+module_name)\n        return False\n    _require(found == len(tables) and found_indexes == len(index_pairs),\n             'OPERATIONAL_CATALOG_PARTIAL: '+module_name)\n    expected = _catalog().get(module_name)\n    _require(isinstance(expected, dict), 'OPERATIONAL_CATALOG_COMPONENT_UNQUALIFIED')\n    actual = capture_extension(conn, module)\n    _require(index_pairs <= {tuple(row[:2]) for row in actual['indexes']},\n             'OPERATIONAL_CATALOG_CHANGED: '+module_name)\n    _require(actual == expected,\n             'OPERATIONAL_CATALOG_CHANGED: '+module_name)\n    return True\n",
+         "                 'OPERATIONAL_INSTALLED_COMPONENT_LOST: '+module_name)\n        return False\n    _require(found == len(tables), 'OPERATIONAL_CATALOG_PARTIAL: '+module_name)\n    expected = _catalog().get(module_name)\n    _require(isinstance(expected, dict), 'OPERATIONAL_CATALOG_COMPONENT_UNQUALIFIED')\n    _require(capture_extension(conn, module) == expected,\n             'OPERATIONAL_CATALOG_CHANGED: '+module_name)\n    return True\n"),
+    ),
+    "operational_schema.py": (
+        ("# marker. Its exact catalog is recognized when present, never silently hidden.\nPRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)\n# Access paths have independent installation witnesses; never re-sign the\n# original immutable operational contracts map to add one.\nACCESS_PATH_COMPONENTS = ('sentinel.checkpoint_lineage_access',)\n_LOCK = (1397706832, 1330660145)\n_FUNCTION = 'sentinel_operational_installation_guard'\n",
+         "# marker. Its exact catalog is recognized when present, never silently hidden.\nPRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)\n_LOCK = (1397706832, 1330660145)\n_FUNCTION = 'sentinel_operational_installation_guard'\n"),
+        ("\n\ndef access_path_components():\n    return tuple(importlib.import_module(name) for name in ACCESS_PATH_COMPONENTS)\n\n\ndef contracts():\n    return {module.__name__: hashlib.sha256(_canonical(list(module.DDL))).hexdigest()\n",
+         "\n\ndef contracts():\n    return {module.__name__: hashlib.sha256(_canonical(list(module.DDL))).hexdigest()\n"),
+        # Reverse only the exact reviewed read-order correction before applying
+        # the original closed overlay. Every historical digest stays unchanged.
+        (_CATALOG_START + _MARKER_CATALOG_GUARD + _READ_ORDER_COMMENT + _OPTIONAL_INSTALLATIONS,
+         _CATALOG_START + _OPTIONAL_INSTALLATIONS + _MARKER_CATALOG_GUARD),
+        ("    relations, columns, constraints, indexes, triggers = catalog\n    modules = components()\n    optional = (*presentation_components(), *access_path_components())\n    # Also detect orphaned functions/triggers when both tables were lost.\n    optional_present = [module for module in optional\n",
+         "    relations, columns, constraints, indexes, triggers = catalog\n    modules = components()\n    optional = presentation_components()\n    # Also detect orphaned functions/triggers when both tables were lost.\n    optional_present = [module for module in optional\n"),
+        ("        return catalog\n    excluded_tables = set()\n    excluded_indexes = set()\n    from sentinel.operational_catalog import _index_pairs\n    excluded_triggers = {('sentinel_processed_sessions', _TRIGGER),\n                         ('sentinel_processed_sessions', _TRUNCATE_TRIGGER)} if marker else set()\n",
+         "        return catalog\n    excluded_tables = set()\n    excluded_triggers = {('sentinel_processed_sessions', _TRIGGER),\n                         ('sentinel_processed_sessions', _TRUNCATE_TRIGGER)} if marker else set()\n"),
+        ("        excluded_tables.update(names(module))\n        excluded_triggers.update(module.extension_triggers)\n        excluded_indexes.update(_index_pairs(module))\n    for module in modules:\n        active = bool(names(module) & set(relations))\n",
+         "        excluded_tables.update(names(module))\n        excluded_triggers.update(module.extension_triggers)\n    for module in modules:\n        active = bool(names(module) & set(relations))\n"),
+        ("            excluded_tables.update(names(module))\n            excluded_triggers.update(getattr(module, 'extension_trigger_pairs', module.extension_triggers))\n            excluded_indexes.update(_index_pairs(module))\n    def without_extensions(mapping):\n        return {name: value for name, value in mapping.items() if name not in excluded_tables}\n",
+         "            excluded_tables.update(names(module))\n            excluded_triggers.update(getattr(module, 'extension_trigger_pairs', module.extension_triggers))\n    def without_extensions(mapping):\n        return {name: value for name, value in mapping.items() if name not in excluded_tables}\n"),
+        ("        name: {key: value for key, value in values.items() if (name, key) not in excluded_triggers}\n        for name, values in triggers.items() if name not in excluded_tables}\n    filtered_indexes = {\n        name: {key: value for key, value in values.items() if (name, key) not in excluded_indexes}\n        for name, values in indexes.items() if name not in excluded_tables}\n    return (*(without_extensions(item) for item in (relations, columns, constraints)),\n            filtered_indexes, filtered_triggers)\n\n\n",
+         "        name: {key: value for key, value in values.items() if (name, key) not in excluded_triggers}\n        for name, values in triggers.items() if name not in excluded_tables}\n    return (*(without_extensions(item) for item in (relations, columns, constraints, indexes)),\n            filtered_triggers)\n\n\n"),
+        ("\n\ndef _require_quiescence(conn):\n    uncertain = conn.execute(\n        \"SELECT COUNT(*) FROM sentinel_commands WHERE state IN \"\n        \"('SEND_PENDING','UNKNOWN','ACKNOWLEDGED','PARTIALLY_FILLED','CANCEL_PENDING')\"\n    ).fetchone()[0]\n    active_jobs = conn.execute(\n        \"SELECT COUNT(*) FROM sentinel_snapshot_jobs WHERE state NOT IN \"\n        \"('PUBLISHED','REFUSED','ABORTED') AND reason<>'COMPARISON_ONLY'\"\n    ).fetchone()[0]\n    active_cycles = conn.execute(\n        \"SELECT COUNT(*) FROM sentinel_automation_cycles WHERE state NOT IN \"\n        \"('WAITING_OPEN','SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')\"\n    ).fetchone()[0]\n    _require(not uncertain and not active_jobs and not active_cycles,\n             'OPERATIONAL_MIGRATION_REQUIRES_QUIESCENCE')\n\n\ndef _install_access_paths(conn, original, *, quiescent=False):\n    pending = [module for module in access_path_components()\n               if not module.require_schema(conn, allow_absent=True)]\n    if not pending:\n        return\n    if not quiescent:\n        _require_quiescence(conn)\n    for module in pending:\n        module.install(conn)\n        _require(module.require_schema(conn, allow_absent=False) is not False,\n                 'OPERATIONAL_ACCESS_PATH_ABSENT: '+module.__name__)\n    _require(installation(conn, required=True) == original,\n             'OPERATIONAL_INSTALLATION_CHANGED_DURING_ACCESS_PATH_INSTALL')\n\n\ndef install_quiescent(conn):\n    \"\"\"Explicit additive extension install under the existing single writer.\n",
+         "\n\ndef install_quiescent(conn):\n    \"\"\"Explicit additive extension install under the existing single writer.\n"),
+        ("            if current is not None:\n                require_schema(conn)\n                _install_access_paths(conn, current)\n                return current\n            _require_quiescence(conn)\n            for module in components():\n                module.install(conn)\n",
+         "            if current is not None:\n                require_schema(conn)\n                return current\n            uncertain = conn.execute(\n                \"SELECT COUNT(*) FROM sentinel_commands WHERE state IN \"\n                \"('SEND_PENDING','UNKNOWN','ACKNOWLEDGED','PARTIALLY_FILLED','CANCEL_PENDING')\"\n            ).fetchone()[0]\n            active_jobs = conn.execute(\n                \"SELECT COUNT(*) FROM sentinel_snapshot_jobs WHERE state NOT IN \"\n                \"('PUBLISHED','REFUSED','ABORTED') AND reason<>'COMPARISON_ONLY'\"\n            ).fetchone()[0]\n            active_cycles = conn.execute(\n                \"SELECT COUNT(*) FROM sentinel_automation_cycles WHERE state NOT IN \"\n                \"('WAITING_OPEN','SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')\"\n            ).fetchone()[0]\n            _require(not uncertain and not active_jobs and not active_cycles,\n                     'OPERATIONAL_MIGRATION_REQUIRES_QUIESCENCE')\n            for module in components():\n                module.install(conn)\n"),
+        ("                    'hmac_sha256': _signature(value)}).decode('ascii')))\n            require_schema(conn)\n            _install_access_paths(conn, value, quiescent=True)\n            return value\n",
+         "                    'hmac_sha256': _signature(value)}).decode('ascii')))\n            require_schema(conn)\n            return value\n"),
+    ),
+}
+
+
+
 def _predecessor_bytes(name, raw):
+    if name in _ACCESS_PATH_OVERLAY:
+        text = raw.decode('utf-8')
+        for current, previous in _ACCESS_PATH_OVERLAY[name]:
+            assert text.count(current) == 1, 'access-path overlay changed'
+            text = text.replace(current, previous)
+        raw = text.encode('utf-8')
     if name == 'operational_schema.py':
         text = raw.decode('utf-8')
         for current, previous in _PRESENTATION_OVERLAY:
@@ -76,6 +150,7 @@ def _predecessor_bytes(name, raw):
     if name == 'operational-catalog-v1.json':
         value = json.loads(raw)
         assert value['components'].pop('sentinel.panel.review_schema')
+        assert value['components'].pop('sentinel.checkpoint_lineage_access')
         return (json.dumps(value, sort_keys=True, separators=(',', ':'))+'\n').encode('ascii')
     return raw
 
@@ -98,7 +173,26 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
     root = Path(operational_schema.__file__).resolve().parent
     raw = (root/name).read_bytes()
     assert old in raw
+    if name == 'operational_catalog.py':
+        with pytest.raises(AssertionError, match='access-path overlay changed'):
+            _predecessor_bytes(name, raw.replace(old, new))
+        return
     assert hashlib.sha256(_predecessor_bytes(name, raw.replace(old,new))).hexdigest() != PREDECESSOR_SOURCE_SHA256[name]
+
+
+@pytest.mark.parametrize('name,old,new', [
+    ('operational_catalog.py', b'index_pairs <=', b'set() <='),
+    ('operational_schema.py', b'if not quiescent:', b'if False:'),
+    ('operational_schema.py', b'(name, key) not in excluded_indexes', b'False'),
+    ('operational_schema.py', b"'state': ('jsonb', False)", b"'state': ('text', False)"),
+    ('operational_schema.py', b'if marker_possible:', b'if False:'),
+])
+def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
+    root = Path(operational_schema.__file__).resolve().parent
+    raw = (root/name).read_bytes()
+    assert old in raw
+    with pytest.raises(AssertionError, match='access-path overlay changed'):
+        _predecessor_bytes(name, raw.replace(old, new))
 
 
 def test_issuer_storage_keeps_exact_predecessor_sources_catalog_and_contracts():

@@ -6,7 +6,7 @@ These helpers never commit, roll back, migrate, collect sources or start work.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
@@ -124,7 +124,7 @@ def original_boundary(panel):
         boundary = datetime.fromisoformat(health_boundary)
         if boundary > panel.now:
             bounds.append(boundary)
-    return min(bounds)
+    return min(bounds).astimezone(timezone.utc)
 
 
 def _validate_panel(raw):

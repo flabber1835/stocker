@@ -10,13 +10,21 @@ import sys
 from . import builder
 from .coordinator import Delivery
 from .host import Host
-from .model import (DeliveryRefused, Journal, SCHEMA, SUCCESSOR_SCHEMA, handoff_mode, read_json, require,
+from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH, DeliveryRefused, Journal,
+                    SCHEMA, SUCCESSOR_SCHEMA, handoff_mode, read_json, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
 
 def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host,
-            baseline_reader=None,handoff_mode='PRE_OPEN'):
+            baseline_reader=None,handoff_mode='PRE_OPEN',canonical_proof_phase='PRE_DRAIN'):
+    require(canonical_proof_phase in {'PRE_DRAIN',POST_SCHEMA_ACCESS_PATH},
+            'REQUEST_CANONICAL_PROOF_PHASE')
+    bootstrap = canonical_proof_phase == POST_SCHEMA_ACCESS_PATH
+    if bootstrap:
+        require(handoff_mode=='PRE_OPEN'
+                and getattr(host_type,'supports_post_schema_access_path',False) is True,
+                'ACCESS_PATH_BOOTSTRAP_REQUIRES_BACKED_PRE_OPEN')
     folder = builder.safe_directory(operation_dir)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
@@ -40,13 +48,17 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         built['commit'],old['commit'])
     require(sorted(built['changed_files']) == built['allowed_delta'], 'BUILD_DELTA_CHANGED')
     builder._changed(built['source'],old['commit'],built['commit'],built['allowed_delta'])
-    request = validate_request(dict(schema=SUCCESSOR_SCHEMA if handoff_mode=='POST_TRADE_SUCCESSOR' else SCHEMA,
+    selected = dict(schema=ACCESS_PATH_SCHEMA if bootstrap else
+                          SUCCESSOR_SCHEMA if handoff_mode=='POST_TRADE_SUCCESSOR' else SCHEMA,
         operation_id=operation_id,handoff_mode=handoff_mode,
         source=built['source'],deployment=built['deployment'],predecessor=old,
         candidate=dict(commit=built['commit'],image=built['image'],source_identity=built['source_identity']),
         qualification=dict(report_path=qualified['report_path'],report_sha256=qualified['report_sha256'],
             commit=report['commit'],passed=True,source_files=report['source_files']),
-        allowed_delta=built['allowed_delta'],created_at=utcnow().isoformat()))
+        allowed_delta=built['allowed_delta'],created_at=utcnow().isoformat())
+    if bootstrap:
+        selected['canonical_proof_phase'] = POST_SCHEMA_ACCESS_PATH
+    request = validate_request(selected)
     host_type(request,folder).verify_candidate()
     write_new(folder/'request.json',request)
     return Journal(folder)
@@ -61,6 +73,8 @@ def status(operation_dir):
         predecessor={key:journal.request['predecessor'][key] for key in ('commit','image')},
         candidate={key:journal.request['candidate'][key] for key in ('commit','image')},
         receipt=str(journal.folder/'receipt.json'),
+        **({'canonical_proof_phase':POST_SCHEMA_ACCESS_PATH}
+           if journal.request['schema']==ACCESS_PATH_SCHEMA else {}),
         **({'handoff_mode':'BLOCKED_UNSENT','operational_ready':False,
             'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
            if handoff_mode(journal.request)=='BLOCKED_UNSENT' else {}))
@@ -80,6 +94,9 @@ def parser(*, backed=False):
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
     new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'),default='PRE_OPEN')
+    if backed:
+        new.add_argument('--canonical-proof-phase',choices=('PRE_DRAIN',POST_SCHEMA_ACCESS_PATH),
+            default='PRE_DRAIN',help='Select the explicit verified-predecessor access-path bootstrap')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):

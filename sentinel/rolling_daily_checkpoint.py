@@ -124,17 +124,12 @@ def load(conn, context, *, status_only=False):
     store = shadow.PostgresShadowObservationStore(
         conn, observation_id=checkpoint.observation_id, commit_genesis=False, records_from=checkpoint.session,
         stream_state=status_only)
-    from sentinel import rolling_authority
-    alien = conn.execute(
-        # CASE keeps historical session/input JSON out of lineage inventory.
-        # AND predicate order alone cannot guarantee that PostgreSQL skips it.
-        "SELECT cursor_name FROM sentinel_processed_sessions WHERE CASE WHEN "
-        "cursor_name=ANY(%s) OR cursor_name LIKE %s OR cursor_name LIKE %s OR cursor_name LIKE %s THEN FALSE ELSE "
-        "(cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-%%' OR cursor_name LIKE 'catchup%%'"
-        " OR state ? 'wealth_core' OR state ? 'strategy_identity') END LIMIT 1",
-        ([origin.CURSOR, CURSOR, store._genesis_name], store.prefix + "session:%",
-         INPUT_PREFIX + checkpoint.observation_id + ":%",
-         rolling_authority.prefix(checkpoint.observation_id) + "%")).fetchone()
+    from sentinel import checkpoint_lineage_access, rolling_authority
+    alien = checkpoint_lineage_access.find_foreign(conn,
+        allowed_names=[origin.CURSOR, CURSOR, store._genesis_name],
+        session_pattern=store.prefix + "session:%",
+        input_pattern=INPUT_PREFIX + checkpoint.observation_id + ":%",
+        authority_pattern=rolling_authority.prefix(checkpoint.observation_id) + "%")
     if alien:
         raise Refused("DAILY_CHECKPOINT_FOREIGN_LINEAGE")
     require_input(conn, checkpoint)

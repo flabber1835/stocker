@@ -1921,7 +1921,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             self, *, after: datetime,
             through: datetime,
             since_event_id: Optional[str] = None,
-            verify_snapshot_replay: bool = False) -> tuple[dict, ...]:
+            verify_snapshot_replay: bool = False,
+            require_account_history: bool = False) -> tuple[dict, ...]:
         floor = _required_aware_ts(
             after, where="Activity SSE lower boundary")
         upper = _required_aware_ts(
@@ -1934,6 +1935,14 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if not account_uuid:
             raise MalformedBrokerPayload(
                 "Alpaca account payload has no UUID for Activity SSE binding")
+        if require_account_history:
+            created_at = _required_aware_ts(
+                account.raw.get("created_at"),
+                where="Activity SSE account creation time")
+            if not datetime(2026, 2, 12, tzinfo=timezone.utc) <= created_at <= upper:
+                raise MalformedBrokerPayload(
+                    "Activity SSE account predates complete source history "
+                    "or has a future creation time")
         headers = dict(self._headers())
         headers["Accept"] = "text/event-stream"
 
@@ -1969,7 +1978,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 if not event_id or not ref_id:
                     raise MalformedBrokerPayload(
                         "Activity SSE event omitted event_id/ref_id")
-                if event_account != account_uuid:
+                if "account_id" in event and event_account != account_uuid:
                     raise MalformedBrokerPayload(
                         "Activity SSE event belongs to another account")
                 # The cash and fill consumers below are USD ledgers and
@@ -2025,6 +2034,17 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 if not isinstance(event.get("details"), dict):
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} has no details object")
+            # Trading API activities are scoped by the owned endpoint and may
+            # omit the partner stream's per-event account_id. Bind every finite
+            # response to the same native account on both sides of the read.
+            account_after = await self.identify_account()
+            if ((account_after.broker, account_after.account_id)
+                    != (account.broker, account.account_id)
+                    or str(account_after.raw.get("id") or "").strip() != account_uuid
+                    or (self.financial_activity_sse
+                        and account_after.raw.get("created_at") != account.raw.get("created_at"))):
+                raise MalformedBrokerPayload(
+                    "Alpaca account identity changed around Activity SSE read")
             return events
 
         # Timestamp filters establish only a *bounded snapshot*. They are
@@ -2091,7 +2111,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             # Publication-order replay begins only after this exhaustive
             # snapshot has captured the current upper event_id.
             after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
-            since_event_id=since_event_id)
+            since_event_id=since_event_id,
+            verify_snapshot_replay=self.financial_activity_sse,
+            require_account_history=self.financial_activity_sse)
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
         for event in events:

@@ -35,14 +35,31 @@
       ],
       "retained_design": "docs/retained-state-activation.md"
     },
+    "_broker_cash_state_or_refuse": {
+      "acceptance": [
+        "tests/sentinel/test_paper_current_cash_acceptance.py"
+      ],
+      "design": "docs/paper-current-cash-transition.md",
+      "generated_ast_sha256": "f66ec283e97d746ec49c377e9bc834a94638970cdca4055028dd0cb0404ed72e",
+      "historical_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
+      "module": "cash",
+      "predecessor_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
+      "reason": "Malformed native cash evidence and unsupported corrections retain structural refusals; credential authority remains explicit and only actual transport unavailability retries."
+    },
     "_cash_authority_or_refuse": {
       "acceptance": "audit/economic_399/cash_precision/README.md",
       "design": "docs/sentinel-execution-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "b959a98a6d6d15d7091791ac2d3bc73297d28ac39a12cc3874dde220c341a71d",
+      "generated_ast_sha256": "b6fb62419b6d8133eb562b040cc37dd5a4647d381db6d9a2a68a2704bc4b9883",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
-      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain."
+      "native_cash_wait_acceptance": [
+        "tests/sentinel/test_paper_native_cash_wait.py",
+        "tests/sentinel/test_cash_grace_identity.py"
+      ],
+      "native_cash_wait_design": "docs/paper-current-cash-transition.md",
+      "native_cash_wait_predecessor_ast_sha256": "b959a98a6d6d15d7091791ac2d3bc73297d28ac39a12cc3874dde220c341a71d",
+      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain. A known positive native cash delta with unchanged baseline-plus-fill cash is a read-only coherence wait during preparation/recovery. It grants no execution, replacement baseline or historical finality and never renews generic endpoint-lag grace."
     },
     "_clean_or_refuse": {
       "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
@@ -131,7 +148,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "69b26dccb108b0a91158eb33b72fca2c188b1a8e237695b347e2a7a643abf763",
+      "generated_ast_sha256": "b4270f75df1fa02fa6524e2341c9502f0ed5f8f2d0f82dff9ed8a813105e33c5",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
       "issuer_admission_acceptance": [
         "tests/sentinel/test_issuer_runtime.py",
@@ -154,7 +171,15 @@
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
       "protected_buy_reason": "Keep all fresh broker-read brackets and derive protected funding internally from committed rows and the actual certified wrapper; no caller-provided funding proof or fallback from missing activity.",
-      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change."
+      "readonly_authority_acceptance": [
+        "tests/sentinel/test_paper_authority_readonly.py",
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_current_operational_workflow.py",
+        "tests/sentinel/test_current_process_recovery.py"
+      ],
+      "readonly_authority_design": "docs/paper-current-cash-transition.md",
+      "readonly_authority_predecessor_ast_sha256": "69b26dccb108b0a91158eb33b72fca2c188b1a8e237695b347e2a7a643abf763",
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change. PAPER fresh authority connections are transaction-read-only inside the canonical financial gateway; independent automation/account/backup producers own operational publications. All original fresh checks and backup requirements remain; no caller transaction is committed early."
     },
     "_informational_active_symbols": {
       "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",
@@ -410,6 +435,13 @@
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
+      "cash_retirement_acceptance": [
+        "tests/sentinel/test_unsent_cash_retirement.py",
+        "tests/sentinel/test_paper_current_cash_acceptance.py",
+        "tests/sentinel/test_rolling_paper_inputs.py"
+      ],
+      "cash_retirement_design": "docs/paper-current-cash-transition.md",
+      "cash_retirement_predecessor_ast_sha256": "fb91e3a7997bd8e0f2e553b5e3eff6044cc50b64c5af3b8c8205cda5e8f4a494",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
@@ -418,7 +450,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "fb91e3a7997bd8e0f2e553b5e3eff6044cc50b64c5af3b8c8205cda5e8f4a494",
+      "generated_ast_sha256": "b2cbbc13961402bcf5641795b5764cf505b533dc645d3084da2e9e86dc3dca7e",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "initial_paper_recovery_acceptance": [
         "tests/sentinel/test_initial_paper_recovery.py",
@@ -445,7 +477,7 @@
         "tests/sentinel/test_rolling_paper_inputs.py"
       ],
       "production_path_design": "docs/production-path-qualification.md",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged.",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged. Add only attended informational PAPER unsent legacy cash retirement during a later closed decision, with an accepted native dividend, stable account/book bracket, killed writer, exact prospective baseline and atomic authenticated receipt. Ordinary execution/recovery still refuse a missing baseline; no historical finality is granted.",
       "renewal_acceptance": [
         "tests/sentinel/test_dual_plan_renewal.py",
         "tests/sentinel/test_dual_plan_renewal_upgrade.py"
