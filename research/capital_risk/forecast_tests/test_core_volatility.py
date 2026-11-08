@@ -105,7 +105,8 @@ def test_hosted_canary_closed_before_canonical_import(monkeypatch):
 @pytest.mark.parametrize('arm', compiler.ARMS)
 @pytest.mark.parametrize('review', (False, True))
 @pytest.mark.parametrize('continuation', (False, True))
-def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation):
+@pytest.mark.parametrize('aaap_model', (False, True))
+def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation, aaap_model):
     import full_system_trials_job as base
     uid = SimpleNamespace(getuid=lambda: 1001, getgid=lambda: 1001)
     monkeypatch.setattr(base, 'os', uid)
@@ -115,7 +116,7 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
     values = job.command(name, Path('/source'), Path('/frozen'), Path('/output'), arm,
                          Path('/evidence') if review else None,
                          maximum=0 if continuation else 134,
-                         previous=Path('/previous') if continuation else None)
+                         previous=Path('/previous') if continuation else None, aaap_model=aaap_model)
     assert values[values.index('--network')+1] == 'none'
     assert values[values.index('--entrypoint')+1] == 'python'
     mounts = ['/variant', '/frozen', '/driver', '/out'] + (['/evidence'] if review else [])
@@ -132,7 +133,8 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
         monkeypatch.setattr(job.subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=json.dumps([v]).encode()))
     response(dto)
     def inspect():
-        return job.inspect(name, 'a'*64, maximum=0 if continuation else 134, continuation=continuation)
+        return job.inspect(name, 'a'*64, maximum=0 if continuation else 134,
+                           continuation=continuation, aaap_model=aaap_model)
     assert inspect() == dto
     for section, key, bad in (('HostConfig', 'NetworkMode', 'bridge'), ('Config', 'Cmd', ['wrong']),
                               ('Config', 'Env', ['GH_TOKEN=secret']), ('HostConfig', 'MemorySwap', 0)):

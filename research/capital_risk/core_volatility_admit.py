@@ -92,7 +92,7 @@ def extract(archive, root, key, spec):
         v = json.loads((root/relative).read_bytes())
         name = 'core-volatility-'+spec['arm'].lower()+'-'+role+'-'+str(spec['run_id'])+'-1'
         inspect(name, value=v, user=spec['container_user'], maximum=spec['maximum'],
-                continuation=spec['continuation'])
+                continuation=spec['continuation'], aaap_model=spec.get('aaap_model', False))
         need(not v['State']['Running'] and not v['State']['OOMKilled']
              and v['State']['ExitCode'] == (spec['worker_exit_code'] if role == 'worker' else 0),
              'ACTUAL_POSITIVE_PARENT_STOP')

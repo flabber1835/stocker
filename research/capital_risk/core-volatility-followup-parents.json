@@ -1,0 +1,59 @@
+{
+  "admissions": {
+    "VOL075": {
+      "arm": "VOL075",
+      "canonical_runtime_executed": false,
+      "checkpoint_sha256": "c35a5197874eb57190d2f47433390e1ebff6fd189f50e82282b4a6568eefe13b",
+      "completed": 21,
+      "logical_bytes": 31244515,
+      "manifest_sha256": "78c55cb553e0362ead9913b54cb5e0daf0e085b518f9b857cf7de7acd307ab5d",
+      "members_verified": 36,
+      "schema": "research.core-volatility-artifact-admission/1",
+      "whole_cipher_authenticated_before_parsing": true
+    }
+  },
+  "arms": {
+    "VOL075": {
+      "arm": "VOL075",
+      "artifact_id": 13629185071,
+      "checkpoint_file_sha256": "eeb58622db03b1f4a53c50b39470bc4dacdc97174b948bb93b642efbc248372f",
+      "checkpoint_sha256": "c35a5197874eb57190d2f47433390e1ebff6fd189f50e82282b4a6568eefe13b",
+      "completed": 21,
+      "container_user": "1001:1001",
+      "continuation": true,
+      "encrypted_output": {
+        "bytes": 21716468,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "78c55cb553e0362ead9913b54cb5e0daf0e085b518f9b857cf7de7acd307ab5d",
+        "name": "core-volatility-VOL075.tar.crseal",
+        "sha256": "fdf03141b4c654d9ea17ec50db4cbaa6455434f9850f671c4e7bb9fc3115403e"
+      },
+      "head": "50199d16dcb69610f295a4c7435ea704bc73eeb3",
+      "maximum": 1634,
+      "protocol_sha256": "88472f33ebf916a3eee093a7808b6b1aabbfd28163126d1fd93ccf9011c4398a",
+      "public_members": {
+        "core-volatility-receipt.json": {
+          "bytes": 1221,
+          "sha256": "841da3f86c956066830f7ce640d8c5fc63bddcde14f3a384857bbc061ee47a55"
+        },
+        "core-volatility-staging.json": {
+          "bytes": 964,
+          "sha256": "a3cb8e00ae1cd7903c879eb05c4fcfe73a6e298d5222ee0e442159f8aa33e325"
+        },
+        "ephemeral-runner-capacity.json": {
+          "bytes": 674,
+          "sha256": "68032ae46aa225aa15fab1cd35a9112b70a86162eaa189043128f616a2ee6e5e"
+        }
+      },
+      "request_sha256": "4d97ec17f2ce12725ac8d086f8145b66d069569f9873c5cf8e9ec7dbcccc7c67",
+      "run_id": 42509098756,
+      "session": "2018-01-31",
+      "source_bindings_sha256": "c967cab9df2725c293783a800cd3e04e3daf31c678796b5a2d3044e1db944993",
+      "status": "PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION",
+      "worker_exit_code": 1,
+      "zip_bytes": 21719955,
+      "zip_sha256": "91e15617093522a9592b2a10382ab6a2bdb754db1212b262460f7112b250309b"
+    }
+  },
+  "schema": "research.core-volatility-reviewed-parents/1"
+}

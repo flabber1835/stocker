@@ -139,6 +139,10 @@ Worker times were 843.61 seconds for control and approximately 16 minutes for th
 alternative; control review took 24.01 seconds. Use admitted per-stage timings,
 not these rounded wall times, for the continuation budget.
 
+The additional state-identity check also matches all 134 canonical strategy-state
+digests exactly. Only the input and chain digests differ; no hidden strategy/feed
+state difference is being excused by the financial-record comparison.
+
 Before continuation, carry forward P00's already qualified ILG and TGI future
 completion facts on BOTH own January 11, 2018 predecessors. Reuse the original
 literal validators, primary-source/native identity witnesses, next-session clocks
@@ -160,6 +164,41 @@ This segment can succeed only at the exact planned committed count with exit-0
 worker/reviewer stops. Its complete journals remain prerequisites for the final
 514 measured sessions. The 39 local DATA/AST/transport tests pass; canonical
 future-fact qualification and all further financial transitions remain hosted.
+
+Continuation generation 2 qualified the common ILG/TGI inputs in both arms. The
+alternative reached a reviewed January 31, 2018 checkpoint with 21 measured
+closes, then refused February 12 because held AAAP1 had incomplete native terms.
+Retain the seven uncommitted February closes and watch tail exactly; they are
+not accepted performance. The canonical blocked-equity guard remains unchanged.
+
+Generation 3 may reuse the EXISTING generic AAAP tender research model already
+qualified for P05/P06/P11: listed ADS, $82 gross, assumed January 31 participation
+and February 1 opening availability, ignored $0.05 depositary fee, and no actual
+settlement claim. Preserve the separate disclosed mandatory July 13 $81.95 net
+exchange and source eligibility 0. This is reuse of an existing research input
+assumption, not new observed settlement evidence. Bind it to the alternative's
+own 21-close checkpoint, its actual 31 ADS and independently rechecked January
+31 source/February 9 native witnesses. Use the unchanged literal validator,
+canonical synthetic qualifier and actual cash/ledger postconditions before
+journal commit; do not import original P05/P06/P11 state or positions.
+
+Both comparison arms must share this model basis. The currently running control
+may qualify as unchanged only through a separate hosted differential on its own
+January 31 historical checkpoint: compare the original and added-model paths
+through February 12, all financial/controller fields and the complete canonical
+strategy state. Its source facts after that interval must be identical. An
+exact no-op permits reuse; any difference requires replay of the affected control
+suffix with the same model. Do not admit the final CAGR comparison before this
+check. Resume the alternative's own committed prefix only, with a new request;
+do not rerun generation 2 or erase its stopped artifacts. Keep the original
+planned 1,642-close boundary for the next bounded segment.
+
+Generation 3 qualification: 75 targeted DATA/AST/transport/original-tender cases
+passed in 30.52 seconds. This includes the unchanged original $82/source-unit,
+participation, daily-boundary and no-settlement-claim falsifiers, two original
+guard-removal mutants, exact own 31-ADS predecessor refusals and exact entrypoint
+inspection with the declared model flag. Hosted canonical tender qualification
+and actual event postconditions remain required by the financial worker.
 
 Initial DATA/AST qualification: all 515 newly compiled control source hashes
 exactly equal the completed P00 source commitment. The alternative changes only

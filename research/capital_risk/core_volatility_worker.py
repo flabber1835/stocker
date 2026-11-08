@@ -1,6 +1,7 @@
 """Hosted own-origin score experiment and unchanged original Sentinel account."""
 import argparse
 import ast
+from contextlib import nullcontext
 import json
 import math
 import os
@@ -80,7 +81,7 @@ def qualify(arm):
     return result
 
 
-def run(arm, maximum, previous=None):
+def run(arm, maximum, previous=None, aaap_model=False):
     hosted()
     from research.pooled_vacancy_funding import backtest
     from research.pooled_vacancy_funding.journal import read_checkpoint
@@ -93,6 +94,7 @@ def run(arm, maximum, previous=None):
     start = time.monotonic()
     save(Path('/out/canonical-qualification.json'), qualify(arm))
     qualified = time.monotonic()
+    observed = nullcontext()
     if previous is None:
         os.environ['FULL_SYSTEM_WARMUP_ONLY'] = '1'
         try:
@@ -119,14 +121,34 @@ def run(arm, maximum, previous=None):
         shutil.copyfile(previous/'book/checkpoint.json.gz', lineage/'original-parent-checkpoint.json.gz')
         shutil.copyfile(previous/'source-bindings.json', lineage/'parent-source-bindings.json')
         shutil.copyfile(previous/'request.json', lineage/'parent-request.json')
+        evidence = lineage/'parent-output-evidence'
+        evidence.mkdir()
+        statuses = lineage/'parent-book-status'
+        statuses.mkdir()
+        for item in (previous/'book').glob('*.json'):
+            shutil.copyfile(item, statuses/item.name)
+        for item in previous.iterdir():
+            if item.name == 'book':
+                continue
+            target = evidence/item.name
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copyfile(item, target)
         need(read_checkpoint(root/'checkpoint.json.gz') == before, 'EXACT_COPIED_PARENT_CHECKPOINT')
         prior_completed = before['completed']
         warmed = time.monotonic()
         from core_volatility_facts import prepare
         extra = prepare(before, Path('/out'))
+        if aaap_model:
+            from core_volatility_aaap import prepare as prepare_aaap, observer
+            need(not extra, 'ONE_NEW_INPUT_SUCCESSOR_PER_CONTINUATION')
+            extra, material = prepare_aaap(before, Path('/out'), arm)
+            observed = observer(Path('/out'), before, material)
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
-        code = backtest.main(arguments(root, True, maximum) + extra)
+        with observed:
+            code = backtest.main(arguments(root, True, maximum) + extra)
     save(Path('/out/acceleration-proof.json'), execution.proof())
     cp = read_checkpoint(root/'checkpoint.json.gz')
     complete = cp['completed'] == 2156 and cp['source_cursor'] == '2026-07-31'
@@ -147,10 +169,11 @@ if __name__ == '__main__':
     p.add_argument('--arm', choices=ARMS, required=True)
     p.add_argument('--maximum', type=int, required=True)
     p.add_argument('--resume-root', type=Path)
+    p.add_argument('--aaap-model', action='store_true')
     a = p.parse_args()
     hosted()
     if a.mode == 'economic':
-        run(a.arm, a.maximum, a.resume_root)
+        run(a.arm, a.maximum, a.resume_root, a.aaap_model)
     else:
         from system_campaign_readonly import review
         review(Path('/evidence/book'), Path('/out/core-review.json'))
