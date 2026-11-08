@@ -364,6 +364,15 @@ def test_repeated_publications_bound_bulk_storage_and_preserve_failed_attempts(c
     first = publish(conn)
     for _ in range(4):
         latest = publish(conn)
+    conn.commit()
+    # Publication admits one finite cleanup pass, not an unbounded drain.
+    # Exercise the real ordinary idle wakes before requiring convergence; a
+    # broken/no-op cleanup still fails the exact storage and history checks.
+    for _ in range(10):
+        if conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600:
+            break
+        conn.rollback()
+        retention.idle_pass(conn.info.dsn)
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_jobs').fetchone()[0] == 5
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 5
