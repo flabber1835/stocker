@@ -136,15 +136,8 @@ class Delivery:
 
     def _wait_shadow(self):
         deadline = self.monotonic()+180
-        while True:
-            item = self.host.container('sentinel-shadow')
-            require(item['Image']==self.host.request['candidate']['image'] and item['State']['Running']
-                and not item['State']['OOMKilled'] and not item['State']['Restarting'],
-                'SUCCESSOR_SHADOW_FAILED')
-            if item['State'].get('Health',{}).get('Status')=='healthy':
-                return
-            require(self.monotonic()<deadline, 'SHADOW_STARTUP_DEADLINE')
-            self.sleep(3)
+        self.host.wait_application_health('sentinel-shadow', deadline=deadline,
+            clock=self.monotonic)
 
     def _leader(self, generation):
         first = evidence.leader(self.host)

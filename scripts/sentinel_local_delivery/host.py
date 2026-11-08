@@ -286,6 +286,27 @@ class Host:
                 return None
         return json.loads(self.run(['docker','inspect','sentinel-'+service+'-1']).stdout)[0]
 
+    def wait_application_health(self, service, *, deadline, clock=time.monotonic):
+        """Events replace inspection polling; only fresh exact state proves health."""
+        from . import docker_health
+
+        require(service in SERVICES, 'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        try:
+            remaining = docker_health._remaining(deadline, clock)
+            context = self.run(['docker','context','inspect'],
+                timeout=min(docker_health.IO_SECONDS, remaining))
+            require(len(context.stdout) <= docker_health.MAX_HEADERS,
+                'ENGINE_CONTEXT_EXCEEDS_BOUND')
+            docker_health.require_context(docker_health._json(context.stdout))
+            engine = docker_health.Engine(clock=clock)
+            engine.version(deadline)
+            docker_health.wait(engine, 'sentinel-'+service+'-1',
+                self.request['candidate']['image'], deadline, clock=clock)
+        except docker_health._Deadline as exc:
+            raise DeliveryRefused('SHADOW_STARTUP_DEADLINE') from exc
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            raise DeliveryRefused('ENGINE_HEALTH_OBSERVATION_UNAVAILABLE') from exc
+
     def containers(self, services, *, missing_ok=False):
         """One fresh boundary observation; no container state is retained."""
         services=tuple(services)

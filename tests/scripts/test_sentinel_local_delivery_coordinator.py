@@ -92,6 +92,10 @@ class Host:
         return deepcopy(self.items[name])
     def containers(self,names,missing_ok=False):
         return {name:self.container(name,missing_ok=missing_ok) for name in names}
+    def wait_application_health(self,service,*,deadline,clock):
+        assert clock()<deadline
+        model.require(host_module.application_healthy(self.container(service),
+            self.request['candidate']['image']),'SUCCESSOR_SHADOW_FAILED')
     candidate_apps_ready=host_module.Host.candidate_apps_ready
     candidate_config_hashes=host_module.Host.candidate_config_hashes
     def predecessor_services(self):return host_module.SERVICES
