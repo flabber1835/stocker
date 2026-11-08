@@ -14,6 +14,7 @@ SID = '827416728546053456'
 PARENT = '376b422e09e8cf01c682b674dfee80d5ff483c0b4a7fab6ddbf78472642b84af'
 CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 CATALOG_SHA = '9ef287a863e6fc5e6e0754ed8fe052b9fdc40a1353a68bf5e55e4398f03558b5'
+SELECTED_SHA = 'c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101'
 TERM_SHA = 'df05ef7fe246b136cd9b143e25645b37df0420c583f8f617fa65993aa51bd384'
 SCOPE = 'core-volatility-gbt-source-scope.json'
 REFERENCE = 'research:core-volatility-20261108/original-gbt-cash-facts/1'
@@ -60,6 +61,23 @@ def source_scope(raw, term):
     return wanted
 
 
+def selected_generation(raw):
+    term = selected_term(raw)
+    catalog = json.loads(raw)
+    catalog['terms'] = catalog['terms'][:6]
+    need(sha((json.dumps(catalog, sort_keys=True, indent=2, allow_nan=False)+'\n').encode()) == SELECTED_SHA
+         and term in catalog['terms'], 'ORIGINAL_CLOSED_SIX_TERM_GBT_GENERATION')
+    return catalog, term
+
+
+def validate_selection(codec, name, chosen, raw):
+    catalog, term = selected_generation(raw)
+    need(name == CATALOG and codec.catalog_sha == SELECTED_SHA and codec.catalog == catalog
+         and chosen == [term] and codec.parent_outer_sha256 == term['parent_outer_sha256']
+         and codec.parent_positions == term['parent_positions'], 'ORIGINAL_CLOSED_GBT_SOURCE_SELECTION')
+    return deepcopy(term)
+
+
 def prepare(cp, root, arm):
     hosted()
     own_scope(cp, arm)
@@ -69,9 +87,7 @@ def prepare(cp, root, arm):
     from research.pooled_vacancy_funding.repair import load_repair
     from system_campaign_2021_completions_facts import require_witness
     codec, name, chosen = original.own_cash_selection('P04', '2022-09-30')
-    term, = deepcopy(chosen)
-    need(name == CATALOG and codec.catalog_sha == CATALOG_SHA
-         and term == selected_term((Path('/driver')/CATALOG).read_bytes()), 'ORIGINAL_CLOSED_GBT_SOURCE_SELECTION')
+    term = validate_selection(codec, name, chosen, (Path('/driver')/CATALOG).read_bytes())
     need(next(d for d in axis() if d > term['last_trading_session']) == term['added']['session'], 'GBT_FIRST_POST_TRADING_OPEN')
     actions = inputs.load_actions(Path('/frozen/bundle'))
     native, = [v for v in actions.terminal.get(term['native_session'], ()) if v.security_id == SID]

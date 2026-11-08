@@ -477,6 +477,18 @@ its rejection test fail. Thirty-three related Python files parse, and
 `git diff --check` passes. Canonical financial qualification and continuation
 remain hosted; these local DATA checks do not advance a financial session.
 
+Generation 10 stopped before any new financial transition: its GBT selector
+guard incorrectly compared the current full catalog hash with the original
+selector's closed six-term historical generation hash. Its independent reviewer
+passed the unchanged 1,196-close predecessor. Preserve and authenticate run
+42534267876/artifact13638878300 as failed-attempt evidence. The correction must
+retain both commitments: the exact full catalog and GBT term, plus the exact
+six-term selected catalog (`c3530a81ce5a9ae448f2e1ac59e06c3efbd224b28988fe414f3bd1b04fd47101`).
+Reproduce this selector contract with inert DATA and wrong-generation falsifiers.
+Generation 11 is a new source-bound retry from the same already admitted
+September 30 predecessor, requesting the same 960 closes. Never rerun the
+unchanged failed request or relax the exact term/ownership/input guards.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run

@@ -2,11 +2,13 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import core_volatility_gbt_facts as facts
 import core_volatility_gbt_job as job
+import core_volatility_gbt_retry_job as retry
 from research.capital_risk.forecast_tests.test_core_volatility import test_constructor_and_actual_inspector_on_inert_docker_dto as constructor_canary
 
 
@@ -71,6 +73,31 @@ def test_changed_catalog_refuses():
         facts.selected_term(b'{}')
 
 
+def test_original_six_term_selector_generation_is_distinct_from_full_catalog():
+    raw = (Path(facts.__file__).parent/facts.CATALOG).read_bytes()
+    catalog, term = facts.selected_generation(raw)
+    assert len(catalog['terms']) == 6 and facts.SELECTED_SHA != facts.CATALOG_SHA
+    codec = SimpleNamespace(catalog_sha=facts.SELECTED_SHA, catalog=catalog,
+                            parent_outer_sha256=term['parent_outer_sha256'], parent_positions=term['parent_positions'])
+    assert facts.validate_selection(codec, facts.CATALOG, [deepcopy(term)], raw) == term
+
+
+@pytest.mark.parametrize('field', ('full_hash', 'catalog', 'term', 'parent', 'holdings'))
+def test_wrong_selected_generation_refuses(field):
+    raw = (Path(facts.__file__).parent/facts.CATALOG).read_bytes()
+    catalog, term = facts.selected_generation(raw)
+    codec = SimpleNamespace(catalog_sha=facts.SELECTED_SHA, catalog=deepcopy(catalog),
+                            parent_outer_sha256=term['parent_outer_sha256'], parent_positions=deepcopy(term['parent_positions']))
+    chosen = [deepcopy(term)]
+    if field == 'full_hash': codec.catalog_sha = facts.CATALOG_SHA
+    elif field == 'catalog': codec.catalog['terms'].pop()
+    elif field == 'term': chosen[0]['added']['cash_per_share'] = 68.49
+    elif field == 'parent': codec.parent_outer_sha256 = '0'*64
+    else: codec.parent_positions = [{'security_id': facts.SID, 'current_shares': 1}]
+    with pytest.raises(ValueError, match='ORIGINAL_CLOSED_GBT_SOURCE_SELECTION'):
+        facts.validate_selection(codec, facts.CATALOG, chosen, raw)
+
+
 def test_exact_final_request_and_data_probe(tmp_path):
     request = job.expected_request()
     assert request['maximum'] == 960 and request['arms'] == {'VOL075': .75}
@@ -88,6 +115,17 @@ def test_changed_request_cannot_select_another_model(tmp_path):
     path.write_text(json.dumps(request))
     with pytest.raises(ValueError, match='EXACT_GBT_SOURCE_CLOSURE'):
         job.probe(path)
+
+
+def test_retry_binds_authenticated_zero_advance_failure_and_original_parent(tmp_path):
+    request = retry.expected_request()
+    assert request['generation'] == 11 and request['maximum'] == 960
+    assert request['parents']['VOL075']['completed'] == 1196
+    assert request['failed_attempt']['arm']['run_id'] == 42534267876
+    assert request['failed_attempt']['arm']['checkpoint_sha256'] == facts.PARENT
+    path = tmp_path/'retry.json'
+    path.write_bytes(json.dumps(request).encode())
+    assert retry.probe(path)['canonical_runtime_executed'] is False
 
 
 @pytest.mark.parametrize('review', (False, True))
