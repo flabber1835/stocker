@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 from types import SimpleNamespace
 
 from sentinel_local_delivery import builder, checks, cli, environment
@@ -447,8 +448,9 @@ def require_started_state(host, record, values, pg, image):
     require(evidence.native_positions(host,values)==record['native_positions'],
         'BACKED_STARTED_NATIVE_POSITIONS_CHANGED')
     evidence.check_notification_history(host,record['notification_history'])
+    applications=host.containers(SERVICES)
     for service in SERVICES:
-        item=host.container(service)
+        item=applications[service]
         require(item['Image']==image and item['State']['Running']
             and item['State'].get('Health',{}).get('Status')=='healthy'
             and not item['State']['OOMKilled'] and not item['State']['Restarting'],

@@ -50,11 +50,13 @@ def inputs(tmp_path,monkeypatch):
     def git(root,*args):
         assert Path(root)==source
         if args==('ls-files','-z'): return '\0'.join(files)+'\0'
+        if args==('ls-tree','-r','--name-only','-z',NEW): return '\0'.join(files)+'\0'
         if args==('rev-parse','HEAD'): return NEW
         if args==('status','--porcelain'): return ''
         if args==('branch','--show-current'): return 'codex/simplify'
         if args==('merge-base',OLD,NEW): return OLD
         if args==('diff','--name-only',OLD,NEW): return '\n'.join(approved)
+        if args==('diff','--name-only','-z',OLD,NEW): return '\0'.join(approved)
         if args==('diff','--name-status','--no-renames',OLD,NEW):
             return '\n'.join('M\t'+name for name in approved)
         raise AssertionError(args)

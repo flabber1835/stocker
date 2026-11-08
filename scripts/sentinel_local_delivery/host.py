@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -21,6 +22,30 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-automation.ym
 RUNTIME_KEYS = frozenset({'SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST',
     'SENTINEL_TEST_IMAGE_DIGEST', 'SENTINEL_RUNTIME_IMAGE_REF', 'SENTINEL_LOCAL_PAPER_IMAGE',
     'SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256', 'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256'})
+
+
+def _immutable_git(args):
+    sha = lambda value: isinstance(value,str) and re.fullmatch('[0-9a-f]{40}',value) is not None
+    if len(args)==3 and args[0]=='merge-base':
+        return all(sha(value) for value in args[1:])
+    if len(args) in {4,5} and args[:2]==('diff','--name-only'):
+        return ((len(args)==4 or args[2]=='-z') and all(sha(value) for value in args[-2:]))
+    if len(args)==5 and args[:4]==('ls-tree','-r','--name-only','-z'):
+        return sha(args[4])
+    if len(args)==2 and args[0]=='show' and ':' in args[1]:
+        commit,name=args[1].split(':',1)
+        return sha(commit) and name in COMPOSE
+    return False
+
+
+def application_healthy(item, image):
+    if not isinstance(item,dict): return False
+    state=item.get('State')
+    if not isinstance(state,dict): return False
+    health=state.get('Health')
+    return (item.get('Image')==image and state.get('Running') is True
+        and isinstance(health,dict) and health.get('Status')=='healthy'
+        and state.get('OOMKilled') is False and state.get('Restarting') is False)
 
 
 class Host:
@@ -81,8 +106,23 @@ class Host:
             metadata = Path(raw)
             if not metadata.is_absolute():
                 metadata = self.source/metadata
-        result = self.run(['git', '--no-optional-locks', '--git-dir', str(metadata),
+        immutable=_immutable_git(args)
+        if immutable:
+            common=metadata
+            if (metadata/'commondir').is_file():
+                common=Path((metadata/'commondir').read_text().strip())
+                if not common.is_absolute(): common=metadata/common
+            for folder in {metadata,common}:
+                graft=folder/'info/grafts'
+                require(not graft.exists() and not graft.is_symlink(),'IMMUTABLE_GIT_GRAFTS_REFUSED')
+            facts=getattr(self,'_git_object_facts',{})
+            if args in facts:
+                return facts[args]
+        result = self.run(['git', *(['--no-replace-objects'] if immutable else []),
+                          '--no-optional-locks', '--git-dir', str(metadata),
                           '--work-tree', str(self.source), *args])
+        if immutable:
+            self._git_object_facts={**facts,args:result.stdout}
         return result.stdout
 
     def git(self, *args):
@@ -207,6 +247,81 @@ class Host:
                 return None
         return json.loads(self.run(['docker','inspect','sentinel-'+service+'-1']).stdout)[0]
 
+    def containers(self, services, *, missing_ok=False):
+        """One fresh boundary observation; no container state is retained."""
+        services=tuple(services)
+        require(services and len(services)==len(set(services))
+            and all(name in SERVICES for name in services),'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        names={'sentinel-'+service+'-1':service for service in services}
+        identities=None
+        if missing_ok:
+            pattern='^/(?:'+'|'.join(re.escape(name) for name in names)+')$'
+            lines=self.run(['docker','container','ls','--all','--no-trunc','--format','{{json .}}',
+                '--filter','name='+pattern]).stdout.decode().splitlines()
+            identities={}
+            for line in lines:
+                value=json.loads(line)
+                require(isinstance(value,dict) and value.get('Names') in names
+                    and isinstance(value.get('ID'),str) and value['ID']
+                    and value['Names'] not in identities,'APPLICATION_CONTAINER_AMBIGUOUS')
+                identities[value['Names']]=value['ID']
+            if not identities: return dict.fromkeys(services)
+            targets=list(identities.values())
+        else:
+            targets=list(names)
+        observed=json.loads(self.run(['docker','container','inspect',*targets]).stdout)
+        require(isinstance(observed,list),'APPLICATION_CONTAINER_OBSERVATION_MALFORMED')
+        result=dict.fromkeys(services)
+        for item in observed:
+            require(isinstance(item,dict) and isinstance(item.get('Name'),str)
+                and isinstance(item.get('Id'),str) and item['Id']
+                and isinstance(item.get('Image'),str) and isinstance(item.get('State'),dict),
+                'APPLICATION_CONTAINER_OBSERVATION_MALFORMED')
+            name=item['Name'].removeprefix('/')
+            require(item['Name']=='/'+name and name in names and result[names[name]] is None,
+                'APPLICATION_CONTAINER_AMBIGUOUS')
+            require(identities is None or identities.get(name)==item.get('Id'),
+                'APPLICATION_CONTAINER_CHANGED_DURING_OBSERVATION')
+            result[names[name]]=item
+        expected=set(names if identities is None else identities)
+        require({name for name,service in names.items() if result[service] is not None}==expected,
+            'APPLICATION_CONTAINER_MISSING')
+        return result
+
+    def candidate_config_hashes(self, values):
+        """Render current configuration once, before observing running roles."""
+        try:
+            output=self.compose(values,'config','--hash','*',timeout=90).stdout.decode()
+            hashes={}
+            for line in output.splitlines():
+                fields=line.split()
+                if (len(fields)!=2 or fields[0] in hashes
+                        or re.fullmatch('[0-9a-f]{64}',fields[1]) is None):
+                    return None
+                hashes[fields[0]]=fields[1]
+        except (DeliveryRefused,UnicodeError,ValueError,TypeError):
+            return None
+        return hashes if all(name in hashes for name in SERVICES) else None
+
+    def candidate_apps_ready(self, hashes, applications):
+        """Positive proof of a completed software start, never financial readiness."""
+        if (not isinstance(hashes,dict) or any(not isinstance(hashes.get(name),str)
+                or re.fullmatch('[0-9a-f]{64}',hashes[name]) is None for name in SERVICES)):
+            return False
+        image=self.request['candidate']['image']
+        for service in SERVICES:
+            item=applications.get(service)
+            if not application_healthy(item,image): return False
+            config=item.get('Config')
+            if not isinstance(config,dict): return False
+            labels=config.get('Labels')
+            if (not isinstance(labels,dict)
+                    or labels.get('com.docker.compose.project')!='sentinel'
+                    or labels.get('com.docker.compose.service')!=service
+                    or labels.get('com.docker.compose.config-hash')!=hashes.get(service)):
+                return False
+        return True
+
     def drain_recovery_state(self, target, values):
         """Read exact predecessor markers without starting or mutating it."""
         item=self.container('sentinel-shadow')
@@ -268,12 +383,20 @@ print(json.dumps(result,sort_keys=True))
         return actual
 
     def probe(self, commit, image, values=None):
+        require(re.fullmatch('[0-9a-f]{40}',commit or '') is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
+            'IMAGE_IDENTITY_PROBE_SUBJECT_INVALID')
         selected = self.load_values() if values is None else values
         rendered = json.loads(self.compose(selected, 'config', '--format', 'json').stdout)
         environment = rendered['services']['sentinel-shadow']['environment']
         config = {key:environment[key] for key in (
             'SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH',
             'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY')}
+        canonical=json.dumps(config,sort_keys=True,separators=(',',':'),ensure_ascii=True)
+        key=(image,commit,canonical)
+        probes=getattr(self,'_image_identity_probes',{})
+        if key in probes:
+            return deepcopy(probes[key])
         code = '''import hashlib,json,re,sys
 from decimal import Decimal
 from sentinel import identity,shadow_runtime
@@ -288,10 +411,15 @@ assert r['environment']['compatible'] is True
 c=dict(schema='sentinel.shadow-reviewed-config/1',observation_id=name,starting_cash=format(cash.normalize(),'f'),execution_model=shadow_runtime.SHADOW_EXECUTION_MODEL,cutoff_policy=shadow_runtime.SHADOW_CUTOFF_POLICY,publication_timing_policy=shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY,validated_source_identity_sha256=r['identity_hash'])
 print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(json.dumps(c,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest(),wealth=r['environment']['wealth_core_source']['hash'])))
 '''
-        return json.loads(self.run(['docker','run','--rm','--pull=never','--network','none',
+        result=json.loads(self.run(['docker','run','--rm','--pull=never','--network','none',
             '--cpus','0.5','--memory','384m','-e','SENTINEL_GIT_COMMIT='+commit,
             '-e','SENTINEL_RUNTIME_IMAGE_DIGEST='+image,'-e','SENTINEL_TEST_IMAGE_DIGEST='+image,
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
+        require(isinstance(result,dict) and set(result)=={'source','shadow_config','wealth'}
+            and all(isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value) is not None
+                    for value in result.values()),'IMAGE_IDENTITY_PROBE_MALFORMED')
+        self._image_identity_probes={**probes,key:deepcopy(result)}
+        return deepcopy(result)
 
     def verify_candidate(self):
         require(handoff_mode(self.request)!='POST_TRADE_SUCCESSOR'
@@ -321,7 +449,7 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         qualification = self.request['qualification']
         from .qualification import validate_report
         report = validate_report(qualification['report_path'],qualification['report_sha256'],
-            self.source,selected['commit'],old['commit'])
+            self.source,selected['commit'],old['commit'],git_reader=self.git)
         require(qualification['commit']==selected['commit'] and qualification['passed'] is True,
                 'CANDIDATE_QUALIFICATION_ABSENT')
         require(report['source_files']==qualification['source_files'],

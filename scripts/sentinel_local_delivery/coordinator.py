@@ -5,7 +5,7 @@ from datetime import datetime
 import time
 
 from . import access_path_qualification, evidence
-from .host import RUNTIME_KEYS, SERVICES
+from .host import RUNTIME_KEYS, SERVICES, application_healthy
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH,
                     canonical_proof_phase, digest, handoff_mode, require, utcnow)
 
@@ -27,8 +27,9 @@ class Delivery:
         image = self.host.request[role]['image']
         result = {}
         names=self.host.predecessor_services() if role=='predecessor' else SERVICES
+        applications=self.host.containers(names)
         for service in names:
-            item = self.host.container(service)
+            item = applications[service]
             require(item['Image']==image, 'APPLICATION_IMAGE_CHANGED')
             if (role=='predecessor' and handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR'
                     and service=='sentinel-automation' and running is True and healthy):
@@ -55,8 +56,9 @@ class Delivery:
 
     def _stopped_for_install(self):
         old=self.host.request['predecessor']['image']
+        applications=self.host.containers(SERVICES,missing_ok=True)
         for service in SERVICES:
-            item=self.host.container(service,missing_ok=True)
+            item=applications[service]
             if item is None:
                 require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
             else:
@@ -274,8 +276,9 @@ class Delivery:
         if stage=='COMPOSE_INSTALLED':
             self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
             self.host.verify_compose('candidate')
+            applications=self.host.containers(SERVICES,missing_ok=True)
             for service in SERVICES:
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if service=='sentinel-shadow' and item and item['Image']==self.host.request['candidate']['image']:
                     require(current==candidate,'SHADOW_WITH_WRONG_CONFIGURATION')
                 elif item is not None:
@@ -299,9 +302,10 @@ class Delivery:
         if stage=='SHADOW_VERIFIED':
             self._fresh(artifacts['successor_verified_at'])
             self._wait_shadow()
+            applications=self.host.containers(SERVICES,missing_ok=True)
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if item is None:
                     require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
                     continue
@@ -311,17 +315,22 @@ class Delivery:
         if stage=='START_REQUESTED':
             self._fresh(artifacts['successor_verified_at'])
             self._wait_shadow(); self._unchanged(artifacts)
+            hashes=self.host.candidate_config_hashes(candidate)
+            applications=self.host.containers(SERVICES,missing_ok=True)
+            require(application_healthy(applications.get('sentinel-shadow'),
+                self.host.request['candidate']['image']),'SUCCESSOR_SHADOW_CHANGED')
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if item is None:
                     require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
                     continue
                 require(item['Image'] in (self.host.request['predecessor']['image'],
                                           self.host.request['candidate']['image']), 'FOREIGN_APPLICATION_IMAGE')
-            self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
-                '--wait','--wait-timeout','120',*SERVICES[1:],timeout=150)
-            self._apps('candidate',running=True,healthy=True)
+            if not self.host.candidate_apps_ready(hashes,applications):
+                self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
+                    '--wait','--wait-timeout','120',*SERVICES[1:],timeout=150)
+                self._apps('candidate',running=True,healthy=True)
             self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'APPLICATIONS_STARTED')
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
@@ -365,9 +374,10 @@ class Delivery:
             current,old,_=self._values(artifacts)
             require(current==old,'ABANDONMENT_PREDECESSOR_ENVIRONMENT_CHANGED')
             self.host.verify_compose('predecessor')
+            applications=self.host.containers(self.host.predecessor_services())
             for service in self.host.predecessor_services():
                 if service=='sentinel-shadow':continue
-                item=self.host.container(service)
+                item=applications[service]
                 require(item['Image']==self.host.request['predecessor']['image']
                     and item['State']['Running'] and not item['State']['Restarting'],
                     'ABANDONMENT_OTHER_APPLICATION_CHANGED')

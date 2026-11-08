@@ -66,11 +66,14 @@ class Host:
             'issuer_evidence':{'count':0,'md5':'d41d8cd98f00b204e9800998ecf8427e'}}
         self.native={'native-id':'17'};self.notifications={'old':'immutable-payload'}
         self.calls=[];self.busy=False;self.canonical_count=0;self.clock=0;self.heartbeat=0
-        self.items={name:self.item(selected['predecessor']['image'],True) for name in host_module.SERVICES}
+        self.config_renders=0
+        self.items={name:self.item(selected['predecessor']['image'],True,name) for name in host_module.SERVICES}
         self.fail_after=None
         self.drain_current=True;self.schema_complete=True;self.migration_count=0
-    def item(self,image,running):
+    def item(self,image,running,service=None):
         return dict(Id=image+'-container',Image=image,RestartCount=0,
+            Config={'Labels':{'com.docker.compose.project':'sentinel',
+                'com.docker.compose.service':service,'com.docker.compose.config-hash':'a'*64}},
             HostConfig={'RestartPolicy':{'Name':'unless-stopped','MaximumRetryCount':0}},
             State=dict(Running=running,Health={'Status':'healthy'},
             OOMKilled=False,Restarting=False,StartedAt='2031-04-21T00:00:00Z'))
@@ -87,6 +90,10 @@ class Host:
     def container(self,name,missing_ok=False):
         if missing_ok and name not in self.items:return None
         return deepcopy(self.items[name])
+    def containers(self,names,missing_ok=False):
+        return {name:self.container(name,missing_ok=missing_ok) for name in names}
+    candidate_apps_ready=host_module.Host.candidate_apps_ready
+    candidate_config_hashes=host_module.Host.candidate_config_hashes
     def predecessor_services(self):return host_module.SERVICES
     def verify_compose(self,role):self.calls.append('verify-compose-'+role)
     def install_compose(self):
@@ -100,6 +107,11 @@ class Host:
         if self.fail_after=='install':
             self.fail_after=None;raise model.DeliveryRefused('LOST_ACK')
     def compose(self,values,*args,**kwargs):
+        if args==('config','--hash','*'):
+            from types import SimpleNamespace
+            self.config_renders+=1
+            return SimpleNamespace(stdout=''.join(name+' '+'a'*64+'\n'
+                for name in host_module.SERVICES).encode())
         self.calls.append(args)
         if args[0]=='stop':
             assert set(args[3:])==set(self.predecessor_services())
@@ -108,7 +120,7 @@ class Host:
         else:
             names=[v for v in args if v in host_module.SERVICES]
             assert names and '--no-deps' in args and '--no-build' in args and 'never' in args
-            for service in names:self.items[service]=self.item(self.request['candidate']['image'],True)
+            for service in names:self.items[service]=self.item(self.request['candidate']['image'],True,service)
             name='shadow' if names==['sentinel-shadow'] else 'apps'
         if self.fail_after==name:
             self.fail_after=None;raise model.DeliveryRefused('LOST_ACK')

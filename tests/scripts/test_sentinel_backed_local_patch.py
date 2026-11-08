@@ -330,7 +330,8 @@ def test_started_replacement_requires_each_preservation_boundary(monkeypatch, fa
         preserved={'book':'original'},native_positions={'A':'7'},notification_history={'old':'record'})
     item=dict(Image='original-image',State=dict(Running=True,Health={'Status':'healthy'},
         OOMKilled=False,Restarting=False))
-    host=SimpleNamespace(allow_started_predecessor=True,request={'predecessor':{}},container=lambda name:item)
+    host=SimpleNamespace(allow_started_predecessor=True,request={'predecessor':{}},
+        containers=lambda names:{name:item for name in names})
     monkeypatch.setattr(evidence,'snapshot',lambda h:{'book':'changed' if fault=='financial' else 'original'})
     monkeypatch.setattr(evidence,'native_positions',lambda *a:{'A':'8' if fault=='native' else '7'})
     def history(*args):patch.require(fault!='history','NOTIFICATION_HISTORY_CHANGED')
