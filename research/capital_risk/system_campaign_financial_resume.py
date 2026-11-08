@@ -51,12 +51,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07',)
+SELECTED_ARMS = ('P03',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/248'
+SCHEMA = 'research.system-campaign-accurate-resume-request/249'
 EXECUTION_MODE = 'OWN_ADMITTED_FINANCIAL_CONTINUATION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -1126,6 +1126,9 @@ _request238_review.install(sys.modules[__name__])
 
 import system_campaign_p07_ordinary28_entry as _p07_ordinary28
 _p07_ordinary28.install(sys.modules[__name__])
+
+import system_campaign_p03_PFNX_entry as _p03_PFNX
+_p03_PFNX.install(sys.modules[__name__])
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
