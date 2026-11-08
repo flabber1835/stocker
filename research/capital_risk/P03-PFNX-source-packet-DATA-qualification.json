@@ -1,0 +1,213 @@
+{
+  "actual_canonical_neutral22_known": false,
+  "actual_full_annual_DATA_audit": {
+    "annual_compressed_bytes": 74043718,
+    "annual_member": "observations-2020.csv.gz",
+    "annual_member_sha256": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf",
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "canonical_runtime_executed": false,
+    "complete_original_source_members_verified": 4,
+    "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+    "financial_authority": false,
+    "financial_book_staged": false,
+    "financial_sessions_advanced": 0,
+    "last_source_session": "2020-09-30",
+    "parent_outer_sha256": "a317bf374d0c991c3d4e2982e87622ba20654845304c9ac0594a665f94a19424",
+    "parent_role": {
+      "held": false,
+      "ordered": false,
+      "selected": false,
+      "signal_anchor": [
+        "2020-08-31",
+        12.53,
+        12.53
+      ]
+    },
+    "parent_state_sha256": "a9756eaa54f2f22f26f312f0d78fdf1ee884f961aded37371675f725f3021c12",
+    "passed": true,
+    "raw_source_rows": [
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1478121",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2014-07-24",
+        "metadata_admitted": "1",
+        "raw_close": "12.76",
+        "raw_compatible_volume": "8086060",
+        "raw_open": "12.859999999999999",
+        "reported_volume": "8086060",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "326446597882092349",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2020-09-29",
+        "sic": "2834",
+        "signal_close": "12.76",
+        "split_ratio": "1",
+        "ticker": "PFNX",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1478121",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2014-07-24",
+        "metadata_admitted": "1",
+        "raw_close": "12.75",
+        "raw_compatible_volume": "1624951",
+        "raw_open": "12.74",
+        "reported_volume": "1624951",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "326446597882092349",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2020-09-30",
+        "sic": "2834",
+        "signal_close": "12.75",
+        "split_ratio": "1",
+        "ticker": "PFNX",
+        "tradeable": "1"
+      }
+    ],
+    "root_admission_sha256": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+    "scanned": 1541141,
+    "schema": "research.P03-PFNX-full2020-source-DATA/1",
+    "security_rows": 189,
+    "source_catalog_sha256": "067d6a8258967e24d1bf8d450fbc598a81320551df31d5e7ed4ffbba2a90c74c"
+  },
+  "actual_full_annual_DATA_audit_sha256": "5b7f1c8bb87eafb409c61f797fde26c950f810c0abf350b3db9bcc89a803d399",
+  "actual_hosted_packet_preparation": false,
+  "actual_three_event_constructor": false,
+  "complete_original_source_members": 4,
+  "effective_session": "2020-10-01",
+  "entire_legal_signal_interval": [
+    "12.00",
+    "14.00"
+  ],
+  "files": {
+    "P03-PFNX-P07-RETA-native-source-catalog.json": {
+      "bytes": 163875,
+      "sha256": "067d6a8258967e24d1bf8d450fbc598a81320551df31d5e7ed4ffbba2a90c74c"
+    },
+    "P03-PFNX-full21-source-catalog.json": {
+      "bytes": 17978,
+      "sha256": "aec3848e54767bc06f5889fcf912a79a5d9648ce2b9b32abe05403ddcc3d5712"
+    },
+    "forecast_tests/test_PFNX_source_preparation.py": {
+      "bytes": 7736,
+      "sha256": "d929e3c154a18722ea940fa4652509ee2a13f6832cdc72b8f0fc93ced3748ec8"
+    },
+    "system_campaign_abmd_bounded_hydration.py": {
+      "bytes": 3109,
+      "sha256": "1091ea25621f9b9ebb5b7f113ecb6adbd8e6e8e876b29a7492e93776fe7d64f7"
+    },
+    "system_campaign_abmd_bounded_preparation.py": {
+      "bytes": 7067,
+      "sha256": "6a998f614f814b9dd4e4d20ff9c7f7a76389fdb4513689bdb7858c3c2cf57443"
+    },
+    "system_campaign_bounded_sensor_binding.py": {
+      "bytes": 7186,
+      "sha256": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d"
+    },
+    "system_campaign_bounded_sensor_event_review.py": {
+      "bytes": 6399,
+      "sha256": "89c466607a86eb8dc79e12397730b3a79f0af82b7b8f7d25c6a08aba5195130f"
+    },
+    "system_campaign_bounded_sensor_input.py": {
+      "bytes": 7790,
+      "sha256": "f0d20a5ad48ea5672d868a016118b136a6a68fc5b2225088b9ef2a4e93a94857"
+    },
+    "system_campaign_bounded_sensor_suffix_v2.py": {
+      "bytes": 3452,
+      "sha256": "c776a1e9ee71456f30ba64245a455c5141e1833114d668634411b25d9d201644"
+    },
+    "system_campaign_financial_branches.py": {
+      "bytes": 26820,
+      "sha256": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p03_PFNX_hydration.py": {
+      "bytes": 2156,
+      "sha256": "46e7f0cd13596caea6f9cc1dfff5520b13e9738feff8c68e1a3f087ad587230d"
+    },
+    "system_campaign_p03_PFNX_preparation.py": {
+      "bytes": 1939,
+      "sha256": "6248c280e24d0befdd7cd15985c3efbcef3e4677dc7b5ba5b991ee2ecf60316b"
+    },
+    "system_campaign_p03_PFNX_source.py": {
+      "bytes": 13023,
+      "sha256": "0815e15f368c47f82e8c117dd71e42f81f6018c7b9ecf2fb16a697c456527083"
+    },
+    "system_campaign_p07_KDNY_preparation.py": {
+      "bytes": 2491,
+      "sha256": "3cc79c9e5088082287147f6cebfdddaa7d278ef89a3e2cb93043894a57c20e18"
+    },
+    "system_campaign_second_bounded_codec.py": {
+      "bytes": 2448,
+      "sha256": "8467e2449e5a580bb9f55ca9507875ace183c77bcf4fa9eb8f01f9e908a93571"
+    },
+    "system_campaign_second_bounded_factory.py": {
+      "bytes": 3918,
+      "sha256": "28babac1d0ec4a511e336faeb1695a43991b3fef489e5c7c3d82661a8719dd4f"
+    },
+    "system_campaign_uncertainty_context.py": {
+      "bytes": 12555,
+      "sha256": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610"
+    },
+    "system_campaign_uncertainty_math.py": {
+      "bytes": 6209,
+      "sha256": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213"
+    }
+  },
+  "financial_authority": false,
+  "financial_book_staged": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "local_canonical_runtime_executed": false,
+  "native_session": "2020-09-30",
+  "owned_right_settlement_authorized": false,
+  "packet_source_ready": true,
+  "parent_completed": 671,
+  "parent_inputs": 21,
+  "passed": true,
+  "remaining": [
+    "complete full21 resource and217 seed qualification",
+    "complete third-event retained constructor preserving DOVA and STML",
+    "actual hosted hydration and packet preparation",
+    "actual canonical neutral22 and shared financial constructor canaries",
+    "original worker, full retained/ordinary review and independent saved-prefix admission"
+  ],
+  "required_neutral_inputs": 22,
+  "retained_committed_proofs_required": 217,
+  "right_price_or_probability_selected": false,
+  "root_admission_sha256": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+  "schema": "research.P03-PFNX-source-packet-DATA-qualification/1",
+  "source_collection_completed": 628,
+  "source_collection_context_not_parent": true,
+  "source_component_ready": true,
+  "tests": {
+    "all_five_import_fences": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PFNX_source_preparation.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P03-PFNX-source-tests-20261108-001",
+    "full21_order_preserved": true,
+    "meaningful_legal_range_guard_removal": true,
+    "passed": 26,
+    "seconds": 4.55,
+    "whole_original_absent_bar_packet_AST_undo": true,
+    "whole_original_hydration_AST_undo": true
+  }
+}

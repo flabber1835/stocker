@@ -234,16 +234,21 @@
     {
       "admitted_root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
       "arm": "P03",
+      "bounded_source_catalog": "P03-PFNX-full21-source-catalog.json",
       "event": "PFNX cash plus contingent right; native September30/legal October1,2020",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
       "family": "CASH_AND_CONTINGENT_RIGHT",
       "missing": [
-        "third bounded-event source qualification preserving both existing DOVA/STML models",
-        "explicit native/legal date policy and full21 restart",
-        "hosted canonical canaries, financial continuation and independent admission"
+        "complete new22 history and retained third-event constructor",
+        "complete observer/runtime/entry integration",
+        "actual hosted preparation/copy/neutral22/constructor gates",
+        "actual original financial worker and independent admission"
       ],
+      "resource_component_qualification": "P03-PFNX-retained217-resources-DATA-qualification.json",
       "security_id": "326446597882092349",
-      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json"
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json",
+      "source_component_qualification": "P03-PFNX-source-packet-DATA-qualification.json",
+      "source_resource_fact": "P03-PFNX-real671-retained217-resource-fact.json"
     },
     {
       "arm": "P05",
