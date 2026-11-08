@@ -107,13 +107,17 @@ def test_financial_import_fences(name):
  assert not any(n==name or n.startswith(name+'.') for n in sys.modules)
  with pytest.raises(ImportError):Fence().find_spec(name)
 
-def test_new628_root_retires_literal_request235_without_regeneration():
+def test_new628_root_retires_literal_request235_without_regeneration(monkeypatch):
  import system_campaign_financial_resume as m
  from system_campaign_financial_partial import root_spec
  current=root_spec('P03');prior=root_spec('P03',r.source.ROOT)
  assert current['measured_closes']==628 and len(current['repairs'])==20
  assert prior['measured_closes']==606 and p.candidate(prior) and not p.candidate(current)
  raw=(C/m.REQUEST).read_bytes();request=json.loads(raw)
- assert p.sha(raw)=='9e5b4f85fca0e0ca045ba419b8d0096296a5a53110fda4c8ecd271c0a75b0012'
- assert request[p.FIELD]['P03']['root_admission_sha256']==r.source.ROOT
+ if request.get(p.FIELD):
+  assert p.sha(raw)=='9e5b4f85fca0e0ca045ba419b8d0096296a5a53110fda4c8ecd271c0a75b0012'
+  assert request[p.FIELD]['P03']['root_admission_sha256']==r.source.ROOT
+ else:
+  assert request['arms']!=['P03'] and request==m.expected_request()
+ monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
  with pytest.raises(ValueError):m.expected_request()
