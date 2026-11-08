@@ -119,7 +119,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
     if unfinished:
         require(record['artifacts'].get('successor_proof_sha256')
             ==digest(record['artifacts']['canonical_proof']), 'BACKED_STARTED_CANONICAL_PROOF_CHANGED')
-    built = read_json(selected.parent/'build.json')
+    built = builder.operation_build(selected.parent)
     candidate = request['candidate']
     require(built.get('schema')==builder.BUILD_SCHEMA
         and built.get('commit')==candidate['commit'] and built.get('image')==candidate['image']
@@ -187,10 +187,12 @@ class BackedHost(Host):
     supports_post_schema_access_path = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
-        built = self.operation_dir/'build.json'
-        self.predecessor_receipt = Path(predecessor_receipt or read_json(built)['predecessor_receipt']['path'])
-        self.allow_started_predecessor=(allow_started or (built.is_file()
-            and read_json(built)['predecessor_receipt'].get('allow_started') is True))
+        present = any((self.operation_dir/name).exists() or (self.operation_dir/name).is_symlink()
+            for name in ('build.json','build-reference.json'))
+        built = builder.operation_build(self.operation_dir) if present else None
+        self.predecessor_receipt = Path(predecessor_receipt or built['predecessor_receipt']['path'])
+        self.allow_started_predecessor=(allow_started or (built is not None
+            and built['predecessor_receipt'].get('allow_started') is True))
         witness=predecessor_witness(self.predecessor_receipt,
             inspect_image=lambda ref:builder._inspect(self,ref),allow_started=self.allow_started_predecessor)
         self.predecessor_roots=witness['roots']
@@ -235,7 +237,7 @@ class BackedHost(Host):
         require((self.deployment/'.git').exists() and not (self.deployment/'.git').is_symlink(),
             'BACKED_CANONICAL_DEPLOYMENT_REQUIRED')
         require(not (self.deployment/'.env').is_symlink(), 'BACKED_ENVIRONMENT_PATH_UNSAFE')
-        built=read_json(self.operation_dir/'build.json')
+        built=builder.operation_build(self.operation_dir)
         anchor=built['predecessor_receipt']
         require(Path(anchor['path'])==self.predecessor_receipt
             and sha256_file(self.predecessor_receipt)==anchor['sha256'], 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
@@ -373,7 +375,7 @@ class BackedHost(Host):
 
     def predecessor_canonical_proof(self, state):
         """Reuse an unchanged predecessor fact, never a candidate startup fact."""
-        built=read_json(self.operation_dir/'build.json')
+        built=builder.operation_build(self.operation_dir)
         anchor=built['predecessor_receipt']
         require(str(self.predecessor_receipt)==anchor['path']
             and sha256_file(self.predecessor_receipt)==anchor['sha256'],
@@ -546,9 +548,12 @@ def main(argv=None):
             output=dict(build_record=str(folder/'build.json'),build_sha256=sha256_file(folder/'build.json'),
                 commit=result['commit'],image=result['image'])
         elif args.command=='prepare':
-            built=read_json(args.build_record)
+            folder=builder.safe_directory(args.operation_dir,create=True)
+            built=builder.pinned_build(args.build_record,args.build_sha256)
             host=BackedHost(dict(source=built['source'],deployment=built['deployment'],
-                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder)
+                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder,
+                predecessor_receipt=built['predecessor_receipt']['path'],
+                allow_started=built['predecessor_receipt'].get('allow_started') is True)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
                 operation_id=args.operation_id,host_type=BackedHost,
                 baseline_reader=lambda path:active_baseline(path,host,
@@ -558,7 +563,7 @@ def main(argv=None):
         elif args.command=='status':output=cli.status(folder)
         else:
             journal=Journal(folder);host=BackedHost(journal.request,folder)
-            built=read_json(folder/'build.json')
+            built=builder.operation_build(folder)
             require(sha256_file(built['predecessor_receipt']['path'])==built['predecessor_receipt']['sha256']
                 and built['foundation']==journal.request['predecessor'], 'BACKED_WITNESS_CHANGED')
             delivery=Delivery(host,journal)

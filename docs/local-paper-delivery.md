@@ -60,6 +60,59 @@ results or re-pin historical fixtures to satisfy admission.
 
 ## Build, prepare and inspect
 
+### Build ownership independent of installation attempts (November 8, 2026)
+
+A completed build is an immutable artifact selected by the SHA256 of its original
+`build.json`, not by an installation attempt's directory. A fresh operation may
+use `prepare --build-record <original-build-directory>/build.json --build-sha256
+<original-digest>` without invoking Docker build, copying the source context,
+retagging the image or producing new BuildKit attestations. Prepare creates the
+new private operation directory when its parent exists. The original build,
+context, log, qualification and predecessor receipt remain in place; incomplete
+builds and changed evidence still refuse. There is no automatic cache search or
+fallback rebuild when explicit artifact admission fails.
+
+For an external artifact, prepare exclusively writes `build-reference.json`
+containing its original absolute path, digest and the new request digest. All
+backed delivery readers, including predecessor-chain recovery and access-path
+bootstrap, resolve that same pinned artifact. Legacy operations with their own
+`build.json` keep their existing interpretation. A directory containing both
+forms is ambiguous and refuses. An interrupted prepare retains its reference for
+inspection and refuses replacement. A fresh directory can reference the same
+original artifact; no rebuild or receipt edit is needed.
+
+Reuse applies only to completed build evidence. Prepare still validates current
+qualified source bytes, exact allowed changes, retained qualification logs,
+predecessor receipt and candidate image/source identity. The backed adapter still
+requires the actually installed predecessor. Each new operation gets its own
+request, journal, canonical/current-state proof, drain and original freshness
+clocks. Abandonment or expiry of an earlier operation grants no installation
+authority to its replacement. A moved tag, absent image or changed predecessor
+refuses; it does not trigger a rebuild.
+
+This owner-authorized local patch changes the host installer only. Deploy its
+qualified standalone checkout through the host's installer selector, preserving
+the installed runtime checkout, exact image and all running services. It requires
+no application-image build, application roll, financial activation or database
+migration. PR delivery follows the owner's requested local stability period.
+
+The local host selector is `/home/bron/sentinel-local-installer-current`.
+It selects the qualified host tool, independently of `--source`, which still
+names the exact qualified runtime source in the retained build. For reuse:
+
+```sh
+python3 -B /home/bron/sentinel-local-installer-current/scripts/sentinel_backed_local_patch.py prepare \
+  --operation-dir <absolute-fresh-operation-directory> \
+  --build-record <absolute-original-build-directory>/build.json \
+  --build-sha256 <original-build-record-sha256> \
+  --operation-id <fresh-operation-id>
+```
+
+Select the same host tool for `advance`, `resume` and predecessor recovery. Older
+tools do not understand referenced operations. An installed build whose original
+foundation is no longer the running predecessor cannot authorize another roll;
+artifact reuse never substitutes for current predecessor admission.
+
 The following are templates, not literal paths or identities. Replace every
 angle-bracket placeholder with the independently verified value. These shell
 examples run in Linux/WSL; never shell-source the installed `.env`.

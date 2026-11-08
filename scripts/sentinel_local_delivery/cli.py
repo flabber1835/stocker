@@ -11,7 +11,7 @@ from . import builder
 from .coordinator import Delivery
 from .host import Host
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH, DeliveryRefused, Journal,
-                    SCHEMA, SUCCESSOR_SCHEMA, handoff_mode, read_json, require,
+                    SCHEMA, SUCCESSOR_SCHEMA, digest, handoff_mode, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
@@ -25,20 +25,29 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         require(handoff_mode=='PRE_OPEN'
                 and getattr(host_type,'supports_post_schema_access_path',False) is True,
                 'ACCESS_PATH_BOOTSTRAP_REQUIRES_BACKED_PRE_OPEN')
-    folder = builder.safe_directory(operation_dir)
+    folder = builder.safe_directory(operation_dir,create=True)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
-    require(sha256_file(build_record) == build_sha256, 'BUILD_RECORD_CHANGED')
-    built = read_json(build_record)
+    require(not (folder/'build-reference.json').exists()
+            and not (folder/'build-reference.json').is_symlink(),
+            'BUILD_ARTIFACT_ALREADY_REFERENCED')
+    built = builder.pinned_build(build_record,build_sha256)
     require(isinstance(built,dict) and set(built) == {
         'schema','at','source','deployment','commit','image','tag','source_identity',
         'strategy_sha256','foundation','predecessor_receipt','qualification','allowed_delta',
         'changed_files','context','log','log_sha256','command'}
         and built['schema'] == builder.BUILD_SCHEMA, 'BUILD_RECORD_SHAPE')
-    require(Path(build_record).resolve().parent == folder
-        and Path(built['context']).resolve() == folder/'source-context'
-        and Path(built['log']).resolve() == folder/'build.log'
+    artifact = builder.safe_directory(Path(build_record).parent)
+    external = artifact != folder
+    require(not external or not any((folder/name).exists() or (folder/name).is_symlink()
+            for name in ('build.json','build-started.json','source-context','build.log')),
+            'BUILD_ARTIFACT_REFERENCE_AMBIGUOUS')
+    require(Path(built['context']) == artifact/'source-context'
+        and builder.safe_directory(built['context']) == artifact/'source-context'
+        and Path(built['log']) == artifact/'build.log'
         and sha256_file(built['log']) == built['log_sha256'], 'BUILD_ARTIFACTS_CHANGED')
+    require(not folder.is_relative_to(Path(built['source']).resolve()),
+            'BUILD_EVIDENCE_INSIDE_QUALIFIED_SOURCE')
     predecessor = built['predecessor_receipt']
     require(sha256_file(predecessor['path']) == predecessor['sha256'], 'PREDECESSOR_RECEIPT_CHANGED')
     old = (baseline_reader or builder.baseline)(predecessor['path'])
@@ -59,7 +68,11 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
     if bootstrap:
         selected['canonical_proof_phase'] = POST_SCHEMA_ACCESS_PATH
     request = validate_request(selected)
+    if external:
+        write_new(folder/'build-reference.json',dict(schema=builder.BUILD_REFERENCE_SCHEMA,
+            path=str(Path(build_record).resolve()),sha256=build_sha256,request_sha256=digest(request)))
     host_type(request,folder).verify_candidate()
+    require(builder.pinned_build(build_record,build_sha256) == built, 'BUILD_RECORD_CHANGED')
     write_new(folder/'request.json',request)
     return Journal(folder)
 
