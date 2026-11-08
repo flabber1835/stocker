@@ -5,15 +5,18 @@
   "next_events": [
     {
       "arm": "P03",
-      "event": "STML cash plus contingent right",
-      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "event": "Incomplete cash terminal on September 30, 2020",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
-        "independent STML event source qualification",
-        "second bounded-event input preserving DOVA",
-        "complete19-to20 history visitor and retained152 proof binding",
-        "hosted canonical tests"
+        "independent admission of the saved 43 July/August sessions",
+        "native event and adjacent quotes from the combined source batch",
+        "source qualification and complete21 restart before hosted financial continuation"
       ],
-      "source_observations": "STML priorJune9 and nativeJune10 quotes present; original incomplete terminal retained"
+      "new_sessions_pending_independent_admission": 43,
+      "saved_preliminary_completed": 671,
+      "saved_preliminary_through": "2020-08-31",
+      "security_id": "326446597882092349"
     },
     {
       "arm": "P05",
@@ -24,6 +27,46 @@
         "hosted canonical tests"
       ],
       "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+      "arm": "P07",
+      "event": "Incomplete cash terminal on September 25, 2023",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "native event and adjacent quotes from the combined source batch",
+        "source qualification and complete27 restart before hosted financial continuation"
+      ],
+      "security_id": "877716075426179792"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "exact rational quantity source implementation preserving allocation rules",
+        "complete source/serialization/consumer/restart certification",
+        "hosted source-bound financial execution and independent DATA admission"
+      ],
+      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
+      "requires_owner_choice": false
+    }
+  ],
+  "resolved_event_profiles": [
+    {
+      "arm": "P03",
+      "event": "STML cash plus contingent right",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "independent STML event source qualification",
+        "second bounded-event input preserving DOVA",
+        "complete19-to20 history visitor and retained152 proof binding",
+        "hosted canonical tests"
+      ],
+      "resolution": "INDEPENDENTLY_ADMITTED_RESEARCH_PREDECESSOR",
+      "resolution_root": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+      "source_observations": "STML priorJune9 and nativeJune10 quotes present; original incomplete terminal retained"
     },
     {
       "active_request_schema": 232,
@@ -39,6 +82,8 @@
       ],
       "previous_profile_qualification": "P06-DM-whole-profile-qualification.json",
       "profile_qualification": "P06-SGN-whole-profile-qualification.json",
+      "resolution": "COMPLETE_THROUGH_TARGET",
+      "resolution_root": "1e407ade1e7ac78a4ef25bc87a6d24c97010ded94bae7c1cc40b8a5b8af2206c",
       "source_observations": "Source batch42433217521 authenticated complete March13/nativeMarch16 SGN rows, explicit March17 absence and original acquisitionby+delisted group. Entire strict-future source compiler and2050/full14 restart passed95 targeted checks. Actual event-date ownership remains guarded."
     },
     {
@@ -51,6 +96,8 @@
         "hosted financial run and independent admission"
       ],
       "model_bindings_qualification": "P07-BWA-model-bindings-DATA-qualification.json",
+      "resolution": "INDEPENDENTLY_ADMITTED_RESEARCH_PREDECESSOR",
+      "resolution_root": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
       "runtime_component_qualification": "P07-BWA-runtime-DATA-qualification.json",
       "saved_resources_qualification": "P07-BWA-saved-resources-DATA-qualification.json",
       "saved_restart_qualification": "P07-BWA-saved-restart-DATA-qualification.json",
@@ -58,18 +105,6 @@
       "source_qualification": "P07-BWA-source-DATA-qualification.json",
       "typed_input_qualification": "P07-BWA-typed-input-DATA-qualification.json",
       "whole_source_profile_qualification": "P07-BWA-whole-profile-qualification.json"
-    },
-    {
-      "arm": "P09",
-      "event": "Exact fractional share representation",
-      "family": "QUANTITY_REPRESENTATION",
-      "missing": [
-        "exact rational quantity source implementation preserving allocation rules",
-        "complete source/serialization/consumer/restart certification",
-        "hosted source-bound financial execution and independent DATA admission"
-      ],
-      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
-      "requires_owner_choice": false
     }
   ],
   "schema": "research.campaign-next-event-policy/1",

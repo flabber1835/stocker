@@ -15,18 +15,20 @@ def batch_request():return json.loads((C/p.REQUEST).read_bytes())
 
 def test_exact_batch_covers_all_missing_source_blockers_without_financial_authority(batch_request):
  assert p.validate_files(batch_request) is None
- assert {q['arm'] for q in batch_request['observations']}=={'P07'}
- assert len(batch_request['observations'])==3 and len(batch_request['native_groups'])==1
+ assert {q['arm'] for q in batch_request['observations']}=={'P03','P07'}
+ assert {q['arm'] for q in batch_request['native_groups']}=={'P03','P07'}
+ assert len(batch_request['observations'])==6 and len(batch_request['native_groups'])==2
  assert batch_request['financial_authority'] is batch_request['input_adopted'] is False
  assert batch_request['maximum_parallel_financial_workers']==0
- name='P07-KDNY-source-query-context.json';fact=json.loads((C/name).read_bytes())
- assert fact['financial_authority'] is fact['input_adopted'] is False
- assert fact['financial_sessions_advanced']==0 and fact['context_is_not_event_date_ownership'] is True
- assert all(q['ticker']=='KDNY' and q['security_id']==fact['security_id'] for q in batch_request['observations'])
- assert {q['session'] for q in batch_request['observations']}=={fact[k] for k in ('identity_session','native_session','effective_session')}
- assert batch_request['admitted_context']['P07']['root_admission_sha256']==fact['admitted_root']
- assert batch_request['admitted_context']['P07']['completed']==fact['admitted_completed']==1403
- assert batch_request['sources'][name]==p.sha((C/name).read_bytes())
+ expected={'P03':('326446597882092349',{'2020-09-29','2020-09-30','2020-10-01'},628),
+           'P07':('877716075426179792',{'2023-09-22','2023-09-25','2023-09-26'},1426)}
+ for arm,(sid,dates,completed) in expected.items():
+  queries=[q for q in batch_request['observations'] if q['arm']==arm]
+  assert all(q['ticker'] is None and q['security_id']==sid for q in queries)
+  assert {q['session'] for q in queries}==dates
+  assert batch_request['admitted_context'][arm]['completed']==completed
+  native=next(q for q in batch_request['native_groups'] if q['arm']==arm)
+  assert native['security_id']==sid and native['ticker'] is None
 
 @pytest.mark.parametrize('change',['authority','adopt','workers','duplicate','past','missing_parent'])
 def test_financial_or_unbounded_scope_refused(batch_request,change):

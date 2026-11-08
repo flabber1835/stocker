@@ -8,9 +8,11 @@ import system_campaign_control as p
 def stop(code=0,oom=False):return dict(stopped=True,exit_code=code,oom_killed=oom)
 
 def test_actual_admitted_dates_and_counts_are_primary_reporting():
- rows=p.accepted_status();assert len(rows)==12 and sum(r['complete'] for r in rows)==7
- assert sum(r['completed'] for r in rows)==20790
- assert next(r for r in rows if r['arm']=='P06')['through']=='2025-03-31'
+ rows=p.accepted_status();assert len(rows)==12 and sum(r['complete'] for r in rows)==8
+ assert sum(r['completed'] for r in rows)==21190
+ assert next(r for r in rows if r['arm']=='P06')['through']=='2026-07-31'
+ assert next(r for r in rows if r['arm']=='P07')['completed']==1426
+ assert json.loads((C/'system-campaign-event-inventory.json').read_bytes())['accepted']==rows
 
 
 def test_P09_owner_choice_closed_without_granting_financial_readiness():
@@ -52,7 +54,7 @@ def test_unknown_outcomes_never_promoted(change):
 
 def profile_DTO(tmp_path):
  source=tmp_path/'EXPLICIT_NONCANONICAL_SOURCE.py';source.write_text('EXPLICIT_NONCANONICAL_SOURCE=True\n')
- accepted=next(r for r in p.accepted_status() if r['arm']=='P06')
+ accepted=dict(arm='P06',complete=False,root='EXPLICIT_NONCANONICAL_ROOT')
  q=dict(EXPLICIT_NONCANONICAL_PROFILE_DTO=True,passed=True,financial_profile_ready=True,financial_authority=False,
   root_admission_sha256=accepted['root'],files={source.name:dict(bytes=source.stat().st_size,sha256=p.sha(source.read_bytes()))})
  name='EXPLICIT_NONCANONICAL_QUALIFICATION.json';(tmp_path/name).write_bytes(p.encoded(q))
@@ -73,8 +75,8 @@ def test_owner_choice_guard_and_meaningful_removal(tmp_path):
  assert scope['qualified_profile'](tmp_path,record,accepted)[0] is True
 
 def test_active_arm_cannot_be_selected_twice(tmp_path,monkeypatch):
- record,_,_=profile_DTO(tmp_path)
- rows=p.accepted_status();monkeypatch.setattr(p,'accepted_status',lambda driver:rows)
+ record,accepted,_=profile_DTO(tmp_path)
+ monkeypatch.setattr(p,'accepted_status',lambda driver:[accepted])
  actions=p.next_actions(tmp_path,dict(next_events=[record]),active_arms=('P06',))
  assert actions['ready']==[] and actions['blocked'][0]['reason']=='ACTIVE_JOB_NO_DUPLICATE'
  assert actions['automatic_launch_authority'] is False

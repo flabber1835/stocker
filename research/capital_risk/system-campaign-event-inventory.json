@@ -21,6 +21,96 @@
     {
       "arm": "P03",
       "complete": false,
+      "completed": 628,
+      "root": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+      "through": "2020-06-30"
+    },
+    {
+      "arm": "P04",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P05",
+      "complete": false,
+      "completed": 1196,
+      "root": "ca722bb750ee34ed6f7db8e114b1561f4988f08385fccd91ddc2d0867f1ba209",
+      "through": "2022-09-30"
+    },
+    {
+      "arm": "P06",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P07",
+      "complete": false,
+      "completed": 1426,
+      "root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+      "through": "2023-08-31"
+    },
+    {
+      "arm": "P08",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P09",
+      "complete": false,
+      "completed": 692,
+      "through": "2020-09-30"
+    },
+    {
+      "arm": "P10",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P11",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    }
+  ],
+  "events_file": "system-campaign-event-inventory.events.json.gz",
+  "events_file_bytes": 681194,
+  "events_file_sha256": "3c37500e6542b667b21d8d2dfea194362246bafb3239bbc712823b5819e91046",
+  "families": {
+    "CONSIDERATION_REVIEW": 1182,
+    "DISTRIBUTION": 139,
+    "EXIT_CLASSIFICATION": 6784,
+    "STOCK_OR_MIXED_CONSIDERATION": 34,
+    "UNKNOWN_COMMON_RIGHTS": 1476
+  },
+  "financial_authority": false,
+  "full_frozen_native_event_coverage_verified": false,
+  "groups": 6922,
+  "inventory_generation_accepted": [
+    {
+      "arm": "P00",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P01",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P02",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P03",
+      "complete": false,
       "completed": 606,
       "root": "3ee60adb5326914846a052e26310d62045dd39b838a923378c9a84b6f230e7d4",
       "through": "2020-05-29"
@@ -77,20 +167,7 @@
       "through": "2026-07-31"
     }
   ],
-  "events_file": "system-campaign-event-inventory.events.json.gz",
-  "events_file_bytes": 681194,
-  "events_file_sha256": "3c37500e6542b667b21d8d2dfea194362246bafb3239bbc712823b5819e91046",
-  "families": {
-    "CONSIDERATION_REVIEW": 1182,
-    "DISTRIBUTION": 139,
-    "EXIT_CLASSIFICATION": 6784,
-    "STOCK_OR_MIXED_CONSIDERATION": 34,
-    "UNKNOWN_COMMON_RIGHTS": 1476
-  },
-  "financial_authority": false,
-  "full_frozen_native_event_coverage_verified": false,
-  "groups": 6922,
-  "next_events": [
+  "inventory_generation_next_events": [
     {
       "arm": "P03",
       "event": "STML cash plus contingent right",
@@ -153,6 +230,58 @@
       "requires_owner_choice": false
     }
   ],
+  "next_events": [
+    {
+      "arm": "P03",
+      "event": "Incomplete cash terminal on September 30, 2020",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "independent admission of the saved 43 July/August sessions",
+        "native event and adjacent quotes from the combined source batch",
+        "source qualification and complete21 restart before hosted financial continuation"
+      ],
+      "new_sessions_pending_independent_admission": 43,
+      "saved_preliminary_completed": 671,
+      "saved_preliminary_through": "2020-08-31",
+      "security_id": "326446597882092349"
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model terminal-parent distribution without a fictitious parent quote",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+      "arm": "P07",
+      "event": "Incomplete cash terminal on September 25, 2023",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "native event and adjacent quotes from the combined source batch",
+        "source qualification and complete27 restart before hosted financial continuation"
+      ],
+      "security_id": "877716075426179792"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "exact rational quantity source implementation preserving allocation rules",
+        "complete source/serialization/consumer/restart certification",
+        "hosted source-bound financial execution and independent DATA admission"
+      ],
+      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
+      "requires_owner_choice": false
+    }
+  ],
+  "progress_refresh_preserves_original_event_census": true,
   "provider_dates_are_not_legal_or_native_recognition_clocks": true,
   "provider_file": "P06-WWE-original-provider-SHARADAR_ACTIONS.zip",
   "provider_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",

@@ -8,9 +8,8 @@ permissions:
   actions: read
 jobs:
   suffix:
-    # Source/whole-profile checks close first; real preparation, neutral21 and
-    # constructor canaries must then pass before financial main can advance.
-    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    # Admission metadata only; both earlier jobs are terminal. No replay selected.
+    if: false && github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     concurrency:

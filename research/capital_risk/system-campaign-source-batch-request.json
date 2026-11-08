@@ -1,11 +1,18 @@
 {
   "admitted_context": {
+    "P03": {
+      "completed": 628,
+      "input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
+      "outer_sha256": "1a247a7a31c5b8686651578794fa958a70778e90adbce89491263fe4da25f07a",
+      "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+      "through": "2020-06-30"
+    },
     "P07": {
-      "completed": 1403,
-      "input_sha256": "9326d0d50de55f7f1c3134af9818a584107736bfe8383161baf2ccf8b5cabc7f",
-      "outer_sha256": "c7067ac86c8eda4e034a3b813a699f174c7216e462f3e123f6017aa26d825937",
-      "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
-      "through": "2023-07-31"
+      "completed": 1426,
+      "input_sha256": "0e21c3af228933f94a9ea08891a2159824b6f366ca378794ef82873f3f911fd2",
+      "outer_sha256": "1dae9e15f725f65531d443bbad0a0a62ae05c46e827a2b5f674e05d9b682d037",
+      "root_admission_sha256": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+      "through": "2023-08-31"
     }
   },
   "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
@@ -16,34 +23,62 @@
   "maximum_parallel_readonly_workers": 1,
   "native_groups": [
     {
+      "arm": "P03",
+      "name": "p03-next-native-group",
+      "security_id": "326446597882092349",
+      "session": "2020-09-30",
+      "ticker": null
+    },
+    {
       "arm": "P07",
-      "name": "p07-kdny-native-group",
-      "security_id": "47247117758471252",
-      "session": "2023-08-10",
-      "ticker": "KDNY"
+      "name": "p07-next-native-group",
+      "security_id": "877716075426179792",
+      "session": "2023-09-25",
+      "ticker": null
     }
   ],
   "observations": [
     {
-      "arm": "P07",
-      "name": "p07-kdny-identity",
-      "security_id": "47247117758471252",
-      "session": "2023-08-09",
-      "ticker": "KDNY"
+      "arm": "P03",
+      "name": "p03-next-prior",
+      "security_id": "326446597882092349",
+      "session": "2020-09-29",
+      "ticker": null
+    },
+    {
+      "arm": "P03",
+      "name": "p03-next-native",
+      "security_id": "326446597882092349",
+      "session": "2020-09-30",
+      "ticker": null
+    },
+    {
+      "arm": "P03",
+      "name": "p03-next-next",
+      "security_id": "326446597882092349",
+      "session": "2020-10-01",
+      "ticker": null
     },
     {
       "arm": "P07",
-      "name": "p07-kdny-native",
-      "security_id": "47247117758471252",
-      "session": "2023-08-10",
-      "ticker": "KDNY"
+      "name": "p07-next-prior",
+      "security_id": "877716075426179792",
+      "session": "2023-09-22",
+      "ticker": null
     },
     {
       "arm": "P07",
-      "name": "p07-kdny-effective",
-      "security_id": "47247117758471252",
-      "session": "2023-08-11",
-      "ticker": "KDNY"
+      "name": "p07-next-native",
+      "security_id": "877716075426179792",
+      "session": "2023-09-25",
+      "ticker": null
+    },
+    {
+      "arm": "P07",
+      "name": "p07-next-next",
+      "security_id": "877716075426179792",
+      "session": "2023-09-26",
+      "ticker": null
     }
   ],
   "protocol_sha256": "c3b4a339cec80641620c58b42341b0d981ebca6b01f89870ce00fb3291dbec28",
@@ -201,7 +236,7 @@
     "system-campaign-early2019-terminal-facts.json": "740b0e937067d3cf45a371e51cfd02c59821e9fdb5232714d449d302cda6b4ac",
     "system-campaign-explicit-source-witness-queries.json": "c6c72f4f7448db302305e974947320e9a5425d70be8e938ce8fc1beaf5569c47",
     "system-campaign-february-cash-calendar-terminal-facts.json": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
-    "system-campaign-financial-admitted-parents.json": "17625e655af08ffff4d7bb8004bbb7ab23f56aa068b74e0ae7d24a99c109d98f",
+    "system-campaign-financial-admitted-parents.json": "fb08d2ed719674d9d008bf07171a149d5499b8f4d7246d1269e88035b24ff3e6",
     "system-campaign-financial-branch-contract.json": "bf988db6a8a4e84e62a316ce0dce907799988abf99468b868878b6007d9c983b",
     "system-campaign-financial-correlation-prefix.json": "db34a12dc699680a3f89cc3d08f0107ee1d041fdfe427a86f6b3cffc6f05f32c",
     "system-campaign-financial-partials.json": "fa80f6b8308a103ed034e5d39b9a333b3fd29fc92284efbb8f385ea3a0aea6d5",
@@ -415,10 +450,10 @@
     "system_campaign_financial_distribution_standard_runtime.py": "f3fc121fd89cd5b612749bce851c7db22ff01ab54b910e8ead462cfba52ddee3",
     "system_campaign_financial_future.py": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
     "system_campaign_financial_ordinary_observer_v1.py": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
-    "system_campaign_financial_partial.py": "af39211d23238ec679065f1acafdd7b5032ccf68a36165c798f01ef1a1b250d7",
+    "system_campaign_financial_partial.py": "69f57f2bfb47d2f88b9d137ad0507ce9152047ebce845f827c8d7d823b722f42",
     "system_campaign_financial_projection.py": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
     "system_campaign_financial_requalified_parent.py": "d66079944dc3dadda3e6e8ba26e0ec071619d302bb80063f91b66e31a93af79b",
-    "system_campaign_financial_resume.py": "0bd236a753bcc4177f9ed8986992e4c0454c37b81571e720d4d358230d69def0",
+    "system_campaign_financial_resume.py": "b468cddf1dbbd61673d8ff18fd3a12e68327d685afa590fb71625c6e05afbabc",
     "system_campaign_financial_review_repair.py": "9d4d9e938685926838e229f05f064803137f47d53bfdacf406bee7a1bffcfa5e",
     "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
     "system_campaign_following_completions_facts.py": "2a8aeb2eaf1f0eeafd5b902675c08a3a8fe7907039c15d9b00e774300dd6325e",
