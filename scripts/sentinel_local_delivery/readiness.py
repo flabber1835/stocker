@@ -78,7 +78,7 @@ while True:
    raw=response.read(2*1024*1024+1)
    assert len(raw)<=2*1024*1024,'READINESS_PAGE_TOO_LARGE'
    page=json.loads(raw)
-   headers=dict(response.headers)
+   headers=response.headers
    header=response.headers.get('X-Sentinel-Panel-Status')
   budget()
   reason=pending(page,header)

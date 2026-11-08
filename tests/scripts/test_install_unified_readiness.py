@@ -2,6 +2,7 @@
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from copy import deepcopy
 from datetime import datetime,timedelta,timezone
+from email.message import Message
 import importlib
 import io
 import json
@@ -31,7 +32,8 @@ def run_child(monkeypatch,pages,expected,*,seconds=20,audit=None):
         value=pages.pop(0) if len(pages)>1 else pages[0]
         if isinstance(value,Exception):raise value
         response=io.BytesIO(json.dumps(value).encode())
-        response.headers={'X-Sentinel-Panel-Status':'CURRENT'}
+        response.headers=Message()
+        response.headers['x-sentinel-panel-status']='CURRENT'
         return response
     monkeypatch.setattr(urllib.request,'urlopen',get)
     monkeypatch.setattr(time,'monotonic',lambda:clock[0])
