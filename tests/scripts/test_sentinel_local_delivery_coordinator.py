@@ -96,6 +96,17 @@ class Host:
         assert clock()<deadline
         model.require(host_module.application_healthy(self.container(service),
             self.request['candidate']['image']),'SUCCESSOR_SHADOW_FAILED')
+    def wait_applications_health(self,*,deadline,clock,expected=None):
+        assert clock()<deadline
+        values=self.containers(host_module.SERVICES)
+        model.require(all(host_module.application_healthy(item,self.request['candidate']['image'])
+            for item in values.values()),'APPLICATION_STARTUP_FAILED')
+        if expected:
+            model.require(all(item['Id']==expected[name]['Id']
+                and item['RestartCount']==expected[name]['RestartCount']
+                and item['State']['StartedAt']==expected[name]['State']['StartedAt']
+                for name,item in values.items()),'APPLICATION_STARTUP_PROCESS_CHANGED')
+        return values
     candidate_apps_ready=host_module.Host.candidate_apps_ready
     candidate_config_hashes=host_module.Host.candidate_config_hashes
     def predecessor_services(self):return host_module.SERVICES
@@ -190,7 +201,8 @@ def operation(tmp_path,monkeypatch):
     monkeypatch.setattr(evidence,'migrate_operational_schema',migrate)
     monkeypatch.setattr(evidence,'leader',lambda h:dict(current=True,holder='owner',generation=77,
         fence=8,heartbeat=h.heartbeat))
-    monkeypatch.setattr(evidence,'panel',lambda *args:{'fresh':True,'green':True})
+    monkeypatch.setattr(evidence,'panel',lambda *args,**kwargs:{'fresh':True,'green':True,
+        'installation_panel_valid_until':(model.utcnow()+timedelta(seconds=30)).isoformat()})
     delivery=coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
     return host,journal,delivery
 
@@ -224,7 +236,7 @@ def successor_operation(operation,monkeypatch):
         h.canonical_count+=1
         return {'book':'same','proof':'same','settled_native_positions':deepcopy(h.native)}
     monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
-    monkeypatch.setattr(coordinator.evidence,'panel',lambda *args:{'color':'red','operational_ready':False,
+    monkeypatch.setattr(coordinator.evidence,'panel',lambda *args,**kwargs:{'color':'red','operational_ready':False,
         'retained_incidents':['original-incident'],'completed_plan':'recorded-old-plan'})
     delivery=coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
     return host,journal,delivery
@@ -698,6 +710,11 @@ def test_stale_durable_intent_cannot_mutate_applications(operation,monkeypatch,s
     assert all(not isinstance(c,tuple) for c in host.calls[before:])
     # Falsifier: removing the original-clock check permits the rejected mutation.
     monkeypatch.setattr(delivery,'_fresh',lambda _:None)
+    if stage=='START_REQUESTED':
+        # The unified readiness cutoff independently enforces the same proof's
+        # expiry. Neither guard alone may be bypassed by a persisted intent.
+        with pytest.raises(model.DeliveryRefused,match='READINESS_DEADLINE'):delivery.step()
+        monkeypatch.setattr(coordinator.readiness,'cutoff',lambda *a,**kw:now+timedelta(seconds=230))
     delivery.step()
     assert any(isinstance(c,tuple) for c in host.calls[before:])
 

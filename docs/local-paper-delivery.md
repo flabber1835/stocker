@@ -157,6 +157,51 @@ that request. Do not hand-edit either record.
 
 ## Advance and recover supported stages
 
+### One bounded application-readiness gate (November 8, 2026)
+
+After the shadow handoff, Compose starts the other roles without its separate
+`--wait` polling loop. APPLICATIONS_STARTED records started processes, not a
+claim of readiness. One final gate owns exact six-role health, advancing stable
+leadership and the actual dashboard validator. It uses a single deadline:
+the earlier of START_REQUESTED's original journal timestamp plus 230 seconds
+(the prior 120-second Compose health, 75-second leadership and 35-second final
+reader allowances), or the original successor proof timestamp plus 900 seconds.
+Resume cannot restart that allowance. A monotonic bound also prevents wall-clock
+adjustments during a call from extending the wait. Expired operations refuse.
+
+Health uses one Engine event subscription for the exact candidate container IDs;
+events only wake fresh inspections. Death, OOM, restart, replacement or changed
+image refuses. New APPLICATIONS_STARTED records retain the observed process
+incarnations so resume also detects a restart before its first health read.
+Older unfinished journals lacking this field bind their first observation;
+their original deadlines still apply. Health has at most its prior 120-second allowance within the common
+deadline. Leadership has at most its prior 75 seconds within that same deadline;
+initial absence may settle, but a changed holder, generation or fence after first
+acquisition refuses. The fenced BLOCKED_UNSENT policy still requires inactivity.
+
+The final dashboard wait is one bounded read-only child in the panel container.
+It reads existing published snapshots, never starts collection, recomputes a
+canonical proof, restarts applications or acknowledges history. It retries only
+loopback connection refusal, HTTP 503, or explicitly named startup liveness
+conditions (leader, sender, shadow worker) with no unrelated negative
+condition or source error. Non-startup modes keep their exact existing dashboard
+contracts. Polling published snapshots is limited to once per five seconds;
+strict validation runs once on the eligible snapshot, without a second HTTP read.
+Malformed data, unexpected HTTP errors, financial negatives, changed plans and
+strict-validator failures stop immediately. Pending diagnostics retain condition
+names; unchanged diagnostic output is not repeated. The successful panel result
+retains changed pending-condition summaries and the observation count, so the
+receipt can explain time spent waiting after recovery. Current failures never
+count as readiness, and historical review/ACK remains visible under its existing policy.
+
+Before VERIFIED, recheck the same process incarnations, current stable leader,
+all preservation/broker/notification guards and the original common cutoff.
+The accepted PRE_OPEN panel's original finite health/observation boundary must
+also still hold after those final guards; an expired page cannot complete.
+No proof, lease, snapshot or receipt expiry is extended. This is a host-installer
+patch through the existing local selector; no application-image rebuild or roll
+is needed to deploy it.
+
 ```sh
 python3 -B <source>/scripts/sentinel_local_delivery.py advance \
   --operation-dir <absolute-operation-directory> --one-stage

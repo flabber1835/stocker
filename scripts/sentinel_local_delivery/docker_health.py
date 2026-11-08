@@ -274,7 +274,8 @@ class _Wakeups:
                     and isinstance(value.get('Action'), str)
                     and len(value['Action']) <= 100, 'ENGINE_EVENT_MALFORMED')
                 return (value.get('Type') == 'container'
-                    and value['Actor'].get('ID') == self.identity
+                    and value['Actor'].get('ID') in (
+                        (self.identity,) if isinstance(self.identity,str) else self.identity)
                     and value['Action'] in ACTIONS)
             require(len(self.pending) <= MAX_EVENT, 'ENGINE_EVENT_EXCEEDS_BOUND')
             raw = self.response.part(deadline, wait)
@@ -331,12 +332,16 @@ class Engine:
 
     @contextmanager
     def wakeups(self, identity, deadline):
-        require(re.fullmatch(r'[0-9a-f]{64}', identity) is not None,
+        identities = (identity,) if isinstance(identity,str) else identity
+        require(isinstance(identities,tuple) and 1<=len(identities)<=6
+            and len(set(identities))==len(identities)
+            and all(isinstance(item,str) and re.fullmatch(r'[0-9a-f]{64}',item) is not None
+                    for item in identities),
             'APPLICATION_IDENTITY_INVALID')
         actions = ['health_status', *sorted(ACTIONS - {
             'health_status: starting', 'health_status: healthy', 'health_status: unhealthy'})]
         query = urlencode({'since': '1', 'filters': json.dumps({
-            'type': ['container'], 'container': [identity], 'event': actions},
+            'type': ['container'], 'container': list(identities), 'event': actions},
             separators=(',', ':'))})
         response = _Response(self, '/v' + API + '/events?' + query,
             self._deadline(deadline), stream=True)
@@ -389,3 +394,61 @@ def wait(engine, name, image, deadline, *, clock=time.monotonic):
         if observe():
             return
     raise DeliveryRefused('SHADOW_STARTUP_DEADLINE')
+
+
+def wait_many(engine, names, image, deadline, *, clock=time.monotonic, expected=None):
+    """One subscription for all roles; every wake uses fresh canonical state."""
+    require(isinstance(names,tuple) and 1<=len(names)<=6 and len(set(names))==len(names),
+            'APPLICATION_NAMES_INVALID')
+    expected = dict(expected or {})
+    require(not expected or set(expected)==set(names),'APPLICATION_STARTUP_BINDING_INVALID')
+    for value in expected.values():
+        require(isinstance(value,dict) and isinstance(value.get('Id'),str)
+            and re.fullmatch(r'[0-9a-f]{64}',value['Id']) is not None
+            and type(value.get('RestartCount')) is int and value['RestartCount']>=0
+            and isinstance(value.get('State'),dict)
+            and isinstance(value['State'].get('StartedAt'),str) and value['State']['StartedAt'],
+            'APPLICATION_STARTUP_BINDING_INVALID')
+
+    def observe():
+        result = {}
+        for name in names:
+            value = engine.inspect(expected.get(name,{}).get('Id',name),deadline)
+            _remaining(deadline,clock)
+            state = value.get('State')
+            require(isinstance(value.get('Id'),str)
+                and re.fullmatch(r'[0-9a-f]{64}',value['Id']) is not None
+                and value.get('Name')=='/'+name and value.get('Image')==image
+                and isinstance(state,dict) and state.get('Running') is True
+                and state.get('OOMKilled') is False and state.get('Restarting') is False
+                and isinstance(state.get('StartedAt'),str) and state['StartedAt']
+                and type(value.get('RestartCount')) is int, 'APPLICATION_STARTUP_FAILED')
+            if name in expected:
+                prior=expected[name]
+                require(value['Id']==prior['Id'] and value['RestartCount']==prior['RestartCount']
+                    and state['StartedAt']==prior['State']['StartedAt'],
+                    'APPLICATION_STARTUP_PROCESS_CHANGED')
+            else:
+                expected[name]=value
+            health=state.get('Health')
+            require(isinstance(health,dict) and health.get('Status') in {'starting','healthy'},
+                    'APPLICATION_STARTUP_FAILED')
+            result[name]=value
+        return result
+
+    def healthy(values):
+        return all(value['State']['Health']['Status']=='healthy' for value in values.values())
+
+    values=observe()
+    if healthy(values):return values
+    final_at=deadline-IO_SECONDS
+    require(clock()<final_at,'APPLICATION_READINESS_DEADLINE')
+    with engine.wakeups(tuple(expected[name]['Id'] for name in names),final_at) as wakeups:
+        values=observe()
+        if healthy(values):return values
+        while clock()<final_at and wakeups.wait(final_at):
+            values=observe()
+            if healthy(values):return values
+        values=observe()
+        if healthy(values):return values
+    raise DeliveryRefused('APPLICATION_READINESS_DEADLINE')

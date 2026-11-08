@@ -288,9 +288,16 @@ class Host:
 
     def wait_application_health(self, service, *, deadline, clock=time.monotonic):
         """Events replace inspection polling; only fresh exact state proves health."""
+        return self._wait_health((service,),deadline=deadline,clock=clock)
+
+    def wait_applications_health(self, *, deadline, clock=time.monotonic, expected=None):
+        return self._wait_health(SERVICES,deadline=deadline,clock=clock,expected=expected)
+
+    def _wait_health(self, services, *, deadline, clock, expected=None):
         from . import docker_health
 
-        require(service in SERVICES, 'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        require(services and all(service in SERVICES for service in services),
+                'SERVICE_OUTSIDE_DELIVERY_SCOPE')
         try:
             remaining = docker_health._remaining(deadline, clock)
             context = self.run(['docker','context','inspect'],
@@ -300,10 +307,16 @@ class Host:
             docker_health.require_context(docker_health._json(context.stdout))
             engine = docker_health.Engine(clock=clock)
             engine.version(deadline)
-            docker_health.wait(engine, 'sentinel-'+service+'-1',
-                self.request['candidate']['image'], deadline, clock=clock)
+            if len(services)==1:
+                return docker_health.wait(engine, 'sentinel-'+services[0]+'-1',
+                    self.request['candidate']['image'], deadline, clock=clock)
+            values=docker_health.wait_many(engine,tuple('sentinel-'+service+'-1' for service in services),
+                self.request['candidate']['image'],deadline,clock=clock,
+                expected={('sentinel-'+key+'-1'):value for key,value in expected.items()} if expected else None)
+            return {service:values['sentinel-'+service+'-1'] for service in services}
         except docker_health._Deadline as exc:
-            raise DeliveryRefused('SHADOW_STARTUP_DEADLINE') from exc
+            raise DeliveryRefused('SHADOW_STARTUP_DEADLINE' if len(services)==1
+                else 'APPLICATION_READINESS_DEADLINE') from exc
         except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
             raise DeliveryRefused('ENGINE_HEALTH_OBSERVATION_UNAVAILABLE') from exc
 

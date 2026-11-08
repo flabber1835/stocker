@@ -523,7 +523,7 @@ def migrate_operational_schema(host, candidate):
     return value
 
 
-def panel(host, state):
+def panel(host, state, *, wait_until=None):
     """Require a current green page with the same saved plan and healthy sender."""
     data = host.container('sentinel-panel')
     repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
@@ -538,8 +538,17 @@ def panel(host, state):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
-    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',
-        checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
-            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL,
-        json.dumps(expected, sort_keys=True)], timeout=35)
+    program=(checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
+            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL)
+    arguments=[json.dumps(expected, sort_keys=True)]
+    timeout=35
+    if wait_until is not None:
+        from . import readiness
+        remaining=(wait_until-utcnow()).total_seconds()
+        require(0<remaining<=readiness.SECONDS+5,'APPLICATION_READINESS_DEADLINE')
+        arguments.extend([readiness.panel_validator(program),wait_until.isoformat()])
+        program=readiness.PANEL_WAIT
+        timeout=remaining+5  # Owned child has the earlier original internal cutoff.
+    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',program,
+        *arguments], timeout=timeout)
     return json.loads(result.stdout)

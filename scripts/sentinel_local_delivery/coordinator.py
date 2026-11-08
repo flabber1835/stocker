@@ -1,10 +1,10 @@
 """One resumable PAPER application handoff; no financial mutation commands."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
-from . import access_path_qualification, evidence
+from . import access_path_qualification, evidence, readiness
 from .host import RUNTIME_KEYS, SERVICES, application_healthy
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH,
                     canonical_proof_phase, digest, handoff_mode, require, utcnow)
@@ -134,24 +134,65 @@ class Delivery:
             contract_sha256=digest(contract),installation=installed,
             canonical_proof_sha256=digest(proof),qualified_at=utcnow().isoformat()))
 
-    def _wait_shadow(self):
-        deadline = self.monotonic()+180
+    def _wait_shadow(self, *, deadline=None):
+        deadline = min(self.monotonic()+180,deadline) if deadline is not None else self.monotonic()+180
         self.host.wait_application_health('sentinel-shadow', deadline=deadline,
             clock=self.monotonic)
 
-    def _leader(self, generation):
-        first = evidence.leader(self.host)
-        require(first['current'] and first['holder'] and first['generation']==generation,
-                'CURRENT_LEADERSHIP_ABSENT')
-        deadline = self.monotonic()+75
+    def _leader(self, generation, *, deadline=None):
+        deadline = min(self.monotonic()+75,deadline) if deadline is not None else self.monotonic()+75
+        first = None
         while True:
             require(self.monotonic()<deadline, 'LEADER_HEARTBEAT_NOT_ADVANCING')
-            self.sleep(3)
             current = evidence.leader(self.host)
-            require(current['current'] and all(current[k]==first[k] for k in ('holder','generation','fence')),
-                    'LEADERSHIP_CHANGED_DURING_CHECK')
-            if current['heartbeat']>first['heartbeat']:
-                return current
+            require(self.monotonic()<deadline,'LEADER_HEARTBEAT_NOT_ADVANCING')
+            if first is None:
+                if current['current'] and current['holder']:
+                    require(current['generation']==generation,'CURRENT_LEADERSHIP_GENERATION_CHANGED')
+                    first=current
+            else:
+                require(current['current'] and all(current[k]==first[k] for k in ('holder','generation','fence')),
+                        'LEADERSHIP_CHANGED_DURING_CHECK')
+                if current['heartbeat']>first['heartbeat']:
+                    return current
+            self.sleep(min(3,deadline-self.monotonic()))
+
+    def _readiness(self, receipt):
+        end=readiness.cutoff(receipt,now=utcnow())
+        deadline=self.monotonic()+min(readiness.SECONDS,(end-utcnow()).total_seconds())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        applications=self.host.wait_applications_health(
+            deadline=min(deadline,self.monotonic()+120),clock=self.monotonic,
+            expected=receipt['artifacts'].get('started_applications'))
+        repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
+        if repair:
+            leader=evidence.leader(self.host)
+            require(leader['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
+        else:
+            leader=self._leader(receipt['artifacts']['preserved']['control']['generation'],deadline=deadline)
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        panel=evidence.panel(self.host,receipt['artifacts']['preserved'],
+            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())))
+        readiness.cutoff(receipt,now=utcnow())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        return leader,panel,deadline,applications
+
+    def _readiness_unchanged(self, applications, leader):
+        # Publication waiting must never silently admit a replacement process or
+        # a new leader, including while the final preservation proof ran.
+        current=self._apps('candidate',running=True,healthy=True)
+        for service,before in applications.items():
+            after=current[service]
+            require(after['Id']==before['Id'] and after['RestartCount']==before['RestartCount']
+                and after['State']['StartedAt']==before['State']['StartedAt'],
+                'APPLICATION_STARTUP_PROCESS_CHANGED')
+        latest=evidence.leader(self.host)
+        if handoff_mode(self.host.request)=='BLOCKED_UNSENT':
+            require(latest['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
+        else:
+            require(latest['current'] and all(latest[k]==leader[k] for k in ('holder','generation','fence'))
+                and latest['heartbeat']>=leader['heartbeat'],'LEADERSHIP_CHANGED_DURING_CHECK')
+        return latest
 
     def step(self):
         self.journal.require_active()
@@ -307,7 +348,10 @@ class Delivery:
             return self.journal.advance(stage,'START_REQUESTED')
         if stage=='START_REQUESTED':
             self._fresh(artifacts['successor_verified_at'])
-            self._wait_shadow(); self._unchanged(artifacts)
+            end=readiness.cutoff(receipt,now=utcnow())
+            deadline=self.monotonic()+min(readiness.SECONDS,(end-utcnow()).total_seconds())
+            require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+            self._wait_shadow(deadline=deadline); self._unchanged(artifacts)
             hashes=self.host.candidate_config_hashes(candidate)
             applications=self.host.containers(SERVICES,missing_ok=True)
             require(application_healthy(applications.get('sentinel-shadow'),
@@ -321,25 +365,32 @@ class Delivery:
                 require(item['Image'] in (self.host.request['predecessor']['image'],
                                           self.host.request['candidate']['image']), 'FOREIGN_APPLICATION_IMAGE')
             if not self.host.candidate_apps_ready(hashes,applications):
+                readiness.cutoff(receipt,now=utcnow())
+                require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
                 self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
-                    '--wait','--wait-timeout','120',*SERVICES[1:],timeout=150)
-                self._apps('candidate',running=True,healthy=True)
+                    *SERVICES[1:],timeout=min(90,deadline-self.monotonic()))
+                applications=self._apps('candidate',running=True)
+            readiness.cutoff(receipt,now=utcnow())
+            require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
             self._unchanged(artifacts,native=False)
-            return self.journal.advance(stage,'APPLICATIONS_STARTED')
+            started={service:dict(Id=item['Id'],RestartCount=item['RestartCount'],
+                State={'StartedAt':item['State']['StartedAt']}) for service,item in applications.items()}
+            return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started)
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
-        self._apps('candidate',running=True,healthy=True)
+        leader,panel,deadline,applications=self._readiness(receipt)
         repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
         postgres=self._unchanged(artifacts,allow_restart=not repair)
-        if repair:
-            leader=evidence.leader(self.host)
-            require(leader['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
-        else:
-            leader=self._leader(artifacts['preserved']['control']['generation'])
-        panel=evidence.panel(self.host,artifacts['preserved'])
         appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
+        leader=self._readiness_unchanged(applications,leader)
+        readiness.cutoff(receipt,now=utcnow())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        if handoff_mode(self.host.request)=='PRE_OPEN':
+            boundary=datetime.fromisoformat(panel['installation_panel_valid_until'])
+            require(boundary.utcoffset() is not None and utcnow()<boundary,
+                    'INSTALLATION_PANEL_EXPIRED')
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
                                     verified_postgres=postgres,
