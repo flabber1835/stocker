@@ -1,6 +1,7 @@
 """Short, killable dependency observations for single-threaded supervisors."""
 from __future__ import annotations
 
+import ctypes
 import multiprocessing
 import errno
 import json
@@ -66,7 +67,6 @@ def error_diagnostic(error: BaseException) -> ErrorDiagnostic:
 def _parent_death(parent_pid):
     # Docker can kill the probe parent before its observer cleanup executes.
     # Set the kernel boundary before opening dependencies; close the fork race.
-    import ctypes
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
         raise OSError(ctypes.get_errno(), 'dependency parent-death signal unavailable')
