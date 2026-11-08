@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,8 @@ from .model import DeliveryRefused, require
 
 MAX_BYTES = 1024 * 1024
 MAX_PROCESSES = 16384
+READER_SELECTION = 'artifacts/sentinel/deployment/maintenance-reader.json'
+READER_PURPOSE = b'sentinel-native-maintenance-reader-v1\0'
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,68 @@ class Reader:
     uid: int
     gid: int
     groups: tuple[int, ...]
+    root: str = ''
+
+
+def reader_signature(value, key):
+    require(isinstance(key,str) and len(key.encode())>=32,'ENVIRONMENT_READER_KEY_INVALID')
+    raw=json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+    return hmac.new(key.encode(),READER_PURPOSE+raw,hashlib.sha256).hexdigest()
+
+
+def _selection_bytes(path,limit):
+    fd=os.open(path,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        before=os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink==1 and 0<=before.st_size<=limit,
+                'ENVIRONMENT_READER_SELECTION_INVALID')
+        with os.fdopen(os.dup(fd),'rb') as stream:raw=stream.read(limit+1)
+        require(len(raw)<=limit and _identity(os.fstat(fd))==_identity(before),
+                'ENVIRONMENT_READER_SELECTION_CHANGED')
+        return raw
+    finally:os.close(fd)
+
+
+def selected_reader(deployment, previous):
+    path=deployment/READER_SELECTION
+    if not path.exists():
+        require(not path.is_symlink(),'ENVIRONMENT_READER_SELECTION_INVALID')
+        return deployment,None
+    require(not path.is_symlink() and path.resolve()==path,'ENVIRONMENT_READER_SELECTION_INVALID')
+    try:
+        record=json.loads(_selection_bytes(path,8192));value=record['value'];signature=record['signature']
+        require(set(record)=={'value','signature'} and isinstance(value,dict)
+            and set(value)=={'schema','deployment','source','commit','script_sha256','environment_sha256'}
+            and value['schema']=='sentinel.native-maintenance-reader/1'
+            and value['deployment']==str(deployment)
+            and isinstance(signature,str) and hmac.compare_digest(signature,
+                reader_signature(value,previous.get('SENTINEL_PUBLICATION_RECEIPT_KEY'))),
+            'ENVIRONMENT_READER_SELECTION_INVALID')
+        root=Path(value['source'])
+        require(root.is_absolute() and root.resolve()==root
+            and not any(p.is_symlink() for p in (root,*root.parents))
+            and re.fullmatch('[0-9a-f]{40}',value['commit']) is not None,
+            'ENVIRONMENT_READER_SELECTION_INVALID')
+        for name,digest in [('scripts/sentinel_backup_maintenance.py',value['script_sha256']),
+                            ('.env',value['environment_sha256'])]:
+            target=root/name
+            require(re.fullmatch('[0-9a-f]{64}',digest) is not None
+                and target.resolve()==target and not target.is_symlink()
+                and hashlib.sha256(_selection_bytes(target,MAX_BYTES)).hexdigest()==digest,
+                'ENVIRONMENT_READER_SELECTION_CHANGED')
+        command=['git','-c','safe.directory='+str(root),'-C',str(root)]
+        def git(*args):
+            result=subprocess.run([*command,*args],capture_output=True,text=True,timeout=5,
+                env={k:v for k,v in os.environ.items() if k in {'PATH','HOME','LANG','LC_ALL'}})
+            require(result.returncode==0,'ENVIRONMENT_READER_SOURCE_UNAVAILABLE')
+            return result.stdout.strip()
+        require(git('rev-parse','HEAD')==value['commit']
+            and not git('status','--porcelain','--untracked-files=no'),
+            'ENVIRONMENT_READER_SOURCE_CHANGED')
+        return root,(root/'.env',value['environment_sha256'])
+    except (KeyError,TypeError,ValueError,OSError) as exc:
+        if isinstance(exc,DeliveryRefused):raise
+        raise DeliveryRefused('ENVIRONMENT_READER_SELECTION_INVALID') from None
 
 
 def _read(path, limit):
@@ -61,21 +126,24 @@ def _reader(pid, deployment):
     return Reader(pid,int(first[19]),fields['Uid'][3],fields['Gid'][3],tuple(sorted(fields['Groups'])))
 
 
-def readers(deployment, *, required):
+def readers(deployment, *, required, selected_root=None):
     result=[]
     processes=[p for p in Path('/proc').iterdir() if p.name.isdecimal()]
     require(len(processes)<=MAX_PROCESSES,'ENVIRONMENT_PROCESS_INVENTORY_EXCEEDS_BOUND')
     for process in processes:
-        try:value=_reader(int(process.name),deployment)
+        try:value=_reader(int(process.name),selected_root or deployment)
         except (FileNotFoundError,ProcessLookupError,PermissionError):continue
-        if value is not None:result.append(value)
+        if value is not None:result.append(Reader(value.pid,value.start_ticks,value.uid,value.gid,value.groups,str(selected_root or deployment)))
     require(len(result)<=1 and (bool(result) or not required),'ENVIRONMENT_NATIVE_READER_UNAVAILABLE')
     return tuple(result)
 
 
 def _same_readers(deployment, selected):
     for reader in selected:
-        try:current=_reader(reader.pid,deployment)
+        try:
+            root=Path(reader.root) if reader.root else deployment
+            found=_reader(reader.pid,root)
+            current=Reader(found.pid,found.start_ticks,found.uid,found.gid,found.groups,str(root)) if found else None
         except (FileNotFoundError,ProcessLookupError,PermissionError):current=None
         require(current==reader,'ENVIRONMENT_NATIVE_READER_CHANGED')
 
@@ -160,10 +228,14 @@ def install(host, previous, raw=None):
                 and _identity(_metadata(old_fd))==_identity(original)
                 and _raw(old_fd)==original_raw,'ENVIRONMENT_ORIGINAL_CHANGED')
         same_original()
-        selected=readers(directory,required=previous.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1')
+        reader_root,reader_file=selected_reader(directory,previous)
+        selected=readers(directory,required=previous.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
+                         selected_root=reader_root)
+        def probe(files):
+            _probe(host,selected,[*files,*([reader_file] if reader_file else [])])
         original_digest=hashlib.sha256(original_raw).hexdigest()
         if raw is None:
-            _probe(host,selected,[(directory/'.env',original_digest)])
+            probe([(directory/'.env',original_digest)])
             same_original();os.fsync(directory_fd)
             return
         require(isinstance(raw,bytes) and len(raw)<=MAX_BYTES,'ENVIRONMENT_CANDIDATE_EXCEEDS_BOUND')
@@ -178,7 +250,7 @@ def install(host, previous, raw=None):
             (original.st_uid,original.st_gid,stat.S_IMODE(original.st_mode)),
             'ENVIRONMENT_METADATA_NOT_PRESERVED')
         digest=hashlib.sha256(raw).hexdigest()
-        _probe(host,selected,[(directory/'.env',original_digest),(Path(temporary),digest)])
+        probe([(directory/'.env',original_digest),(Path(temporary),digest)])
         same_original()
         require(_identity(os.stat(temporary,follow_symlinks=False))==_identity(installed)
             and _raw(new_fd)==raw,'ENVIRONMENT_TEMPORARY_CHANGED')
@@ -191,7 +263,7 @@ def install(host, previous, raw=None):
             (original.st_uid,original.st_gid,stat.S_IMODE(original.st_mode))
             and _identity(os.stat('.env',dir_fd=directory_fd,follow_symlinks=False))==_identity(current)
             and _raw(new_fd)==raw,'ENVIRONMENT_INSTALLED_FILE_CHANGED')
-        _probe(host,selected,[(directory/'.env',digest)])
+        probe([(directory/'.env',digest)])
         current=_metadata(new_fd)
         require(_identity(os.stat('.env',dir_fd=directory_fd,follow_symlinks=False))==_identity(current)
             and (current.st_uid,current.st_gid,stat.S_IMODE(current.st_mode))==

@@ -1,5 +1,7 @@
 """Real private native-reader credentials survive privileged atomic replacement."""
 from dataclasses import replace
+from contextlib import contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +16,66 @@ from tests.scripts.test_sentinel_backed_local_patch import patch
 from sentinel_local_delivery import environment as env
 from sentinel_local_delivery.model import DeliveryRefused
 import sentinel_env
+
+
+@contextmanager
+def separate_owner(case):
+    case.process.terminate();case.process.wait(timeout=3)
+    root=case.root.parent/'maintenance';(root/'scripts').mkdir(parents=True)
+    script=root/'scripts/sentinel_backup_maintenance.py'
+    script.write_bytes((case.root/'scripts/sentinel_backup_maintenance.py').read_bytes())
+    case.old['SENTINEL_PUBLICATION_RECEIPT_KEY']='qualification-only-'+'x'*40
+    case.new['SENTINEL_PUBLICATION_RECEIPT_KEY']=case.old['SENTINEL_PUBLICATION_RECEIPT_KEY']
+    case.path.write_bytes(payload(case.old));(root/'.env').write_bytes(payload(case.old))
+    subprocess.run(['git','init','-q',str(root)],check=True)
+    subprocess.run(['git','-C',str(root),'add','scripts/sentinel_backup_maintenance.py'],check=True)
+    subprocess.run(['git','-C',str(root),'-c','user.name=Private qualifier',
+        '-c','user.email=qualifier@example.invalid','commit','-qm','private fixture'],check=True)
+    commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+    value=dict(schema='sentinel.native-maintenance-reader/1',deployment=str(case.root),source=str(root),
+        commit=commit,script_sha256=hashlib.sha256(script.read_bytes()).hexdigest(),
+        environment_sha256=hashlib.sha256((root/'.env').read_bytes()).hexdigest())
+    path=case.root/env.READER_SELECTION;path.parent.mkdir(parents=True)
+    def write():path.write_text(json.dumps(dict(value=value,signature=env.reader_signature(
+        value,case.old['SENTINEL_PUBLICATION_RECEIPT_KEY']))))
+    write()
+    def credentials():
+        if os.geteuid()==0:os.setgroups([]);os.setgid(case.gid);os.setuid(case.uid)
+    process=subprocess.Popen([sys.executable,'scripts/sentinel_backup_maintenance.py','--loop'],
+        cwd=root,preexec_fn=credentials)
+    try:yield SimpleNamespace(root=root,value=value,path=path,write=write,process=process)
+    finally:
+        if process.poll() is None:process.terminate()
+        process.wait(timeout=3)
+
+
+def test_authenticated_separate_native_owner_preserves_real_reader_continuity(private):
+    with separate_owner(private) as owner:
+        assert_real_reader_survives_install(private)
+        assert owner.process.poll() is None
+
+
+@pytest.mark.parametrize('fault',['signature','deployment','commit','script','environment','missing_process','fifo','hardlink'])
+def test_separate_owner_selection_refuses_tampering_and_lost_owner(private,fault):
+    with separate_owner(private) as owner:
+        if fault=='signature':
+            value=json.loads(owner.path.read_text());value['signature']='0'*64
+            owner.path.write_text(json.dumps(value))
+        elif fault=='deployment':owner.value['deployment']=str(private.root.parent);owner.write()
+        elif fault=='commit':owner.value['commit']='0'*40;owner.write()
+        elif fault=='script':(owner.root/'scripts/sentinel_backup_maintenance.py').write_text('changed')
+        elif fault=='environment':(owner.root/'.env').write_bytes(payload(private.new))
+        elif fault=='fifo':owner.path.unlink();os.mkfifo(owner.path)
+        elif fault=='hardlink':os.link(owner.path,owner.path.with_suffix('.alias'))
+        else:owner.process.terminate();owner.process.wait(timeout=3)
+        with pytest.raises(DeliveryRefused):env.install(private.host,private.old,payload(private.new))
+        assert private.path.read_bytes()==payload(private.old)
+
+
+def test_separate_owner_signature_guard_has_executed_falsifier(private,monkeypatch):
+    monkeypatch.setattr(env.hmac,'compare_digest',lambda *a:True)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_separate_owner_selection_refuses_tampering_and_lost_owner(private,'signature')
 
 
 def payload(values):

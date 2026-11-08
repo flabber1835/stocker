@@ -85,6 +85,17 @@ replace the existing effective service drop-in, retain the previous bytes/hash,
 and verify a genuine subsequent maintenance tick and renewed chain proof.
 No database, archive command, maintenance schedule or policy changes.
 
+When maintenance uses a separate checkout, publish a small authenticated local
+reader selection under the application's deployment artifacts. Bind its exact
+deployment, maintenance root, Git commit, script hash and private environment
+hash using the existing publication key and a distinct nonfinancial purpose.
+Environment replacement discovers only the actual selected `--loop` process,
+revalidates its PID/start/credentials/root and probes canonical old/new files
+plus the maintenance environment as that user. A missing/tampered selection,
+changed source/environment, foreign process or lost reader still refuses. This
+removes the accidental working-directory co-location requirement without
+creating another maintenance process or granting financial authority.
+
 ## Source handover
 
 Retain the exact installed 4bca82da1 application map as one additional explicit
