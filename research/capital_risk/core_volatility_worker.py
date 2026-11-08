@@ -189,8 +189,12 @@ def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, s
             observed = observer(Path('/out'), before, material)
         if cash_case:
             need(not extra and not any((aaap_model, completion_facts, sonc_facts)), 'ONE_NEW_CLOSED_CASH_SUCCESSOR')
-            from core_volatility_cash_facts import prepare as prepare_cash, observer
-            extra, material = prepare_cash(before, Path('/out'), arm, cash_case)
+            if cash_case == 'GBT':
+                from core_volatility_gbt_facts import prepare as prepare_gbt, observer
+                extra, material = prepare_gbt(before, Path('/out'), arm)
+            else:
+                from core_volatility_cash_facts import prepare as prepare_cash, observer
+                extra, material = prepare_cash(before, Path('/out'), arm, cash_case)
             observed = observer(Path('/out'), before, material)
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
@@ -221,7 +225,7 @@ if __name__ == '__main__':
     p.add_argument('--completion-facts', action='store_true')
     p.add_argument('--sonc-facts', action='store_true')
     p.add_argument('--control-equivalence', action='store_true')
-    p.add_argument('--cash-case', choices=('BEL',))
+    p.add_argument('--cash-case', choices=('BEL', 'GBT'))
     p.add_argument('--control-replay', action='store_true')
     a = p.parse_args()
     hosted()

@@ -1,0 +1,35 @@
+{
+  "provider_metadata_upgraded": false,
+  "raw_prices_published": false,
+  "schema": "research.core-volatility-gbt-source-scope/1",
+  "security_id": "827416728546053456",
+  "witnesses": [
+    {
+      "issuer_id": "SEC_CIK:1629137",
+      "listing_first_session": "2015-08-12",
+      "security_id": "827416728546053456",
+      "security_type_eligible": "1",
+      "session": "2022-09-30",
+      "source_observation_sha256": "3faaed847fe662942ca1a2f2667e67c03e7aad7ec7b2ba57c2d844d0aafd6aa7",
+      "ticker": "GBT"
+    },
+    {
+      "issuer_id": "SEC_CIK:1629137",
+      "listing_first_session": "2015-08-12",
+      "security_id": "827416728546053456",
+      "security_type_eligible": "1",
+      "session": "2022-10-03",
+      "source_observation_sha256": "bfb31ccd11f75e95ec3b8c6c3c26198ad0c382934e1ca1adba878a76d0576aac",
+      "ticker": "GBT"
+    },
+    {
+      "issuer_id": "SEC_CIK:1629137",
+      "listing_first_session": "2015-08-12",
+      "security_id": "827416728546053456",
+      "security_type_eligible": "1",
+      "session": "2022-10-04",
+      "source_observation_sha256": "f221e2472d3889694132110e269e8401246bb12c632d858629f83c76114276a1",
+      "ticker": "GBT"
+    }
+  ]
+}

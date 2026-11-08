@@ -431,6 +431,52 @@ own January 31 checkpoint passes all four DATA scope checks. Removing its exact
 parent-hash guard in a private source copy causes all four outer-predecessor
 falsifiers to fail as expected. No financial module was executed locally.
 
+Generation 8 passed independent review and full artifact admission through
+September 30, 2022: 1,196 measured closes, 884 newly committed. It refused
+October 5 on GBT, permanent ID `827416728546053456`; preserve the two uncommitted
+October 3/4 closes. The own parent holds 75 ordinary shares from the September
+9 signal/September 12 entry in slot 16. This is not the unrelated BRG/BHM case
+from the original paused campaign.
+
+Generation 10 reuses GBT's EXISTING qualified P04 September 30 cash input in
+`system-campaign-selected-own-cash-terminal-facts.json`: $68.50 gross ordinary
+cash, October 5 preopen completion, retained October 4 trading. SEC accession
+`0000950157-22-001085` confirms mandatory conversion; Nasdaq corporate action
+alert `eca2022-272` separately confirms preopen closing and last trading date.
+Revalidate the closed original source selection, exact native preimage and
+frozen own-parent/October 3/4 witnesses. Bind a new typed future-only repair to
+the alternative's own 1,196-close predecessor and actual 75-share scope. Retain
+ordinary-holder exceptions, original eligibility and the no-observed-settlement
+convention. Qualify full canonical notional, malformed-input falsifiers and
+actual cash/ledger postconditions. Do not change old closed model compilers.
+
+The remaining 960 measured closes now fit one bounded final segment. Generation
+8 admitted 884 transitions in 4,715.59 financial seconds (5.33438 per committed
+transition). A 35% margin, two 103.19-second warmups and 600-second reserve
+project 7,720 seconds; retain the 12,600-second worker and separate 2,700-second
+reviewer ceilings. Request exactly 960 new closes toward 2,156/July 31, 2026,
+using the tested positive-bound COMPLETE contract. This changes execution
+chunking only, not strategy/controller parameters or the measurement window.
+
+GBT must also enter the common control basis. Leave the running generation-9
+replay intact. After its admission, select its own September 30, 2022 financial
+checkpoint and qualify the same GBT input, replaying the affected suffix on
+that own history. Do not use the old unmatched control or a diagnostic book as
+the final comparison authority, and do not claim that the extra fact is a no-op.
+
+Generation-10 local qualification passed 162 targeted tests from
+`research/capital_risk/forecast_tests/test_core_volatility*.py` in 26.50 seconds,
+using the import-fenced Python DATA runner and the writable workspace basetemp
+`C:/GitHub/stocker/.codex-tmp/vgbt10-data-tests-1`. The initial attempt had 144
+passes and 18 temporary-directory setup errors in the Windows sandbox; the
+unchanged tests passed with that basetemp. Twenty-five cases cover GBT terms,
+own holdings/predecessor refusals, source witnesses, request closure, inspected
+worker/reviewer entrypoints and the hosted-only financial boundary. Removing
+either the exact predecessor hash check or the metadata-preservation check makes
+its rejection test fail. Thirty-three related Python files parse, and
+`git diff --check` passes. Canonical financial qualification and continuation
+remain hosted; these local DATA checks do not advance a financial session.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run

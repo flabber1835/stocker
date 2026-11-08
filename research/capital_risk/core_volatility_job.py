@@ -117,7 +117,7 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
              and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, cash_case, control_replay)), 'CONTROL_DIAGNOSTIC_ENTRYPOINT_SCOPE')
         expected += ['--control-equivalence']
     if cash_case:
-        need(cash_case == 'BEL' and continuation and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence, control_replay)), 'CLOSED_CASH_ENTRYPOINT_SCOPE')
+        need(cash_case in ('BEL', 'GBT') and continuation and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence, control_replay)), 'CLOSED_CASH_ENTRYPOINT_SCOPE')
         expected += ['--cash-case', cash_case]
     if control_replay:
         need(arm == 'CONTROL' and continuation and maximum == 1621
