@@ -24,6 +24,19 @@ resolution into the verified producer without changing session eligibility.
 These corrective changes require qualified local installation before becoming
 the operating release; the documented design alone does not activate them.
 
+[Bounded retention progress](bounded-retention-progress.md) selects finite
+physical/logical traversal, atomic disposal checkpoints and independent work
+classes. [Lightweight verifier health](cheap-verifier-health.md) and the
+[shadow health entrypoint](cheap-shadow-health-entrypoint.md) remove unnecessary
+bootstrap while preserving the existing health predicates and deadlines.
+[Install work reuse](installation-work-reuse.md) reuses immutable facts and
+batches fresh role observations. [Installation observers](installation-observers.md)
+replaces repeated drain subprocesses with one owned read-only event waiter.
+[Collector incident diagnostics](execution-collector-incident-diagnostics.md)
+preserves the original safe cause before notification coalescing; older missing
+causes remain unproved. The [exact source handover](operational-work-source-handover.md)
+preserves all prior source witnesses and frozen financial contributors.
+
 [Removing redundant operational work](redundant-operational-work.md) separates
 restore worker phases and genuine daily renewal from avoidable repeated work;
 fresh financial and recovery admission guards retain their named boundaries.
