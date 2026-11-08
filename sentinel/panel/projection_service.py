@@ -328,6 +328,8 @@ class Publisher:
                 if self.worker is not None:
                     if not self.component_attempted.wait(.1):
                         continue
+                    if self.stopped.is_set():
+                        break
                     self.worker.start(timeout=DEADLINE_SECONDS)
                     if self.stopped.is_set():
                         break
@@ -369,11 +371,13 @@ class Publisher:
                     delay=max(1,min(MAX_REFRESH_SECONDS,remaining-DEADLINE_SECONDS-REFRESH_MARGIN_SECONDS))
                 elif result.get('outcome')=='SUPERSEDED':
                     delay=1
+                if result.get('outcome') in {'PUBLISHED','FAILED'}:
+                    self.component_attempted.set()
             except Exception as exc:
                 composition.failure(self.owner_id,self.instance,exc)
+                self.component_attempted.set()
             finally:
                 self.composition_busy.clear()
-                self.component_attempted.set()
             self.composition_wake.wait(delay)
 
     def close(self):

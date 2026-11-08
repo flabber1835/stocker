@@ -113,10 +113,13 @@ def test_removed_phase_gate_has_executed_falsifier(monkeypatch):
 def test_fast_bootstrap_waits_for_first_full_attempt_without_blocking_later_publication(monkeypatch,tmp_path):
     entered,release,fast_started=Event(),Event(),Event()
     class Full:
+        calls=0
         def start(self,*,timeout):assert timeout==20
         def call(self,*_,**__):
+            self.calls+=1
+            if self.calls==1:return dict(outcome='SUPERSEDED')
             entered.set()
-            assert release.wait(2)
+            assert release.wait(3)
             return dict(outcome='PUBLISHED',valid_until=(datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat())
         def close(self):pass
     class Fast:
@@ -129,7 +132,7 @@ def test_fast_bootstrap_waits_for_first_full_attempt_without_blocking_later_publ
     publisher.composition_worker=Full();publisher.worker=Fast()
     publisher.start()
     try:
-        assert entered.wait(1)
+        assert entered.wait(2)
         assert not fast_started.wait(.15), 'consumer bootstrapped without a component attempt'
         release.set()
         assert fast_started.wait(1)
@@ -147,3 +150,24 @@ def test_removed_first_component_gate_has_executed_falsifier(monkeypatch,tmp_pat
     monkeypatch.setattr(producer.Publisher,'run',namespace['run'])
     with pytest.raises(AssertionError,match='consumer bootstrapped'):
         test_fast_bootstrap_waits_for_first_full_attempt_without_blocking_later_publication(monkeypatch,tmp_path)
+
+
+def test_shutdown_wakeup_never_launches_a_consumer_before_any_component(monkeypatch,tmp_path):
+    entered=Event();starts=[]
+    class Full:
+        def start(self,*,timeout):
+            entered.set()
+            assert publisher.stopped.wait(2)
+        def call(self,*_,**__):raise AssertionError('work admitted during shutdown')
+        def close(self):pass
+    class Fast:
+        def start(self,*,timeout):starts.append(True)
+        def call(self,*_,**__):raise AssertionError('work admitted during shutdown')
+        def close(self):pass
+    monkeypatch.setattr(producer,'HEARTBEAT',tmp_path/'heartbeat')
+    publisher=producer.Publisher('private-db','owner')
+    publisher.composition_worker=Full();publisher.worker=Fast()
+    publisher.start()
+    assert entered.wait(1)
+    publisher.close()
+    assert starts==[]
