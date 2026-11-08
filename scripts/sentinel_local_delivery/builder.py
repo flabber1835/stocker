@@ -123,6 +123,8 @@ def _changed(source, predecessor, commit, approved):
 
 
 def _inspect(host, reference):
+    if callable(getattr(host,'image_metadata',None)):
+        return host.image_metadata(reference)
     values = json.loads(host.run(['docker','image','inspect',reference]).stdout)
     require(isinstance(values,list) and len(values) == 1, 'IMAGE_INSPECTION_SHAPE')
     return values[0]

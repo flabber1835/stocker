@@ -164,6 +164,11 @@ See [protected orders](free-data-execution-proposal.md),
 
 ## Dashboard and notifications
 
+[Verifier identity availability](verifier-identity-read-availability.md) separates
+a failed current-identity read from the actual in-flight verification outcome.
+Current evidence remains unavailable until a qualifying current verification
+completes; a parent connection error does not fail a still-running worker.
+
 [Fresh worker supervision and bounded verifier recovery](worker-liveness-recovery.md)
 requires current heartbeat evidence before idle termination and retains verifier
 ownership and proof clocks across short database timeouts.

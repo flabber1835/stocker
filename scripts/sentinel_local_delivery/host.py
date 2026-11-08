@@ -167,6 +167,25 @@ class Host:
     def git(self, *args):
         return self.git_bytes(*args).decode().strip()
 
+    def image_metadata(self, reference, *, fresh=False):
+        """Memo immutable bytes, never a mutable tag or mutation-time presence."""
+        immutable=isinstance(reference,str) and re.fullmatch(r'(?:[^\s]+@)?sha256:[0-9a-f]{64}',reference)
+        facts=getattr(self,'_image_metadata_facts',{})
+        if immutable and not fresh and reference in facts:
+            return deepcopy(facts[reference])
+        values=json.loads(self.run(['docker','image','inspect',reference]).stdout)
+        require(isinstance(values,list) and len(values)==1 and isinstance(values[0],dict),
+                'IMAGE_INSPECTION_SHAPE')
+        value=values[0]
+        require(isinstance(value.get('Id'),str) and re.fullmatch(r'sha256:[0-9a-f]{64}',value['Id'])
+            and isinstance(value.get('Config'),dict),'IMAGE_INSPECTION_SHAPE')
+        if immutable:
+            require(value['Id']==reference if reference.startswith('sha256:') else
+                isinstance(value.get('RepoDigests'),list) and reference in value['RepoDigests'],
+                'IMAGE_INSPECTION_SUBJECT_CHANGED')
+            self._image_metadata_facts={**facts,reference:deepcopy(value),value['Id']:deepcopy(value)}
+        return deepcopy(value)
+
     def load_values(self):
         values = self.literal.operational_values(self.literal.load(self.deployment/'.env', required=True))
         require(values.get('ALPACA_BASE_URL') == 'https://paper-api.alpaca.markets'
@@ -545,26 +564,22 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         require(handoff_mode(self.request)!='BLOCKED_UNSENT' or getattr(self,'supports_blocked_unsent',False),
                 'BLOCKED_UNSENT_BACKED_ADAPTER_REQUIRED')
         selected = self.request['candidate']; old = self.request['predecessor']
-        require(self.git('rev-parse','HEAD')==selected['commit']
-                and not self.git('status','--porcelain'), 'CANDIDATE_SOURCE_NOT_CLEAN')
-        require(self.git('merge-base',old['commit'],selected['commit'])==old['commit'],
-                'CANDIDATE_NOT_DESCENDANT')
+        qualification = self.request['qualification']
+        from .qualification import validate_report
+        report = validate_report(qualification['report_path'],qualification['report_sha256'],
+            self.source,selected['commit'],old['commit'],git_reader=self.git)
         changed = self.git('diff','--name-only',old['commit'],selected['commit']).splitlines()
         require(sorted(changed)==sorted(self.request['allowed_delta']), 'CANDIDATE_DELTA_CHANGED')
         for name in COMPOSE:
             require((self.deployment/name).read_bytes() in ((self.source/name).read_bytes(),
                     self.git_bytes('show',old['commit']+':'+name)),
                     'INSTALLED_COMPOSE_CHANGED')
-        metadata = json.loads(self.run(['docker','image','inspect',selected['image']]).stdout)[0]
+        metadata = self.image_metadata(selected['image'],fresh=True)
         require(metadata['Id']==selected['image']
             and metadata['Config']['Labels']['org.opencontainers.image.revision']==selected['commit'],
             'CANDIDATE_IMAGE_CHANGED')
         require(self.probe(selected['commit'],selected['image'])==selected['source_identity'],
                 'CANDIDATE_SOURCE_IDENTITY_CHANGED')
-        qualification = self.request['qualification']
-        from .qualification import validate_report
-        report = validate_report(qualification['report_path'],qualification['report_sha256'],
-            self.source,selected['commit'],old['commit'],git_reader=self.git)
         require(qualification['commit']==selected['commit'] and qualification['passed'] is True,
                 'CANDIDATE_QUALIFICATION_ABSENT')
         require(report['source_files']==qualification['source_files'],

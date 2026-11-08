@@ -182,6 +182,8 @@ class Reader:
         self.attempt_outcome = 'QUEUED'
         self.diagnostic = None
         self.failure_diagnostic = None
+        self.identity_failure = None
+        self.identity_failed_at = None
         self.supersession_at = None
         self.supersession_clock = None
         self.supersession_last_at = None
@@ -301,13 +303,9 @@ class Reader:
                                    self.evidence_reader(database_url, include_paper))
         except Exception as exc:
             with self.lock:
-                self.completed = None
-                self.retained = None
-                self.diagnostic = observer_failure.classify(exc)
-                self.failure_diagnostic = self.diagnostic
-                detail = 'current financial identity unreadable: '+self.diagnostic.safe_detail()
-                self.failure = detail
-                self.attempt_outcome = 'FAILED'
+                self.identity_failure = observer_failure.classify(exc)
+                self.identity_failed_at = self.wall_clock()
+                detail = 'current financial identity unreadable: '+self.identity_failure.safe_detail()
             return self.unknown(include_paper, detail)
         with self.lock:
             if key != self.configuration:
@@ -403,6 +401,12 @@ class Reader:
                                 self.diagnostic = None
                                 self.failure_diagnostic = None
                                 self.attempt_outcome = 'VERIFIED'
+                                if ((self.identity_failed_at is None or completed_at >= self.identity_failed_at)
+                                        and (self.expected_keys == frozenset({'paper_reconciliation'})
+                                             or any(row.key == 'shadow_verification' and row.status == model.OK
+                                                    for row in rows))):
+                                    self.identity_failure = None
+                                    self.identity_failed_at = None
                             else:
                                 material = json.dumps(dict(errors=value['errors'], rows=[
                                     dict(key=row.key, status=row.status, value=row.value,
@@ -428,7 +432,7 @@ class Reader:
                 else:
                     self.completed = None
                     self.check_reason = 'PROOF_EXPIRED'
-            refresh_due = (fresh is None or self.failure is not None
+            refresh_due = (fresh is None or self.failure is not None or self.identity_failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
             if (allow_start and refresh_due and self.pending is None
                     and (not self.retain_failed_attempt or self._failed_attempt_handoff is None)
@@ -463,6 +467,10 @@ class Reader:
                     args=(key, database_url, include_paper), daemon=True,
                     name='sentinel-panel-financial-observer')
                 self.pending.start()
+            if self.identity_failure is not None:
+                return self.unknown(include_paper,
+                    'current financial identity unreadable: '+self.identity_failure.safe_detail()
+                    +('; '+self.failure if self.failure else ''))
             if fresh is not None:
                 if self.pending is not None and self.pending_key == key:
                     rows, details, history, errors = fresh

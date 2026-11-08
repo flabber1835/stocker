@@ -202,6 +202,25 @@ No proof, lease, snapshot or receipt expiry is extended. This is a host-installe
 patch through the existing local selector; no application-image rebuild or roll
 is needed to deploy it.
 
+### Metadata observations owned once per boundary (November 8, 2026)
+
+Candidate validation uses the qualification validator's single fresh HEAD,
+worktree status and branch read; do not run a second identical clean/ancestry
+check in the same candidate boundary. Exact-object Git queries retain their
+existing closed, graft-checked memoization. Current source bytes, qualification
+and log hashes, installed configuration and all mutable runtime observations
+remain freshly verified at each real boundary.
+
+One Host invocation shares immutable image inspection results by exact local
+digest or authenticated RepoDigest. Return independent copies; failed or malformed
+inspections never populate the memo. Mutable tags are always inspected anew.
+Candidate validation still performs a fresh exact-digest presence/label inspection
+at every source/mutation boundary, so deletion or substitution cannot hide behind
+cached ancestry metadata. Backed predecessor traversal and immutable runtime
+resolution reuse those facts instead of repeatedly inspecting the same image.
+The memo is neither persisted across commands nor a cache of container health,
+running state, image availability at mutation, configuration or broker evidence.
+
 ```sh
 python3 -B <source>/scripts/sentinel_local_delivery.py advance \
   --operation-dir <absolute-operation-directory> --one-stage
