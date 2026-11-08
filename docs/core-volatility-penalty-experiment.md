@@ -230,6 +230,36 @@ in 26.16 seconds, including failed-review refusal by normal financial admission,
 wrong-epoch/wrong-gzip refusals, byte preservation and zero-transition stage
 acceptance. Actual canonical re-review remains hosted and is mandatory.
 
+Recovery generation 4 passed both stopped canonical reviews and complete encrypted
+artifact admission: the existing 232 measured closes through November 30 are now
+admitted, with zero new transitions and all financial bytes unchanged. The next
+refusal is SODA, permanent ID `580777104042893954`, opened from the November 30
+signal on December 3 and blocked after its incomplete December 4 native.
+
+Reuse only SODA's existing additional-terminal catalog fact: $144 gross per
+ordinary share, December 5 legal completion and December 6 opening recognition.
+The issuer's SEC 6-K `0001144204-18-063214` independently confirms the consideration
+and Nasdaq cessation before December 6 open. Bind the new successor to this own
+232-close predecessor, recheck the exact native preimage and November 30,
+December 3 and December 4 frozen source witnesses, then qualify complete terms,
+canonical controller notional and actual cash/ledger postconditions. Preserve
+the frozen `SEC_UNKNOWN` issuer field and eligibility `0`; neither is upgraded
+to the external issuer CIK or new trading authority. No actual exchange-agent
+payment timestamp is claimed, and no prices or strategy parameters change.
+
+For every subsequent continuation, preserve any checkpoints beyond the selected
+committed parent in a separate content-indexed diagnostic archive BEFORE a new
+input successor or financial replay. They belong to the old uncommitted suffix.
+Require their source identity to match the parent, preserve their exact bytes,
+and leave the selected checkpoint and all journal/tail bytes unchanged. Keep
+every checkpoint on or before the admitted parent active. This restores the
+existing selected-parent contract and prevents recurrence of the review error.
+
+Generation 5 has 95 passing targeted DATA/AST/transport/model/recovery cases
+(28.76 seconds). The continuation retains the original 1,642-close segment
+boundary: 1,410 new measured closes from the admitted 232-close parent. Actual
+SODA notional and cash/ledger qualification remain mandatory on hosted compute.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run

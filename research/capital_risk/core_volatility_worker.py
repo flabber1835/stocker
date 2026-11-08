@@ -27,6 +27,35 @@ def copy_parent_book(previous, root):
         os.chmod(p, 0o700 if p.is_dir() else 0o600)
 
 
+def archive_uncommitted_checkpoints(root, parent, lineage):
+    """Keep future diagnostic gzip bytes outside the newly selected branch."""
+    import gzip
+    from core_volatility_recovery import financial_inventory
+    from seal import sha256_file
+    before = financial_inventory(root.parent)
+    archived = []
+    destination = lineage/'uncommitted-diagnostic-checkpoints'
+    destination.mkdir()
+    for group in ('month-end', 'pre-event', 'predecessor-checkpoints'):
+        for path in sorted((root/group).glob('*.json.gz')):
+            value = json.loads(gzip.decompress(path.read_bytes()))
+            if value['source_cursor'] <= parent['source_cursor']:
+                continue
+            need(value['completed'] > parent['completed'] and value['base'] == parent['base'],
+                 'ONLY_OWN_UNCOMMITTED_FUTURE_CHECKPOINTS')
+            digest = sha256_file(path)
+            target = destination/(digest+'-'+str(len(archived))+'.json.gz')
+            need(not target.exists(), 'NEW_DIAGNOSTIC_CHECKPOINT_ARCHIVE')
+            original = path.relative_to(root).as_posix()
+            shutil.move(str(path), str(target))
+            need(sha256_file(target) == digest, 'UNCHANGED_UNCOMMITTED_CHECKPOINT_BYTES')
+            archived.append(dict(original=original, stored=target.relative_to(root.parent).as_posix(),
+                                 sha256=digest, source_cursor=value['source_cursor'], completed=value['completed']))
+    need(financial_inventory(root.parent) == before, 'ARCHIVING_CANNOT_CHANGE_FINANCIAL_OR_TAIL_BYTES')
+    save(lineage/'uncommitted-checkpoint-index.json', dict(selected_parent=parent['sha256'],
+         archived=archived, financial_bytes_unchanged=before, financial_sessions_advanced=0))
+
+
 def qualify(arm):
     hosted()
     import system_campaign_qualify as original
@@ -81,8 +110,10 @@ def qualify(arm):
     return result
 
 
-def run(arm, maximum, previous=None, aaap_model=False):
+def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False):
     hosted()
+    need(not (aaap_model or completion_facts) or previous == Path('/previous'), 'INPUT_MODEL_REQUIRES_OWN_PARENT')
+    need(not (aaap_model and completion_facts), 'ONE_NEW_INPUT_MODEL_PER_SUCCESSOR')
     from research.pooled_vacancy_funding import backtest
     from research.pooled_vacancy_funding.journal import read_checkpoint
     from system_campaign_baseline import facts
@@ -135,6 +166,7 @@ def run(arm, maximum, previous=None, aaap_model=False):
                 shutil.copytree(item, target)
             else:
                 shutil.copyfile(item, target)
+        archive_uncommitted_checkpoints(root, before, lineage)
         need(read_checkpoint(root/'checkpoint.json.gz') == before, 'EXACT_COPIED_PARENT_CHECKPOINT')
         prior_completed = before['completed']
         warmed = time.monotonic()
@@ -144,6 +176,11 @@ def run(arm, maximum, previous=None, aaap_model=False):
             from core_volatility_aaap import prepare as prepare_aaap, observer
             need(not extra, 'ONE_NEW_INPUT_SUCCESSOR_PER_CONTINUATION')
             extra, material = prepare_aaap(before, Path('/out'), arm)
+            observed = observer(Path('/out'), before, material)
+        if completion_facts:
+            need(not extra and not aaap_model, 'ONE_NEW_COMPLETION_SUCCESSOR')
+            from core_volatility_completion_facts import prepare as prepare_completion, observer
+            extra, material = prepare_completion(before, Path('/out'), arm)
             observed = observer(Path('/out'), before, material)
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
@@ -171,17 +208,18 @@ if __name__ == '__main__':
     p.add_argument('--resume-root', type=Path)
     p.add_argument('--aaap-model', action='store_true')
     p.add_argument('--recover-prefix', action='store_true')
+    p.add_argument('--completion-facts', action='store_true')
     a = p.parse_args()
     hosted()
     if a.recover_prefix:
-        need(not a.aaap_model, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
+        need(not a.aaap_model and not a.completion_facts, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
         from core_volatility_recovery import run as recover, review as recovery_review
         if a.mode == 'economic':
             recover(a.resume_root, a.arm, a.maximum)
         else:
             recovery_review(a.resume_root, Path('/evidence'), Path('/out'))
     elif a.mode == 'economic':
-        run(a.arm, a.maximum, a.resume_root, a.aaap_model)
+        run(a.arm, a.maximum, a.resume_root, a.aaap_model, a.completion_facts)
     else:
         from system_campaign_readonly import review
         review(Path('/evidence/book'), Path('/out/core-review.json'))

@@ -106,7 +106,8 @@ def test_hosted_canary_closed_before_canonical_import(monkeypatch):
 @pytest.mark.parametrize('review', (False, True))
 @pytest.mark.parametrize('continuation', (False, True))
 @pytest.mark.parametrize('aaap_model', (False, True))
-def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation, aaap_model):
+def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation, aaap_model,
+                                                            completion_facts=False, recover_prefix=False):
     import full_system_trials_job as base
     uid = SimpleNamespace(getuid=lambda: 1001, getgid=lambda: 1001)
     monkeypatch.setattr(base, 'os', uid)
@@ -116,7 +117,8 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
     values = job.command(name, Path('/source'), Path('/frozen'), Path('/output'), arm,
                          Path('/evidence') if review else None,
                          maximum=0 if continuation else 134,
-                         previous=Path('/previous') if continuation else None, aaap_model=aaap_model)
+                         previous=Path('/previous') if continuation else None, aaap_model=aaap_model,
+                         completion_facts=completion_facts, recover_prefix=recover_prefix)
     assert values[values.index('--network')+1] == 'none'
     assert values[values.index('--entrypoint')+1] == 'python'
     mounts = ['/variant', '/frozen', '/driver', '/out'] + (['/evidence'] if review else [])
@@ -134,7 +136,8 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
     response(dto)
     def inspect():
         return job.inspect(name, 'a'*64, maximum=0 if continuation else 134,
-                           continuation=continuation, aaap_model=aaap_model)
+                           continuation=continuation, aaap_model=aaap_model,
+                           completion_facts=completion_facts, recover_prefix=recover_prefix)
     assert inspect() == dto
     for section, key, bad in (('HostConfig', 'NetworkMode', 'bridge'), ('Config', 'Cmd', ['wrong']),
                               ('Config', 'Env', ['GH_TOKEN=secret']), ('HostConfig', 'MemorySwap', 0)):
