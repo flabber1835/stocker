@@ -200,6 +200,51 @@ guard-removal mutants, exact own 31-ADS predecessor refusals and exact entrypoin
 inspection with the declared model flag. Hosted canonical tender qualification
 and actual event postconditions remain required by the financial worker.
 
+Generation 3 reached a November 30, 2018 checkpoint (232 measured closes), then
+refused December 6 on another incomplete acquisition. Its review failed because
+the driver copied a superseded February 9 pre-event checkpoint from the earlier
+uncommitted branch into the active review set. That original gzip is
+`5410b1a18163df613dcbc76db5c54674eb5c253cd9fdde169d5094ebcf9f6066`,
+outer `2967b3dcf161e9c84bb0551f13e280be6379a60af0775e02ec1582010e285d73`.
+It describes February 8/27 closes beyond the earlier accepted January 31/21
+predecessor, before the AAAP successor. Preserve it; do not treat it as a current
+branch checkpoint or discard its original input/tail evidence.
+
+Generation 4 is a recovery-only qualification with ZERO financial transitions.
+Split transport authentication from financial authorization: the exact failed
+generation-3 artifact may be read only as immutable diagnostic evidence, pinned
+by run/head/cipher/manifest/checkpoint and actual stopped exits. It cannot
+authorize finance. Copy its book into a new private output, archive only the
+declared superseded gzip outside active checkpoint directories with an exact
+original-path/content index, and require the current checkpoint plus every full
+journal and interrupted tail to remain byte-identical. Run unchanged canonical
+restore/accounting/prefix/chain review and a separate stopped reviewer. Only that
+new positive review may admit the existing 232-close prefix for continuation.
+An unrelated changed/missing checkpoint, a different failure or any financial
+byte change must refuse. Keep all raw failures and input evidence encrypted.
+
+Recovery DATA checks found exactly that one obsolete active checkpoint; every
+other saved active checkpoint retains matching committed journal boundaries and
+prefix hashes. Eighty-two targeted DATA/AST/transport/model/recovery tests pass
+in 26.16 seconds, including failed-review refusal by normal financial admission,
+wrong-epoch/wrong-gzip refusals, byte preservation and zero-transition stage
+acceptance. Actual canonical re-review remains hosted and is mandatory.
+
+Control-model differential implementation: select only the new control's own
+authenticated January 31 checkpoint and committed prefixes into two private
+diagnostic forks. Preserve the full original input as read-only evidence. Run
+eight canonical transitions per fork through February 12: one unchanged, one
+with the original AAAP model. Reuse the unchanged, hash-pinned AAAP input and
+event-observer function bodies under a separate explicit CONTROL scope guard;
+the original alternative's 31-ADS guard remains unchanged. Require no owned or
+pending AAAP in this selected control checkpoint. Independently review both
+forks, require every financial field and strategy-state digest to match (only
+input and chain identities may differ), and compare the complete final strategy
+state and account economics exactly. The extra model's only dated input changes
+must end February 9. Label the result diagnostic equivalence, never a financial
+continuation root or a new efficacy candidate. If any required equality fails,
+retain the refusal and replay the affected control suffix on the common model.
+
 Initial DATA/AST qualification: all 515 newly compiled control source hashes
 exactly equal the completed P00 source commitment. The alternative changes only
 the two score modules, the research runtime identity and the economic manifest

@@ -19,16 +19,13 @@ def digest(value):
                           ensure_ascii=True, allow_nan=False).encode('ascii'))
 
 
-def extract(archive, root, key, spec):
-    """Caller supplies independently pinned transport; all parsing follows GCM."""
+def authenticated_payload(archive, root, key, spec):
+    """Transport only: authenticated bytes never confer financial authority."""
     archive, root = Path(archive), Path(root)
     need(not root.exists(), 'NEW_ADMISSION_DIRECTORY')
     need(0 < archive.stat().st_size == spec['zip_bytes'] < 1024**3
          and sha256_file(archive) == spec['zip_sha256'], 'EXACT_ARCHIVE')
     asset = spec['encrypted_output']
-    need(spec['status'] in ('PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION',
-                           'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION',
-                           'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'), 'REVIEWED_STATUS_ONLY')
     with zipfile.ZipFile(archive) as z:
         public = spec['public_members']
         need(len(z.namelist()) == len(set(z.namelist()))
@@ -45,10 +42,6 @@ def extract(archive, root, key, spec):
              and receipt['protocol_sha256'] == spec['protocol_sha256']
              and not receipt['production_contacted'] and not receipt['original_campaign_resumed']
              and receipt['encrypted_output'] == asset, 'EXACT_PARENT_RECEIPT')
-        need(receipt['worker']['stopped'] and not receipt['worker']['oom_killed']
-             and receipt['worker']['exit_code'] == spec['worker_exit_code']
-             and receipt['reviewer']['stopped'] and receipt['reviewer']['exit_code'] == 0
-             and not receipt['reviewer']['oom_killed'], 'RECEIPT_POSITIVE_STOPS')
         need(z.getinfo(asset['name']).file_size == asset['bytes'], 'CIPHER_LENGTH')
         header, tag = authenticate(z, asset, key)
         root.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -86,6 +79,22 @@ def extract(archive, root, key, spec):
                 need(seen == set(inventory), 'COMPLETE_INVENTORY')
             while plain.read(1024**2):
                 pass
+    return manifest, receipt
+
+
+def extract(archive, root, key, spec):
+    """Reviewed financial prefix: all original authority guards stay required."""
+    need(spec['status'] in ('PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION',
+                           'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION',
+                           'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'), 'REVIEWED_STATUS_ONLY')
+    root = Path(root)
+    asset = spec['encrypted_output']
+    manifest, receipt = authenticated_payload(archive, root, key, spec)
+    inventory = manifest['members']
+    need(receipt['worker']['stopped'] and not receipt['worker']['oom_killed']
+         and receipt['worker']['exit_code'] == spec['worker_exit_code']
+         and receipt['reviewer']['stopped'] and receipt['reviewer']['exit_code'] == 0
+         and not receipt['reviewer']['oom_killed'], 'RECEIPT_POSITIVE_STOPS')
     from core_volatility_job import inspect
     for relative, role in (('worker-inspect.json', 'worker'),
                            ('independent-review-stop/worker-inspect.json', 'review')):
@@ -121,7 +130,7 @@ def extract(archive, root, key, spec):
             'whole_cipher_authenticated_before_parsing': True, 'canonical_runtime_executed': False}
 
 
-def hosted(spec, root, key):
+def hosted(spec, root, key, *, extractor=extract):
     from probe import check_context
     check_context(os.environ)
     root = Path(root).resolve()
@@ -133,6 +142,6 @@ def hosted(spec, root, key):
     with archive.open('xb') as out:
         subprocess.run(['gh', 'api', 'repos/flabber1835/stocker/actions/artifacts/'+str(spec['artifact_id'])+'/zip'],
                        stdout=out, check=True, timeout=180)
-    proof = extract(archive, root/'admitted', key, spec)
+    proof = extractor(archive, root/'admitted', key, spec)
     (root/'admission.json').write_bytes((json.dumps(proof, sort_keys=True, indent=2)+'\n').encode())
     return root/'admitted'

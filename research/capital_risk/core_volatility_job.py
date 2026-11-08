@@ -44,7 +44,7 @@ def probe(request):
             'source_files': len(expected_request()['sources']), 'canonical_runtime_executed': False}
 
 
-def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False):
+def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False):
     from full_system_trials_job import command as original
     mode = 'review' if evidence else 'economic'
     result = original(name, source, frozen, output, mode)
@@ -60,10 +60,12 @@ def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, pr
         result += ['--resume-root', '/previous']
     if aaap_model:
         result += ['--aaap-model']
+    if recover_prefix:
+        result += ['--recover-prefix']
     return result
 
 
-def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False):
+def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False):
     need(re.fullmatch(r'core-volatility-(control|vol075)-(worker|review)-[0-9]+-1', name), 'CONTAINER_NAME')
     if value is None:
         value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
@@ -94,6 +96,8 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
         expected += ['--resume-root', '/previous']
     if aaap_model:
         expected += ['--aaap-model']
+    if recover_prefix:
+        expected += ['--recover-prefix']
     need(c['Entrypoint'] == ['python'] and c['Cmd'] == expected, 'EXACT_ENTRYPOINT')
     return value
 
@@ -101,7 +105,12 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
 def require_continuation_stage(request, receipt, outcome, arm):
     need(receipt['worker']['exit_code'] == 0 and receipt['reviewer']['exit_code'] == 0,
          'SUCCESSFUL_STAGE_STOPS')
-    if request['maximum'] > 0:
+    if request.get('stage') == 'OWN_REVIEW_RECOVERY':
+        need(receipt['status'] == 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+             and outcome.get('completed') == 232 and outcome.get('session') == '2018-11-30'
+             and outcome.get('financial_sessions_advanced') == 0
+             and outcome.get('recovered_existing_prefix') is True, 'RECOVERY_ONLY_NO_FINANCIAL_ADVANCE')
+    elif request['maximum'] > 0:
         need(receipt['status'] == 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
              and outcome.get('completed') == request['parents'][arm]['completed']+request['maximum'],
              'EXACT_BOUNDED_SEGMENT_REVIEW_REQUIRED')
@@ -124,7 +133,10 @@ def launch(a, *, contract=None):
         followup = (request['stage'] == 'OWN_REVIEWED_FOLLOWUP' and request['generation'] >= 3
                     and set(request['parents']) == set(request['arms'])
                     and set(request['parents']) <= set(ARMS) and a.arm in request['parents'])
-        need((paired or followup)
+        recovery = (request['stage'] == 'OWN_REVIEW_RECOVERY' and request['generation'] == 4
+                    and set(request['parents']) == set(request['arms']) == {'VOL075'} and a.arm == 'VOL075'
+                    and request['maximum'] == 0)
+        need((paired or followup or recovery)
              and 0 <= request['maximum'] <= 2156 and 0 < request['financial_wait_seconds'] <= 12600
              and 0 < request['review_wait_seconds'] <= 2700, 'BOUNDED_OWN_CONTINUATION_CONTRACT')
     stage = json.loads(a.staging.read_bytes())
@@ -171,8 +183,12 @@ def launch(a, *, contract=None):
         previous = None
         if contract is not None:
             from core_volatility_admit import hosted as admit_parent
+            options = {}
+            if request['stage'] == 'OWN_REVIEW_RECOVERY':
+                from core_volatility_recovery import extract_evidence
+                options['extractor'] = extract_evidence
             previous = admit_parent(request['parents'][a.arm], Path(os.environ['RUNNER_TEMP']) /
-                                    ('core-volatility-transfer-'+a.arm.lower()+'-'+str(generation)), key)
+                                    ('core-volatility-transfer-'+a.arm.lower()+'-'+str(generation)), key, **options)
             need(json.loads((previous/'source-bindings.json').read_bytes()) == binding,
                  'EXACT_REBUILT_OWN_PARENT_SOURCE')
             shutil.copyfile(previous.parent/'admission.json', root/'parent-artifact-admission.json')
@@ -189,10 +205,13 @@ def launch(a, *, contract=None):
         publish()
         name = 'core-volatility-'+a.arm.lower()+'-worker-'+os.environ['GITHUB_RUN_ID']+'-1'
         aaap_model = request.get('input_model') == 'ORIGINAL_AAAP_TENDER'
-        inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None, aaap_model=aaap_model)
+        recover_prefix = request['stage'] == 'OWN_REVIEW_RECOVERY'
+        inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None,
+                            aaap_model=aaap_model, recover_prefix=recover_prefix)
         then = time.monotonic()
         receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm,
-                                       maximum=request['maximum'], previous=previous, aaap_model=aaap_model), name, root,
+                                       maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
+                                       recover_prefix=recover_prefix), name, root,
                                        deadline=request['financial_wait_seconds'], inspector=inspector)
         known = True
         receipt.update(status='WORKER_STOPPED_PREFIX_PRESERVED', worker_seconds=time.monotonic()-then)
@@ -203,7 +222,8 @@ def launch(a, *, contract=None):
             name = 'core-volatility-'+a.arm.lower()+'-review-'+os.environ['GITHUB_RUN_ID']+'-1'
             then = time.monotonic()
             receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root,
-                                            maximum=request['maximum'], previous=previous, aaap_model=aaap_model), name,
+                                            maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
+                                            recover_prefix=recover_prefix), name,
                                             audit, deadline=request['review_wait_seconds'], inspector=inspector)
             receipt['review_seconds'] = time.monotonic()-then
             shutil.copytree(audit, root/'independent-review-stop')

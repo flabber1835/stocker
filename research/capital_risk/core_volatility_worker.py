@@ -170,9 +170,17 @@ if __name__ == '__main__':
     p.add_argument('--maximum', type=int, required=True)
     p.add_argument('--resume-root', type=Path)
     p.add_argument('--aaap-model', action='store_true')
+    p.add_argument('--recover-prefix', action='store_true')
     a = p.parse_args()
     hosted()
-    if a.mode == 'economic':
+    if a.recover_prefix:
+        need(not a.aaap_model, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
+        from core_volatility_recovery import run as recover, review as recovery_review
+        if a.mode == 'economic':
+            recover(a.resume_root, a.arm, a.maximum)
+        else:
+            recovery_review(a.resume_root, Path('/evidence'), Path('/out'))
+    elif a.mode == 'economic':
         run(a.arm, a.maximum, a.resume_root, a.aaap_model)
     else:
         from system_campaign_readonly import review

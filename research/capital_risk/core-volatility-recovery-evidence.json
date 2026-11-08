@@ -1,0 +1,42 @@
+{
+  "aaap_model": true,
+  "arm": "VOL075",
+  "artifact_id": 13628964090,
+  "checkpoint_file_sha256": "57d8771b5b78be19a91d842cfd4030ea0415bb2ddbc286a824ef95d7dca6cf1b",
+  "checkpoint_sha256": "a18d150fc7136881a641b66fba9a6a52f6b614cdf0b6c298ee67a8a7066d3a52",
+  "completed": 232,
+  "container_user": "1001:1001",
+  "continuation": true,
+  "encrypted_output": {
+    "bytes": 38582756,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "a1e7a1c8186af55fa0a4797a4df99585be911ddd8dd47cde362694a296ed89a7",
+    "name": "core-volatility-VOL075.tar.crseal",
+    "sha256": "be77c7d3a9d9473d31ef42332526c381e75397a3b7a07dc45ffc42bc78ca080c"
+  },
+  "head": "df61c5e75f07d374bfb5c90a91e6a76f51f4205d",
+  "maximum": 1621,
+  "protocol_sha256": "128e15c2305c2be67ceb637717c8a4bb50a33bc4bfa720d2e7a8e38246b6b3f0",
+  "public_members": {
+    "core-volatility-receipt.json": {
+      "bytes": 1213,
+      "sha256": "1c459ce6fb19734102c1da4e72a32141faec0ec1ac90cbd29437cc26c87ff487"
+    },
+    "core-volatility-staging.json": {
+      "bytes": 964,
+      "sha256": "0a3edec557cb5d1e0867fc98134945d81a6c61c139f7b69416af86628ee6629b"
+    },
+    "ephemeral-runner-capacity.json": {
+      "bytes": 674,
+      "sha256": "a6f58c537f04a52f12a5d284752f85eb1c3337049466cee66b54bc20d4066fde"
+    }
+  },
+  "request_sha256": "74782f365401f192d95798f196c7f80338e55a088fb9df5df964625f307cd413",
+  "run_id": 42510840403,
+  "session": "2018-11-30",
+  "source_bindings_sha256": "c967cab9df2725c293783a800cd3e04e3daf31c678796b5a2d3044e1db944993",
+  "status": "WORKER_STOPPED_PREFIX_PRESERVED",
+  "worker_exit_code": 1,
+  "zip_bytes": 38586235,
+  "zip_sha256": "d6fcae3e66e1f0e35f35b8caec783b5d8347904ac84004c0c47e0d236ef03475"
+}
