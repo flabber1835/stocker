@@ -45,7 +45,7 @@ def verify_payload(root):
  from full_system_core import hosted
  hosted();root=Path(root);spec=selected_spec();names=history.paths(spec)
  parent=history.archived_parent(spec,lambda n:(root/n).read_bytes())
- actual,_,_=reconstruct_source(parent,root);expected=payload();raw=(root/names['PAYLOAD']).read_bytes()
+ actual,_,_=reconstruct_source(parent,Path('/out'));expected=payload();raw=(root/names['PAYLOAD']).read_bytes()
  need(json.loads(raw)==expected and actual==expected['source_payload']
   and (root/names['OVERLAY']).read_bytes()==source.encoded(typed.document()),'POSTCLOSE_HOSTED_EXACT_PAYLOAD_AND_TYPED_DESCRIPTOR')
  return expected,raw

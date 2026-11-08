@@ -8105,6 +8105,43 @@ Admission result: Saved2050/2026-02-27/full14. Independently verified229 new fin
 
 ## SGN complete restart qualification
 
+## P03 STML second contingent input and one retained calculation
+
+Continue the genuine606-day/full19 parent through2020-05-29, retaining all152
+committed proofs and excluding its seven June diagnostic proof rows. STML's
+nativeJune10 and priorJune9 observations and incomplete native terminal are
+already authenticated in SOURCE357. Preserve11.50 mandatory common cash plus
+one nontransferable right bounded0..1.00; no probability, right price, certain
+12.50 cash or owned-right settlement is selected.
+
+The original B19/DOVA proof, math, append chain and actual DOVA input remain.
+Build one cooperative certificate by binding the complete original bounded
+factory over the existing DOVA class, rather than running a second independent
+certificate. Only its superclass site is selected; preserve the original
+interval material, operation order, exhaustive recovery and append methods.
+Both old and new position/order/claim guards remain active. Reuse the original
+consumed-event constructor code and closure only after checking the genuine
+current neutral state and literal admitted seed; a future STML constructor
+keeps its original seed-before-event guard.
+
+The two typed inputs use the same schema. A new outer codec must delegate only
+the exact existing DOVA event/evidence to the actual original DOVA owner. It
+owns only the exact STML input and its objects. Preserve every unrelated lower
+loader/apply call and reject unknown bounded events. Do not install two
+competing financial patchers or substitute checkpoint hashes.
+
+Use a separate SOURCE357-bound catalog and evidence interpretation, without
+pretending that its source is an older SOURCE290 payload. Keep the original
+Event/Input/packet types and hydrate function code, with explicit new catalog
+and interpretation validators. Full20 history must call the old complete
+visitor on the genuine archived parent19, then verify the actual typed append,
+canonical neutral20 archive/watch/correlation relation and unchanged state.
+The original ordinary observer retains all34 terms using the actual old parent
+and original payloads; the new contingent event has its own complete bounded
+source/branch review. No old transition is recalculated or old source input
+replaced. Actual fresh native packet, resource copy/removal, neutral state,
+constructor and independent review gates remain required before admission.
+
 Validation commands from research/capital_risk:
 
     python -B -m pytest forecast_tests/test_SGN_resources_observer.py forecast_tests/test_SGN_saved_parent.py forecast_tests/test_source_exit_future_acquisition.py forecast_tests/test_source_exit_observer.py forecast_tests/test_source_exit_runtime.py forecast_tests/test_source_exit_entry.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/SGN-final-integration-20261108-001
@@ -8118,3 +8155,14 @@ Both passed in3.52s. The exact launcher probe and git diff check also pass.
 The complete targeted DATA gate passes93 tests. All138 requirements and288182311 resource bytes validate, retaining every prior resource pin. The original parent13 observer record remains exactly equal to the authentic hosted record; parent14 retains all five terms and three scopes. The exact797 committed proofs are preserved and10 diagnostic rows excluded. Whole original compiler/retained worker AST undo, original positive0/1/0 transport routing, genuine saved-state commitments and meaningful guard-removal cases pass. No local canonical financial code ran.
 
 Request232 selects only P06, one financial worker, from2050/2026-02-27/full14. The separate P07 request231 remains immutable and is not reselected or cancelled. Workflow concurrency is per arm, so the new P06 job may run alongside it. All fresh preparation, actual neutral15, constructor and event-day ownership/source guards remain mandatory. Profile SHA256 a266a8915cac893453653c02343025e3fa92cd5b15d371887edda16634f45da1. Original383/protected source files and four mature financial worker bodies remain unchanged. Independent financial admission remains separate.
+
+
+## Request231 saved P07 review recovery
+
+Authenticated request231 saved1403/2023-07-31/full26, twenty new days. Its later seven August closes and August10 KDNY refusal are diagnostic tails. Original preflight/financial/reviewer stops are0/1/1, unchanged. The launcher then failed copying its new review into an existing stopped-review directory containing historical review evidence. The current reviewer traceback was consequently not exported; its cause remains unknown. No prior proof is a current review.
+
+Recover through a separate explicit zero-financial readonly request against the exact original failed artifact. Preserve original receipt, stops, entire26-input history, all929 original proofs and actual new committed suffix. Authenticate using the existing complete crypto reader and its already-supported one-GiB option, with a private format/status binding and exact collision-refusal proof. Select the genuinely admitted1383 parent separately for the new branch review; do not replace either checkpoint or relabel a failed stop. Readonly preflight uses the complete original accounting and Linux monthly readers inside the actual full26 codec chain. Fresh branch/distribution/core reviews must pass before independent financial admission. No economic callback or input adoption is allowed.
+
+The review reconstructs frozen source facts in its own writable /out scratch, while reading the immutable evidence at /evidence. All calculations and source checks remain unchanged. Preserve future new audit output under a distinct current-review directory when historical stopped-review is present; never merge or overwrite historical proof bytes. Qualified original worker bodies remain physically unchanged through a private, source-pinned transport binding. P06 request232 remains active and is neither selected nor cancelled by the new P07 readonly request. Existing KDNY primary facts and its full40..44 contingent range may be reused for a separately qualified restart after1403 is admitted; no40-dollar point price or later payout is assumed.
+
+Request233 qualification:70 tests passed in12.84s across forecast_tests/test_request231_readonly_recovery.py, forecast_tests/test_second_bounded_inputs.py and forecast_tests/test_postclose_distribution_runtime.py (python -B -m pytest, -q -p no:cacheprovider --tb=short, basetemp C:/GitHub/stocker/.codex-tmp/request233-final-20261108-001). An additional closed-request selector/pin regression test was then added; the full recovery file passed24 tests in3.64s at basetemp request233-closed-20261108-002. The exact launcher --probe passes. The complete26-input DATA visitor passes against authentic request231, including genuine neutral26 and all25 original descriptors. All383 frozen source pins and all four mature worker bodies remain exact; changed modules compile. The new target excludes the inherited, obsolete FIN343/full25 reporting selector. Neither these checks nor this request admits the20 candidate days. Request233 has734 pinned sources, one readonly worker and zero financial workers. P06 request232 is not selected again.
