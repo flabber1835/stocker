@@ -7,6 +7,12 @@ import system_campaign_bounded_sensor_runtime_v2 as dova
 import system_campaign_p03_STML_source as stml
 
 
+def hydrate_second(value,out):
+ target=Path(out)/history.previous.SOURCE
+ target.parent.mkdir(parents=True,exist_ok=True)
+ return stml.hydrate(value,target)
+
+
 @contextmanager
 def codecs(root,current,spec,out,*,base_context):
  from full_system_core import hosted
@@ -21,7 +27,7 @@ def codecs(root,current,spec,out,*,base_context):
  with base_context(root,current,spec):
   native,_=hydrate(first,root/dova.SOURCE)
   with InputCodec(first['event'],evidence(first),native):
-   native,_=stml.hydrate(second,out/history.previous.SOURCE)
+   native,_=hydrate_second(second,out)
    with SuccessorCodec(second['event'],stml.evidence(second),native,
      previous_event=first['event'],previous_evidence=evidence(first)) as codec:
     codec.previous_owner();yield codec

@@ -31,8 +31,8 @@
       "sha256": "eaf2d4da9195ee8f8430e61e28aeb422496aae258e528dd91768272a4c7a70f4"
     },
     "P03-PTLA-runtime-DATA-qualification.json": {
-      "bytes": 15497,
-      "sha256": "9edf571e1c5749f298c9264a11a3a67a94173ae14b423aa1990c150e414dcf6e"
+      "bytes": 16402,
+      "sha256": "8b69940431b8704f150a2b6ee49351162402bd238da75da3bae6a2c9614906f2"
     },
     "P03-PTLA-source-retained174-DATA-qualification.json": {
       "bytes": 6005,
@@ -140,7 +140,7 @@
     },
     "system_campaign_financial_resume.py": {
       "bytes": 68243,
-      "sha256": "38ac76c86a267d9510f66988164e6aeab4c12653d414b63d9a22b2d4d0b0d563"
+      "sha256": "68ede797814ae16d54814bcc20bbe8781a409ef10a412bd9261eb0e2f91bff4a"
     },
     "system_campaign_following_completions_facts.py": {
       "bytes": 14893,
@@ -171,8 +171,8 @@
       "sha256": "389a5f7f07c7ad78bd89edc014e0f82e1998d3b90fa860ba169b825a93f6750e"
     },
     "system_campaign_p03_PTLA_models.py": {
-      "bytes": 1766,
-      "sha256": "1cfb7580e906046f040ae2420f0d18164c6cf97499e4e45b044f2a86551152f0"
+      "bytes": 1903,
+      "sha256": "3cf594b5f09ef7cf875536fba3a9ab00ae14604d4a54ac22e4b8d71784c47141"
     },
     "system_campaign_p03_PTLA_observers.py": {
       "bytes": 3783,
@@ -300,6 +300,6 @@
     "P03-PTLA-source-retained174-DATA-qualification.json": "df9b958e01ae8151f3933abb426ca21170e0bcccc9212d3de3600fcade02fb50"
   },
   "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
-  "runtime_DATA_qualification": "9edf571e1c5749f298c9264a11a3a67a94173ae14b423aa1990c150e414dcf6e",
+  "runtime_DATA_qualification": "8b69940431b8704f150a2b6ee49351162402bd238da75da3bae6a2c9614906f2",
   "schema": "research.P03-PTLA-full21-whole-profile-qualification/1"
 }

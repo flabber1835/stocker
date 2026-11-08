@@ -161,8 +161,8 @@
       "sha256": "50447010c6224f4f758882d6beab642549b2418eedff7fcfcebc18646061384c"
     },
     "forecast_tests/test_PTLA_runtime.py": {
-      "bytes": 4490,
-      "sha256": "c89349183f12b2a381d3322de1c740b3047510bf4d23fa7d398f88f3719ad4d1"
+      "bytes": 5238,
+      "sha256": "b977051a8dc60ac966ea9536d9d28cc58122480f3382d4ea0ae0b7f634fb0a69"
     },
     "system-campaign-2021-completions-terminal-facts.json": {
       "bytes": 16723,
@@ -229,8 +229,8 @@
       "sha256": "389a5f7f07c7ad78bd89edc014e0f82e1998d3b90fa860ba169b825a93f6750e"
     },
     "system_campaign_p03_PTLA_models.py": {
-      "bytes": 1766,
-      "sha256": "1cfb7580e906046f040ae2420f0d18164c6cf97499e4e45b044f2a86551152f0"
+      "bytes": 1903,
+      "sha256": "3cf594b5f09ef7cf875536fba3a9ab00ae14604d4a54ac22e4b8d71784c47141"
     },
     "system_campaign_p03_PTLA_observers.py": {
       "bytes": 3783,
@@ -360,6 +360,28 @@
     "failed": 1,
     "passed": 103
   },
+  "request239_hosted_failure": {
+    "artifact": 13609774256,
+    "authenticated_members": 28,
+    "cause": "missing retained STML source directory",
+    "financial_worker_started": false,
+    "logical_bytes": 535950,
+    "new_sessions": 0,
+    "original_source_writer_unchanged": true,
+    "preflight_exit": 1,
+    "run": 42461750558
+  },
+  "request239_tests": {
+    "actual_complete_request_and_imported_module_closure_checked": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_resources.py research/capital_risk/forecast_tests/test_PTLA_cash.py research/capital_risk/forecast_tests/test_PTLA_history.py research/capital_risk/forecast_tests/test_PTLA_certificate.py research/capital_risk/forecast_tests/test_PTLA_observers.py research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request239-full-profile-20261108-002",
+    "early_callback_copy_refused": true,
+    "financial_import_fences": 5,
+    "original_full_functions_and_three_count_site_AST_undo": true,
+    "original_mature_four_worker_ASTs_unchanged": true,
+    "passed": 104,
+    "seconds": 9.48,
+    "worker_scope_guard_removal_falsifier_observed": true
+  },
   "required_actual_hosted_gates": [
     "original two-packet preparation",
     "127-resource copy canary",
@@ -373,13 +395,11 @@
   "schema": "research.P03-PTLA-whole-runtime-DATA-qualification/1",
   "tests": {
     "actual_complete_request_and_imported_module_closure_checked": true,
-    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_resources.py research/capital_risk/forecast_tests/test_PTLA_cash.py research/capital_risk/forecast_tests/test_PTLA_history.py research/capital_risk/forecast_tests/test_PTLA_certificate.py research/capital_risk/forecast_tests/test_PTLA_observers.py research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request239-full-profile-20261108-002",
-    "early_callback_copy_refused": true,
+    "actual_filesystem_directory_regression_checked": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request240-20261108-001",
     "financial_import_fences": 5,
-    "original_full_functions_and_three_count_site_AST_undo": true,
-    "original_mature_four_worker_ASTs_unchanged": true,
-    "passed": 104,
-    "seconds": 9.48,
-    "worker_scope_guard_removal_falsifier_observed": true
+    "passed": 35,
+    "prior_unchanged_component_checks_preserved_in_request239_tests": true,
+    "seconds": 8.47
   }
 }

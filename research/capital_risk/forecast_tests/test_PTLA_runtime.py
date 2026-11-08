@@ -57,6 +57,21 @@ def test_old_and_second_codec_order_is_preserved():
  assert ast.unparse(binding.value)=='dova.InputCodec' and callable(models.dova.InputCodec)
 
 
+def test_retained_source_directory_exists_before_original_writer(monkeypatch,tmp_path):
+ raw=b'{"EXPLICIT_NONCANONICAL_SOURCE_DTO":true}\n';seen=[]
+ def write(value,target):
+  assert value=={'EXPLICIT_NONCANONICAL_SOURCE_DTO':True}
+  assert target==tmp_path/models.history.previous.SOURCE
+  assert target.parent.is_dir()
+  if target.exists():assert target.read_bytes()==raw
+  else:
+   with target.open('xb') as stream:stream.write(raw)
+  seen.append(target);return 'EXPLICIT_NONCANONICAL_NATIVE_DTO',value
+ monkeypatch.setattr(models.stml,'hydrate',write)
+ for _ in range(2):assert models.hydrate_second({'EXPLICIT_NONCANONICAL_SOURCE_DTO':True},tmp_path)[0]=='EXPLICIT_NONCANONICAL_NATIVE_DTO'
+ assert len(seen)==2 and seen[0].read_bytes()==raw
+
+
 def test_local_financial_and_model_paths_closed():
  with pytest.raises(ValueError,match='HOSTED_CORE_ONLY'):r.prepare(None,None,None,None)
  with pytest.raises(ValueError,match='HOSTED_CORE_ONLY'):r.run(None,None,None,None,None,None,spec=None,old=None)
