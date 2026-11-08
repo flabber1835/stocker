@@ -16,11 +16,9 @@ from sentinel.shadow_recovery import (
     advance_once,
 )
 
-EXIT_REFUSED = 2
-EXIT_WAITING = 10
-EXIT_RETRY = 11
-EXIT_AVAILABILITY = 12
-EXIT_DEPENDENCY_UNAVAILABLE = 13
+from sentinel.shadow_exit_codes import (
+    EXIT_REFUSED, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE,
+)
 
 
 def _sharadar_availability(exc: BaseException) -> bool:

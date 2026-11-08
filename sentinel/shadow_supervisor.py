@@ -26,14 +26,20 @@ from time import monotonic as diagnostic_clock
 from sentinel.feed import calendar
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
 from sentinel import shadow_restart_recovery as restart_recovery
-from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
-from sentinel.shadow_worker import (
+from sentinel.shadow_service_config import ShadowServiceConfig, ShadowServiceWaiting
+from sentinel.shadow_exit_codes import (
     EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "shadow-supervisor-critical.json"
 _STATUS_INCARNATION = uuid.uuid4().hex
+
+
+def service_health(config: ShadowServiceConfig, *, now: datetime | None = None) -> dict:
+    """Keep the public fallback seam without bootstrapping financial runtime."""
+    from sentinel.shadow_recovery import service_health as original
+    return original(config, now=now)
 
 
 def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,
