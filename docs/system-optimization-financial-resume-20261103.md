@@ -7981,3 +7981,61 @@ code is introduced. The existing complete request/file validator passed.
 ## Independent admission of FIN366 saved P06 sessions
 
 Genuine saved1821/2025-03-31/full13. Independently verified144 new financial closes,288 accounting snapshots,424+144 committed branch proofs,104 resources, complete original input/observer history, genuine neutral13 adoption, actual TBIO unheld source delegation,7 exact monthly reports and196 Decimal metrics. FIN366 remains failed0/1/1. REVIEW368 is separate positive read-only evidence. No financial session reexecuted;2025-04-01 refusal excluded. Historical causality UNVERIFIED. Continuation from full13 requires separate qualification. New root 27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0. Qualification d41df0143e9f8d4a19eb9b587b2ab5420331d64e62c786b1f5a160969ce25305. Preserve the prior ed91 root and original failed0/1/1 receipt. SELECTED_ARMS becomes empty; no unqualified full13 continuation is selected. The source-only job remains independent. Validation: complete independent DATA reader passed144 rows/288 accountings/7 reports/196 metrics; component4 tests and final8 guard/AST/fence tests passed.
+## P07 request230 duplicate archive preservation
+
+The authenticated request230 worker resumed and paused at the old June30 date,
+then refused before the constructor or any new financial day. The complete
+resource copier had already copied the original October2019 archive. The
+inherited archive preserver then refused its second copy because source and
+destination were separate directories. The original narrow same-path exception
+does not cover this case.
+
+Keep the original archive resolver and complete preserver code. In this P07
+restart's private namespace only, bind its existing-archive predicate and copy
+operation to the exact source and output paths from the qualified seven-archive
+resource plan. Require the resolver's complete original proof, matching source
+and destination bytes, and the pinned archive hash. An existing exact copy is
+read and reused without writing it; absent files use the existing copier.
+Conflicting bytes, other paths and other proofs remain refusals. Preserve the
+original exclusive receipt check. No archive is renamed, invented or granted
+new event permission, and no original financial worker or shared archive module
+is changed. The next hosted job must still construct its own genuine neutral26
+state and original certificate before calculating its next day.
+
+Request231 validation: all14 archive-reuse/admission tests passed in2.74s,
+including conflicting-copy and original-receipt refusals, selected-directory and
+positive-stop guard removals, exact2050 root and preserved1821 ancestry. The37
+original entry/restart tests passed in7.87s after the source profile was repinned.
+The exact launcher probe passed. The original archive resolver was also read on
+the authenticated request230 DATA: its full proof maps exactly to the resource
+plan's gzip/outer/state/input commitments. This was a read, with no local copy
+of a financial archive or execution of a financial book. The original four
+financial worker bodies and all383 frozen driver files remain unchanged.
+
+## P06 request228 saved-result admission
+
+Use the existing root-admission schema for the genuine 2050-day/full14
+checkpoint through 2026-02-27. Independent DATA review verifies all 229 new
+daily records, 458 accounting snapshots, 568 retained plus 229 new strategy
+proofs, all 122 historical resources and the actual state-neutral input14
+boundary. All 11 new monthly reports and 308 Decimal metrics pass the complete
+existing independent reporting reader. The original stopped review in this
+same artifact succeeded; preserve its real 0/1/0 stops and do not invent a
+separate review capsule. The later March records remain outside this admission.
+
+Preserve root27c4 and its FIN366 failure/REVIEW368 requalification as historical
+ancestry. Record the new successful original review as the current evidence.
+No financial book, journal, input or checkpoint is rewritten, and no local
+canonical financial code is executed. Further P06 execution requires a
+separately qualified input/restart route; this admission grants no broker,
+PAPER, LIVE, complete-result or release authority.
+
+For later transport, select the existing 1 GiB download option only for this
+exact authenticated artifact13596566525, ZIP597683612 bytes and
+SHA256c4968df5adacf3340fac474133aa39dcffa3ff15b246ccd00dcf263067d05d0b,
+with its 503-member/868510219-byte plaintext manifest and exact selected
+2050-day gzip. Retain the original public, cryptographic, source, stopped-writer,
+selected-checkpoint and journal-prefix checks. Other default transport limits
+remain unchanged.
+
+Admission result: Saved2050/2026-02-27/full14. Independently verified229 new financial closes,458 accounting snapshots,568 retained plus229 new committed strategy proofs,122 historical resources, actual neutral14 adoption, source-only DM delegation,11 monthly reports and308 Decimal metrics. Same original artifact passed stopped review0/1/0. Later March tail and March16 refusal excluded. Prior27c and its FIN366/REVIEW368 history retained unchanged. No local financial execution. Continuation from full14 requires separate qualification. New root 3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf. Independent qualification c8d9639532a1e3017a6699eef5f38ae7c1ef981319bd583b3fe41e72ddb0db3a. Accepted campaign total21019/25872; P06 has106 trading days remaining.

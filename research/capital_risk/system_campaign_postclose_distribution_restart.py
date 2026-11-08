@@ -186,6 +186,7 @@ def worker_tree(raw):
 def whole_api(view,neutral,parent,spec,evidence,rows,baseline):
  from full_system_core import hosted
  hosted();view=Path(view);scope,life=base_api(view,neutral,spec);value=life.catalog()
+ scope['preserve_event']=preserved_archive(scope['preserve_event'],view,evidence,spec)
  seed=neutral_seed(view,parent,neutral,spec,evidence,rows,baseline)
  scope['retained_seed']=lambda where,current,target,p:seed(where,current,target)
  scope['growth_scope']=growth_scope(view,scope)
@@ -218,6 +219,47 @@ def whole_api(view,neutral,parent,spec,evidence,rows,baseline):
  exec(compile(ast.Module(body=[worker_tree(Path(saved.retained.additional_runtime.__file__).read_bytes())],type_ignores=[]),
   '<whole-original-retained-worker-one-before-main-constructor-canary>','exec'),scope)
  return SimpleNamespace(**scope)
+
+def preserved_archive(original,source,output,spec):
+ """Reuse an exact already copied archive in this private restart only."""
+ source,output=Path(source),Path(output)
+ need(original.__name__=='preserve' and callable(original.__globals__.get('same_existing_archive')),
+  'POSTCLOSE_ARCHIVE_WHOLE_ORIGINAL_ADAPTED_PRESERVER')
+ resolutions=resources.plan(spec)['historical_archive_resolutions']
+ def selected(actual,target,proof):
+  pin={k:proof[k] for k in ('actual','outer_sha256','state_sha256','input_sha256')}
+  pin['gzip_sha256']=proof['file_sha256']
+  need(proof==dict(schema='research.uncertainty-readonly-archive-resolution/1',
+   requested='book/pre-event/2019-10-22.json.gz',actual=pin['actual'],file_sha256=pin['gzip_sha256'],
+   outer_sha256=pin['outer_sha256'],source_cursor='2019-10-21',state_sha256=pin['state_sha256'],
+   input_sha256=pin['input_sha256'],exact_first_certificate_identity=True,checkpoint_bytes_or_name_changed=False,
+   new_checkpoint_or_alias_created=False,financial_sessions_advanced=0) and pin in resolutions
+   and Path(actual)==source/proof['actual']
+   and Path(target)==output/proof['actual'],'POSTCLOSE_ARCHIVE_ONLY_EXACT_PLANNED_SOURCE_AND_OUTPUT')
+  return Path(actual),Path(target)
+ def identical(actual,target,proof):
+  actual,target=selected(actual,target,proof)
+  return (actual.is_file() and target.is_file() and actual.read_bytes()==target.read_bytes()
+   and sha(target.read_bytes())==proof['file_sha256'])
+ old_copy=original.__globals__['shutil'].copyfile
+ def copy(actual,target):
+  actual,target=Path(actual),Path(target)
+  choices=[p for p in resolutions if actual==source/p['actual'] and target==output/p['actual']]
+  need(len(choices)==1,'POSTCLOSE_ARCHIVE_COPY_ONLY_ORIGINAL_PLANNED_PATH')
+  if target.exists():
+   need(actual.is_file() and target.is_file() and actual.read_bytes()==target.read_bytes()
+    and sha(target.read_bytes())==choices[0]['gzip_sha256'],'POSTCLOSE_ARCHIVE_NO_OVERWRITE_DIFFERENT_BYTES')
+   return str(target)
+  need(sha(actual.read_bytes())==choices[0]['gzip_sha256'],'POSTCLOSE_ARCHIVE_ABSENT_TARGET_EXACT_SOURCE')
+  return old_copy(actual,target)
+ namespace=dict(original.__globals__,same_existing_archive=identical,
+  shutil=SimpleNamespace(**dict(vars(shutil),copyfile=copy)))
+ bound=FunctionType(original.__code__,namespace,original.__name__,original.__defaults__)
+ bound.__kwdefaults__=original.__kwdefaults__
+ def preserve(where,out):
+  need(Path(where)==source and Path(out)==output,'POSTCLOSE_ARCHIVE_ONLY_SELECTED_RESTART_DIRECTORIES')
+  return bound(where,out)
+ return preserve
 
 def legacy_future_event(root,parent,api):
  from full_system_core import hosted

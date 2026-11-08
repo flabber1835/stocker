@@ -1,0 +1,71 @@
+{
+  "counts": {
+    "accountings": 458,
+    "daily": 229,
+    "full_inputs": 14,
+    "independent_decimal_metrics": 308,
+    "new_monthly_reports": 11,
+    "new_proofs": 229,
+    "resources": 122,
+    "retained_proofs": 568
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\DESIGN.md": {
+      "bytes": 1684,
+      "sha256": "4f4597f431a32c677e7ae907c678558de6043efe1017163eeef5486e808341e6"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\P06-independent-financial-review.json": {
+      "bytes": 23109,
+      "sha256": "e98f4e46ac3f5c44d6543ba4543fa80f1714e60deabdf13070d59206f5d94162"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\P06-request228-transport-target.json": {
+      "bytes": 36952,
+      "sha256": "1f1a466a081dd91e2ed30cd68998c66680e42743dadf0acd1b0ba18850cdad0f"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\independent_REQUEST228_DATA.py": {
+      "bytes": 9483,
+      "sha256": "8c680d13d0a12535fb3d8ed8e384eaa804cef72e8894613b93a2fa67390e5e5a"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\p06_REQUEST228_components_DATA.py": {
+      "bytes": 8797,
+      "sha256": "1c69f0c908673e8a22a3b9b044a1f5f9cb6eff80eaa971334f7c0f63894598c1"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request228-DATA-20261108\\test_REQUEST228_DATA.py": {
+      "bytes": 4564,
+      "sha256": "7d458b4f8100583fba5e1144bf8dd80f91ae7dbd47444a217caf18c75af5e7d4"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request228-source-snapshot\\authenticated-artifact-13596566525\\authenticated-manifest.json": {
+      "bytes": 105635,
+      "sha256": "108b1aa7f9b2aafa9e35131380b2aa5b61686cab96853f30fa114ddb19892e4d"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request228-source-snapshot\\authenticated-artifact-13596566525\\campaign-factual-P06.json": {
+      "bytes": 1317,
+      "sha256": "cd82a6e7a9c925975b47e08ae13016e0a429978e4e7a7194d2d28fa0834b06f6"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request228-source-snapshot\\authenticated-artifact-13596566525\\capture-review.json": {
+      "bytes": 661,
+      "sha256": "2aed9fa584cd45b5e28f95072f4cbce39ea472c3f2925312cc5d5544cbf54981"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "independent_review_sha256": "e98f4e46ac3f5c44d6543ba4543fa80f1714e60deabdf13070d59206f5d94162",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    1,
+    0
+  ],
+  "passed": true,
+  "root_admission_performed": false,
+  "same_artifact_successful_original_review": true,
+  "schema": "research.P06-request228-independent-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest .codex-tmp/p06-request228-DATA-20261108/test_REQUEST228_DATA.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-request228-DATA-guards-20261108-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 4,
+    "seconds": 38.76,
+    "whole_mature_financial_AST_undo": true
+  }
+}
