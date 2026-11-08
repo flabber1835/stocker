@@ -1,0 +1,66 @@
+{
+  "actual_financial_view_constructed": false,
+  "actual_fresh_review_proof": {
+    "branch_review_sha256": "dab38fc110e4522ba66176336b1a3461253179cb0c9257133b8c5e65fbc9b7be",
+    "checkpoint_sha256": "c7067ac86c8eda4e034a3b813a699f174c7216e462f3e123f6017aa26d825937",
+    "core_review_sha256": "9e780319a13d3367dd7df34d6523dbde5a957edb5848d1811c605c0e4538a890",
+    "distribution_review_sha256": "f68aac7cf4835b731d1a77dc1fd0aca5a3928405efa89079d58e7023ae408e14",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "original_failed_stops_preserved": true,
+    "original_financial_artifact_id": 13598958730,
+    "passed": true
+  },
+  "canonical_runtime_executed": false,
+  "files": {
+    "P07-request231-readonly-recovery-fact.json": {
+      "bytes": 50532,
+      "sha256": "f0064c4c904ae07e0fcdd5893ac9c6baf4c878292d9ba37b7afe8b850852d491"
+    },
+    "P07-request233-independent-readonly-review-transport.json": {
+      "bytes": 4828,
+      "sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6"
+    },
+    "system_campaign_p07_fin326_requalified_parent.py": {
+      "bytes": 16230,
+      "sha256": "ca981e5bc69446730cc390093aaf59ed5eec310ac15e950feacb68d4bdb6f680"
+    },
+    "system_campaign_p07_request231_parent.py": {
+      "bytes": 7904,
+      "sha256": "ac5e97844757af2d1e8e94860017d6e7465f74b14d49ac21cf5c7eae4dd7c941"
+    },
+    "system_campaign_p07_request231_review.py": {
+      "bytes": 12909,
+      "sha256": "ca6defa1f7170b6403c8394f97b717dcc1e66057289bf95a7548e9ac00c7a220"
+    },
+    "system_campaign_postclose_distribution_runtime.py": {
+      "bytes": 11480,
+      "sha256": "2e9bbcef9584804d2dc98fa4f72710b5e87433d5b550b9e541bb6a1c680c89cf"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "original_financial_stops": [
+    0,
+    1,
+    1
+  ],
+  "original_financial_target_sha256": "3b0589405f1fb124e6898389b9285793d8b01c7f426a904f30318f66eaddcb49",
+  "original_refusal_verified": true,
+  "passed": true,
+  "positive_readonly_stops": [
+    0,
+    0
+  ],
+  "positive_review_transport_sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6",
+  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "schema": "research.P07-request231-parent-transport-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_request231_parent.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-request231-parent-tests-20261108-002",
+    "financial_import_fences": 5,
+    "guard_removal_falsifiers": 2,
+    "passed": 11,
+    "seconds": 2.68,
+    "whole_view_AST_undo": true
+  }
+}

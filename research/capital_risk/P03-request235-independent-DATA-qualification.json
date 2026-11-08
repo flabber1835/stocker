@@ -1,0 +1,77 @@
+{
+  "counts": {
+    "accountings": 44,
+    "daily": 22,
+    "full_inputs": 20,
+    "independent_decimal_metrics": 28,
+    "new_monthly_reports": 1,
+    "new_proofs": 22,
+    "resources": 105,
+    "retained_proofs": 152
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\DESIGN.md": {
+      "bytes": 1970,
+      "sha256": "dd2dda500091aaa7ecc9c6aedaca323661564acb2a4aa4492a6b1e14d3f1c770"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\P03-independent-financial-review-v2.json": {
+      "bytes": 9937,
+      "sha256": "035f45aaa348a36ba7dfa6dc893359ddae7a3ed65a17bf9386653b7ef2eedfe6"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\P03-independent-financial-review.json": {
+      "bytes": 9937,
+      "sha256": "597e5e74b3c64b195c60ace13a0468ec3b2166bae0fd5cf218b5e8a1188d4172"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\P03-request235-transport-target.json": {
+      "bytes": 40235,
+      "sha256": "f35e70bfeac42375f1d33408e709bd1eb65ca33c18bb0ecbeafde7402f3a0c57"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\independent_REQUEST235_DATA.py": {
+      "bytes": 9733,
+      "sha256": "2a764929298ed7655d4cf73f99a838c6e8e9a0b259d1a1b1ef8f793963980d3b"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\p03_REQUEST235_components_DATA.py": {
+      "bytes": 8855,
+      "sha256": "5971f0137f5fb1971406e04a610f270b6d88e46151fc6550dc8458651c6773d1"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request235-DATA-20261108\\test_REQUEST235_DATA.py": {
+      "bytes": 4563,
+      "sha256": "02a1bb7a882155bce7e1152ad6885d78e4f4e0db3475ec1aaea63f4ea9a6d0d5"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request235-source-snapshot\\authenticated-artifact-13603194448\\authenticated-manifest.json": {
+      "bytes": 58614,
+      "sha256": "55ed0322d2536703b310404c4a065f8f7778889f4ac60a054796c90d8a0b761d"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request235-source-snapshot\\authenticated-artifact-13603194448\\campaign-factual-P03.json": {
+      "bytes": 1317,
+      "sha256": "498937e8071ac066b165df323b2c161baa06aec44590d855a4209c063606325f"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request235-source-snapshot\\authenticated-artifact-13603194448\\capture-review.json": {
+      "bytes": 661,
+      "sha256": "2012f377a2cd909fcae00e744b8d2cced3ede3d60f8de7083401cd5fe4903fd1"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "independent_review_sha256": "035f45aaa348a36ba7dfa6dc893359ddae7a3ed65a17bf9386653b7ef2eedfe6",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    1,
+    0
+  ],
+  "original_result_preserved": true,
+  "passed": true,
+  "presentation_event_label_corrected": "ABMD -> STML; actual catalog and all financial predicates unchanged",
+  "root_admission_performed": false,
+  "same_artifact_successful_original_review": true,
+  "schema": "research.P03-request235-independent-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest .codex-tmp/p03-request235-DATA-20261108/test_REQUEST235_DATA.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P03-request235-DATA-tests-20261108-003",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 6,
+    "seconds": 9.44,
+    "whole_mature_financial_AST_undo": true
+  }
+}

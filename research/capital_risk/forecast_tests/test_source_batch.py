@@ -15,20 +15,21 @@ def batch_request():return json.loads((C/p.REQUEST).read_bytes())
 
 def test_exact_batch_covers_all_missing_source_blockers_without_financial_authority(batch_request):
  assert p.validate_files(batch_request) is None
- assert {q['arm'] for q in batch_request['observations']}=={'P06'}
- assert len(batch_request['observations'])==3 and len(batch_request['native_groups'])==1
+ assert {q['arm'] for q in batch_request['observations']}=={'P03'}
+ assert len(batch_request['observations'])==16 and len(batch_request['native_groups'])==8
  assert batch_request['financial_authority'] is batch_request['input_adopted'] is False
  assert batch_request['maximum_parallel_financial_workers']==0
- fact=json.loads((C/'P06-request228-March16-source-query-context.json').read_bytes())
+ name='P03-request235-next-eight-source-query-context.json';fact=json.loads((C/name).read_bytes())
  assert fact['financial_authority'] is fact['input_adopted'] is False
  assert fact['financial_sessions_advanced']==0 and fact['context_is_not_event_date_ownership'] is True
- assert fact['failed_session']==fact['original_refusal_status']['failed_session']=='2026-03-16'
- assert 'incomplete leadership cash terminal: '+fact['security_id'] in fact['original_refusal_status']['error']
- assert all(q['security_id']==fact['security_id'] and q['ticker'] is None for q in batch_request['observations'])
- assert {q['session'] for q in batch_request['observations']}=={fact[k] for k in ('prior_session','failed_session','after_session')}
- assert batch_request['admitted_context']['P06']['root_admission_sha256']==fact['admitted_root']
- assert batch_request['admitted_context']['P06']['completed']==fact['admitted_completed']==2050
- assert batch_request['sources']['P06-request228-March16-source-query-context.json']==p.sha((C/'P06-request228-March16-source-query-context.json').read_bytes())
+ assert len(fact['scopes'])==8 and any(x['ticker']=='PTLA' and x['native_session']=='2020-07-01' for x in fact['scopes'])
+ assert all(q['ticker'] is None for q in batch_request['observations'])
+ for scope in fact['scopes']:
+  selected=[q for q in batch_request['observations'] if q['security_id']==scope['security_id']]
+  assert {q['session'] for q in selected}=={scope['native_session'],scope['next_frozen_session']}
+ assert batch_request['admitted_context']['P03']['root_admission_sha256']==fact['admitted_root']
+ assert batch_request['admitted_context']['P03']['completed']==fact['admitted_completed']==628
+ assert batch_request['sources'][name]==p.sha((C/name).read_bytes())
 
 @pytest.mark.parametrize('change',['authority','adopt','workers','duplicate','past','missing_parent'])
 def test_financial_or_unbounded_scope_refused(batch_request,change):
@@ -48,7 +49,7 @@ def test_source_only_guard_removal_is_meaningful(batch_request,monkeypatch):
  assert p.validate(value) is True
 
 def test_capture_context_cannot_be_relabelled_as_another_date(batch_request,monkeypatch):
- value=deepcopy(batch_request);value['admitted_context']['P06']['through']='2022-12-30'
+ value=deepcopy(batch_request);value['admitted_context']['P03']['through']='2020-05-29'
  with pytest.raises(ValueError,match='EXACT_ADMITTED_CAPTURE_CONTEXT'):p.validate_files(value)
  original=p.need;monkeypatch.setattr(p,'need',lambda value,label:None if label=='SOURCE_BATCH_EXACT_ADMITTED_CAPTURE_CONTEXT_NOT_EVENT_DATE_ROLES' else original(value,label))
  assert p.validate_files(value) is None

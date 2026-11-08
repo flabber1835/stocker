@@ -84,6 +84,9 @@ def test_exact_request_has_only_reporting_worker_and_exact_source_pins():
   if r.get(p.FIELD):
    assert p.sha((C/m.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
    assert p.require_request(r,p.target())
+  elif r.get('selected_p03_STML_second_bounded_event'):
+   assert p.sha((C/m.REQUEST).read_bytes())=='9e5b4f85fca0e0ca045ba419b8d0096296a5a53110fda4c8ecd271c0a75b0012'
+   assert r['arms']==['P03'] and r['selected_p03_STML_second_bounded_event']['P03']['parent_days']==606
   else:assert r==m.expected_request() and r['arms']!=['P06']
   return
  assert r==m.expected_request() and r['schema'].endswith('/234')

@@ -65,14 +65,15 @@ def test_every_declared_actual_read_is_required_and_guard_removal(monkeypatch):
 
 def test_exact606_root_and_original_four_worker_ASTs():
  from system_campaign_financial_partial import root_spec
- spec=root_spec('P03');assert p.candidate(spec) and spec['root_admission_sha256']==r.source.ROOT
+ spec=root_spec('P03',r.source.ROOT);assert p.candidate(spec) and spec['root_admission_sha256']==r.source.ROOT
  names=resources.fact()['original4_AST'];actual={n.name:r.sha(ast.dump(n,include_attributes=False).encode()) for n in ast.parse((C/'system_campaign_financial_resume.py').read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name in names}
  assert actual==names
 
 def test_new_profile_routes_only_old_selector_away_and_keeps_actual_financial_arm(monkeypatch):
  import system_campaign_bounded_lifecycle_dispatch as bounded
  from system_campaign_financial_partial import root_spec
- spec=root_spec('P03');seen=[]
+ spec=root_spec('P03',r.source.ROOT);seen=[]
+ monkeypatch.setattr('system_campaign_financial_partial.root_spec',lambda arm:spec)
  monkeypatch.setattr(p,'qualification',lambda:'0'*64)
  def old_profile(base,*,execution_mode,selected_arms):
   seen.append((execution_mode,selected_arms));assert selected_arms==();return base()
@@ -93,7 +94,7 @@ def test_complete_two_event_factory_uses_real_previous_owner_and_consumed_bindin
 
 def test_local_mutating_paths_are_closed():
  from system_campaign_financial_partial import root_spec
- spec=root_spec('P03')
+ spec=root_spec('P03',r.source.ROOT)
  with pytest.raises(ValueError):r.prepare({},Path('NONCANONICAL_DTO'),spec,Path('NONCANONICAL_SOURCE_DTO'))
  with pytest.raises(ValueError):r.preserve_archive(Path('NONCANONICAL_SOURCE_DTO'),Path('NONCANONICAL_OUTPUT_DTO'))
  with pytest.raises(ValueError):
@@ -105,3 +106,14 @@ def test_local_mutating_paths_are_closed():
 def test_financial_import_fences(name):
  assert not any(n==name or n.startswith(name+'.') for n in sys.modules)
  with pytest.raises(ImportError):Fence().find_spec(name)
+
+def test_new628_root_retires_literal_request235_without_regeneration():
+ import system_campaign_financial_resume as m
+ from system_campaign_financial_partial import root_spec
+ current=root_spec('P03');prior=root_spec('P03',r.source.ROOT)
+ assert current['measured_closes']==628 and len(current['repairs'])==20
+ assert prior['measured_closes']==606 and p.candidate(prior) and not p.candidate(current)
+ raw=(C/m.REQUEST).read_bytes();request=json.loads(raw)
+ assert p.sha(raw)=='9e5b4f85fca0e0ca045ba419b8d0096296a5a53110fda4c8ecd271c0a75b0012'
+ assert request[p.FIELD]['P03']['root_admission_sha256']==r.source.ROOT
+ with pytest.raises(ValueError):m.expected_request()

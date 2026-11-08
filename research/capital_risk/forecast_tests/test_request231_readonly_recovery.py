@@ -34,6 +34,9 @@ def test_closed_request_selects_only_new_readonly_case_and_has_exact_pins():
    assert not value.get(p.FIELD) and not p.selected_request(value)
    if 'P06' in resume.COMPLETED_ADMISSIONS and value.get('selected_p06_request232_final_reporting'):
     assert p.sha((C/resume.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
+   elif value.get('selected_p03_STML_second_bounded_event'):
+    assert p.sha((C/resume.REQUEST).read_bytes())=='9e5b4f85fca0e0ca045ba419b8d0096296a5a53110fda4c8ecd271c0a75b0012'
+    assert value['arms']==['P03'] and value['selected_p03_STML_second_bounded_event']['P03']['parent_days']==606
    else:assert value==resume.expected_request()
   return
  assert value==resume.expected_request() and p.selected_request(value)
