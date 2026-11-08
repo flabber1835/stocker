@@ -119,13 +119,15 @@ def _plan_html(panel: Panel) -> str:
                 '<p class="overview-note">Open System details for the recorded preparation and execution status.</p>'
                 '</section>')
     actions = [leg for leg in plan.legs if leg.action != 'HOLD']
-    minutes = max(0, int((plan.execute_at-panel.now).total_seconds()+59)//60)
+    opened = plan.execution_open_at
+    minutes = max(0, int((opened-panel.now).total_seconds()+59)//60) if opened is not None else 0
     days, remainder = divmod(minutes, 1440)
     hours, minutes = divmod(remainder, 60)
     parts = [f'{value} {unit}'+('s' if value != 1 else '')
              for value, unit in ((days, 'day'), (hours, 'hour'), (minutes, 'minute'))
              if value or unit == 'minute']
-    countdown = 'Market open in '+ ' '.join(parts) if plan.execute_at > panel.now else 'Scheduled market open reached'
+    countdown = ('Market-open time unavailable' if opened is None else
+                 'Market open in '+ ' '.join(parts) if opened > panel.now else 'Scheduled market open reached')
     outcomes = row.visible_order_outcomes(panel.now)
     changes = (''.join(_leg_html(leg, outcomes) for leg in actions)
                if actions else '<li class="no-plan-changes">No share changes in the saved plan.</li>')
@@ -139,8 +141,8 @@ def _plan_html(panel: Panel) -> str:
         '<div class="overview-heading"><div>'
         '<h2 id="next-plan-title">Next trading plan</h2></div>'
         '<span class="overview-tag">PAPER</span></div>'
-        '<div class="plan-schedule"><strong id="market-open-countdown" data-execute-at="'
-        +_esc(plan.execute_at.isoformat())+'">'+_esc(countdown)+'</strong></div>'
+        '<div class="plan-schedule"><strong id="market-open-countdown" data-market-open-at="'
+        +_esc(opened.isoformat() if opened is not None else '')+'">'+_esc(countdown)+'</strong></div>'
         '<ul class="plan-legs">'+changes+'</ul>'
         '<p class="overview-note">Saved proposals, not submitted orders or fills. Buy limits and funding '
         'are checked at execution.</p>'

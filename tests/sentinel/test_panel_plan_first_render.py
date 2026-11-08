@@ -44,7 +44,7 @@ def example_panel():
             target_quantity=Decimal(225), change_quantity=Decimal(0), action='HOLD')]
     plan = PlanPreview(cycle_id='cycle-1', plan_id='plan-1',
         decision_session=date(2026,10,22), effective_session=date(2026,10,23),
-        execute_at=EXECUTE, created_at=OBSERVED, observation_at=OBSERVED, legs=legs)
+        execute_at=EXECUTE, execution_open_at=EXECUTE-timedelta(minutes=1), created_at=OBSERVED, observation_at=OBSERVED, legs=legs)
     outcome = model.PaperOrderOutcome(security_id='PANW',ticker='PANW', client_key='client-panw-1',
         broker_order_id='native-panw-1',side='BUY',quantity=Decimal(3),filled_quantity=Decimal(0),
         state='CANCELLED',observed_at=NOW-timedelta(hours=8))
@@ -69,8 +69,8 @@ def test_plan_first_orders_then_recorded_account_then_all_canonical_slots():
     before = deepcopy(panel)
     html = overview.overview_html(panel)
     assert html.index('next-plan-title') < html.index('account-overview-title') < html.index('core-slots-title')
-    assert 'Market open in 9 hours 18 minutes' in html
-    assert 'data-execute-at="'+EXECUTE.isoformat()+'"' in html
+    assert 'Market open in 9 hours 17 minutes' in html
+    assert 'data-market-open-at="'+(EXECUTE-timedelta(minutes=1)).isoformat()+'"' in html
     assert 'The next session' not in html and 'Unscaled model book' not in html
     assert 'Sell</span><strong class="plan-quantity">8 shares' in html
     assert 'Buy</span><strong class="plan-quantity">3 shares' in html

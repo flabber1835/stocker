@@ -27,7 +27,7 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
 COORDINATION_ADDITIONS = {'panel/composition.py','panel/dom_refresh.py','snapshot_scan_admission.py'}
-COORDINATION_CHANGES = {'committed_read.py','rolling_runtime.py','paper/finalization.py',
+COORDINATION_CHANGES = {'committed_read.py','rolling_runtime.py','paper/finalization.py','paper_plan_preview.py',
     'panel/projection_service.py','panel/overview.py','panel/render.py','panel/styles.py'}
 READ_COST_ADDITIONS = COORDINATION_ADDITIONS | {
     'panel/verification_health.py', 'shadow_drain_observer.py',

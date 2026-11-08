@@ -106,7 +106,11 @@ readiness/session labels, model-book explanatory paragraph and footer. This is
 presentation only: incident history and acknowledgement authority remain intact
 in the backend and are not implicitly cleared. System details stays available.
 Replace the saved plan's scheduled-open date/time with a days/hours/minutes
-countdown derived only from its admitted execute_at. No seconds or negative
+countdown derived only from its admitted execution_open_at. Include that existing
+cycle timestamp in the current plan SELECT and immutable display preview: the
+execution delay is not part of the market-open countdown. Absent open evidence
+shows unavailable; do not initialize another calendar in the HTTP renderer.
+No seconds or negative
 countdown, no client-created next session, and no continuing countdown when its
 plan evidence is stale. Reuse the existing age timer and change text only when
 the minute value changes.

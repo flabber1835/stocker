@@ -765,8 +765,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var card = counter.closest('.overview-card');
     var current = originalCurrent() && !invalidated && !refreshDelayed &&
       document.body.dataset.observationCurrent === 'true' && card && card.dataset.current === 'true';
-    var end = Date.parse(counter.dataset.executeAt);
-    var value = 'Market-open time not current';
+    var end = Date.parse(counter.dataset.marketOpenAt);
+    var value = current ? 'Market-open time unavailable' : 'Market-open time not current';
     if (current && Number.isFinite(end)){{
       var total = Math.max(0, Math.ceil((end-Date.now())/60000));
       var days = Math.floor(total/1440), hours = Math.floor(total%1440/60), minutes = total%60;

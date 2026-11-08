@@ -11,6 +11,6 @@ def test_exact_installed_predecessor_and_complete_operational_delta():
     assert set(actual)-set(prior)=={'panel/composition.py','panel/dom_refresh.py','snapshot_scan_admission.py'}
     assert {name for name in prior if prior[name]!=actual[name]}=={
         'committed_read.py','rolling_runtime.py','paper/finalization.py','panel/projection_service.py',
-        'panel/overview.py','panel/render.py','panel/styles.py','url_selected_source_basis.py'}
+        'panel/overview.py','panel/render.py','panel/styles.py','paper_plan_preview.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(actual,previous=prior)==prior
     assert profile['authority_effect']=='NONE'

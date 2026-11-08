@@ -194,7 +194,7 @@ def test_reader_uses_retained_plan_tickers_when_legacy_bars_are_absent(monkeypat
             if 'FROM sentinel_automation_cycles' in query:
                 self.rows=[(selected['cycle_id'],selected['plan_id'],selected['decision_session'],
                     selected['effective_session'],selected['execute_at'],selected['created_at'],
-                    selected['target_basket'],'alpaca','paper-fixture',NOW,'a'*64)]
+                    selected['target_basket'],'alpaca','paper-fixture',NOW,'a'*64,selected['execute_at']-timedelta(minutes=1))]
             elif 'FROM sentinel_observations' in query:
                 self.rows=[({'one':'2','two':'3','three':'5'},NOW-timedelta(hours=15))]
             elif 'FROM sentinel_processed_sessions' in query:self.rows=[]
