@@ -350,6 +350,44 @@ def test_completed_baseline_storage_guard_has_falsifier(monkeypatch):
         test_completed_baseline_accepts_only_forward_restart_of_exact_database(monkeypatch,'volume')
 
 
+@pytest.mark.parametrize('fault',[None,'container','image','volume','source','command','system','backwards'])
+def test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,fault):
+    from types import SimpleNamespace
+    root=tmp_path/'source';(root/'.git').mkdir(parents=True)
+    prior=tmp_path/'prior.json';prior.write_text('{}')
+    before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
+    if fault in {'container','image','volume','source','command'}:after[fault]='foreign'
+    if fault=='backwards':after['started']='2025-01-01T00:00:00Z'
+    anchor=dict(git_commit='1'*40,runtime_image='sha256:'+'a'*64,postgres=before,system='123',
+        control_generation=7,certificate_sha256='certificate',roots=(root,))
+    foundation=dict(commit=anchor['git_commit'],image=anchor['runtime_image'],postgres=after,system='123')
+    candidate=dict(commit='2'*40,image='sha256:'+'b'*64,source_identity='identity')
+    report=dict(commit=candidate['commit'],final=True,source_files_unchanged=True,source_files={'one':'hash'})
+    qualified=tmp_path/'qualification.json';qualified.write_text(json.dumps(report))
+    qualification=dict(report_path=str(qualified),report_sha256=patch.sha256_file(qualified),source_files=report['source_files'])
+    request=dict(candidate=candidate,source=str(root),deployment=str(root),predecessor=foundation,qualification=qualification)
+    record=dict(stage='VERIFIED',artifacts=dict(postgres=after,
+        preserved={'system':'foreign' if fault=='system' else '123'},native_positions={},notification_history={}))
+    receipt=tmp_path/'receipt.json';receipt.write_text(json.dumps(record))
+    built=dict(schema=patch.builder.BUILD_SCHEMA,**candidate,source=str(root),deployment=str(root),
+        foundation=foundation,qualification=qualification,
+        predecessor_receipt=dict(path=str(prior),sha256=patch.sha256_file(prior)))
+    monkeypatch.setattr(patch,'Journal',lambda _:SimpleNamespace(request=request,read=lambda:record))
+    monkeypatch.setattr(patch.builder,'operation_build',lambda _:built)
+    original=patch.predecessor_witness
+    monkeypatch.setattr(patch,'predecessor_witness',lambda path,**kw:anchor if Path(path)==prior else original(path,**kw))
+    if fault:
+        with pytest.raises(patch.DeliveryRefused):original(receipt)
+    else:assert original(receipt)['postgres']==after
+    assert before['started']=='2026-01-01T00:00:00Z'
+
+
+def test_completed_ancestry_storage_guard_has_falsifier(tmp_path,monkeypatch):
+    monkeypatch.setattr(patch,'require_same_postgres_storage',lambda *a:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,'volume')
+
+
 @pytest.mark.parametrize('fault', [None,'not_selected','not_started','financial','native',
                                  'history','image','unhealthy','stopped','oom','restarting'])
 def test_started_replacement_requires_each_preservation_boundary(monkeypatch, fault):

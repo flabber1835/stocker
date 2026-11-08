@@ -61,6 +61,9 @@ selection applies the existing same-storage and forward-restart-time guard to
 that observation, then records the actual process witness for the new handoff.
 It never edits the prior receipt, accepts replacement storage, or skips the new
 canonical preservation proof and operational startup gates.
+Apply this same comparison across completed receipt ancestry: a newly recorded
+forward process start must remain usable by the next installation without
+rewriting the older receipt or treating a new process time as new storage.
 
 ## WAL shell fanout
 
@@ -73,9 +76,13 @@ changes during verification. Do not cache backup admission or remove byte scrubs
 
 Native maintenance resolves its WAL checker from the canonical deployment root,
 independently of the installer selector and application image. Activation therefore
-atomically replaces only that qualified shell script, preserving its owner/mode,
-and retains the previous bytes and both hashes. Existing readers retain their
-opened inode; subsequent maintenance ticks consume the qualified replacement.
+selects a separate **clean**, qualified maintenance checkout with a matching
+immutable runtime image. Never patch a tracked file in the existing maintenance
+checkout: its clean-source guard would correctly refuse all subsequent ticks.
+Keep the maintenance user's ownership and private maintenance-only environment,
+the original named database/backup storage, ownership lock and cadence. Atomically
+replace the existing effective service drop-in, retain the previous bytes/hash,
+and verify a genuine subsequent maintenance tick and renewed chain proof.
 No database, archive command, maintenance schedule or policy changes.
 
 ## Source handover

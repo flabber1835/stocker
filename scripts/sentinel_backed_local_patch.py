@@ -146,8 +146,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
     pg, preserved = record['artifacts']['postgres'],record['artifacts']['preserved']
     require(pg==foundation['postgres'] and preserved['system']==foundation['system']
         and 'archive_mode=on' in pg['command']
-        and (anchor['postgres'] is None or (preserved['system']==anchor['system']
-            and (pg==anchor['postgres'] or prior.get('allow_started') is True))),
+        and (anchor['postgres'] is None or preserved['system']==anchor['system']),
         'BACKED_PREDECESSOR_PRESERVATION_CHANGED')
     if anchor['postgres'] is not None and pg!=anchor['postgres']:
         require_same_postgres_storage(anchor['postgres'],pg)
