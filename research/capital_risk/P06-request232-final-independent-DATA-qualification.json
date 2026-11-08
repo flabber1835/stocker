@@ -1,0 +1,88 @@
+{
+  "counts": {
+    "accountings": 212,
+    "daily": 106,
+    "full_inputs": 15,
+    "independent_decimal_metrics": 140,
+    "new_monthly_reports": 5,
+    "new_proofs": 106,
+    "resources": 138,
+    "retained_proofs": 797,
+    "total_monthly_reports": 103
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\DESIGN.md": {
+      "bytes": 2157,
+      "sha256": "7bf1b6300811e1fa900af76c47b3bf758916f383b55580aaed8ff192f8b51e1e"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\P06-independent-financial-review.json": {
+      "bytes": 16433,
+      "sha256": "0cb31c66ab14dba682108887217ab952631373bd0aece0ac5bcca3483653b815"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\P06-request232-transport-target.json": {
+      "bytes": 37426,
+      "sha256": "5cf9487ba8de96d0677017b0da0feca35455b53507cfbfb3617803541f4bd6f6"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\independent_REQUEST232_DATA.py": {
+      "bytes": 8654,
+      "sha256": "67fc94260eebf1529ebb7e8f716d7d68d1fff7360eeb64b9030e4c1ac754e52e"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\p06_REQUEST232_components_DATA.py": {
+      "bytes": 9291,
+      "sha256": "194e8c8e6842f4884da8f7a7239d413071fda9b23bd6381f6ba791d10bd4e1b1"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p06-request232-DATA-20261108\\test_REQUEST232_DATA.py": {
+      "bytes": 4922,
+      "sha256": "81c8046afada69f431f12bb855f2e486bfe719c0438089532cf13d4ba685a7ee"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request232-source-snapshot\\authenticated-artifact-13601596112\\authenticated-manifest.json": {
+      "bytes": 114965,
+      "sha256": "2782dfd00c210e358df8c2cbbe80749ef72122ded1a63f75140c0aee4f02f914"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request232-source-snapshot\\authenticated-artifact-13601596112\\campaign-factual-P06.json": {
+      "bytes": 1305,
+      "sha256": "bf5f1b25659eea3f56654a4debcdee6a7806bb93e8a722293b272c66d0842e5e"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request232-source-snapshot\\authenticated-artifact-13601596112\\capture-review.json": {
+      "bytes": 661,
+      "sha256": "9231091f4c2cbd8cb6988234fdf7340f8a7604ad7691e536ca1c72149a3ca170"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request234-source-snapshot\\authenticated-artifact-13602620631\\authenticated-manifest.json": {
+      "bytes": 6022,
+      "sha256": "ba32a702fdc7271a98a092b980210e62f496f47b811e4a111e0bc3a02864eac5"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request234-source-snapshot\\authenticated-artifact-13602620631\\campaign-factual-P06.json": {
+      "bytes": 1093,
+      "sha256": "7ea211376ea1bfd30ddc8965693fdc80dc454d24684c50ba5fd9cfaae409a2f2"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P06-request234-source-snapshot\\authenticated-artifact-13602620631\\capture-review.json": {
+      "bytes": 441,
+      "sha256": "2d3a90fd35f28f393b444add67069fb28a31fe227b3ab8a3fa95e1cf48310fe6"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "fresh_separate_readonly_stops_preserved": [
+    0
+  ],
+  "independent_review_sha256": "0cb31c66ab14dba682108887217ab952631373bd0aece0ac5bcca3483653b815",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    0,
+    1
+  ],
+  "passed": true,
+  "readonly_transport_sha256": "d1e2ede1035bbcdf059f347ea28a0ac48a5b362904880f17cceef40df540cc0d",
+  "root_admission_performed": false,
+  "schema": "research.P06-request232-final-independent-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest .codex-tmp/p06-request232-DATA-20261108/test_REQUEST232_DATA.py -q -p no:cacheprovider --tb=short",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 7,
+    "seconds": 9.9,
+    "whole_mature_financial_AST_undo": true,
+    "whole_oracle_AST_undo": true
+  }
+}

@@ -80,9 +80,23 @@ def test_completed_case_is_retired(monkeypatch):
 def test_exact_request_has_only_reporting_worker_and_exact_source_pins():
  import system_campaign_financial_resume as m
  r=json.loads((C/m.REQUEST).read_bytes())
+ if p.retired():
+  assert p.sha((C/m.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
+  assert p.require_request(r,p.target())
+  with pytest.raises(ValueError,match='COMPLETED_REQUEST_RETIRED'):m.expected_request()
+  return
  assert r==m.expected_request() and r['schema'].endswith('/234')
  assert p.require_request(r,p.target())
  assert all(p.sha((C/n).read_bytes())==v for n,v in r['sources'].items())
+
+def test_completed_result_has_separate_scoring_authority_and_no_restart():
+ if not p.retired():pytest.skip('Final result not registered yet')
+ value=p.partial.completed_result('P06')
+ assert value['performance_scoring_authorized'] is value['full_financial_validation_completed'] is True
+ assert value['financial_continuation_authorized'] is False and value['completed']==2156
+ assert value['original_financial_stops']['reviewer']['exit_code']==1
+ assert value['fresh_readonly_stops']['preflight']['exit_code']==0
+ assert p.partial.root_spec('P06')['measured_closes']==2050
 
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])
 def test_no_financial_runtime_import(name):

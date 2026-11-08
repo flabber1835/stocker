@@ -32,7 +32,9 @@ def test_closed_request_selects_only_new_readonly_case_and_has_exact_pins():
    assert p.selected_request(value)
   else:
    assert not value.get(p.FIELD) and not p.selected_request(value)
-   assert value==resume.expected_request()
+   if 'P06' in resume.COMPLETED_ADMISSIONS and value.get('selected_p06_request232_final_reporting'):
+    assert p.sha((C/resume.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
+   else:assert value==resume.expected_request()
   return
  assert value==resume.expected_request() and p.selected_request(value)
  assert value['schema'].endswith('/233') and not value.get('selected_p07_full25_readonly_reporting',{})
