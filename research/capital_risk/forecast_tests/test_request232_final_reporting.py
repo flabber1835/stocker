@@ -81,9 +81,10 @@ def test_exact_request_has_only_reporting_worker_and_exact_source_pins():
  import system_campaign_financial_resume as m
  r=json.loads((C/m.REQUEST).read_bytes())
  if p.retired():
-  assert p.sha((C/m.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
-  assert p.require_request(r,p.target())
-  with pytest.raises(ValueError,match='COMPLETED_REQUEST_RETIRED'):m.expected_request()
+  if r.get(p.FIELD):
+   assert p.sha((C/m.REQUEST).read_bytes())=='e888fb7bf9d15fcba3a1fb75680e6d79012b727676f3355d6b9bb6e226133056'
+   assert p.require_request(r,p.target())
+  else:assert r==m.expected_request() and r['arms']!=['P06']
   return
  assert r==m.expected_request() and r['schema'].endswith('/234')
  assert p.require_request(r,p.target())
