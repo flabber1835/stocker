@@ -404,6 +404,9 @@ def public_names(spec, archive):
 
 
 def full_target(spec):
+    if spec.get('p06_request232_final_reporting') is True:
+        from system_campaign_p06_request232_reporting import complete_target
+        return complete_target(spec)
     """An explicit complete transport is reporting evidence, never a resume seed."""
     if 'readonly_full_financial_target' not in spec:
         return False

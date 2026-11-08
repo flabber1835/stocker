@@ -27,9 +27,12 @@ def test_closed_request_selects_only_new_readonly_case_and_has_exact_pins():
  import system_campaign_financial_resume as resume
  value=json.loads((C/resume.REQUEST).read_bytes())
  if p.retired():
-  assert p.sha((C/resume.REQUEST).read_bytes())=='a04812eb39d904454d6cde823bc71c0eb5d8d839ce67bc9039983e0df617fbc6'
-  assert p.selected_request(value)
-  with pytest.raises(ValueError,match='ALREADY_ADMITTED_REQUEST_RETIRED'):resume.expected_request()
+  if value['schema'].endswith('/233'):
+   assert p.sha((C/resume.REQUEST).read_bytes())=='a04812eb39d904454d6cde823bc71c0eb5d8d839ce67bc9039983e0df617fbc6'
+   assert p.selected_request(value)
+  else:
+   assert not value.get(p.FIELD) and not p.selected_request(value)
+   assert value==resume.expected_request()
   return
  assert value==resume.expected_request() and p.selected_request(value)
  assert value['schema'].endswith('/233') and not value.get('selected_p07_full25_readonly_reporting',{})
