@@ -222,6 +222,26 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==2
 
 
+def test_final_history_read_occurs_once_after_native_before_panel(operation,monkeypatch):
+    host,journal,delivery=operation
+    order=[]
+    original_native=coordinator.evidence.native_positions
+    original_history=coordinator.evidence.check_notification_history
+    original_panel=coordinator.evidence.panel
+    def native(*a,**kw):
+        order.append('native');return original_native(*a,**kw)
+    def history(*a,**kw):
+        order.append('history');return original_history(*a,**kw)
+    def panel(*a,**kw):
+        assert order[-2:]==['native','history']
+        order.append('panel');return original_panel(*a,**kw)
+    monkeypatch.setattr(coordinator.evidence,'native_positions',native)
+    monkeypatch.setattr(coordinator.evidence,'check_notification_history',history)
+    monkeypatch.setattr(coordinator.evidence,'panel',panel)
+    assert delivery.advance()['stage']=='VERIFIED'
+    assert order[-3:]==['native','history','panel']
+
+
 def successor_operation(operation,monkeypatch):
     host,journal,_=operation
     host.request.update(schema=model.SUCCESSOR_SCHEMA,handoff_mode='POST_TRADE_SUCCESSOR')

@@ -14,12 +14,12 @@ def test_exact_installed_map_and_only_identity_availability_and_checker_change()
     profile=basis._profile()
     assert basis.IDENTITY_AVAILABILITY_PREDECESSOR_REVISION==REVISION
     prior=profile['retained_predecessors'][REVISION]['files']
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.WORK_COORDINATION_PREDECESSOR_REVISION]['files']
     assert len(prior)==len(actual)==460 and admission.source_closure(prior)==CLOSURE
     assert {name for name in prior if prior[name]!=actual[name]}=={
         'panel/authority_reader.py','url_selected_source_basis.py'}
-    assert basis.predecessor_view(actual,previous=prior)==prior
-    assert profile['authority_effect']=='NONE' and len(profile['retained_predecessors'])==20
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=prior)==prior
+    assert profile['authority_effect']=='NONE' and len(profile['retained_predecessors'])==21
     assert basis.PROFILE.stat().st_size<1_000_000
 
 

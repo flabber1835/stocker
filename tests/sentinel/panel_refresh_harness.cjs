@@ -27,21 +27,26 @@ const document = {
       maxAgeSeconds: input.budget,
       refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false',
       observationCurrent: 'true' } },
-  documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
+  documentElement: { classList: { add: value => classes.add(value), remove: (...values) => values.forEach(value=>classes.delete(value)) } },
   visibilityState: input.wake === 'initial-hidden' || input.wake.startsWith('hidden-initial-') ? 'hidden' : 'visible',
   getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
-    'plan-readiness': planReadiness})[id] ?? heartbeat,
+    'plan-readiness': planReadiness, 'dashboard-heartbeat': heartbeat})[id] ?? null,
   addEventListener: (name, fn) => { listeners[name] = fn; },
   querySelectorAll: selector => selector.includes('[open]') ?
     [expandedDetail].filter(item => item.open) : [expandedDetail],
   open() { writes.push('open'); },
   write(html) { writes.push(html); },
   close() { writes.push('close'); expandedDetail.open = false; },
+  acceptSnapshot(next) {
+    writes.push(next.fixtureValue);
+    Object.assign(this.body.dataset, next.body.dataset);
+    badge.className = next.fixtureValue === 'partial' ? 'state neutral' : 'state ok';
+  },
 };
 class Clock extends Date { static now() { return now; } }
 class Parser {
   parseFromString(html) {
-    return { getElementById: () => html === 'incomplete' ? null : {},
+    return { fixtureValue:html, getElementById: () => html === 'incomplete' ? null : {},
       body: { dataset: { generatedAt: html === 'invalid-date' ? 'invalid' :
         new Date(html === 'stale' ? now - 120000 : html === 'future' ? now + 10000 : now).toISOString(),
         maxAgeSeconds: ({'invalid-budget': 'invalid', 'zero-budget': '0',
@@ -98,8 +103,8 @@ function failRead(read) {
     reads[0].resolve({ok:true,status:200,headers:{get:()=>status},text:async()=>input.failure});
     await settled();
     if (input.failure==='partial') {
-      assert.deepEqual(writes,['open','partial','close'],'a fresh partial document is successful transport');
-      assert.equal(timers.size,0,'partial replacement cancels the old lifecycle');
+      assert.deepEqual(writes,['partial'],'a fresh partial document is successful transport');
+      assert.equal(timers.size,2,'partial refresh retains one age timer and one refresh timer');
     } else {
       assert.equal(writes.length,0,'header/body currentness mismatch installed authority');
     }
@@ -119,14 +124,13 @@ function failRead(read) {
     function remember() {
       observations.push({at:now,state:badge.className,generated:Date.parse(document.body.dataset.generatedAt), withdrawn:classes.has('not-current'), refreshing:classes.has('refreshing-status')});
       if (!writes.length || config.latencyMs === undefined) return;
-      assert.deepEqual(writes,['open','fresh','close']);
-      assert.equal(timers.size,0,'fresh replacement cancels the old proof and transport timers');
+      assert.deepEqual(writes,['fresh']);
+      assert.equal(timers.size,2,'fresh update retains exactly one age/refresh timer');
       installed.push(now);
       if (installed.length >= (config.cycles || 1)) { finished=true; return; }
       document.body.dataset.generatedAt = new Date(now).toISOString();
       badge.className='state ok';badge.textContent='current';
       classes.clear();writes.length=0;
-      vm.runInNewContext(input.script,context);
     }
     function planReplies() {
       if (config.latencyMs === undefined) return;
@@ -254,7 +258,7 @@ function failRead(read) {
         assertFreshness('expired','exhausted resume cannot revive last-known amber');
         if (reads.at(-1).aborted && !config.ignoreAbort) await advanceTo(now+5000);
         fresh(reads.at(-1));await settled();
-        assert.deepEqual(writes,['open','fresh','close'],'a later genuinely fresh server answer can restore the view');
+        assert.deepEqual(writes,['fresh'],'a later genuinely fresh server answer can restore the view');
       } else if (input.wake === 'transport-negative') {
         await advanceTo(start+1000);
         if (config.kind==='offline') {context.navigator.onLine=false;listeners.offline();}
@@ -325,8 +329,8 @@ function failRead(read) {
     }
     reads.at(-1).resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
     await settled();
-    assert.deepEqual(writes, ['open','fresh','close']);
-    assert.equal(timers.size, 0, 'successful foreground replacement cancels original timers');
+    assert.deepEqual(writes, ['fresh']);
+    assert.equal(timers.size, 2, 'successful foreground update retains only age/refresh timers');
     process.stdout.write('PASS\n'); return;
   }
   if (input.wake === 'proof-expiry') {
@@ -420,10 +424,10 @@ function failRead(read) {
     const pending=reads.at(-1);
     pending.resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
     await settled();
-    assert.deepEqual(writes,['open','fresh','close'],'fresh server document replaces last-known view');
+    assert.deepEqual(writes,['fresh'],'fresh server document updates last-known view');
     assert.equal(expandedDetail.open,true);
-    assert.equal(focusRestored,true);
-    assert.equal(timers.size,0,'successful replacement cancels the foreground deadline');
+    assert.equal(focusRestored,false,'focus is retained without re-focusing');
+    assert.equal(timers.size,2,'successful update cancels foreground deadline and retains age/refresh timers');
     process.stdout.write('PASS\n'); return;
   }
   if (input.wake === 'known-failure') {
@@ -476,14 +480,13 @@ function failRead(read) {
       const pending = reads.at(-1);
       pending.resolve({ok: true, headers: {get: () => 'CURRENT'}, text: async () => 'fresh'});
       await settled();
-      assert.deepEqual(writes, ['open', 'fresh', 'close']);
-      assert.equal(timers.size, 0, 'replacement removes every old document timer');
+      assert.deepEqual(writes, ['fresh']);
+      assert.equal(timers.size, 2, 'update retains one age timer and one refresh timer');
       if (cycle + 1 < cycles) {
         // Install the next server document and execute its actual controller.
         document.body.dataset.generatedAt = new Date(now).toISOString();
         badge.className = 'state ok'; badge.textContent = 'current';
         writes.length = 0;
-        vm.runInNewContext(input.script, context);
       }
     }
     process.stdout.write('PASS\n');
@@ -562,9 +565,9 @@ function failRead(read) {
   assert.equal(reads.length, 2);
   reads[1].resolve({ok: true, headers: {get: () => 'CURRENT'}, text: async () => 'fresh'});
   await settled();
-  assert.deepEqual(writes, ['open', 'fresh', 'close']);
+  assert.deepEqual(writes, ['fresh']);
   assert.equal(expandedDetail.open, true, 'expanded holdings survive page replacement');
-  assert.equal(focusRestored, true, 'keyboard focus survives page replacement');
-  assert.equal(timers.size, 0, 'old document timers must not survive replacement');
+  assert.equal(focusRestored, false, 'keyboard focus survives without forcing focus');
+  assert.equal(timers.size, 2, 'update retains exactly one age timer and one refresh timer');
   process.stdout.write('PASS\n');
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

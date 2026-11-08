@@ -2,7 +2,7 @@ const { defineConfig } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: ".",
-  testMatch: ["caesars-palace.spec.js", "pwa-launch.spec.js"],
+  testMatch: ["caesars-palace.spec.js", "pwa-launch.spec.js", "dom-refresh.spec.js"],
   timeout: 30_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,

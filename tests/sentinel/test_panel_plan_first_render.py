@@ -69,7 +69,9 @@ def test_plan_first_orders_then_recorded_account_then_all_canonical_slots():
     before = deepcopy(panel)
     html = overview.overview_html(panel)
     assert html.index('next-plan-title') < html.index('account-overview-title') < html.index('core-slots-title')
-    assert 'Friday, Oct 23' in html and 'From 6:31 AM Pacific' in html
+    assert 'Market open in 9 hours 18 minutes' in html
+    assert 'data-execute-at="'+EXECUTE.isoformat()+'"' in html
+    assert 'The next session' not in html and 'Unscaled model book' not in html
     assert 'Sell</span><strong class="plan-quantity">8 shares' in html
     assert 'Buy</span><strong class="plan-quantity">3 shares' in html
     assert html.index('data-security-id="PANW"') < html.index('All saved targets')
@@ -226,7 +228,7 @@ def test_owned_preparation_is_healthy_without_claiming_a_saved_plan(state,stage)
     assert panel.overall == panel.operational == model.WARN
     assert 'class="state ok"' in _headline(panel)
     html = overview.overview_html(panel)
-    assert stage in html and 'Next trading plan: not ready yet.' in html
+    assert stage in html and 'Plan not ready yet' in html
     assert 'Friday, Oct 23' in html and 'Closing session: 2026-10-22' in html
     assert 'Current-stage rows recorded: 1,720,712. Source components completed: 31.' in html
     assert 'Oct 22, 2026 · 9:11 PM Pacific' in html  # Original progress, not render time.
@@ -268,7 +270,7 @@ def test_published_work_does_not_call_an_admitted_saved_plan_pending():
     assert dashboard_health(panel)['plan_readiness'] == 'ready'
     assert dashboard_health(panel)['label'] == 'Healthy · Market data published'
     html = overview.overview_html(panel)
-    assert 'Next trading plan: saved for its scheduled market open.' in html
+    assert 'market-open-countdown' in html
     assert 'plan preparation pending' not in html and 'preparation-title' not in html
     assert 'data-security-id="PANW"' in html
 
@@ -289,7 +291,7 @@ def test_completed_publication_expires_at_its_own_effective_open_not_a_new_metad
     assert valid_until == opened.astimezone(timezone.utc).isoformat()
     assert datetime.fromisoformat(valid_until) == opened
     html = render(before)
-    assert 'data-max-age-seconds="15.0"' in html and 'refreshes every 7s' in html
+    assert 'data-max-age-seconds="15.0"' in html and '}, 7000)' in html
     # A fresh metadata read of the same old PUBLISHED job buys no new next-plan clock.
     for now in (opened,opened+timedelta(minutes=20),opened+timedelta(days=1)):
         after = _published_panel(now)
@@ -411,7 +413,7 @@ def test_composed_closing_run_has_healthy_acquisition_without_claiming_financial
     assert panel.overall == panel.operational == model.WARN
     assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
     assert dashboard_health(panel)['plan_readiness'] == 'pending'
-    assert 'Next trading plan: not ready yet.' in overview.overview_html(panel)
+    assert 'Plan not ready yet' in overview.overview_html(panel)
     failure = model.Row('automation_alerts','Alerts','CURRENT INCIDENT',model.FAIL)
     assert dashboard_health(replace(panel,rows=[*rows,failure]))['status'] == 'fail'
 
@@ -476,7 +478,7 @@ def test_preparation_precedes_completed_history_and_yields_to_an_actual_future_p
     current = replace(current,rows=[*current.rows,*preparing_panel().rows])
     html = overview.overview_html(current)
     assert 'preparation-title' not in html
-    assert 'Next trading plan: saved for its scheduled market open.' in html
+    assert 'market-open-countdown' in html
     assert 'data-security-id="PANW"' in html
 
 
@@ -485,12 +487,12 @@ def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claim
     panel = preparing_panel(lease_until=NOW+timedelta(seconds=12))
     html = render(panel)
     assert 'data-max-age-seconds="12.0"' in html
-    assert 'refreshes every 6s' in html
+    assert '}, 6000)' in html
     assert '}, 6000)' in html
     retained = render(panel,refresh_pending=True)
     assert 'class="state ok"' not in retained.split('</header>',1)[0]
     assert 'Last known · Downloading closing data' in retained
-    assert 'Last known · Next trading plan: not ready yet.' in retained
+    assert 'id="plan-readiness"' not in retained
     attack = '<script>alert("x")</script>'
     monkeypatch.setattr(overview,'preparation_stage',lambda _:attack)
     html = overview.overview_html(panel)
@@ -514,14 +516,14 @@ def test_acquisition_health_does_not_poll_on_an_unrelated_routine_leader_lease()
     assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
     assert dashboard_health(panel)['valid_until'] == (NOW+timedelta(seconds=35)).isoformat()
     html = render(panel)
-    assert 'data-max-age-seconds="35.0"' in html and 'refreshes every 17s' in html
-    assert 'refreshes every 1s' not in html
+    assert 'data-max-age-seconds="35.0"' in html and '}, 17000)' in html
+    assert '}, 1000)' not in html
     # An actual publication/worker proof still expires at that proof's own clock.
     worker_short = replace(panel,rows=[replace(row,valid_until=NOW+timedelta(seconds=9))
         if row.key == 'shadow_worker' else row for row in panel.rows])
     assert dashboard_health(worker_short)['valid_until'] == (NOW+timedelta(seconds=9)).isoformat()
     assert 'data-max-age-seconds="9.0"' in render(worker_short)
-    assert 'refreshes every 5s' in render(worker_short)
+    assert '}, 5000)' in render(worker_short)
 
 
 def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal():
@@ -540,15 +542,15 @@ def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal()
     assert dashboard_health(idle)['label'] == 'Healthy · Waiting for next decision'
     assert dashboard_health(idle)['valid_until'] == (NOW+timedelta(seconds=8)).isoformat()
     assert 'data-max-age-seconds="8.0"' in render(idle)
-    assert 'refreshes every 5s' in render(idle)
+    assert '}, 5000)' in render(idle)
     # Once no warning depends on that lease, the established general page budget applies.
     healthy = replace(idle,rows=rows[:-1])
     assert dashboard_health(healthy)['valid_until'] is None
     assert 'data-max-age-seconds="45"' in render(healthy)
-    assert 'refreshes every 30s' in render(healthy)
+    assert '}, 30000)' in render(healthy)
     near_expiry = preparing_panel(lease_until=NOW+timedelta(seconds=4))
     assert 'data-max-age-seconds="4.0"' in render(near_expiry)
-    assert 'refreshes every 5s' in render(near_expiry)  # The age timer withdraws first.
+    assert '}, 5000)' in render(near_expiry)  # The age timer withdraws first.
 
 
 def test_live_owner_admission_has_an_executed_health_removal_falsifier(monkeypatch):

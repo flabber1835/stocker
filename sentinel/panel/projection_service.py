@@ -20,8 +20,9 @@ from sentinel.panel import operational_schema as schema
 from sentinel.panel.verification_health import OPERATIONAL_HEARTBEAT
 
 DEADLINE_SECONDS = 20
+FAST_DEADLINE_SECONDS = 5
 POLL_SECONDS = 5
-SUPERSEDED_RETRY_SECONDS = .25
+SUPERSEDED_RETRY_SECONDS = 1
 MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
 HEARTBEAT = OPERATIONAL_HEARTBEAT
@@ -38,7 +39,7 @@ def refresh_delay(expiry, *, now, elapsed):
     remaining = (expiry-now).total_seconds()
     if remaining <= 0 or not math.isfinite(elapsed) or elapsed < 0:
         raise TimeoutError('operational publication has no remaining delivery budget')
-    budget = max(DEADLINE_SECONDS, elapsed)
+    budget = max(FAST_DEADLINE_SECONDS, elapsed)
     return max(.25, min(MAX_REFRESH_SECONDS, remaining-budget-REFRESH_MARGIN_SECONDS))
 
 
@@ -63,16 +64,26 @@ def lock_inputs(conn):
 
 
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
-                 *, shadow_observer=None):
+                 *, shadow_observer=None, use_composition=False):
     from sentinel.feed import store
     from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources
 
     _COLLECTION_STAGE.set('COORDINATES')
-    context, subjects = _coordinates(database_url)
-    _COLLECTION_STAGE.set('COLLECT')
-    panel = segment_disclosure.disclose(sources.build_panel(
-        state_dir=Path(state_dir), database_url=database_url,
-        shadow_observer=shadow_observer), database_url)
+    stable_expiry = None
+    worker_row = None
+    if use_composition:
+        from sentinel.panel import composition
+        panel,context,subjects,stable_expiry = composition.read(owner_id,instance,now=datetime.now(timezone.utc))
+        if _coordinates(database_url)!=(context,subjects):
+            raise CollectionSuperseded('composition subject changed')
+        if any(row.key=='shadow_worker' for row in panel.rows):
+            worker_row=sources._shadow_worker_row(state_dir,database_url,observer=shadow_observer)
+    else:
+        context, subjects = _coordinates(database_url)
+        _COLLECTION_STAGE.set('COLLECT')
+        panel = segment_disclosure.disclose(sources.build_panel(
+            state_dir=Path(state_dir), database_url=database_url,
+            shadow_observer=shadow_observer), database_url)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
@@ -98,11 +109,15 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         # repeating authority, alert and cycle-history composition.
         _COLLECTION_STAGE.set('LIVENESS')
         panel = replace(panel, rows=sources._late_automation_rows(conn, panel.rows))
+        if use_composition:
+            panel=replace(panel,rows=composition.native_services(conn,panel.rows,worker=worker_row))
         # Publisher and acknowledgement acquire the receipt before review state.
         # A common order avoids a receipt/state lock inversion.
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
                      "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
         now = review.store.database_now(conn)
+        if stable_expiry is not None and now >= stable_expiry:
+            raise CollectionSuperseded('composition expired before publication')
         diagnostics = {scope: attempt_store.read_owned(conn, scope=scope, now=now)
                        for scope in ('SHADOW', 'PAPER')}
         panel = replace(panel, now=now, trial_details={**panel.trial_details,
@@ -114,7 +129,8 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         from sentinel.panel.serialization import preflight
         preflight(panel)
         envelope, signature = snapshots.encode(panel, context_sha256=context, subjects=subjects,
-            valid_until=min(snapshots.original_boundary(panel), owner[1]))
+            valid_until=min(snapshots.original_boundary(panel), owner[1],
+                            stable_expiry or owner[1]))
         _COLLECTION_STAGE.set('PUBLISH')
         snapshots.publish_owned(conn, owner_id=owner_id, value=envelope,
             signature=signature, context_sha256=context, subjects=subjects, now=now)
@@ -173,9 +189,10 @@ def publish_failure(database_url, owner_id, instance, diagnostic, *, context=Non
 
 
 def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
-                   *, shadow_observer=None):
+                   *, shadow_observer=None, use_composition=False):
     """Classify child refusals before the generic process wrapper loses type."""
     from psycopg.errors import LockNotAvailable, QueryCanceled
+    from sentinel.panel import composition
     started = time.monotonic()
     deadline = started + DEADLINE_SECONDS
     attempts = 0
@@ -189,7 +206,8 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             try:
                 return {'outcome':'PUBLISHED', **publish_once(
                     database_url, owner_id, state_dir, instance, prior_failed,
-                    shadow_observer=shadow_observer)}
+                    shadow_observer=shadow_observer,
+                    **({'use_composition':True} if use_composition else {}))}
             except (QueryCanceled, LockNotAvailable):
                 # One fresh read attempt, never a new transport/call allowance.
                 # COMMIT/REVIEW failures and unknown outcomes are not replayed.
@@ -199,11 +217,12 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
                 time.sleep(min(.25, max(0, deadline-3-time.monotonic())))
                 if time.monotonic() >= deadline-3:
                     raise
-    except CollectionSuperseded:
+    except (CollectionSuperseded, composition.Pending):
         return {'outcome':'SUPERSEDED'}
     except Exception as exc:
         from sentinel.panel import observer_failure
-        diagnostic = observer_failure.classify(exc).model_dump(mode='json', by_alias=True)
+        diagnostic = (exc.diagnostic if isinstance(exc,composition.Failed) else
+            observer_failure.classify(exc).model_dump(mode='json', by_alias=True))
         try:
             context = dict(schema='sentinel.operational-failure-context/1',
                 stage=_COLLECTION_STAGE.get(),attempts=attempts,
@@ -238,6 +257,30 @@ class Collector:
             self.observer = None
 
 
+class CompositionCollector(Collector):
+    def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
+        from sentinel.panel import composition
+        if self.observer is None:
+            from sentinel.shadow_service_probe import Observer
+            self.observer=Observer(Path(state_dir))
+        try:
+            return composition.collect(database_url,owner_id,state_dir,instance,shadow_observer=self.observer)
+        except CollectionSuperseded:
+            return {'outcome':'SUPERSEDED'}
+        except Exception as exc:
+            composition.failure(owner_id,instance,exc)
+            return {'outcome':'FAILED','type':type(exc).__name__}
+
+
+class FastCollector(Collector):
+    def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
+        if self.observer is None:
+            from sentinel.shadow_service_probe import Observer
+            self.observer=Observer(Path(state_dir))
+        return collect_result(database_url,owner_id,state_dir,instance,prior_failed,
+            shadow_observer=self.observer,use_composition=True)
+
+
 class Publisher:
     """One bounded child at a time; no HTTP admission and no new runtime role."""
 
@@ -249,12 +292,21 @@ class Publisher:
         self.stopped = stopped or Event()
         self.runner = runner
         from sentinel.panel.projection_worker import Worker
-        self.worker = Worker(Collector(), self.database_url, self.owner_id,
+        self.worker = Worker(FastCollector(), self.database_url, self.owner_id,
                              self.state_dir, self.instance) if runner is None else None
+        self.composition_worker = Worker(CompositionCollector(),self.database_url,self.owner_id,
+            self.state_dir,self.instance) if runner is None else None
+        self.composition_wake=Event()
+        self.composition_busy=Event()
+        self.composition_thread=Thread(target=self.run_composition,name='sentinel-full-composition',daemon=True)
+        self.composition_started=False
         self.thread = Thread(target=self.run, name='sentinel-operational-projection', daemon=True)
         self.started = False
 
     def start(self):
+        if self.composition_worker is not None:
+            self.composition_thread.start()
+            self.composition_started=True
         self.thread.start()
         self.started = True
 
@@ -264,10 +316,10 @@ class Publisher:
             delay = POLL_SECONDS
             started = time.monotonic()
             try:
-                result = (self.worker.call(failed, timeout=DEADLINE_SECONDS) if self.worker is not None
+                result = (self.worker.call(failed, timeout=FAST_DEADLINE_SECONDS) if self.worker is not None
                     else self.runner(collect_result, self.database_url, self.owner_id,
                         self.state_dir, self.instance, failed,
-                        timeout=DEADLINE_SECONDS, start_method='spawn'))
+                        timeout=FAST_DEADLINE_SECONDS, start_method='spawn'))
                 if result.get('outcome') == 'PUBLISHED':
                     expiry = datetime.fromisoformat(result['valid_until'])
                     delay = refresh_delay(expiry, now=datetime.now(timezone.utc),
@@ -276,6 +328,8 @@ class Publisher:
                     HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
                 elif result.get('outcome') == 'SUPERSEDED':
                     delay = SUPERSEDED_RETRY_SECONDS
+                    if not self.composition_busy.is_set():
+                        self.composition_wake.set()
                 else:
                     failed = True
             except Exception as exc:
@@ -283,14 +337,43 @@ class Publisher:
                 supervisor_io.report('operational projection unavailable: '+type(exc).__name__)
             self.stopped.wait(delay)
 
+    def run_composition(self):
+        from sentinel.panel import composition
+        while not self.stopped.is_set():
+            self.composition_wake.clear()
+            self.composition_busy.set()
+            delay=POLL_SECONDS
+            try:
+                result=self.composition_worker.call(False,timeout=DEADLINE_SECONDS)
+                if result.get('outcome')=='PUBLISHED':
+                    remaining=(datetime.fromisoformat(result['valid_until'])-datetime.now(timezone.utc)).total_seconds()
+                    delay=max(1,min(MAX_REFRESH_SECONDS,remaining-DEADLINE_SECONDS-REFRESH_MARGIN_SECONDS))
+                elif result.get('outcome')=='SUPERSEDED':
+                    delay=1
+            except Exception as exc:
+                composition.failure(self.owner_id,self.instance,exc)
+            finally:
+                self.composition_busy.clear()
+            self.composition_wake.wait(delay)
+
     def close(self):
         self.stopped.set()
+        self.composition_wake.set()
+        end=time.monotonic()+DEADLINE_SECONDS+3
         if self.started:
             self.thread.join(DEADLINE_SECONDS + 3)
             if self.thread.is_alive():
                 raise TimeoutError('operational projection did not finish its bounded shutdown')
+        if self.composition_started:
+            self.composition_thread.join(max(0,end-time.monotonic()))
+            if self.composition_thread.is_alive():
+                raise TimeoutError('full composition did not finish its bounded shutdown')
         if self.worker is not None:
             self.worker.close()
+        if self.composition_worker is not None:
+            self.composition_worker.close()
+        from sentinel.panel.composition import path
+        path(self.instance).unlink(missing_ok=True)
         HEARTBEAT.unlink(missing_ok=True)
 
 

@@ -103,27 +103,59 @@ if [ -n "$history" ]; then
 fi
 [ "$interval_count" -le $(((17179869184 - history_bytes) / wal_bytes)) ] || runtime_horizon_exceeded
 
+work="$(mktemp -d)" || refuse "cannot create private archive-check workspace"
+trap 'rm -rf -- "$work"' EXIT
+declare -a object_paths=()
+declare -A object_sizes=()
+checks="$work/checks"
+: > "$checks"
+
 verify_checksum_object() {
   local path="$1" label="$2" expected_size="${3:-}"
-  local sidecar checksum observed
+  local sidecar
   sidecar="$path.sha256"
   [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || \
     refuse "$label is missing, unreadable, or aliased: ${path##*/}"
-  [ "$(stat -c %h "$path")" -eq 1 ] || refuse "$label is hard-linked: ${path##*/}"
-  if [ -n "$expected_size" ]; then
-    [ "$(stat -c %s "$path")" -eq "$expected_size" ] || refuse "$label is truncated: ${path##*/}"
-  else
-    [ "$(stat -c %s "$path")" -gt 0 ] || refuse "$label is empty: ${path##*/}"
-  fi
   [ -f "$sidecar" ] && [ ! -L "$sidecar" ] && [ -r "$sidecar" ] || \
     refuse "$label SHA-256 sidecar is missing, unreadable, or aliased: ${path##*/}"
-  [ "$(stat -c %h "$sidecar")" -eq 1 ] || refuse "$label SHA-256 sidecar is hard-linked: ${path##*/}"
-  [ "$(wc -l < "$sidecar")" -eq 1 ] || refuse "$label SHA-256 sidecar has invalid field count: ${path##*/}"
-  checksum="$(sed -n 's/^sha256=//p' "$sidecar")"
-  [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || refuse "$label SHA-256 sidecar is malformed: ${path##*/}"
-  observed="$(sha256sum -- "$path")" || refuse "$label could not be hashed: ${path##*/}"
-  observed="${observed%% *}"
-  [ "$observed" = "$checksum" ] || refuse "$label failed SHA-256 integrity validation: ${path##*/}"
+  object_paths+=("$path" "$sidecar")
+  object_sizes["$path"]="${expected_size:-positive}"
+  object_sizes["$sidecar"]=72
+}
+
+checksum_manifest() {
+  local index path sidecar checksum extra
+  for ((index=0; index<${#object_paths[@]}; index+=2)); do
+    path="${object_paths[$index]}"
+    sidecar="${object_paths[$((index+1))]}"
+    extra=''
+    { IFS= read -r checksum && ! IFS= read -r extra && [ -z "$extra" ]; } < "$sidecar" ||
+      refuse "archive SHA-256 sidecar has invalid field count: ${path##*/}"
+    [[ "$checksum" =~ ^sha256=[0-9a-f]{64}$ ]] || refuse "archive SHA-256 sidecar is malformed: ${path##*/}"
+    printf '%s  %s\n' "${checksum#sha256=}" "$path" >> "$checks"
+  done
+}
+
+object_metadata() {
+  printf '%s\0' "${object_paths[@]}" |
+    find -P -files0-from - -maxdepth 0 -printf '%p %y %n %s %D %i %T@ %C@\n'
+}
+
+validate_metadata() {
+  local path kind links size device inode modified changed extra expected
+  local seen=0
+  declare -A visited=()
+  while IFS=' ' read -r path kind links size device inode modified changed extra; do
+    expected="${object_sizes[$path]:-}"
+    [ -n "$expected" ] && [ -z "${visited[$path]:-}" ] && [ -z "$extra" ] ||
+      refuse "archive metadata has unexpected or duplicate objects"
+    [ "$kind" = f ] && [ "$links" = 1 ] || refuse "archive object is aliased or hard-linked"
+    [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt 0 ] || refuse "archive object is empty or malformed"
+    [ "$expected" = positive ] || [ "$size" -eq "$expected" ] || refuse "archive object is truncated"
+    visited["$path"]=1
+    seen=$((seen+1))
+  done
+  [ "$seen" -eq "${#object_paths[@]}" ] || refuse "archive metadata omitted required objects"
 }
 
 marker_seen=0
@@ -143,6 +175,13 @@ done
 if [ -n "$history" ]; then
   verify_checksum_object "$wal_root/$history" "timeline history"
 fi
+
+before="$(object_metadata)" || refuse "required archive metadata is unavailable"
+validate_metadata <<< "$before"
+checksum_manifest
+sha256sum --check --strict -- "$checks" >/dev/null || refuse "archive objects failed SHA-256 integrity validation"
+after="$(object_metadata)" || refuse "required archive metadata is unavailable after read"
+[ "$before" = "$after" ] || refuse "archive objects changed during verification"
 
 printf 'wal_chain_ready:true start_index=%s end=%s segments=%s marker=%s history=%s\n' \
   "$first_index" "$last_wal" "$count" "$marker_wal" "${history:-none}"

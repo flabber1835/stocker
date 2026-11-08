@@ -26,7 +26,10 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
-READ_COST_ADDITIONS = {
+COORDINATION_ADDITIONS = {'panel/composition.py','panel/dom_refresh.py','snapshot_scan_admission.py'}
+COORDINATION_CHANGES = {'committed_read.py','rolling_runtime.py','paper/finalization.py',
+    'panel/projection_service.py','panel/overview.py','panel/render.py','panel/styles.py'}
+READ_COST_ADDITIONS = COORDINATION_ADDITIONS | {
     'panel/verification_health.py', 'shadow_drain_observer.py',
     'shadow_service_config.py', 'shadow_exit_codes.py',
 }
@@ -42,7 +45,7 @@ ROOT_CAUSE_CHANGES = {
     'automation/health.py', 'automation/service.py', 'automation/store.py',
     'alert_service.py', 'shadow_drain.py', 'shadow_supervisor.py',
     'shadow_health_projection.py', 'url_selected_source_basis.py',
-} | READ_COST_CHANGES
+} | READ_COST_CHANGES | COORDINATION_CHANGES
 DIAGNOSTIC_CHANGES = {
     'supervisor_io.py', 'shadow_supervisor.py', 'automation_supervisor.py',
     'automation/health.py', 'alert_service.py',
@@ -78,7 +81,7 @@ OPERATIONAL_CHANGES = {
     'panel/observer_codec.py', 'panel/overview.py', 'panel/presentation.py', 'panel/pwa.py',
     'panel/read_projection.py', 'panel/render.py', 'panel/styles.py',
     'panel/review.py', 'panel/verification_service.py', 'url_selected_source_basis.py',
-} | (PATCH_CHANGES - OPERATIONAL_ADDITIONS)
+} | (PATCH_CHANGES - OPERATIONAL_ADDITIONS) | COORDINATION_CHANGES
 
 
 def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
@@ -374,7 +377,7 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 20
+    assert len(profile['retained_predecessors']) == 21
     assert profile['authority_effect'] == 'NONE'
 
 

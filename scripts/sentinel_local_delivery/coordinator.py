@@ -65,18 +65,18 @@ class Delivery:
                 require(item['Image']==old and not item['State']['Running'],
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
-    def _unchanged(self, artifacts, *, native=True, allow_restart=False):
+    def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False):
         require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
         if allow_restart and hasattr(self.host, 'postgres_after_restart'):
             postgres = self.host.postgres_after_restart(artifacts['postgres'])
         else:
             postgres = self.host.postgres()
             require(postgres==artifacts['postgres'], 'POSTGRES_CHANGED')
-        evidence.check_notification_history(self.host,artifacts['notification_history'])
         if native:
             require(evidence.native_positions(self.host,self.host.load_values())==artifacts['native_positions'],
                     'NATIVE_HOLDINGS_OR_OPEN_ORDERS_CHANGED')
-        return postgres
+        appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
+        return (postgres,appends) if observation else postgres
 
     def _values(self, artifacts):
         current = self.host.load_values()
@@ -171,11 +171,9 @@ class Delivery:
         else:
             leader=self._leader(receipt['artifacts']['preserved']['control']['generation'],deadline=deadline)
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-        panel=evidence.panel(self.host,receipt['artifacts']['preserved'],
-            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())))
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-        return leader,panel,deadline,applications
+        return leader,end,deadline,applications
 
     def _readiness_unchanged(self, applications, leader):
         # Publication waiting must never silently admit a replacement process or
@@ -377,13 +375,14 @@ class Delivery:
                 State={'StartedAt':item['State']['StartedAt']}) for service,item in applications.items()}
             return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started)
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
-        leader,panel,deadline,applications=self._readiness(receipt)
+        leader,end,deadline,applications=self._readiness(receipt)
         repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
-        postgres=self._unchanged(artifacts,allow_restart=not repair)
-        appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
+        postgres,appends=self._unchanged(artifacts,allow_restart=not repair,observation=True)
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
+        panel=evidence.panel(self.host,artifacts['preserved'],
+            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())))
         leader=self._readiness_unchanged(applications,leader)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')

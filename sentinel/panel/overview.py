@@ -119,8 +119,13 @@ def _plan_html(panel: Panel) -> str:
                 '<p class="overview-note">Open System details for the recorded preparation and execution status.</p>'
                 '</section>')
     actions = [leg for leg in plan.legs if leg.action != 'HOLD']
-    date = plan.effective_session.strftime('%A, %b %d').replace(' 0', ' ')
-    start = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles')).strftime('%I:%M %p').lstrip('0')
+    minutes = max(0, int((plan.execute_at-panel.now).total_seconds()+59)//60)
+    days, remainder = divmod(minutes, 1440)
+    hours, minutes = divmod(remainder, 60)
+    parts = [f'{value} {unit}'+('s' if value != 1 else '')
+             for value, unit in ((days, 'day'), (hours, 'hour'), (minutes, 'minute'))
+             if value or unit == 'minute']
+    countdown = 'Market open in '+ ' '.join(parts) if plan.execute_at > panel.now else 'Scheduled market open reached'
     outcomes = row.visible_order_outcomes(panel.now)
     changes = (''.join(_leg_html(leg, outcomes) for leg in actions)
                if actions else '<li class="no-plan-changes">No share changes in the saved plan.</li>')
@@ -131,10 +136,11 @@ def _plan_html(panel: Panel) -> str:
                else _quantity(leg.target_quantity))+'</td></tr>' for leg in plan.legs)
     return (
         '<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
-        '<div class="overview-heading"><div><p class="overview-eyebrow">The next session</p>'
+        '<div class="overview-heading"><div>'
         '<h2 id="next-plan-title">Next trading plan</h2></div>'
         '<span class="overview-tag">PAPER</span></div>'
-        '<div class="plan-schedule"><strong>'+_esc(date)+'</strong><span>From '+_esc(start)+' Pacific</span></div>'
+        '<div class="plan-schedule"><strong id="market-open-countdown" data-execute-at="'
+        +_esc(plan.execute_at.isoformat())+'">'+_esc(countdown)+'</strong></div>'
         '<ul class="plan-legs">'+changes+'</ul>'
         '<p class="overview-note">Saved proposals, not submitted orders or fills. Buy limits and funding '
         'are checked at execution.</p>'
@@ -165,7 +171,7 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
              if work.state in {'WAIT_SOURCE', 'RETRY_WAIT'} and work.next_retry is not None else '')
     return (
         '<section class="overview-card next-plan" aria-labelledby="preparation-title">'
-        '<div class="overview-heading"><div><p class="overview-eyebrow">The next session</p>'
+        '<div class="overview-heading"><div>'
         '<h2 id="preparation-title">Next trading plan · preparing</h2></div>'
         '<span class="overview-tag">PAPER</span></div>'
         '<div class="plan-schedule"><strong>'+_esc(date)+'</strong>'
@@ -328,10 +334,7 @@ def _slots_html(panel: Panel) -> str:
         +('<p class="overview-history">Last attested through '+_esc(book.session)
           +' · current session not verified.</p>' if historical else '')
         +'<ol class="slot-grid" aria-label="Canonical strategy slots">'
-        +''.join(_slot_html(slot) for slot in sorted(book.slots, key=lambda item: item.slot_id))+'</ol>'
-        '<p class="overview-note">Unscaled model book as of '+_esc(book.session)
-        +'. These are strategy slots, not paper share counts. Cooldowns count trading sessions; '
-        'empty slots keep cash.</p></section>')
+        +''.join(_slot_html(slot) for slot in sorted(book.slots, key=lambda item: item.slot_id))+'</ol></section>')
 
 
 def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
@@ -339,9 +342,6 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     retained = ('<p class="overview-retained">Last known overview · refreshing status. '
                 'The original evidence times are shown below.</p>' if refresh_pending else '')
     css = 'overview retained-overview' if refresh_pending else 'overview'
-    selection = panel.row('trading_environment')
-    selected = ('<p class="overview-mode" role="status">Selected trading environment: <strong>'
-                +_esc(selection.value)+'</strong></p>' if selection is not None else '')
     from sentinel.panel import delivery
     safe = delivery.payload_panel(panel)
     def section(html, keys):
@@ -359,7 +359,7 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
         account = account.replace('</h2>', '</h2><p class="overview-retained">Last known account · original snapshot time below.</p>', 1)
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
-            +selected+retained+_plan_readiness_html(panel, refresh_pending=refresh_pending)
+            +retained
             +section(_preparation_html(safe, refresh_pending=refresh_pending), ('ingest',))
             +plan+section(runs, ('trading_run', 'completed_trading_run'))
             +account+section(_slots_html(safe), ('book', 'exposure'))+'</main>')

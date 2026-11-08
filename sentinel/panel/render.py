@@ -26,6 +26,7 @@ from sentinel.panel.presentation import describe, dashboard_health
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
+from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
 from sentinel.panel.pwa import CURRENT_DOCUMENT_SCRIPT, MAX_DOCUMENT_AGE_SECONDS
 
 from sentinel.panel.model import (
@@ -495,8 +496,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
                              current=delivery.row_current(panel, r)) for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
-    from sentinel.panel.review_controls import render as review_controls
-    review_html = review_controls(panel.operator_review, current=panel.observation_current and not refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)
@@ -528,6 +527,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <title>{_esc(page_name)}</title>
 <style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
+             data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
              data-max-age-seconds="{document_age}">
@@ -540,7 +540,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
 </header>
 {errs}
-{review_html}
 <div id="portfolio-overview">{overview}</div>
 <details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
@@ -560,12 +559,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 </section>
 {rows}{details}
 </div></details>
-<footer>
-  as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
-  This page shows status; it cannot place trades.<br>
-  {_esc(footer_authority)}<br>
-  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Dashboard system health: {_esc(health['status'])} · strict operational readiness: {_esc(operational)} · all recorded check verdicts: {_esc(overall)}. Health, plan readiness and detailed checks are separate facts; each keeps its original evidence time. The attention list above identifies each failing check; an aggregate alone does not diagnose a stopped worker.</details>
-</footer>
 </div>
 <script>
 // Negative authority only. This code can remove green before a network read;
@@ -573,6 +566,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 (function(){{
   var invalidated = false;
   {CURRENT_DOCUMENT_SCRIPT}
+  {DOM_REFRESH_SCRIPT}
   var badge = document.getElementById("operational-state");
   var heartbeat = document.getElementById("dashboard-heartbeat");
   var preparation = document.getElementById("preparation-stage");
@@ -619,6 +613,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}, 15000);
     }}
     refreshing = true;
+    document.body.dataset.fetching = 'true';
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
     var transportDelay = true;
@@ -631,30 +626,26 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}
       var html = await response.text();
       transportDelay = false;
-      currentDocument(html, status);
+      var next = currentDocument(html, status);
       // Keep the foreground lifecycle and original clocks while the tab is hidden.
       if (document.visibilityState !== "visible" || pageAway){{ return; }}
-      clearInterval(ageTimer);
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
       clearTimeout(ordinaryTimer);
       clearTimeout(deadline);
-      var scroll = window.scrollY;
-      var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
-        .map(function(item){{ return item.dataset.detailKey; }});
-      var focused = document.activeElement && document.activeElement.closest
-        ? document.activeElement.closest('details[data-detail-key]') : null;
-      var focusKey = focused ? focused.dataset.detailKey : null;
-      document.open();
-      document.write(html);
-      document.close();
-      document.querySelectorAll('details[data-detail-key]').forEach(function(item){{
-        item.open = expanded.includes(item.dataset.detailKey);
-        if (focusKey && item.dataset.detailKey === focusKey){{
-          item.querySelector('summary').focus({{preventScroll:true}});
-        }}
-      }});
-      window.scrollTo(0, scroll);
+      reconcileDocument(next);
+      badge = document.getElementById('operational-state');
+      heartbeat = document.getElementById('dashboard-heartbeat');
+      preparation = document.getElementById('preparation-stage');
+      planReadiness = document.getElementById('plan-readiness');
+      generated = Date.parse(document.body.dataset.generatedAt);
+      budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+      invalidated = false; hardFailure = false; refreshDelayed = false;
+      ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = Date.now()+{refresh_seconds * 1000};
+      resumeStarted = null; resumeExhausted = false; wentToBackground = false;
+      document.documentElement.classList.remove('not-current', 'refreshing-status');
+      refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
+      checkAge();
     }} catch (_error) {{
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
@@ -668,6 +659,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }} finally {{
       clearTimeout(deadline);
       refreshing = false;
+      document.body.dataset.fetching = 'false';
     }}
   }}
   function originalCurrent(){{
@@ -749,6 +741,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if (planReadiness){{ planReadiness.textContent = "Plan readiness not current · refreshing status"; }}
   }}
   function checkAge(){{
+    updateMarketCountdown();
     var age = Date.now() - generated;
     if (!Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
       invalidate(true, true);
@@ -765,6 +758,25 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
         Math.max(0, Math.floor(age / 1000)) + "s AGO";
     }}
+  }}
+  function updateMarketCountdown(){{
+    var counter = document.getElementById('market-open-countdown');
+    if (!counter){{ return; }}
+    var card = counter.closest('.overview-card');
+    var current = originalCurrent() && !invalidated && !refreshDelayed &&
+      document.body.dataset.observationCurrent === 'true' && card && card.dataset.current === 'true';
+    var end = Date.parse(counter.dataset.executeAt);
+    var value = 'Market-open time not current';
+    if (current && Number.isFinite(end)){{
+      var total = Math.max(0, Math.ceil((end-Date.now())/60000));
+      var days = Math.floor(total/1440), hours = Math.floor(total%1440/60), minutes = total%60;
+      var parts = [];
+      [[days,'day'],[hours,'hour'],[minutes,'minute']].forEach(function(part){{
+        if (part[0] || part[1] === 'minute'){{ parts.push(part[0]+' '+part[1]+(part[0] === 1 ? '' : 's')); }}
+      }});
+      value = end > Date.now() ? 'Market open in '+parts.join(' ') : 'Scheduled market open reached';
+    }}
+    if (counter.textContent !== value){{ counter.textContent = value; }}
   }}
   window.addEventListener("pageshow", function(event){{
     if (document.visibilityState !== "visible"){{ return; }}

@@ -64,8 +64,7 @@ def recover(delivery, recovery_id):
             proved_at = utcnow().isoformat()
             budget()
             leader = delivery._leader(artifacts['preserved']['control']['generation'], deadline=deadline)
-            postgres = delivery._unchanged(artifacts)
-            appends = evidence.check_notification_history(host, artifacts['notification_history'])
+            postgres, appends = delivery._unchanged(artifacts, observation=True)
             require(installed() == candidate, 'RECOVERY_CONFIGURATION_CHANGED')
             budget()
             # Expensive evidence precedes the short-lived published panel fact.
