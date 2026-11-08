@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Attributable incident diagnostics](supervisor-incident-diagnostics.md) selects
+the owner-approved diagnostic-only local patch: typed safe failure causes and
+bounded stage records without changing operational decisions or deadlines.
+
 [Removing redundant operational work](redundant-operational-work.md) separates
 restore worker phases and genuine daily renewal from avoidable repeated work;
 fresh financial and recovery admission guards retain their named boundaries.

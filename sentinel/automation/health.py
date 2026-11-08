@@ -3,12 +3,37 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from sentinel.automation import store
 from sentinel.automation.model import MissingAutomationState, ProtectedDayWait
 from sentinel.execution import journal
+
+
+class ObservationDiagnostic(BaseModel):
+    """Closed attribution metadata; it never changes health or trading policy."""
+
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
+    schema_version: Literal['sentinel.observation-diagnostic/1'] = Field(
+        default='sentinel.observation-diagnostic/1', alias='schema')
+    stage: Literal['OBSERVATION_INTEGRITY'] = 'OBSERVATION_INTEGRITY'
+    code: Literal['READ_UNAVAILABLE', 'EVIDENCE_INVALID', 'CHECK_FAILED']
+    exception_type: str | None = Field(default=None, pattern=r'^[A-Za-z_][A-Za-z0-9_]{0,79}$')
+    errno: int | None = Field(default=None, ge=0, le=4095)
+    sqlstate: str | None = Field(default=None, pattern=r'^[A-Z0-9]{5}$')
+
+
+def _observation_diagnostic(error: Exception | None = None) -> ObservationDiagnostic:
+    if error is None:
+        return ObservationDiagnostic(code='EVIDENCE_INVALID')
+    from sentinel.dependency_availability import database_unavailable
+    from sentinel.supervisor_io import error_diagnostic
+    code = ('READ_UNAVAILABLE' if database_unavailable(error) else
+            'EVIDENCE_INVALID' if isinstance(error, journal.ObservationEvidenceUncertifiable)
+            else 'CHECK_FAILED')
+    return ObservationDiagnostic(code=code, **error_diagnostic(error))
 
 
 class AutomationHealth(BaseModel):
@@ -67,6 +92,7 @@ class AutomationHealth(BaseModel):
     database_now: datetime | None = None
     host_database_clock_skew_seconds: float | None = None
     reason: str | None = None
+    observation_diagnostic: ObservationDiagnostic | None = None
 
 
 def read_health(conn) -> AutomationHealth:
@@ -114,6 +140,7 @@ def read_health(conn) -> AutomationHealth:
             enabled=control.enabled,
             kill_switch_engaged=control.kill_switch_engaged,
             control_generation=control.generation,
+            observation_diagnostic=_observation_diagnostic(exc),
             reason=("broker observation integrity gate failed: "
                     f"{type(exc).__name__}: {exc}"))
     if observation_issues:
@@ -127,6 +154,7 @@ def read_health(conn) -> AutomationHealth:
             enabled=control.enabled,
             kill_switch_engaged=control.kill_switch_engaged,
             control_generation=control.generation,
+            observation_diagnostic=_observation_diagnostic(),
             reason=f"UNCERTIFIABLE broker observation evidence: {detail}")
 
     with conn.cursor() as cur:

@@ -23,7 +23,7 @@ import httpx
 
 from sentinel import alert_health
 from sentinel.automation import outbox
-from sentinel.automation.health import read_health
+from sentinel.automation.health import ObservationDiagnostic, read_health
 from sentinel.automation.model import AutomationRefused
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
@@ -309,18 +309,37 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
         occurrence += 1
         conn.execute("UPDATE sentinel_alert_health_cursor SET active_identity=%s,occurrence=%s WHERE id=1",
                      (key, occurrence))
+    payload = {
+        "reason": health.policy_state,
+        "control_generation": health.control_generation,
+        "latest_cycle_id": health.latest_cycle_id,
+        "latest_cycle_state": health.latest_cycle_state,
+        "broker_outcome_unresolved": health.broker_outcome_unresolved,
+    }
+    diagnostic = getattr(health, 'observation_diagnostic', None)
+    if diagnostic is not None:
+        payload['observation_diagnostic'] = diagnostic.model_dump(mode='json', by_alias=True)
+        if row[0] == key:
+            # Attribution is additive only on a new immutable occurrence. A
+            # deployed diagnostic reader must not rewrite or re-key old history.
+            retained = outbox.load_alert(conn, outbox._alert_id(
+                f'automation-health-occurrence:{occurrence}'))
+            original = dict(retained.payload)
+            expected = {name: original.get(name) for name in payload
+                        if name != 'observation_diagnostic'}
+            if (set(original)-set(payload)
+                    or outbox._json(expected) != outbox._json({name: value for name, value in payload.items()
+                        if name != 'observation_diagnostic'})):
+                raise AutomationRefused('health occurrence and immutable alert disagree')
+            if 'observation_diagnostic' in original:
+                ObservationDiagnostic.model_validate(original['observation_diagnostic'])
+            payload = original
     return outbox.enqueue(
         conn,
         idempotency_key=f"automation-health-occurrence:{occurrence}",
         event_type="AUTOMATION_OPERATIONAL_RED",
         severity="CRITICAL",
-        payload={
-            "reason": health.policy_state,
-            "control_generation": health.control_generation,
-            "latest_cycle_id": health.latest_cycle_id,
-            "latest_cycle_state": health.latest_cycle_state,
-            "broker_outcome_unresolved": health.broker_outcome_unresolved,
-        },
+        payload=payload,
         max_attempts=max_attempts)
 
 

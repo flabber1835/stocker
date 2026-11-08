@@ -29,6 +29,23 @@ from sentinel import supervisor_io
 
 HOLDER_FILE = Path("/tmp/sentinel-automation-holder-id")
 SNAPSHOT_SECONDS = 1.0
+_DIAGNOSTIC_INCARNATION = uuid.uuid4().hex
+
+
+def _diagnostic(stage, outcome, *, child, started, completed, worker_started,
+                error=None, snapshot=None, lease_seconds=None, immediate=True):
+    context = {'incarnation': _DIAGNOSTIC_INCARNATION, 'supervisor_pid': os.getpid(),
+               'started': started, 'completed': completed, 'decision_at': completed,
+               'worker_started': worker_started}
+    child_pid = getattr(child, 'pid', None)
+    if child_pid is not None:
+        context['child_pid'] = child_pid
+    if snapshot is not None:
+        context.update(state=snapshot.state, heartbeat_age_seconds=snapshot.heartbeat_age_seconds)
+    if lease_seconds is not None:
+        context['lease_seconds'] = lease_seconds
+    return supervisor_io.report_event('automation', stage, outcome, error=error,
+                                      context=context, immediate=True)
 
 
 @dataclass
@@ -239,6 +256,8 @@ def main() -> int:
                 _terminate(child)
                 break
             now_mono = time.monotonic()
+            observation_started = now_mono
+            observation_stage = 'SNAPSHOT'
             try:
                 snapshot = _snapshot(
                     sentinel_config.database_url, holder_id)
@@ -249,6 +268,8 @@ def main() -> int:
                         startup_grace_elapsed=(
                             now_mono - started >= startup_grace_seconds),
                         state=snapshot.state):
+                    observation_stage = 'CONFIRMATION'
+                    observation_started = now_mono
                     snapshot = _snapshot(sentinel_config.database_url, holder_id)
                     now_mono = time.monotonic()
                 # A failed confirmation remains one unobservable interval;
@@ -256,6 +277,9 @@ def main() -> int:
                 database_unreadable_since = None
             except Exception as exc:  # noqa: BLE001
                 now_mono = time.monotonic()
+                _diagnostic(observation_stage, 'FAILED', child=child,
+                            started=observation_started, completed=now_mono,
+                            worker_started=started, error=exc)
                 if database_unreadable_since is None:
                     database_unreadable_since = now_mono
                 supervisor_io.report(f"automation supervisor health read failed: {exc}",
@@ -265,6 +289,9 @@ def main() -> int:
                         database_unreadable_since=database_unreadable_since,
                         deadline_seconds=(
                             automation_config.callback_deadline_seconds)):
+                    _diagnostic('DATABASE_DEADLINE', 'TERMINATING', child=child,
+                                started=observation_started, completed=now_mono,
+                                worker_started=started, immediate=True)
                     supervisor_io.report(
                         f"automation supervisor terminating worker {holder_id}: "
                         "database authority was unobservable for the hard "
@@ -288,6 +315,9 @@ def main() -> int:
                     deadline_seconds=automation_config.callback_deadline_seconds,
                     state_age_seconds=snapshot.callback_age_seconds,
                     invocation=snapshot.invocation):
+                _diagnostic('CALLBACK_DEADLINE', 'TERMINATING', child=child,
+                            started=observation_started, completed=now_mono,
+                            worker_started=started, snapshot=snapshot, immediate=True)
                 supervisor_io.report(
                     f"automation supervisor terminating worker {holder_id}: "
                     f"{state} exceeded "
@@ -304,6 +334,10 @@ def main() -> int:
                     state=state):
                 age_detail = ("missing" if heartbeat_age is None
                               else f"{heartbeat_age:.3f}s")
+                _diagnostic('IDLE_STALL', 'TERMINATING', child=child,
+                            started=observation_started, completed=now_mono,
+                            worker_started=started, snapshot=snapshot,
+                            lease_seconds=automation_config.lease_seconds, immediate=True)
                 _terminate(child)
                 supervisor_io.report(
                     f"automation supervisor terminating stalled worker "

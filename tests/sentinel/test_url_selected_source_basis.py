@@ -28,12 +28,17 @@ CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
 EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
 FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
+DIAGNOSTIC_CHANGES = {
+    'supervisor_io.py', 'shadow_supervisor.py', 'automation_supervisor.py',
+    'automation/health.py', 'alert_service.py', 'feed/rolling_store.py',
+    'url_selected_source_basis.py',
+}
 EFFICIENCY_CHANGES = {
     'dual_reconciliation.py', 'paper/preparation.py', 'panel/model.py',
     'panel/observer_codec.py', 'panel/read_projection.py', 'panel/sources.py',
     'panel/verification_service.py', 'panel/projection_service.py', 'panel/review.py',
     'url_selected_source_basis.py',
-}
+} | DIAGNOSTIC_CHANGES
 RECOVERY_CHANGES = {'cli/main.py', 'cli/paper.py', 'execution/alpaca.py', 'execution/alpaca_asset_id.py',
                 'execution/certification.py', 'paper/preparation.py', 'paper/cash.py', 'restore_validation.py',
                 'execution/authority_gate.py', 'paper/validation.py', 'operational_schema.py',
@@ -278,6 +283,52 @@ def test_installed_pr572_and_every_original_predecessor_are_preserved():
     assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
+
+
+def test_installed_pr573_archive_is_exact_and_only_diagnostics_change():
+    profile = basis._profile()
+    previous = profile['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    actual = _actual()
+    assert basis.DIAGNOSTIC_PREDECESSOR_REVISION == '8fafcfae9c46f471a834d7bd221497d6d940732a'
+    assert len(previous) == 456
+    assert admission.source_closure(previous) == (
+        '92dcbcf6559efb0d19476438dae0a653850d44afc7bb7dc7b69294b38f5035b5')
+    assert previous['url_selected_source_basis.py'] == (
+        '702439463966cfaa06d5eca2837d716b1204eb61a09b432b3967c1e2229bfeae')
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == DIAGNOSTIC_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert profile['authority_effect'] == 'NONE'
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_pr573(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]
+    if defect == 'changed': prior['files']['supervisor_io.py'] = 'f' * 64
+    elif defect == 'missing': prior['files'].pop('supervisor_io.py')
+    elif defect == 'extra': prior['files']['unreviewed.py'] = 'f' * 64
+    else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path/'changed-diagnostic-predecessor.json'
+    path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
+
+
+def test_diagnostic_predecessor_independent_pin_has_a_behavioral_falsifier(tmp_path, monkeypatch):
+    prior = deepcopy(basis._profile()['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION])
+    prior['files']['supervisor_io.py'] = 'f' * 64
+    # Deliberately replace the independent expected pin with the tampered map's
+    # self-consistent closure. The re-pinning rejection assertion must then fail.
+    monkeypatch.setitem(basis.RETAINED_PREDECESSORS, basis.DIAGNOSTIC_PREDECESSOR_REVISION,
+                        (len(prior['files']), basis._closure(prior['files'])))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_repinning_cannot_replace_installed_pr573(tmp_path, monkeypatch, 'changed')
 
 
 @pytest.mark.parametrize('revision', [basis.STARTUP_PREDECESSOR_REVISION,

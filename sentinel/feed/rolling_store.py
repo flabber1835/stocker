@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from itertools import islice, zip_longest
@@ -449,6 +451,42 @@ def readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:
     return readiness_scope.verified_snapshot(conn, candidate_id, None, summary_only=True)
 
 
+@contextmanager
+def _content_diagnostic(conn, candidate_id: str, snapshot_sha256: str):
+    """Attribute actual full scans without another identity query or authority."""
+    from sentinel import supervisor_io
+
+    started = time.monotonic()
+    context = dict(candidate_id=candidate_id, snapshot_sha256=snapshot_sha256,
+                   started=started)
+    try:
+        backend = getattr(getattr(conn, 'info', None), 'backend_pid', None)
+        if type(backend) is int and backend > 0:
+            context['backend_pid'] = backend
+    except Exception:
+        pass  # Optional diagnostics cannot change the verification port.
+
+    def emit(stage, outcome, error=None):
+        try:
+            supervisor_io.report_event('feed', stage, outcome, error=error,
+                                       context=context, immediate=True)
+        except Exception:
+            pass  # Never replace the original proof result or exception.
+
+    emit('SNAPSHOT_VERIFY_BEGIN', 'BEGIN')
+    try:
+        yield
+    except BaseException as exc:
+        completed = time.monotonic()
+        context.update(completed=completed, elapsed_seconds=completed - started)
+        emit('SNAPSHOT_VERIFY_FAILED', 'FAILED', exc)
+        raise
+    else:
+        completed = time.monotonic()
+        context.update(completed=completed, elapsed_seconds=completed - started)
+        emit('SNAPSHOT_VERIFY_END', 'ACCEPTED')
+
+
 def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     """Full read-only integrity check for restore/comparison, not daily status.
 
@@ -459,6 +497,12 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     from sentinel.feed import readiness_scope
     scope = readiness_scope.capture(conn)  # Check the original pin before any reader can reacquire it.
     value = manifest(conn, candidate_id)
+    with _content_diagnostic(conn, candidate_id, value.snapshot_id):
+        return _verify_content_material(conn, candidate_id, value, scope)
+
+
+def _verify_content_material(conn, candidate_id, value, scope) -> VerifiedSnapshot:
+    """Original verifier body; diagnostics do not replace or reuse its proof."""
     require_payload(conn, candidate_id)
     encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"),
                                ensure_ascii=True, allow_nan=False)
