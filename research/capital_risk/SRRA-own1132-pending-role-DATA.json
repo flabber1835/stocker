@@ -1,0 +1,65 @@
+{
+  "arm": "P05",
+  "carry_audit": {
+    "carry_price": 54.97,
+    "carry_session": "2022-06-30",
+    "grace_prints": [
+      {
+        "price": 54.99,
+        "session": "2022-06-30"
+      }
+    ],
+    "grace_split_multiplier": 1.0,
+    "grace_splits": [],
+    "last_trustworthy_print_session": "2022-06-29",
+    "shares_at_carry": 35
+  },
+  "completed": 1132,
+  "cursor": "2022-06-30",
+  "failed_July_state_used": false,
+  "financial_authority": false,
+  "input_sha256": "2d30df4efb927bdf973a80e7d685b4e01949bc9f977b37de1667f047c2102ce9",
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=1342.8",
+    "security_id": "324793693976033682",
+    "session": "2022-06-30"
+  },
+  "outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+  "pending_context": {
+    "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+    "pending_sessions": 0,
+    "stale_at_event": 0,
+    "unresolved": false
+  },
+  "pending_orders": [],
+  "positions": [
+    {
+      "entry_date": "2022-06-27",
+      "quantity": 35,
+      "slot_id": 8,
+      "ticker": "SRRA"
+    }
+  ],
+  "root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+  "schema": "research.exact-admitted-pending-role-data/1",
+  "slot": {
+    "cooldown_sessions_elapsed": null,
+    "occupied_by": "324793693976033682",
+    "reserved_for": null,
+    "reserved_issuer": null,
+    "reserved_ticker": null,
+    "slot_id": 8
+  },
+  "source_checkpoint_file": {
+    "bytes": 1431655,
+    "sha256": "50efd2e4f4b9d3e7ed5b2ef1011313127c4c1bbfe4a93b3c81c60bbf5304611a"
+  }
+}

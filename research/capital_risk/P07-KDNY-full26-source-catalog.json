@@ -1,0 +1,911 @@
+{
+  "authenticated_capture": {
+    "artifact": 13603829822,
+    "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "head": "6d5ee0413f4e8fc34eb333335aec49ed9c1e6528",
+    "input_adopted": false,
+    "logical_bytes": 100216,
+    "members": 4,
+    "native_groups": [
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-native-group",
+          "security_id": "47247117758471252",
+          "session": "2023-08-10",
+          "ticker": "KDNY"
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      }
+    ],
+    "observations": [
+      {
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-effective",
+          "security_id": "47247117758471252",
+          "session": "2023-08-11",
+          "ticker": "KDNY"
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-identity",
+          "security_id": "47247117758471252",
+          "session": "2023-08-09",
+          "ticker": "KDNY"
+        },
+        "security_ids": [
+          "47247117758471252"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-native",
+          "security_id": "47247117758471252",
+          "session": "2023-08-10",
+          "ticker": "KDNY"
+        },
+        "security_ids": [
+          "47247117758471252"
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "run": "42448767108",
+    "schema": "research.authenticated-source-batch/1",
+    "source_rows_verified": true,
+    "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION",
+    "utc": "2026-11-08T04:59:09.881730+00:00",
+    "worker_fences_verified": true,
+    "zip_bytes": 46093,
+    "zip_sha256": "00e75ed2a716525dbcfc05f19ca902d608ead5e3a39414cb55ff355ad9929094"
+  },
+  "authenticated_manifest": {
+    "arm": "SOURCE_BATCH",
+    "compression": "TAR_GZIP_V1",
+    "head": "6d5ee0413f4e8fc34eb333335aec49ed9c1e6528",
+    "members": {
+      "request.json": {
+        "bytes": 82614,
+        "sha256": "b7706e95dfcd6e725a4bdeef85ab5b74f556ac8625ad6e06203910cbfaaf8ee9"
+      },
+      "source-evidence.json": {
+        "bytes": 6770,
+        "sha256": "be6da03fcc626765b47e180400fdef6205bb82c852a9b45c1b6bce249970dd9f"
+      },
+      "worker-inspect.json": {
+        "bytes": 10688,
+        "sha256": "997470dcbabda0a423d7980df870ba494a7511ef63da3da40673f0b4946d6692"
+      },
+      "worker.log": {
+        "bytes": 144,
+        "sha256": "7013b2ef71863f86b2d83180cd823885e755307b94bc7267442b3d5dd11b9843"
+      }
+    },
+    "protocol_sha256": "c3b4a339cec80641620c58b42341b0d981ebca6b01f89870ce00fb3291dbec28",
+    "request_sha256": "b7706e95dfcd6e725a4bdeef85ab5b74f556ac8625ad6e06203910cbfaaf8ee9",
+    "run_id": "42448767108",
+    "schema": "research.full-system-output/1",
+    "stage": "campaign-factual-suffix"
+  },
+  "event": {
+    "cash_settlement_authorized": false,
+    "currency": "USD",
+    "effective_session": "2023-08-11",
+    "historical_causality": "UNVERIFIED",
+    "native_session": "2023-08-10",
+    "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+    "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+    "price_or_probability_selected": false,
+    "prior_session": "2023-08-10",
+    "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+    "right_lower_per_share": "0",
+    "right_upper_per_share": "4.00",
+    "security_id": "47247117758471252",
+    "ticker": "KDNY",
+    "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+    "upfront_cash_per_share": "40.00"
+  },
+  "event_date_ownership_verified": false,
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "input_adopted": false,
+  "input_semantics_sources": {
+    "system-campaign-abiomed-sensor-contract.json": "ee8240eee65955f2e389ffcc2c4833ffe0732982430a83a2a4ac6da268c651f4",
+    "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533",
+    "system_campaign_abiomed_basis.py": "ada371aa34294f6a8319ee117ff23fe62970040031e8f8e0e66d1cb3809a449b",
+    "system_campaign_abiomed_facts.py": "fd5d31a831ae729de1ab895110bc27b10fe9ae092893894cdb54d5c30ec091c8",
+    "system_campaign_abiomed_gate.py": "5ccc9d3b45e884f245b8f27d4c5d29df3497f219356c93418feab76832b30424",
+    "system_campaign_abiomed_input.py": "2bf837427006de7a52fe797bc9679706e37121bca61943af360582e188472bf7",
+    "system_campaign_abiomed_review.py": "03f44f8d08d052f4cd6e2861e65a7d87b3ddd86720d9da39c6e9ac5b1a77fd8a",
+    "system_campaign_abiomed_sensor.py": "6195af587b8dc40a33afb6ba78002c530586e86b3d13d5f53715808f959a821f",
+    "system_campaign_abmd_bounded_preparation.py": "6a998f614f814b9dd4e4d20ff9c7f7a76389fdb4513689bdb7858c3c2cf57443",
+    "system_campaign_bounded_sensor_binding.py": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d",
+    "system_campaign_bounded_sensor_event_review.py": "89c466607a86eb8dc79e12397730b3a79f0af82b7b8f7d25c6a08aba5195130f",
+    "system_campaign_bounded_sensor_input.py": "f0d20a5ad48ea5672d868a016118b136a6a68fc5b2225088b9ef2a4e93a94857",
+    "system_campaign_chinook_facts.py": "57a77288447542f92091d755a7b884b08fdefee46391d653ba4fcfdadfaa9b33",
+    "system_campaign_chinook_input.py": "020d377ffde3253935597462b241ea4d8a293f7991e3067ac1515df833c1f7a6",
+    "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
+    "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
+    "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
+    "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
+    "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
+    "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
+    "system_campaign_ordinary_registry.py": "e526264ca859afa5455eaf4eeabdf80fc9eea7cfd0f981969b5f884da93fab15",
+    "system_campaign_p07_KDNY_preparation.py": "3cc79c9e5088082287147f6cebfdddaa7d278ef89a3e2cb93043894a57c20e18",
+    "system_campaign_p07_KDNY_source.py": "9b5d23379173f95b350dd64f20fe2439f3f8a90312a9d1eed7eb3f5eca58c3af",
+    "system_campaign_second_bounded_codec.py": "8467e2449e5a580bb9f55ca9507875ace183c77bcf4fa9eb8f01f9e908a93571",
+    "system_campaign_second_bounded_factory.py": "28babac1d0ec4a511e336faeb1695a43991b3fef489e5c7c3d82661a8719dd4f",
+    "system_campaign_spring2023_preflight.py": "ea93928a92e3a4ab46de1e86b6c60fbddf7b881943975d115f9083a81b518d08",
+    "system_campaign_spring2023_review.py": "e8489cac432ed3868334b885ece14fb0be2a9aec29b810323226c2fb4d5c7c40",
+    "system_campaign_spring2023_sensor.py": "88734e7ebac86d7df8f420c7cbbd04a9b8eab1b66964f333ace33b231715dead",
+    "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+    "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+    "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+    "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
+    "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
+    "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
+    "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
+    "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
+    "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+  },
+  "market_source": {
+    "event_contract_sha256": "d85c8804815297e4399bacb393d0eee3d6d3c1441d4baddec7c975053403e84d",
+    "raw_event_row": null,
+    "raw_identity_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1435049",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2015-04-15",
+      "metadata_admitted": "1",
+      "raw_close": "40.299999999999997",
+      "raw_compatible_volume": "7096848",
+      "raw_open": "40.299999999999997",
+      "reported_volume": "7096848",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "47247117758471252",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2023-08-09",
+      "sic": "2834",
+      "signal_close": "40.299999999999997",
+      "split_ratio": "1",
+      "ticker": "KDNY",
+      "tradeable": "1"
+    },
+    "raw_prior_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1435049",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2015-04-15",
+      "metadata_admitted": "1",
+      "raw_close": "40.390000000000001",
+      "raw_compatible_volume": "3261047",
+      "raw_open": "40.310000000000002",
+      "reported_volume": "3261047",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "47247117758471252",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2023-08-10",
+      "sic": "2834",
+      "signal_close": "40.390000000000001",
+      "split_ratio": "1",
+      "ticker": "KDNY",
+      "tradeable": "1"
+    },
+    "right_market_price_observed": false,
+    "security_id": "47247117758471252",
+    "session": "2023-08-11",
+    "source_metadata_unchanged": true,
+    "source_quote_present": false,
+    "split_ratio": "1",
+    "split_rule": "CANONICAL_NO_EVENT_BAR_UNIT_SPLIT"
+  },
+  "market_source_sha256": "c98d84b3da70999f058292f5e20c4ebf1a82fa8043849757615e062d33810aa0",
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=2900.2",
+    "security_id": "47247117758471252",
+    "session": "2023-08-10"
+  },
+  "original_chinook_private_event": {
+    "actual_native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=2900.2",
+      "security_id": "47247117758471252",
+      "session": "2023-08-10"
+    },
+    "contract": {
+      "cash_consideration_range": [
+        40.0,
+        44.0
+      ],
+      "contingent_right_market_price_observed": false,
+      "event_source_quote_present": false,
+      "inherited_sources": {
+        "system-campaign-abiomed-sensor-contract.json": "ee8240eee65955f2e389ffcc2c4833ffe0732982430a83a2a4ac6da268c651f4",
+        "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533",
+        "system_campaign_abiomed_basis.py": "ada371aa34294f6a8319ee117ff23fe62970040031e8f8e0e66d1cb3809a449b",
+        "system_campaign_abiomed_facts.py": "fd5d31a831ae729de1ab895110bc27b10fe9ae092893894cdb54d5c30ec091c8",
+        "system_campaign_abiomed_gate.py": "5ccc9d3b45e884f245b8f27d4c5d29df3497f219356c93418feab76832b30424",
+        "system_campaign_abiomed_input.py": "2bf837427006de7a52fe797bc9679706e37121bca61943af360582e188472bf7",
+        "system_campaign_abiomed_review.py": "03f44f8d08d052f4cd6e2861e65a7d87b3ddd86720d9da39c6e9ac5b1a77fd8a",
+        "system_campaign_abiomed_sensor.py": "6195af587b8dc40a33afb6ba78002c530586e86b3d13d5f53715808f959a821f",
+        "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
+        "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
+        "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
+        "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
+        "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
+        "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
+        "system_campaign_ordinary_registry.py": "e526264ca859afa5455eaf4eeabdf80fc9eea7cfd0f981969b5f884da93fab15",
+        "system_campaign_spring2023_preflight.py": "ea93928a92e3a4ab46de1e86b6c60fbddf7b881943975d115f9083a81b518d08",
+        "system_campaign_spring2023_review.py": "e8489cac432ed3868334b885ece14fb0be2a9aec29b810323226c2fb4d5c7c40",
+        "system_campaign_spring2023_sensor.py": "88734e7ebac86d7df8f420c7cbbd04a9b8eab1b66964f333ace33b231715dead",
+        "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+        "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+        "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+        "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+        "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+        "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+        "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+        "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+        "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
+        "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
+        "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
+        "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
+        "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
+        "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+      },
+      "last_trading_session": "2023-08-10",
+      "later_payment_information_used": false,
+      "mandatory_remaining_common_share_entitlement": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2900.2",
+        "security_id": "47247117758471252",
+        "session": "2023-08-10"
+      },
+      "native_session": "2023-08-10",
+      "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+      "preopen_completion_confirmed": true,
+      "primary_sources": {
+        "exchange_clock": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-447",
+        "issuer_confirmation": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+        "mandatory_common_and_cap": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+        "options_corroboration_not_common_right_valuation": "https://infomemo.theocc.com/infomemos?number=53016"
+      },
+      "production_contacted": false,
+      "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+      "provider_row_sha256": [
+        "2fa23492fcc5b55f8d02729196925e001254107de1dbe989b6a5972a1edc2688",
+        "a6ec5ce945df7fd4cef063b39a38f8a38dda52b03915a5deb913acd4f1df2ae4",
+        "9b744b7a5966ff4b5d5d3b2bae9878e5a714deb2db9c7d09f0aadcc248f7b10b"
+      ],
+      "provider_rows_sha256": "25f7701c4574c21fccf36ed7e7719fff6b3a1a9e06d95f5c2788aba06167b30f",
+      "schema": "research.chinook-sensor-contract/1",
+      "security_id": "47247117758471252",
+      "session": "2023-08-11",
+      "source_witnesses": [
+        {
+          "issuer_id": "SEC_CIK:1435049",
+          "listing_first_session": "2015-04-15",
+          "security_id": "47247117758471252",
+          "security_type_eligible": "1",
+          "session": "2023-08-09",
+          "source_observation_sha256": "f325a5bfb40a95a3bf7d35b7ceb7b7acf331ad30c2a3762b25aad7462d8e8063",
+          "ticker": "KDNY"
+        },
+        {
+          "issuer_id": "SEC_CIK:1435049",
+          "listing_first_session": "2015-04-15",
+          "security_id": "47247117758471252",
+          "security_type_eligible": "1",
+          "session": "2023-08-10",
+          "source_observation_sha256": "a0f99283fa96a7ad638f996384e278c8dd4f756265a4588300577a2c427c1b47",
+          "ticker": "KDNY"
+        }
+      ],
+      "tender_participation_assumed": false
+    },
+    "provider_rows": [
+      {
+        "action": "acquisitionof",
+        "contraname": "CHINOOK THERAPEUTICS INC",
+        "contraticker": "KDNY",
+        "date": "2023-08-10",
+        "name": "NOVARTIS AG",
+        "ticker": "NVS",
+        "value": "2900.2"
+      },
+      {
+        "action": "acquisitionby",
+        "contraname": "NOVARTIS AG",
+        "contraticker": "NVS",
+        "date": "2023-08-10",
+        "name": "CHINOOK THERAPEUTICS INC",
+        "ticker": "KDNY",
+        "value": "2900.2"
+      },
+      {
+        "action": "delisted",
+        "contraname": "N/A",
+        "contraticker": "N/A",
+        "date": "2023-08-10",
+        "name": "CHINOOK THERAPEUTICS INC",
+        "ticker": "KDNY",
+        "value": "2900.2"
+      }
+    ],
+    "right_market_price_observed": false,
+    "schema": "research.chinook-sensor-private-event/1",
+    "security_id": "47247117758471252",
+    "session": "2023-08-11",
+    "source_metadata_unchanged": true,
+    "source_quote_present": false,
+    "source_witnesses": [
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1435049",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2015-04-15",
+        "metadata_admitted": "1",
+        "raw_close": "40.299999999999997",
+        "raw_compatible_volume": "7096848",
+        "raw_open": "40.299999999999997",
+        "reported_volume": "7096848",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "47247117758471252",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2023-08-09",
+        "sic": "2834",
+        "signal_close": "40.299999999999997",
+        "split_ratio": "1",
+        "ticker": "KDNY",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1435049",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2015-04-15",
+        "metadata_admitted": "1",
+        "raw_close": "40.390000000000001",
+        "raw_compatible_volume": "3261047",
+        "raw_open": "40.310000000000002",
+        "reported_volume": "3261047",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "47247117758471252",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2023-08-10",
+        "sic": "2834",
+        "signal_close": "40.390000000000001",
+        "split_ratio": "1",
+        "ticker": "KDNY",
+        "tradeable": "1"
+      }
+    ],
+    "split_ratio": "1"
+  },
+  "original_chinook_private_event_sha256": "66ad356f0fd05e2261aef0dbdeb9f4e3a3c6db02b32a70c86b9bea0d9dea441b",
+  "parent_completed": 1403,
+  "parent_cursor": "2023-07-31",
+  "parent_descriptors": [
+    {
+      "filename": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f.json",
+      "predecessor_checkpoint_sha256": "a29daf20ca984e35f402a194b19e8a330007984e4f9d44a8832cf1286845258f",
+      "resume_session": "2017-06-30",
+      "sha256": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f"
+    },
+    {
+      "filename": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467.json",
+      "predecessor_checkpoint_sha256": "4eb1fe08e2e3f94b8a3589ca2f790261ef680d99cf80782eacbf17101231c186",
+      "resume_session": "2018-01-31",
+      "sha256": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467"
+    },
+    {
+      "filename": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a.json",
+      "predecessor_checkpoint_sha256": "a1a925ac21f467be8a2c446fc80cd502f382e6227c9b6f79ff07130f84eb3ff1",
+      "resume_session": "2018-03-29",
+      "sha256": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a"
+    },
+    {
+      "filename": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d.json",
+      "predecessor_checkpoint_sha256": "8094481314c62f325a3f6b7370c447f20f05e0474e3976d766e5d67995968bd0",
+      "resume_session": "2018-04-30",
+      "sha256": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d"
+    },
+    {
+      "filename": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507.json",
+      "predecessor_checkpoint_sha256": "5e5839e623220b43c1ca6b857dc5d9b840855c24fdee9d9966b17b6e08ce0122",
+      "resume_session": "2018-06-29",
+      "sha256": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507"
+    },
+    {
+      "filename": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474.json",
+      "predecessor_checkpoint_sha256": "d0c05c9d81e3f563e0e482daca523369bd4a84ecb2e6a5f8d87e9043ca0840d5",
+      "resume_session": "2018-10-31",
+      "sha256": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474"
+    },
+    {
+      "filename": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e.json",
+      "predecessor_checkpoint_sha256": "98b5e126a2597927f2f874c279a0bb5df38d703e843c75747c8b94b472a047f9",
+      "resume_session": "2018-11-30",
+      "sha256": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e"
+    },
+    {
+      "filename": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2.json",
+      "predecessor_checkpoint_sha256": "08be90956c853198deb8388e5f12349ecc71372d6f5d9bb2f22e2556383619ad",
+      "resume_session": "2018-12-31",
+      "sha256": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2"
+    },
+    {
+      "filename": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266.json",
+      "predecessor_checkpoint_sha256": "19908f470468144ba9c96ca6f22a4dab5cdd3e5faad55d031fa9387cf3f43b54",
+      "resume_session": "2019-03-29",
+      "sha256": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266"
+    },
+    {
+      "filename": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3.json",
+      "predecessor_checkpoint_sha256": "293a1b16b669f4b23e2e27c1631e7fe1e9c07be42f8b76dcc998d48b8b77dd5f",
+      "resume_session": "2019-06-28",
+      "sha256": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3"
+    },
+    {
+      "filename": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0.json",
+      "predecessor_checkpoint_sha256": "90ee3f3bfc2a577d9ad5e4720bbc52f4a3549bc10e9b959917f242319a5c9461",
+      "resume_session": "2019-09-30",
+      "sha256": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0"
+    },
+    {
+      "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+      "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+      "resume_session": "2019-09-30",
+      "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+    },
+    {
+      "filename": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52.json",
+      "predecessor_checkpoint_sha256": "7aefaf2f14244798f84c435c1fda433436635063118929ea86def0c52aa13847",
+      "resume_session": "2019-12-31",
+      "sha256": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52"
+    },
+    {
+      "filename": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563.json",
+      "predecessor_checkpoint_sha256": "522a3a34ca26f8421650552a0d2095f3ab00470f95e72b1298149c114bf81ba5",
+      "resume_session": "2020-02-28",
+      "sha256": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563"
+    },
+    {
+      "filename": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0.json",
+      "predecessor_checkpoint_sha256": "0ff53c327e423b1dd3fc1d82f29ccf0c64e2e5b0dac531903f7dc21ce2bc548f",
+      "resume_session": "2020-03-31",
+      "sha256": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0"
+    },
+    {
+      "filename": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97.json",
+      "predecessor_checkpoint_sha256": "f719f39376e987bddd3a2a7db55ef71d1c8959b68f6afad1659649fb1ef8ca74",
+      "resume_session": "2020-06-30",
+      "sha256": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97"
+    },
+    {
+      "filename": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777.json",
+      "predecessor_checkpoint_sha256": "52687f6b0962cbbbb6c8a5e74bb6ebec7180c63582cef6a394f3cd5a2ed756eb",
+      "resume_session": "2021-01-29",
+      "sha256": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777"
+    },
+    {
+      "filename": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52.json",
+      "predecessor_checkpoint_sha256": "ad7dfe3c328fb91d1fd043d6f902dbbb842e93c3a127b6a6a8fd21e49769a400",
+      "resume_session": "2021-03-31",
+      "sha256": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52"
+    },
+    {
+      "filename": "ffa0c08af0629f44aebf8ec97f4f50fc811afcf8dee8aef48106118f2ee012c3.json",
+      "predecessor_checkpoint_sha256": "2874cdc3db6fc9bf951b2ac324a030ed0578a0a6c8c018d863ec271ee19cfd6c",
+      "resume_session": "2021-04-30",
+      "sha256": "ffa0c08af0629f44aebf8ec97f4f50fc811afcf8dee8aef48106118f2ee012c3"
+    },
+    {
+      "filename": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc.json",
+      "predecessor_checkpoint_sha256": "172057e58743c80f101e6eb7e1feabbadf564ffd84af00ca3c10450bf49f4932",
+      "resume_session": "2021-11-30",
+      "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+    },
+    {
+      "filename": "e4bbe8db6bb9e7def9f883a386affbe8d77ccb88ee7620688d9dd92eac603e16.json",
+      "predecessor_checkpoint_sha256": "3029058df5eddd2cd88ae61a6eeb01538381b7a8daeee67391df241ec0b703de",
+      "resume_session": "2022-02-28",
+      "sha256": "e4bbe8db6bb9e7def9f883a386affbe8d77ccb88ee7620688d9dd92eac603e16"
+    },
+    {
+      "filename": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38.json",
+      "predecessor_checkpoint_sha256": "79279eb9cbee5fb5ae93e781b22fe5c0f426ac310f695edf88c7eca6fd9269b7",
+      "resume_session": "2022-02-28",
+      "sha256": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38"
+    },
+    {
+      "filename": "21b692ce3c2f77a90fc144f1a32b771895ef03b9a01a5c5377513fec77e304ad.json",
+      "predecessor_checkpoint_sha256": "1442a73cc49c1fd45ac2f3e9708207bb1be2f9c55616487da4e789dde8a2d49d",
+      "resume_session": "2022-09-30",
+      "sha256": "21b692ce3c2f77a90fc144f1a32b771895ef03b9a01a5c5377513fec77e304ad"
+    },
+    {
+      "filename": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355.json",
+      "predecessor_checkpoint_sha256": "1735d980caaeeaf7773888504feb8ddf9f0e65a447106ac9bfee94c858359233",
+      "resume_session": "2022-11-30",
+      "sha256": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355"
+    },
+    {
+      "filename": "0af68e75f5b79bb60df9a173c4837e4c56969e20bb0295cd5839e2bcd0bbd665.json",
+      "predecessor_checkpoint_sha256": "489364a5f80b513115a23dd4b590506ccee44dff74e31ce508866049f709f050",
+      "resume_session": "2022-12-30",
+      "sha256": "0af68e75f5b79bb60df9a173c4837e4c56969e20bb0295cd5839e2bcd0bbd665"
+    },
+    {
+      "filename": "cf790bf6e2500c1038286c7d43825cd1fa0be99e5f4d0b39ef83d75b07006ac1.json",
+      "predecessor_checkpoint_sha256": "5a16ac91b95432bc66e13b8a75f2b1d60d3fd06cda4a82a493b996d40172df06",
+      "resume_session": "2023-06-30",
+      "sha256": "cf790bf6e2500c1038286c7d43825cd1fa0be99e5f4d0b39ef83d75b07006ac1"
+    }
+  ],
+  "parent_inner_sha256": "384fc7d286e04b0e70bd0055b29bb9f9bd233a2dc0dba3ee1c32c05722243cf0",
+  "parent_input_sha256": "9326d0d50de55f7f1c3134af9818a584107736bfe8383161baf2ccf8b5cabc7f",
+  "parent_outer_sha256": "c7067ac86c8eda4e034a3b813a699f174c7216e462f3e123f6017aa26d825937",
+  "parent_root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "parent_state_sha256": "028fe492f3dd2ab049b0160ae1e1608e78395ede2cf48a8139066b83c43a0ac6",
+  "primary_contract": {
+    "cash_consideration_range": [
+      40.0,
+      44.0
+    ],
+    "contingent_right_market_price_observed": false,
+    "event_source_quote_present": false,
+    "inherited_sources": {
+      "system-campaign-abiomed-sensor-contract.json": "ee8240eee65955f2e389ffcc2c4833ffe0732982430a83a2a4ac6da268c651f4",
+      "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533",
+      "system_campaign_abiomed_basis.py": "ada371aa34294f6a8319ee117ff23fe62970040031e8f8e0e66d1cb3809a449b",
+      "system_campaign_abiomed_facts.py": "fd5d31a831ae729de1ab895110bc27b10fe9ae092893894cdb54d5c30ec091c8",
+      "system_campaign_abiomed_gate.py": "5ccc9d3b45e884f245b8f27d4c5d29df3497f219356c93418feab76832b30424",
+      "system_campaign_abiomed_input.py": "2bf837427006de7a52fe797bc9679706e37121bca61943af360582e188472bf7",
+      "system_campaign_abiomed_review.py": "03f44f8d08d052f4cd6e2861e65a7d87b3ddd86720d9da39c6e9ac5b1a77fd8a",
+      "system_campaign_abiomed_sensor.py": "6195af587b8dc40a33afb6ba78002c530586e86b3d13d5f53715808f959a821f",
+      "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
+      "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
+      "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
+      "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
+      "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
+      "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
+      "system_campaign_ordinary_registry.py": "e526264ca859afa5455eaf4eeabdf80fc9eea7cfd0f981969b5f884da93fab15",
+      "system_campaign_spring2023_preflight.py": "ea93928a92e3a4ab46de1e86b6c60fbddf7b881943975d115f9083a81b518d08",
+      "system_campaign_spring2023_review.py": "e8489cac432ed3868334b885ece14fb0be2a9aec29b810323226c2fb4d5c7c40",
+      "system_campaign_spring2023_sensor.py": "88734e7ebac86d7df8f420c7cbbd04a9b8eab1b66964f333ace33b231715dead",
+      "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+      "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+      "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+      "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+      "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+      "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+      "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+      "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+      "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
+      "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
+      "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
+      "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
+      "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
+      "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+    },
+    "last_trading_session": "2023-08-10",
+    "later_payment_information_used": false,
+    "mandatory_remaining_common_share_entitlement": true,
+    "native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=2900.2",
+      "security_id": "47247117758471252",
+      "session": "2023-08-10"
+    },
+    "native_session": "2023-08-10",
+    "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+    "preopen_completion_confirmed": true,
+    "primary_sources": {
+      "exchange_clock": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-447",
+      "issuer_confirmation": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+      "mandatory_common_and_cap": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+      "options_corroboration_not_common_right_valuation": "https://infomemo.theocc.com/infomemos?number=53016"
+    },
+    "production_contacted": false,
+    "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+    "provider_row_sha256": [
+      "2fa23492fcc5b55f8d02729196925e001254107de1dbe989b6a5972a1edc2688",
+      "a6ec5ce945df7fd4cef063b39a38f8a38dda52b03915a5deb913acd4f1df2ae4",
+      "9b744b7a5966ff4b5d5d3b2bae9878e5a714deb2db9c7d09f0aadcc248f7b10b"
+    ],
+    "provider_rows_sha256": "25f7701c4574c21fccf36ed7e7719fff6b3a1a9e06d95f5c2788aba06167b30f",
+    "schema": "research.chinook-sensor-contract/1",
+    "security_id": "47247117758471252",
+    "session": "2023-08-11",
+    "source_witnesses": [
+      {
+        "issuer_id": "SEC_CIK:1435049",
+        "listing_first_session": "2015-04-15",
+        "security_id": "47247117758471252",
+        "security_type_eligible": "1",
+        "session": "2023-08-09",
+        "source_observation_sha256": "f325a5bfb40a95a3bf7d35b7ceb7b7acf331ad30c2a3762b25aad7462d8e8063",
+        "ticker": "KDNY"
+      },
+      {
+        "issuer_id": "SEC_CIK:1435049",
+        "listing_first_session": "2015-04-15",
+        "security_id": "47247117758471252",
+        "security_type_eligible": "1",
+        "session": "2023-08-10",
+        "source_observation_sha256": "a0f99283fa96a7ad638f996384e278c8dd4f756265a4588300577a2c427c1b47",
+        "ticker": "KDNY"
+      }
+    ],
+    "tender_participation_assumed": false
+  },
+  "primary_contract_sha256": "3d0950938cf7a065b19d363f4d4d08488099dc0e4aa27dd0f06c2b7bb489d9e8",
+  "schema": "research.P07-KDNY-full26-bounded-source-catalog/1",
+  "source_payload": {
+    "admitted_context": {
+      "P07": {
+        "completed": 1403,
+        "input_sha256": "9326d0d50de55f7f1c3134af9818a584107736bfe8383161baf2ccf8b5cabc7f",
+        "outer_sha256": "c7067ac86c8eda4e034a3b813a699f174c7216e462f3e123f6017aa26d825937",
+        "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+        "through": "2023-07-31"
+      }
+    },
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "context_is_not_event_date_ownership": true,
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "input_adopted": false,
+    "native_groups": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2900.2",
+            "security_id": "47247117758471252",
+            "session": "2023-08-10"
+          }
+        ],
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-native-group",
+          "security_id": "47247117758471252",
+          "session": "2023-08-10",
+          "ticker": "KDNY"
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "2900.1999999999998",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2023-08-10",
+              "evidence_hash": "",
+              "known_by": "2023-08-10",
+              "security_id": "47247117758471252",
+              "sep_derived_value": "",
+              "ticker": "KDNY",
+              "vendor_value": "2900.1999999999998"
+            },
+            "sha256": "160b610f7382789f6649a76505b5b2ef516cac7ca5b94dacea8d3375f623192b"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "2900.1999999999998",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2023-08-10",
+              "evidence_hash": "",
+              "known_by": "2023-08-10",
+              "security_id": "47247117758471252",
+              "sep_derived_value": "",
+              "ticker": "KDNY",
+              "vendor_value": "2900.1999999999998"
+            },
+            "sha256": "079bb9ebd3285a612b2eba5082d1e007e9e66fa8b757220596730b3cb02caed2"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "observations": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-effective",
+          "security_id": "47247117758471252",
+          "session": "2023-08-11",
+          "ticker": "KDNY"
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-identity",
+          "security_id": "47247117758471252",
+          "session": "2023-08-09",
+          "ticker": "KDNY"
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "10 Hlth",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1435049",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2015-04-15",
+              "metadata_admitted": "1",
+              "raw_close": "40.299999999999997",
+              "raw_compatible_volume": "7096848",
+              "raw_open": "40.299999999999997",
+              "reported_volume": "7096848",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "47247117758471252",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2023-08-09",
+              "sic": "2834",
+              "signal_close": "40.299999999999997",
+              "split_ratio": "1",
+              "ticker": "KDNY",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "f325a5bfb40a95a3bf7d35b7ceb7b7acf331ad30c2a3762b25aad7462d8e8063"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P07",
+          "name": "p07-kdny-native",
+          "security_id": "47247117758471252",
+          "session": "2023-08-10",
+          "ticker": "KDNY"
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "10 Hlth",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1435049",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2015-04-15",
+              "metadata_admitted": "1",
+              "raw_close": "40.390000000000001",
+              "raw_compatible_volume": "3261047",
+              "raw_open": "40.310000000000002",
+              "reported_volume": "3261047",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "47247117758471252",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2023-08-10",
+              "sic": "2834",
+              "signal_close": "40.390000000000001",
+              "split_ratio": "1",
+              "ticker": "KDNY",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "a0f99283fa96a7ad638f996384e278c8dd4f756265a4588300577a2c427c1b47"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+    "producer_sha256": "b62bd2b178f6e6228c84dcdae1fcf2fd3fc09b25cd4b33f36c559e4d11024eb3",
+    "production_contacted": false,
+    "request_sha256": "b7706e95dfcd6e725a4bdeef85ab5b74f556ac8625ad6e06203910cbfaaf8ee9",
+    "schema": "research.source-evidence-batch/1"
+  },
+  "source_payload_sha256": "be6da03fcc626765b47e180400fdef6205bb82c852a9b45c1b6bce249970dd9f"
+}

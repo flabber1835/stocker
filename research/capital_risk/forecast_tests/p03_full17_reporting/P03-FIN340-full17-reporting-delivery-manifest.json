@@ -1,0 +1,67 @@
+{
+  "files": {
+    "DESIGN.md": {
+      "bytes": 2859,
+      "sha256": "f82f8d613d8946b2ff4ce1454c45fbf6e4c379771bced00bd932d2d1e5b34554"
+    },
+    "INTEGRATION.md": {
+      "bytes": 3280,
+      "sha256": "90e644cf0ac2e3a7af0caef113cdc772d85283eb54a7a92a0ae0864b31dc519a"
+    },
+    "P03-FIN340-full17-independent-financial-DATA-v2.json": {
+      "bytes": 5171,
+      "sha256": "00402176082c7ff7321ce9ed807d2e27295391e95720998f000298ac79e3c55f"
+    },
+    "P03-FIN340-full17-readonly-reporting-qualification.json": {
+      "bytes": 2652,
+      "sha256": "bead26577f5890eec6fd9af5e740c68b797369785ab87cc73e9e9747fa990ab7"
+    },
+    "P03-FIN340-full17-reporting-fact-v1.json": {
+      "bytes": 41679,
+      "sha256": "583d8af93ab8cde52c72b61b12cf911f89582ca7c9e7b1e420910c60fd7a1be8"
+    },
+    "P03-FIN340-full17-reporting-source-request.json": {
+      "bytes": 79542,
+      "sha256": "67ca5a6e9cff7df93afa1e7445b6f8412551b8e64e2da4445058d22b2df3dbb2"
+    },
+    "P03-FIN340-full17-target.json": {
+      "bytes": 38206,
+      "sha256": "62dac8b8d03dede87e7124e02dc203be7b9356bfd2c020774851da360dc0c57e"
+    },
+    "prepare_target_DATA.py": {
+      "bytes": 7965,
+      "sha256": "ca8393e32048a3b35f1dd2b87fe330809a63d0c206265bf5dabd4d86aba759a8"
+    },
+    "review_FIN340_DATA.py": {
+      "bytes": 13516,
+      "sha256": "6a4bc05b8dd97a4109eeb2920c235b93ba32fb47b7538007cf4556238bac87e2"
+    },
+    "system_campaign_p03_full17_reporting.py": {
+      "bytes": 7598,
+      "sha256": "96c1286e6756815cebaab2e7f2df754725d3b9a33779aeed8dec6560ed7769ba"
+    },
+    "test_full17_reporting_DATA.py": {
+      "bytes": 11871,
+      "sha256": "a4929445127a53e5a7677615aacc8010a780f4e68e73560904fcb8485a984076"
+    }
+  },
+  "repository_tests": {
+    "repository-test-copies/research/capital_risk/forecast_tests/p03_full17_reporting/__init__.py": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "repository-test-copies/research/capital_risk/forecast_tests/p03_full17_reporting/prepare_target_DATA.py": {
+      "bytes": 7980,
+      "sha256": "aad593cbde226c48e0d43be41632910465323a2d20e9d4cf1b243d0f84a8145f"
+    },
+    "repository-test-copies/research/capital_risk/forecast_tests/p03_full17_reporting/review_FIN340_DATA.py": {
+      "bytes": 13552,
+      "sha256": "0aded2f373e3c2c4d6e3263b49245b2dd81c5257e6c1afb625a761397f0f8d7f"
+    },
+    "repository-test-copies/research/capital_risk/forecast_tests/p03_full17_reporting/test_full17_reporting_DATA.py": {
+      "bytes": 11902,
+      "sha256": "c2c3a81835e9954d992b10d9823b32dec52563ad61aa136155bfc5d729d95221"
+    }
+  },
+  "schema": "research.P03-FIN340-full17-reporting-delivery-manifest/1"
+}

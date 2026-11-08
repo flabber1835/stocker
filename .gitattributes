@@ -12,3 +12,32 @@ scripts/windows/*.ps1 text eol=lf
 # core.autocrlf change its SHA-256 in a Windows checkout before the runner can
 # verify it against the bundle's SHA256SUMS.txt.
 docs/sentinel-reference-implementation/sentinel_1p1_daily.csv -text
+
+# Sealed research CRLF bytes are source commitments; retain all space guards.
+.github/workflows/capital-full-system-core-recovery.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+.github/workflows/capital-full-system-parent-reference.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+.github/workflows/capital-system-campaign-baseline.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+.github/workflows/capital-system-exact-finish.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+.github/workflows/capital-system-late-factual-suffix.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+.github/workflows/capital-system-midyear-factual-suffix.yml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+docs/system-optimization-exact-resume-window.md -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+docs/system-optimization-input-amendment-and-speed.md -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/full-system-predecessors.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/full-system-recovery-request.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/full-system-reference-request.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-discovery-suffix-anchor-predecessors.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-finish-predecessors.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-late-predecessors.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-medicines-terminal-facts.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-p02-uncertainty-predecessor.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-predecessors.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-reconstruction-predecessor.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-uncertainty-predecessor.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system-campaign-uncertainty-qualification.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_finish_job.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_late_facts.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_late_job.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_late_run.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_midyear_facts.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/system_campaign_midyear_job.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+research/capital_risk/forecast_tests/standard_distribution/fixtures/P11-closed-source243-validation.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

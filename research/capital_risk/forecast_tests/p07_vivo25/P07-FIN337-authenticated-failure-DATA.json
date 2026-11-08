@@ -1,0 +1,54 @@
+{
+  "actual_full25_neutral_created": false,
+  "all_canonical_JSON_commitments_and_journal_prefixes_verified": true,
+  "artifact_id": 13521423444,
+  "financial_authority": false,
+  "head": "d2088351f2f0bf15d5ea6b6a3ca2992341b6acc5",
+  "journals": {
+    "daily": {
+      "committed_bytes": 127188382,
+      "committed_sha256": "d92d0e194c6df203e79ff8a1f550dccc367b3017b85fc0e03154c1a3fc59b717",
+      "raw_bytes": 129086172,
+      "uncommitted_tail_bytes": 1897790
+    },
+    "formation": {
+      "committed_bytes": 11873875,
+      "committed_sha256": "7c828b05c0a87fd25f342683163f9accd3ee664105e4ec44979d9e107a852415",
+      "raw_bytes": 11873875,
+      "uncommitted_tail_bytes": 0
+    },
+    "monthly": {
+      "committed_bytes": 219843,
+      "committed_sha256": "6d7f7f1b62cc866c44470f4fe1d1d3d18985b306d2e9f6dc106a0174c48664df",
+      "raw_bytes": 219843,
+      "uncommitted_tail_bytes": 0
+    },
+    "watch": {
+      "committed_bytes": 321384,
+      "committed_sha256": "05084f7a020052bdd9ed973d14a66abfccad64df430e409a7b4f3cd4fac0c07b",
+      "raw_bytes": 329981,
+      "uncommitted_tail_bytes": 8597
+    }
+  },
+  "local_canonical_runtime_executed": false,
+  "logical_bytes": 919142371,
+  "members": 476,
+  "new_committed_closes": 0,
+  "new_origin_archives": [
+    "p07-vivo-ordinary25-origin/actual-selected-parent24.json.gz",
+    "p07-vivo-ordinary25-origin/entire-prior-certificate.jsonl"
+  ],
+  "packet_qualification_created": false,
+  "passed": true,
+  "review_failure": "BRANCH_COMPLETE_COMMITTED_PROOF_AXIS after worker never wrote retained output certificate",
+  "review_status_remains_failed": true,
+  "run_id": 42252486692,
+  "saved_completed": 1259,
+  "saved_cursor": "2022-12-30",
+  "saved_full_inputs": 24,
+  "saved_gzip_sha256": "324e3b1bb5ca8ba6856530606c5e8f0add1211ee22141306b4e190a1ab617aaf",
+  "saved_outer_sha256": "1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a",
+  "schema": "research.P07-FIN337-authenticated-failure-DATA/1",
+  "worker_failure": "AttributeError at new full_models callback owner inputs.input_hash",
+  "worker_status_remains_failed": true
+}

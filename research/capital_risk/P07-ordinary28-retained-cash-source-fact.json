@@ -1,0 +1,974 @@
+{
+  "actual_parent_roles": {
+    "1011284967859810069": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        0.258,
+        3.876
+      ]
+    },
+    "1020879448423638006": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        13.75,
+        13.75
+      ]
+    },
+    "207977697074649672": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        93.75,
+        93.75
+      ]
+    },
+    "356455035813755306": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        2.26,
+        2.26
+      ]
+    },
+    "390513115168803332": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        91.99,
+        91.99
+      ]
+    },
+    "477309164594500719": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        14.92,
+        14.92
+      ]
+    },
+    "562947493199996351": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        121.26,
+        121.26
+      ]
+    },
+    "64011142132727200": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        206.07,
+        206.07
+      ]
+    },
+    "823579734840521990": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        3.99,
+        3.99
+      ]
+    },
+    "842403186726794681": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        42.73,
+        42.73
+      ]
+    },
+    "877716075426179792": {
+      "held": [],
+      "leadership_selected": true,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        169.0,
+        169.0
+      ]
+    },
+    "949392331435765708": {
+      "held": [],
+      "leadership_selected": false,
+      "pending": [],
+      "signal_basis_anchor": [
+        "2023-08-31",
+        29.12,
+        29.12
+      ]
+    }
+  },
+  "already_inherited": [
+    {
+      "catalog_file": "system-campaign-december-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+      "existing_addition": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 87.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1448056/000119312523273042/d469974d8k.htm | Mandatory common-share cash completion before market open on 2023-11-08; confirmed last trade 2023-11-07; frozen metadata unchanged.",
+        "security_id": "333926898180811276",
+        "session": "2023-11-08"
+      },
+      "existing_descriptor": {
+        "filename": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc.json",
+        "predecessor_checkpoint_sha256": "172057e58743c80f101e6eb7e1feabbadf564ffd84af00ca3c10450bf49f4932",
+        "resume_session": "2021-11-30",
+        "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+      },
+      "existing_suppression": {
+        "security_id": "333926898180811276",
+        "session": "2023-11-07",
+        "term_sha256": "23d0dfe7e1d209f84a68c666878673381b1748f10a891edcd9a00ad55f66b6c0"
+      },
+      "index": 5,
+      "term": {
+        "actual_completion_date": "2023-11-08",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 87.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1448056/000119312523273042/d469974d8k.htm | Mandatory common-share cash completion before market open on 2023-11-08; confirmed last trade 2023-11-07; frozen metadata unchanged.",
+          "security_id": "333926898180811276",
+          "session": "2023-11-08"
+        },
+        "description": "Mandatory common-share cash completion before market open on 2023-11-08; confirmed last trade 2023-11-07; frozen metadata unchanged.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1448056",
+          "listing_first_session": "2014-12-12",
+          "security_id": "333926898180811276",
+          "security_type_eligible": "1",
+          "session": "2023-11-06",
+          "source_observation_sha256": "ddb41294e14f8838df351acfee4741831db5d7096eaf07ecdf6935df646ee1ce",
+          "ticker": "NEWR"
+        },
+        "last_trading_session": "2023-11-07",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-11-07",
+        "native_term_sha256": "23d0dfe7e1d209f84a68c666878673381b1748f10a891edcd9a00ad55f66b6c0",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1448056/000119312523273042/d469974d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "333926898180811276",
+        "ticker": "NEWR",
+        "timing_source": "https://www.sec.gov/Archives/edgar/data/1448056/000119312523273042/d469974d8k.htm"
+      },
+      "term_sha256": "ef24d77e2c6172fa734498643277bb8298456c3d2c0d0dab06da8852751d02ca"
+    },
+    {
+      "catalog_file": "system-campaign-december-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+      "existing_addition": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 31.26,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1551152/000110465924013692/tm245657d1_99-1.htm | Mandatory common-share cash completion before market open on 2024-02-12; confirmed last trade 2024-02-09; frozen metadata unchanged.",
+        "security_id": "170441452346015322",
+        "session": "2024-02-12"
+      },
+      "existing_descriptor": {
+        "filename": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc.json",
+        "predecessor_checkpoint_sha256": "172057e58743c80f101e6eb7e1feabbadf564ffd84af00ca3c10450bf49f4932",
+        "resume_session": "2021-11-30",
+        "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+      },
+      "existing_suppression": {
+        "security_id": "170441452346015322",
+        "session": "2024-02-09",
+        "term_sha256": "c09607c58f8ec9489f838f63ff6527059c755d2cdf9438f5925f8d8a496951b5"
+      },
+      "index": 6,
+      "term": {
+        "actual_completion_date": "2024-02-12",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 31.26,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1551152/000110465924013692/tm245657d1_99-1.htm | Mandatory common-share cash completion before market open on 2024-02-12; confirmed last trade 2024-02-09; frozen metadata unchanged.",
+          "security_id": "170441452346015322",
+          "session": "2024-02-12"
+        },
+        "description": "Mandatory common-share cash completion before market open on 2024-02-12; confirmed last trade 2024-02-09; frozen metadata unchanged.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:855654",
+          "listing_first_session": "1997-12-31",
+          "security_id": "170441452346015322",
+          "security_type_eligible": "1",
+          "session": "2024-02-08",
+          "source_observation_sha256": "21974a94d4f7b0c6f50f5a239e1864ff4ec40de8be214864e51aa8837d9e7eb5",
+          "ticker": "IMGN"
+        },
+        "last_trading_session": "2024-02-09",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2024-02-09",
+        "native_term_sha256": "c09607c58f8ec9489f838f63ff6527059c755d2cdf9438f5925f8d8a496951b5",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1551152/000110465924013692/tm245657d1_99-1.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "170441452346015322",
+        "ticker": "IMGN",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-58"
+      },
+      "term_sha256": "64dc7c64a012e764e4e0937feaa1fa5582c33dd85d4ff48901467998ae6773b0"
+    },
+    {
+      "catalog_file": "system-campaign-december-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6",
+      "existing_addition": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 63.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1596783/000119312524280922/d902883d8k.htm | Mandatory common-share cash completion before market open on 2024-12-18; confirmed last trade 2024-12-17; frozen metadata unchanged.",
+        "security_id": "926139522403724450",
+        "session": "2024-12-18"
+      },
+      "existing_descriptor": {
+        "filename": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc.json",
+        "predecessor_checkpoint_sha256": "172057e58743c80f101e6eb7e1feabbadf564ffd84af00ca3c10450bf49f4932",
+        "resume_session": "2021-11-30",
+        "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+      },
+      "existing_suppression": {
+        "security_id": "926139522403724450",
+        "session": "2024-12-17",
+        "term_sha256": "3271de7e17ba66ccba86e074949c81af628173cc56a19774ced304bedd7669ba"
+      },
+      "index": 7,
+      "term": {
+        "actual_completion_date": "2024-12-18",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 63.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1596783/000119312524280922/d902883d8k.htm | Mandatory common-share cash completion before market open on 2024-12-18; confirmed last trade 2024-12-17; frozen metadata unchanged.",
+          "security_id": "926139522403724450",
+          "session": "2024-12-18"
+        },
+        "description": "Mandatory common-share cash completion before market open on 2024-12-18; confirmed last trade 2024-12-17; frozen metadata unchanged.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1596783",
+          "listing_first_session": "2014-07-31",
+          "security_id": "926139522403724450",
+          "security_type_eligible": "1",
+          "session": "2024-12-16",
+          "source_observation_sha256": "ad63495b96c981d1bbbfcb2656ffb2086b735d0b972125ab63438b71bc48ed17",
+          "ticker": "CTLT"
+        },
+        "last_trading_session": "2024-12-17",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2024-12-17",
+        "native_term_sha256": "3271de7e17ba66ccba86e074949c81af628173cc56a19774ced304bedd7669ba",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1596783/000119312524280922/d902883d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "926139522403724450",
+        "ticker": "CTLT",
+        "timing_source": "https://www.sec.gov/Archives/edgar/data/876661/000087666124001185/ruleprovisionnotice.htm"
+      },
+      "term_sha256": "375c24cb47f56a5ba79a9fdb07c52580629e269b5fed4ef54d83076cad675d66"
+    }
+  ],
+  "canonical_calendar_loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "current_role_is_not_future_ownership": true,
+  "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "new_batches_ignore_originating_financial_authority": true,
+  "nonterminal_descriptors": [
+    {
+      "descriptor": {
+        "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+        "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+        "resume_session": "2019-09-30",
+        "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+      },
+      "schema": "research.leadership-branch-uncertainty-input/1"
+    },
+    {
+      "descriptor": {
+        "filename": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38.json",
+        "predecessor_checkpoint_sha256": "79279eb9cbee5fb5ae93e781b22fe5c0f426ac310f695edf88c7eca6fd9269b7",
+        "resume_session": "2022-02-28",
+        "sha256": "8220e5978f9a8d0370997fd47c94ccf57a515a34cd0cce403925e96876f3fc38"
+      },
+      "schema": "research.zogenix-leadership-uncertainty-input/1"
+    },
+    {
+      "descriptor": {
+        "filename": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355.json",
+        "predecessor_checkpoint_sha256": "1735d980caaeeaf7773888504feb8ddf9f0e65a447106ac9bfee94c858359233",
+        "resume_session": "2022-11-30",
+        "sha256": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355"
+      },
+      "schema": "research.bounded-contingent-sensor-input/1"
+    },
+    {
+      "descriptor": {
+        "filename": "cf790bf6e2500c1038286c7d43825cd1fa0be99e5f4d0b39ef83d75b07006ac1.json",
+        "predecessor_checkpoint_sha256": "5a16ac91b95432bc66e13b8a75f2b1d60d3fd06cda4a82a493b996d40172df06",
+        "resume_session": "2023-06-30",
+        "sha256": "cf790bf6e2500c1038286c7d43825cd1fa0be99e5f4d0b39ef83d75b07006ac1"
+      },
+      "schema": "research.postclose-distribution-input/1"
+    },
+    {
+      "descriptor": {
+        "filename": "5d5bbe1edf7a3446774ba6416e68e070f799fb0eb7c65f62baa0925a11ed1f1c.json",
+        "predecessor_checkpoint_sha256": "384fc7d286e04b0e70bd0055b29bb9f9bd233a2dc0dba3ee1c32c05722243cf0",
+        "resume_session": "2023-07-31",
+        "sha256": "5d5bbe1edf7a3446774ba6416e68e070f799fb0eb7c65f62baa0925a11ed1f1c"
+      },
+      "schema": "research.bounded-contingent-sensor-input/1"
+    }
+  ],
+  "original_future_api_sha256": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
+  "parent_completed": 1426,
+  "parent_input_sha256": "0e21c3af228933f94a9ea08891a2159824b6f366ca378794ef82873f3f911fd2",
+  "parent_inputs": 27,
+  "parent_outer_sha256": "1dae9e15f725f65531d443bbad0a0a62ae05c46e827a2b5f674e05d9b682d037",
+  "parent_through": "2023-08-31",
+  "retained_proofs": 972,
+  "root_admission_sha256": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+  "schema": "research.P07-ordinary28-retained-calendar-cash-fact/1",
+  "selected": [
+    {
+      "catalog_file": "system-campaign-h2-2023-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086",
+      "index": 4,
+      "term": {
+        "actual_completion_date": "2023-09-05",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 2.27,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-497 | Mandatory remaining common-share cash conversion completed before 2023-09-05 market open; retain 2023-09-01 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+          "security_id": "356455035813755306",
+          "session": "2023-09-05"
+        },
+        "description": "Mandatory remaining common-share cash conversion completed before 2023-09-05 market open; retain 2023-09-01 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1305773",
+          "listing_first_session": "2015-07-01",
+          "security_id": "356455035813755306",
+          "security_type_eligible": "1",
+          "session": "2023-09-01",
+          "source_observation_sha256": "c2e37780cc451e90686230d96fa0a1955b67adde515a7d95326b60cbc23f399f",
+          "ticker": "CFMS"
+        },
+        "last_trading_session": "2023-09-01",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-09-01",
+        "native_term_sha256": "aa3825d28c44a4b64c55a3b02a4cbbfef597ab48404d2a1e32f9486a2f9a2ec7",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-497",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "356455035813755306",
+        "ticker": "CFMS",
+        "timing_evidence": {
+          "input_adopted": false,
+          "original_provider_identity_unchanged": true,
+          "primary_sources": [
+            "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-497"
+          ],
+          "source_extraction_status": "PRIMARY_TERMS_AND_CLOCK_SUPPORTED_NOT_PREDECESSOR_BOUND_OR_ADOPTED"
+        },
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-497"
+      },
+      "term_sha256": "174a9dae9206e34f761f2a720cbf75ff49373028b5748c7d6930ce7d2ace37a7"
+    },
+    {
+      "catalog_file": "system-campaign-h2-2023-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086",
+      "index": 5,
+      "term": {
+        "actual_completion_date": "2023-09-05",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 4.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://infomemo.theocc.com/infomemos?number=53131 | Mandatory remaining common-share cash conversion completed before 2023-09-05 market open; retain 2023-09-01 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+          "security_id": "823579734840521990",
+          "session": "2023-09-05"
+        },
+        "description": "Mandatory remaining common-share cash conversion completed before 2023-09-05 market open; retain 2023-09-01 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1115128",
+          "listing_first_session": "2014-03-07",
+          "security_id": "823579734840521990",
+          "security_type_eligible": "1",
+          "session": "2023-09-01",
+          "source_observation_sha256": "58f22026de87cbf5e0393b97eb703169351b365c5ab8332b927ae53dac487573",
+          "ticker": "QUOT"
+        },
+        "last_trading_session": "2023-09-01",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-09-01",
+        "native_term_sha256": "c5476a5065675eb10be41e3feeb1ea7e108e86f85408d066dcd31f6e17342d80",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://infomemo.theocc.com/infomemos?number=53131",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "823579734840521990",
+        "ticker": "QUOT",
+        "timing_evidence": {
+          "input_adopted": false,
+          "original_provider_identity_unchanged": true,
+          "primary_sources": [
+            "https://infomemo.theocc.com/infomemos?number=53131"
+          ],
+          "source_extraction_status": "PRIMARY_TERMS_AND_CLOCK_SUPPORTED_NOT_PREDECESSOR_BOUND_OR_ADOPTED"
+        },
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=53131"
+      },
+      "term_sha256": "d0180f54979269b9ad15b7afc0124052335f3a2c5216c8849ee23529cb1edbd7"
+    },
+    {
+      "catalog_file": "system-campaign-h2-2023-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086",
+      "index": 6,
+      "term": {
+        "actual_completion_date": "2023-09-21",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 15.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-531 | Mandatory remaining common-share cash conversion completed before 2023-09-21 market open; retain 2023-09-20 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+          "security_id": "477309164594500719",
+          "session": "2023-09-21"
+        },
+        "description": "Mandatory remaining common-share cash conversion completed before 2023-09-21 market open; retain 2023-09-20 trading and every frozen quote. No tender participation, provider identity upgrade or preferred-share treatment assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1810739",
+          "listing_first_session": "2020-10-05",
+          "security_id": "477309164594500719",
+          "security_type_eligible": "1",
+          "session": "2023-09-20",
+          "source_observation_sha256": "a7713cd86c1f14c05c87405a2cdae56353fa4bbc7a7b9990817b6d81d3342c89",
+          "ticker": "RADI"
+        },
+        "last_trading_session": "2023-09-20",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-09-20",
+        "native_term_sha256": "ace7f8e508c49e9862bebc47f5b85a37894e6437a7d42d5abdafd777efa13307",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-531",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "477309164594500719",
+        "ticker": "RADI",
+        "timing_evidence": {
+          "input_adopted": false,
+          "original_provider_identity_unchanged": true,
+          "primary_sources": [
+            "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-531"
+          ],
+          "source_extraction_status": "PRIMARY_TERMS_AND_CLOCK_SUPPORTED_NOT_PREDECESSOR_BOUND_OR_ADOPTED"
+        },
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-531"
+      },
+      "term_sha256": "5f11db136167e6311e09f452781d5f06f6446c356dc084cf97278af3af9c14fa"
+    },
+    {
+      "catalog_file": "system-campaign-october-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53",
+      "index": 15,
+      "term": {
+        "actual_completion_date": "2023-09-26",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 172.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1358762/000119312523242619/d516210d8k.htm | Mandatory common-share cash conversion on actual completion 2023-09-26; last trading session 2023-09-25; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+          "security_id": "877716075426179792",
+          "session": "2023-09-26"
+        },
+        "description": "Mandatory common-share cash conversion on actual completion 2023-09-26; last trading session 2023-09-25; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1358762",
+          "listing_first_session": "2016-05-26",
+          "security_id": "877716075426179792",
+          "security_type_eligible": "1",
+          "session": "2023-09-25",
+          "source_observation_sha256": "9f0d2a811609e3ed032c61207a3db5508040feb287a97d2354c86144e428199b",
+          "ticker": "RETA"
+        },
+        "last_trading_session": "2023-09-25",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-09-25",
+        "native_term_sha256": "bb0719c54b4ff45a5dc107d9fcfa8f7cd5669dd6ade1d1a361805f2b8135983b",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1358762/000119312523242619/d516210d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "877716075426179792",
+        "ticker": "RETA",
+        "timing_evidence": {
+          "actual_completion_date": "2023-09-26",
+          "cash_per_common_share": 172.5,
+          "compiler_compatible": true,
+          "filing_accepted_new_york": "2023-09-26T17:25:59-04:00",
+          "filing_accepted_utc": "2023-09-26T21:25:59.000Z",
+          "input_adopted": false,
+          "mandatory_remaining_common_shares": true,
+          "original_provider_identity_unchanged": true,
+          "preopen_proof": "EXPLICIT_PREOPEN",
+          "primary_source": "https://www.sec.gov/Archives/edgar/data/1358762/000119312523242619/d516210d8k.htm",
+          "security_id": "877716075426179792",
+          "ticker": "RETA"
+        },
+        "timing_source": "https://www.sec.gov/Archives/edgar/data/1358762/000119312523242619/d516210d8k.htm"
+      },
+      "term_sha256": "08d2a3bbb6956f3add51a38796dd27d3c0895c0e9e9875734d4b7da03a4e5cee"
+    },
+    {
+      "catalog_file": "system-campaign-october-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53",
+      "index": 16,
+      "term": {
+        "actual_completion_date": "2023-09-28",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 43.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1610950/000119312523245005/d559944d8k.htm | Mandatory common-share cash conversion on actual completion 2023-09-28; last trading session 2023-09-27; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+          "security_id": "842403186726794681",
+          "session": "2023-09-28"
+        },
+        "description": "Mandatory common-share cash conversion on actual completion 2023-09-28; last trading session 2023-09-27; pre-open supported by EXPLICIT_PREOPEN. Preserve frozen identity and source rows; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1610950",
+          "listing_first_session": "2014-11-07",
+          "security_id": "842403186726794681",
+          "security_type_eligible": "1",
+          "session": "2023-09-27",
+          "source_observation_sha256": "52296d37f2d1fcd884d71d0fa9d09eaee25e142c53343344961520ce7127b9c1",
+          "ticker": "SYNH"
+        },
+        "last_trading_session": "2023-09-27",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-09-27",
+        "native_term_sha256": "f39a11f470b2c55aa34ba2fee92b70e9c4d1f68eec97c8bf3873af5d61a98feb",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1610950/000119312523245005/d559944d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "842403186726794681",
+        "ticker": "SYNH",
+        "timing_evidence": {
+          "actual_completion_date": "2023-09-28",
+          "cash_per_common_share": 43.0,
+          "compiler_compatible": true,
+          "filing_accepted_new_york": "2023-09-28T10:47:53-04:00",
+          "filing_accepted_utc": "2023-09-28T14:47:53.000Z",
+          "input_adopted": false,
+          "mandatory_remaining_common_shares": true,
+          "original_provider_identity_unchanged": true,
+          "preopen_proof": "EXPLICIT_PREOPEN",
+          "primary_source": "https://www.sec.gov/Archives/edgar/data/1610950/000119312523245005/d559944d8k.htm",
+          "security_id": "842403186726794681",
+          "ticker": "SYNH"
+        },
+        "timing_source": "https://www.sec.gov/Archives/edgar/data/1610950/000119312523245005/d559944d8k.htm"
+      },
+      "term_sha256": "cb113bb2f73683d3b3a786b8ff4152ebbc39bb3d5df554293a6413d614818141"
+    },
+    {
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+      "index": 3,
+      "term": {
+        "actual_completion_date": "2023-10-13",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 95.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/718877/000110465923108985/tm2328253d1_8k.htm | Mandatory common-share cash merger; actual completion 2023-10-13; confirmed last trade 2023-10-12; recognition 2023-10-13 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+          "security_id": "390513115168803332",
+          "session": "2023-10-13"
+        },
+        "description": "Mandatory common-share cash merger; actual completion 2023-10-13; confirmed last trade 2023-10-12; recognition 2023-10-13 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:718877",
+          "listing_first_session": "1997-12-31",
+          "security_id": "390513115168803332",
+          "security_type_eligible": "1",
+          "session": "2023-10-11",
+          "source_observation_sha256": "82a6bf6060b2e387e2830296b1502ce7780cccd5eb89e10a4ee846ec656bb74f",
+          "ticker": "ATVI"
+        },
+        "last_trading_session": "2023-10-12",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-10-12",
+        "native_term_sha256": "b8322b6513499f4f499c114e9c9fadd724844fdeedbbefcc760b3e195c5f0b96",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/718877/000110465923108985/tm2328253d1_8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "390513115168803332",
+        "ticker": "ATVI",
+        "timing_source": "https://www.sec.gov/Archives/edgar/data/718877/000110465923108985/tm2328253d1_8k.htm"
+      },
+      "term_sha256": "b398592e21557fdf2aac32a673efeba955bd578245070c10bef85664b1be1424"
+    },
+    {
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+      "index": 4,
+      "term": {
+        "actual_completion_date": "2023-12-14",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 229.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1060736/000119312523294938/d557257d8k.htm | Mandatory common-share cash merger; actual completion 2023-12-14; confirmed last trade 2023-12-13; recognition 2023-12-14 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+          "security_id": "64011142132727200",
+          "session": "2023-12-14"
+        },
+        "description": "Mandatory common-share cash merger; actual completion 2023-12-14; confirmed last trade 2023-12-13; recognition 2023-12-14 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1060736",
+          "listing_first_session": "2001-03-09",
+          "security_id": "64011142132727200",
+          "security_type_eligible": "1",
+          "session": "2023-12-12",
+          "source_observation_sha256": "d9c704e0cd4a84ba6b1848a325bb3c5026408ba5a5819989b325012813bf9389",
+          "ticker": "SGEN"
+        },
+        "last_trading_session": "2023-12-13",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-12-13",
+        "native_term_sha256": "8cf9ddef5b17730a2a94f8cd1a269254addb17d66a5f9b03aa11d9c0b5913f24",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1060736/000119312523294938/d557257d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "64011142132727200",
+        "ticker": "SGEN",
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=53748"
+      },
+      "term_sha256": "e9529689da909d4e8844d0c05107c9af78ea767944a42c19713eaa1a56f3c082"
+    },
+    {
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+      "index": 5,
+      "term": {
+        "actual_completion_date": "2024-03-18",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 157.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/858877/000119312524070175/d783088d8k.htm | Mandatory common-share cash merger; actual completion 2024-03-18; confirmed last trade 2024-03-15; recognition 2024-03-18 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+          "security_id": "562947493199996351",
+          "session": "2024-03-18"
+        },
+        "description": "Mandatory common-share cash merger; actual completion 2024-03-18; confirmed last trade 2024-03-15; recognition 2024-03-18 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1353283",
+          "listing_first_session": "2012-04-19",
+          "security_id": "562947493199996351",
+          "security_type_eligible": "1",
+          "session": "2024-03-14",
+          "source_observation_sha256": "f454b9327bc6971c1d71d81806b17691dc16f17e5d8523591e84586b765e2cbb",
+          "ticker": "SPLK"
+        },
+        "last_trading_session": "2024-03-15",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2024-03-15",
+        "native_term_sha256": "2bfcf1c193d2d87430648498ec0aeb6466c2b924280960aa77bc4120cd85c451",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/858877/000119312524070175/d783088d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "562947493199996351",
+        "ticker": "SPLK",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-132"
+      },
+      "term_sha256": "84074fac18ec038d76b8851643a73ec24578cb314e095fee399dd5cf411e22c4"
+    },
+    {
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+      "index": 6,
+      "term": {
+        "actual_completion_date": "2024-03-22",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 32.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1042074/000119312524074701/d817708d8k.htm | Mandatory common-share cash merger; actual completion 2024-03-22; confirmed last trade 2024-03-21; recognition 2024-03-22 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+          "security_id": "1020879448423638006",
+          "session": "2024-03-22"
+        },
+        "description": "Mandatory common-share cash merger; actual completion 2024-03-22; confirmed last trade 2024-03-21; recognition 2024-03-22 under CONFIRMED_PREOPEN_COMPLETION. Preserve frozen metadata; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1042074",
+          "listing_first_session": "2014-02-03",
+          "security_id": "1020879448423638006",
+          "security_type_eligible": "1",
+          "session": "2024-03-20",
+          "source_observation_sha256": "65e38a9a262084b08e6d8f36f04a9979f847bca46e94da2415ab55b6cd0e47ae",
+          "ticker": "CBAY"
+        },
+        "last_trading_session": "2024-03-21",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2024-03-21",
+        "native_term_sha256": "d61a1c3436d5ed8b2f5d3535c534ee6dd8aefefa2d95362e2ece751c44198be7",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1042074/000119312524074701/d817708d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "1020879448423638006",
+        "ticker": "CBAY",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-126"
+      },
+      "term_sha256": "68f6ea9db2d65dcdeba52c5a9ac097a9b37d954eced4d6afb768d49a7befcf40"
+    },
+    {
+      "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
+      "index": 1,
+      "term": {
+        "actual_completion_date": "2024-07-18",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 0.5,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1814329/000119312524180782/d833105d8k.htm | Mandatory common-share cash completion before market open on 2024-07-18; preserve last trade 2024-07-17 and all frozen source metadata.",
+          "security_id": "1011284967859810069",
+          "session": "2024-07-18"
+        },
+        "description": "Mandatory common-share cash completion before market open on 2024-07-18; preserve last trade 2024-07-17 and all frozen source metadata.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1814329",
+          "listing_first_session": "2020-08-05",
+          "security_id": "1011284967859810069",
+          "security_type_eligible": "1",
+          "session": "2024-07-16",
+          "source_observation_sha256": "49454d118c571dfe368607884fb4aad2469c0565365b8593ebf00ec6558ba4f1",
+          "ticker": "ASTR"
+        },
+        "last_trading_session": "2024-07-17",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2024-07-17",
+        "native_term_sha256": "4d014735e70d00fde30af61fc710a750d3c724c888a517d220e4fdc864dd8982",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1814329/000119312524180782/d833105d8k.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "1011284967859810069",
+        "ticker": "ASTR",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-296"
+      },
+      "term_sha256": "9cc2107eb2ccd355c981db0a436eeb577b9ba4c358bc4356654f747324ef57a3"
+    },
+    {
+      "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
+      "index": 2,
+      "term": {
+        "actual_completion_date": "2025-07-02",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 40.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm | Mandatory common-share cash completion before market open on 2025-07-02; preserve last trade 2025-07-01 and all frozen source metadata.",
+          "security_id": "949392331435765708",
+          "session": "2025-07-02"
+        },
+        "description": "Mandatory common-share cash completion before market open on 2025-07-02; preserve last trade 2025-07-01 and all frozen source metadata.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1043604",
+          "listing_first_session": "1999-06-25",
+          "security_id": "949392331435765708",
+          "security_type_eligible": "1",
+          "session": "2025-06-30",
+          "source_observation_sha256": "2daf8c165f886ff191dcac6c90db3ef05bca75db09de455e4c24c53afa51b20a",
+          "ticker": "JNPR"
+        },
+        "last_trading_session": "2025-07-01",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2025-07-01",
+        "native_term_sha256": "eea71df25ce86ef99f87d8505cf6920884cc8a66b3aeb2d7557e74f6d295aa4c",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm",
+        "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+        "security_id": "949392331435765708",
+        "ticker": "JNPR",
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=56805"
+      },
+      "term_sha256": "8c48a124406d7baab4b4ec74862acc56f7bcc5b71deb0e7477ff93b51eb95577"
+    },
+    {
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "catalog_sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6",
+      "index": 7,
+      "term": {
+        "actual_completion_date": "2025-08-14",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 101.0,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "https://www.sec.gov/Archives/edgar/data/896262/000110465925078145/tm2523306d1_8k.htm | Mandatory common-share cash merger; actual completion 2025-08-14; confirmed last trade 2025-08-14; recognition 2025-08-15 under RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY. Preserve frozen metadata; no tender participation assumed.",
+          "security_id": "207977697074649672",
+          "session": "2025-08-15"
+        },
+        "description": "Mandatory common-share cash merger; actual completion 2025-08-14; confirmed last trade 2025-08-14; recognition 2025-08-15 under RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY. Preserve frozen metadata; no tender participation assumed.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:896262",
+          "listing_first_session": "1997-12-31",
+          "security_id": "207977697074649672",
+          "security_type_eligible": "1",
+          "session": "2025-08-13",
+          "source_observation_sha256": "68b61958ed95826c40b50ab1e1a27d6bb0408c9b01f9eb6778935356ab5de177",
+          "ticker": "AMED"
+        },
+        "last_trading_session": "2025-08-14",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2025-08-14",
+        "native_term_sha256": "22df39e836fa2f92088ae209ad2a09c085d18d7828432cf1b7b262576064be4e",
+        "preopen_completion_confirmed": false,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/896262/000110465925078145/tm2523306d1_8k.htm",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "security_id": "207977697074649672",
+        "ticker": "AMED",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-439"
+      },
+      "term_sha256": "a797ebb2804b51df2f47aa8cdd23463dae8bfaef381d079780d37b7bacb37403"
+    }
+  ],
+  "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json",
+  "source_catalog_sha256": "067d6a8258967e24d1bf8d450fbc598a81320551df31d5e7ed4ffbba2a90c74c",
+  "source_files": {
+    "system-campaign-cash-calendar-terminal-facts.json": {
+      "bytes": 18014,
+      "sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6"
+    },
+    "system-campaign-december-cash-calendar-terminal-facts.json": {
+      "bytes": 17496,
+      "sha256": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6"
+    },
+    "system-campaign-february-cash-calendar-terminal-facts.json": {
+      "bytes": 6326,
+      "sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3"
+    },
+    "system-campaign-h2-2023-cash-calendar-terminal-facts.json": {
+      "bytes": 17157,
+      "sha256": "8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086"
+    },
+    "system-campaign-october-cash-calendar-terminal-facts.json": {
+      "bytes": 46822,
+      "sha256": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53"
+    },
+    "system-campaign-spring2023-cash-calendar-terminal-facts.json": {
+      "bytes": 36783,
+      "sha256": "7f831edf7c33633b9847d886f4f814fbada462607e57aeac6ffbaf00e7a440b1"
+    }
+  }
+}

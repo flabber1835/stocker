@@ -1,0 +1,43 @@
+{
+  "actual_complete_readonly_capsule_members_verified": 34,
+  "actual_public_archives_verified": 2,
+  "files": {
+    "forecast_tests/test_stopped_parent.py": {
+      "bytes": 5280,
+      "sha256": "d3dbc8984b47bfb6e5f7bbb2b21c100ce693f4e37a6e45bca2cad0537e910387"
+    },
+    "system-campaign-stopped-parent-transports.json": {
+      "bytes": 41656,
+      "sha256": "a6a69b63c6ac98ad2c4f2f2c931826e2e843d5878fcec7f04e440aafc3e57d1f"
+    },
+    "system_campaign_stopped_parent.py": {
+      "bytes": 12764,
+      "sha256": "0a516071d5db217392d2c8f2db941d8ae4b76631d8a83b75cdba47d713efbb5c"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "hosted_loader_execution_qualified": false,
+  "local_canonical_runtime_executed": false,
+  "local_financial_staging": false,
+  "original_failed_stops_preserved": [
+    0,
+    1,
+    1
+  ],
+  "original_financial_run_id": 42385528389,
+  "passed": true,
+  "positive_review_run_id": 42392468427,
+  "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+  "schema": "research.stopped-parent-transport-DATA-qualification/1",
+  "tests": {
+    "financial_import_fences": 5,
+    "local_side_effect_entrypoints_refused": 3,
+    "meaningful_guard_removal_falsifiers": 1,
+    "passed": 23,
+    "seconds": 2.92,
+    "whole_original_crypto_prefix_AST_undo": true
+  },
+  "utc": "2026-11-07T17:50:58.542400+00:00"
+}

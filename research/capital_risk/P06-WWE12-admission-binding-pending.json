@@ -1,0 +1,10 @@
+{
+  "admitted": false,
+  "financial_resume_authorized": false,
+  "future_neutral12_sha256": null,
+  "independent_review_sha256": null,
+  "readonly_artifact_id": null,
+  "root_admission_sha256": null,
+  "schema": "research.P06-WWE12-retained173-admission-binding/1",
+  "selected_outer_sha256": "3157c9a6b1eae175a87d0c282c68a5516ea4cb312068da4b43ee80feea4d93e4"
+}

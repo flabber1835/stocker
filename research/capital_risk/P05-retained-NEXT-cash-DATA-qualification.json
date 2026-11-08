@@ -1,0 +1,34 @@
+{
+  "files": {
+    "P05-retained14-NEXT-cash-DATA-review.json": {
+      "bytes": 84273,
+      "sha256": "d055c9ed6e4727b0ee1f03b97d5e1a294eb2654d90420f7565e09823cad98888"
+    },
+    "retained-NEXT-cash-batch-DATA-DESIGN.md": {
+      "bytes": 2486,
+      "sha256": "ca3019c7c7a3c2d4bb80f69c05aa4019c1b640ca94a538c43cf3ac4f6eded8a2"
+    },
+    "review_retained_NEXT_cash_DATA.py": {
+      "bytes": 5934,
+      "sha256": "9e54950fb5b7103a2b9c588dcdd614709ed100a2ecb2aee80d11e82613247642"
+    },
+    "test_retained_NEXT_cash_DATA.py": {
+      "bytes": 4040,
+      "sha256": "acaa8ec29afa173187b5140269a2432579d05bfa08cbbeb0551d18ecd845919b"
+    }
+  },
+  "financial_authority": false,
+  "hosted_packet_neutral_adoption_observer_and_financial_restart_still_required": true,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "review_sha256": "d055c9ed6e4727b0ee1f03b97d5e1a294eb2654d90420f7565e09823cad98888",
+  "schema": "research.P05-own1175-retained-NEXT-cash-DATA-qualification/1",
+  "tests": {
+    "canonical_import_fences": 5,
+    "meaningful_new_guard_removals": 1,
+    "passed": 17,
+    "seconds": 36.6
+  },
+  "utc": "2026-11-06T15:29:12.921112+00:00"
+}

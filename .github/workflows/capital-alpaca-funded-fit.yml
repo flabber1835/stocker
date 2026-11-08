@@ -1,0 +1,54 @@
+name: Bounded Alpaca Owned55 funded fit
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/alpaca-funded-request.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: alpaca-owned55-funded-fit-001
+  cancel-in-progress: false
+
+jobs:
+  funded:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Authenticate frozen market data and exact stopped financial lineage
+        timeout-minutes: 15
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/alpaca_fit_funded_stage.py --request research/capital_risk/alpaca-funded-request.json --output "$RUNNER_TEMP/alpaca-funded-stage"'
+      - name: Targeted geometry and reviewer falsifiers
+        run: |
+          docker run --rm --pull never --network none --read-only --memory 1g --memory-swap 1g --cpus 1 --pids-limit 64 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=64m --user "$(id -u):$(id -g)" --mount "type=bind,source=$GITHUB_WORKSPACE,target=/src,readonly" -w /src --entrypoint python sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d -B -m unittest discover -s research/capital_risk/forecast_tests -p test_alpaca_funded_contract.py -q
+      - name: Funded accounts and stopped independent equations
+        timeout-minutes: 73
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/alpaca_fit_funded_job.py --request research/capital_risk/alpaca-funded-request.json --staging "$RUNNER_TEMP/alpaca-funded-stage/staging.json" --output artifacts/capital-risk/alpaca-funded.json'
+      - name: Preserve authenticated stopped encrypted research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alpaca-owned55-funded-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/alpaca-funded.json
+            artifacts/capital-risk/alpaca-funded-full.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7

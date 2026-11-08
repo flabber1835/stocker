@@ -1,0 +1,33 @@
+{
+  "container_sha256": "532d8114df672562d8e7604babacb858a50263bd7d3c632632b18ce82a2739cd",
+  "functions": {
+    "Repair": {
+      "ast_sha256": "bf9acea0da7d9a3057856666a5e7cdaecae2a591ec5c419fb89d636fac2afa65",
+      "source": "class Repair(_Strict):\n    schema_id: Literal[\"terminal-repair/1\"] = Field(alias=\"schema\")\n    predecessor_checkpoint_sha256: Digest\n    source_evidence: list[SourceEvidence] = Field(min_length=1, max_length=128)\n    suppress: list[Suppression] = Field(max_length=128)\n    add: list[AddedTerm] = Field(max_length=128)\n    _file_sha256: str | None = PrivateAttr(default=None)\n    _resume_session: str | None = PrivateAttr(default=None)\n    _document_sha256: str | None = PrivateAttr(default=None)\n\n    @model_validator(mode=\"after\")\n    def sparse_unique(self):\n        if not self.suppress and not self.add:\n            raise ValueError(\"empty terminal repair\")\n        for rows in (self.suppress, self.add):\n            keys = [(row.session, row.security_id) for row in rows]\n            if len(keys) != len(set(keys)):\n                raise ValueError(\"duplicate terminal repair identity\")\n        return self\n\n    @property\n    def earliest_affected_session(self):\n        return min(row.session for row in (*self.suppress, *self.add))\n\n    @property\n    def sha256(self):\n        return self._file_sha256\n",
+      "source_sha256": "73595436c2ddaa26c0d9601c5102a9d8b0bbb40c5dbd4f353d75c66d07e70fab"
+    },
+    "_apply_spinoff_repair": {
+      "ast_sha256": "9f862d4ff00a8506e76a98970902db65e4c2a4c4ff0585927fcdee0f125f2cca",
+      "source": "def _apply_spinoff_repair(packet, repair):\n    \"\"\"Review one in-kind event; preserve all prices and suppress its cash proxy.\"\"\"\n    session = _session(packet.day)\n    if session <= repair._resume_session or session != repair.earliest_affected_session:\n        return packet\n    original = tuple(packet.spins)\n    if any(row.session != session for row in original):\n        raise ValueError(\"misdated original spinoff\")\n    suppress = {row.term_sha256 for row in repair.suppress}\n    actual = [_digest(asdict(row)) for row in original]\n    if len(actual) != len(set(actual)) or not suppress <= set(actual):\n        raise ValueError(\"suppressed original spinoff differs\")\n    remaining = [row for row, digest in zip(original, actual) if digest not in suppress]\n    if any(row.parent_security_id == \"224580439420294771\" for row in remaining):\n        raise ValueError(\"unsuppressed GE distribution would duplicate economics\")\n    by_id = {bar.security_id: bar for bar in packet.bars}\n    if len(by_id) != len(packet.bars):\n        raise ValueError(\"duplicate spinoff opening bar\")\n    parent = by_id.get(\"224580439420294771\")\n    child = by_id.get(\"37439132904117100\")\n    if (parent is None or child is None\n            or _digest(asdict(parent)) != repair.parent_bar_sha256\n            or _digest(asdict(child)) != repair.child_bar_sha256):\n        raise ValueError(\"spinoff source opening bar differs\")\n    if (parent.session != session or child.session != session\n            or parent.ticker != \"GE\" or child.ticker != \"GEV\"\n            or not child.tradeable or child.raw_open is None):\n        raise ValueError(\"spinoff source opening identity differs\")\n    if Decimal(str(parent.dividend_per_share)) != Decimal(repair.cash_proxy_per_parent):\n        raise ValueError(\"spinoff cash proxy differs\")\n    if Decimal(repair.add[0].cash_in_lieu_price) != Decimal(str(child.raw_open)):\n        raise ValueError(\"CIL research proxy must equal retained child raw open\")\n    changed = replace(parent, dividend_per_share=0.0)\n    bars = tuple(changed if bar.security_id == parent.security_id else bar for bar in packet.bars)\n    return replace(packet, bars=bars, spins=tuple(remaining)+(repair.add[0].terms(),))\n",
+      "source_sha256": "39b2fd76e400e9d54e165ce2670c1436006da086b81b3b0dc42997d98cdedacf"
+    },
+    "_digest": {
+      "ast_sha256": "64c60de603f484b1a68da7797be91ec81b995917cf7177f652c49bd3be6d3e13",
+      "source": "def _digest(value):\n    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                                    allow_nan=False).encode()).hexdigest()\n",
+      "source_sha256": "210f362beba7c1b56130626b907ecf2d4bfc47ce9e11c933d0874c82bd6770ef"
+    },
+    "_loaded": {
+      "ast_sha256": "4bd35fce7c49b5379863fa43bcdf2630f638e3153a70b6a58464d7e2889f86ba",
+      "source": "def _loaded(repair):\n    if (not isinstance(repair, Repair) or repair.sha256 is None\n            or repair._resume_session is None\n            or _digest(repair.model_dump(mode=\"json\", by_alias=True)) != repair._document_sha256):\n        raise ValueError(\"loaded, unchanged source-bound terminal repair required\")\n",
+      "source_sha256": "478d9541269a47d7d4cd122b0763ef67fcf502460f2e98dcf2a2ae1d146fe183"
+    },
+    "_session": {
+      "ast_sha256": "4095d75a5f875e615eb5735d10a6763e5778e85a2e10e287603026d0c89c5ee9",
+      "source": "def _session(value):\n    if date.fromisoformat(value).isoformat() != value or len(value) != 10:\n        raise ValueError(\"canonical ISO session required\")\n    return value\n",
+      "source_sha256": "bcb678b1e09394bbc7ed88614457766cbf243ff8d86f904b5275049f42dd3c65"
+    }
+  },
+  "no_financial_runtime_or_book_material": true,
+  "original_module_sha256": "1112f91ab01c6b633fd6e7b2c089aa02367d2fc7fbc152a654da6620d753b152",
+  "schema": "research.frozen-pure-nonempty-input-test-codec/1"
+}

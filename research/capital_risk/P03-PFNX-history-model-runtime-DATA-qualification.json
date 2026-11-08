@@ -1,0 +1,182 @@
+{
+  "actual_consumed_event_archives": [
+    {
+      "actual_gzip_sha256": "448273305e095c25db002fbb52b98332c7d961e2880fd1b3546859315f1f9e22",
+      "event": {
+        "cash_settlement_authorized": false,
+        "currency": "USD",
+        "effective_session": "2019-11-12",
+        "historical_causality": "UNVERIFIED",
+        "native_session": "2019-11-12",
+        "native_term_sha256": "f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f",
+        "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+        "price_or_probability_selected": false,
+        "prior_session": "2019-11-11",
+        "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+        "right_lower_per_share": "0",
+        "right_upper_per_share": "1.50",
+        "security_id": "471435039050105714",
+        "ticker": "DOVA",
+        "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+        "upfront_cash_per_share": "27.50"
+      },
+      "resolution": {
+        "actual": "book/pre-event/2019-11-12-46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3.json.gz",
+        "gzip_sha256": "448273305e095c25db002fbb52b98332c7d961e2880fd1b3546859315f1f9e22",
+        "input_sha256": "8bf58124318903d17c309e69daecb50ae201f1ee803a70bcc6945cc95aad3760",
+        "outer_sha256": "46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3",
+        "state_sha256": "9b74865515a258f1799160aa8c33ff752df6e13efd63e12ffca0df94237a1dc0"
+      }
+    },
+    {
+      "actual_gzip_sha256": "9c164f8f87b32df1aaf95058d49032583b2454d63d0239e0ebfcf7ac50c052d1",
+      "event": {
+        "cash_settlement_authorized": false,
+        "currency": "USD",
+        "effective_session": "2020-06-10",
+        "historical_causality": "UNVERIFIED",
+        "native_session": "2020-06-10",
+        "native_term_sha256": "000d52ca0860edfd5422810aa7324313032188395bb58c37d1b415200721ccf7",
+        "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+        "price_or_probability_selected": false,
+        "prior_session": "2020-06-09",
+        "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+        "right_lower_per_share": "0",
+        "right_upper_per_share": "1.00",
+        "security_id": "235472954303009097",
+        "ticker": "STML",
+        "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+        "upfront_cash_per_share": "11.50"
+      },
+      "resolution": {
+        "actual": "book/pre-event/2020-06-10-ac30f306f869383dc7e5e83b0498febe6803b0e3f47944b684408caaf417421b.json.gz",
+        "gzip_sha256": "9c164f8f87b32df1aaf95058d49032583b2454d63d0239e0ebfcf7ac50c052d1",
+        "input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
+        "outer_sha256": "ac30f306f869383dc7e5e83b0498febe6803b0e3f47944b684408caaf417421b",
+        "state_sha256": "9f358ecf7fe8df93694d7f3fe53f2a0b03d0f473c7305f423521ac2aee51a6ad"
+      }
+    }
+  ],
+  "actual_hosted_copy_canary": false,
+  "actual_hosted_preparation": false,
+  "actual_inherited_signature_checked_with_opaque_DTO": true,
+  "actual_neutral22_known": false,
+  "actual_three_event_constructor": false,
+  "all_five_import_fences": true,
+  "all_four_mature_worker_ASTs_unchanged": true,
+  "files": {
+    "P03-PFNX-retained217-resources-DATA-qualification.json": {
+      "bytes": 60066,
+      "sha256": "2bf77d57889c15de6e0254681ab150e5e9ce7eb64301c9959ce80cb0131326ab"
+    },
+    "P03-PFNX-source-packet-DATA-qualification.json": {
+      "bytes": 8453,
+      "sha256": "b8d439345577f7611e5968017b92fda2034862fef062030652f2da21f47384f7"
+    },
+    "forecast_tests/test_PFNX_history_certificate.py": {
+      "bytes": 5859,
+      "sha256": "439bd6e4ab4450aec38a9a4b2eda79d44340b448ed5855009db232c15dc1450f"
+    },
+    "forecast_tests/test_PFNX_models_runtime_entry.py": {
+      "bytes": 9612,
+      "sha256": "d01d3d1c2270cd1212405cf6db20717ade70dc3172f33cf556623df41c0441e9"
+    },
+    "system_campaign_bounded_sensor_observers_v2.py": {
+      "bytes": 16237,
+      "sha256": "f083b35f6c120670a302c52ce51f62d13f82c3e609f00c2a7fbf54840ec17b3f"
+    },
+    "system_campaign_bounded_sensor_runtime_v2.py": {
+      "bytes": 21748,
+      "sha256": "4a261717829b227a29d01bd2c746c88554467645608a7b4476dd4f523b161096"
+    },
+    "system_campaign_financial_uncertainty.py": {
+      "bytes": 56107,
+      "sha256": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8"
+    },
+    "system_campaign_p03_PFNX_certificate.py": {
+      "bytes": 3305,
+      "sha256": "f35ab4bead1605c8788314e01873c82b8b9de78dff06cc1c6db46d8d8d56fae4"
+    },
+    "system_campaign_p03_PFNX_entry.py": {
+      "bytes": 8507,
+      "sha256": "cf96388a3a85b90ce7abed226cd05c2b52ffe17c73610e26f4866ae878c00bfe"
+    },
+    "system_campaign_p03_PFNX_history.py": {
+      "bytes": 4707,
+      "sha256": "f044408483c5773760f0c3dbf0f7c2dcb715059d7e175158281cc3675ccf22e1"
+    },
+    "system_campaign_p03_PFNX_models.py": {
+      "bytes": 5005,
+      "sha256": "4da477579852a71a052905da9080f32e28375d497668b651edff3db1a50f585d"
+    },
+    "system_campaign_p03_PFNX_observers.py": {
+      "bytes": 1538,
+      "sha256": "da3dc7dc281c8cbb935c8f351040903e50e742140393a893b4da41e234c96d2c"
+    },
+    "system_campaign_p03_PFNX_runtime.py": {
+      "bytes": 12091,
+      "sha256": "2ad76ceabc8da5186f8dc10ac16ff3afde4e855af02f29cbb7f32277ad15f23d"
+    },
+    "system_campaign_p03_PTLA_certificate.py": {
+      "bytes": 4600,
+      "sha256": "6c64bc104f97d2cf69f094b3bbf425bf84d0e6f254f370b69bf60ed021912543"
+    },
+    "system_campaign_p03_PTLA_entry.py": {
+      "bytes": 12002,
+      "sha256": "13defd09a99dc7043660678ef92dd005855bf7d3995f7f3c2639eb524bf317fc"
+    },
+    "system_campaign_p03_PTLA_models.py": {
+      "bytes": 1903,
+      "sha256": "3cf594b5f09ef7cf875536fba3a9ab00ae14604d4a54ac22e4b8d71784c47141"
+    },
+    "system_campaign_p03_PTLA_observers.py": {
+      "bytes": 3783,
+      "sha256": "b0a20956c91b5ffb9e21fd1d2304e0eaf9fdc2a30ceaa4405bd2aa57264c79cd"
+    },
+    "system_campaign_p03_PTLA_runtime.py": {
+      "bytes": 12184,
+      "sha256": "4c55a66f36004ae0852dc064344a362b4eb28c6e6c779cb80d6a17bcf1572c78"
+    },
+    "system_campaign_p03_STML_runtime.py": {
+      "bytes": 17971,
+      "sha256": "117dd97402db81e19895690061dde7e83c694a6a372dbfaa053ade500112c1a4"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "full_original_history_code_object": true,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "raw_proofs": 237,
+  "remaining_hosted_gates": [
+    "authenticate full original admitted671 export",
+    "actual151-resource copy/removal canary",
+    "actual two original native/legal packets over all21 prior inputs",
+    "actual canonical neutral22 preserving entire671 state",
+    "actual217 three-event constructor plus35-term observer",
+    "original financial continuation and full retained/ordinary/monthly review",
+    "independent saved-prefix admission"
+  ],
+  "retained_proofs": 217,
+  "root_admission_sha256": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+  "same_three_event_class_at_canary_and_whole_worker": true,
+  "schema": "research.P03-PFNX-history-model-runtime-DATA-qualification/1",
+  "source_runtime_ready": true,
+  "tests": [
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PFNX_history_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P03-PFNX-history-model-tests-20261108-001",
+      "passed": 20,
+      "seconds": 10.53
+    },
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PFNX_models_runtime_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P03-PFNX-model-runtime-tests-20261108-002",
+      "passed": 28,
+      "seconds": 1.62
+    }
+  ],
+  "whole_original35_observer_and_review_code": true,
+  "whole_original_consumed_factory_AST_undo": true,
+  "whole_original_context_two_path_AST_undo": true,
+  "whole_original_seed_and_loader_code": true,
+  "whole_seven_original_runtime_templates_AST_undo": true
+}

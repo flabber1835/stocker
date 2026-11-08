@@ -1,0 +1,24 @@
+{
+  "actual_request_created_or_published": false,
+  "declaration": {
+    "export_cap_changed": false,
+    "financial_source_changed": false,
+    "per_file_copy_equivalence_required": true,
+    "qualification_sha256": "a3af4e922886e90859676020a47c16688ad01e4cfad308f3ade398769fcdc799",
+    "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+    "schema": "research.P07-lossless-codec-export-selection/1",
+    "template_sha256": "ea8f11744aaa90ad6475c78b333d52b17c3f9b5b1cc878538c1db3d72c3cd8e1"
+  },
+  "new_prototype_source_count": 617,
+  "new_source_pins": {
+    "P07-codec-copy-inventory-template.json": "ea8f11744aaa90ad6475c78b333d52b17c3f9b5b1cc878538c1db3d72c3cd8e1",
+    "P07-lossless-export-qualification.json": "a3af4e922886e90859676020a47c16688ad01e4cfad308f3ade398769fcdc799",
+    "system_campaign_p07_lossless_export.py": "2abd882a052f00fa728f2fec45ba14902e054cbcc1213e40ba501c7beb24b7d9",
+    "system_campaign_p07_lossless_export_host.py": "cf48ecd01d5d85e69c8cbeb4a920e22fdaa5fcc4d614d405d81943a45c9af886"
+  },
+  "old_source_count": 613,
+  "original_semantics_and_source_pins_unchanged": true,
+  "passed": true,
+  "schema": "research.P07-lossless-export-prototype-request-metadata-smoke/1",
+  "source_FIN339_request_sha256": "6672860c06e73047952b7b08bed1c69d81ec37ff894edddc7b09d90fe70cf101"
+}

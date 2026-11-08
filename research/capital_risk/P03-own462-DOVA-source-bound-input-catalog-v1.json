@@ -1,0 +1,530 @@
+{
+  "arm": "P03",
+  "event": {
+    "cash_settlement_authorized": false,
+    "currency": "USD",
+    "effective_session": "2019-11-12",
+    "historical_causality": "UNVERIFIED",
+    "native_session": "2019-11-12",
+    "native_term_sha256": "f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f",
+    "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+    "price_or_probability_selected": false,
+    "prior_session": "2019-11-11",
+    "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+    "right_lower_per_share": "0",
+    "right_upper_per_share": "1.50",
+    "security_id": "471435039050105714",
+    "ticker": "DOVA",
+    "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+    "upfront_cash_per_share": "27.50"
+  },
+  "financial_authority": false,
+  "identity_witness": {
+    "issuer_id": "SEC_CIK:1685071",
+    "listing_first_session": "2017-06-29",
+    "security_id": "471435039050105714",
+    "security_type_eligible": "1",
+    "session": "2019-11-11",
+    "source_observation_sha256": "2060eb6c2f3c81090ddd2f2ff9ddb73efe2e0988ac36d14feda0dafd896245bd",
+    "ticker": "DOVA"
+  },
+  "input_adopted": false,
+  "input_semantics_sources": {
+    "system_campaign_bounded_sensor_binding.py": "a9fcbe1d1c36069036dbddc1982f19c4092f32bc6007534cf4760da527af350d",
+    "system_campaign_bounded_sensor_catalog.py": "cda6b72ff1fb648b3892d84bed811af0b2c06766aeb3c88f30b34328a78c5a54",
+    "system_campaign_bounded_sensor_input.py": "f0d20a5ad48ea5672d868a016118b136a6a68fc5b2225088b9ef2a4e93a94857",
+    "system_campaign_bounded_sensor_lifecycle_data.py": "83476f1d4ed8708279fb66b353c5cdf1b1f348ba8d1759bd64810f6a151b41d0",
+    "system_campaign_bounded_sensor_models.py": "5be3c707e771eed1dcc904f43f90bc0b8ecc97122b087659ae239a7dfed04c81",
+    "system_campaign_bounded_sensor_semantics.py": "5704bf0292c485f5cd03782c3b52c788d92b14280d39ad91b353980f2a36d473",
+    "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213"
+  },
+  "local_canonical_runtime_executed": false,
+  "market_source": {
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "event_contract_sha256": "f9eff8642a4b1f9b8a9b18b2ace0da9374b00af0cd399ea131e3e8686b19bf43",
+    "financial_authority": false,
+    "native_term_sha256": "f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f",
+    "portfolio_cash_settlement_authorized": false,
+    "raw_event_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1685071",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2017-06-29",
+      "metadata_admitted": "1",
+      "raw_close": "28.039999999999999",
+      "raw_compatible_volume": "35036",
+      "raw_open": "28.039999999999999",
+      "reported_volume": "35036",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "471435039050105714",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2019-11-12",
+      "sic": "2834",
+      "signal_close": "28.039999999999999",
+      "split_ratio": "1",
+      "ticker": "DOVA",
+      "tradeable": "1"
+    },
+    "raw_prior_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1685071",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2017-06-29",
+      "metadata_admitted": "1",
+      "raw_close": "28.039999999999999",
+      "raw_compatible_volume": "1488049",
+      "raw_open": "28.02",
+      "reported_volume": "1488049",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "471435039050105714",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2019-11-11",
+      "sic": "2834",
+      "signal_close": "28.039999999999999",
+      "split_ratio": "1",
+      "ticker": "DOVA",
+      "tradeable": "1"
+    },
+    "right_price_selected": false,
+    "schema": "research.bounded-contingent-event-market-source/1",
+    "security_id": "471435039050105714",
+    "session": "2019-11-12",
+    "source290_payload_sha256": "aa2596e13f3cd8deace5c0c1bcebfb4f8e4f9614166c33af7a963d17aa9d25e9",
+    "source290_qualification_sha256": "6d354cee99f5c26fcedf1adc31186e74b1e52287c419caa3ce4556688796cb30",
+    "source290_review_sha256": "cb518209213bbbeffe3d1056f8671e4019e3cff4baaa5504bb80af4791331d26",
+    "source_observation_sha256": "1ffcb7c5cdd9a864635cc17ef282fc975104ce66b4f3614db2ce5539696ce77c",
+    "source_quote_present": true,
+    "split_ratio": "1"
+  },
+  "market_source_sha256": "629940087ee96ad18436c99d7ac2a1318037750635c7943c817c7d6704ec3764",
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=808.8",
+    "security_id": "471435039050105714",
+    "session": "2019-11-12"
+  },
+  "parent_completed": 462,
+  "parent_cursor": "2019-10-31",
+  "parent_descriptors": [
+    {
+      "filename": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea.json",
+      "predecessor_checkpoint_sha256": "16b29a942832d6c91d5ffc90199c1dd85e6719276637e5dc06b21cee4a662ec1",
+      "resume_session": "2017-06-30",
+      "sha256": "9a4cfa86c517feca34128245762514c24f8c793f7a2393ebd0163a72069d4fea"
+    },
+    {
+      "filename": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775.json",
+      "predecessor_checkpoint_sha256": "1ec15c71d94ec3aed1b8ee1ded544a8ade71f94778d4d44e830d09789953798a",
+      "resume_session": "2017-07-31",
+      "sha256": "e76ae01828f0efbf3627d7468ef3154713efd56400d54eb5dc6e6ddd9411f775"
+    },
+    {
+      "filename": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472.json",
+      "predecessor_checkpoint_sha256": "460649dc243ac2d4e9bfeddef3c1c7779e0d61da51faa1cbeef8ba9c5181b928",
+      "resume_session": "2018-01-31",
+      "sha256": "59fcf81b022ec376d06f992c77c7032a1a6fa1e3e4963927b3878b29d4687472"
+    },
+    {
+      "filename": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb.json",
+      "predecessor_checkpoint_sha256": "384c41289d90c809c35ad761833ea83c6db9ce7da2f15b5e536530da6dd16aa3",
+      "resume_session": "2018-03-29",
+      "sha256": "80c84ae4ff8e9f4f3bc2efdcea83c0acfa10a886f26ac00a7e92c2a5d3dcc2eb"
+    },
+    {
+      "filename": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2.json",
+      "predecessor_checkpoint_sha256": "ddd6b4c4dd77fca13d75dfb24bf7010727fe6d9335b9904cd12b1b3d576688ca",
+      "resume_session": "2018-04-30",
+      "sha256": "f563b6065a2e8396302399b850a83d87362800830807a47aacf013c9547af1d2"
+    },
+    {
+      "filename": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249.json",
+      "predecessor_checkpoint_sha256": "8844d300caa2001cca9d7ba28e65e0a6accafbeaca1eaf97b82780b19a0aa06a",
+      "resume_session": "2018-04-30",
+      "sha256": "b680268e5adcdca68b610c03a410930f37b4e2f35e343885c8e7485fb4637249"
+    },
+    {
+      "filename": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64.json",
+      "predecessor_checkpoint_sha256": "376c93250410e9fb955581804ca6f94834c5e3e50c3cee81b4767c00877eb612",
+      "resume_session": "2018-06-29",
+      "sha256": "187ac05e319f0e0c445b8715cf292628cd5ca739a8b3ca3737c90d698fcc9a64"
+    },
+    {
+      "filename": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5.json",
+      "predecessor_checkpoint_sha256": "a43253e2ac264992bfc6112a82ad4fb499d844c7c6089cdc914465b8e143aaa6",
+      "resume_session": "2018-08-31",
+      "sha256": "081bca8acd1bb991df886716eee7267e050856d45c728d063c3b5bb143fe96d5"
+    },
+    {
+      "filename": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f.json",
+      "predecessor_checkpoint_sha256": "3c9b0be59b4f1eb61783ea84c60f2ef89ef242522c3d652b17712311b8808324",
+      "resume_session": "2018-11-30",
+      "sha256": "b60320ffebaba5a5a3307a9f2fcc618f07c624d976e5ef59fc2424c018b5b77f"
+    },
+    {
+      "filename": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6.json",
+      "predecessor_checkpoint_sha256": "1220c51e1de92333aa3c1ff9fd41a353a4258e661202a53850659140c5d72530",
+      "resume_session": "2018-12-31",
+      "sha256": "0363ec1dd1ad69841745ad4e569378c5be0b71e05c00fd16cef0251a5f0ce5c6"
+    },
+    {
+      "filename": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad.json",
+      "predecessor_checkpoint_sha256": "9ede97b8164de4903bb195ec84989ec21330daa53dcbc22c35ee55269000082c",
+      "resume_session": "2019-01-31",
+      "sha256": "488042b0e29de19b31c0de28cd59a5c35a1337cfa46adfc50fc0ae28bc1dcfad"
+    },
+    {
+      "filename": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a.json",
+      "predecessor_checkpoint_sha256": "a7ab7a1d7118adc7342747a3f84fe787eb46ea6cda0cde5035245692aa980545",
+      "resume_session": "2019-05-31",
+      "sha256": "5a60e3879de2fcab075f2cffe8517db976a9c5023e5cdf6e46a3804eb915cb2a"
+    },
+    {
+      "filename": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e.json",
+      "predecessor_checkpoint_sha256": "83e15094a6ebee86b14f437e07e42b19ee65dc6c9dc1e96277f491b6208a421f",
+      "resume_session": "2019-09-30",
+      "sha256": "a56bd24784b2d772cffb54ea44b35915daccb62b5d28f8361cb19e567f7d433e"
+    },
+    {
+      "filename": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96.json",
+      "predecessor_checkpoint_sha256": "3768dc85eda414bad130fab7490c200f6b1936e492cb50638996023453c1922a",
+      "resume_session": "2019-09-30",
+      "sha256": "f3c42fb9d319570cfd0594fe220987f735544fbb41d2bfbbf7b05cb434249a96"
+    },
+    {
+      "filename": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1.json",
+      "predecessor_checkpoint_sha256": "f2b2fdc71f3bf8cfea9474a081efb59ec825cd6998e4d67d76d4580922afde32",
+      "resume_session": "2019-09-30",
+      "sha256": "b677e8a1be0c297c9458b4028ca988f13b1ace42b1de7c8df9234984e4035df1"
+    }
+  ],
+  "parent_inner_sha256": "108b651b7a14a852bb28306228a460dc0cc671ef6773c1015154329bb7427555",
+  "parent_outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+  "parent_root_admission_sha256": "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0",
+  "primary_facts": {
+    "currency": "USD",
+    "event_date": "2019-11-12",
+    "exchange_closing_clock": "PRIOR_TO_OPEN_2019_11_12",
+    "exchange_notice": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-228",
+    "financial_authority": false,
+    "frozen_event_quote_present": true,
+    "frozen_event_quote_unchanged": true,
+    "frozen_native_calendar": "2019-11-12",
+    "historical_causality": "UNVERIFIED",
+    "input_adopted": false,
+    "local_canonical_runtime_executed": false,
+    "primary_filing": "https://www.sec.gov/Archives/edgar/data/1685071/000095015719001299/form8k.htm",
+    "probability_selected": false,
+    "right_condition": "FDA approval of Doptelet for chemotherapy-induced thrombocytopenia",
+    "right_lower_per_share": "0",
+    "right_transferable": false,
+    "right_upper_per_share": "1.50",
+    "rights_per_share": "1",
+    "schema": "research.bounded-contingent-primary-source-preparation/1",
+    "settlement_authorized": false,
+    "ticker": "DOVA",
+    "upfront_cash_per_share": "27.50"
+  },
+  "primary_facts_sha256": "dab780ce2fbbd6e124e892b6c10fcafd6350342255ef4bf4215ffcb77c5f67ef",
+  "raw_quote_preparation": {
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "event_rows": [
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "10 Hlth",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1685071",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2017-06-29",
+        "metadata_admitted": "1",
+        "raw_close": "28.039999999999999",
+        "raw_compatible_volume": "35036",
+        "raw_open": "28.039999999999999",
+        "reported_volume": "35036",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "471435039050105714",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2019-11-12",
+        "sic": "2834",
+        "signal_close": "28.039999999999999",
+        "split_ratio": "1",
+        "ticker": "DOVA",
+        "tradeable": "1"
+      }
+    ],
+    "financial_authority": false,
+    "local_canonical_runtime_executed": false,
+    "passed": true,
+    "prior_row": {
+      "dividend_per_share": "0",
+      "exchange": "",
+      "exchange_authoritative": "0",
+      "ff12": "10 Hlth",
+      "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+      "issuer_id": "SEC_CIK:1685071",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_active": "1",
+      "listing_first_session": "2017-06-29",
+      "metadata_admitted": "1",
+      "raw_close": "28.039999999999999",
+      "raw_compatible_volume": "1488049",
+      "raw_open": "28.02",
+      "reported_volume": "1488049",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "471435039050105714",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "session": "2019-11-11",
+      "sic": "2834",
+      "signal_close": "28.039999999999999",
+      "split_ratio": "1",
+      "ticker": "DOVA",
+      "tradeable": "1"
+    },
+    "raw_year_rows_scanned": 1477344,
+    "schema": "research.bounded-sensor-raw-event-source-preparation/1",
+    "security_id": "471435039050105714",
+    "session": "2019-11-12",
+    "source290_payload_sha256": "aa2596e13f3cd8deace5c0c1bcebfb4f8e4f9614166c33af7a963d17aa9d25e9",
+    "source290_qualification_sha256": "6d354cee99f5c26fcedf1adc31186e74b1e52287c419caa3ce4556688796cb30",
+    "source290_review_sha256": "cb518209213bbbeffe3d1056f8671e4019e3cff4baaa5504bb80af4791331d26",
+    "source_quote_present": true
+  },
+  "raw_quote_preparation_sha256": "1122faf13feab24d602955c30d68b71dec843766f3e61fed2ea31f711754d13a",
+  "schema": "research.qualified-bounded-contingent-sensor-catalog/1",
+  "source_data": {
+    "payload": {
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "arm": "P03",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "input_adopted": false,
+      "parent_cursor": "2019-10-31",
+      "parent_outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+      "producer_sha256": "92b60a218354bf616f6fbf4216c62594919bb56f3eac6a115fd2c29acf612925",
+      "production_contacted": false,
+      "provider_metadata_upgraded": false,
+      "schema": "research.own-parent-frozen-source-witnesses/1",
+      "scope": {
+        "additional_rows": [],
+        "parent_cursor": "2019-10-31",
+        "parent_outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+        "terms": [
+          {
+            "native_session": "2019-11-12",
+            "native_term_sha256": "f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f",
+            "parent_positions": [],
+            "security_id": "471435039050105714",
+            "session": "2019-11-11",
+            "ticker": "DOVA"
+          }
+        ]
+      },
+      "scope_sha256": "50a119135910443e5197d2add76a8af18226aa895a89bd1457a96d05f33b1bbc",
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1685071",
+            "listing_first_session": "2017-06-29",
+            "security_id": "471435039050105714",
+            "security_type_eligible": "1",
+            "session": "2019-11-11",
+            "source_observation_sha256": "2060eb6c2f3c81090ddd2f2ff9ddb73efe2e0988ac36d14feda0dafd896245bd",
+            "ticker": "DOVA"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=808.8",
+            "security_id": "471435039050105714",
+            "session": "2019-11-12"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1685071",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2017-06-29",
+            "metadata_admitted": "1",
+            "raw_close": "28.039999999999999",
+            "raw_compatible_volume": "1488049",
+            "raw_open": "28.02",
+            "reported_volume": "1488049",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "471435039050105714",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2019-11-11",
+            "sic": "2834",
+            "signal_close": "28.039999999999999",
+            "split_ratio": "1",
+            "ticker": "DOVA",
+            "tradeable": "1"
+          }
+        }
+      ]
+    },
+    "payload_sha256": "aa2596e13f3cd8deace5c0c1bcebfb4f8e4f9614166c33af7a963d17aa9d25e9",
+    "qualification": {
+      "all_unfiltered_actions": 2,
+      "canonical_financial_runtime_executed": false,
+      "current_selected": false,
+      "current_unheld_unordered_unreserved_no_claims": true,
+      "financial_authority": false,
+      "full_rows": 1,
+      "model_activated": false,
+      "native_terms": 1,
+      "own_inputs_preserved": 15,
+      "parent_root_admission_sha256": "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0",
+      "passed": true,
+      "payload_sha256": "aa2596e13f3cd8deace5c0c1bcebfb4f8e4f9614166c33af7a963d17aa9d25e9",
+      "readers": {
+        "p03_dova_review_source_data.py": "e3bfb9ed8ac5a7e321e209685002918e43d4e777979324bb0fd16200327ef0bd",
+        "p03_dova_test_source_data.py": "85f78ede938c667704fd8ef5030adb6a96dc4d654d365d13a44390a88fec2bf7"
+      },
+      "review_sha256": "cb518209213bbbeffe3d1056f8671e4019e3cff4baaa5504bb80af4791331d26",
+      "schema": "research.independent-source290-DATA-validation/1",
+      "scope_sha256": "50a119135910443e5197d2add76a8af18226aa895a89bd1457a96d05f33b1bbc",
+      "source_identity_only": true,
+      "tests": {
+        "import_fences": 5,
+        "meaningful_guard_removals": 7,
+        "passed": 46,
+        "seconds": 47.83
+      },
+      "value_timing_or_unheld_source_policy_qualified": false
+    },
+    "qualification_sha256": "6d354cee99f5c26fcedf1adc31186e74b1e52287c419caa3ce4556688796cb30",
+    "review": {
+      "actual_worker_request_bytes_verified": true,
+      "additional_rows": [],
+      "arm": "P03",
+      "artifact_id": 13420646663,
+      "closed_generic_predicate_reader_sha256": "3e4e72bd95cb9c83ecd5a181f6c28b270ea23625b56949cc4271493ef500dc26",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_raw_row_digest_verified": true,
+      "head": "e9290b7b4af5b3c2a905c3a12eed4db72d1f2acb",
+      "independent_raw_source_proof": {
+        "all_parent_date_action_rows": 2,
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+        "fresh_full_archive_rehash_at_DATA_use": true,
+        "full_rows": 1,
+        "native_term_sha256": [
+          "f2b36754d579bab94b67cc9628f9e32cd927189466c99c428b7c1ca977dfd41f"
+        ],
+        "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+        "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+        "passed": true,
+        "rows": {
+          "2019-11-11:471435039050105714": "2060eb6c2f3c81090ddd2f2ff9ddb73efe2e0988ac36d14feda0dafd896245bd"
+        },
+        "rows_scanned": 1477344
+      },
+      "independent_reader_sha256": "e3bfb9ed8ac5a7e321e209685002918e43d4e777979324bb0fd16200327ef0bd",
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "old_financial_rows_reaudited": 0,
+      "original_factual_source_closure": {
+        "DOVA_consideration_or_CVR_model_not_selected": true,
+        "native_preimages_exact": true,
+        "passed": true,
+        "portfolio_completion_or_unheld_source_policy_qualified": false,
+        "source_identity_only": true,
+        "value_or_timing_requalified": false
+      },
+      "parent_outer_sha256": "e229d73086f5c907ebff065be97c9a8eb090520a6dc3a55e6a1649c1e3efd3fd",
+      "parent_pending_context": {
+        "471435039050105714": []
+      },
+      "parent_root_admission_sha256": "2dfc5b30f486d40f97ab4f93c21ae75862714f0d0b410bd56228b137370329d0",
+      "parent_selected": {
+        "471435039050105714": false
+      },
+      "passed": true,
+      "payload_sha256": "aa2596e13f3cd8deace5c0c1bcebfb4f8e4f9614166c33af7a963d17aa9d25e9",
+      "run_id": 42039276588,
+      "schema": "research.independent-frozen-source-data-review/1",
+      "scope_sha256": "50a119135910443e5197d2add76a8af18226aa895a89bd1457a96d05f33b1bbc",
+      "source_closure": {
+        "all_selected_sources_exact": true,
+        "no_consideration_or_financial_model_qualified": true,
+        "original383_exact": true,
+        "producer_source_count": 439
+      },
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1685071",
+            "listing_first_session": "2017-06-29",
+            "security_id": "471435039050105714",
+            "security_type_eligible": "1",
+            "session": "2019-11-11",
+            "source_observation_sha256": "2060eb6c2f3c81090ddd2f2ff9ddb73efe2e0988ac36d14feda0dafd896245bd",
+            "ticker": "DOVA"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=808.8",
+            "security_id": "471435039050105714",
+            "session": "2019-11-12"
+          },
+          "parent_positions": []
+        }
+      ],
+      "utc": "2026-11-05T14:36:30.345414+00:00"
+    },
+    "review_sha256": "cb518209213bbbeffe3d1056f8671e4019e3cff4baaa5504bb80af4791331d26"
+  }
+}

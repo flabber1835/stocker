@@ -1,0 +1,87 @@
+{
+  "W_files_changed": false,
+  "actual_BBIG_overlay_created": false,
+  "actual_FIN337_full_inputs": 10,
+  "actual_FIN337_measured_closes": 1383,
+  "actual_FIN337_through": "2023-06-30",
+  "actual_hosted_new_preservation_destinations_produced": false,
+  "actual_neutral11_created": false,
+  "all48_actual_preserve_sources_authenticated": true,
+  "all57_destination_byte_relations_contract_checked": true,
+  "both_capture_generations_distinct": true,
+  "checkpoint_staging_or_restore_or_serialization_locally": false,
+  "entire_preserve_body_invoked_locally": false,
+  "exact_actual_FIN337_artifact_id": 13520309373,
+  "exact_artifact_zip_bytes": 271243231,
+  "exact_artifact_zip_sha256": "8e04b4643d761d63490ed3610b7323caa8fa057493764599e30a214a044b46de",
+  "exact_historical_full10_ABMD_resolution_checked": true,
+  "files": {
+    "DESIGN.md": {
+      "bytes": 3067,
+      "sha256": "83f10c741cfb13def7d3bff3508b75be449d20b37c1250075ce0ea6b00d71852"
+    },
+    "INTEGRATION.md": {
+      "bytes": 4395,
+      "sha256": "492fe49c5e7ceaa600bcc6f634f72eca06e921cb4ad5aa609f3a102df0bcb3e2"
+    },
+    "P06-FIN337-zero-session-provenance-failure-DATA.json": {
+      "bytes": 1245,
+      "sha256": "24c8957b74b8b97a2a800944244c6b0c0eccd2a135541d022e4cddd9ad4cd5ae"
+    },
+    "P06-admitted1383-complete-preservation-plan-v2.json": {
+      "bytes": 25606,
+      "sha256": "7b70ff6f2560842daf31303b6062d1b6c3daabda2995f3b5c43693e882971378"
+    },
+    "extend_complete_preservation_plan_DATA.py": {
+      "bytes": 4247,
+      "sha256": "0f2530e6c3cdc8d12dd42116b1c845e482ed605db5c0b62238f9e6b34f203b33"
+    },
+    "prepare_plan_and_failure_DATA.py": {
+      "bytes": 4808,
+      "sha256": "f40129941e98673c6672dcb3a576f8998d2d4ce0ceb2ca35315ab968c4fb63a5"
+    },
+    "system_campaign_p06_BBIG_retained_resources.py": {
+      "bytes": 7965,
+      "sha256": "6de05d43039d7a7ded19d6105dd40e6524cc6d505130b9b4a7fd82e7e49ccc2b"
+    },
+    "system_campaign_p06_BBIG_runtime.py": {
+      "bytes": 23710,
+      "sha256": "50a0a43d00a3818e89b3fb750c13615fdff215281eba9955853e7818d2bfe90a"
+    },
+    "test_FIN337_preservation_DATA.py": {
+      "bytes": 10864,
+      "sha256": "256f997ebffbdcbb8c8126154c5fa66348207972216270da73a62a679f6724ab"
+    },
+    "test_P06_BBIG11.py": {
+      "bytes": 26369,
+      "sha256": "a6fcbec3ba64d723984cea3502cfff81c7d1b8839efe2b50b7d86a36cfb0a12b"
+    }
+  },
+  "financial_authority": false,
+  "financial_import_fences": 5,
+  "financial_workers_launched": 0,
+  "local_canonical_runtime_executed": false,
+  "meaningful_guard_removal_tests": 11,
+  "new_financial_closes": 0,
+  "new_financial_root_admitted": false,
+  "new_resource_tests": 25,
+  "next_actual_packet_adoption_engine_and_independent_review_still_required": true,
+  "original_already_preserved_147_and_event_guards_retained": true,
+  "original_frozen_package_unchanged": true,
+  "original_preserve_AST_undo_complete": true,
+  "original_retained_tests": 68,
+  "passed": true,
+  "pytest_seconds": 30.73,
+  "schema": "research.P06-FIN337-complete-preservation-fix-private-qualification/1",
+  "tests": 93,
+  "unchanged_original8_modules_assets": {
+    "P06-BBIG-SOURCE335-closed-source-DATA.json": "9973a607fd6bdc12ce962d3237c190c99ed59b65dcc9770baae8b95cb591cfb0",
+    "P06-BBIG-source-exit-raw-quote-axis-DATA.json": "9387fc465d7eca0393eb47fd43af84bfc85c7bdec594551ee23a764cb1b98bb4",
+    "P06-own1383-BBIG-source-only-ordinary11-catalog.json": "2f87d2be007222865d2abaa93458b8b167a8eac7f4e990b290c0d99c6f9477b0",
+    "system_campaign_p06_BBIG_api.py": "1f960ad9383d3e7b0b21f0b3a27a3b8d98c629d2d9f610d4be254787f6505eb1",
+    "system_campaign_p06_BBIG_data.py": "e0b228e844513a76baa9d2afe2016c18c5609d57f60e6bdef270ff28d137364b",
+    "system_campaign_p06_BBIG_models.py": "6517c7513b1cb307cf68694b31ec248e172b9930bf1bb5ebfff8a179da280301",
+    "system_campaign_p06_BBIG_observer.py": "7e4e105d8061f629a634fbe902567d68dc9c5365f58abd9ff3cb6a3531b9ec08",
+    "system_campaign_p06_BBIG_seed.py": "3b9d62c34b34847d6bc328c17949fe0f0c13eda0a92bb0a9cfd4c10032170aba"
+  }
+}

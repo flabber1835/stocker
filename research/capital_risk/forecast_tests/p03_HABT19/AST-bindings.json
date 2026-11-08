@@ -1,0 +1,29 @@
+{
+  "lifecycle_source_sha256": "c9667cefec4d84f1eb23d67cd85804e6be266d8f5c21d34c38022ddfd47aa793",
+  "original_runtime_sha256": "a776f35c7748b1bda45d8ca1c50c4936bdac17b9844f9a647d461d3a07d571d8",
+  "runtime_ints": {
+    "14": 1,
+    "17": 18,
+    "18": 19,
+    "19": 33,
+    "28": 2,
+    "33": 34,
+    "524": 543,
+    "70": 89,
+    "81": 101
+  },
+  "runtime_strings": {
+    "2020-01-31": "2020-02-28",
+    "8ee5499cd9d920b47eccf934c31581e1bb938d722c73e0089652a72bcfaa90a4": "6b6b22a58ba0fb1e51a175d2bbac870a2c86813cd4dcbc5dc3bdf3526798869f",
+    "P03-cash14-original28-packet-preparation.json": "P03-HABT-original2-packet-preparation.json",
+    "P03-own524-14cash18-private-qualification.json": "P03-own543-HABT19-private-qualification-v2.json",
+    "P03-own524-original19-observer-inventory.json": "P03-own543-original33-observer-inventory.json",
+    "neutral18_known": "neutral19_known",
+    "p03-cash14-exact70-qualification-reuse.json": "p03-HABT-exact89-qualification-reuse.json",
+    "selected_p03_cash14_ordinary18": "selected_p03_HABT_ordinary19",
+    "system_campaign_p03_cash14_api": "system_campaign_p03_HABT19_api",
+    "system_campaign_p03_cash14_data": "system_campaign_p03_HABT19_data",
+    "system_campaign_p03_cash14_lifecycle": "system_campaign_p03_HABT19_lifecycle",
+    "system_campaign_p03_cash14_stage.py": "system_campaign_p03_HABT19_stage.py"
+  }
+}

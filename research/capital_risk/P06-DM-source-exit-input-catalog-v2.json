@@ -1,0 +1,507 @@
+{
+  "authenticated_capture": {
+    "artifact": 13589646504,
+    "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "head": "3e51e340af6ed33c5e8a9d30b55362d441abdff6",
+    "input_adopted": false,
+    "logical_bytes": 99487,
+    "members": 4,
+    "native_groups": [
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-native-group",
+          "security_id": "698514937491238880",
+          "session": "2025-04-01",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      }
+    ],
+    "observations": [
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-after",
+          "security_id": "698514937491238880",
+          "session": "2025-04-02",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-native",
+          "security_id": "698514937491238880",
+          "session": "2025-04-01",
+          "ticker": null
+        },
+        "security_ids": [
+          "698514937491238880"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-prior",
+          "security_id": "698514937491238880",
+          "session": "2025-03-31",
+          "ticker": null
+        },
+        "security_ids": [
+          "698514937491238880"
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "run": "42411091603",
+    "schema": "research.authenticated-source-batch/1",
+    "source_rows_verified": true,
+    "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION",
+    "utc": "2026-11-07T20:38:07.234822+00:00",
+    "worker_fences_verified": true,
+    "zip_bytes": 45758,
+    "zip_sha256": "26e1b6352a0dcbf167dc8b722db92c7e2ac47ccdec2cda6a218aad852eb0698b"
+  },
+  "authenticated_capture_sha256": "33750d4266f070db1962bedb1201e386a201c0c6fb2eb7265b442f219f6b3c36",
+  "event_date_roles_verified": false,
+  "event_quote_is_proxy": false,
+  "event_row": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "03 Manuf",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1754820",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2019-03-15",
+    "metadata_admitted": "1",
+    "raw_close": "4.96",
+    "raw_compatible_volume": "1324451",
+    "raw_open": "4.9000000000000004",
+    "reported_volume": "1324451",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "698514937491238880",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2025-04-01",
+    "sic": "3559",
+    "signal_close": "4.96",
+    "split_ratio": "1",
+    "ticker": "DM",
+    "tradeable": "1"
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "first_queried_missing_session": "2025-04-02",
+  "frozen_axis_sha256": "cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a",
+  "input_adopted": false,
+  "legal_completion_not_selected": {
+    "cash_per_share": "5.295",
+    "session": "2025-04-02",
+    "source": "https://www.sec.gov/Archives/edgar/data/1643303/000121390025027619/ea0236814-6k_nano.htm",
+    "timing_source": "https://ir.desktopmetal.com/sec-filings/all-sec-filings/content/0000876661-25-000253/0000876661-25-000253.pdf"
+  },
+  "native_action_pair": [
+    "acquisitionby",
+    "delisted"
+  ],
+  "next_frozen_session_after_event": "2025-04-02",
+  "next_frozen_session_after_prior": "2025-04-01",
+  "otc_security_extinction_claimed": false,
+  "parent_actual_never_held_scope_verified": true,
+  "parent_actual_state_sha256": "68c202dbadd15d2df78552a9264f224e99da734e42d3ab59cdc4c880d794a134",
+  "parent_completed": 1821,
+  "parent_descriptors": [
+    {
+      "filename": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0.json",
+      "predecessor_checkpoint_sha256": "67fb4a3a822c09e2f2f81641f7cd6b0c9df49c87255afb650555b54dc2241845",
+      "resume_session": "2017-06-30",
+      "sha256": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0"
+    },
+    {
+      "filename": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b.json",
+      "predecessor_checkpoint_sha256": "ec5e1751f2722905f2e3ebca99202cd7f38cd2bc7baf5ae47f21981bd2093bc0",
+      "resume_session": "2018-01-31",
+      "sha256": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b"
+    },
+    {
+      "filename": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6.json",
+      "predecessor_checkpoint_sha256": "577e73ba509c3ec6885b41805910c8f3e2d9b909f815195e872f68e47f59845f",
+      "resume_session": "2019-02-28",
+      "sha256": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6"
+    },
+    {
+      "filename": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10.json",
+      "predecessor_checkpoint_sha256": "2426bcb4f9424437230b4f7ca7104372dbd64e8cdf24dc25a2d2e7bb82e96d82",
+      "resume_session": "2020-02-28",
+      "sha256": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10"
+    },
+    {
+      "filename": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead.json",
+      "predecessor_checkpoint_sha256": "54da4da3b4680d87a62391966e6fc5bc243992706840ed7958939774e49fe15f",
+      "resume_session": "2020-03-31",
+      "sha256": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead"
+    },
+    {
+      "filename": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47.json",
+      "predecessor_checkpoint_sha256": "32372ed7741feeb3a4c0b7a24f6df2de2103023bb762276aa21a4e42d301d12e",
+      "resume_session": "2020-06-30",
+      "sha256": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47"
+    },
+    {
+      "filename": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3.json",
+      "predecessor_checkpoint_sha256": "5deb1c63c34a3253cf2913ced34b8c16797fa86a6e0b88579308098c241cf1bf",
+      "resume_session": "2021-03-31",
+      "sha256": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3"
+    },
+    {
+      "filename": "f10da5e18374e83cdaf285c04b04063fd68e5bd00fe9784000db967dc1954217.json",
+      "predecessor_checkpoint_sha256": "b74baa75875f02677fc212eded71cb776f6eeab0e547adf1d25df2a8adc6b895",
+      "resume_session": "2022-04-29",
+      "sha256": "f10da5e18374e83cdaf285c04b04063fd68e5bd00fe9784000db967dc1954217"
+    },
+    {
+      "filename": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d.json",
+      "predecessor_checkpoint_sha256": "2ec0519d38772b868c61403068fb2e9a407f5d81ec0e9a346a9ad27b098538d8",
+      "resume_session": "2022-11-30",
+      "sha256": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d"
+    },
+    {
+      "filename": "642df855388f4f56c55eb088c5ec9d9363bfa1039e0e7fa3d25451317d271ef1.json",
+      "predecessor_checkpoint_sha256": "2febf8a757f805befc11808550235cc920f71a51dcf17a90aff2c7be48ebfe5f",
+      "resume_session": "2022-11-30",
+      "sha256": "642df855388f4f56c55eb088c5ec9d9363bfa1039e0e7fa3d25451317d271ef1"
+    },
+    {
+      "filename": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396.json",
+      "predecessor_checkpoint_sha256": "5554b666ad620f7e9bd2071ac53c1c4ac6327a100fa23398b7b75507f56b7c7a",
+      "resume_session": "2023-06-30",
+      "sha256": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396"
+    },
+    {
+      "filename": "52fd1282f69c94a76f7b169005479771d601fdbc1f0082f907693af363d2b915.json",
+      "predecessor_checkpoint_sha256": "ee8856a4e1e17b353799590a9e966daab89c405302cb15f0e6fc57804009046d",
+      "resume_session": "2023-08-31",
+      "sha256": "52fd1282f69c94a76f7b169005479771d601fdbc1f0082f907693af363d2b915"
+    },
+    {
+      "filename": "bb532aea0aeccd357d870d005352d22d3476a7c28e9fdab664e67610c113fe53.json",
+      "predecessor_checkpoint_sha256": "6bec95bf452a5b03916467dec06ccbba655f22732d819d36f3343a149587697e",
+      "resume_session": "2024-08-30",
+      "sha256": "bb532aea0aeccd357d870d005352d22d3476a7c28e9fdab664e67610c113fe53"
+    }
+  ],
+  "parent_input_sha256": "b2adace7ca60c250e1f618421407c826edea0280e40623fc58930b28f5af905e",
+  "parent_source_witness": {
+    "raw_close": 4.91,
+    "security_id": "698514937491238880",
+    "series_sha256": "4ac63b5b25b1e11f0f823df60768a361210e906c9b15496c70501b8d962011fc",
+    "session": "2025-03-31",
+    "ticker": "DM"
+  },
+  "prior_row": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "03 Manuf",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1754820",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2019-03-15",
+    "metadata_admitted": "1",
+    "raw_close": "4.9100000000000001",
+    "raw_compatible_volume": "601827",
+    "raw_open": "4.9100000000000001",
+    "reported_volume": "601827",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "698514937491238880",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2025-03-31",
+    "sic": "3559",
+    "signal_close": "4.9100000000000001",
+    "split_ratio": "1",
+    "ticker": "DM",
+    "tradeable": "1"
+  },
+  "schema": "research.source-batch-bound-unheld-source-exit-catalog/2",
+  "source_payload": {
+    "admitted_context": {
+      "P06": {
+        "completed": 1677,
+        "input_sha256": "61df1bd366ad9f0633b010f69ffdb3cdd62422b9d72bccd842dbe28aa609d3a9",
+        "outer_sha256": "3a7dbe9befba4316481b5955203302edd057e5e90b655ba2531c8ccd92f5d12a",
+        "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+        "through": "2024-08-30"
+      }
+    },
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "context_is_not_event_date_ownership": true,
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "input_adopted": false,
+    "native_groups": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=165.4",
+            "security_id": "698514937491238880",
+            "session": "2025-04-01"
+          }
+        ],
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-native-group",
+          "security_id": "698514937491238880",
+          "session": "2025-04-01",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "165.40000000000001",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2025-04-01",
+              "evidence_hash": "",
+              "known_by": "2025-04-01",
+              "security_id": "698514937491238880",
+              "sep_derived_value": "",
+              "ticker": "DM",
+              "vendor_value": "165.40000000000001"
+            },
+            "sha256": "056fbbcca460c0cc1796e65128db3268d1cb3be350a1f4d7df5236aaaeb57b21"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "165.40000000000001",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2025-04-01",
+              "evidence_hash": "",
+              "known_by": "2025-04-01",
+              "security_id": "698514937491238880",
+              "sep_derived_value": "",
+              "ticker": "DM",
+              "vendor_value": "165.40000000000001"
+            },
+            "sha256": "dd071fe2b8fb4a2e4c631f13af1eda06ebbea68daddf22fb18773e933fef1ae9"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "observations": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-after",
+          "security_id": "698514937491238880",
+          "session": "2025-04-02",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-native",
+          "security_id": "698514937491238880",
+          "session": "2025-04-01",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "03 Manuf",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1754820",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2019-03-15",
+              "metadata_admitted": "1",
+              "raw_close": "4.96",
+              "raw_compatible_volume": "1324451",
+              "raw_open": "4.9000000000000004",
+              "reported_volume": "1324451",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "698514937491238880",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2025-04-01",
+              "sic": "3559",
+              "signal_close": "4.96",
+              "split_ratio": "1",
+              "ticker": "DM",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "8a8d00a8a1f67eefb795135cc1b2c1028a04e133fdbd30b0cbc335172fe84925"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-next-terminal-prior",
+          "security_id": "698514937491238880",
+          "session": "2025-03-31",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "03 Manuf",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1754820",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2019-03-15",
+              "metadata_admitted": "1",
+              "raw_close": "4.9100000000000001",
+              "raw_compatible_volume": "601827",
+              "raw_open": "4.9100000000000001",
+              "reported_volume": "601827",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "698514937491238880",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2025-03-31",
+              "sic": "3559",
+              "signal_close": "4.9100000000000001",
+              "split_ratio": "1",
+              "ticker": "DM",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "5d7f7cd2e785468f7d8ae0d0897c63dd4d4909c7f5e77d8ff9fb03158157de47"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+    "producer_sha256": "b62bd2b178f6e6228c84dcdae1fcf2fd3fc09b25cd4b33f36c559e4d11024eb3",
+    "production_contacted": false,
+    "request_sha256": "763a66b6c74959f2c7d56958c6a83b164b1722a60279c5902ccb3d888e27ca00",
+    "schema": "research.source-evidence-batch/1"
+  },
+  "source_payload_sha256": "623eaf2c47fa07d237f68521826075baba58b9c8e9ca00a80df6d660bdb7aeee",
+  "statutory_cash_claimed": false,
+  "term": {
+    "added": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 4.91,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:654b64c1bcba1b19afcf961ea866d83d5fa7f8a830b185d048060981b8d09f58",
+      "security_id": "698514937491238880",
+      "session": "2025-04-01"
+    },
+    "arm": "P06",
+    "description": "Never-held source exit at genuine parent March31 raw-close4.91 on frozen native April1; actual native quote4.96 unchanged. Legal April2 cash5.295 is separate and not selected. No portfolio settlement or execution-price claim.",
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1754820",
+      "listing_first_session": "2019-03-15",
+      "security_id": "698514937491238880",
+      "security_type_eligible": "1",
+      "session": "2025-03-31",
+      "source_observation_sha256": "5d7f7cd2e785468f7d8ae0d0897c63dd4d4909c7f5e77d8ff9fb03158157de47",
+      "ticker": "DM"
+    },
+    "mandatory_common_share_completion_confirmed": false,
+    "native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=165.4",
+      "security_id": "698514937491238880",
+      "session": "2025-04-01"
+    },
+    "native_session": "2025-04-01",
+    "native_term_sha256": "14e5ff1ee8b75e3f47b27c8c487a5e1ee102a4116e9b57c8954b5d97d4b4d67a",
+    "parent_cursor": "2025-03-31",
+    "parent_outer_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+    "parent_positions": [],
+    "parent_root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+    "portfolio_completion_authorized": false,
+    "preopen_completion_confirmed": false,
+    "primary_source": "https://github.com/flabber1835/stocker/actions/runs/42411091603",
+    "recognition_rule": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH",
+    "require_unowned_and_unordered": true,
+    "research_assumption": {
+      "actual_settlement_claimed": false,
+      "execution_price_claimed": false,
+      "held_settlement_supported": false,
+      "legal_identity_admitted": false,
+      "recognition_session": "2025-04-01",
+      "retained_quote_session": "2025-03-31",
+      "retained_quote_sha256": "654b64c1bcba1b19afcf961ea866d83d5fa7f8a830b185d048060981b8d09f58",
+      "retained_raw_close": "4.91",
+      "schema": "research.unheld-source-exit-assumption/1",
+      "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+      "treatment": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH"
+    },
+    "retained_quote": {
+      "raw_close": 4.91,
+      "security_id": "698514937491238880",
+      "session": "2025-03-31",
+      "ticker": "DM"
+    },
+    "security_id": "698514937491238880",
+    "source_valuation_phase": "CLOSE",
+    "ticker": "DM",
+    "timing_source": "https://github.com/flabber1835/stocker/actions/runs/42411091603"
+  },
+  "witness_at_parent_cursor": true
+}

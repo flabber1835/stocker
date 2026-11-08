@@ -1,0 +1,91 @@
+{
+  "active_unconsumed_events": 1,
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-lbph-preopen-cash-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "lbph-preopen-cash-overlay.json",
+    "private_file": "hydrated-lbph-preopen-cash-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-lbph-preopen/1/"
+  },
+  "excluded_consumed_events": [],
+  "excluded_pending_events": [],
+  "frozen_year_member_checks": [
+    {
+      "all_rows_read": 1647175,
+      "gzip_bytes": 78118364,
+      "gzip_sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+      "member": "observations-2024.csv.gz",
+      "zip_crc32": 3071881209
+    }
+  ],
+  "full_provider_rows_verification_required": true,
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "same_day_quote_claims": [],
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "source_research_events": 1,
+  "terms": [
+    {
+      "actual_completion_date": "2024-12-02",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 60.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1832168/000114036124048133/ef20039392_8k.htm | Mandatory remaining ordinary-common60USD cash conversion on the actual preopenDecember2 merger; November29 trading preserved.",
+        "security_id": "355279027800974395",
+        "session": "2024-12-02"
+      },
+      "description": "Mandatory remaining ordinary-common60USD cash conversion on the actual preopenDecember2 merger; November29 trading preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1832168",
+        "listing_first_session": "2021-03-12",
+        "security_id": "355279027800974395",
+        "security_type_eligible": "1",
+        "session": "2024-11-29",
+        "source_observation_sha256": "f9c32e63d579a0695a982097331b3cd3627f8166a6e9ed3e725fbda14c4eaa13",
+        "ticker": "LBPH"
+      },
+      "last_trading_session": "2024-11-29",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-11-29",
+      "native_term_sha256": "e65b583e8e8358e98294987b3fcaa172ce122bb744aa1fc51a875ee73a48d669",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2024-12-02",
+        "administrative_suspension_date_not_used": "2024-12-03",
+        "cash_per_ordinary_share": "60.00",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2024-11-29",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "NasdaqECA2024-589 completion/lasttrade/consideration",
+          "SEC8KItem2.01 subsequent251h mandatory conversion"
+        ],
+        "tender_expiration_date_not_used": "2024-11-27"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1832168/000114036124048133/ef20039392_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "17fb564149f13fe5af51b917295f044de76c08afa529b185da8366901de71397",
+        "selected_row_sha256": [
+          "56a5f81bea1b29d105f2bbc462865452605a89026713f90a7a64b1f106ce6112",
+          "e51d7472aab6fefd10c71c80373526fba1fd837bedb7fd5898fac301e008494b",
+          "18f45b7782d4245a9fe0403e6cc9516b3152589def00245f44f6cc3604c05e23"
+        ],
+        "session": "2024-11-29",
+        "ticker": "LBPH"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "355279027800974395",
+      "ticker": "LBPH",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-589"
+    }
+  ]
+}

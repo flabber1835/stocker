@@ -1,0 +1,60 @@
+{
+  "actual_completed": 1175,
+  "actual_economic_packet_checks": 36,
+  "actual_neutral20_created": false,
+  "actual_parent_outer_sha256": "9a7217195d3bb40e84ff158fbf7e2ceb3b4d122ed51bb951a51f7ea11b007318",
+  "actual_preflight_gate": {
+    "complete_original_overlay_scope_and_provider_verified": true,
+    "financial_sessions_advanced": 0,
+    "packet_checks": 36,
+    "parent_outer_sha256": "9a7217195d3bb40e84ff158fbf7e2ceb3b4d122ed51bb951a51f7ea11b007318",
+    "passed": true,
+    "root_admission_sha256": "baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026",
+    "schema": "research.P05-retained18-preflight-packet-gate/2",
+    "whole_preflight_preparation_sha256": "2d35735cb4face49c88face48e3bc455b62deee394a5e3d7375923dfb0a8b61b"
+  },
+  "actual_preflight_packet_checks": 36,
+  "artifact_id": 13522746563,
+  "canonical_writer_called": false,
+  "compiled_whole_module_executed": false,
+  "financial_authority": false,
+  "full_inputs": 19,
+  "head": "7565e085d906e81294ba8e9e8d55ce4b745e0cfa",
+  "local_canonical_runtime_executed": false,
+  "logical_bytes": 392124948,
+  "members": 315,
+  "method_metadata": [
+    {
+      "isolated_shape_equal": true,
+      "method": "__init__",
+      "whole_module_shape_equal": true
+    },
+    {
+      "isolated_shape_equal": false,
+      "method": "write",
+      "whole_module_shape_equal": true
+    },
+    {
+      "isolated_shape_equal": true,
+      "method": "advance",
+      "whole_module_shape_equal": true
+    },
+    {
+      "isolated_shape_equal": true,
+      "method": "__enter__",
+      "whole_module_shape_equal": true
+    },
+    {
+      "isolated_shape_equal": true,
+      "method": "__exit__",
+      "whole_module_shape_equal": true
+    }
+  ],
+  "new_financial_closes": 0,
+  "new_financial_root_admitted": false,
+  "packet_gate_file_sha256": "c226e6b91d87aaa4824459cc22a8bec6e4026683aa6c68072b6c686fb3a93380",
+  "passed": true,
+  "run_id": "42254754949",
+  "schema": "research.P05-FIN338-actual-packet-and-whole-module-gate-DATA/1",
+  "through": "2022-08-31"
+}

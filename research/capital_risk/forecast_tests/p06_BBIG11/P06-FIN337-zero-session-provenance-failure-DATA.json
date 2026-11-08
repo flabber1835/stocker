@@ -1,0 +1,29 @@
+{
+  "BBIG_overlay_created": false,
+  "actual_neutral11_created": false,
+  "arm": "P06",
+  "artifact_id": 13520309373,
+  "correct_actual_Dec16_resource": "p06-point-retained-origin/actual-future-event-2022-12-16.json",
+  "correct_resource_pin": {
+    "bytes": 530,
+    "sha256": "0bff1f64c88d6abb1f7646ce8fc1e14235f1a5561d131c842347ecc99157a76c"
+  },
+  "financial_authority": false,
+  "financial_checkpoint_completed": 1383,
+  "financial_checkpoint_outer_sha256": "bd3e5c6b01942efedf344756dd2a52a7a616fbf81b4d76c73f1397b9498a3e08",
+  "full_inputs": 10,
+  "head": "d2088351f2f0bf15d5ea6b6a3ca2992341b6acc5",
+  "local_canonical_runtime_executed": false,
+  "logical_bytes": 434734636,
+  "members": 214,
+  "new_financial_closes": 0,
+  "new_financial_root_admitted": false,
+  "passed": true,
+  "plan_sha256": "51825c5fb460d2b34d656f52ba252ed813e01a5dd35e13ff68999f63ed9b8b83",
+  "review_missing_neutral_is_consequential": true,
+  "run_id": 42252486692,
+  "schema": "research.P06-FIN337-zero-session-provenance-failure-DATA/1",
+  "through": "2023-06-30",
+  "unchanged_actual_parent_gzip_sha256": "1b36eafb2e6a3101dac4a0934bd58657db807da8484c126fe95129d98994d375",
+  "worker_first_error": "FileNotFoundError: /old/actual-future-event-2022-12-16.json"
+}

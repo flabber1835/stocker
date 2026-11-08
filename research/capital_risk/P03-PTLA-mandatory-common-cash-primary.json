@@ -1,0 +1,28 @@
+{
+  "cash_per_common_share": "18.00",
+  "currency": "USD",
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "future_ownership_verified": false,
+  "input_adopted": false,
+  "issuer_id": "SEC_CIK:1269021",
+  "issuer_original_release": "https://www.businesswire.com/news/home/20200702005276/en/",
+  "issuer_release_published": "2020-07-02T08:45:00-04:00",
+  "issuer_source": "https://www.nasdaq.com/press-release/alexion-completes-acquisition-of-portola-2020-07-02",
+  "issuer_stated_exceptions": [
+    "TREASURY",
+    "ACQUIRER_AND_RELATED_ENTITIES",
+    "PERFECTED_APPRAISAL_RIGHTS"
+  ],
+  "legal_completion_date": "2020-07-02",
+  "native_session": "2020-07-01",
+  "options_deliverable_used_as_common_valuation": false,
+  "ordinary_remaining_common_entitlement": true,
+  "preopen_completion_confirmed": true,
+  "recognition_session": "2020-07-02",
+  "schema": "research.P03-PTLA-mandatory-common-cash-primary/1",
+  "security_id": "77684744013377591",
+  "tender_participation_assumed": false,
+  "ticker": "PTLA",
+  "timing_corroboration": "https://infomemo.theocc.com/infomemos?number=47248"
+}

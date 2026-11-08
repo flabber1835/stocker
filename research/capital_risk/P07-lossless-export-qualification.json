@@ -1,0 +1,96 @@
+{
+  "FIN339_actual_duplicate_inventory_known": false,
+  "FIN339_guard_failure_conjunct_known": false,
+  "W_edited": false,
+  "all_unique_failure_evidence_preserved": true,
+  "canonical_data_staged_restored_replayed_or_serialized": false,
+  "cap_changed": false,
+  "code_identity_comparison_relaxed": false,
+  "diagnostics_never_replace_original_seal_outcome": true,
+  "diagnostics_unknown_on_traversal_failure": true,
+  "financial_authority": false,
+  "financial_runtime_executed": false,
+  "first_frozen_package_preserved": true,
+  "future_export_pass_guaranteed": false,
+  "hosted_jobs_launched": false,
+  "new_logical_member_reader_explicitly_required": true,
+  "new_root_admitted": false,
+  "original_launcher_source_SHA256": "356d5608607d867fb9a6d84ff0857a8e0cb08bae4b17210460de2542e26a1fe5",
+  "original_source_SHA256": "96c17b613c875174f5be9582ce48b2a18fdb9266a95d677ee7dd6fb7f61dbd0a",
+  "original_stop_source_SHA256": "ad4e976d39a00933c6c30a3a5c4c387092050b65c6190093248b05b1baa436fc",
+  "passed": true,
+  "physical_manifest_never_relabelled": true,
+  "previous_root": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+  "qualification_sources": {
+    "DESIGN.md": {
+      "bytes": 2266,
+      "sha256": "89b2f3b9c0f2edb1605a8764b2ae22df3d2b0283c9354c6d6245adeb288a0a38"
+    },
+    "INTEGRATION.md": {
+      "bytes": 7388,
+      "sha256": "945b7da7bc653ddea176e64ae5fe4e8cc8a970617a91f982ea954c35f9645c3f"
+    },
+    "read_FIN337_duplicate_DATA.py": {
+      "bytes": 2410,
+      "sha256": "7bcb8736d8fffd67178d568c23e834475fef49e6aa9e5a64f111a06f974cd617"
+    },
+    "smoke_actual_imported_sources.py": {
+      "bytes": 2086,
+      "sha256": "017605811d7ca5d9cec3227e776c694ce30c9aba4bc9e971306ae58db41b6e71"
+    },
+    "test_lossless_export.py": {
+      "bytes": 27739,
+      "sha256": "5a831b9e4d0a3b6086d2f8ac3da8d913681dde6bbe691e07878dcab7f9c6cc8a"
+    }
+  },
+  "real_readonly_DATA": {
+    "bytes": 116186,
+    "sha256": "0c6340b722ffc72690df778b651d300d69f2e9ac3da4101c5dc2d9c07fc9b935"
+  },
+  "real_readonly_verified_duplicate_bytes": 433864014,
+  "real_readonly_verified_duplicate_files": 186,
+  "runtime_files": {
+    "P07-codec-copy-inventory-template.json": {
+      "bytes": 36436,
+      "sha256": "ea8f11744aaa90ad6475c78b333d52b17c3f9b5b1cc878538c1db3d72c3cd8e1"
+    },
+    "system_campaign_p07_lossless_export.py": {
+      "bytes": 15752,
+      "sha256": "221ab2ff40f77e4778d2b815943e8596e31350d245c62d05f8cd382203641e0a"
+    },
+    "system_campaign_p07_lossless_export_host.py": {
+      "bytes": 8515,
+      "sha256": "486bcff717e29d5c7b9d3de80a155b58e5eba863c70c8dd6fbf6c3ba1b103711"
+    }
+  },
+  "schema": "research.P07-lossless-export-private-qualification/2",
+  "stable_actual_host_source_sha256": "5411e0711e3d2aca5d3f37acbebdbf74e12df25674823d16c2cf2e66e48db7ad",
+  "stable_actual_request_smoke_sha256": "98f155acd7e8a26425c0b43a850aeeb710be71eb1f8e2b820e78f57a1e251dc9",
+  "supersedes_qualification_sha256": "a3af4e922886e90859676020a47c16688ad01e4cfad308f3ade398769fcdc799",
+  "tests": {
+    "actual_imported_W_source_code_identity": true,
+    "actual_stale_host_request_refused": true,
+    "all_six_host_diagnostic_traversal_phase_outcomes": true,
+    "before_after_move_faults": 8,
+    "both_core_diagnostic_fault_outcomes": true,
+    "both_log_failure_outcomes": true,
+    "command": "python -B -m pytest -q -c NUL -p no:cacheprovider .codex-tmp/p07-lossless-export-v2-20261106/test_lossless_export.py --basetemp .codex-tmp/p07-lossless-export-v2-20261106/pytest-lossless-v2-final",
+    "import_fences": 5,
+    "meaningful_guard_removals": 11,
+    "passed": 83,
+    "public_diagnostic_failure_does_not_mask_original_error": true,
+    "real_NONCANONICAL_hardlink_guard": true,
+    "receipt_original_seal_observer_failure_rollback": true,
+    "rollback_failure_preserves_all_backups": true,
+    "seconds": 22.04,
+    "whole_core_AST_undo_one_observer_argument": true,
+    "whole_original_seal_member_byte_symlink_guard_falsifiers": true
+  },
+  "whole_module_compiled_without_execution": true,
+  "whole_original_launcher_function_AST_SHA256": {
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  }
+}

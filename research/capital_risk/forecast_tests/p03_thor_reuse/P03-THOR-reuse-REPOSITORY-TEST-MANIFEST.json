@@ -1,0 +1,39 @@
+{
+  "external_resources": "Authenticated full FIN337 and FIN324 captures plus actual FIN337 producer m source; no archive/provider/engine execution dependency.",
+  "files": [
+    {
+      "bytes": 11788,
+      "frozen_original_sha256": "5c45dfb4566798afeda05599fbccacfd41b5717fef3175a021e79d6cee0d87e7",
+      "name": "test_THOR_qualification_reuse.py",
+      "relative_target": "research/capital_risk/forecast_tests/p03_thor_reuse/test_THOR_qualification_reuse.py",
+      "sha256": "e9fc241cf1eddd0d09115445a222f6dc57599d824ec34cd0fec0ffb0bb61e283",
+      "whole_original_undo_verified": true
+    },
+    {
+      "bytes": 4982,
+      "frozen_original_sha256": "16044e7e26b8c06c353367ee22ead08dd56fe3b4c70e96d2fb98e73c5d14c249",
+      "name": "review_FIN337_DATA.py",
+      "relative_target": "research/capital_risk/forecast_tests/p03_thor_reuse/review_FIN337_DATA.py",
+      "sha256": "323e6a27b16860b56730cf3f020327d2a12355262dcb2d91cca4d6a46c062df0",
+      "whole_original_undo_verified": true
+    },
+    {
+      "bytes": 4631,
+      "frozen_original_sha256": "d292a258600ef8f335941df9d4c8d3c0eed5acb828f1179c12a937938f8168ea",
+      "name": "audit_downstream_writers.py",
+      "relative_target": "research/capital_risk/forecast_tests/p03_thor_reuse/audit_downstream_writers.py",
+      "sha256": "42e61f88740ad31117c0216cace46b348c355cd3ff6732d426615076354933a1",
+      "whole_original_undo_verified": true
+    },
+    {
+      "bytes": 57,
+      "name": "__init__.py",
+      "relative_target": "research/capital_risk/forecast_tests/p03_thor_reuse/__init__.py",
+      "sha256": "c3858d1ae647831fdbb3a839f07d29a9496da252d7f1f197fe3957e6d6483212"
+    }
+  ],
+  "private_frozen_originals_unchanged": true,
+  "schema": "research.P03-THOR-reuse-repository-tests/1",
+  "source_directory": "C:\\GitHub\\stocker\\.codex-tmp\\p03-fin337-thor-qualified-reuse-20261106\\repository-test-copies\\research\\capital_risk\\forecast_tests\\p03_thor_reuse",
+  "sys_path_only_capital_risk": true
+}

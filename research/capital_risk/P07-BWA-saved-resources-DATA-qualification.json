@@ -1,0 +1,83 @@
+{
+  "ABMD_existing_permission_unchanged": true,
+  "actual_existing_reader_authenticated_reads": 91,
+  "actual_hosted_copy_canary_executed": false,
+  "canonical_runtime_executed": false,
+  "committed_seed_rows": 929,
+  "files": {
+    "P07-BWA-saved-resources.json": {
+      "bytes": 60707,
+      "sha256": "8410aeeb5ecf54d83bec31f3bb9b9f978ac1c7319df01fd592f90ab270e92524"
+    },
+    "P07-BWA-saved-restart-DATA-qualification.json": {
+      "bytes": 3973,
+      "sha256": "1e1e3316c3caf05428b8ca993ebcc3a7b5cf0ae66e9c7613e5922b29d72dd8d4"
+    },
+    "system_campaign_dependencies.py": {
+      "bytes": 3963,
+      "sha256": "49f74f093f1a206a6de27da7c355d57aa669b8dc2218c3fbabe115150f6f6869"
+    },
+    "system_campaign_p06_WWE12_resources.py": {
+      "bytes": 5077,
+      "sha256": "2060ec2778cce557e4dcbac5fcc889033806b3bfc4647626b0255a7b41de684a"
+    },
+    "system_campaign_p07_saved_proofs.py": {
+      "bytes": 11066,
+      "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
+    },
+    "system_campaign_postclose_distribution_resources.py": {
+      "bytes": 5800,
+      "sha256": "6ae7e40e100d2a6a3ed567ce6d481f0150049e97dfa8f7fb1f25bee7c2f039da"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "historical_archives": 7,
+  "historical_assets": 158,
+  "hosted_execution_scope": "Corrected current binding has not executed hosted; request229 original canary stopped before qualification.",
+  "logical_bytes": 287155235,
+  "parent_completed": 1383,
+  "parent_cursor": "2023-06-30",
+  "passed": true,
+  "raw_proof_rows": 930,
+  "regression_tests": {
+    "actual_saved_archives_read_without_local_copy": true,
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_resources.py::test_original_copy_canary_keeps_complete_code_identity forecast_tests/test_postclose_distribution_resources.py::test_actual_request229_canary_failure_is_reproduced_and_fixed_without_copying_a_book forecast_tests/test_postclose_distribution_resources.py::test_canary_permission_guard_and_removal_falsifier_on_genuine_read_only_DATA -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-canary-archive-binding-20261108-001",
+    "meaningful_guard_removals": 1,
+    "passed": 3,
+    "seconds": 5.98
+  },
+  "remaining": [
+    "complete saved-state restart and original ordinary observers/review integration",
+    "authenticated stopped-parent hosted transport",
+    "actual hosted copy canary, input adoption and certificate constructor",
+    "financial run and independent admission"
+  ],
+  "request229_regression": {
+    "artifact": 13596202092,
+    "current_book_present": false,
+    "error": "Original canary verifier received the one ABMD permission resolution but the preservation manifest contained seven historical archives.",
+    "financial_job_started": false,
+    "financial_sessions_advanced": 0,
+    "fix": "Bind the complete original verifier to the complete seven-archive preservation list while requiring the original single permission argument; copy/check/removal code unchanged.",
+    "head": "c8af75cd31fcc896176ec71b9147175127b1e5d9",
+    "logical_bytes": 223812231,
+    "members": 133,
+    "preflight_exit_code": 1,
+    "run": 42427850028,
+    "zip_sha256": "20d3cea14894797a10ee6ac87c858341fcbca609005cb55a6bcaa05106678acb"
+  },
+  "requirements": 165,
+  "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "schema": "research.P07-postclose-saved-resources-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_resources.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-resources-20261107-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 13,
+    "seconds": 3.18
+  },
+  "unaccepted_July5_archive_excluded": true,
+  "whole_original_owned_copy_canary_code_preserved": true
+}

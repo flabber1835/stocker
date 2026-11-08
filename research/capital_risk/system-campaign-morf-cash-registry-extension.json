@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "catalog_file": "system-campaign-morf-preopen-cash-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "morf-preopen-cash-overlay.json",
+      "private_file": "hydrated-morf-preopen-cash-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-morf-preopen/1/"
+    }
+  ],
+  "required_unconsumed_extension_sha256": "6ed7bc3942dc2eb5f353aeae41f5379aaccbfd10574090312b41dc4ece0f8549",
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}

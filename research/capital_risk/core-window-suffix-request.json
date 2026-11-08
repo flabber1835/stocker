@@ -1,0 +1,46 @@
+{
+  "schema": "research.capital-risk-window-suffix-request/1",
+  "request_id": "short-core-window-suffix-001",
+  "stage": "short-core-window-suffix",
+  "core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "execution_sha256": "24b94ebbbe79cd95797669d149adbf9270d81af25fe272ea7d538e944a218b75",
+  "qualification_request_sha256": "fc2af3ffd4b0e2c3aec55f84644ffde961246808508136b24860d856f0a488c2",
+  "qualification_run_id": "40568817130",
+  "qualification_source_commit": "a5a2fe4c38cf0e95e79974e7b5ea78b171ea48b3",
+  "windows": {
+    "stress2021": {
+      "artifact_id": 12763947321,
+      "artifact_name": "capital-risk-core-recovery-qualification-stress2021-a5a2fe4c38cf0e95e79974e7b5ea78b171ea48b3",
+      "receipt_sha256": "d3e07605c2bd3ed73f89fb84738683277f7b1d5854284b0e89dc1a663b48874f",
+      "ciphertext": {
+        "name": "recovery-qualification-stress2021.tar.crseal",
+        "bytes": 58767396,
+        "sha256": "7000bdb6748d5b9ff6bdd5d8c04d44f9de015fa93e92b4046b3bd07646cbf23a"
+      },
+      "manifest_sha256": "56cd218693bb65a43427d213326a3f6b99f84b2bb5b888f759867f0426695b00",
+      "candidate_file_sha256": "4a6cfb81be53b1c70d7a299879917f4af2c0b90193f216e9aab51101795dd1b3",
+      "candidate_outer_sha256": "612f435d1c95e86f064c92bf15dfbf956a155a63fce807d31dce146499b6dd6a",
+      "bridge_sha256": "ea577ff4faf28095f53a397fcd21bf2721c75e4a820b8f54429aa6bb90afc5b7",
+      "source_bindings_sha256": "a392a0fdb1cf1c653f250d2f8af4305f99704fb5310df89a7b6fe906715b6973",
+      "canonical_cases": 15,
+      "independent_review_sha256": "f7d68fd44c691f4cd606b87b3b6d059b2825f5b4d3cded0871feec04ea1cbbff"
+    },
+    "recent2025": {
+      "artifact_id": 12764137288,
+      "artifact_name": "capital-risk-core-recovery-qualification-recent2025-a5a2fe4c38cf0e95e79974e7b5ea78b171ea48b3",
+      "receipt_sha256": "51cbab0f4a0f47c038acc2aed2e61bdd43718af0cac497d4e1c892bc32210a75",
+      "ciphertext": {
+        "name": "recovery-qualification-recent2025.tar.crseal",
+        "bytes": 67317796,
+        "sha256": "f3737767fc6977643ffadc3ccf7eefedb131afdcfb8250d9fa11862bb3ab0f65"
+      },
+      "manifest_sha256": "95d784f6fcdbaf037ba8d2a5916dd65bf0284abb4de3c899df36df26bc6a1013",
+      "candidate_file_sha256": "782e6aeba5b34b2da498be1d3da57e0c60b16254bf81df71081fbf4829cfe710",
+      "candidate_outer_sha256": "05af30f13516afbf944cee9601fc94b1a406db932a5196bc1a6e10bd605eba02",
+      "bridge_sha256": "53aafe284b662640e93d4e706a703b1a0a57bae854fb8b556afd7f2c19442679",
+      "source_bindings_sha256": "ec18a16d4a09372daa8b7aced836d2c1bf0145544ce344283050792c789cf77f",
+      "canonical_cases": 15,
+      "independent_review_sha256": "067e58f27bf56128b14f417b4a8ac302a9312d5eee1b7253d34a503cc29371ee"
+    }
+  }
+}

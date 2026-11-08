@@ -1,0 +1,408 @@
+{
+  "arm": "P05",
+  "canonical_financial_source_changed": false,
+  "historical_causality": "UNVERIFIED",
+  "loader_sha256": "856f8c3792ad0a5278f5aacd1649af17e4f38ed7409ba7570ac9623e5596dd15",
+  "parent_cursor": "2022-06-30",
+  "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+  "parent_root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.qualified-pending-own-cash-input/1",
+  "source_data": {
+    "payload": {
+      "additional_rows": [],
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "arm": "P05",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "input_adopted": false,
+      "parent_cursor": "2022-06-30",
+      "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+      "producer_sha256": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
+      "production_contacted": false,
+      "provider_metadata_upgraded": false,
+      "schema": "research.own-parent-frozen-source-witnesses/2",
+      "scope": {
+        "additional_rows": [],
+        "parent_cursor": "2022-06-30",
+        "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+        "terms": [
+          {
+            "native_session": "2022-06-30",
+            "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+            "parent_positions": [
+              {
+                "entry_date": "2022-06-27",
+                "quantity": 35,
+                "slot_id": 8,
+                "ticker": "SRRA"
+              }
+            ],
+            "pending_at_parent": {
+              "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+              "pending_sessions": 0,
+              "stale_at_event": 0,
+              "unresolved": false
+            },
+            "security_id": "324793693976033682",
+            "session": "2022-06-29",
+            "ticker": "SRRA"
+          }
+        ]
+      },
+      "scope_sha256": "f997cb2520d9b195135ad0bb7644b1ad5c36f6f42c710a3b7584b01c8d9527bd",
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1290149",
+            "listing_first_session": "2015-07-16",
+            "security_id": "324793693976033682",
+            "security_type_eligible": "1",
+            "session": "2022-06-29",
+            "source_observation_sha256": "f65b8ea6348507cc059962f6a9d5c46978bc53db62e27e3c7b07c271ba1d1090",
+            "ticker": "SRRA"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=1342.8",
+            "security_id": "324793693976033682",
+            "session": "2022-06-30"
+          },
+          "parent_positions": [
+            {
+              "entry_date": "2022-06-27",
+              "quantity": 35,
+              "slot_id": 8,
+              "ticker": "SRRA"
+            }
+          ],
+          "pending_context": {
+            "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+            "pending_sessions": 0,
+            "stale_at_event": 0,
+            "unresolved": false
+          },
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1290149",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2015-07-16",
+            "metadata_admitted": "1",
+            "raw_close": "54.969999999999999",
+            "raw_compatible_volume": "593169",
+            "raw_open": "54.950000000000003",
+            "reported_volume": "593169",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "324793693976033682",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-29",
+            "sic": "2834",
+            "signal_close": "54.969999999999999",
+            "split_ratio": "1",
+            "ticker": "SRRA",
+            "tradeable": "1"
+          }
+        }
+      ]
+    },
+    "qualification": {
+      "actual_current_root_roles_verified": true,
+      "arm": "P05",
+      "captured_source_rows": 1,
+      "financial_authority": false,
+      "financial_root_admitted": false,
+      "financial_sessions_advanced": 0,
+      "financial_workers_launched": 0,
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "native_action_rows": 2,
+      "original_input_count": 15,
+      "parent_date_quote_claimed_source_captured": false,
+      "parent_root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+      "passed": true,
+      "payload_sha256": "789a23ec841b6bdb8f391f67b5b4519b8594b9734bbbe77935cbd059ddc9164d",
+      "reader_sha256": "1d508737f337e5488719ee8b9a820f0b898415fc6bd7372422018198a9f56f0a",
+      "review_sha256": "520c97991138348f34dd8063fcfc4ac92b21c181ac2786439599803239d7e988",
+      "schema": "research.independent-frozen-source-data-validation/1",
+      "scope_sha256": "f997cb2520d9b195135ad0bb7644b1ad5c36f6f42c710a3b7584b01c8d9527bd",
+      "separate_archive_parent_date_quotes": 1,
+      "source2_schema_preserved": true,
+      "source_identity_only": true,
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "tests": {
+        "command": "python -B -m pytest -q -p no:cacheprovider --tb=short test_pending_native_SOURCE318_DATA.py",
+        "financial_import_fences": 5,
+        "meaningful_guard_removals": 6,
+        "passed": 43,
+        "seconds": 12.79,
+        "semantic_mutations": 30,
+        "whole_parent_identity_loadcase_AST_identical": true,
+        "whole_raw_scan_AST_undo": true
+      },
+      "tests_sha256": "cfd2f91e8aee6203a935a08b318f262fb6004c6c971db42a1cb4ddd6a143c59f",
+      "utc": "2026-11-06T02:14:21.694899+00:00"
+    },
+    "review": {
+      "actual_worker_request_bytes_verified": true,
+      "additional_rows": [],
+      "arm": "P05",
+      "artifact_id": 13471725575,
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_raw_row_digest_verified": true,
+      "head": "1ee68c72572f8ac04d9e0474dd59ff0c30d4e545",
+      "independent_raw_source_proof": {
+        "all_observation_and_action_fields_checked": true,
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+        "fresh_whole_archive_rehash_at_DATA_use": true,
+        "full_observation_rows": 2,
+        "independently_read_parent_date_quotes": {
+          "2022-06-30|324793693976033682": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1290149",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2015-07-16",
+            "metadata_admitted": "1",
+            "raw_close": "54.990000000000002",
+            "raw_compatible_volume": "861536",
+            "raw_open": "54.979999999999997",
+            "reported_volume": "861536",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "324793693976033682",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-30",
+            "sic": "2834",
+            "signal_close": "54.990000000000002",
+            "split_ratio": "1",
+            "ticker": "SRRA",
+            "tradeable": "1"
+          }
+        },
+        "native_raw_action_rows": 2,
+        "parent_date_quote_claimed_source_captured": false,
+        "passed": true,
+        "rows_scanned": {
+          "2022": 2080223
+        }
+      },
+      "independent_reader_sha256": "1d508737f337e5488719ee8b9a820f0b898415fc6bd7372422018198a9f56f0a",
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "old_financial_rows_reaudited": 0,
+      "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+      "parent_pending_context": {
+        "324793693976033682": {
+          "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+          "pending_sessions": 0,
+          "stale_at_event": 0,
+          "unresolved": false
+        }
+      },
+      "parent_root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+      "parent_selected": {
+        "324793693976033682": false
+      },
+      "passed": true,
+      "payload_sha256": "789a23ec841b6bdb8f391f67b5b4519b8594b9734bbbe77935cbd059ddc9164d",
+      "run_id": 42148024783,
+      "schema": "research.independent-frozen-source-data-review/1",
+      "scope_sha256": "f997cb2520d9b195135ad0bb7644b1ad5c36f6f42c710a3b7584b01c8d9527bd",
+      "source_closure": {
+        "all_selected_sources_exact": true,
+        "original383_exact": true,
+        "producer_source_count": 479
+      },
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1290149",
+            "listing_first_session": "2015-07-16",
+            "security_id": "324793693976033682",
+            "security_type_eligible": "1",
+            "session": "2022-06-29",
+            "source_observation_sha256": "f65b8ea6348507cc059962f6a9d5c46978bc53db62e27e3c7b07c271ba1d1090",
+            "ticker": "SRRA"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=1342.8",
+            "security_id": "324793693976033682",
+            "session": "2022-06-30"
+          },
+          "parent_positions": [
+            {
+              "entry_date": "2022-06-27",
+              "quantity": 35,
+              "slot_id": 8,
+              "ticker": "SRRA"
+            }
+          ],
+          "pending_context": {
+            "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+            "pending_sessions": 0,
+            "stale_at_event": 0,
+            "unresolved": false
+          },
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1290149",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2015-07-16",
+            "metadata_admitted": "1",
+            "raw_close": "54.969999999999999",
+            "raw_compatible_volume": "593169",
+            "raw_open": "54.950000000000003",
+            "reported_volume": "593169",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "324793693976033682",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-06-29",
+            "sic": "2834",
+            "signal_close": "54.969999999999999",
+            "split_ratio": "1",
+            "ticker": "SRRA",
+            "tradeable": "1"
+          }
+        }
+      ],
+      "utc": "2026-11-06T02:12:48.578500+00:00",
+      "whole_carry_preimage": {
+        "carry_price": 54.97,
+        "carry_session": "2022-06-30",
+        "grace_prints": [
+          {
+            "price": 54.99,
+            "session": "2022-06-30"
+          }
+        ],
+        "grace_split_multiplier": 1.0,
+        "grace_splits": [],
+        "last_trustworthy_print_session": "2022-06-29",
+        "shares_at_carry": 35
+      }
+    }
+  },
+  "terms": [
+    {
+      "actual_completion_date": "2022-07-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 55.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1290149/000119312522187182/d361322d8k.htm | Separate SEC eligible-common cash55USD at confirmed preopenJuly1 completion; preserve the consumed incompleteJune30 native and exact own1132 held35/pending0 preimage. Actual broker settlement is not asserted.",
+        "security_id": "324793693976033682",
+        "session": "2022-07-01"
+      },
+      "arm": "P05",
+      "description": "Separate SEC eligible-common cash55USD at confirmed preopenJuly1 completion; preserve the consumed incompleteJune30 native and exact own1132 held35/pending0 preimage. Actual broker settlement is not asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1290149",
+        "listing_first_session": "2015-07-16",
+        "security_id": "324793693976033682",
+        "security_type_eligible": "1",
+        "session": "2022-06-29",
+        "source_observation_sha256": "f65b8ea6348507cc059962f6a9d5c46978bc53db62e27e3c7b07c271ba1d1090",
+        "ticker": "SRRA"
+      },
+      "last_trading_session": "2022-06-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1342.8",
+        "security_id": "324793693976033682",
+        "session": "2022-06-30"
+      },
+      "native_session": "2022-06-30",
+      "native_term_sha256": "26d8fb32c525f9eaa9e9a2b57203b7afef13f60ca3cc99c864b140d25f66bcc6",
+      "parent_cursor": "2022-06-30",
+      "parent_outer_sha256": "070a7fe026589bc0692f86ceff56d579ef9e0ec79672013f2260039a56c22099",
+      "parent_positions": [
+        {
+          "entry_date": "2022-06-27",
+          "quantity": 35,
+          "slot_id": 8,
+          "ticker": "SRRA"
+        }
+      ],
+      "parent_root_admission_sha256": "fbc6821ce4ae8beb5e24805d8f2b10a2b5f0941b6f9c15e21c1ae7b3ce121add",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_currency": "USD",
+        "cash_per_share": "55.00",
+        "completion_date": "2022-07-01",
+        "mandatory_common_cash": true,
+        "no_stock_or_contingent_rights_in_common_consideration": true,
+        "preopen_completion_confirmed": true,
+        "qualified_cash_only_primary_fact_sha256": "5dc40ed7d97e3ea88bd966cb49b80a91f9220aed9371431b66db5126e90ce218",
+        "source": "https://www.sec.gov/Archives/edgar/data/1290149/000119312522187182/d361322d8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1290149/000119312522187182/d361322d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "324793693976033682",
+      "source_capture": {
+        "artifact_id": 13471725575,
+        "head": "1ee68c72572f8ac04d9e0474dd59ff0c30d4e545",
+        "independent_data_review_sha256": "520c97991138348f34dd8063fcfc4ac92b21c181ac2786439599803239d7e988",
+        "independent_qualification_sha256": "0db8b418959e78388f88bf2bc837b40be9549ead0e35d75520765e22c383ae49",
+        "payload_sha256": "789a23ec841b6bdb8f391f67b5b4519b8594b9734bbbe77935cbd059ddc9164d",
+        "run_id": 42148024783,
+        "scope_sha256": "f997cb2520d9b195135ad0bb7644b1ad5c36f6f42c710a3b7584b01c8d9527bd"
+      },
+      "ticker": "SRRA",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-160"
+    }
+  ]
+}

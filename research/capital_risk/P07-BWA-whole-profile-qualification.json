@@ -1,0 +1,196 @@
+{
+  "actual_financial_constructor_executed": false,
+  "actual_hosted_copy_canary_passed": false,
+  "actual_neutral26_known": false,
+  "canonical_runtime_executed": false,
+  "committed_seed_rows": 929,
+  "existing_transport": {
+    "artifact": 13534905567,
+    "existing_complete_crypto_and_transport_unchanged": true,
+    "original_stops": [
+      0,
+      1,
+      0
+    ],
+    "original_successful_financial_review_sha256": "4be11de95428c48325a703f454b226cfcc53c225490b6ba59567373b59a40ddc",
+    "zip_sha256": "d09bd7e1b4b56f328daf9a74255ab32406ab3835cf4a805d483cfe92a92dd731"
+  },
+  "files": {
+    "P07-BWA-model-bindings-DATA-qualification.json": {
+      "bytes": 3931,
+      "sha256": "66c94e1df5c34a28a5112ced6ff03f837425418988306d83331635c089acd930"
+    },
+    "P07-BWA-postclose-source-catalog.json": {
+      "bytes": 122263,
+      "sha256": "6a6de9498afc77747b26a2ed36c5f153289894ec4567f7ac9fe85db9d67eedcd"
+    },
+    "P07-BWA-retained929-source.json": {
+      "bytes": 21010,
+      "sha256": "92a073c9e1a4732e2b117fec79a6dfc9b84cbfeae688b139547ace704d52015f"
+    },
+    "P07-BWA-runtime-DATA-qualification.json": {
+      "bytes": 2862,
+      "sha256": "91371866da7ff227aeccc437ac826b9e050968669763f824873dd74200f99378"
+    },
+    "P07-BWA-saved-resources-DATA-qualification.json": {
+      "bytes": 3988,
+      "sha256": "cb646ff48a411991f7476ad54386d953132e8cd6d231ab4b8024b61a54351e11"
+    },
+    "P07-BWA-saved-resources.json": {
+      "bytes": 60707,
+      "sha256": "8410aeeb5ecf54d83bec31f3bb9b9f978ac1c7319df01fd592f90ab270e92524"
+    },
+    "P07-BWA-saved-restart-DATA-qualification.json": {
+      "bytes": 3973,
+      "sha256": "1e1e3316c3caf05428b8ca993ebcc3a7b5cf0ae66e9c7613e5922b29d72dd8d4"
+    },
+    "P07-BWA-source-DATA-qualification.json": {
+      "bytes": 2882,
+      "sha256": "c7911bf6bee7ae65d03dfaa06c0464d4b00db0a9d19eb0470ca1c6f8f85ee9d3"
+    },
+    "P07-BWA-source-DATA-review.json": {
+      "bytes": 965,
+      "sha256": "fa868ee7b8e553b7a336a10a05732a88d1c18e1c8bacc72fd1902d1dbb5c44ed"
+    },
+    "P07-BWA-typed-input-DATA-qualification.json": {
+      "bytes": 2512,
+      "sha256": "1b529d99db2ac936d9fc31dbaa988c7e1ce8fb21f2bd184bdfe010111e9c7cff"
+    },
+    "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt": {
+      "bytes": 8931,
+      "sha256": "43e319690ef34374daaa441e9a2096edcef882d05230735512e9673d98a9f810"
+    },
+    "system_campaign_dependencies.py": {
+      "bytes": 3963,
+      "sha256": "49f74f093f1a206a6de27da7c355d57aa669b8dc2218c3fbabe115150f6f6869"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 67719,
+      "sha256": "b3fec18b19b470eb486f8ecdb986a75d73879ab4f9f55f908761fce83006b797"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p07_saved_proofs.py": {
+      "bytes": 11066,
+      "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
+    },
+    "system_campaign_postclose_distribution_codec.py": {
+      "bytes": 6628,
+      "sha256": "3e3b9c5a57c39bd5c280d1b6c66fb735343bad6ce46dfb6e47967340b0ed252b"
+    },
+    "system_campaign_postclose_distribution_entry.py": {
+      "bytes": 10362,
+      "sha256": "9c0bdbf3600d085ea982899809e7fe8dd72d1d1f7970debc43bf0d3bbdd584ab"
+    },
+    "system_campaign_postclose_distribution_history.py": {
+      "bytes": 3509,
+      "sha256": "f6f11a4467a2d261634abde25d0559b2d0d50c61e8b355cc82870121029cfbba"
+    },
+    "system_campaign_postclose_distribution_input.py": {
+      "bytes": 13722,
+      "sha256": "31a9fd1a035fdef15d508dc39ca89f665021037090411a335d04b0134296341b"
+    },
+    "system_campaign_postclose_distribution_models.py": {
+      "bytes": 5265,
+      "sha256": "e1d8d7848dd58e7dbd1e834bb73f924ec5023e52d1d48c89db7aa712f374dca9"
+    },
+    "system_campaign_postclose_distribution_resources.py": {
+      "bytes": 5800,
+      "sha256": "6ae7e40e100d2a6a3ed567ce6d481f0150049e97dfa8f7fb1f25bee7c2f039da"
+    },
+    "system_campaign_postclose_distribution_restart.py": {
+      "bytes": 20321,
+      "sha256": "a47846c4fa74b5b23c6975e89d31de0cf9bbf41bd88053680a402bc67be92126"
+    },
+    "system_campaign_postclose_distribution_review.py": {
+      "bytes": 7515,
+      "sha256": "3f4c23d96f43170a6dc5f566436e19edbc3ff338e171978b965348b1e1fa892f"
+    },
+    "system_campaign_postclose_distribution_runtime.py": {
+      "bytes": 11472,
+      "sha256": "3009a67fd86300d38701d101c89290b0f417e5baad7d740dfee117eb1a52b9d0"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "knowledge_scope": "Top-level unknown/false flags describe the next selected job; prior failed job neutral26 is recorded separately and is not used as a financial parent.",
+  "mandatory_hosted_gates": [
+    "actual unchanged frozen source reconstruction and original packet/primitive qualification",
+    "actual owned resource copy and removal canary",
+    "actual canonical zero-day neutral26 adoption",
+    "whole actual neutral seed reader and identical929 baseline",
+    "actual original cooperative certificate and complete original observers constructed",
+    "all resources and complete26 history verified before financial main",
+    "complete original financial/branch/event/cash review and independent admission"
+  ],
+  "original383_sources_unchanged": true,
+  "original_four_worker_bodies_unchanged": true,
+  "parent_completed": 1383,
+  "parent_cursor": "2023-06-30",
+  "parent_inputs": 25,
+  "parent_outer_sha256": "7c01a593be8a4e0e67f29e2dd78c950e42f2d6967a1f2f6f82cfdeeba0874f58",
+  "passed": true,
+  "previous_failed_preparation": {
+    "artifact": 13596202092,
+    "current_book_present": false,
+    "financial_job_started": false,
+    "head": "c8af75cd31fcc896176ec71b9147175127b1e5d9",
+    "new_trading_days": 0,
+    "original_preflight_exit_code": 1,
+    "run": 42427850028,
+    "source_error": "One permission resolution versus seven archive-preservation resolutions in original canary verification; whole verifier argument binding corrected."
+  },
+  "previous_failed_runtime_preparation": {
+    "actual_original_archive_resolution": {
+      "actual": "book/pre-event/2019-10-22-172999f38ddb232c8035c6e11aec710295f50d4243a4117e53b7d8560f1a7e80.json.gz",
+      "checkpoint_bytes_or_name_changed": false,
+      "exact_first_certificate_identity": true,
+      "file_sha256": "67b13b342231c70aeb5ce58781da888f89e8b298e9adca3b52a174b41e4bd988",
+      "financial_sessions_advanced": 0,
+      "input_sha256": "0b5355b8db0e75c872c6651349db73f1231024422cfbbe712db9a85dde306535",
+      "new_checkpoint_or_alias_created": false,
+      "outer_sha256": "172999f38ddb232c8035c6e11aec710295f50d4243a4117e53b7d8560f1a7e80",
+      "requested": "book/pre-event/2019-10-22.json.gz",
+      "schema": "research.uncertainty-readonly-archive-resolution/1",
+      "source_cursor": "2019-10-21",
+      "state_sha256": "7907ae1ec0469100ce05c46c3f7df114c8169e057dfdf87634ebfe85f61044d2"
+    },
+    "actual_prior_neutral26_observed": true,
+    "artifact": 13597497423,
+    "authenticated_capture_sha256": "61bbb42e61a3ceaaff178b7572a8e97584434ea547c5fe0cbfcb7f6ad35d6453",
+    "constructor_canary_present": false,
+    "correction": "Private original function binding reuses only the planned identical existing bytes and retains original receipt guard.",
+    "head": "f98dea1073b468ad3d17cdad52fe32c8734a7731",
+    "neutral_outer_sha256": "c3ff4e065810a9cf241851a259cf2d1e537ded2c9a6a3e0a0b8fb4b72d310d4c",
+    "new_trading_days": 0,
+    "original_stops": [
+      0,
+      1,
+      1
+    ],
+    "run": 42428783863,
+    "source_error": "Complete preservation copied the original archive first; inherited preserver rejected the exact second copy from a different source directory.",
+    "zip_sha256": "043789f43a902beb3a88c5ef7df1bddb0a137070726ef9e616d52239a6e8e684"
+  },
+  "protected_B19_Future_uncertainty_sources_unchanged": true,
+  "required_genuine_neutral_inputs": 26,
+  "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "schema": "research.P07-postclose-whole-source-profile-qualification/1",
+  "selected_job_actual_hosted_copy_canary_known": false,
+  "tests": {
+    "archive_reuse_and_P06_admission_guard_command": "python -B -m pytest forecast_tests/test_postclose_archive_reuse.py forecast_tests/test_p06_request228_admission.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/request231-guards-20261108-003",
+    "archive_reuse_and_P06_admission_guard_seconds": 2.74,
+    "archive_reuse_and_P06_admission_guards_passed": 14,
+    "distinct_restart_and_entry_passed": 35,
+    "entry_and_affected_passed": 16,
+    "entry_and_affected_seconds": 3.77,
+    "entry_command": "python -B -m pytest forecast_tests/test_postclose_distribution_entry.py forecast_tests/test_postclose_distribution_restart.py::test_incomplete_profile_cannot_grant_financial_authority forecast_tests/test_postclose_distribution_restart.py::test_hosted_guard_precedes_real_import_or_write[api] -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-entry-20261107-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "restart_original_command": "python -B -m pytest forecast_tests/test_postclose_distribution_restart.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-restart-20261107-001",
+    "restart_original_passed": 20,
+    "restart_original_seconds": 3.42
+  }
+}

@@ -1,0 +1,1447 @@
+{
+  "authenticated_capture": {
+    "artifact": 13604846257,
+    "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "head": "e7e1b162038dcaf907790358349b36b97e1b9b9a",
+    "input_adopted": false,
+    "logical_bytes": 133433,
+    "members": 4,
+    "native_groups": [
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-native-group",
+          "security_id": "40907041192978594",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-native-group",
+          "security_id": "463756619808367774",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": 5,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-native-group",
+          "security_id": "77684744013377591",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-native-group",
+          "security_id": "608062988879848022",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-native-group",
+          "security_id": "919160176508266297",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-native-group",
+          "security_id": "829082329521684393",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-native-group",
+          "security_id": "521663153955821544",
+          "session": "2020-07-15",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      },
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-native-group",
+          "security_id": "452001307021238603",
+          "session": "2020-07-20",
+          "ticker": null
+        },
+        "raw_rows": 4,
+        "status": "FOUND",
+        "terminals": 1
+      }
+    ],
+    "observations": [
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-after-quote",
+          "security_id": "40907041192978594",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-native-quote",
+          "security_id": "40907041192978594",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "security_ids": [
+          "40907041192978594"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-after-quote",
+          "security_id": "463756619808367774",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-native-quote",
+          "security_id": "463756619808367774",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "security_ids": [
+          "463756619808367774"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-after-quote",
+          "security_id": "77684744013377591",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-native-quote",
+          "security_id": "77684744013377591",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "security_ids": [
+          "77684744013377591"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-after-quote",
+          "security_id": "608062988879848022",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-native-quote",
+          "security_id": "608062988879848022",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "security_ids": [
+          "608062988879848022"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-after-quote",
+          "security_id": "919160176508266297",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-native-quote",
+          "security_id": "919160176508266297",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "security_ids": [
+          "919160176508266297"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-after-quote",
+          "security_id": "829082329521684393",
+          "session": "2020-07-13",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-native-quote",
+          "security_id": "829082329521684393",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "security_ids": [
+          "829082329521684393"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-after-quote",
+          "security_id": "521663153955821544",
+          "session": "2020-07-16",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-native-quote",
+          "security_id": "521663153955821544",
+          "session": "2020-07-15",
+          "ticker": null
+        },
+        "security_ids": [
+          "521663153955821544"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-after-quote",
+          "security_id": "452001307021238603",
+          "session": "2020-07-21",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-native-quote",
+          "security_id": "452001307021238603",
+          "session": "2020-07-20",
+          "ticker": null
+        },
+        "security_ids": [
+          "452001307021238603"
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "run": "42448107252",
+    "schema": "research.authenticated-source-batch/1",
+    "source_rows_verified": true,
+    "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION",
+    "utc": "2026-11-08T04:49:20.201769+00:00",
+    "worker_fences_verified": true,
+    "zip_bytes": 49787,
+    "zip_sha256": "73ff480bb7c1a0b6536791f5d957e3722739788cd228f4e39ca4e7f45794f0e4"
+  },
+  "authenticated_manifest": {
+    "arm": "SOURCE_BATCH",
+    "compression": "TAR_GZIP_V1",
+    "head": "e7e1b162038dcaf907790358349b36b97e1b9b9a",
+    "members": {
+      "request.json": {
+        "bytes": 85934,
+        "sha256": "a56511209268bc543e05b1a9b11f6055051fa0004af691e051f9a9677eda7146"
+      },
+      "source-evidence.json": {
+        "bytes": 36466,
+        "sha256": "809ee3f3834c3e13145e78a8527d374847ea1409a347d6e97b23c15f3fd7d190"
+      },
+      "worker-inspect.json": {
+        "bytes": 10686,
+        "sha256": "045060b8c392aad2ca0dcbc2e4f55ca522761c278e3bdd4a05f6c1362afd0d5e"
+      },
+      "worker.log": {
+        "bytes": 347,
+        "sha256": "6c3d82d72c04f9411c29168ab69e7a9e0f8b60e72b4aff7d720e749e789606ae"
+      }
+    },
+    "protocol_sha256": "c3b4a339cec80641620c58b42341b0d981ebca6b01f89870ce00fb3291dbec28",
+    "request_sha256": "a56511209268bc543e05b1a9b11f6055051fa0004af691e051f9a9677eda7146",
+    "run_id": "42448107252",
+    "schema": "research.full-system-output/1",
+    "stage": "campaign-factual-suffix"
+  },
+  "capture_reader": {
+    "path": "C:/GitHub/stocker/.codex-tmp/capture-P03-next8-source-20261108.py",
+    "sha256": "003b88073849dd62e898ded19e40009dbe6ec81e6d0f2ddf44f9d85655996d90",
+    "whole_previous_reader_preserved_except_transport_clocks": true
+  },
+  "disclosure": "All eight native groups and native-day quotes found; the following frozen-axis quote is absent in every case. Preserve complete rows and native terms. No future portfolio ownership, legal consideration, input adoption or financial restart is inferred.",
+  "event_date_ownership_verified": false,
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "receipt": {
+    "encrypted_output": {
+      "bytes": 47505,
+      "compression": "TAR_GZIP_V1",
+      "manifest_sha256": "b55df77ab5ca288a8962b02e1890fd0211710c9ebf0c3e2235bb1239bf86b224",
+      "name": "source-batch-receipt.tar.crseal",
+      "sha256": "47ee2e57a36dc56353fba55dff724aec26d24a15ecd58a0d49f62a07ee03a0b5"
+    },
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "head": "e7e1b162038dcaf907790358349b36b97e1b9b9a",
+    "input_adopted": false,
+    "protocol_sha256": "c3b4a339cec80641620c58b42341b0d981ebca6b01f89870ce00fb3291dbec28",
+    "request_sha256": "a56511209268bc543e05b1a9b11f6055051fa0004af691e051f9a9677eda7146",
+    "run_id": "42448107252",
+    "schema": "research.source-evidence-batch-receipt/1",
+    "status": "SOURCE_BATCH_CAPTURED",
+    "worker": {
+      "exit_code": 0,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    }
+  },
+  "schema": "research.P03-next-eight-authenticated-source-catalog/1",
+  "source_payload": {
+    "admitted_context": {
+      "P03": {
+        "completed": 628,
+        "input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
+        "outer_sha256": "1a247a7a31c5b8686651578794fa958a70778e90adbce89491263fe4da25f07a",
+        "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+        "through": "2020-06-30"
+      }
+    },
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "context_is_not_event_date_ownership": true,
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "input_adopted": false,
+    "native_groups": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=20.2",
+            "security_id": "40907041192978594",
+            "session": "2020-07-01"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-native-group",
+          "security_id": "40907041192978594",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "20.199999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "40907041192978594",
+              "sep_derived_value": "",
+              "ticker": "CSHB",
+              "vendor_value": "20.199999999999999"
+            },
+            "sha256": "c3771b9da7a7e0c99ce0d8af60647b59400eebee48d2e4a78424cbeaff4bd1dc"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "20.199999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "40907041192978594",
+              "sep_derived_value": "",
+              "ticker": "CSHB",
+              "vendor_value": "20.199999999999999"
+            },
+            "sha256": "c8d4387e779dcb3e3b25ac7316514538b4f47496422e1f6d49f59dc3cd863db7"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2268.8",
+            "security_id": "463756619808367774",
+            "session": "2020-07-01"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-native-group",
+          "security_id": "463756619808367774",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "2268.8000000000002",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "463756619808367774",
+              "sep_derived_value": "",
+              "ticker": "IBKC",
+              "vendor_value": "2268.8000000000002"
+            },
+            "sha256": "dc25cebc88b22196d4cc0ab14cb44d8304bc90488b3262894db4f509deede72e"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "2268.8000000000002",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "463756619808367774",
+              "sep_derived_value": "",
+              "ticker": "IBKC",
+              "vendor_value": "2268.8000000000002"
+            },
+            "sha256": "85e9b96219ec8e7e8408cadbf2fab58269a2776851978c460a88aae6a85ab116"
+          },
+          {
+            "row": {
+              "action": "relation",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "463756619808367774",
+              "sep_derived_value": "",
+              "ticker": "IBKC",
+              "vendor_value": ""
+            },
+            "sha256": "5f02496c4682770caf4f6867660e2d285f2d667164c7c12307d52bb263f436d4"
+          },
+          {
+            "row": {
+              "action": "relation",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "463756619808367774",
+              "sep_derived_value": "",
+              "ticker": "IBKC",
+              "vendor_value": ""
+            },
+            "sha256": "5f02496c4682770caf4f6867660e2d285f2d667164c7c12307d52bb263f436d4"
+          },
+          {
+            "row": {
+              "action": "relation",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "463756619808367774",
+              "sep_derived_value": "",
+              "ticker": "IBKC",
+              "vendor_value": ""
+            },
+            "sha256": "5f02496c4682770caf4f6867660e2d285f2d667164c7c12307d52bb263f436d4"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=1415.1",
+            "security_id": "77684744013377591",
+            "session": "2020-07-01"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-native-group",
+          "security_id": "77684744013377591",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "1415.0999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "77684744013377591",
+              "sep_derived_value": "",
+              "ticker": "PTLA",
+              "vendor_value": "1415.0999999999999"
+            },
+            "sha256": "d5015f882de256cef9c8fb004dc10cfb35409ecd073f91203bdca0c4a8e2185c"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "1415.0999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-01",
+              "evidence_hash": "",
+              "known_by": "2020-07-01",
+              "security_id": "77684744013377591",
+              "sep_derived_value": "",
+              "ticker": "PTLA",
+              "vendor_value": "1415.0999999999999"
+            },
+            "sha256": "496e34c6cba406217b6dd5f71be3006baf75ee4559fff2307873bf2c394e7930"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=1.5",
+            "security_id": "608062988879848022",
+            "session": "2020-07-09"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-native-group",
+          "security_id": "608062988879848022",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "1.5",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-09",
+              "evidence_hash": "",
+              "known_by": "2020-07-09",
+              "security_id": "608062988879848022",
+              "sep_derived_value": "",
+              "ticker": "TEAR",
+              "vendor_value": "1.5"
+            },
+            "sha256": "e48c2c877e24a213634faeea16301d235e4adbd40939f0a6caad73c72e08b4af"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "1.5",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-09",
+              "evidence_hash": "",
+              "known_by": "2020-07-09",
+              "security_id": "608062988879848022",
+              "sep_derived_value": "",
+              "ticker": "TEAR",
+              "vendor_value": "1.5"
+            },
+            "sha256": "46ed8192efd10b987162e36d7f016e1a0815d70026a4390227d83fb4cd067fac"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=36.1",
+            "security_id": "919160176508266297",
+            "session": "2020-07-09"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-native-group",
+          "security_id": "919160176508266297",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "36.100000000000001",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-09",
+              "evidence_hash": "",
+              "known_by": "2020-07-09",
+              "security_id": "919160176508266297",
+              "sep_derived_value": "",
+              "ticker": "VSBN",
+              "vendor_value": "36.100000000000001"
+            },
+            "sha256": "9dc5ded28c8303d32f717f22a4a35e640e0e40e75d296bcb3223cb2afeb3c86a"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "36.100000000000001",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-09",
+              "evidence_hash": "",
+              "known_by": "2020-07-09",
+              "security_id": "919160176508266297",
+              "sep_derived_value": "",
+              "ticker": "VSBN",
+              "vendor_value": "36.100000000000001"
+            },
+            "sha256": "77d33d3f30716c918eeb2da23aaedc771889a062e9c1df3c9b0c6597898bf043"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=53.8",
+            "security_id": "829082329521684393",
+            "session": "2020-07-10"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-native-group",
+          "security_id": "829082329521684393",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "53.799999999999997",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-10",
+              "evidence_hash": "",
+              "known_by": "2020-07-10",
+              "security_id": "829082329521684393",
+              "sep_derived_value": "",
+              "ticker": "MSBF",
+              "vendor_value": "53.799999999999997"
+            },
+            "sha256": "27e8ed492d8f409a25bd515c0afca8a89e5c88a0ef12fa3c88261e398f4da44c"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "53.799999999999997",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-10",
+              "evidence_hash": "",
+              "known_by": "2020-07-10",
+              "security_id": "829082329521684393",
+              "sep_derived_value": "",
+              "ticker": "MSBF",
+              "vendor_value": "53.799999999999997"
+            },
+            "sha256": "022d270f9646c987c78789a4c2b59653a8718b5d26a4a4482e4f4318706b78e2"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=248.7",
+            "security_id": "521663153955821544",
+            "session": "2020-07-15"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-native-group",
+          "security_id": "521663153955821544",
+          "session": "2020-07-15",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "248.69999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-15",
+              "evidence_hash": "",
+              "known_by": "2020-07-15",
+              "security_id": "521663153955821544",
+              "sep_derived_value": "",
+              "ticker": "SDI",
+              "vendor_value": "248.69999999999999"
+            },
+            "sha256": "3e9145b4b6cb7c889fb009777cf5506cd180258af5f7ab71bbd1a54ef63e5a5f"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "248.69999999999999",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-15",
+              "evidence_hash": "",
+              "known_by": "2020-07-15",
+              "security_id": "521663153955821544",
+              "sep_derived_value": "",
+              "ticker": "SDI",
+              "vendor_value": "248.69999999999999"
+            },
+            "sha256": "e8b2a719c219e96ada4aa56ac45e5ea91fbc94fc9daf79255828d8adb081fa60"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=8461.1",
+            "security_id": "452001307021238603",
+            "session": "2020-07-20"
+          }
+        ],
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-native-group",
+          "security_id": "452001307021238603",
+          "session": "2020-07-20",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "acquisitionby",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "8461.1000000000004",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-20",
+              "evidence_hash": "",
+              "known_by": "2020-07-20",
+              "security_id": "452001307021238603",
+              "sep_derived_value": "",
+              "ticker": "CZR2",
+              "vendor_value": "8461.1000000000004"
+            },
+            "sha256": "fc4e2a88fb3895614995baae3094afe4816419f6d145584c1a62ae6f230388aa"
+          },
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "8461.1000000000004",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-20",
+              "evidence_hash": "",
+              "known_by": "2020-07-20",
+              "security_id": "452001307021238603",
+              "sep_derived_value": "",
+              "ticker": "CZR2",
+              "vendor_value": "8461.1000000000004"
+            },
+            "sha256": "508d1ecf4abacc3809ad8273cdbbf5cf2933089c8c4ee0456d2a0ed18e32f546"
+          },
+          {
+            "row": {
+              "action": "tickerchangefrom",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-20",
+              "evidence_hash": "",
+              "known_by": "2020-07-20",
+              "security_id": "452001307021238603",
+              "sep_derived_value": "",
+              "ticker": "CZR2",
+              "vendor_value": ""
+            },
+            "sha256": "360842d55d3e77b3fa83b8227cda41c82c1c825477632ef0a8204362584ebe34"
+          },
+          {
+            "row": {
+              "action": "tickerchangeto",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2020-07-20",
+              "evidence_hash": "",
+              "known_by": "2020-07-20",
+              "security_id": "452001307021238603",
+              "sep_derived_value": "",
+              "ticker": "CZR2",
+              "vendor_value": ""
+            },
+            "sha256": "458229c48df7092ec1406c4c531e3d9626431ab9f242d584877001184e399d3d"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "observations": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-after-quote",
+          "security_id": "40907041192978594",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future01-native-quote",
+          "security_id": "40907041192978594",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "11 Money",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1070523",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2005-08-17",
+              "metadata_admitted": "1",
+              "raw_close": "4.9299999999999997",
+              "raw_compatible_volume": "",
+              "raw_open": "4.9299999999999997",
+              "reported_volume": "",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "40907041192978594",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-01",
+              "sic": "6022",
+              "signal_close": "4.9299999999999997",
+              "split_ratio": "1",
+              "ticker": "CSHB",
+              "tradeable": "0"
+            },
+            "source_row_sha256": "edf13c076d3a4e837ac7185dc804594418626568e7bde56f27479690033f1852"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-after-quote",
+          "security_id": "463756619808367774",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future02-native-quote",
+          "security_id": "463756619808367774",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "11 Money",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:933141",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "1997-12-31",
+              "metadata_admitted": "1",
+              "raw_close": "43.079999999999998",
+              "raw_compatible_volume": "5468365",
+              "raw_open": "45.649999999999999",
+              "reported_volume": "5468365",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "463756619808367774",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-01",
+              "sic": "6022",
+              "signal_close": "43.079999999999998",
+              "split_ratio": "1",
+              "ticker": "IBKC",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "4ef30ae4049ff0968b18fde56e83a5b5e11e1c0c03f637249701fc5ab571baaa"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-after-quote",
+          "security_id": "77684744013377591",
+          "session": "2020-07-02",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future03-native-quote",
+          "security_id": "77684744013377591",
+          "session": "2020-07-01",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "10 Hlth",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1269021",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2013-05-22",
+              "metadata_admitted": "1",
+              "raw_close": "18.030000000000001",
+              "raw_compatible_volume": "8031113",
+              "raw_open": "18",
+              "reported_volume": "8031113",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "77684744013377591",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-01",
+              "sic": "2834",
+              "signal_close": "18.030000000000001",
+              "split_ratio": "1",
+              "ticker": "PTLA",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "980ab2d4d3bcb8b93d61c3d4a5c12cd8039c85e8d1b51b974daf51577899d9c8"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-after-quote",
+          "security_id": "608062988879848022",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future04-native-quote",
+          "security_id": "608062988879848022",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "10 Hlth",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1299139",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2004-12-09",
+              "metadata_admitted": "1",
+              "raw_close": "0.059999999999999998",
+              "raw_compatible_volume": "20300",
+              "raw_open": "0.059999999999999998",
+              "reported_volume": "20300",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "608062988879848022",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-09",
+              "sic": "3841",
+              "signal_close": "0.059999999999999998",
+              "split_ratio": "1",
+              "ticker": "TEAR",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "2e9dc857e057f6b993e535cbbf934e5ff9c574abf8f9f6e1cc44540fb7c6c58c"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-after-quote",
+          "security_id": "919160176508266297",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future05-native-quote",
+          "security_id": "919160176508266297",
+          "session": "2020-07-09",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "11 Money",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1225874",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "1998-01-15",
+              "metadata_admitted": "1",
+              "raw_close": "20.25",
+              "raw_compatible_volume": "100",
+              "raw_open": "20.25",
+              "reported_volume": "100",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "919160176508266297",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-09",
+              "sic": "6022",
+              "signal_close": "20.25",
+              "split_ratio": "1",
+              "ticker": "VSBN",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "0c2211f13fea2deca61d23bc914ba7b736189b5d87f5180b0fa3dfeeb028b8fa"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-after-quote",
+          "security_id": "829082329521684393",
+          "session": "2020-07-13",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future06-native-quote",
+          "security_id": "829082329521684393",
+          "session": "2020-07-10",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "11 Money",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1635261",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2007-06-21",
+              "metadata_admitted": "1",
+              "raw_close": "10.380000000000001",
+              "raw_compatible_volume": "32273.000000000004",
+              "raw_open": "10.34",
+              "reported_volume": "32273.000000000004",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "829082329521684393",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-10",
+              "sic": "6035",
+              "signal_close": "10.380000000000001",
+              "split_ratio": "1",
+              "ticker": "MSBF",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "dd19b73c24f4d1ac550ba0fc0496548a6453882346d2eeef81c09ed33dfea5d6"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-after-quote",
+          "security_id": "521663153955821544",
+          "session": "2020-07-16",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future07-native-quote",
+          "security_id": "521663153955821544",
+          "session": "2020-07-15",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "01 NoDur",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:911649",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2018-04-25",
+              "metadata_admitted": "1",
+              "raw_close": "15",
+              "raw_compatible_volume": "41027",
+              "raw_open": "15.460000000000001",
+              "reported_volume": "41027",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "521663153955821544",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2020-07-15",
+              "sic": "2100",
+              "signal_close": "15",
+              "split_ratio": "1",
+              "ticker": "SDI",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "2e323a25191c856f0312c4f6c9bb301453f7018f7370e43f27e8334f68c14d3e"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-after-quote",
+          "security_id": "452001307021238603",
+          "session": "2020-07-21",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P03",
+          "name": "p03-future08-native-quote",
+          "security_id": "452001307021238603",
+          "session": "2020-07-20",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "UNKNOWN:452001307021238603",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_UNKNOWN:452001307021238603",
+              "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+              "listing_active": "1",
+              "listing_first_session": "2012-02-08",
+              "metadata_admitted": "0",
+              "raw_close": "12.369999999999999",
+              "raw_compatible_volume": "26912714.000000004",
+              "raw_open": "12.4",
+              "reported_volume": "26912714.000000004",
+              "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+              "security_id": "452001307021238603",
+              "security_type": "unknown",
+              "security_type_eligible": "0",
+              "security_type_source": "NO_STRICT_PRIOR_POSITIVE_EVIDENCE",
+              "session": "2020-07-20",
+              "sic": "",
+              "signal_close": "12.369999999999999",
+              "split_ratio": "1",
+              "ticker": "CZR2",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "6aca7f5a840435c324fa50f6817e72af8759e9cd5cf16b40a6cab199148572a0"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+    "producer_sha256": "b62bd2b178f6e6228c84dcdae1fcf2fd3fc09b25cd4b33f36c559e4d11024eb3",
+    "production_contacted": false,
+    "request_sha256": "a56511209268bc543e05b1a9b11f6055051fa0004af691e051f9a9677eda7146",
+    "schema": "research.source-evidence-batch/1"
+  },
+  "source_payload_actual_member": {
+    "bytes": 36466,
+    "sha256": "809ee3f3834c3e13145e78a8527d374847ea1409a347d6e97b23c15f3fd7d190"
+  },
+  "source_payload_sha256": "809ee3f3834c3e13145e78a8527d374847ea1409a347d6e97b23c15f3fd7d190"
+}

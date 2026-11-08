@@ -1,0 +1,20 @@
+{
+  "schema": "research.system-campaign-alder-unresolved-date/1",
+  "security_id": "941065113449292610",
+  "ticker": "ALDR",
+  "native_session": "2019-10-21",
+  "effective_session": "2019-10-22",
+  "native_term_sha256": "d42b9821ced47a846ecdc78c47e7513cdc81bc8cb1629090cae78f8f97c668d6",
+  "known_cash_leg": "18.00",
+  "contingent_rights_per_share": "1",
+  "maximum_conditional_later_cash": "2.00",
+  "preserve_unresolved_consideration": true,
+  "primary_sources": [
+    "https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm",
+    "https://www.miaxglobal.com/sites/default/files/alert-files/ALDR_Merger_45844..pdf",
+    "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2019-208"
+  ],
+  "scope": "Date correction only. Preserve October21 trading; unresolved full cash-plus-CVR terminal remains incomplete on October22. No right valuation, cash-only replacement, options consideration, future payout anticipation or financial source change.",
+  "canonical_financial_source_changed": false,
+  "production_contacted": false
+}

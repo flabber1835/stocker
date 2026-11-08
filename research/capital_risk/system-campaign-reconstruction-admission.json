@@ -1,0 +1,100 @@
+{
+  "artifact_id": 13018377134,
+  "economic_predecessor_is_qualification_book": false,
+  "head": "fd0a26d42ef175a70bfc81b56fbe7339dc43ab94",
+  "independent_review": {
+    "acceleration_selected_for_economic_use": false,
+    "actual_material_falsifiers_each": 7,
+    "actual_probe_sessions_each": 1,
+    "actual_stopped_worker_fences_verified": true,
+    "all136_source_git_blobs_verified": true,
+    "all_exact_buffers_publications_checkpoint_fields_and_journal_rows_equal": true,
+    "all_inventory_members_authenticated": 196,
+    "all_original_prefixes_recovered_tails_and_certificates_preserved": true,
+    "artifact_id": 13018377134,
+    "driver_speedup": 2.7940222585963266,
+    "each_new_row_matches_original_unsent_oracle": true,
+    "economic_predecessor_measured_closes": 986,
+    "economic_predecessor_session": "2021-11-30",
+    "economic_suffix_started": false,
+    "financial_source_files": 515,
+    "head": "fd0a26d42ef175a70bfc81b56fbe7339dc43ab94",
+    "independent_accounting_snapshots_each": 2226,
+    "predecessor_checkpoint_sha256": "022fed7f8ae09a726da64c52e9ad54aaa21dc3edb087528005be0992bf5c9faf",
+    "probe_closes_each": 987,
+    "probe_session": "2021-12-01",
+    "production_contacted": false,
+    "run_id": 41138859385,
+    "schema": "research.exact-reconstruction-independent-review/1",
+    "status": "QUALIFICATION_INDEPENDENTLY_REVIEWED",
+    "timings": {
+      "BOUNDED": {
+        "driver_seconds": 79.35829735100003,
+        "total_seconds": 175.13213588400004
+      },
+      "COLD": {
+        "driver_seconds": 221.72884920299998,
+        "total_seconds": 317.82815537199997
+      }
+    }
+  },
+  "independent_review_raw_utf8": "{\r\n  \"acceleration_selected_for_economic_use\": false,\r\n  \"actual_material_falsifiers_each\": 7,\r\n  \"actual_probe_sessions_each\": 1,\r\n  \"actual_stopped_worker_fences_verified\": true,\r\n  \"all136_source_git_blobs_verified\": true,\r\n  \"all_exact_buffers_publications_checkpoint_fields_and_journal_rows_equal\": true,\r\n  \"all_inventory_members_authenticated\": 196,\r\n  \"all_original_prefixes_recovered_tails_and_certificates_preserved\": true,\r\n  \"artifact_id\": 13018377134,\r\n  \"driver_speedup\": 2.7940222585963266,\r\n  \"each_new_row_matches_original_unsent_oracle\": true,\r\n  \"economic_predecessor_measured_closes\": 986,\r\n  \"economic_predecessor_session\": \"2021-11-30\",\r\n  \"economic_suffix_started\": false,\r\n  \"financial_source_files\": 515,\r\n  \"head\": \"fd0a26d42ef175a70bfc81b56fbe7339dc43ab94\",\r\n  \"independent_accounting_snapshots_each\": 2226,\r\n  \"predecessor_checkpoint_sha256\": \"022fed7f8ae09a726da64c52e9ad54aaa21dc3edb087528005be0992bf5c9faf\",\r\n  \"probe_closes_each\": 987,\r\n  \"probe_session\": \"2021-12-01\",\r\n  \"production_contacted\": false,\r\n  \"run_id\": 41138859385,\r\n  \"schema\": \"research.exact-reconstruction-independent-review/1\",\r\n  \"status\": \"QUALIFICATION_INDEPENDENTLY_REVIEWED\",\r\n  \"timings\": {\r\n    \"BOUNDED\": {\r\n      \"driver_seconds\": 79.35829735100003,\r\n      \"total_seconds\": 175.13213588400004\r\n    },\r\n    \"COLD\": {\r\n      \"driver_seconds\": 221.72884920299998,\r\n      \"total_seconds\": 317.82815537199997\r\n    }\r\n  }\r\n}\r\n",
+  "independent_review_sha256": "01f50bf63a0585dd015a36beabe6878e9d4fa571d56d6b9101758641fe73ead5",
+  "next_session": "2021-12-01",
+  "predecessor_outer_sha256": "022fed7f8ae09a726da64c52e9ad54aaa21dc3edb087528005be0992bf5c9faf",
+  "qualified_reconstruction_source_sha256": {
+    "system_campaign_acceleration.py": "c09dc21454e3071ac7c6273a042482144602fa2f2d0fc6d7a8ab1be5e5638c46",
+    "system_campaign_resume_qualification.py": "b9ad273141d62616fadc6ed74a59f803de5e51d17420ffee73b2275a9653cdb2",
+    "system_campaign_resume_window.py": "2b0359111f501d5d48426b50ccf7e7d84aac95aca6cc7ff866949eccdb4fdd63"
+  },
+  "receipt": {
+    "arm": "P02",
+    "economic_suffix_started": false,
+    "encrypted_ancestor": {
+      "artifact_id": 13016457599,
+      "old_archive_and_plaintext_unchanged": true,
+      "path": "lineage/verified-ancestor.zip",
+      "production_contacted": false,
+      "schema": "research.system-campaign-encrypted-ancestor/1",
+      "source_head": "cab8409510da019e83290175bd5241fb8d15a55d",
+      "source_run_id": 41134805155,
+      "zip_bytes": 960174611,
+      "zip_sha256": "3b560af064b4f0f3ff5f4604e0b751cfd6c3f5faaf17d45378d7661aabd8584e"
+    },
+    "encrypted_output": {
+      "bytes": 1019184771,
+      "compression": "TAR_GZIP_V1",
+      "manifest_sha256": "7ef809508cf8d43142abb91d6f9c73640152565432260b440fd83e5b7f3eac93",
+      "name": "reconstruction.tar.crseal",
+      "sha256": "264f9799ae0cab5cb70b342688b9edfa7a1e53fcd524f87fdcffa814871455ce"
+    },
+    "head": "fd0a26d42ef175a70bfc81b56fbe7339dc43ab94",
+    "new_origin": false,
+    "new_overlay": false,
+    "predecessor_outer_sha256": "022fed7f8ae09a726da64c52e9ad54aaa21dc3edb087528005be0992bf5c9faf",
+    "predecessor_run_id": 41134805155,
+    "production_contacted": false,
+    "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+    "request_sha256": "b17c06abda8dfc0eee69a9bdc301e3f42fe085d1452e07aac227be5d21fbd377",
+    "run_id": "41138859385",
+    "schema": "research.exact-reconstruction-qualification-receipt/1",
+    "source_conversion": false,
+    "status": "STOPPED_RECONSTRUCTION_QUALIFICATION_PASSED",
+    "worker": {
+      "exit_code": 0,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    }
+  },
+  "receipt_sha256": "7269adbd7957a6bff4358c5429d0696346a93abad1d3e17748700512d57064db",
+  "run_id": 41138859385,
+  "schema": "research.exact-reconstruction-economic-admission/1",
+  "worker_identity": {
+    "id": "867074968a4335b2dce51c21b8fd5b37e2eac8cc51a19805335416deb060b215",
+    "name": "/capital-system-factual-p02-worker-41138859385-1",
+    "user": "1001:1001"
+  },
+  "zip_bytes": 1019187725,
+  "zip_sha256": "61e9ce05d961fda2495b2967d32e5d0a3a9aef06b3e7d82dcc3d212651cff599"
+}

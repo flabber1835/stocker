@@ -1,0 +1,48 @@
+{
+  "execution_image": "sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d",
+  "financial_performance_selection": false,
+  "production_contacted": false,
+  "protocol_sha256": "c03967ab5c54a6712a220e74792ace55dd2e0b9718fa802739710c4d5be8a887",
+  "same_approved_encrypted_artifact_flow": true,
+  "schema": "research.full-system-measurement-request/1",
+  "source_files": {
+    "alpaca_fit_job.py": {
+      "bytes": 12789,
+      "sha256": "830666425aca027bd7a58a17926ec7a14e6dd59b4e10f5ab17d8c03503527dec"
+    },
+    "alpaca_fit_stage.py": {
+      "bytes": 10796,
+      "sha256": "8339b44a2d3ed9bef5004d97f7ffd75ebad934697bcf7d085f2ffb9e4986023c"
+    },
+    "full_system_benchmark.py": {
+      "bytes": 7077,
+      "sha256": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5"
+    },
+    "full_system_job.py": {
+      "bytes": 8008,
+      "sha256": "adea91473ef4cb75720682283baf0accc77f611b33351b0f3fb314a8ea886958"
+    },
+    "full_system_protocol.json": {
+      "bytes": 880,
+      "sha256": "c03967ab5c54a6712a220e74792ace55dd2e0b9718fa802739710c4d5be8a887"
+    },
+    "probe.py": {
+      "bytes": 4577,
+      "sha256": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9"
+    },
+    "runtime_identity.py": {
+      "bytes": 3348,
+      "sha256": "1939a33115e639675d9262ef92c362ec5b3b9f7bad1b9352b4bd61fd9df534e7"
+    },
+    "seal.py": {
+      "bytes": 6476,
+      "sha256": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95"
+    },
+    "stage.py": {
+      "bytes": 7622,
+      "sha256": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
+    }
+  },
+  "stage": "THROUGHPUT_ONLY",
+  "study_id": "full-system-search-20261029"
+}

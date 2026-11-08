@@ -1,0 +1,124 @@
+{
+  "archive_format": "FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1",
+  "arm": "P07",
+  "artifact_id": 13611423500,
+  "branch_review_member": "requalified-review/uncertainty-certificate-review.json",
+  "branch_review_sha256": "9fc03cdd37c106534c840593fafddf86e8b794b2b5e1faaab3792980c43fa908",
+  "cash_review_member": "requalified-review/p07-vivo-ordinary25-cash-review.json",
+  "cash_review_sha256": "0b2ed9f24085ba6ebfb23c99a5098295a08f24d543b8064ef94898fb73b4ed95",
+  "core_review_member": "requalified-review/core-review.json",
+  "core_review_sha256": "fe0d81ebe3aa242d2936859464adc03b2202643420f94c352a634ab147e4c1c2",
+  "distribution_review_member": "requalified-review/distribution-successors/66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695/provenance/actual-distribution-review.json",
+  "distribution_review_sha256": "f68aac7cf4835b731d1a77dc1fd0aca5a3928405efa89079d58e7023ae408e14",
+  "encrypted_output": {
+    "bytes": 1187727,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "dc4365fed537de41391aeec673e41f5a3c3eac5877dabbfe57991ea777cc5ef7",
+    "name": "campaign-factual-P07.tar.crseal",
+    "sha256": "ef6e414de16ab85f59a89657a0b2bf593b9a669c21cc22256cce5b3e8866f59d"
+  },
+  "failure_requalification_sha256": "a8c90bd46b796c3811457f9ab7cb926ba969e2d8c4cdf6af644015c658d38046",
+  "financial_authority": false,
+  "financial_workers": 0,
+  "full_history_review_member": "requalified-review/request238-full27-history-review.json",
+  "full_history_review_sha256": "6d5b9619dc0ad7298767884e04599ac50932028b5b4c35e88537f40338a12c05",
+  "head": "5b70978428fe3e9c86a62ce8c060aea5a4e1bed1",
+  "input_adopted": false,
+  "inspections": {
+    "parent-preflight/worker-inspect.json": {
+      "correlation_prefix_mounted": false,
+      "exit_code": 0,
+      "id": "30160e0904c89b45fe1b932b3e48161bc3450b1b7bbb695808f8aba1a6215ca9",
+      "name": "/capital-system-resume-p07-preflight-42464937189-1",
+      "sha256": "8fdff0750a4ba4137718e918023a7c9d5f048b6f31145fc80f1f81d399d3e1ca",
+      "user": "1001:1001"
+    },
+    "requalified-review/worker-inspect.json": {
+      "correlation_prefix_mounted": false,
+      "exit_code": 0,
+      "id": "a075d60b13533f1c14cd4ea9d3529c34992ed4587323269c299e3c19bc2fba18",
+      "name": "/capital-system-resume-p07-review-42464937189-1",
+      "sha256": "85f173101e5cb0ba0211f7d01f6d8d9f21f93172099d9de655b969f15ed2a65a",
+      "user": "1001:1001"
+    }
+  },
+  "manifest": {
+    "member_count": 67,
+    "raw_member_bytes": 5797037
+  },
+  "monthly_review_sha256": "7d4442ba7c928b4ae5de1adbd2f8a02afdfbd40890175b91f70b63527b3c3929",
+  "original_failed_financial_artifact_id": 13608369979,
+  "original_failed_financial_transport_sha256": "e2012209f49f9a97cf05b67c6ee90099615a43ae9952deccef9ef6696c5b63fb",
+  "original_failed_stops": {
+    "preflight": {
+      "exit_code": 0,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    },
+    "reviewer": {
+      "exit_code": 1,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    },
+    "worker": {
+      "exit_code": 1,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    }
+  },
+  "original_parent_root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "original_request_member": {
+    "bytes": 95404,
+    "sha256": "f250702c15802ed72207dbd2cf84079469988029d1c3cd786e60636b0c0f476c"
+  },
+  "prior_stops": {
+    "preflight": {
+      "exit_code": 0,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    },
+    "repair_reviewer": {
+      "exit_code": 0,
+      "oom_killed": false,
+      "stopped": true,
+      "wait_error": null
+    }
+  },
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "public_members": {
+    "campaign-factual-P07.json": {
+      "bytes": 1211,
+      "sha256": "83f840d3527e3917d5cfd785458a675f3b4c112c18f8a8c3cb5e9c459e0f61ae"
+    },
+    "ephemeral-runner-capacity.json": {
+      "bytes": 674,
+      "sha256": "f9ebcd657fc860431d066a0b33c2fc6657fa9cf1a3a67f7e049eda26799d4dad"
+    },
+    "full-core-staging.json": {
+      "bytes": 964,
+      "sha256": "064a3ebcbdf810cd0e376a63e123394d517c7f88da19debb8acd127f2e1a2eed"
+    },
+    "resume-export-qualification-P07.json": {
+      "bytes": 149,
+      "sha256": "914046eaf2a071703d6e33b27e5fa1efe8f8a967a8c5be298ce522f927e8ae64"
+    }
+  },
+  "readonly_workers": 1,
+  "receipt_name": "campaign-factual-P07.json",
+  "receipt_schema": "research.system-campaign-accurate-resume-receipt/1",
+  "receipt_sha256": "83f840d3527e3917d5cfd785458a675f3b4c112c18f8a8c3cb5e9c459e0f61ae",
+  "receipt_status": "READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT",
+  "request_sha256": "f250702c15802ed72207dbd2cf84079469988029d1c3cd786e60636b0c0f476c",
+  "run_id": 42464937189,
+  "source_binding_sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b",
+  "stage": "campaign-factual-suffix",
+  "target_completed": 1426,
+  "target_full_inputs": 27,
+  "target_outer_sha256": "1dae9e15f725f65531d443bbad0a0a62ae05c46e827a2b5f674e05d9b682d037",
+  "zip_bytes": 1191495,
+  "zip_sha256": "f518d5d87a812dce684a2e0d21d5aa845b384e45a1756171e53b34024ecb0e9f"
+}

@@ -1,0 +1,281 @@
+{
+  "additional_rows": [
+    {
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:517224929580411308",
+        "listing_first_session": "2020-07-01",
+        "security_id": "517224929580411308",
+        "security_type_eligible": "1",
+        "session": "2021-05-24",
+        "source_observation_sha256": "3175a384f80a22d6700be1384c912d2bc63a0c719ef53b209ce69b7a9278dda4",
+        "ticker": "PPLI"
+      },
+      "parent_positions": [
+        {
+          "entry_date": "2021-04-13",
+          "quantity": 13,
+          "slot_id": 7,
+          "ticker": "PPLI"
+        }
+      ],
+      "source_row": {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "UNKNOWN:517224929580411308",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_UNKNOWN:517224929580411308",
+        "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+        "listing_active": "1",
+        "listing_first_session": "2020-07-01",
+        "metadata_admitted": "1",
+        "raw_close": "252.63",
+        "raw_compatible_volume": "905000",
+        "raw_open": "251.25999999999999",
+        "reported_volume": "905000",
+        "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+        "security_id": "517224929580411308",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2021-05-24",
+        "sic": "",
+        "signal_close": "252.63",
+        "split_ratio": "1",
+        "ticker": "PPLI",
+        "tradeable": "1"
+      }
+    },
+    {
+      "identity_witness": {
+        "issuer_id": "SEC_UNKNOWN:517224929580411308",
+        "listing_first_session": "2020-07-01",
+        "security_id": "517224929580411308",
+        "security_type_eligible": "1",
+        "session": "2021-05-25",
+        "source_observation_sha256": "bb161b248ecf7667676b6d8c8ef60363ebda7c7216d04b038ee75d3839d634db",
+        "ticker": "PPLI"
+      },
+      "parent_positions": [
+        {
+          "entry_date": "2021-04-13",
+          "quantity": 13,
+          "slot_id": 7,
+          "ticker": "PPLI"
+        }
+      ],
+      "source_row": {
+        "dividend_per_share": "84.549999999999997",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "UNKNOWN:517224929580411308",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_UNKNOWN:517224929580411308",
+        "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+        "listing_active": "1",
+        "listing_first_session": "2020-07-01",
+        "metadata_admitted": "1",
+        "raw_close": "158.74000000000001",
+        "raw_compatible_volume": "3178000",
+        "raw_open": "173.77000000000001",
+        "reported_volume": "3178000",
+        "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+        "security_id": "517224929580411308",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2021-05-25",
+        "sic": "",
+        "signal_close": "158.74000000000001",
+        "split_ratio": "1",
+        "ticker": "PPLI",
+        "tradeable": "1"
+      }
+    },
+    {
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1837686",
+        "listing_first_session": "2021-05-19",
+        "security_id": "211901312635613499",
+        "security_type_eligible": "1",
+        "session": "2021-05-25",
+        "source_observation_sha256": "9f7d1b38a75f633d3730ef7888811f98adcfaaad6af03df39f07a9f5ebee2ef5",
+        "ticker": "VMEO"
+      },
+      "parent_positions": [],
+      "source_row": {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "06 BusEq",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1837686",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2021-05-19",
+        "metadata_admitted": "1",
+        "raw_close": "45.390000000000001",
+        "raw_compatible_volume": "9389586",
+        "raw_open": "47.149999999999999",
+        "reported_volume": "9389586",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "211901312635613499",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2021-05-25",
+        "sic": "7370",
+        "signal_close": "45.390000000000001",
+        "split_ratio": "1",
+        "ticker": "VMEO",
+        "tradeable": "1"
+      }
+    }
+  ],
+  "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+  "arm": "P07",
+  "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+  "distribution_producer_sha256": "820be270c8c84aa40e81c18cc92aed4e24f1f45d414f04f6f4b514464ab6de17",
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "native_distributions": [
+    {
+      "native_distribution": {
+        "cash_in_lieu_price": null,
+        "child_price": null,
+        "child_security_id": null,
+        "child_shares_per_parent": null,
+        "child_ticker": null,
+        "parent_security_id": "517224929580411308",
+        "parent_ticker": "PPLI",
+        "policy": "REQUIRE_REVIEWED_CHILD_OWNERSHIP",
+        "session": "2021-05-25",
+        "source_row_id": "af436740257199b839d5d542cad40b27322a6c4c8a5e25b8236ab7e02e67288b",
+        "value_evidence": "1.6234999999999999"
+      },
+      "native_distribution_sha256": "3914e13e84d7d6343457b60337e01a7ea3182e8ea98c4cf4af44a1ef8e231160",
+      "raw_source_row": {
+        "action": "spinoff",
+        "authority": "PIT_ACTIONS",
+        "canonical_value": "1.6234999999999999",
+        "disposition": "PIT_ACTION_DIRECT",
+        "effective_session": "2021-05-25",
+        "evidence_hash": "",
+        "known_by": "2021-05-25",
+        "security_id": "517224929580411308",
+        "sep_derived_value": "",
+        "ticker": "PPLI",
+        "vendor_value": "1.6234999999999999"
+      },
+      "raw_source_row_sha256": "d257abca61e39c0874f6f9b2cd178a5f433aa2505d9b3785dcd227851b95b6e7"
+    },
+    {
+      "native_distribution": {
+        "cash_in_lieu_price": null,
+        "child_price": null,
+        "child_security_id": null,
+        "child_shares_per_parent": null,
+        "child_ticker": null,
+        "parent_security_id": "517224929580411308",
+        "parent_ticker": "PPLI",
+        "policy": "REQUIRE_REVIEWED_CHILD_OWNERSHIP",
+        "session": "2021-05-25",
+        "source_row_id": "fe2ab4f5f5c9f5c728a220a686e386b3b2149888586239f1d6f003c23ed208ee",
+        "value_evidence": "84.549999999999997"
+      },
+      "native_distribution_sha256": "7697611c1a87ad9bf61c7a17a0b1562c091bb3c36e17a53835d46d83f1055acc",
+      "raw_source_row": {
+        "action": "spinoffdividend",
+        "authority": "PIT_ACTIONS_PLUS_SAME_SESSION_PRICE_DOMAIN",
+        "canonical_value": "84.549999999999997",
+        "disposition": "RAW_SHARE_DOMAIN_CONVERTED",
+        "effective_session": "2021-05-25",
+        "evidence_hash": "",
+        "known_by": "2021-05-25",
+        "security_id": "517224929580411308",
+        "sep_derived_value": "",
+        "ticker": "PPLI",
+        "vendor_value": "84.549999999999997"
+      },
+      "raw_source_row_sha256": "8050e97450c576d6bf6df5e08ca34f4571492ae2e2362a90a296c8e269e4b309"
+    }
+  ],
+  "parent_cursor": "2021-04-30",
+  "parent_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
+  "parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+  "producer_sha256": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.own-parent-frozen-source-witnesses/7",
+  "scope": {
+    "additional_rows": [
+      {
+        "parent_positions": [
+          {
+            "entry_date": "2021-04-13",
+            "quantity": 13,
+            "slot_id": 7,
+            "ticker": "PPLI"
+          }
+        ],
+        "security_id": "517224929580411308",
+        "session": "2021-05-24",
+        "source_observation_sha256": "3175a384f80a22d6700be1384c912d2bc63a0c719ef53b209ce69b7a9278dda4",
+        "ticker": "PPLI"
+      },
+      {
+        "parent_positions": [
+          {
+            "entry_date": "2021-04-13",
+            "quantity": 13,
+            "slot_id": 7,
+            "ticker": "PPLI"
+          }
+        ],
+        "security_id": "517224929580411308",
+        "session": "2021-05-25",
+        "source_observation_sha256": "bb161b248ecf7667676b6d8c8ef60363ebda7c7216d04b038ee75d3839d634db",
+        "ticker": "PPLI"
+      },
+      {
+        "parent_positions": [],
+        "security_id": "211901312635613499",
+        "session": "2021-05-25",
+        "source_observation_sha256": "9f7d1b38a75f633d3730ef7888811f98adcfaaad6af03df39f07a9f5ebee2ef5",
+        "ticker": "VMEO"
+      }
+    ],
+    "expected_native_distribution_count": 2,
+    "native_distribution_queries": [
+      {
+        "financial_use_authorized": false,
+        "maximum_records": 1,
+        "native_term_sha256": "3914e13e84d7d6343457b60337e01a7ea3182e8ea98c4cf4af44a1ef8e231160",
+        "parent_security_id": "517224929580411308",
+        "parent_ticker": "PPLI",
+        "raw_source_row_sha256": "d257abca61e39c0874f6f9b2cd178a5f433aa2505d9b3785dcd227851b95b6e7",
+        "schema": "research.exact-native-distribution-query/1",
+        "session": "2021-05-25",
+        "source_row_id": "af436740257199b839d5d542cad40b27322a6c4c8a5e25b8236ab7e02e67288b"
+      },
+      {
+        "financial_use_authorized": false,
+        "maximum_records": 1,
+        "native_term_sha256": "7697611c1a87ad9bf61c7a17a0b1562c091bb3c36e17a53835d46d83f1055acc",
+        "parent_security_id": "517224929580411308",
+        "parent_ticker": "PPLI",
+        "raw_source_row_sha256": "8050e97450c576d6bf6df5e08ca34f4571492ae2e2362a90a296c8e269e4b309",
+        "schema": "research.exact-native-distribution-query/1",
+        "session": "2021-05-25",
+        "source_row_id": "fe2ab4f5f5c9f5c728a220a686e386b3b2149888586239f1d6f003c23ed208ee"
+      }
+    ],
+    "parent_cursor": "2021-04-30",
+    "parent_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
+    "schema": "research.distribution-only-source-scope/1",
+    "terms": []
+  },
+  "scope_sha256": "81479e9410752be9d91464bd9281eb8f91e8c1f0ebec9cc2990cde09765a1087",
+  "terms": []
+}

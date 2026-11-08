@@ -1,0 +1,74 @@
+{
+  "accepted_actual_parent_completed": 1175,
+  "accepted_actual_parent_inputs": 19,
+  "accepted_actual_parent_session": "2022-08-31",
+  "accepted_actual_root": "baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026",
+  "actual20_origin_exists": false,
+  "actual20_retained_restart_qualified": false,
+  "files": {
+    "P05-retained18-FINANCIAL-INTEGRATION.md": {
+      "bytes": 6208,
+      "sha256": "f1ca3e805087d936957a51aba75d4cb4e766f25863d40d269a03d04994b7615a"
+    },
+    "audit_remaining18_lifecycle_sources.py": {
+      "bytes": 1011,
+      "sha256": "f3109ca751bfbc112ef436e05ef657b3bd3db222b5e88ea7534d1c447d64f2c0"
+    },
+    "remaining18-financial-lifecycle-DESIGN.md": {
+      "bytes": 3753,
+      "sha256": "0259a74450c5593b069118e28626376f9dff9eae3a590c113c231a534d754523"
+    },
+    "system_campaign_p05_remaining_runtime.py": {
+      "bytes": 17702,
+      "sha256": "d2628d901977407e068922a05b493a20ad6815ff948ededb2c162794a58a3392"
+    },
+    "test_remaining18_runtime_conformance.py": {
+      "bytes": 8876,
+      "sha256": "57adafd123ea0c9668b6f98642f23c1ccde97cf36eed18622438660ea077ccb7"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "full_actual_input_hash_and_all_old_descriptor_guards_preserved": true,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "old_observation_terms_retained": 94,
+  "ordinary_cash_terms": 108,
+  "original_gate_all_five_method_code_shapes_preserved": true,
+  "passed": true,
+  "post_event_positive_DATA_qualified": false,
+  "prepared": true,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-financial-lifecycle-preparation/1",
+  "selected_input_terms": 18,
+  "source_only_terms": 1,
+  "stock_or_mixed_terms": 3,
+  "temporary_financial_book_or_seed_view_introduced": false,
+  "tests": {
+    "coupled_DATA": {
+      "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-coupled-DATA-tests-001 test_remaining18_source_preparation_v2.py test_remaining18_origin_inventory_DATA.py test_remaining18_observer_DATA.py test_remaining18_runtime_conformance.py",
+      "note": "Coupled run preceded one additional final runtime request-flag/source-closure test. The final26-test runtime run covers that addition.",
+      "passed": 83,
+      "seconds": 46.94
+    },
+    "final_runtime": {
+      "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-runtime-conformance-tests-004 test_remaining18_runtime_conformance.py",
+      "financial_import_fences": 5,
+      "meaningful_guard_removals": 2,
+      "passed": 26,
+      "seconds": 6.16
+    }
+  },
+  "unfinished": "Private prepared code only. Parent integration/review/required CI and actual SOURCE18 packet DATA are pending. Initial actual hosted20 origin and post-event accounting must close before a new root is admitted; actual admitted20 restart remains pending. No synthetic future root/checkpoint was used.",
+  "utc": "2026-11-06T16:24:00.858304+00:00",
+  "whole_old_P05_context_code_object_preserved": true,
+  "whole_original_legacy_and_gate_AST": {
+    "AdoptionGate": "90b75c2165958da9a7ffe97db60f639d9199d8d43a876e01ed07398c87ecc2f6",
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "whole_single_observer_terms": 112
+}

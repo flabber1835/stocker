@@ -1,0 +1,548 @@
+{
+  "actual_held_role_at_future_event_not_predicted": true,
+  "delivery_proof": {
+    "actual_issuer_settlement_claimed": false,
+    "delivered_rows": [
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "11 Money",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1045609",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1997-12-31",
+        "metadata_admitted": "1",
+        "raw_close": "104.36",
+        "raw_compatible_volume": "4864000",
+        "raw_open": "103.5",
+        "reported_volume": "4864000",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "242191666340217044",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2022-10-03",
+        "sic": "6798",
+        "signal_close": "104.36",
+        "split_ratio": "1",
+        "ticker": "PLD",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "11 Money",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1289490",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "2004-08-16",
+        "metadata_admitted": "1",
+        "raw_close": "146.81999999999999",
+        "raw_compatible_volume": "2172000",
+        "raw_open": "149.18000000000001",
+        "reported_volume": "2172000",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "303508729739314651",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2023-07-20",
+        "sic": "6798",
+        "signal_close": "146.81999999999999",
+        "split_ratio": "1",
+        "ticker": "EXR",
+        "tradeable": "1"
+      },
+      {
+        "dividend_per_share": "0",
+        "exchange": "",
+        "exchange_authoritative": "0",
+        "ff12": "12 Other",
+        "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        "issuer_id": "SEC_CIK:1057352",
+        "issuer_source": "SEC_CIK_STRICT_PRIOR",
+        "listing_active": "1",
+        "listing_first_session": "1998-07-01",
+        "metadata_admitted": "1",
+        "raw_close": "76.25",
+        "raw_compatible_volume": "6197320",
+        "raw_open": "75.629999999999995",
+        "reported_volume": "6197320",
+        "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+        "security_id": "367614688978831725",
+        "security_type": "common",
+        "security_type_eligible": "1",
+        "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+        "session": "2025-02-28",
+        "sic": "7389",
+        "signal_close": "76.25",
+        "split_ratio": "1",
+        "ticker": "CSGP",
+        "tradeable": "1"
+      }
+    ],
+    "passed": true,
+    "raw_open_CIL_proxy": true,
+    "rows_scanned": {
+      "2022": 2080223,
+      "2023": 1834182,
+      "2025": 1546125
+    },
+    "source331_captured_these_delivery_rows": false,
+    "whole_archive_rehashed": true
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "full_parent_inputs": 19,
+  "hosted_packet_adoption_and_observer_lifecycle_still_required": true,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "original_catalog_file": "system-campaign-stock-calendar-terminal-facts.json",
+  "original_catalog_sha256": "47db40bdca2a776b1860540149c135a09b4c54ecdd7828f5fef9443c9483f137",
+  "original_cil_convention": "RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT",
+  "original_validator_sha256": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d",
+  "parent_cursor": "2022-08-31",
+  "parent_outer_sha256": "9a7217195d3bb40e84ff158fbf7e2ceb3b4d122ed51bb951a51f7ea11b007318",
+  "passed": true,
+  "provider_proof": {
+    "archive_bytes": 9855560,
+    "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+    "passed": true,
+    "rows": {
+      "DRE": [
+        {
+          "action": "acquisitionof",
+          "contraname": "DUKE REALTY CORP",
+          "contraticker": "DRE",
+          "date": "2022-09-30",
+          "name": "PROLOGIS INC",
+          "ticker": "PLD",
+          "value": "18556.6"
+        },
+        {
+          "action": "acquisitionby",
+          "contraname": "PROLOGIS INC",
+          "contraticker": "PLD",
+          "date": "2022-09-30",
+          "name": "DUKE REALTY CORP",
+          "ticker": "DRE",
+          "value": "18556.6"
+        },
+        {
+          "action": "delisted",
+          "contraname": "N/A",
+          "contraticker": "N/A",
+          "date": "2022-09-30",
+          "name": "DUKE REALTY CORP",
+          "ticker": "DRE",
+          "value": "18556.6"
+        }
+      ],
+      "LSI": [
+        {
+          "action": "delisted",
+          "contraname": "N/A",
+          "contraticker": "N/A",
+          "date": "2023-07-19",
+          "name": "LIFE STORAGE INC",
+          "ticker": "LSI",
+          "value": "11325.4"
+        },
+        {
+          "action": "acquisitionby",
+          "contraname": "EXTRA SPACE STORAGE INC",
+          "contraticker": "EXR",
+          "date": "2023-07-19",
+          "name": "LIFE STORAGE INC",
+          "ticker": "LSI",
+          "value": "11325.4"
+        },
+        {
+          "action": "acquisitionof",
+          "contraname": "LIFE STORAGE INC",
+          "contraticker": "LSI",
+          "date": "2023-07-19",
+          "name": "EXTRA SPACE STORAGE INC",
+          "ticker": "EXR",
+          "value": "11325.4"
+        }
+      ],
+      "MTTR": [
+        {
+          "action": "delisted",
+          "contraname": "N/A",
+          "contraticker": "N/A",
+          "date": "2025-02-27",
+          "name": "MATTERPORT INC",
+          "ticker": "MTTR",
+          "value": "1762.6"
+        },
+        {
+          "action": "acquisitionby",
+          "contraname": "COSTAR GROUP INC",
+          "contraticker": "CSGP",
+          "date": "2025-02-27",
+          "name": "MATTERPORT INC",
+          "ticker": "MTTR",
+          "value": "1762.6"
+        },
+        {
+          "action": "acquisitionof",
+          "contraname": "MATTERPORT INC",
+          "contraticker": "MTTR",
+          "date": "2025-02-27",
+          "name": "COSTAR GROUP INC",
+          "ticker": "CSGP",
+          "value": "1762.6"
+        }
+      ]
+    },
+    "whole_original_provider_row_validator": true
+  },
+  "root_admission_sha256": "baabf01e4e070faea5c03fb0055fa715ac075a0175d5bdcc24b356a922cb1026",
+  "schema": "research.P05-own1175-retained-DRE-LSI-MTTR-stock-DATA/1",
+  "source331_qualification_sha256": "4712fe21fdf966cd74f8ee37a328fcd3207e685659898aae1bfadae552f1eae9",
+  "terms": [
+    {
+      "fresh_source_term": {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:783280",
+          "listing_first_session": "1997-12-31",
+          "security_id": "518054177581800417",
+          "security_type_eligible": "1",
+          "session": "2022-09-29",
+          "source_observation_sha256": "1b784f176dd4dff4dad565fd7f139a8c3b6bbe53b303c99f79138034b1ff5f74",
+          "ticker": "DRE"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=18556.6",
+          "security_id": "518054177581800417",
+          "session": "2022-09-30"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "11 Money",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:783280",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1997-12-31",
+          "metadata_admitted": "1",
+          "raw_close": "47.969999999999999",
+          "raw_compatible_volume": "5858520",
+          "raw_open": "48.689999999999998",
+          "reported_volume": "5858520",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "518054177581800417",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2022-09-29",
+          "sic": "6798",
+          "signal_close": "47.969999999999999",
+          "split_ratio": "1",
+          "ticker": "DRE",
+          "tradeable": "1"
+        }
+      },
+      "original_term": {
+        "actual_completion_date": "2022-10-03",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": "SEC_CIK:1045609",
+          "delivered_security_id": "242191666340217044",
+          "delivered_ticker": "PLD",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.475,
+          "kind": "CONVERSION",
+          "reference": "https://www.sec.gov/Archives/edgar/data/783280/000110465922105242/tm2227228d1_8k.htm | Mandatory common-share completion before open on 2022-10-03; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+          "security_id": "518054177581800417",
+          "session": "2022-10-03"
+        },
+        "delivered_identity_witness": {
+          "issuer_id": "SEC_CIK:1045609",
+          "listing_first_session": "1997-12-31",
+          "security_id": "242191666340217044",
+          "security_type_eligible": "1",
+          "session": "2022-10-03",
+          "source_observation_sha256": "42133bb5b2f7bdc0f601998a278b7971d53021eec05f29cd62625cf3b8c61da0",
+          "ticker": "PLD"
+        },
+        "description": "Mandatory common-share completion before open on 2022-10-03; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:783280",
+          "listing_first_session": "1997-12-31",
+          "security_id": "518054177581800417",
+          "security_type_eligible": "1",
+          "session": "2022-09-29",
+          "source_observation_sha256": "1b784f176dd4dff4dad565fd7f139a8c3b6bbe53b303c99f79138034b1ff5f74",
+          "ticker": "DRE"
+        },
+        "last_trading_session": "2022-09-30",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2022-09-30",
+        "native_term_sha256": "713092be4dbb3c3f9ba9d72f027191a8e5394a69087bbd98b7351d19c7d94c3c",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/783280/000110465922105242/tm2227228d1_8k.htm",
+        "provider_rows_proof": {
+          "archive_bytes": 9855560,
+          "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+          "rows_sha256": "9737e3c101a153e5b1d9bef4baa0e319049de8f5cd873fe54677e72cc969455d",
+          "selected_row_sha256": [
+            "c37b625193453a29d1b75ff265eab7f281cf77ff7b58c77698be5c17efcc7b6f",
+            "c5b144c8e28abf7816bebfe82da81e5806538c008b038c6d1d1b09efbf147088",
+            "1adee7a7a99b094f20b37ac3361c3a52e916d317dd75dc9361ee1c1b1bcfc3ae"
+          ],
+          "session": "2022-09-30",
+          "ticker": "DRE"
+        },
+        "security_id": "518054177581800417",
+        "ticker": "DRE",
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=51115"
+      },
+      "original_term_sha256": "bee37f931cbb873a134de30a7b482669fafd49039f8016c893fabf37cd050b35",
+      "source_qualification_sha256": "4712fe21fdf966cd74f8ee37a328fcd3207e685659898aae1bfadae552f1eae9"
+    },
+    {
+      "fresh_source_term": {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:944314",
+          "listing_first_session": "1997-12-31",
+          "security_id": "753641750484343508",
+          "security_type_eligible": "1",
+          "session": "2023-07-18",
+          "source_observation_sha256": "ca457c585bce7145aec71ef047dc0cb52613d3901cf885c3ebf69c3d1f838540",
+          "ticker": "LSI"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=11325.4",
+          "security_id": "753641750484343508",
+          "session": "2023-07-19"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "11 Money",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:944314",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "1997-12-31",
+          "metadata_admitted": "1",
+          "raw_close": "134.12",
+          "raw_compatible_volume": "3209114",
+          "raw_open": "139.81999999999999",
+          "reported_volume": "3209114",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "753641750484343508",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2023-07-18",
+          "sic": "6798",
+          "signal_close": "134.12",
+          "split_ratio": "1",
+          "ticker": "LSI",
+          "tradeable": "1"
+        }
+      },
+      "original_term": {
+        "actual_completion_date": "2023-07-20",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": "SEC_CIK:1289490",
+          "delivered_security_id": "303508729739314651",
+          "delivered_ticker": "EXR",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.895,
+          "kind": "CONVERSION",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1060224/000119312523190113/d405124d8k.htm | Mandatory common-share completion before open on 2023-07-20; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+          "security_id": "753641750484343508",
+          "session": "2023-07-20"
+        },
+        "delivered_identity_witness": {
+          "issuer_id": "SEC_CIK:1289490",
+          "listing_first_session": "2004-08-16",
+          "security_id": "303508729739314651",
+          "security_type_eligible": "1",
+          "session": "2023-07-20",
+          "source_observation_sha256": "a85f8e77f423cb3355ea8c63fcf4527c7ab6dcb030cad38cf7628062a49e2275",
+          "ticker": "EXR"
+        },
+        "description": "Mandatory common-share completion before open on 2023-07-20; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:944314",
+          "listing_first_session": "1997-12-31",
+          "security_id": "753641750484343508",
+          "security_type_eligible": "1",
+          "session": "2023-07-18",
+          "source_observation_sha256": "ca457c585bce7145aec71ef047dc0cb52613d3901cf885c3ebf69c3d1f838540",
+          "ticker": "LSI"
+        },
+        "last_trading_session": "2023-07-19",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2023-07-19",
+        "native_term_sha256": "ccb498dd580b7f803166463271de8bfb95d1c9f362efaa4f50c0398ed7fdf677",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1060224/000119312523190113/d405124d8k.htm",
+        "provider_rows_proof": {
+          "archive_bytes": 9855560,
+          "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+          "rows_sha256": "551297d976ffc21b825cf38c33eed8152d1af38038e7045f3243acdc1039a781",
+          "selected_row_sha256": [
+            "3dab4d127e34eaeb84f8a2d963d9c72111172b5860a2ae6f16586c79cdffcce4",
+            "4b26ed69a06848b3614702c6489418bdcfe4430d081297431fccaee9254dd9ae",
+            "ed848ab4a317ec2a19913072e0077a8c4a6abe03e3cae39835f4dc5a5b03c840"
+          ],
+          "session": "2023-07-19",
+          "ticker": "LSI"
+        },
+        "security_id": "753641750484343508",
+        "ticker": "LSI",
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=52871"
+      },
+      "original_term_sha256": "1bcd69e6b6832837f71ed0e50879d794996fffbc1d9d52cf73d8cbc1214a7a2e",
+      "source_qualification_sha256": "4712fe21fdf966cd74f8ee37a328fcd3207e685659898aae1bfadae552f1eae9"
+    },
+    {
+      "fresh_source_term": {
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1819394",
+          "listing_first_session": "2020-12-11",
+          "security_id": "268723442486744870",
+          "security_type_eligible": "1",
+          "session": "2025-02-26",
+          "source_observation_sha256": "71f2817588a559a553220d6ee21b24997977116650fb9992c71a68f90eb78a0e",
+          "ticker": "MTTR"
+        },
+        "native_term": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": null,
+          "delivered_issuer_id": null,
+          "delivered_security_id": null,
+          "delivered_ticker": null,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": null,
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=1762.6",
+          "security_id": "268723442486744870",
+          "session": "2025-02-27"
+        },
+        "parent_positions": [],
+        "source_row": {
+          "dividend_per_share": "0",
+          "exchange": "",
+          "exchange_authoritative": "0",
+          "ff12": "06 BusEq",
+          "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+          "issuer_id": "SEC_CIK:1819394",
+          "issuer_source": "SEC_CIK_STRICT_PRIOR",
+          "listing_active": "1",
+          "listing_first_session": "2020-12-11",
+          "metadata_admitted": "1",
+          "raw_close": "5.4400000000000004",
+          "raw_compatible_volume": "9106212",
+          "raw_open": "5.3899999999999997",
+          "reported_volume": "9106212",
+          "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+          "security_id": "268723442486744870",
+          "security_type": "common",
+          "security_type_eligible": "1",
+          "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+          "session": "2025-02-26",
+          "sic": "7372",
+          "signal_close": "5.4400000000000004",
+          "split_ratio": "1",
+          "ticker": "MTTR",
+          "tradeable": "1"
+        }
+      },
+      "original_term": {
+        "actual_completion_date": "2025-02-28",
+        "added": {
+          "cash_in_lieu_price_per_delivered_share": null,
+          "cash_per_share": 2.75,
+          "delivered_issuer_id": "SEC_CIK:1057352",
+          "delivered_security_id": "367614688978831725",
+          "delivered_ticker": "CSGP",
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.03552,
+          "kind": "CASH_PLUS_STOCK",
+          "reference": "https://www.sec.gov/Archives/edgar/data/1057352/000119312525042465/d899523d8k.htm | Mandatory common-share completion before open on 2025-02-28; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+          "security_id": "268723442486744870",
+          "session": "2025-02-28"
+        },
+        "delivered_identity_witness": {
+          "issuer_id": "SEC_CIK:1057352",
+          "listing_first_session": "1998-07-01",
+          "security_id": "367614688978831725",
+          "security_type_eligible": "1",
+          "session": "2025-02-28",
+          "source_observation_sha256": "cea6fb90ffabce03b4f8653af8b844cbbf09a0bd0efdeec97d12cdbca3493c6a",
+          "ticker": "CSGP"
+        },
+        "description": "Mandatory common-share completion before open on 2025-02-28; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "identity_witness": {
+          "issuer_id": "SEC_CIK:1819394",
+          "listing_first_session": "2020-12-11",
+          "security_id": "268723442486744870",
+          "security_type_eligible": "1",
+          "session": "2025-02-26",
+          "source_observation_sha256": "71f2817588a559a553220d6ee21b24997977116650fb9992c71a68f90eb78a0e",
+          "ticker": "MTTR"
+        },
+        "last_trading_session": "2025-02-27",
+        "mandatory_common_share_completion_confirmed": true,
+        "native_session": "2025-02-27",
+        "native_term_sha256": "421d2c626abc23c56c22ffc5ecf7f94f5b42620dd5af1255c4464c232b2b3fbb",
+        "preopen_completion_confirmed": true,
+        "primary_source": "https://www.sec.gov/Archives/edgar/data/1057352/000119312525042465/d899523d8k.htm",
+        "provider_rows_proof": {
+          "archive_bytes": 9855560,
+          "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+          "rows_sha256": "4a177359e6a143ac91e86365220e4c7303a83cbf979324a256c077b9141abff8",
+          "selected_row_sha256": [
+            "1d991480e5ca7c61f4051c0050130dffa83a2e2d333312fc2117d401f857836a",
+            "5a8341c18cc05173eaa0bf2da157350f627f7daa30e61e240a7dfec48e4c19eb",
+            "d34f5f6d111400af7571b71d961fbcee794e6a1093e5d78f86e5def4605dc00e"
+          ],
+          "session": "2025-02-27",
+          "ticker": "MTTR"
+        },
+        "security_id": "268723442486744870",
+        "ticker": "MTTR",
+        "timing_source": "https://infomemo.theocc.com/infomemos?number=56129"
+      },
+      "original_term_sha256": "8eb4aef81e02bdc9a451de1fa86796e730ece97fcdb67fbda53bca49fe5c5074",
+      "source_qualification_sha256": "4712fe21fdf966cd74f8ee37a328fcd3207e685659898aae1bfadae552f1eae9"
+    }
+  ],
+  "utc": "2026-11-06T15:15:44.603216+00:00"
+}

@@ -1,0 +1,262 @@
+{
+  "all_original_repair_descriptors": [
+    {
+      "descriptor": {
+        "filename": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f.json",
+        "predecessor_checkpoint_sha256": "a29daf20ca984e35f402a194b19e8a330007984e4f9d44a8832cf1286845258f",
+        "resume_session": "2017-06-30",
+        "sha256": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f"
+      },
+      "raw_sha256": "0e9e38b9e053c2545f45e7137187071c4058a7583077fe131717c6e46b745c8f"
+    },
+    {
+      "descriptor": {
+        "filename": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467.json",
+        "predecessor_checkpoint_sha256": "4eb1fe08e2e3f94b8a3589ca2f790261ef680d99cf80782eacbf17101231c186",
+        "resume_session": "2018-01-31",
+        "sha256": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467"
+      },
+      "raw_sha256": "4d84772c414dc723d1973c3a049b0d36afa1682981fd9925b9e12c393554a467"
+    },
+    {
+      "descriptor": {
+        "filename": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a.json",
+        "predecessor_checkpoint_sha256": "a1a925ac21f467be8a2c446fc80cd502f382e6227c9b6f79ff07130f84eb3ff1",
+        "resume_session": "2018-03-29",
+        "sha256": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a"
+      },
+      "raw_sha256": "5134621955e9b819b97cd5c7b897590ffac0aa5c22af8b7d242b4ae6e30f1b9a"
+    },
+    {
+      "descriptor": {
+        "filename": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d.json",
+        "predecessor_checkpoint_sha256": "8094481314c62f325a3f6b7370c447f20f05e0474e3976d766e5d67995968bd0",
+        "resume_session": "2018-04-30",
+        "sha256": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d"
+      },
+      "raw_sha256": "1787c4529eed8e620eadf14c004eedf29213e8f3be435df482c3dda2b29bd36d"
+    },
+    {
+      "descriptor": {
+        "filename": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507.json",
+        "predecessor_checkpoint_sha256": "5e5839e623220b43c1ca6b857dc5d9b840855c24fdee9d9966b17b6e08ce0122",
+        "resume_session": "2018-06-29",
+        "sha256": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507"
+      },
+      "raw_sha256": "9b33d2ab693ee3d78532a7020837ee2f81305cab06dbeeb63901dc156d56f507"
+    },
+    {
+      "descriptor": {
+        "filename": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474.json",
+        "predecessor_checkpoint_sha256": "d0c05c9d81e3f563e0e482daca523369bd4a84ecb2e6a5f8d87e9043ca0840d5",
+        "resume_session": "2018-10-31",
+        "sha256": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474"
+      },
+      "raw_sha256": "6cdbfd0e6b165b63c33548b44dc131acb3d5075724318ec4fe07ffec5acbe474"
+    },
+    {
+      "descriptor": {
+        "filename": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e.json",
+        "predecessor_checkpoint_sha256": "98b5e126a2597927f2f874c279a0bb5df38d703e843c75747c8b94b472a047f9",
+        "resume_session": "2018-11-30",
+        "sha256": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e"
+      },
+      "raw_sha256": "b6857669b708a82766b2ef879116b8716ff8012b149f07bba4ee756b5326e65e"
+    },
+    {
+      "descriptor": {
+        "filename": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2.json",
+        "predecessor_checkpoint_sha256": "08be90956c853198deb8388e5f12349ecc71372d6f5d9bb2f22e2556383619ad",
+        "resume_session": "2018-12-31",
+        "sha256": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2"
+      },
+      "raw_sha256": "04d8e10b59dd53ba90ee1b969b981f33dac81b7672e9a8585ec6b7d2768b02d2"
+    },
+    {
+      "descriptor": {
+        "filename": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266.json",
+        "predecessor_checkpoint_sha256": "19908f470468144ba9c96ca6f22a4dab5cdd3e5faad55d031fa9387cf3f43b54",
+        "resume_session": "2019-03-29",
+        "sha256": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266"
+      },
+      "raw_sha256": "8a43d7eba9a69a56941f74b5e10c48b27721a9a9239f5164ddbda50619ed4266"
+    },
+    {
+      "descriptor": {
+        "filename": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3.json",
+        "predecessor_checkpoint_sha256": "293a1b16b669f4b23e2e27c1631e7fe1e9c07be42f8b76dcc998d48b8b77dd5f",
+        "resume_session": "2019-06-28",
+        "sha256": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3"
+      },
+      "raw_sha256": "b5809821c1b01be77515a311d49fc91f1cbd3ec7ff9dadc1ad69ab400e149eb3"
+    },
+    {
+      "descriptor": {
+        "filename": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0.json",
+        "predecessor_checkpoint_sha256": "90ee3f3bfc2a577d9ad5e4720bbc52f4a3549bc10e9b959917f242319a5c9461",
+        "resume_session": "2019-09-30",
+        "sha256": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0"
+      },
+      "raw_sha256": "9ec539d0cdab03e21fe888eb748b12da1e5815ed2a0a6c87795bd722887b4bb0"
+    },
+    {
+      "descriptor": {
+        "filename": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01.json",
+        "predecessor_checkpoint_sha256": "b3a6483dd1846596c461bad03140ac68e2ee69ee47d32fed27b7883d4f6b6dd9",
+        "resume_session": "2019-09-30",
+        "sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+      },
+      "raw_sha256": "b116e17c4cbfc7f7296fdff67e74a2c9d2368e37216233f24461a7e61edeeb01"
+    },
+    {
+      "descriptor": {
+        "filename": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52.json",
+        "predecessor_checkpoint_sha256": "7aefaf2f14244798f84c435c1fda433436635063118929ea86def0c52aa13847",
+        "resume_session": "2019-12-31",
+        "sha256": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52"
+      },
+      "raw_sha256": "d46bfae3ab048ec1b48685391f534e4ffbe8c00537e39ffcd7e84ec886728e52"
+    },
+    {
+      "descriptor": {
+        "filename": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563.json",
+        "predecessor_checkpoint_sha256": "522a3a34ca26f8421650552a0d2095f3ab00470f95e72b1298149c114bf81ba5",
+        "resume_session": "2020-02-28",
+        "sha256": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563"
+      },
+      "raw_sha256": "cb3e3ff086d17e52515a7e6f3698486cdfca6d61858db0771b70df5d5f5da563"
+    },
+    {
+      "descriptor": {
+        "filename": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0.json",
+        "predecessor_checkpoint_sha256": "0ff53c327e423b1dd3fc1d82f29ccf0c64e2e5b0dac531903f7dc21ce2bc548f",
+        "resume_session": "2020-03-31",
+        "sha256": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0"
+      },
+      "raw_sha256": "3687120ebccc70376d444bbe48eea73306eb393963f9e3d213d0b82b824d79b0"
+    },
+    {
+      "descriptor": {
+        "filename": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97.json",
+        "predecessor_checkpoint_sha256": "f719f39376e987bddd3a2a7db55ef71d1c8959b68f6afad1659649fb1ef8ca74",
+        "resume_session": "2020-06-30",
+        "sha256": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97"
+      },
+      "raw_sha256": "dafc4f09abae14fabb48732c52d01753f6aa90722b20dc33683e62dcb67d3a97"
+    },
+    {
+      "descriptor": {
+        "filename": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777.json",
+        "predecessor_checkpoint_sha256": "52687f6b0962cbbbb6c8a5e74bb6ebec7180c63582cef6a394f3cd5a2ed756eb",
+        "resume_session": "2021-01-29",
+        "sha256": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777"
+      },
+      "raw_sha256": "634889bf285c8ece2333bb424dc2d5922eeecad940dcfc83b051f7181ce5e777"
+    },
+    {
+      "descriptor": {
+        "filename": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52.json",
+        "predecessor_checkpoint_sha256": "ad7dfe3c328fb91d1fd043d6f902dbbb842e93c3a127b6a6a8fd21e49769a400",
+        "resume_session": "2021-03-31",
+        "sha256": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52"
+      },
+      "raw_sha256": "ad942682b960898596f6d266bcdb75647b7d05b3487552853ec506d169b96b52"
+    }
+  ],
+  "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
+  "catalog_sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3",
+  "financial_authority": false,
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=2772.8",
+    "security_id": "576374012507208201",
+    "session": "2022-02-22"
+  },
+  "original_APHA_projection_source_sha256": "2165e64a961bf0ee44c8f19ac2d6ec65059cc92a2b4154ad735685d29e120777",
+  "original_branch_source_sha256": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+  "own838_inner_sha256": "2874cdc3db6fc9bf951b2ac324a030ed0578a0a6c8c018d863ec271ee19cfd6c",
+  "own838_input_sha256": "67ec7b81593570695a90b612f684e41d3e701b1bf731363c482af731c376ded8",
+  "own838_outer_sha256": "5d69ef0267188397137b2064f9a2225a6141bb966c5a218531ccc59671158391",
+  "parent_root_admission_sha256": "99c02d182abd329b1e94bde8a8ec1d1ad2f7a9883220fb2e79a9e9766f96300b",
+  "retained_certificate_prefix_sha256": "6ff08e2cecea4109bc085b2ed03af9d20991b9681512c118ebed9d3b4d31e5de",
+  "retained_certificate_rows": 384,
+  "schema": "research.private-existing-unadopted-ordinary-input/1",
+  "selected_tickers": [
+    "VCRA"
+  ],
+  "source_bindings_sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b",
+  "source_observation": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "06 BusEq",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1129260",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2012-03-28",
+    "metadata_admitted": "1",
+    "raw_close": "79.170000000000002",
+    "raw_compatible_volume": "2443800",
+    "raw_open": "79.180000000000007",
+    "reported_volume": "2443800",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "576374012507208201",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2022-02-18",
+    "sic": "3669",
+    "signal_close": "79.170000000000002",
+    "split_ratio": "1",
+    "ticker": "VCRA",
+    "tradeable": "1"
+  },
+  "source_observation_sha256": "49ecfb120b630518e9fc50c79256d94734fad4c154008b484e9c513abfb04793",
+  "term": {
+    "actual_completion_date": "2022-02-23",
+    "added": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 79.25,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1129260/000119312522050048/d300567d8k.htm | Mandatory common-share cash completion before market open on 2022-02-23; preserve last trade 2022-02-22 and all frozen source metadata.",
+      "security_id": "576374012507208201",
+      "session": "2022-02-23"
+    },
+    "description": "Mandatory common-share cash completion before market open on 2022-02-23; preserve last trade 2022-02-22 and all frozen source metadata.",
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1129260",
+      "listing_first_session": "2012-03-28",
+      "security_id": "576374012507208201",
+      "security_type_eligible": "1",
+      "session": "2022-02-18",
+      "source_observation_sha256": "49ecfb120b630518e9fc50c79256d94734fad4c154008b484e9c513abfb04793",
+      "ticker": "VCRA"
+    },
+    "last_trading_session": "2022-02-22",
+    "mandatory_common_share_completion_confirmed": true,
+    "native_session": "2022-02-22",
+    "native_term_sha256": "96d66e520046facaa9871daea03f370b8714e39c410e508854b7abaf72cdb649",
+    "preopen_completion_confirmed": true,
+    "primary_source": "https://www.sec.gov/Archives/edgar/data/1129260/000119312522050048/d300567d8k.htm",
+    "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+    "security_id": "576374012507208201",
+    "ticker": "VCRA",
+    "timing_source": "https://infomemo.theocc.com/infomemos?number=50092"
+  },
+  "unadopted_in_all_repairs": true,
+  "validator_file": "system_campaign_cash_calendar.py",
+  "validator_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f"
+}

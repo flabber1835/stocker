@@ -1,0 +1,43 @@
+{
+  "actual_full19_parent_and_whole_three_stage_chain_validated": true,
+  "files": {
+    "remaining18-source-preparation-v2-DESIGN.md": {
+      "bytes": 1347,
+      "sha256": "51c30ca6ca40083d77e610151e33be26bf77d73744eeb11ea3db54e0181de70a"
+    },
+    "system_campaign_p05_remaining_source_preparation_v2.py": {
+      "bytes": 4493,
+      "sha256": "fd332e01907bd4cc96a2a9cff5dbdd595c1afad8a6d9d6518fcdd703bca9d1c4"
+    },
+    "test_remaining18_source_preparation_v2.py": {
+      "bytes": 4596,
+      "sha256": "50bcd32a3ec68d9162a04016181e30e927473f71fe580e628b435a4412a34abb"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "hosted_packet_preparation_executed": false,
+  "inherited_actual_neutral_checkpoint_and_proof_resources": 6,
+  "inherited_full19_committed_repair_input_documents": 19,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "new_canonical_output_still_forbidden": true,
+  "passed": true,
+  "real_FIN326_complete_members": 302,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-source-preparation-v2-qualification/1",
+  "source_request_selected": false,
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-source-preparation-v2-tests-002 test_remaining18_source_preparation_v2.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 16,
+    "seconds": 10.71
+  },
+  "unfinished": "Hosted actual18-term preparation, independent post-hosted packet DATA, financial20 origin and retained restart remain pending. DATA union tests read actual original resources under explicitly authenticated names; no future output or relocated checkpoint is synthesized.",
+  "utc": "2026-11-06T16:15:36.970289+00:00",
+  "v1_package_byte_identical": true,
+  "v1_qualification_sha256": "b703f44d56d4b83d093b30a43806724a6451b966665fa5f48814d2cfe5ac4d0e",
+  "whole_v1_prepare_function_code_object": true
+}

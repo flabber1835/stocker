@@ -1,0 +1,210 @@
+{
+  "actual_certificate_constructed": false,
+  "actual_event_date_scope_verified": false,
+  "actual_hosted_resource_canary_known": false,
+  "actual_neutral_checkpoint_known": false,
+  "canonical_runtime_executed": false,
+  "closed_utc": "2026-11-08T01:44:27.173430+00:00",
+  "excluded_old_tail_rows": 10,
+  "files": {
+    "P06-DM-boundary-export-DATA-qualification.json": {
+      "bytes": 3448,
+      "sha256": "032f7e6684dc54199b74663f2053aabfa8a47e7e49bb9aff303f9b72cab0c9ea"
+    },
+    "P06-DM-source-exit-input-catalog-v2.json": {
+      "bytes": 20363,
+      "sha256": "5f733fa0f61fe0b3682b2c5a636fa7840720ebefacf140f7fa1af06236e33155"
+    },
+    "P06-DM-source-exit-resources.json": {
+      "bytes": 29374,
+      "sha256": "68f8688997284f7dee68a4b021e839d68dcd7a13b2afc38184f9816212d5bef2"
+    },
+    "P06-DM-whole-profile-qualification.json": {
+      "bytes": 14434,
+      "sha256": "4302d38de8aaac60f9bb3bc1120a0d03fb7c5aa878e0e2657c866b633855714a"
+    },
+    "P06-SGN-source-DATA-qualification.json": {
+      "bytes": 1254,
+      "sha256": "781898110a9694192aa4db39d425374ff04338b7603718aa61b424fedc97b05e"
+    },
+    "P06-SGN-source-exit-input-catalog.json": {
+      "bytes": 20135,
+      "sha256": "a38255b1b86a03f0ee79e6b88245be4d685f6931cb238f0364d027f84d00cb45"
+    },
+    "P06-SGN-source-exit-resources.json": {
+      "bytes": 33817,
+      "sha256": "7174eedd2a87aee6d52cc36e12be18ce7548135eac16010b6d03626957622e82"
+    },
+    "P06-TBIO-source-exit-DATA-qualification.json": {
+      "bytes": 2695,
+      "sha256": "499da3de1f79dec86bca0d7c8d3aceef20ca71ce4e400441705ee14bf9dc1063"
+    },
+    "P06-TBIO-source-exit-input-catalog.json": {
+      "bytes": 19467,
+      "sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c"
+    },
+    "P06-retained424-successor-DATA-qualification.json": {
+      "bytes": 1426,
+      "sha256": "27e0fa8ca90b96139ee0cb8b52b1080169dc16804307499b428400ac85fa0c16"
+    },
+    "P06-source-exit-API-history-DATA-qualification.json": {
+      "bytes": 2674,
+      "sha256": "c0dc5c6d5e0dc341949daaaeb291e3ef1097cddaad4872f01836851580ef6dfe"
+    },
+    "P06-source-exit-whole-profile-qualification.json": {
+      "bytes": 8463,
+      "sha256": "8c92d745e7801fb8e10f24dfa4958e0a31bc1b929638f4a2623c7a4f2ee70aff"
+    },
+    "P06-stopped-parent-transport-DATA-qualification.json": {
+      "bytes": 1443,
+      "sha256": "b6bc23bc4ab022b6d1cae3cac738357aab9e57ca9cde2f47aee4f922f60708f2"
+    },
+    "system-campaign-retained-seed-successors.json": {
+      "bytes": 18379,
+      "sha256": "fb0f50ad8add05478047beffeffedefdbbd67a96f1bf6fec49bc74e230aece93"
+    },
+    "system-campaign-source-exit-profiles.json": {
+      "bytes": 2379,
+      "sha256": "2e79bf398348f24645254f0e944547d6db952a3cefb5226078abd1f2ec22a683"
+    },
+    "system-campaign-source-exit-successor-resources.json": {
+      "bytes": 25618,
+      "sha256": "cd94bcaf5a27da1438722c111cd2a868d93523bfcec64149fa4dd4c31cf833d1"
+    },
+    "system-campaign-stopped-parent-transports.json": {
+      "bytes": 83704,
+      "sha256": "35f67f300f16acedf0ae5df332f54b404f6e8e8f8a51386cffd59a0e367a93ad"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 67719,
+      "sha256": "4e88f7b5b6f3ca9a20e56d8966d1d3fba209aff2d147326f9d4f19d1bc7d0f16"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_preflight_export.py": {
+      "bytes": 6756,
+      "sha256": "7c82b6d2afe966de39214c3f75c969c14a1d7dd3a1b4fbe98b7095f238448271"
+    },
+    "system_campaign_progress_observer.py": {
+      "bytes": 6126,
+      "sha256": "2228a45797e15f69b735a2b52b02f24ae47ad54981455d1bbb60647958e13d89"
+    },
+    "system_campaign_retained_seed_successor.py": {
+      "bytes": 9648,
+      "sha256": "9028671d700b0440c061dd882b150c31658b3ddf101244cefaa375131a539bd0"
+    },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 4324,
+      "sha256": "0fde59f61067b8a74b81883e7743a980f56cc5cf18ed1943bc320742584c34da"
+    },
+    "system_campaign_source_exit_entry.py": {
+      "bytes": 11955,
+      "sha256": "e31248e37bddcd1b4b376d2e546f3b79b29d5ee1b2b1dd1bc3dce07872535612"
+    },
+    "system_campaign_source_exit_future_acquisition.py": {
+      "bytes": 2131,
+      "sha256": "396cb4d70d1059d59f82888ee16948e5bbc476f0dcf1e0a2f362c86d6255955f"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 7255,
+      "sha256": "f03ea22fedf6e1ca6db35da0a979ee2c0219bfb652f3ed0a0d3fec22a819e0dd"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 10286,
+      "sha256": "40bd8cf85ab7380c211b080b839cacd0d9b4ac45d112eed49449e4f7a489804a"
+    },
+    "system_campaign_source_exit_input_v1.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
+    },
+    "system_campaign_source_exit_observer.py": {
+      "bytes": 13741,
+      "sha256": "02cb5c57094d4b75a11c85084ccd0a1b6c4b6fd7b305dd63fd4679e134a032fb"
+    },
+    "system_campaign_source_exit_profiles.py": {
+      "bytes": 4332,
+      "sha256": "f0138b434e46c2503b00c3cea9b778344b6c496cdeca60ee6667e7f2f687496e"
+    },
+    "system_campaign_source_exit_reporting.py": {
+      "bytes": 1053,
+      "sha256": "688270839416fec70e199dcb6309ce9051145d93f6a1e72f378c9f1765036f95"
+    },
+    "system_campaign_source_exit_resources.py": {
+      "bytes": 5035,
+      "sha256": "ea6ecaa3d3bf0c00e0b0d3c285ad8d1bbeaffe8994097a130d69be5a769d3dab"
+    },
+    "system_campaign_source_exit_runtime.py": {
+      "bytes": 17160,
+      "sha256": "17324dcaa62f4bffdb843500d30027effc7ff215fe9ed9b7e271d6600015fc93"
+    },
+    "system_campaign_stopped_parent.py": {
+      "bytes": 13792,
+      "sha256": "d4ecdae3a2bfd4d5c25b2b737e8df5417b5d2b5d62340a2f331ada30aac58e54"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "held_settlement_authorized": false,
+  "integrated_checks": {
+    "command": "python -B -m pytest forecast_tests/test_SGN_resources_observer.py forecast_tests/test_SGN_saved_parent.py forecast_tests/test_source_exit_future_acquisition.py forecast_tests/test_source_exit_observer.py forecast_tests/test_source_exit_runtime.py forecast_tests/test_source_exit_entry.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/SGN-final-integration-20261108-001",
+    "complete_actual_positive_transport_public_format_verified": true,
+    "financial_import_fences": 5,
+    "local_financial_runtime_executed": false,
+    "meaningful_guard_removals": true,
+    "old13_observer_metadata_exact_to_original_hosted_record": true,
+    "passed": 93,
+    "whole_original_compiler_and_worker_AST_undo": true
+  },
+  "mature_original_function_AST_sha256": {
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "native_event_raw_close_preserved": "0.54000000000000004",
+  "native_event_session": "2026-03-16",
+  "original_383_sources_unchanged": true,
+  "original_financial_stops": [
+    0,
+    1,
+    0
+  ],
+  "original_protected_source_sha256": {
+    "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_financial_future.py": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
+    "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8"
+  },
+  "original_raw_proof_rows": 807,
+  "parent_completed": 2050,
+  "parent_inputs": 14,
+  "parent_source_cursor": "2026-02-27",
+  "passed": true,
+  "ready_for_hosted_gated_continuation": true,
+  "required_genuine_neutral_inputs": 15,
+  "required_hosted_gates": [
+    "authenticate original positive request228 transport and exact one-GiB option",
+    "canonical2050 parent roundtrip and all original journal prefixes",
+    "whole138-resource copy verification and owned canary removal",
+    "complete original packet/source preparation without financial advance",
+    "genuine canonical neutral15 archive/watch/correlation proof",
+    "literal797 seed equals genuine parent and excludes all10 March diagnostic rows",
+    "actual original certificate and observer constructor before financial main",
+    "original actual source no-op/never-held guards and source delegation on March16",
+    "full original core/branch/event/monthly review before independent admission"
+  ],
+  "resource_logical_bytes": 288182311,
+  "resource_requirements": 138,
+  "resource_trace_sha256": "70faa9ce518ca4ea656c191e48fd60acd47786c9678b228f3af210573c496523",
+  "retained_historical_source_scopes": 3,
+  "retained_historical_terms": 5,
+  "retained_proofs": 797,
+  "root_admission_sha256": "3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf",
+  "same_artifact_successful_original_review": true,
+  "schema": "research.P06-SGN-whole-financial-profile-qualification/1",
+  "selected_job_neutral_checkpoint_known": false,
+  "source_capture_artifact": 13598406920,
+  "source_return_proxy": "0.7",
+  "source_return_quote_session": "2026-03-13"
+}

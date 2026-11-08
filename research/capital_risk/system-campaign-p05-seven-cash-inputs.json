@@ -1,0 +1,1417 @@
+{
+  "arm": "P05",
+  "canonical_financial_source_changed": false,
+  "historical_causality": "UNVERIFIED",
+  "loader_sha256": "96c9763e021c72c784b04c7033dd32940b9809cff6b56ba0e394287e0cdd3f36",
+  "parent_cursor": "2021-11-30",
+  "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+  "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.qualified-own-cash-input-batch/1",
+  "source_data": {
+    "payload": {
+      "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+      "arm": "P05",
+      "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "input_adopted": false,
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "producer_sha256": "77e674d02b6782dfdf129efcd0e7c60350cff29db6fb6011b21e80dea14292d7",
+      "production_contacted": false,
+      "provider_metadata_upgraded": false,
+      "schema": "research.own-parent-frozen-source-witnesses/1",
+      "scope": {
+        "additional_rows": [],
+        "parent_cursor": "2021-11-30",
+        "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+        "terms": [
+          {
+            "native_session": "2021-12-07",
+            "native_term_sha256": "7ae3331e4bbb3f576ebfcaa0dcc8b2f8aa2f01bbb3db77d42f4b3bdaf5a319ba",
+            "parent_positions": [],
+            "security_id": "505590033806659541",
+            "session": "2021-12-06",
+            "ticker": "CXP"
+          },
+          {
+            "native_session": "2021-12-10",
+            "native_term_sha256": "0cf0409fa93cc7a8c9c81009dcd246591846fbf9237f4ed06bcac1377d937969",
+            "parent_positions": [],
+            "security_id": "413759046550141969",
+            "session": "2021-12-09",
+            "ticker": "HRC"
+          },
+          {
+            "native_session": "2022-01-03",
+            "native_term_sha256": "b26916c7396760a17752c7bd49f128bf9b14d5accb27cd5fec65a8e03a184c68",
+            "parent_positions": [],
+            "security_id": "644546217848577516",
+            "session": "2021-12-31",
+            "ticker": "MGLN"
+          },
+          {
+            "native_session": "2022-02-14",
+            "native_term_sha256": "2b4f3b0dab1319948132dd10c96fbb2e9c0a554fcfaf37591c7a3a8bec11bf88",
+            "parent_positions": [],
+            "security_id": "79288825945223775",
+            "session": "2022-02-11",
+            "ticker": "PAE"
+          },
+          {
+            "native_session": "2022-02-24",
+            "native_term_sha256": "54cb5fc3645c0609c5865e94630440723d96c3b4db6534cfedf5527db5d1eb8b",
+            "parent_positions": [],
+            "security_id": "1103823526630607847",
+            "session": "2022-02-23",
+            "ticker": "RRD"
+          },
+          {
+            "native_session": "2022-02-28",
+            "native_term_sha256": "ac6da5b2c6724d36192f176d569ae1bcccb4e12e3f3544a1f274d176adb384c7",
+            "parent_positions": [],
+            "security_id": "150296277399646272",
+            "session": "2022-02-25",
+            "ticker": "MCFE"
+          },
+          {
+            "native_session": "2022-03-03",
+            "native_term_sha256": "5bc9ad32f70f91a5247f6ae8c5895c2fe4debd00886a0a849b221f14845f18cc",
+            "parent_positions": [],
+            "security_id": "631181427311568999",
+            "session": "2022-03-02",
+            "ticker": "NUAN"
+          }
+        ]
+      },
+      "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239",
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1252849",
+            "listing_first_session": "2013-10-10",
+            "security_id": "505590033806659541",
+            "security_type_eligible": "1",
+            "session": "2021-12-06",
+            "source_observation_sha256": "86b7e8e192c229c7dfbe54ea6dc43d6f161afbd4ee8c6a2b19e55970e59d307b",
+            "ticker": "CXP"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2215.2",
+            "security_id": "505590033806659541",
+            "session": "2021-12-07"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "11 Money",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1252849",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2013-10-10",
+            "metadata_admitted": "1",
+            "raw_close": "19.260000000000002",
+            "raw_compatible_volume": "3025988",
+            "raw_open": "19.239999999999998",
+            "reported_volume": "3025988",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "505590033806659541",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2021-12-06",
+            "sic": "6798",
+            "signal_close": "19.260000000000002",
+            "split_ratio": "1",
+            "ticker": "CXP",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:47518",
+            "listing_first_session": "1997-12-31",
+            "security_id": "413759046550141969",
+            "security_type_eligible": "1",
+            "session": "2021-12-09",
+            "source_observation_sha256": "d55fb44005e4ed942560186bf9b68cbd2cd3b5bdbf38786f8285abc810909edf",
+            "ticker": "HRC"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=10301.2",
+            "security_id": "413759046550141969",
+            "session": "2021-12-10"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:47518",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "155.91",
+            "raw_compatible_volume": "553179",
+            "raw_open": "155.91",
+            "reported_volume": "553179",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "413759046550141969",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2021-12-09",
+            "sic": "3841",
+            "signal_close": "155.91",
+            "split_ratio": "1",
+            "ticker": "HRC",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:19411",
+            "listing_first_session": "2004-02-25",
+            "security_id": "644546217848577516",
+            "security_type_eligible": "1",
+            "session": "2021-12-31",
+            "source_observation_sha256": "80bcd8b951e64901901134690007031ecccd536a3ec3bd1e8765519e5210fa9f",
+            "ticker": "MGLN"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2501.3",
+            "security_id": "644546217848577516",
+            "session": "2022-01-03"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "10 Hlth",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:19411",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2004-02-25",
+            "metadata_admitted": "1",
+            "raw_close": "94.989999999999995",
+            "raw_compatible_volume": "213652.00000000003",
+            "raw_open": "94.980000000000004",
+            "reported_volume": "213652.00000000003",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "644546217848577516",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2021-12-31",
+            "sic": "8060",
+            "signal_close": "94.989999999999995",
+            "split_ratio": "1",
+            "ticker": "MGLN",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1720821",
+            "listing_first_session": "2018-09-07",
+            "security_id": "79288825945223775",
+            "security_type_eligible": "1",
+            "session": "2022-02-11",
+            "source_observation_sha256": "97fea4460f8cbf9a3f66f9bef2d573f7a47cfaa4266d7e0a994d40090896c301",
+            "ticker": "PAE"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=935.8",
+            "security_id": "79288825945223775",
+            "session": "2022-02-14"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "12 Other",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1720821",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2018-09-07",
+            "metadata_admitted": "1",
+            "raw_close": "10.039999999999999",
+            "raw_compatible_volume": "1067451",
+            "raw_open": "10.06",
+            "reported_volume": "1067451",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "79288825945223775",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-02-11",
+            "sic": "8700",
+            "signal_close": "10.039999999999999",
+            "split_ratio": "1",
+            "ticker": "PAE",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:29669",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1103823526630607847",
+            "security_type_eligible": "1",
+            "session": "2022-02-23",
+            "source_observation_sha256": "444d965cbbc5225a345b4e155c7426537f8b771264b6b6eddb07972aaac8bdbe",
+            "ticker": "RRD"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=815.3",
+            "security_id": "1103823526630607847",
+            "session": "2022-02-24"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "03 Manuf",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:29669",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "10.83",
+            "raw_compatible_volume": "1106724",
+            "raw_open": "10.83",
+            "reported_volume": "1106724",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "1103823526630607847",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-02-23",
+            "sic": "2750",
+            "signal_close": "10.83",
+            "split_ratio": "1",
+            "ticker": "RRD",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1783317",
+            "listing_first_session": "2020-10-22",
+            "security_id": "150296277399646272",
+            "security_type_eligible": "1",
+            "session": "2022-02-25",
+            "source_observation_sha256": "d0d5d7c584b110abfdf42b3b86be9387b545f4856218e3a589ba82531f1996e3",
+            "ticker": "MCFE"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=11460.3",
+            "security_id": "150296277399646272",
+            "session": "2022-02-28"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1783317",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "2020-10-22",
+            "metadata_admitted": "1",
+            "raw_close": "26",
+            "raw_compatible_volume": "2522677",
+            "raw_open": "25.989999999999998",
+            "reported_volume": "2522677",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "150296277399646272",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-02-25",
+            "sic": "7372",
+            "signal_close": "26",
+            "split_ratio": "1",
+            "ticker": "MCFE",
+            "tradeable": "1"
+          }
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1002517",
+            "listing_first_session": "1997-12-31",
+            "security_id": "631181427311568999",
+            "security_type_eligible": "1",
+            "session": "2022-03-02",
+            "source_observation_sha256": "daa140922a71fe0a4269d8a1efb960b4cc52550d6c20a65c36fee34af4d27982",
+            "ticker": "NUAN"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=17882.4",
+            "security_id": "631181427311568999",
+            "session": "2022-03-03"
+          },
+          "parent_positions": [],
+          "source_row": {
+            "dividend_per_share": "0",
+            "exchange": "",
+            "exchange_authoritative": "0",
+            "ff12": "06 BusEq",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+            "issuer_id": "SEC_CIK:1002517",
+            "issuer_source": "SEC_CIK_STRICT_PRIOR",
+            "listing_active": "1",
+            "listing_first_session": "1997-12-31",
+            "metadata_admitted": "1",
+            "raw_close": "55.979999999999997",
+            "raw_compatible_volume": "14376887",
+            "raw_open": "55.960000000000001",
+            "reported_volume": "14376887",
+            "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+            "security_id": "631181427311568999",
+            "security_type": "common",
+            "security_type_eligible": "1",
+            "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+            "session": "2022-03-02",
+            "sic": "7372",
+            "signal_close": "55.979999999999997",
+            "split_ratio": "1",
+            "ticker": "NUAN",
+            "tradeable": "1"
+          }
+        }
+      ]
+    },
+    "qualification": {
+      "actual_stopped_payload_tests": 26,
+      "arm": "P05",
+      "financial_authority": false,
+      "financial_workers_launched": 0,
+      "fresh_archive_and2022_raw_scan_verified": true,
+      "import_fences": 5,
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "meaningful_guard_removals": 1,
+      "original_input_documents_retained": 12,
+      "passed": true,
+      "raw_native_date_action_rows": 20,
+      "raw_source_rows": 7,
+      "reader_sha256": "ce3a976d84d73e737a2e4761dc74b8394d52fbb3304d54d10e32ae42aa811ba1",
+      "review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+      "schema": "research.independent-frozen-source-data-validation/1",
+      "source_identity_only": true,
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "test_command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/source292-data-tests-20261105-002 C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\source292-source-snapshot\\test_source292_data.py",
+      "test_seconds": 3.95,
+      "tests_sha256": "010d322b53069f7f11e13466a8b481b0140f135af4fa6a6251ab30fbff7be805"
+    },
+    "review": {
+      "actual_worker_request_bytes_verified": true,
+      "additional_rows": [],
+      "arm": "P05",
+      "artifact_id": 13427114200,
+      "closed_generic_predicate_reader_sha256": "3e4e72bd95cb9c83ecd5a181f6c28b270ea23625b56949cc4271493ef500dc26",
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_raw_row_digest_verified": true,
+      "head": "440b637abbda0ae8e6347de407713627a2832a13",
+      "independent_raw_source_proof": {
+        "all_native_date_action_rows": 20,
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+        "fresh_full_archive_rehash_at_DATA_use": true,
+        "full_rows": 7,
+        "original_actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+        "passed": true,
+        "rows": {
+          "2021-12-06:505590033806659541": "86b7e8e192c229c7dfbe54ea6dc43d6f161afbd4ee8c6a2b19e55970e59d307b",
+          "2021-12-09:413759046550141969": "d55fb44005e4ed942560186bf9b68cbd2cd3b5bdbf38786f8285abc810909edf",
+          "2021-12-31:644546217848577516": "80bcd8b951e64901901134690007031ecccd536a3ec3bd1e8765519e5210fa9f",
+          "2022-02-11:79288825945223775": "97fea4460f8cbf9a3f66f9bef2d573f7a47cfaa4266d7e0a994d40090896c301",
+          "2022-02-23:1103823526630607847": "444d965cbbc5225a345b4e155c7426537f8b771264b6b6eddb07972aaac8bdbe",
+          "2022-02-25:150296277399646272": "d0d5d7c584b110abfdf42b3b86be9387b545f4856218e3a589ba82531f1996e3",
+          "2022-03-02:631181427311568999": "daa140922a71fe0a4269d8a1efb960b4cc52550d6c20a65c36fee34af4d27982"
+        },
+        "rows_scanned": {
+          "2021": 1898353,
+          "2022": 2080223
+        }
+      },
+      "independent_reader_sha256": "ce3a976d84d73e737a2e4761dc74b8394d52fbb3304d54d10e32ae42aa811ba1",
+      "input_adopted": false,
+      "local_canonical_runtime_executed": false,
+      "old_financial_rows_reaudited": 0,
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_pending_context": {
+        "1103823526630607847": [],
+        "150296277399646272": [],
+        "413759046550141969": [],
+        "505590033806659541": [],
+        "631181427311568999": [],
+        "644546217848577516": [],
+        "79288825945223775": []
+      },
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "parent_selected": {
+        "1103823526630607847": true,
+        "150296277399646272": true,
+        "413759046550141969": true,
+        "505590033806659541": true,
+        "631181427311568999": true,
+        "644546217848577516": true,
+        "79288825945223775": true
+      },
+      "passed": true,
+      "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+      "run_id": 42052618369,
+      "schema": "research.independent-frozen-source-data-review/1",
+      "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239",
+      "source_closure": {
+        "all_selected_sources_exact": true,
+        "original383_exact": true,
+        "producer_source_count": 444
+      },
+      "source_identity_qualified_for_separate_future_input_review": true,
+      "source_value_or_settlement_timing_qualified": false,
+      "terms": [
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1252849",
+            "listing_first_session": "2013-10-10",
+            "security_id": "505590033806659541",
+            "security_type_eligible": "1",
+            "session": "2021-12-06",
+            "source_observation_sha256": "86b7e8e192c229c7dfbe54ea6dc43d6f161afbd4ee8c6a2b19e55970e59d307b",
+            "ticker": "CXP"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2215.2",
+            "security_id": "505590033806659541",
+            "session": "2021-12-07"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:47518",
+            "listing_first_session": "1997-12-31",
+            "security_id": "413759046550141969",
+            "security_type_eligible": "1",
+            "session": "2021-12-09",
+            "source_observation_sha256": "d55fb44005e4ed942560186bf9b68cbd2cd3b5bdbf38786f8285abc810909edf",
+            "ticker": "HRC"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=10301.2",
+            "security_id": "413759046550141969",
+            "session": "2021-12-10"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:19411",
+            "listing_first_session": "2004-02-25",
+            "security_id": "644546217848577516",
+            "security_type_eligible": "1",
+            "session": "2021-12-31",
+            "source_observation_sha256": "80bcd8b951e64901901134690007031ecccd536a3ec3bd1e8765519e5210fa9f",
+            "ticker": "MGLN"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=2501.3",
+            "security_id": "644546217848577516",
+            "session": "2022-01-03"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1720821",
+            "listing_first_session": "2018-09-07",
+            "security_id": "79288825945223775",
+            "security_type_eligible": "1",
+            "session": "2022-02-11",
+            "source_observation_sha256": "97fea4460f8cbf9a3f66f9bef2d573f7a47cfaa4266d7e0a994d40090896c301",
+            "ticker": "PAE"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=935.8",
+            "security_id": "79288825945223775",
+            "session": "2022-02-14"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:29669",
+            "listing_first_session": "1997-12-31",
+            "security_id": "1103823526630607847",
+            "security_type_eligible": "1",
+            "session": "2022-02-23",
+            "source_observation_sha256": "444d965cbbc5225a345b4e155c7426537f8b771264b6b6eddb07972aaac8bdbe",
+            "ticker": "RRD"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=815.3",
+            "security_id": "1103823526630607847",
+            "session": "2022-02-24"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1783317",
+            "listing_first_session": "2020-10-22",
+            "security_id": "150296277399646272",
+            "security_type_eligible": "1",
+            "session": "2022-02-25",
+            "source_observation_sha256": "d0d5d7c584b110abfdf42b3b86be9387b545f4856218e3a589ba82531f1996e3",
+            "ticker": "MCFE"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=11460.3",
+            "security_id": "150296277399646272",
+            "session": "2022-02-28"
+          },
+          "parent_positions": []
+        },
+        {
+          "identity_witness": {
+            "issuer_id": "SEC_CIK:1002517",
+            "listing_first_session": "1997-12-31",
+            "security_id": "631181427311568999",
+            "security_type_eligible": "1",
+            "session": "2022-03-02",
+            "source_observation_sha256": "daa140922a71fe0a4269d8a1efb960b4cc52550d6c20a65c36fee34af4d27982",
+            "ticker": "NUAN"
+          },
+          "native_term": {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/acquisitionby deal_value_musd=17882.4",
+            "security_id": "631181427311568999",
+            "session": "2022-03-03"
+          },
+          "parent_positions": []
+        }
+      ],
+      "utc": "2026-11-05T15:25:26.687330+00:00"
+    }
+  },
+  "terms": [
+    {
+      "actual_completion_date": "2021-12-08",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 19.3,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1252849/000125284921000127/cxp-20211208.htm | Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+        "security_id": "505590033806659541",
+        "session": "2021-12-08"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1252849",
+        "listing_first_session": "2013-10-10",
+        "security_id": "505590033806659541",
+        "security_type_eligible": "1",
+        "session": "2021-12-06",
+        "source_observation_sha256": "86b7e8e192c229c7dfbe54ea6dc43d6f161afbd4ee8c6a2b19e55970e59d307b",
+        "ticker": "CXP"
+      },
+      "last_trading_session": "2021-12-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2215.2",
+        "security_id": "505590033806659541",
+        "session": "2021-12-07"
+      },
+      "native_session": "2021-12-07",
+      "native_term_sha256": "7ae3331e4bbb3f576ebfcaa0dcc8b2f8aa2f01bbb3db77d42f4b3bdaf5a319ba",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "19.30",
+        "completion_date": "2021-12-08",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": false,
+        "source": "https://www.sec.gov/Archives/edgar/data/1252849/000125284921000127/cxp-20211208.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1252849/000125284921000127/cxp-20211208.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "19.30",
+        "recognition_session": "2021-12-08",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "505590033806659541",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "tax_components": {
+        "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+        "dividend_component": "2.17",
+        "frozen_final_observations": [
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-01",
+            "source_observation_sha256": "d611cd4c2b4f4f7f56972537ab84b71f84d0ec8403fc3d77173abb82579eebda"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-02",
+            "source_observation_sha256": "5aab96650b0aae811686ba12e8eac8607056501302093e730349634dd1f1b4cc"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-03",
+            "source_observation_sha256": "e0e38cd14066ac39aacfafac0af08c004cb7386623c2184cfff08f4d321fbd0b"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-04",
+            "source_observation_sha256": "2ace0a8e0ec6d1e9c7f1db7072e7d4c572bcb3b3fecae7cbcd6da9557fb4a113"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-05",
+            "source_observation_sha256": "a1144c53df34e0e6e1462e0a3cca8ade83db6f8b9fc0fbd9051458d162e16cb0"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-08",
+            "source_observation_sha256": "d6cb913011442d8cb5e87e868b3cc2ceaf6223a9e9aa255f16b241ccb557892f"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-09",
+            "source_observation_sha256": "5fad7343803194b5057b00578ea3314f8fb38fab26c19837359ff9340e24884c"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-10",
+            "source_observation_sha256": "b5ed47ecb8e21cbe5197233f778d05fb8d5919a4f855dd95babf87d6edcb3d81"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-11",
+            "source_observation_sha256": "51ebea41d3fe7da0f2de067c862fc9a9d0ff9c52ebcde9796fe6953f7c82710d"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-12",
+            "source_observation_sha256": "d2982c095d357f2769c28fd8a3e16e0cd19923589478cdefc3f156560639c9de"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-15",
+            "source_observation_sha256": "dafcf841eb6b03465d33cb76cedf9c6f6e8fad00b63af5436b3a21230b34d7f6"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-16",
+            "source_observation_sha256": "305a26015e327abd5b99e2ce15d515f93ff5b3dad61b79da9b7bb1d1958fba28"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-17",
+            "source_observation_sha256": "a4fb6469c7e1615233cc0bd77f5cc3ec6c9337ffd7fd1d69b4f0c50ae6d1e654"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-18",
+            "source_observation_sha256": "7b079b98c4295868028e283e5e7d9e0fa552ae54e1c0d4339086ea12e35e60c2"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-19",
+            "source_observation_sha256": "7ecdf0d81ae942808627175aef75ff34e179edf545d3b88cca648258f4b54a5e"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-22",
+            "source_observation_sha256": "d2c3a5ca93cace4c47c0af72aac216c19ef3488cfd06b055969342606efcbc6b"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-23",
+            "source_observation_sha256": "f46caed20b6c278d7e07825c17d5b462c78beb3ad8a4e1c34415e2ac5c90ed42"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-24",
+            "source_observation_sha256": "12e3a870369365e7b5e623086e97f3d9d6cc02645d66d7960012b9ebe438d8b4"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-26",
+            "source_observation_sha256": "1549c02ce198c23f2934c9fa7386f16b8929262bc1f3e639a81edac4b2996367"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-29",
+            "source_observation_sha256": "b374079d00b1340766d1833c9d0a7dc7c157f58f143a73de6e4f731f6f5d5cbe"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-11-30",
+            "source_observation_sha256": "f8dc848a9e249bbc92c2f54bb1378e584bb9e5f6168bf46e79089be94e77d773"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-12-01",
+            "source_observation_sha256": "761d071482f05a24988a84c16fe4a18d75b04edfd0e4a4fec698375d924e44e5"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-12-02",
+            "source_observation_sha256": "9d9f09078f0acc9999f2e3bf65a418a7bd4f4291361a4cf888522fb1460795ca"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-12-03",
+            "source_observation_sha256": "44c65e5d4bc8d6eaf160e92f3baf341c41fd16f9afb97e77f0e34e169181b73e"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-12-06",
+            "source_observation_sha256": "86b7e8e192c229c7dfbe54ea6dc43d6f161afbd4ee8c6a2b19e55970e59d307b"
+          },
+          {
+            "dividend_per_share": "0",
+            "session": "2021-12-07",
+            "source_observation_sha256": "d44a7afb935eeeeca83ab41d710b5d41e7f77b3996409cf2a435f24bbf73b1aa"
+          }
+        ],
+        "one_combined_payment": true,
+        "proceeds_component": "17.13",
+        "raw_diagnostic_sha256": "05a4b68d1201465cbd89aae96d252ab95c34d59bd043169d7bac33d904dd2a61",
+        "schema": "research.single-cash-payment-tax-components/1",
+        "separate_dividend_to_add": false,
+        "source": "https://ir.columbia.reit/resources/faqs/default.aspx",
+        "total_payment": "19.30"
+      },
+      "ticker": "CXP",
+      "timing_source": "https://ir.columbia.reit/resources/faqs/default.aspx"
+    },
+    {
+      "actual_completion_date": "2021-12-13",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 156.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/10456/000162828021024946/bax-20211213pressreleasexe.htm | Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+        "security_id": "413759046550141969",
+        "session": "2021-12-13"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:47518",
+        "listing_first_session": "1997-12-31",
+        "security_id": "413759046550141969",
+        "security_type_eligible": "1",
+        "session": "2021-12-09",
+        "source_observation_sha256": "d55fb44005e4ed942560186bf9b68cbd2cd3b5bdbf38786f8285abc810909edf",
+        "ticker": "HRC"
+      },
+      "last_trading_session": "2021-12-10",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=10301.2",
+        "security_id": "413759046550141969",
+        "session": "2021-12-10"
+      },
+      "native_session": "2021-12-10",
+      "native_term_sha256": "0cf0409fa93cc7a8c9c81009dcd246591846fbf9237f4ed06bcac1377d937969",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "156.00",
+        "completion_date": "2021-12-13",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": false,
+        "source": "https://www.sec.gov/Archives/edgar/data/10456/000162828021024946/bax-20211213pressreleasexe.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/10456/000162828021024946/bax-20211213pressreleasexe.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "156.00",
+        "recognition_session": "2021-12-13",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "413759046550141969",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "HRC",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/10456/000162828021024946/bax-20211213pressreleasexe.htm"
+    },
+    {
+      "actual_completion_date": "2022-01-04",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 95.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1071739/000114036122000513/ny20001858x4_8k.htm | Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+        "security_id": "644546217848577516",
+        "session": "2022-01-04"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:19411",
+        "listing_first_session": "2004-02-25",
+        "security_id": "644546217848577516",
+        "security_type_eligible": "1",
+        "session": "2021-12-31",
+        "source_observation_sha256": "80bcd8b951e64901901134690007031ecccd536a3ec3bd1e8765519e5210fa9f",
+        "ticker": "MGLN"
+      },
+      "last_trading_session": "2022-01-03",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2501.3",
+        "security_id": "644546217848577516",
+        "session": "2022-01-03"
+      },
+      "native_session": "2022-01-03",
+      "native_term_sha256": "b26916c7396760a17752c7bd49f128bf9b14d5accb27cd5fec65a8e03a184c68",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "95.00",
+        "completion_date": "2022-01-04",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": true,
+        "source": "https://www.sec.gov/Archives/edgar/data/1071739/000114036122000513/ny20001858x4_8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1071739/000114036122000513/ny20001858x4_8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "644546217848577516",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "MGLN",
+      "timing_source": "https://investors.centene.com/2022-01-04-Centene-Completes-Acquisition-of-Magellan-Health,-Establishing-a-Leading-Behavioral-Health-Platform-at-a-Critical-Time"
+    },
+    {
+      "actual_completion_date": "2022-02-15",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.05,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.globenewswire.com/news-release/2022/02/15/2385413/0/en/pae-announces-closing-of-merger-with-an-affiliate-of-amentum-government-services-holdings-llc.html | Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+        "security_id": "79288825945223775",
+        "session": "2022-02-15"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1720821",
+        "listing_first_session": "2018-09-07",
+        "security_id": "79288825945223775",
+        "security_type_eligible": "1",
+        "session": "2022-02-11",
+        "source_observation_sha256": "97fea4460f8cbf9a3f66f9bef2d573f7a47cfaa4266d7e0a994d40090896c301",
+        "ticker": "PAE"
+      },
+      "last_trading_session": "2022-02-14",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=935.8",
+        "security_id": "79288825945223775",
+        "session": "2022-02-14"
+      },
+      "native_session": "2022-02-14",
+      "native_term_sha256": "2b4f3b0dab1319948132dd10c96fbb2e9c0a554fcfaf37591c7a3a8bec11bf88",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "10.05",
+        "completion_date": "2022-02-15",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": true,
+        "source": "https://www.globenewswire.com/news-release/2022/02/15/2385413/0/en/pae-announces-closing-of-merger-with-an-affiliate-of-amentum-government-services-holdings-llc.html"
+      },
+      "primary_source": "https://www.globenewswire.com/news-release/2022/02/15/2385413/0/en/pae-announces-closing-of-merger-with-an-affiliate-of-amentum-government-services-holdings-llc.html",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "79288825945223775",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "PAE",
+      "timing_source": "https://www.globenewswire.com/news-release/2022/02/15/2385413/0/en/pae-announces-closing-of-merger-with-an-affiliate-of-amentum-government-services-holdings-llc.html"
+    },
+    {
+      "actual_completion_date": "2022-02-25",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.85,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/29669/000119312522053784/d219453dex991.htm | Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+        "security_id": "1103823526630607847",
+        "session": "2022-02-25"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:29669",
+        "listing_first_session": "1997-12-31",
+        "security_id": "1103823526630607847",
+        "security_type_eligible": "1",
+        "session": "2022-02-23",
+        "source_observation_sha256": "444d965cbbc5225a345b4e155c7426537f8b771264b6b6eddb07972aaac8bdbe",
+        "ticker": "RRD"
+      },
+      "last_trading_session": "2022-02-24",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=815.3",
+        "security_id": "1103823526630607847",
+        "session": "2022-02-24"
+      },
+      "native_session": "2022-02-24",
+      "native_term_sha256": "54cb5fc3645c0609c5865e94630440723d96c3b4db6534cfedf5527db5d1eb8b",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "10.85",
+        "completion_date": "2022-02-25",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": false,
+        "source": "https://www.sec.gov/Archives/edgar/data/29669/000119312522053784/d219453dex991.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/29669/000119312522053784/d219453dex991.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "10.85",
+        "recognition_session": "2022-02-25",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "1103823526630607847",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "RRD",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/29669/000119312522053784/d219453d8k.htm"
+    },
+    {
+      "actual_completion_date": "2022-03-01",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-34 | Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+        "security_id": "150296277399646272",
+        "session": "2022-03-01"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with confirmed preopen completion; actual settlement is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1783317",
+        "listing_first_session": "2020-10-22",
+        "security_id": "150296277399646272",
+        "security_type_eligible": "1",
+        "session": "2022-02-25",
+        "source_observation_sha256": "d0d5d7c584b110abfdf42b3b86be9387b545f4856218e3a589ba82531f1996e3",
+        "ticker": "MCFE"
+      },
+      "last_trading_session": "2022-02-28",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=11460.3",
+        "security_id": "150296277399646272",
+        "session": "2022-02-28"
+      },
+      "native_session": "2022-02-28",
+      "native_term_sha256": "ac6da5b2c6724d36192f176d569ae1bcccb4e12e3f3544a1f274d176adb384c7",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "26.00",
+        "completion_date": "2022-03-01",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": true,
+        "source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-34"
+      },
+      "primary_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-34",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "150296277399646272",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "MCFE",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-34"
+    },
+    {
+      "actual_completion_date": "2022-03-04",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 56.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1002517/000119312522066065/d316980d8k.htm | Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+        "security_id": "631181427311568999",
+        "session": "2022-03-04"
+      },
+      "arm": "P05",
+      "description": "Published mandatory common cash consideration with explicit research opening recognition on the completion date; historical opening availability and actual settlement are unverified.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1002517",
+        "listing_first_session": "1997-12-31",
+        "security_id": "631181427311568999",
+        "security_type_eligible": "1",
+        "session": "2022-03-02",
+        "source_observation_sha256": "daa140922a71fe0a4269d8a1efb960b4cc52550d6c20a65c36fee34af4d27982",
+        "ticker": "NUAN"
+      },
+      "last_trading_session": "2022-03-03",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=17882.4",
+        "security_id": "631181427311568999",
+        "session": "2022-03-03"
+      },
+      "native_session": "2022-03-03",
+      "native_term_sha256": "5bc9ad32f70f91a5247f6ae8c5895c2fe4debd00886a0a849b221f14845f18cc",
+      "parent_cursor": "2021-11-30",
+      "parent_outer_sha256": "c720960dc19f452d8a67e72a13e8caefd4374fbf3a7610fc4d2e21f865c940e6",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "bb544ebebf83b35219a33ddb30141404c9df6243f5736eee1a069a8420ba96d5",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_settlement_claimed": false,
+        "cash_currency": "USD",
+        "cash_per_share": "56.00",
+        "completion_date": "2022-03-04",
+        "historical_causality": "UNVERIFIED",
+        "mandatory_common_cash": true,
+        "preopen_completion_confirmed": false,
+        "source": "https://www.sec.gov/Archives/edgar/data/1002517/000119312522066065/d316980d8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1002517/000119312522066065/d316980d8k.htm",
+      "recognition_rule": "RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY",
+      "research_assumption": {
+        "actual_settlement_claimed": false,
+        "opening_availability_assumed": true,
+        "published_cash_per_share": "56.00",
+        "recognition_session": "2022-03-04",
+        "schema": "research.daily-economic-cash-assumption/1",
+        "settlement_fees": "IGNORED_FOR_RESEARCH"
+      },
+      "security_id": "631181427311568999",
+      "source_capture": {
+        "artifact_id": 13427114200,
+        "head": "440b637abbda0ae8e6347de407713627a2832a13",
+        "independent_data_review_sha256": "0a546de786fb8c612071c0f36edce1eca3615555ec4f2dd3a5e736efcea12d44",
+        "independent_qualification_sha256": "97c8445d0d84b9d62095c968c76f404aa6628fee2290826c2695ff287021a680",
+        "payload_sha256": "afcc84bfd85b6dfcfc27aeeca123af92025a4af868138b9371decc5d4110f3b2",
+        "run_id": 42052618369,
+        "scope_sha256": "7d7a410b7e5963cac31aae99ae6c10c0692a38196719905ea8d9e0b16990d239"
+      },
+      "ticker": "NUAN",
+      "timing_source": "https://news.microsoft.com/source/2022/03/04/microsoft-completes-acquisition-of-nuance-ushering-in-new-era-of-outcomes-based-ai/"
+    }
+  ]
+}

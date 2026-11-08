@@ -1,0 +1,960 @@
+{
+  "actual_new_canonical_restores": 20,
+  "arm": "P10",
+  "artifact_id": 13148420006,
+  "authenticated_manifest_sha256": "a307810af4a413a14c5780c9d3c4150dd4b56482be6c26b1402060bbba5d9e0e",
+  "authority": "DISCOVERY_ONLY_NOT_FINANCIAL_AUTHORITY",
+  "encrypted_output": {
+    "bytes": 142070253,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "195cc1df9daeacf5cffacd563c131cd72b1908cf4e8fe28076503328c291d71a",
+    "name": "p10-ahl2-qualification.tar.crseal",
+    "sha256": "a09aed846f18edb405d90a115e5b9c477515364021705dff8634ed0918fb9b97"
+  },
+  "financial_authority": false,
+  "full_inventory": {
+    "fast/actual-journal-recovery.json": {
+      "bytes": 1155,
+      "sha256": "9adfdf5d7d2dcd580d4b9387360f08253429269a8087fae5d13ac5b8ea2183ce"
+    },
+    "fast/actual-native-guard-trace.jsonl": {
+      "bytes": 365200,
+      "sha256": "1dae93efc4c5869efae88936e30d17f9aa20943f04f5ecf5085311d9d707fa52"
+    },
+    "fast/actual-runtime-path/2019-02-04.json.gz": {
+      "bytes": 4213273,
+      "sha256": "fe2400c3033e1af9ab71f1b8484c0ca9837653279cae65864b83a65b960a69e8"
+    },
+    "fast/actual-runtime-path/2019-02-05.json.gz": {
+      "bytes": 4223116,
+      "sha256": "3075f770468e801fd2b04ff50f87e09bd01af44d08de9db936d247daa2397d4b"
+    },
+    "fast/actual-runtime-path/2019-02-06.json.gz": {
+      "bytes": 4207388,
+      "sha256": "e2fee7715dc02555ae4b1112c315f1fe65f9f61669ece548c02124a758fb459f"
+    },
+    "fast/actual-runtime-path/2019-02-07.json.gz": {
+      "bytes": 4192774,
+      "sha256": "223ff9241bb59d4fd25499680d7b6bb586ac0809b175050a2eced6b09fad2904"
+    },
+    "fast/actual-runtime-path/2019-02-08.json.gz": {
+      "bytes": 4185409,
+      "sha256": "d1319bbca86c2b24e1e013e71b6eea47c3d129ff51f01c2b43f3279dc36e2fcd"
+    },
+    "fast/actual-runtime-path/2019-02-11.json.gz": {
+      "bytes": 4198942,
+      "sha256": "63c7ee96061f93856d207a844fe603bfb1bf66fbb10423f0877a485694e71c99"
+    },
+    "fast/actual-runtime-path/2019-02-12.json.gz": {
+      "bytes": 4188362,
+      "sha256": "512f3a99a3abb36082033e51a066554a2e3090de999a89671013f7bd7219d031"
+    },
+    "fast/actual-runtime-path/2019-02-13.json.gz": {
+      "bytes": 4196088,
+      "sha256": "bb46343def8abb4d67a52b4961e7bd6a3566c68eb0daa2c2798a215e98f0054c"
+    },
+    "fast/actual-runtime-path/2019-02-14.json.gz": {
+      "bytes": 4207744,
+      "sha256": "e1dbedcde0c0ed19b0f27804ddce0378731d692c14ec1907ca72295bf0cf1728"
+    },
+    "fast/actual-runtime-path/2019-02-15.json.gz": {
+      "bytes": 4280475,
+      "sha256": "b409e7e27f0f61b92ddd2d66b923bbd11e339d3de8e4a155380cf03bf786f512"
+    },
+    "fast/actual-source-subset.json": {
+      "bytes": 1879,
+      "sha256": "8093046815a9c36c6010ba996f72fe054315624817ea1155ecda5ae852cb32e8"
+    },
+    "fast/anchor-qualifications/index.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "fast/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "fast/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "fast/book/repairs/c2695ae1aad69c1deec4c8768bf8c46d08d8b6a0ee96c40bcda5adf674b35739.json": {
+      "bytes": 1966,
+      "sha256": "c2695ae1aad69c1deec4c8768bf8c46d08d8b6a0ee96c40bcda5adf674b35739"
+    },
+    "fast/diagnostic-book/daily.jsonl": {
+      "bytes": 14154,
+      "sha256": "50604ef839b236d0ba9fad251b8b8bccfdebe05fdbdc9bb16abb1f996e833e19"
+    },
+    "fast/diagnostic-book/discovery-checkpoint.json.gz": {
+      "bytes": 962739,
+      "sha256": "5b9140bb9f438d8eb423b7f606aab081128f3aee870b7deab38e559b7d1c0b65"
+    },
+    "fast/diagnostic-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/diagnostic-book/interrupted-daily-1191a517065846ee9d1cfad0c793c010.jsonl": {
+      "bytes": 12739,
+      "sha256": "c1870978273894b985191b3f2969a1b4bc4d512c0aa98c50de78c5e796409ac1"
+    },
+    "fast/diagnostic-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-07.json.gz": {
+      "bytes": 966375,
+      "sha256": "aaf501bb61fe7543e5d0327d0655b6c55813a1da781b1d1276b042dfae09d7bb"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-08.json.gz": {
+      "bytes": 958102,
+      "sha256": "d5772dd4aa95809ce6a9e6350fe015208e9f1cc20674287731dbb8c78ccc44e2"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-11.json.gz": {
+      "bytes": 956844,
+      "sha256": "69fc5eaa0dbbdab0d022f5e32fec82d8a98c6c8bb517b894273b07932b3c7f10"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-12.json.gz": {
+      "bytes": 961117,
+      "sha256": "8ab2d926ed455a9eaea550b1a8c3174d50baba91c5c2ab24dcb4e6dca6b83598"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-13.json.gz": {
+      "bytes": 953418,
+      "sha256": "6da018f5f19a3a1196d813ff4cf8523560d38eb7e834d7f792d25b0e0b59607e"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-14.json.gz": {
+      "bytes": 962771,
+      "sha256": "e6838d2b3d63f2ef4ae6800eaf2df337a424f18a5a465c840a8541d3c6092bcf"
+    },
+    "fast/diagnostic-book/pre-event/2019-02-15.json.gz": {
+      "bytes": 962739,
+      "sha256": "5b9140bb9f438d8eb423b7f606aab081128f3aee870b7deab38e559b7d1c0b65"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-01.json.gz": {
+      "bytes": 962699,
+      "sha256": "284c70a9ccf9dd9e0f8ef3fba5c644b850772546781fe1c93b16228e210e6c4f"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-04.json.gz": {
+      "bytes": 970175,
+      "sha256": "f457b47fcdfa6b1a178ab129465561e86b7424b6fc7ec21de84d350dfb9b4ed1"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-06.json.gz": {
+      "bytes": 966375,
+      "sha256": "aaf501bb61fe7543e5d0327d0655b6c55813a1da781b1d1276b042dfae09d7bb"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-07.json.gz": {
+      "bytes": 958102,
+      "sha256": "d5772dd4aa95809ce6a9e6350fe015208e9f1cc20674287731dbb8c78ccc44e2"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-08.json.gz": {
+      "bytes": 956844,
+      "sha256": "69fc5eaa0dbbdab0d022f5e32fec82d8a98c6c8bb517b894273b07932b3c7f10"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-11.json.gz": {
+      "bytes": 961117,
+      "sha256": "8ab2d926ed455a9eaea550b1a8c3174d50baba91c5c2ab24dcb4e6dca6b83598"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-12.json.gz": {
+      "bytes": 953418,
+      "sha256": "6da018f5f19a3a1196d813ff4cf8523560d38eb7e834d7f792d25b0e0b59607e"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-13.json.gz": {
+      "bytes": 962771,
+      "sha256": "e6838d2b3d63f2ef4ae6800eaf2df337a424f18a5a465c840a8541d3c6092bcf"
+    },
+    "fast/diagnostic-book/retained-checkpoints/2019-02-14.json.gz": {
+      "bytes": 962739,
+      "sha256": "5b9140bb9f438d8eb423b7f606aab081128f3aee870b7deab38e559b7d1c0b65"
+    },
+    "fast/diagnostic-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/diagnostic-input-epochs.jsonl": {
+      "bytes": 3435,
+      "sha256": "1aace7771b2e08e5fb7af3326eaf01661a95b4fa5ecd1af573918a884915d4d3"
+    },
+    "fast/discovery-authority.json": {
+      "bytes": 492,
+      "sha256": "98de9cd2e2267b1ce027af680a86648d34e150b4c45089cf6b6bdd77135b6ea6"
+    },
+    "fast/discovery-events.jsonl": {
+      "bytes": 72290,
+      "sha256": "b09ed1eaac8c313ce6302ba5426148302ee5fe5a7b1ae74a9d448279d1ae0eb8"
+    },
+    "fast/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "fast/lineage/diagnostic-predecessor/anchor-qualifications/index.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "fast/lineage/diagnostic-predecessor/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "fast/lineage/diagnostic-predecessor/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/2019-01-31.json.gz": {
+      "bytes": 958576,
+      "sha256": "97d65bbc9bb786aa9efca20ffdee648c27a44880eb9557013890393d2b994afc"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/2019-02-01.json.gz": {
+      "bytes": 961722,
+      "sha256": "647f70959a360229a1526e837cdb5936727831a8daa83c434ce0cf5eef523bf6"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/daily.jsonl": {
+      "bytes": 14154,
+      "sha256": "285d25a354aa8c4c1dd064dad35cc53e825761686c27ac409febfb36a16d16c4"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/discovery-checkpoint.json.gz": {
+      "bytes": 961722,
+      "sha256": "647f70959a360229a1526e837cdb5936727831a8daa83c434ce0cf5eef523bf6"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/diagnostic-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/discovery-authority.json": {
+      "bytes": 492,
+      "sha256": "98de9cd2e2267b1ce027af680a86648d34e150b4c45089cf6b6bdd77135b6ea6"
+    },
+    "fast/lineage/diagnostic-predecessor/discovery-events.jsonl": {
+      "bytes": 73110,
+      "sha256": "2b635d60ade3303da165782dc1c3c61f1dc4d837b51bb337460b9842552f25c6"
+    },
+    "fast/lineage/diagnostic-predecessor/driver-failure.txt": {
+      "bytes": 577,
+      "sha256": "c271588ca35711c2ed363ad36be2c7e1bce1ed7ac4fecc989a30149941ea3437"
+    },
+    "fast/lineage/diagnostic-predecessor/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/discovery-canonical-qualification.json": {
+      "bytes": 2930,
+      "sha256": "972aba38a3b7b231a4f2efdb4b7b705824734e74e633e2206c2e6f9429940471"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/actual-runtime-path.json.gz": {
+      "bytes": 2350099,
+      "sha256": "3478213f1f6f7c665fba6cb70c75a12de8ce71da1cf073e08275f92f5aafeba1"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/discovery-canonical-qualification.json": {
+      "bytes": 2494,
+      "sha256": "ea4546dc9dd987bf88986d23720eb77a669b90a9227b9e28b36e43b3e45098b2"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/discovery-events.jsonl": {
+      "bytes": 9791,
+      "sha256": "f1adf579278f06c1f9eb9cda881397b390e1962e408e31876d8d8b4654f0e257"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/expected-held-input-refusal/discovery-events.jsonl": {
+      "bytes": 8508,
+      "sha256": "1cfedb9f98fe586673ef9526b4c46e557e3a6ed359528b32057fb0c681fbc10d"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/expected-held-input-refusal/proof.json": {
+      "bytes": 754,
+      "sha256": "d28c9615ddd6aa0ab6dc0665573e1922df318d552660360804bd1b6688895b07"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/qualification-book/daily.jsonl": {
+      "bytes": 987,
+      "sha256": "2898e8f10610e17bf73a23e9374be264ede51acacb7e6b78966225cfeba73be9"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/qualification-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/qualification-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/fast/qualification-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-01.json.gz": {
+      "bytes": 775649,
+      "sha256": "4fe2633b83eafe6144dcf219f45290c2c0fd8943a713c4ec16c486c3a23faac6"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-04.json.gz": {
+      "bytes": 786145,
+      "sha256": "d9faf3a11aa46b8fdaea19177200f363fcce34e63948ac204438613f2caf5ef1"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-05.json.gz": {
+      "bytes": 788144,
+      "sha256": "e9f64e1f4d7eee56bc4d924b4e1819c5a25ce6dc325f46a47c93780a17486f7a"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/native-fast-progress/phases.jsonl": {
+      "bytes": 1301,
+      "sha256": "34170c1d557a65cb13c230ffe2bfe0d71cebd384bdbe23d2353ccce526902be3"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/actual-runtime-path.json.gz": {
+      "bytes": 2350099,
+      "sha256": "b5a5a30f3d28e0c029e4a7108d71ebe5617b04f8ad232939ddac482bc4c1035c"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/discovery-canonical-qualification.json": {
+      "bytes": 2494,
+      "sha256": "ea4546dc9dd987bf88986d23720eb77a669b90a9227b9e28b36e43b3e45098b2"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/discovery-events.jsonl": {
+      "bytes": 9791,
+      "sha256": "f1adf579278f06c1f9eb9cda881397b390e1962e408e31876d8d8b4654f0e257"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/expected-held-input-refusal/discovery-events.jsonl": {
+      "bytes": 8508,
+      "sha256": "1cfedb9f98fe586673ef9526b4c46e557e3a6ed359528b32057fb0c681fbc10d"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/expected-held-input-refusal/proof.json": {
+      "bytes": 754,
+      "sha256": "d28c9615ddd6aa0ab6dc0665573e1922df318d552660360804bd1b6688895b07"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/qualification-book/daily.jsonl": {
+      "bytes": 987,
+      "sha256": "2898e8f10610e17bf73a23e9374be264ede51acacb7e6b78966225cfeba73be9"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/qualification-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/qualification-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/reference/qualification-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/request.json": {
+      "bytes": 51856,
+      "sha256": "bcaa266acd6ba06e193f71748dff7c6b9a85ccf3c25c7502ecdc60c11ba9d5c8"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/retained-reference-admission.json": {
+      "bytes": 786,
+      "sha256": "505f4188daca3560d57b4acd131668114ad8e09c35fbc871d953c0e8c767e793"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/source-bindings.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/spec.json": {
+      "bytes": 31255,
+      "sha256": "8a6fd795f8aa12bcee7d910af613d3280463128d65146ccb498e9368106b10f5"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/strict-parent.json.gz": {
+      "bytes": 972317,
+      "sha256": "7937d0feb599c442a53b29e2b75a1cfc0c714140fd54d73c0ad7b06484358a21"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/worker-inspect.json": {
+      "bytes": 11532,
+      "sha256": "05904a3e3f25d22e711929d296c3f60a5a2ff502c2e63f640bdc3c37756fe37f"
+    },
+    "fast/lineage/diagnostic-predecessor/qualification/worker.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/request.json": {
+      "bytes": 51856,
+      "sha256": "bcaa266acd6ba06e193f71748dff7c6b9a85ccf3c25c7502ecdc60c11ba9d5c8"
+    },
+    "fast/lineage/diagnostic-predecessor/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/lineage/diagnostic-predecessor/source-bindings.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "fast/lineage/diagnostic-predecessor/spec.json": {
+      "bytes": 31255,
+      "sha256": "8a6fd795f8aa12bcee7d910af613d3280463128d65146ccb498e9368106b10f5"
+    },
+    "fast/lineage/diagnostic-predecessor/strict-parent-reference.json": {
+      "bytes": 1155,
+      "sha256": "b97b3a21297f657277b5342b25506282ab237304d7d48fd99bc22dd694fcce7c"
+    },
+    "fast/lineage/diagnostic-predecessor/strict-parent-transport-admission.json": {
+      "bytes": 1155,
+      "sha256": "b97b3a21297f657277b5342b25506282ab237304d7d48fd99bc22dd694fcce7c"
+    },
+    "fast/lineage/diagnostic-predecessor/strict-parent.json.gz": {
+      "bytes": 972317,
+      "sha256": "7937d0feb599c442a53b29e2b75a1cfc0c714140fd54d73c0ad7b06484358a21"
+    },
+    "fast/lineage/diagnostic-predecessor/worker-inspect.json": {
+      "bytes": 11082,
+      "sha256": "7070ede36097f350052a89d159594cb5d413be465eb091bfb100a27abb15cb4f"
+    },
+    "fast/lineage/diagnostic-predecessor/worker.log": {
+      "bytes": 2845,
+      "sha256": "de4896cddd4ec96b849af15db4e73d8282e08b5fe497c39dc10985d99ff130c5"
+    },
+    "fast/p10-observer-summary.json": {
+      "bytes": 6121,
+      "sha256": "246d1995f3be07db7b8f7f7f5c82bb7793a20924c6906bfca21c9b806c3f7639"
+    },
+    "fast/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fast/source-contract.json": {
+      "bytes": 2255,
+      "sha256": "de6dc3b6320c8dd60eac22c5a1037a4a6951aa1758fa3da373781449e5cca5c6"
+    },
+    "fast/zero-input-epoch.json": {
+      "bytes": 19455334,
+      "sha256": "263f51c899accca13a807efeb1ba3830e6480c8b0a975b886830d9be4f395e0a"
+    },
+    "old-refusal/actual-journal-recovery.json": {
+      "bytes": 1155,
+      "sha256": "7ee5dab94e4c1435b2228ea8ab6f8554bc2dd6e9ec0b89ee3833a259257ab599"
+    },
+    "old-refusal/actual-native-guard-trace.jsonl": {
+      "bytes": 365200,
+      "sha256": "54dd72740c0aa923a93a1441ce307584c75fde890bdb9fc8a40eed6742b0b7cd"
+    },
+    "old-refusal/actual-runtime-path/2019-02-04.json.gz": {
+      "bytes": 4213263,
+      "sha256": "2e7f94349afe72f811b8e6943d654138feee887fd7dec11a6d39a5ce6cc31b53"
+    },
+    "old-refusal/actual-runtime-path/2019-02-05.json.gz": {
+      "bytes": 4223103,
+      "sha256": "8a308b564c8d4fc73487671da423d7c9275f214ef450868ec1baeeb326ba13d3"
+    },
+    "old-refusal/actual-runtime-path/2019-02-06.json.gz": {
+      "bytes": 4207375,
+      "sha256": "8f5d90f6d27dc055b08c84731c6c6d8c15cbe8e9af1125b060696889d6a9c16a"
+    },
+    "old-refusal/actual-runtime-path/2019-02-07.json.gz": {
+      "bytes": 4192743,
+      "sha256": "18ef4f52a167c5d6681f3f794d796cf0827ace10eb33c6ae745bc6d4728e3b15"
+    },
+    "old-refusal/actual-runtime-path/2019-02-08.json.gz": {
+      "bytes": 4185396,
+      "sha256": "bacf809c2e35b6e607123ab7919fae3c467be06aaf2159b92a99e03d76cdee71"
+    },
+    "old-refusal/actual-runtime-path/2019-02-11.json.gz": {
+      "bytes": 4198937,
+      "sha256": "ee6c95c9cf7630ef78d7a55cf88c5682dfd68bf00578011931f8490611dfb67d"
+    },
+    "old-refusal/actual-runtime-path/2019-02-12.json.gz": {
+      "bytes": 4188366,
+      "sha256": "7f8b42c9e2158b5e89dc68c49a0910d73f3641450cd5642e863e1a400a35ede6"
+    },
+    "old-refusal/actual-runtime-path/2019-02-13.json.gz": {
+      "bytes": 4196087,
+      "sha256": "c7a59ddfecc65854839a279ccfe3f75a6ef05a88640e5463f7897dfeb62a8e61"
+    },
+    "old-refusal/actual-runtime-path/2019-02-14.json.gz": {
+      "bytes": 4207816,
+      "sha256": "054430c24203276079113a5a96dba39f4b189e5cec2e1ecae77857533e213033"
+    },
+    "old-refusal/actual-runtime-path/2019-02-15.json.gz": {
+      "bytes": 4011084,
+      "sha256": "8d3596cdb858a8a623e38b00b1d6ebd901815d349bb02c2909d6324d49ef53dc"
+    },
+    "old-refusal/actual-source-subset.json": {
+      "bytes": 1879,
+      "sha256": "8093046815a9c36c6010ba996f72fe054315624817ea1155ecda5ae852cb32e8"
+    },
+    "old-refusal/anchor-qualifications/index.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "old-refusal/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "old-refusal/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "old-refusal/diagnostic-book/daily.jsonl": {
+      "bytes": 14154,
+      "sha256": "285d25a354aa8c4c1dd064dad35cc53e825761686c27ac409febfb36a16d16c4"
+    },
+    "old-refusal/diagnostic-book/discovery-checkpoint.json.gz": {
+      "bytes": 962054,
+      "sha256": "6c1f42239d295e679d16e053de28766f85468e936fd3df624236633ecd50044c"
+    },
+    "old-refusal/diagnostic-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/diagnostic-book/interrupted-daily-a413ee9450324c3187252ae279053991.jsonl": {
+      "bytes": 12739,
+      "sha256": "c1870978273894b985191b3f2969a1b4bc4d512c0aa98c50de78c5e796409ac1"
+    },
+    "old-refusal/diagnostic-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-07.json.gz": {
+      "bytes": 964656,
+      "sha256": "a5a4a12c5ad228c096890d71b8d56b7a2a21c9fba80303be4732d483576da5af"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-08.json.gz": {
+      "bytes": 957730,
+      "sha256": "bd8a3e6352d9547d26c0b963a69a318dca8f7d0dd3742a489d076698ab058ef8"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-11.json.gz": {
+      "bytes": 955973,
+      "sha256": "0357adad9d68823f54689f1bd8752b45b51ea1f4fd68d42e7d4823646f3a8aec"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-12.json.gz": {
+      "bytes": 960341,
+      "sha256": "4f484d5fb79ba83e1e189a759580b7c1e0a5a74977c03216f4a405f87c4d200c"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-13.json.gz": {
+      "bytes": 952726,
+      "sha256": "e345ee4804808c97d1352fd800decae894c427951e8490931fc1e1510577d6d8"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-14.json.gz": {
+      "bytes": 961852,
+      "sha256": "17df8cba52320e84c771bce9dd9059cd21b21d4b8843e6a213580319f3500367"
+    },
+    "old-refusal/diagnostic-book/pre-event/2019-02-15.json.gz": {
+      "bytes": 962054,
+      "sha256": "6c1f42239d295e679d16e053de28766f85468e936fd3df624236633ecd50044c"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-01.json.gz": {
+      "bytes": 961912,
+      "sha256": "793992e04ad3cde33dcb0f3d43e9c5e6a87b6accac5f79758d0ccd80c9213c84"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-04.json.gz": {
+      "bytes": 969395,
+      "sha256": "e5b23752b3edb9f1e86df0c3ef42fcafd506812699544c57e560b77525bca709"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-06.json.gz": {
+      "bytes": 964656,
+      "sha256": "a5a4a12c5ad228c096890d71b8d56b7a2a21c9fba80303be4732d483576da5af"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-07.json.gz": {
+      "bytes": 957730,
+      "sha256": "bd8a3e6352d9547d26c0b963a69a318dca8f7d0dd3742a489d076698ab058ef8"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-08.json.gz": {
+      "bytes": 955973,
+      "sha256": "0357adad9d68823f54689f1bd8752b45b51ea1f4fd68d42e7d4823646f3a8aec"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-11.json.gz": {
+      "bytes": 960341,
+      "sha256": "4f484d5fb79ba83e1e189a759580b7c1e0a5a74977c03216f4a405f87c4d200c"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-12.json.gz": {
+      "bytes": 952726,
+      "sha256": "e345ee4804808c97d1352fd800decae894c427951e8490931fc1e1510577d6d8"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-13.json.gz": {
+      "bytes": 961852,
+      "sha256": "17df8cba52320e84c771bce9dd9059cd21b21d4b8843e6a213580319f3500367"
+    },
+    "old-refusal/diagnostic-book/retained-checkpoints/2019-02-14.json.gz": {
+      "bytes": 962054,
+      "sha256": "6c1f42239d295e679d16e053de28766f85468e936fd3df624236633ecd50044c"
+    },
+    "old-refusal/diagnostic-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/discovery-authority.json": {
+      "bytes": 492,
+      "sha256": "98de9cd2e2267b1ce027af680a86648d34e150b4c45089cf6b6bdd77135b6ea6"
+    },
+    "old-refusal/discovery-events.jsonl": {
+      "bytes": 73110,
+      "sha256": "2b635d60ade3303da165782dc1c3c61f1dc4d837b51bb337460b9842552f25c6"
+    },
+    "old-refusal/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/anchor-qualifications/index.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/2019-01-31.json.gz": {
+      "bytes": 958576,
+      "sha256": "97d65bbc9bb786aa9efca20ffdee648c27a44880eb9557013890393d2b994afc"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/2019-02-01.json.gz": {
+      "bytes": 961722,
+      "sha256": "647f70959a360229a1526e837cdb5936727831a8daa83c434ce0cf5eef523bf6"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/daily.jsonl": {
+      "bytes": 14154,
+      "sha256": "285d25a354aa8c4c1dd064dad35cc53e825761686c27ac409febfb36a16d16c4"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/discovery-checkpoint.json.gz": {
+      "bytes": 961722,
+      "sha256": "647f70959a360229a1526e837cdb5936727831a8daa83c434ce0cf5eef523bf6"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/diagnostic-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/discovery-authority.json": {
+      "bytes": 492,
+      "sha256": "98de9cd2e2267b1ce027af680a86648d34e150b4c45089cf6b6bdd77135b6ea6"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/discovery-events.jsonl": {
+      "bytes": 73110,
+      "sha256": "2b635d60ade3303da165782dc1c3c61f1dc4d837b51bb337460b9842552f25c6"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/driver-failure.txt": {
+      "bytes": 577,
+      "sha256": "c271588ca35711c2ed363ad36be2c7e1bce1ed7ac4fecc989a30149941ea3437"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/book/repairs/0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254.json": {
+      "bytes": 2442,
+      "sha256": "0037d1ec78185e991fc1fbcca6a275d72aa7e5652cbeadee9e7a49db23435254"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/book/repairs/3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2.json": {
+      "bytes": 5386,
+      "sha256": "3022ef17ca066f2caeeacd2a9c76df84a61efcb01011297a67307a49aeee66a2"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/book/repairs/8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517.json": {
+      "bytes": 6872,
+      "sha256": "8de2192628adecad8c3528cc53d3b04e05079e14d2e0f90f7c899b7488771517"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/discovery-canonical-qualification.json": {
+      "bytes": 2930,
+      "sha256": "972aba38a3b7b231a4f2efdb4b7b705824734e74e633e2206c2e6f9429940471"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/actual-runtime-path.json.gz": {
+      "bytes": 2350099,
+      "sha256": "3478213f1f6f7c665fba6cb70c75a12de8ce71da1cf073e08275f92f5aafeba1"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/discovery-canonical-qualification.json": {
+      "bytes": 2494,
+      "sha256": "ea4546dc9dd987bf88986d23720eb77a669b90a9227b9e28b36e43b3e45098b2"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/discovery-events.jsonl": {
+      "bytes": 9791,
+      "sha256": "f1adf579278f06c1f9eb9cda881397b390e1962e408e31876d8d8b4654f0e257"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/expected-held-input-refusal/discovery-events.jsonl": {
+      "bytes": 8508,
+      "sha256": "1cfedb9f98fe586673ef9526b4c46e557e3a6ed359528b32057fb0c681fbc10d"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/expected-held-input-refusal/proof.json": {
+      "bytes": 754,
+      "sha256": "d28c9615ddd6aa0ab6dc0665573e1922df318d552660360804bd1b6688895b07"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/qualification-book/daily.jsonl": {
+      "bytes": 987,
+      "sha256": "2898e8f10610e17bf73a23e9374be264ede51acacb7e6b78966225cfeba73be9"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/qualification-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/qualification-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/fast/qualification-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/hydrated-factual-catalog.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-01.json.gz": {
+      "bytes": 775649,
+      "sha256": "4fe2633b83eafe6144dcf219f45290c2c0fd8943a713c4ec16c486c3a23faac6"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-04.json.gz": {
+      "bytes": 786145,
+      "sha256": "d9faf3a11aa46b8fdaea19177200f363fcce34e63948ac204438613f2caf5ef1"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/native-fast-progress/2019-02-05.json.gz": {
+      "bytes": 788144,
+      "sha256": "e9f64e1f4d7eee56bc4d924b4e1819c5a25ce6dc325f46a47c93780a17486f7a"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/native-fast-progress/phases.jsonl": {
+      "bytes": 1301,
+      "sha256": "34170c1d557a65cb13c230ffe2bfe0d71cebd384bdbe23d2353ccce526902be3"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/actual-runtime-path.json.gz": {
+      "bytes": 2350099,
+      "sha256": "b5a5a30f3d28e0c029e4a7108d71ebe5617b04f8ad232939ddac482bc4c1035c"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/discovery-canonical-qualification.json": {
+      "bytes": 2494,
+      "sha256": "ea4546dc9dd987bf88986d23720eb77a669b90a9227b9e28b36e43b3e45098b2"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/discovery-events.jsonl": {
+      "bytes": 9791,
+      "sha256": "f1adf579278f06c1f9eb9cda881397b390e1962e408e31876d8d8b4654f0e257"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/expected-held-input-refusal/discovery-events.jsonl": {
+      "bytes": 8508,
+      "sha256": "1cfedb9f98fe586673ef9526b4c46e557e3a6ed359528b32057fb0c681fbc10d"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/expected-held-input-refusal/proof.json": {
+      "bytes": 754,
+      "sha256": "d28c9615ddd6aa0ab6dc0665573e1922df318d552660360804bd1b6688895b07"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/qualification-book/daily.jsonl": {
+      "bytes": 987,
+      "sha256": "2898e8f10610e17bf73a23e9374be264ede51acacb7e6b78966225cfeba73be9"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/qualification-book/formation.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/qualification-book/monthly.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/reference/qualification-book/watch.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/request.json": {
+      "bytes": 51856,
+      "sha256": "bcaa266acd6ba06e193f71748dff7c6b9a85ccf3c25c7502ecdc60c11ba9d5c8"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/retained-reference-admission.json": {
+      "bytes": 786,
+      "sha256": "505f4188daca3560d57b4acd131668114ad8e09c35fbc871d953c0e8c767e793"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/source-bindings.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/spec.json": {
+      "bytes": 31255,
+      "sha256": "8a6fd795f8aa12bcee7d910af613d3280463128d65146ccb498e9368106b10f5"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/strict-parent.json.gz": {
+      "bytes": 972317,
+      "sha256": "7937d0feb599c442a53b29e2b75a1cfc0c714140fd54d73c0ad7b06484358a21"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/worker-inspect.json": {
+      "bytes": 11532,
+      "sha256": "05904a3e3f25d22e711929d296c3f60a5a2ff502c2e63f640bdc3c37756fe37f"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/qualification/worker.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/request.json": {
+      "bytes": 51856,
+      "sha256": "bcaa266acd6ba06e193f71748dff7c6b9a85ccf3c25c7502ecdc60c11ba9d5c8"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/source-bindings.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/spec.json": {
+      "bytes": 31255,
+      "sha256": "8a6fd795f8aa12bcee7d910af613d3280463128d65146ccb498e9368106b10f5"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/strict-parent-reference.json": {
+      "bytes": 1155,
+      "sha256": "b97b3a21297f657277b5342b25506282ab237304d7d48fd99bc22dd694fcce7c"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/strict-parent-transport-admission.json": {
+      "bytes": 1155,
+      "sha256": "b97b3a21297f657277b5342b25506282ab237304d7d48fd99bc22dd694fcce7c"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/strict-parent.json.gz": {
+      "bytes": 972317,
+      "sha256": "7937d0feb599c442a53b29e2b75a1cfc0c714140fd54d73c0ad7b06484358a21"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/worker-inspect.json": {
+      "bytes": 11082,
+      "sha256": "7070ede36097f350052a89d159594cb5d413be465eb091bfb100a27abb15cb4f"
+    },
+    "old-refusal/lineage/diagnostic-predecessor/worker.log": {
+      "bytes": 2845,
+      "sha256": "de4896cddd4ec96b849af15db4e73d8282e08b5fe497c39dc10985d99ff130c5"
+    },
+    "old-refusal/p10-observer-summary.json": {
+      "bytes": 2790,
+      "sha256": "49211b9d6ae5e023e6a4f1194bf713fe2ec1770e9547a7953c7d582b6baa38e2"
+    },
+    "old-refusal/retained-anchor-events.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "old-refusal/source-contract.json": {
+      "bytes": 2255,
+      "sha256": "de6dc3b6320c8dd60eac22c5a1037a4a6951aa1758fa3da373781449e5cca5c6"
+    },
+    "request.json": {
+      "bytes": 54809,
+      "sha256": "43af76d00427751f3f945bdcf54fc1d1b56c407db8f15e01ef61079f7f061a49"
+    },
+    "source-bindings.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "source-map.json": {
+      "bytes": 62145,
+      "sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652"
+    },
+    "spec.json": {
+      "bytes": 78914,
+      "sha256": "540596362c8d27eaf3f8a5498db70f82550298a70d652d280630215a55334b33"
+    },
+    "worker-inspect.json": {
+      "bytes": 11523,
+      "sha256": "704a7f60743136e7fc77896345b35c02db1b3a2443ce2906faf81586ee3ebdf0"
+    },
+    "worker.log": {
+      "bytes": 2290,
+      "sha256": "2fde2704ed481dd37dcbff3d850f141b99e2e75c48eb8296e1d53513a991d8c8"
+    }
+  },
+  "head": "ab014ed15556aef06101e196649d12f42f3f3b31",
+  "independent_retained_review_sha256": "e4882128c6802aa853ba151b025de243f135c134073073dd375e734330faeaab",
+  "inspection": {
+    "exit_code": 1,
+    "file": "worker-inspect.json",
+    "id": "4a27067290c614e057d2c4b3e52bdb173e0b4ec2b7650f8d4300a07c6032cd8d",
+    "name": "/capital-system-p10-ahl2-qualify-41450928937-1",
+    "sha256": "704a7f60743136e7fc77896345b35c02db1b3a2443ce2906faf81586ee3ebdf0"
+  },
+  "new_fast_transitions": 1,
+  "new_reference_transitions": 10,
+  "old_control_forward_transitions": 0,
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "public_members": {
+    "ephemeral-runner-capacity.json": {
+      "bytes": 698,
+      "sha256": "96a0508976cbe5da401cfdf587b2a1ce559c50d91ee0de87afaeb03ad6412ccd"
+    },
+    "full-core-staging.json": {
+      "bytes": 964,
+      "sha256": "c8b8558d1d813be4b254cea11eddc902a591769e549cca51d0145a4e18f13d09"
+    },
+    "p10-ahl2-export-qualification.json": {
+      "bytes": 539,
+      "sha256": "f393c33bb0ead7ebc8b10240cb7520ccfa538e6a7f20851875064bf347fca873"
+    },
+    "p10-ahl2-phase.json": {
+      "bytes": 727,
+      "sha256": "c6a5630527e802053e7145858123424f5f87e9ebcc3498a9b059ced9ac3abe87"
+    },
+    "p10-ahl2.json": {
+      "bytes": 1462,
+      "sha256": "22dfadc1e6019781bd04675b31e1993d459be3576e1c44bc0f44ba7294479ce4"
+    }
+  },
+  "receipt_name": "p10-ahl2.json",
+  "receipt_schema": "research.p10-own-ahl2-diagnostic-receipt/1",
+  "receipt_sha256": "22dfadc1e6019781bd04675b31e1993d459be3576e1c44bc0f44ba7294479ce4",
+  "request_sha256": "43af76d00427751f3f945bdcf54fc1d1b56c407db8f15e01ef61079f7f061a49",
+  "retained_fast_forward_transitions": 0,
+  "root_q_only_admission": {
+    "actual_original_hosted_Journal_recover_receipt_verified_locally_as_data_only": true,
+    "all_original_tails_and_failed_tenth_retained_unadopted": true,
+    "artifact_id": 13148420006,
+    "captured_evidence_mutated": false,
+    "completed_fast9_forward_replay_required": false,
+    "completed_old_control_forward_replay_required": false,
+    "fresh_suffix_authority": "ORIGINAL_P10_OWN1_2019_02_01_ONLY",
+    "local_Journal_recover_executed": false,
+    "local_core_serializer_or_strategy_execution": false,
+    "new_factual_input_admission": false,
+    "new_financial_authority": false,
+    "new_workflow_selected": false,
+    "qualifier_state_fresh_suffix_adoption": false,
+    "remaining_actual_hosted_gates": [
+      "FAST Feb15 complete next runtime and corrected POST_PLAN sensor context",
+      "REFERENCE10 full path",
+      "All20 actual new full canonical restores",
+      "Unexecuted parser/nativeV21 guard-removal/synthetic cash falsifiers",
+      "Complete source/publication/runtime/event/anchor/proof/epoch equality",
+      "Separate fresh diagnostic suffix from originalOWN1 only"
+    ],
+    "review_sha256": "e4882128c6802aa853ba151b025de243f135c134073073dd375e734330faeaab",
+    "schema": "research.p10-qualification-only-retained-prefix-admission/1",
+    "source_head": "ab014ed15556aef06101e196649d12f42f3f3b31",
+    "source_request_sha256": "43af76d00427751f3f945bdcf54fc1d1b56c407db8f15e01ef61079f7f061a49",
+    "source_run_id": 41450928937,
+    "status": "ROOT_ACCEPTED_CACHED_CONTROL10_FAST9_FOR_HOSTED_QUALIFICATION_ONLY"
+  },
+  "root_q_only_admission_sha256": "cfcdafdfd93bda28ca34308326ae9717ad40ea195df491d257cb69380a929895",
+  "run_id": 41450928937,
+  "schema": "research.p10-exact-retained-qualification-input/1",
+  "stage": "campaign-p10-ahl2-changed-qualification",
+  "zip_bytes": 142075519,
+  "zip_sha256": "d44469948223021d74f0225d26199463151236ab0f926b85cc461ba65d2a7a3c"
+}

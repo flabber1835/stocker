@@ -1,0 +1,304 @@
+{
+  "accepted": [
+    {
+      "arm": "P00",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P01",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P02",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P03",
+      "complete": false,
+      "completed": 671,
+      "root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+      "through": "2020-08-31"
+    },
+    {
+      "arm": "P04",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P05",
+      "complete": false,
+      "completed": 1196,
+      "root": "ca722bb750ee34ed6f7db8e114b1561f4988f08385fccd91ddc2d0867f1ba209",
+      "through": "2022-09-30"
+    },
+    {
+      "arm": "P06",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P07",
+      "complete": false,
+      "completed": 1446,
+      "root": "4fd19a57b5a982d1e031a6c7b8916ffdb605dbbb57b39f3f9f5bdf073a63b444",
+      "through": "2023-09-29"
+    },
+    {
+      "arm": "P08",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P09",
+      "complete": false,
+      "completed": 692,
+      "through": "2020-09-30"
+    },
+    {
+      "arm": "P10",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P11",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    }
+  ],
+  "events_file": "system-campaign-event-inventory.events.json.gz",
+  "events_file_bytes": 681194,
+  "events_file_sha256": "3c37500e6542b667b21d8d2dfea194362246bafb3239bbc712823b5819e91046",
+  "families": {
+    "CONSIDERATION_REVIEW": 1182,
+    "DISTRIBUTION": 139,
+    "EXIT_CLASSIFICATION": 6784,
+    "STOCK_OR_MIXED_CONSIDERATION": 34,
+    "UNKNOWN_COMMON_RIGHTS": 1476
+  },
+  "financial_authority": false,
+  "full_frozen_native_event_coverage_verified": false,
+  "groups": 6922,
+  "inventory_generation_accepted": [
+    {
+      "arm": "P00",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P01",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P02",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P03",
+      "complete": false,
+      "completed": 606,
+      "root": "3ee60adb5326914846a052e26310d62045dd39b838a923378c9a84b6f230e7d4",
+      "through": "2020-05-29"
+    },
+    {
+      "arm": "P04",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P05",
+      "complete": false,
+      "completed": 1196,
+      "root": "ca722bb750ee34ed6f7db8e114b1561f4988f08385fccd91ddc2d0867f1ba209",
+      "through": "2022-09-30"
+    },
+    {
+      "arm": "P06",
+      "complete": false,
+      "completed": 1821,
+      "root": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "through": "2025-03-31"
+    },
+    {
+      "arm": "P07",
+      "complete": false,
+      "completed": 1383,
+      "root": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+      "through": "2023-06-30"
+    },
+    {
+      "arm": "P08",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P09",
+      "complete": false,
+      "completed": 692,
+      "through": "2020-09-30"
+    },
+    {
+      "arm": "P10",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    },
+    {
+      "arm": "P11",
+      "complete": true,
+      "completed": 2156,
+      "through": "2026-07-31"
+    }
+  ],
+  "inventory_generation_next_events": [
+    {
+      "arm": "P03",
+      "event": "STML cash plus contingent right",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "independent STML event source qualification",
+        "second bounded-event input preserving DOVA",
+        "complete19-to20 history visitor and retained152 proof binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "STML priorJune9 and nativeJune10 quotes present; original incomplete terminal retained"
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model terminal-parent distribution without a fictitious parent quote",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "arm": "P06",
+      "completed_previous_event": "TBIO actual never-held source delegation independently admitted through1821/full13",
+      "event": "DM native April1,2025 source exit; legal April2 completion remains separate",
+      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "missing": [
+        "complete full13-to14 lineage and retained568 proof binding",
+        "full-profile genuine-parent constructor and actual event-role gates",
+        "explicit bounded export qualification",
+        "hosted canonical continuation and independent DATA admission"
+      ],
+      "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
+      "source_observations": "SOURCE369 authenticated March31 raw4.9100000000000001/nativeApril1 raw4.96/April2 absent; original acquisitionby+delisted group and incomplete cash terminal; DATA-only boundary catalog ready"
+    },
+    {
+      "arm": "P07",
+      "event": "BWA/PHIN post-close distribution",
+      "family": "DISTRIBUTION",
+      "missing": [
+        "independent event source qualification from authenticated full native/PHIN rows",
+        "legalJuly3-postclose/nativeJuly5 clock adapter",
+        "full25-to26 history visitor and929-row binding",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BWA priorJuly3/eventJuly5 and PHIN July5 present; PHIN SID801672850394475146/CIK1968915; both original typed distribution source_row_ids authenticated"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "exact rational quantity source implementation preserving allocation rules",
+        "complete source/serialization/consumer/restart certification",
+        "hosted source-bound financial execution and independent DATA admission"
+      ],
+      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
+      "requires_owner_choice": false
+    }
+  ],
+  "next_events": [
+    {
+      "admitted_root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+      "arm": "P03",
+      "bounded_source_catalog": "P03-PFNX-full21-source-catalog.json",
+      "event": "PFNX cash plus contingent right; native September30/legal October1,2020",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "failed_retired_profile": "P03-PFNX-full22-whole-profile-qualification.json",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
+      "missing": [
+        "complete real September30/October1 source packets preserving simultaneous MNTA action",
+        "versioned source and restart qualification; retain original suppressed-terminal guard",
+        "genuine hosted neutral22, constructor and financial execution",
+        "independent saved-prefix admission"
+      ],
+      "original_failed_artifact": 13617721778,
+      "original_failed_run": 42481611611,
+      "resource_component_qualification": "P03-PFNX-retained217-resources-DATA-qualification.json",
+      "retry_authorized": false,
+      "security_id": "326446597882092349",
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json",
+      "source_component_qualification": "P03-PFNX-source-packet-DATA-qualification.json",
+      "source_resource_fact": "P03-PFNX-real671-retained217-resource-fact.json"
+    },
+    {
+      "arm": "P05",
+      "event": "BRG/BHM distribution and terminal parent",
+      "family": "DISTRIBUTION_WITH_TERMINAL_PARENT",
+      "missing": [
+        "atomic original-model terminal-parent distribution without a fictitious parent quote",
+        "hosted canonical tests"
+      ],
+      "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
+    },
+    {
+      "admitted_root": "4fd19a57b5a982d1e031a6c7b8916ffdb605dbbb57b39f3f9f5bdf073a63b444",
+      "arm": "P07",
+      "event": "October5,2023 incomplete leadership terminal; exact identity and legal treatment unresolved",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "family": "UNKNOWN_COMMON_RIGHTS",
+      "missing": [
+        "source-only identity and full native/event-day records",
+        "qualified treatment preserving all28 inputs, ABMD/KDNY full intervals and BWA",
+        "fresh full28 restart profile and hosted gates",
+        "independent saved-prefix admission"
+      ],
+      "original_stopped_artifact": 13618101866,
+      "original_stopped_run": 42477533629,
+      "retry_authorized": false,
+      "security_id": "383424504385495727"
+    },
+    {
+      "arm": "P09",
+      "event": "Exact fractional share representation",
+      "family": "QUANTITY_REPRESENTATION",
+      "missing": [
+        "exact rational quantity source implementation preserving allocation rules",
+        "complete source/serialization/consumer/restart certification",
+        "hosted source-bound financial execution and independent DATA admission"
+      ],
+      "owner_decision_record": "P09-exact-rational-owner-decision-20261107.json",
+      "requires_owner_choice": false
+    }
+  ],
+  "progress_refresh_preserves_original_event_census": true,
+  "provider_dates_are_not_legal_or_native_recognition_clocks": true,
+  "provider_file": "P06-WWE-original-provider-SHARADAR_ACTIONS.zip",
+  "provider_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "raw_rows": 9922,
+  "schema": "research.full-remaining-provider-event-inventory/1",
+  "scope": "ALL_PROVIDER_CANDIDATES_NOT_FUTURE_HOLDING_PREDICTIONS"
+}

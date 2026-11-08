@@ -1,0 +1,62 @@
+{
+  "all24_authenticated_members_verified": true,
+  "all_parent_date_native_rows_counted_before_hashes": 2,
+  "arm": "P11",
+  "artifact_id": 13380414196,
+  "base_model_sha256": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+  "canonical_financial_engine_copy_saved": false,
+  "commands": [
+    "python.exe -B review_p11_distribution_source_data.py",
+    "python.exe -B -m pytest test_p11_distribution_source_data.py -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/source243-P11-independent-DATA-tests"
+  ],
+  "complete_schema7_manually_reconstructed": true,
+  "exact_own1570_GE36_slot11_and_empty_GEV_verified": true,
+  "files": {
+    "P11-independent-review-DESIGN.json": {
+      "bytes": 1423,
+      "sha256": "770578ea540294b8c595c48c0f011af79a442fd5927ece20ee8fdedd2aa7841f"
+    },
+    "P11-independent-source-data-review.json": {
+      "bytes": 6538,
+      "sha256": "f43530d282c35732706079a5cd780fe2ecc689f5b84f5a7df5d6cda73c926a44"
+    },
+    "review_p11_distribution_source_data.py": {
+      "bytes": 22246,
+      "sha256": "93c7bcd9d8e487dba11d19ec265edc70343e65c01a45971c7163b9c0cdd86451"
+    },
+    "test_p11_distribution_source_data.py": {
+      "bytes": 11044,
+      "sha256": "e3e3cd32a34a6d3168e86bdb489d20af375dfccbbb30639a55738f0b442009a1"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "fresh_archive_and_bundle_verified": true,
+  "full_raw_rows": 3,
+  "head": "4447cb10993eb7a7069a389615d25500dc180a95",
+  "independent_review_sha256": "f43530d282c35732706079a5cd780fe2ecc689f5b84f5a7df5d6cda73c926a44",
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "model_text_derivation_only_no_financial_execution": true,
+  "old_source_or_financial_reviews_reexecuted": false,
+  "original383_and_all423_producer_sources_verified": true,
+  "original_V_compiled_model_sha256": "e82ec8a35e10218fdf02c58ac4051321dbc1553f5282e5fb99d70f860202558e",
+  "original_typed_class_AST_unchanged": true,
+  "passed": true,
+  "payload_sha256": "50aaf5c5de433661f5e39309edf3ea5c7e1d450c7838e3ccc92f7d6e035f937e",
+  "producer_validate_imported_or_called": false,
+  "run_id": 41950496055,
+  "schema": "research.independent-distribution-source-data-validation/1",
+  "scope_sha256": "e96a1b5d1d1e45229fc03637a0bd2e4d61b6d5b49c2b48084d9d9244b21ad8e4",
+  "shared_repository_changed": false,
+  "source_capture": 243,
+  "source_zip_sha256": "df05e01fcaac420c6f2744c05d63861396d5e9ae43b0b6224d58ab6e10886713",
+  "standard_ordinary_book_without_B19": true,
+  "tests": {
+    "canonical_import_fences": 5,
+    "guard_removal_falsifiers": 54,
+    "passed": 61,
+    "result": "61 passed in2.30s"
+  },
+  "typed_native_preimages": 2
+}

@@ -1,0 +1,284 @@
+{
+  "actual_event_date_roles_verified": false,
+  "canonical_runtime_executed": false,
+  "closed_utc": "2026-11-07T21:48:49.684348+00:00",
+  "excluded_old_tail_rows": 0,
+  "files": {
+    "P06-DM-boundary-export-DATA-qualification.json": {
+      "bytes": 3448,
+      "sha256": "032f7e6684dc54199b74663f2053aabfa8a47e7e49bb9aff303f9b72cab0c9ea"
+    },
+    "P06-DM-source-exit-input-catalog-v2.json": {
+      "bytes": 20363,
+      "sha256": "5f733fa0f61fe0b3682b2c5a636fa7840720ebefacf140f7fa1af06236e33155"
+    },
+    "P06-DM-source-exit-resources.json": {
+      "bytes": 29374,
+      "sha256": "68f8688997284f7dee68a4b021e839d68dcd7a13b2afc38184f9816212d5bef2"
+    },
+    "P06-TBIO-source-exit-DATA-qualification.json": {
+      "bytes": 2695,
+      "sha256": "499da3de1f79dec86bca0d7c8d3aceef20ca71ce4e400441705ee14bf9dc1063"
+    },
+    "P06-TBIO-source-exit-input-catalog.json": {
+      "bytes": 19467,
+      "sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c"
+    },
+    "P06-retained424-successor-DATA-qualification.json": {
+      "bytes": 1426,
+      "sha256": "27e0fa8ca90b96139ee0cb8b52b1080169dc16804307499b428400ac85fa0c16"
+    },
+    "P06-source-exit-API-history-DATA-qualification.json": {
+      "bytes": 2674,
+      "sha256": "c0dc5c6d5e0dc341949daaaeb291e3ef1097cddaad4872f01836851580ef6dfe"
+    },
+    "P06-source-exit-whole-profile-qualification.json": {
+      "bytes": 8463,
+      "sha256": "8c92d745e7801fb8e10f24dfa4958e0a31bc1b929638f4a2623c7a4f2ee70aff"
+    },
+    "P06-stopped-parent-transport-DATA-qualification.json": {
+      "bytes": 1443,
+      "sha256": "b6bc23bc4ab022b6d1cae3cac738357aab9e57ca9cde2f47aee4f922f60708f2"
+    },
+    "system-campaign-retained-seed-successors.json": {
+      "bytes": 11933,
+      "sha256": "e33e469a21d5fe60ce87efc0b4556786ea8d7818941e3f120896b3afaf069d80"
+    },
+    "system-campaign-source-exit-profiles.json": {
+      "bytes": 1544,
+      "sha256": "51f7c0998dcb28c305a8da3020c1dd8681840d110e71dba50c576cda45e1cac4"
+    },
+    "system-campaign-source-exit-successor-resources.json": {
+      "bytes": 25618,
+      "sha256": "cd94bcaf5a27da1438722c111cd2a868d93523bfcec64149fa4dd4c31cf833d1"
+    },
+    "system-campaign-stopped-parent-transports.json": {
+      "bytes": 83704,
+      "sha256": "35f67f300f16acedf0ae5df332f54b404f6e8e8f8a51386cffd59a0e367a93ad"
+    },
+    "system_campaign_bounded_lifecycle_dispatch.py": {
+      "bytes": 18204,
+      "sha256": "a810bec49185ad83b79b7abca96b6fa84d13ae9c7034de94482d35df04ac7723"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 67598,
+      "sha256": "7c90826b6a6c204e236b13356d382d9f67b01912c2bdfbfd808a14501d451c60"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_preflight_export.py": {
+      "bytes": 6756,
+      "sha256": "7c82b6d2afe966de39214c3f75c969c14a1d7dd3a1b4fbe98b7095f238448271"
+    },
+    "system_campaign_progress_observer.py": {
+      "bytes": 6126,
+      "sha256": "2228a45797e15f69b735a2b52b02f24ae47ad54981455d1bbb60647958e13d89"
+    },
+    "system_campaign_retained_seed_successor.py": {
+      "bytes": 9648,
+      "sha256": "2423335c2bf45032f0d3f7af5cf404d6071c9e19f96a00cc3480d17b38122e8f"
+    },
+    "system_campaign_source_exit_api.py": {
+      "bytes": 4324,
+      "sha256": "0fde59f61067b8a74b81883e7743a980f56cc5cf18ed1943bc320742584c34da"
+    },
+    "system_campaign_source_exit_entry.py": {
+      "bytes": 11699,
+      "sha256": "02633426f17c30728890a9e80d8343d61495d57c74f2bd684f886b20d7f197fa"
+    },
+    "system_campaign_source_exit_history.py": {
+      "bytes": 7255,
+      "sha256": "f03ea22fedf6e1ca6db35da0a979ee2c0219bfb652f3ed0a0d3fec22a819e0dd"
+    },
+    "system_campaign_source_exit_input.py": {
+      "bytes": 10286,
+      "sha256": "40bd8cf85ab7380c211b080b839cacd0d9b4ac45d112eed49449e4f7a489804a"
+    },
+    "system_campaign_source_exit_input_v1.py": {
+      "bytes": 5479,
+      "sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594"
+    },
+    "system_campaign_source_exit_observer.py": {
+      "bytes": 13378,
+      "sha256": "b09779bb622ca77366d6ded05e6b697d931ebde9ca52cbc6a5a491cd93ef6489"
+    },
+    "system_campaign_source_exit_profiles.py": {
+      "bytes": 4065,
+      "sha256": "4abb599a2972e5d6765df4a6502d5df6476d139561f0e95371779a84c4bbdd5b"
+    },
+    "system_campaign_source_exit_reporting.py": {
+      "bytes": 1053,
+      "sha256": "688270839416fec70e199dcb6309ce9051145d93f6a1e72f378c9f1765036f95"
+    },
+    "system_campaign_source_exit_resources.py": {
+      "bytes": 5035,
+      "sha256": "ea6ecaa3d3bf0c00e0b0d3c285ad8d1bbeaffe8994097a130d69be5a769d3dab"
+    },
+    "system_campaign_source_exit_runtime.py": {
+      "bytes": 17160,
+      "sha256": "17324dcaa62f4bffdb843500d30027effc7ff215fe9ed9b7e271d6600015fc93"
+    },
+    "system_campaign_stopped_parent.py": {
+      "bytes": 13792,
+      "sha256": "d4ecdae3a2bfd4d5c25b2b737e8df5417b5d2b5d62340a2f331ada30aac58e54"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": true,
+  "held_settlement_authorized": false,
+  "integrated_checks": {
+    "canonical_runtime_executed": false,
+    "command": "python -B -m pytest forecast_tests/test_source_exit_profiles.py forecast_tests/test_source_exit_api.py forecast_tests/test_source_exit_history.py forecast_tests/test_source_exit_observer.py forecast_tests/test_source_exit_resources.py forecast_tests/test_source_exit_runtime.py forecast_tests/test_source_exit_entry.py forecast_tests/test_source_exit_reporting.py forecast_tests/test_retained_seed_successor.py forecast_tests/test_stopped_parent.py forecast_tests/test_source_exit_compiler_identity.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-DM-profile-batch-20261107-001",
+    "genuine_parent_and_review_capsule_checked": true,
+    "passed": 175,
+    "seconds": 106.41
+  },
+  "legal_completion_date_not_used_as_native_date": "2025-04-02",
+  "mature_original_function_AST_sha256": {
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "native_event_raw_close_preserved": "4.96",
+  "original_383_sources_unchanged": true,
+  "original_protected_source_sha256": {
+    "system_campaign_financial_branches": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_financial_future": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
+    "system_campaign_financial_uncertainty": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8"
+  },
+  "original_raw_proof_rows": 568,
+  "parent_completed": 1821,
+  "parent_inputs": 13,
+  "parent_source_cursor": "2025-03-31",
+  "passed": true,
+  "qualification_scope": "INPUT_AND_WHOLE_SOURCE_DATA_ONLY",
+  "ready_for_hosted_gated_continuation": true,
+  "request226_preparation_correction": {
+    "actual122_resource_copy_and_cleanup_passed": true,
+    "authenticated_manifest_sha256": "070fd3fb793783088e2f50e7e39a1a0083c2becff7258528b9c58769532adbd3",
+    "cause": "Path division followed by string addition instead of another path division",
+    "failure_log_sha256": "b3b1802ce71043faa71e0d8dc9d411461b1fe1b80e686e3b26290b5e31fb1164",
+    "financial_job_started": false,
+    "new_financial_sessions": 0,
+    "original_artifact_id": 13592680719,
+    "original_failed_preflight_preserved": true,
+    "original_head": "fcdf9575e7b7fdad8f22e3ed75d7cb7aada6c70a",
+    "original_run": 42417798516,
+    "original_zip_sha256": "7a552778f1e928151acff800f8c194f85ebca604b283e6db953f480eb0564a5c",
+    "receipt_path_regression_checks_pending": false,
+    "regression_checks": {
+      "command": "python -B -m pytest forecast_tests/test_source_exit_profiles.py::test_actual_resource_receipt_path_expression_handles_both_profile_names forecast_tests/test_source_exit_profiles.py::test_closed_DM_request_selects_only_exact_current_parent_and_export_policy forecast_tests/test_source_exit_profiles.py::test_selected_request_refuses_changed_profile_source_pin -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-path-fix-20261107-001",
+      "old_error_reproduced_on_both_path_types": true,
+      "passed": 6,
+      "seconds": 12.61
+    }
+  },
+  "request227_boundary_path_correction": {
+    "actual_new_trading_days": 0,
+    "cause": "Original adopter supplied the basename to a root-relative reader after the new profile introduced nested folders",
+    "command": "python -B -m pytest forecast_tests/test_source_exit_nested_boundary.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-nested-boundary-20261107-001",
+    "original_artifact_id": 13593557334,
+    "original_boundary_reader_unchanged": true,
+    "original_function_body_unchanged": true,
+    "original_run": 42419775620,
+    "original_zip_sha256": "03531c91689a919f8f368af35e59fad6d86287e969c805090131806d1f899fd4",
+    "seconds": 2.62,
+    "tests_passed": 10
+  },
+  "request227_genuine_prior_zero_day_adoption": {
+    "actual_inputs": 14,
+    "actual_neutral_gzip": {
+      "bytes": 1345443,
+      "sha256": "8fae1b36cf2dd0ff5d0e267eea7283218ecbf739baebe0adc6e0feac9ede9537"
+    },
+    "actual_neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+    "actual_parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+    "all568_committed_proofs_preserved": true,
+    "boundary": {
+      "current_inputs": 14,
+      "earliest_affected_session": "2025-04-01",
+      "financial_sessions_advanced": 0,
+      "input_successor": {
+        "earliest_affected_session": "2025-04-01",
+        "overlay": {
+          "filename": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8.json",
+          "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+          "resume_session": "2025-03-31",
+          "sha256": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8"
+        },
+        "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+        "predecessor_input_sha256": "b2adace7ca60c250e1f618421407c826edea0280e40623fc58930b28f5af905e",
+        "schema": "research.pooled-action-successor/1",
+        "state_sha256": "68c202dbadd15d2df78552a9264f224e99da734e42d3ab59cdc4c880d794a134",
+        "successor_input_sha256": "ef00f1820361727f5a83313b69d69bf00d2e8ccc49a31cd8084d6161886e716d",
+        "unchanged_through": "2025-03-31"
+      },
+      "neutral_gzip_sha256": "8fae1b36cf2dd0ff5d0e267eea7283218ecbf739baebe0adc6e0feac9ede9537",
+      "neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "original_inputs": 13,
+      "original_root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+      "passed": true,
+      "source_exit_does_not_authorize_portfolio_settlement": true
+    },
+    "canonical_runtime_executed": false,
+    "complete_previous_history_verified": true,
+    "financial_sessions_advanced": 0,
+    "history": {
+      "current_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "financial_sessions_advanced": 0,
+      "full_inputs": 14,
+      "input_successor": {
+        "earliest_affected_session": "2025-04-01",
+        "overlay": {
+          "filename": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8.json",
+          "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+          "resume_session": "2025-03-31",
+          "sha256": "1bb2d55b4a9a19f8c6628e14b8c8d37b94f92a61da958512498a69d45a2deae8"
+        },
+        "predecessor_checkpoint_sha256": "53aed51118c7bd0a1ae77822be96d2252daa6555b6e86e4a97d14d5232055427",
+        "predecessor_input_sha256": "b2adace7ca60c250e1f618421407c826edea0280e40623fc58930b28f5af905e",
+        "schema": "research.pooled-action-successor/1",
+        "state_sha256": "68c202dbadd15d2df78552a9264f224e99da734e42d3ab59cdc4c880d794a134",
+        "successor_input_sha256": "ef00f1820361727f5a83313b69d69bf00d2e8ccc49a31cd8084d6161886e716d",
+        "unchanged_through": "2025-03-31"
+      },
+      "neutral_sha256": "e3561f6d7fd9851b966ea080088ebff52f30aa332a1b90e306f93c8f5858566c",
+      "new_input_adopted": true,
+      "parent_sha256": "8e9ca16b18cf79928e6e2d7320defacfdecca781447a5a8bd6fd803db02fe6c7",
+      "passed": true
+    },
+    "original_artifact": 13593557334,
+    "original_manifest_sha256": "7835f5d1366ec814b6a569e7f69815d4608ef25cff457199a0f25c20a9f20aeb",
+    "original_run": 42419775620,
+    "parent_inputs": 13,
+    "passed": true,
+    "state_unchanged": true,
+    "watch_and_correlation_unchanged_except_exact_input_event": true
+  },
+  "required_genuine_neutral_inputs": 14,
+  "required_hosted_gates": [
+    "authenticate_original_FIN366_failed_transport_and_separate_positive_REVIEW368",
+    "complete_parent_roundtrip_and_journals",
+    "fresh122_resource_copy_verification_and_cleanup",
+    "complete_original_packet_and_source_scope_preparation_without_financial_advance",
+    "genuine_canonical_neutral14_archive_watch_and_correlation_proof",
+    "literal568_seed_equals_actual_parent",
+    "actual_certificate_and_original_observer_constructor_before_financial_main",
+    "original_actual_adapter_kernel_noop_and_source_delegation_guards",
+    "full_core_branch_event_and_monthly_review_before_independent_admission"
+  ],
+  "resource_logical_bytes": 213213608,
+  "resource_requirements": 122,
+  "resource_trace_sha256": "ad01d346452956e45882ee8e22ef0cc5c93d82c5a876261567605b94636a6853",
+  "retained_proofs": 568,
+  "root_admission_sha256": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+  "schema": "research.source-exit-successor-whole-profile-DATA-qualification/1",
+  "selected_job_neutral_checkpoint_known": false,
+  "selected_job_neutral_flag_scope": "NEXT_REQUESTED_JOB_MUST_STILL_PRODUCE_AND_VERIFY_ITS_OWN_ADOPTION",
+  "source_return_proxy": "4.91",
+  "statutory_cash_not_used_as_source_proxy": "5.295"
+}

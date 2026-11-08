@@ -1,0 +1,96 @@
+{
+  "counts": {
+    "accountings": 40,
+    "daily": 20,
+    "full_inputs": 28,
+    "independent_decimal_metrics": 28,
+    "new_monthly_reports": 1,
+    "new_proofs": 20,
+    "ordinary_terms": 35,
+    "resources": 245,
+    "retained_proofs": 972
+  },
+  "diagnostic_October_days_excluded": 3,
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\DESIGN.md": {
+      "bytes": 2375,
+      "sha256": "a1eeaed3737ccc40353b54ccd20eae4bba210c2bb852b6022d36ffc524a1de24"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\P07-independent-financial-review.json": {
+      "bytes": 14235,
+      "sha256": "1150052f9e82dc60e1668a30afc1bcc382f2a34d9561132ec3d31b018ef570ef"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\P07-request248-transport-target.json": {
+      "bytes": 44408,
+      "sha256": "35468aeb727e6d5da353eca712d757be15c68b40a98fa24e15e6878f678147ff"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\independent_REQUEST248_DATA.py": {
+      "bytes": 10340,
+      "sha256": "14f8e084528f44fc021ef8e4beb77bf08d07d14d9a5a6f677c1e932a30256e1f"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\p07_REQUEST248_components_DATA.py": {
+      "bytes": 9859,
+      "sha256": "c611281e261801adffdae54683d76c937c4b9f15bb2f53bdb8a4b305a76436b7"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request248-DATA-20261108\\test_REQUEST248_DATA.py": {
+      "bytes": 8258,
+      "sha256": "39cf1c83aaadc5a21f30caf2173fdf486a7decadf0599640b24916f5a1551898"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P07-request248-positive-transport-target.json": {
+      "bytes": 44408,
+      "sha256": "35468aeb727e6d5da353eca712d757be15c68b40a98fa24e15e6878f678147ff"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\forecast_tests\\test_request248_archive_limit.py": {
+      "bytes": 3054,
+      "sha256": "2fac93d2b2de596242347d133c573540f570a870ea0696cf636cad43928d2d26"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request248-source-snapshot\\authenticated-artifact-13618101866\\authenticated-manifest.json": {
+      "bytes": 155395,
+      "sha256": "beb815b5b142315f1454ac9e23e1d77a00b703348b6ffd0217444105b8105e21"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request248-source-snapshot\\authenticated-artifact-13618101866\\campaign-factual-P07.json": {
+      "bytes": 1317,
+      "sha256": "ca0fbe31b3534ee0880466328ed04bc72ab137f47a37026d27dffc7c2e1abd16"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request248-source-snapshot\\authenticated-artifact-13618101866\\capture-review.json": {
+      "bytes": 658,
+      "sha256": "f8b3721a3c73bcbb2283c3150bdb398a41ff3f2ca6df67689b80a0794e594805"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "independent_review_sha256": "1150052f9e82dc60e1668a30afc1bcc382f2a34d9561132ec3d31b018ef570ef",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    1,
+    0
+  ],
+  "original_result_preserved": true,
+  "passed": true,
+  "reviewed_archive_limit_AST_sha256": "945091f2baafa72eb6b9d63b444b1ed557e3e3972e51e4b8b5e751c0eb283c3a",
+  "root_admission_performed": false,
+  "same_artifact_successful_original_review": true,
+  "schema": "research.P07-request248-independent-DATA-qualification/1",
+  "tests": {
+    "archive_option": {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_request248_archive_limit.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-request248-archive-limit-tests-20261108-002",
+      "financial_import_fences": 5,
+      "meaningful_guard_removals": 1,
+      "original_crypto_unchanged": true,
+      "passed": 14,
+      "seconds": 1.36
+    },
+    "independent_DATA": {
+      "command": "python -B -m pytest -q .codex-tmp/p07-request248-DATA-20261108/test_REQUEST248_DATA.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-request248-independent-tests-20261108-001",
+      "dual_source_roles_both_authenticated": true,
+      "financial_import_fences": 5,
+      "meaningful_guard_removals": 2,
+      "passed": 14,
+      "retained_record_omission_refused": true,
+      "seconds": 15.06,
+      "whole_cash_AST_undo": true,
+      "whole_financial_AST_undo": true
+    }
+  }
+}

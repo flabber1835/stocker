@@ -1,0 +1,57 @@
+{
+  "schema": "research.system-campaign-spring-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "BUFF1",
+      "security_id": "1029024067307916826",
+      "native_session": "2018-04-24",
+      "native_term_sha256": "dc58dc2dfba29387fe2d6cbb32eda6ecd81795918dcae330e0933aaba08706a1",
+      "added": {
+        "security_id": "1029024067307916826",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.prnewswire.com/news-releases/general-mills-completes-acquisition-of-blue-buffalo-pet-products-300635629.html | Issuer-distributed completed-acquisition announcement timestamped April24 01:47ET confirms 40 USD cash. Preopen daily processing follows from announcement of completion before regular open, not an observed exact legal closing minute. Preserve frozen unknown issuer identity and native tape.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-04-24",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 40.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.prnewswire.com/news-releases/general-mills-completes-acquisition-of-blue-buffalo-pet-products-300635629.html",
+      "description": "Issuer-distributed completed-acquisition announcement timestamped April24 01:47ET confirms 40 USD cash. Preopen daily processing follows from announcement of completion before regular open, not an observed exact legal closing minute. Preserve frozen unknown issuer identity and native tape.",
+      "proxy": null
+    },
+    {
+      "ticker": "MULE",
+      "security_id": "60718099556139440",
+      "native_session": "2018-05-01",
+      "native_term_sha256": "0cb0c828cb4741ab7827787171c9cbbbcc6e2a26dccca629ffbe94e0e3c8ff8a",
+      "added": {
+        "security_id": "60718099556139440",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1374684/000119312518147738/d571994d8k.htm | Issuer8K confirms May2 mandatory conversion of remaining eligible shares into 36 USD plus .0711 CRM, after May1 close. Successor issuer announcement explicitly confirms cessation before May2 open. https://www.sec.gov/Archives/edgar/data/1108524/000119312518147733/d579231dex991.htm | Fractional holder cash retains first effective-session CRM raw open proxy; actual exchange-agent net sale rate unobserved.",
+        "delivered_security_id": "344177561147922007",
+        "delivered_ticker": "CRM",
+        "delivered_issuer_id": "SEC_CIK:1108524",
+        "session": "2018-05-02",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 36.0,
+        "exchange_ratio": 0.0711,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1374684/000119312518147738/d571994d8k.htm",
+      "description": "Issuer8K confirms May2 mandatory conversion of remaining eligible shares into 36 USD plus .0711 CRM, after May1 close. Successor issuer announcement explicitly confirms cessation before May2 open. https://www.sec.gov/Archives/edgar/data/1108524/000119312518147733/d579231dex991.htm",
+      "proxy": {
+        "session": "2018-05-02",
+        "security_id": "344177561147922007",
+        "source_observation_sha256": "3fed43abc9924e8b4dc49042b4432bbf8fa09310bd119774e1725dd826535a7e",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "AAAP_mandatory_payment_unproven": true
+}

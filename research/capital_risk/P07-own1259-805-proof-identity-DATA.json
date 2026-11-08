@@ -1,0 +1,57 @@
+{
+  "actual_ABMD_descriptor": {
+    "filename": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355.json",
+    "predecessor_checkpoint_sha256": "1735d980caaeeaf7773888504feb8ddf9f0e65a447106ac9bfee94c858359233",
+    "resume_session": "2022-11-30",
+    "sha256": "8ea084ff2e2044caa80f8c1b076fcee196c471fe2d9efa568525983a109a8355"
+  },
+  "actual_ABMD_origin_sha256": "89b800ae5b44c5f24470877cddd007d9e70031dab48e5c240623b99ed41f3172",
+  "actual_outer_sha256": "1e1e4dbce5a3b13c329bfb2c16a99e6f6043bcc8628a9852971f7100d9295a3a",
+  "actual_selected_file": {
+    "bytes": 1194814,
+    "sha256": "324e3b1bb5ca8ba6856530606c5e8f0add1211ee22141306b4e190a1ab617aaf"
+  },
+  "checkpoint_created": false,
+  "committed_prefix": {
+    "bytes": 10552725,
+    "sha256": "122604fc1b74d6717e4208a34ae8442238ef1714810aa218bcd42a7ab35dd4d0"
+  },
+  "committed_proofs": 805,
+  "completed": 1259,
+  "excluded_tail": {
+    "bytes": 238777,
+    "rows": 19,
+    "sha256": "6438a0fe04639c379171df26207b681d566d6306b990a5addeca282efa1cc324"
+  },
+  "financial_authority": false,
+  "full_inputs": 24,
+  "last_chain_sha256": "f4696190b337b0ad64431e165ac857d271e50d097456c2244854ebab02c54a2a",
+  "last_next_state_sha256": "bf4a6017385da24a3ad5f624da1a068f4984500d0c54126661324c6bb986c031",
+  "local_canonical_runtime_executed": false,
+  "new_proofs": 21,
+  "original784_prefix": {
+    "bytes": 10282876,
+    "sha256": "5fc6b6dc169775f8145c0c56afe223f25a4459e414c520a7d6070ab973d56c0f"
+  },
+  "original_entire_file": {
+    "bytes": 10791502,
+    "sha256": "05c818d249f9da41c29c99abbc1fd10f290c1f140eadbf003e1913356b8c5c76"
+  },
+  "original_sources": {
+    "system_campaign_financial_branches.py": "b19a93be7b6887c1b92a5a676fefecc5477addfaf99efcf1f18f45eafb6140ef",
+    "system_campaign_financial_future.py": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c",
+    "system_campaign_financial_uncertainty.py": "3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8",
+    "system_campaign_p07_abmd_certificate.py": "4f3db7f1cefffbad4c6eb48c0efe82678282c96c2a7b97c039db2307b9d86baa",
+    "system_campaign_p07_abmd_legacy.py": "d41fccdc9ecb3dbaa4165329812ea3037b15ea316e073e9c6af50a71a9f4ab7c",
+    "system_campaign_p07_abmd_lifecycle.py": "05a34b6b3d849a81d632fb035675b88ccb8a7ad938ea7066689e6ec60ece5f81",
+    "system_campaign_p07_abmd_models.py": "1364500287d8962e836368db3269d6c1dddea0512421087df1ab796a49d091bf",
+    "system_campaign_p07_abmd_origin.py": "126e183249185e5c85aa88899eaae4e0cbaef1a0d6131856acf94228f7fdc486"
+  },
+  "passed": true,
+  "physical_witness_sha256": "177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1",
+  "proof_seed_file_created": false,
+  "retained_proofs": 784,
+  "root_admission_sha256": "d9c73a5ceebdc806feeae4338034626c0c3b4aef42309f3849d69c20cfbf8f7b",
+  "schema": "research.P07-actual1259-805-proof-identity-DATA/1",
+  "source_cursor": "2022-12-30"
+}

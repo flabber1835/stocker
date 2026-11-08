@@ -1,0 +1,11 @@
+{
+  "schema": "research.capital-risk-screen-request/1",
+  "request_id": "fast-bg-screen-001",
+  "stage": "quick-screen",
+  "arms": [
+    "B",
+    "G"
+  ],
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "screen_protocol_sha256": "367b3edfbf81d5acb76940e72e56850a7c1326b0e9eaf04aa32c0737a5741373"
+}

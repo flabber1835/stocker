@@ -1,0 +1,167 @@
+{
+  "actual_refusal": {
+    "cash": [
+      {
+        "actual_context_call": false,
+        "postcondition": {
+          "actual_held": true,
+          "nominal_cash": 3249.25,
+          "quantity": 41
+        },
+        "security_id": "576374012507208201",
+        "session": "2022-02-23",
+        "source_only_noop": false
+      }
+    ],
+    "engine_calls": 0,
+    "error": "FUTURE_ONE_SELECTED_CASH_CALL_IN_ACTUAL_CANONICAL_STEP",
+    "financial_source_changed": false,
+    "order": [],
+    "passed": false,
+    "risk": [],
+    "session": "2022-02-23",
+    "source": [],
+    "source_prior_absent": false,
+    "stock": []
+  },
+  "authenticated_input_members": {
+    "compound-v2-retained-ordinary-observation/actual-future-event-refusal.json": {
+      "bytes": 558,
+      "sha256": "8dedc2c702648a822c39ccdd0193ef41e8ab28a880e0c5a840f0768c6b303e9c"
+    },
+    "future-financial-overlay.json": {
+      "bytes": 11695,
+      "sha256": "34d40ca4ce04ee43ab56b684e5818ecc98b4ce44413c02ec8eb34b035c24c4fc"
+    },
+    "hydrated-compound-v2-ordinary-input.json": {
+      "bytes": 52582,
+      "sha256": "d97bf3e82e98d90ce86d0b5cdc4889d9c6b7084b74a5e042a6199cc18d4039e8"
+    }
+  },
+  "current_observer_class_AST_sha256": "f9f55b1c12791ca118d18a628940527144644072dfab059333ed9aa6b40f591c",
+  "current_observer_source_sha256": "2ade5a04c73fcddfa83f8ee8c42e08a4ef738e0172ed26627c0ff6659a4dd2b2",
+  "financial_state_included": false,
+  "head": "4ae1a28e2372cc816a30b07332b74054100efb26",
+  "new_terms": [
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 170.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1490892/000110465921153948/tm2136323d2_8k.htm | Mandatory common-share cash completion before market open on 2021-12-28; confirmed last trade 2021-12-27; frozen metadata unchanged.",
+      "security_id": "1112840042710916617",
+      "session": "2021-12-28"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 38.25,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1399529/000119312521367447/d259099d8k.htm | Mandatory common-share cash completion before market open on 2021-12-28; confirmed last trade 2021-12-27; frozen metadata unchanged.",
+      "security_id": "241515261501228040",
+      "session": "2021-12-28"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 100.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1080709/000114036122009021/brhc10035049_8k.htm | Mandatory common-share cash completion before market open on 2022-03-11; confirmed last trade 2022-03-10; frozen metadata unchanged.",
+      "security_id": "1028361513614760286",
+      "session": "2022-03-11"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 57.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1073349/000119312522149601/d193127dex991.htm | Mandatory common-share cash completion before market open on 2022-05-13; confirmed last trade 2022-05-12; frozen metadata unchanged.",
+      "security_id": "302828589827843603",
+      "session": "2022-05-13"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 52.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1340652/000119312522265762/d414697d8k.htm | Mandatory common-share cash completion before market open on 2022-10-20; confirmed last trade 2022-10-19; frozen metadata unchanged.",
+      "security_id": "659896685009177378",
+      "session": "2022-10-20"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 87.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1448056/000119312523273042/d469974d8k.htm | Mandatory common-share cash completion before market open on 2023-11-08; confirmed last trade 2023-11-07; frozen metadata unchanged.",
+      "security_id": "333926898180811276",
+      "session": "2023-11-08"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 31.26,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1551152/000110465924013692/tm245657d1_99-1.htm | Mandatory common-share cash completion before market open on 2024-02-12; confirmed last trade 2024-02-09; frozen metadata unchanged.",
+      "security_id": "170441452346015322",
+      "session": "2024-02-12"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 63.5,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "https://www.sec.gov/Archives/edgar/data/1596783/000119312524280922/d902883d8k.htm | Mandatory common-share cash completion before market open on 2024-12-18; confirmed last trade 2024-12-17; frozen metadata unchanged.",
+      "security_id": "926139522403724450",
+      "session": "2024-12-18"
+    }
+  ],
+  "original_observer_sha256": "a09361056879e891d831daec06686895a6cbb20dca0b1a0a9cded8dae1c650a3",
+  "retained_term": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": 79.25,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "https://www.sec.gov/Archives/edgar/data/1129260/000119312522050048/d300567d8k.htm | Mandatory common-share cash completion before market open on 2022-02-23; preserve last trade 2022-02-22 and all frozen source metadata.",
+    "security_id": "576374012507208201",
+    "session": "2022-02-23"
+  },
+  "run_id": "41969119371",
+  "schema": "research.actual-retained-observer-input-and-refusal-only/1"
+}

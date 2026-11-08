@@ -1,0 +1,17 @@
+{
+  "allocation_rule_change_authorized": false,
+  "approved_utc": "2026-11-07T21:04:17.571357+00:00",
+  "arm": "P09",
+  "choice": "EXACT_RATIONAL_QUANTITIES_PRESERVE_ALLOCATION",
+  "design": "docs/wealth-core-P09-rational-quantity-source.md",
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "implementation_and_certification_authorized": true,
+  "owner_response": "Use exact rational quantities; preserve allocation rules (Recommended)",
+  "qualification_required_before_financial_execution": true,
+  "rounding_authorized": false,
+  "schema": "research.owner-approved-quantity-source-decision/1",
+  "strict_parent_completed": 692,
+  "strict_parent_outer_sha256": "5647ec14aacc7766bbf390a11a5b65f7308a000e95640b6792eafc244b3afe3f",
+  "strict_parent_through": "2020-09-30"
+}

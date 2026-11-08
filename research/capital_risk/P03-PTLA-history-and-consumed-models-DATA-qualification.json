@@ -1,0 +1,181 @@
+{
+  "actual_DATA_audit_pins": {
+    "P03-PTLA-full20-history-composition-DATA-20261108.json": {
+      "bytes": 1156,
+      "sha256": "0698725ec4a670390205aefd682be7a8922b735d72f5cd41fb989a6cf66b4d60"
+    },
+    "P03-PTLA-two-archives-and-seed-DATA-20261108.json": {
+      "bytes": 2303,
+      "sha256": "6bea17de560ee0d1a444801714258926b535ee9822987c332dc707bf02a15b53"
+    }
+  },
+  "actual_DATA_audits": {
+    "P03-PTLA-full20-history-composition-DATA-20261108.json": {
+      "actual_current_days": 628,
+      "actual_current_inputs": 20,
+      "actual_neutral21_known": false,
+      "actual_new_packet_qualification_performed": false,
+      "composition": {
+        "current_sha256": "1a247a7a31c5b8686651578794fa958a70778e90adbce89491263fe4da25f07a",
+        "full_inputs": 20,
+        "new_input_adopted": false,
+        "passed": true
+      },
+      "existing_branch_reader_sha256": "5971f0137f5fb1971406e04a610f270b6d88e46151fc6550dc8458651c6773d1",
+      "files": {
+        "system_campaign_full_history_successor.py": {
+          "bytes": 4566,
+          "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+        },
+        "system_campaign_p03_PTLA_history.py": {
+          "bytes": 5180,
+          "sha256": "389a5f7f07c7ad78bd89edc014e0f82e1998d3b90fa860ba169b825a93f6750e"
+        },
+        "system_campaign_p03_STML_history.py": {
+          "bytes": 4396,
+          "sha256": "a103c6e44dc99cd79002f4c99ba2c5695de684bb633607c05e86c3ac35b4d213"
+        }
+      },
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "genuine19_metadata_only": true,
+      "local_canonical_runtime_executed": false,
+      "passed": true,
+      "whole_admitted20_and19_DATA_visitors_passed": true
+    },
+    "P03-PTLA-two-archives-and-seed-DATA-20261108.json": {
+      "actual_financial_constructor_executed": false,
+      "actual_neutral21_known": false,
+      "actual_parent_days": 628,
+      "actual_parent_inputs": 20,
+      "committed_records": 174,
+      "files": {
+        "system_campaign_bounded_sensor_suffix_v2.py": {
+          "bytes": 3452,
+          "sha256": "c776a1e9ee71456f30ba64245a455c5141e1833114d668634411b25d9d201644"
+        },
+        "system_campaign_p03_PTLA_certificate.py": {
+          "bytes": 4600,
+          "sha256": "6c64bc104f97d2cf69f094b3bbf425bf84d0e6f254f370b69bf60ed021912543"
+        },
+        "system_campaign_p03_thor_qualification_reuse.py": {
+          "bytes": 15354,
+          "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee"
+        }
+      },
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "local_canonical_runtime_executed": false,
+      "new_permissions_granted": 0,
+      "original_events": [
+        {
+          "original_gzip": {
+            "bytes": 1073978,
+            "sha256": "448273305e095c25db002fbb52b98332c7d961e2880fd1b3546859315f1f9e22"
+          },
+          "resolution": {
+            "actual": "book/pre-event/2019-11-12-46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3.json.gz",
+            "gzip_sha256": "448273305e095c25db002fbb52b98332c7d961e2880fd1b3546859315f1f9e22",
+            "input_sha256": "8bf58124318903d17c309e69daecb50ae201f1ee803a70bcc6945cc95aad3760",
+            "outer_sha256": "46f061aa839108e0b7f86c983bf1168f5868dd5f598981f958be52c8090cb6a3",
+            "state_sha256": "9b74865515a258f1799160aa8c33ff752df6e13efd63e12ffca0df94237a1dc0"
+          },
+          "ticker": "DOVA"
+        },
+        {
+          "original_gzip": {
+            "bytes": 1162848,
+            "sha256": "9c164f8f87b32df1aaf95058d49032583b2454d63d0239e0ebfcf7ac50c052d1"
+          },
+          "resolution": {
+            "actual": "book/pre-event/2020-06-10-ac30f306f869383dc7e5e83b0498febe6803b0e3f47944b684408caaf417421b.json.gz",
+            "gzip_sha256": "9c164f8f87b32df1aaf95058d49032583b2454d63d0239e0ebfcf7ac50c052d1",
+            "input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
+            "outer_sha256": "ac30f306f869383dc7e5e83b0498febe6803b0e3f47944b684408caaf417421b",
+            "state_sha256": "9f358ecf7fe8df93694d7f3fe53f2a0b03d0f473c7305f423521ac2aee51a6ad"
+          },
+          "ticker": "STML"
+        }
+      ],
+      "passed": true,
+      "prior_events_reexecuted": 0
+    }
+  },
+  "actual_financial_constructor_executed": false,
+  "actual_neutral21_known": false,
+  "actual_new_hosted_packet_qualification_performed": false,
+  "actual_old_history_inputs": 20,
+  "actual_prior_archives": 2,
+  "admitted_proof_rows": 174,
+  "files": {
+    "P03-PTLA-source-retained174-DATA-qualification.json": {
+      "bytes": 6005,
+      "sha256": "df9b958e01ae8151f3933abb426ca21170e0bcccc9212d3de3600fcade02fb50"
+    },
+    "forecast_tests/test_PTLA_certificate.py": {
+      "bytes": 3239,
+      "sha256": "b290df818d649b32cbec5e7ba5244d6c82f6cef29b3f1dd9a7877e8aaa9ee495"
+    },
+    "forecast_tests/test_PTLA_history.py": {
+      "bytes": 2745,
+      "sha256": "26c08f0aa13d1e0ea149c262babc905e8ea06c62d6ec5bd4d5be6f5bfca93453"
+    },
+    "system_campaign_bounded_sensor_suffix_v2.py": {
+      "bytes": 3452,
+      "sha256": "c776a1e9ee71456f30ba64245a455c5141e1833114d668634411b25d9d201644"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p03_PTLA_certificate.py": {
+      "bytes": 4600,
+      "sha256": "6c64bc104f97d2cf69f094b3bbf425bf84d0e6f254f370b69bf60ed021912543"
+    },
+    "system_campaign_p03_PTLA_history.py": {
+      "bytes": 5180,
+      "sha256": "389a5f7f07c7ad78bd89edc014e0f82e1998d3b90fa860ba169b825a93f6750e"
+    },
+    "system_campaign_p03_STML_history.py": {
+      "bytes": 4396,
+      "sha256": "a103c6e44dc99cd79002f4c99ba2c5695de684bb633607c05e86c3ac35b4d213"
+    },
+    "system_campaign_p03_thor_qualification_reuse.py": {
+      "bytes": 15354,
+      "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee"
+    },
+    "system_campaign_second_bounded_factory.py": {
+      "bytes": 3918,
+      "sha256": "28babac1d0ec4a511e336faeb1695a43991b3fef489e5c7c3d82661a8719dd4f"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "local_canonical_runtime_executed": false,
+  "meaningful_guard_removals_observed": [
+    "missing original packet guard",
+    "undeclared prior archive"
+  ],
+  "passed": true,
+  "prior_events_reexecuted": 0,
+  "remaining_financial_work": [
+    "35-term original observer/review composition",
+    "canonical neutral21 worker/seed view",
+    "closed entry/request and hosted packet/constructor gates"
+  ],
+  "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+  "schema": "research.P03-PTLA-history-and-consumed-models-DATA-qualification/1",
+  "tests": [
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_history.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-history-tests-20261108-001",
+      "passed": 16,
+      "seconds": 4.98
+    },
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-certificate-tests-20261108-001",
+      "passed": 11,
+      "seconds": 1.61
+    }
+  ]
+}

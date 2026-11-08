@@ -1,0 +1,50 @@
+{
+  "actual_parent_closes": 1175,
+  "actual_parent_inputs": 19,
+  "expected_hosted_packet_checks": 36,
+  "files": {
+    "P05-retained18-data-API-qualification.json": {
+      "bytes": 2261,
+      "sha256": "058ab93b6ad968075424d5432be576e5027446f15be5036212e292db260d552e"
+    },
+    "remaining18-source-preparation-DESIGN.md": {
+      "bytes": 2981,
+      "sha256": "22c231c6407d7a6005889466cd2ea248e6a4df7e96188cbcdfd5991a2095e01f"
+    },
+    "system_campaign_p05_remaining_source_preparation.py": {
+      "bytes": 10529,
+      "sha256": "260cc0d5a9a30deced07bf55b8cbfe8c0b8e4f57e0356f0e146a33126bdefe9e"
+    },
+    "test_remaining18_source_preparation.py": {
+      "bytes": 8707,
+      "sha256": "8755a7fdb5173f529f45fe28bed06dc4f8df3974ebc28a55a4a49b45ecfac460"
+    }
+  },
+  "financial_authority": false,
+  "financial_request_selected": false,
+  "financial_sessions_advanced": 0,
+  "hosted_packet_preparation_executed": false,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "root_admission_performed": false,
+  "schema": "research.P05-own1175-retained18-source-preparation-qualification/1",
+  "source_request_selected": false,
+  "terms": 18,
+  "tests": {
+    "command": "python -B -m pytest -q -p no:cacheprovider --tb=short --basetemp C:/GitHub/stocker/.codex-tmp/p05-retained18-source-preparation-tests-002 test_remaining18_source_preparation.py",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 38,
+    "seconds": 5.03
+  },
+  "unfinished": "Private delivery only. Parent must integrate finite wrappers/source closure, refresh the exact SOURCE request, run required checks and publish through PR. Actual hosted18-term preparation and its independent DATA are pending. Financial neutral adoption, lifecycle and retained restart are separately unqualified.",
+  "utc": "2026-11-06T15:54:16.929915+00:00",
+  "whole_legacy_host_launch_and_worker_functions_preserved": {
+    "economic": "cb10dbe24ce57173da398097a359f5b3418c30c68618375db6e22a269e8250f9",
+    "launch": "9e6c1f8b7841c58f7e4972299bc928d170c906e0b2a44d98ceb5b9872d387b94",
+    "preflight": "fa2f6f19d53137596c3cc96575f19e610c32bd93bdade3dc55a48c764e1ce2b2",
+    "review": "1306cc4b8378c3c48332fbfd625fc6d36306f1211f4032bc394f609eddc5a734"
+  },
+  "whole_original_host_stage_function_code_object": true
+}

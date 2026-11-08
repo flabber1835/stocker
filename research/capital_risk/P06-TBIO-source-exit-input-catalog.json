@@ -1,0 +1,483 @@
+{
+  "authenticated_capture": {
+    "artifact": 13583341533,
+    "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "head": "daf00c0c80872414c218db0e73897a136ececc51",
+    "input_adopted": false,
+    "logical_bytes": 99450,
+    "members": 4,
+    "native_groups": [
+      {
+        "distributions": 0,
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-native-group",
+          "security_id": "896501989594575427",
+          "session": "2024-09-27",
+          "ticker": null
+        },
+        "raw_rows": 2,
+        "status": "FOUND",
+        "terminals": 1
+      }
+    ],
+    "observations": [
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-after",
+          "security_id": "896501989594575427",
+          "session": "2024-09-30",
+          "ticker": null
+        },
+        "security_ids": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-native",
+          "security_id": "896501989594575427",
+          "session": "2024-09-27",
+          "ticker": null
+        },
+        "security_ids": [
+          "896501989594575427"
+        ],
+        "status": "FOUND"
+      },
+      {
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-prior",
+          "security_id": "896501989594575427",
+          "session": "2024-09-26",
+          "ticker": null
+        },
+        "security_ids": [
+          "896501989594575427"
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "run": "42395478997",
+    "schema": "research.authenticated-source-batch/1",
+    "source_rows_verified": true,
+    "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION",
+    "utc": "2026-11-07T17:19:44.284671+00:00",
+    "worker_fences_verified": true,
+    "zip_bytes": 45703,
+    "zip_sha256": "71181820e74f432f94ce4c7c436703249b3895e578b0007d170dc70e4b7edcb2"
+  },
+  "authenticated_capture_sha256": "eebef4e2e83d0f3c6433408995b4163af361f7f4b8d6831ec9f596d5f22305f4",
+  "event_date_roles_verified": false,
+  "event_quote_is_proxy": false,
+  "event_row": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "06 BusEq",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1850079",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2021-06-18",
+    "metadata_admitted": "1",
+    "raw_close": "3.23",
+    "raw_compatible_volume": "1807359",
+    "raw_open": "3.21",
+    "reported_volume": "1807359",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "896501989594575427",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2024-09-27",
+    "sic": "3826",
+    "signal_close": "3.23",
+    "split_ratio": "1",
+    "ticker": "TBIO",
+    "tradeable": "1"
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "first_queried_missing_session": "2024-09-30",
+  "frozen_axis_sha256": "cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a",
+  "input_adopted": false,
+  "next_frozen_session_after_event": "2024-09-30",
+  "next_frozen_session_after_prior": "2024-09-27",
+  "otc_security_extinction_claimed": false,
+  "parent_actual_never_held_scope_verified": true,
+  "parent_actual_state_sha256": "8ecd8cab44d462838e65f4f08860adbf4d302f0fa4fd0f892ca0b4ddd39989cd",
+  "parent_completed": 1677,
+  "parent_descriptors": [
+    {
+      "filename": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0.json",
+      "predecessor_checkpoint_sha256": "67fb4a3a822c09e2f2f81641f7cd6b0c9df49c87255afb650555b54dc2241845",
+      "resume_session": "2017-06-30",
+      "sha256": "e3338b9e2f1ae9986d69b1a8b2d2e37f4e335ffe5a0d1e0540783bd0ae2d7de0"
+    },
+    {
+      "filename": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b.json",
+      "predecessor_checkpoint_sha256": "ec5e1751f2722905f2e3ebca99202cd7f38cd2bc7baf5ae47f21981bd2093bc0",
+      "resume_session": "2018-01-31",
+      "sha256": "71eedf67608740fbce521436d8e55d0171b9107f55a21e759b5b5a27d0be229b"
+    },
+    {
+      "filename": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6.json",
+      "predecessor_checkpoint_sha256": "577e73ba509c3ec6885b41805910c8f3e2d9b909f815195e872f68e47f59845f",
+      "resume_session": "2019-02-28",
+      "sha256": "10ac8f7adf95912aa96a2d37d71ab4c1b13b78fbd96fc0165ee4d361cdbd09a6"
+    },
+    {
+      "filename": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10.json",
+      "predecessor_checkpoint_sha256": "2426bcb4f9424437230b4f7ca7104372dbd64e8cdf24dc25a2d2e7bb82e96d82",
+      "resume_session": "2020-02-28",
+      "sha256": "b075a2b14dc0f0f88e6edd6bb9f72f3903003df5d9b72830587fe981c8df1f10"
+    },
+    {
+      "filename": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead.json",
+      "predecessor_checkpoint_sha256": "54da4da3b4680d87a62391966e6fc5bc243992706840ed7958939774e49fe15f",
+      "resume_session": "2020-03-31",
+      "sha256": "54e3ec874ab17f0478c7a553e081222305c7a681ae156909d3a7bc1c52d77ead"
+    },
+    {
+      "filename": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47.json",
+      "predecessor_checkpoint_sha256": "32372ed7741feeb3a4c0b7a24f6df2de2103023bb762276aa21a4e42d301d12e",
+      "resume_session": "2020-06-30",
+      "sha256": "99ad1531981c12ec3e84c6a77e36969bb68f0255e3cce2d4957ffd1bb4c8fb47"
+    },
+    {
+      "filename": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3.json",
+      "predecessor_checkpoint_sha256": "5deb1c63c34a3253cf2913ced34b8c16797fa86a6e0b88579308098c241cf1bf",
+      "resume_session": "2021-03-31",
+      "sha256": "428b4dc6f070b4b402aebff2bf298224b435432c0c53a62584beb079fd3018f3"
+    },
+    {
+      "filename": "f10da5e18374e83cdaf285c04b04063fd68e5bd00fe9784000db967dc1954217.json",
+      "predecessor_checkpoint_sha256": "b74baa75875f02677fc212eded71cb776f6eeab0e547adf1d25df2a8adc6b895",
+      "resume_session": "2022-04-29",
+      "sha256": "f10da5e18374e83cdaf285c04b04063fd68e5bd00fe9784000db967dc1954217"
+    },
+    {
+      "filename": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d.json",
+      "predecessor_checkpoint_sha256": "2ec0519d38772b868c61403068fb2e9a407f5d81ec0e9a346a9ad27b098538d8",
+      "resume_session": "2022-11-30",
+      "sha256": "4edba01d96c225be4bb7c036f5eca512fd8351fcd0f3c702732ec00c1c04b17d"
+    },
+    {
+      "filename": "642df855388f4f56c55eb088c5ec9d9363bfa1039e0e7fa3d25451317d271ef1.json",
+      "predecessor_checkpoint_sha256": "2febf8a757f805befc11808550235cc920f71a51dcf17a90aff2c7be48ebfe5f",
+      "resume_session": "2022-11-30",
+      "sha256": "642df855388f4f56c55eb088c5ec9d9363bfa1039e0e7fa3d25451317d271ef1"
+    },
+    {
+      "filename": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396.json",
+      "predecessor_checkpoint_sha256": "5554b666ad620f7e9bd2071ac53c1c4ac6327a100fa23398b7b75507f56b7c7a",
+      "resume_session": "2023-06-30",
+      "sha256": "5e2cc472191f10321aff4b7b011c576ea9f269e4610bea0eef92a1aeb8a29396"
+    },
+    {
+      "filename": "52fd1282f69c94a76f7b169005479771d601fdbc1f0082f907693af363d2b915.json",
+      "predecessor_checkpoint_sha256": "ee8856a4e1e17b353799590a9e966daab89c405302cb15f0e6fc57804009046d",
+      "resume_session": "2023-08-31",
+      "sha256": "52fd1282f69c94a76f7b169005479771d601fdbc1f0082f907693af363d2b915"
+    }
+  ],
+  "parent_input_sha256": "61df1bd366ad9f0633b010f69ffdb3cdd62422b9d72bccd842dbe28aa609d3a9",
+  "prior_row": {
+    "dividend_per_share": "0",
+    "exchange": "",
+    "exchange_authoritative": "0",
+    "ff12": "06 BusEq",
+    "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+    "issuer_id": "SEC_CIK:1850079",
+    "issuer_source": "SEC_CIK_STRICT_PRIOR",
+    "listing_active": "1",
+    "listing_first_session": "2021-06-18",
+    "metadata_admitted": "1",
+    "raw_close": "3.9900000000000002",
+    "raw_compatible_volume": "25760980",
+    "raw_open": "4.8600000000000003",
+    "reported_volume": "25760980",
+    "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+    "security_id": "896501989594575427",
+    "security_type": "common",
+    "security_type_eligible": "1",
+    "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+    "session": "2024-09-26",
+    "sic": "3826",
+    "signal_close": "3.9900000000000002",
+    "split_ratio": "1",
+    "ticker": "TBIO",
+    "tradeable": "1"
+  },
+  "schema": "research.source-batch-bound-unheld-source-exit-catalog/1",
+  "source_payload": {
+    "admitted_context": {
+      "P06": {
+        "completed": 1677,
+        "input_sha256": "61df1bd366ad9f0633b010f69ffdb3cdd62422b9d72bccd842dbe28aa609d3a9",
+        "outer_sha256": "3a7dbe9befba4316481b5955203302edd057e5e90b655ba2531c8ccd92f5d12a",
+        "root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+        "through": "2024-08-30"
+      }
+    },
+    "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+    "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+    "context_is_not_event_date_ownership": true,
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "input_adopted": false,
+    "native_groups": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "original_typed_distributions": [],
+        "original_typed_terminals": [
+          {
+            "cash_in_lieu_price_per_delivered_share": null,
+            "cash_per_share": null,
+            "delivered_issuer_id": null,
+            "delivered_security_id": null,
+            "delivered_ticker": null,
+            "entitlement_aggregation": "HOLDER",
+            "exchange_ratio": null,
+            "kind": "CASH_MERGER",
+            "reference": "actions/regulatorydelisting deal_value_musd=5.7",
+            "security_id": "896501989594575427",
+            "session": "2024-09-27"
+          }
+        ],
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-native-group",
+          "security_id": "896501989594575427",
+          "session": "2024-09-27",
+          "ticker": null
+        },
+        "raw_rows": [
+          {
+            "row": {
+              "action": "delisted",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "5.7000000000000002",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2024-09-27",
+              "evidence_hash": "",
+              "known_by": "2024-09-27",
+              "security_id": "896501989594575427",
+              "sep_derived_value": "",
+              "ticker": "TBIO",
+              "vendor_value": "5.7000000000000002"
+            },
+            "sha256": "4ad326d121a54c25e3266e3423ad2bdcf1489cc220031decbee7d853749a53a6"
+          },
+          {
+            "row": {
+              "action": "regulatorydelisting",
+              "authority": "PIT_ACTIONS",
+              "canonical_value": "5.7000000000000002",
+              "disposition": "PIT_ACTION_DIRECT",
+              "effective_session": "2024-09-27",
+              "evidence_hash": "",
+              "known_by": "2024-09-27",
+              "security_id": "896501989594575427",
+              "sep_derived_value": "",
+              "ticker": "TBIO",
+              "vendor_value": "5.7000000000000002"
+            },
+            "sha256": "6a41001871b77d4fa1ee3f3880208eb518b2845b075f4b45e3ce8cdc9d1a3f86"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "observations": [
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-after",
+          "security_id": "896501989594575427",
+          "session": "2024-09-30",
+          "ticker": null
+        },
+        "rows": [],
+        "status": "NOT_FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-native",
+          "security_id": "896501989594575427",
+          "session": "2024-09-27",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "06 BusEq",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1850079",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2021-06-18",
+              "metadata_admitted": "1",
+              "raw_close": "3.23",
+              "raw_compatible_volume": "1807359",
+              "raw_open": "3.21",
+              "reported_volume": "1807359",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "896501989594575427",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2024-09-27",
+              "sic": "3826",
+              "signal_close": "3.23",
+              "split_ratio": "1",
+              "ticker": "TBIO",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "94172c0b0f8770617eeea73d4d333d14743b36a08627f60acc189f23b02fcb40"
+          }
+        ],
+        "status": "FOUND"
+      },
+      {
+        "event_date_ownership": "UNKNOWN_NOT_CAPTURED",
+        "financial_authority": false,
+        "query": {
+          "arm": "P06",
+          "name": "p06-source-prior",
+          "security_id": "896501989594575427",
+          "session": "2024-09-26",
+          "ticker": null
+        },
+        "rows": [
+          {
+            "source_row": {
+              "dividend_per_share": "0",
+              "exchange": "",
+              "exchange_authoritative": "0",
+              "ff12": "06 BusEq",
+              "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+              "issuer_id": "SEC_CIK:1850079",
+              "issuer_source": "SEC_CIK_STRICT_PRIOR",
+              "listing_active": "1",
+              "listing_first_session": "2021-06-18",
+              "metadata_admitted": "1",
+              "raw_close": "3.9900000000000002",
+              "raw_compatible_volume": "25760980",
+              "raw_open": "4.8600000000000003",
+              "reported_volume": "25760980",
+              "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+              "security_id": "896501989594575427",
+              "security_type": "common",
+              "security_type_eligible": "1",
+              "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+              "session": "2024-09-26",
+              "sic": "3826",
+              "signal_close": "3.9900000000000002",
+              "split_ratio": "1",
+              "ticker": "TBIO",
+              "tradeable": "1"
+            },
+            "source_row_sha256": "0111e3fd816ad9a0a05edb5fe2bb167b0d6f8a96d907b2a982d0631ac18b2640"
+          }
+        ],
+        "status": "FOUND"
+      }
+    ],
+    "original_parser_sha256": "5381b3b41b14cfc2f9d9d6e97c35929c9acc3d237d6df359a9ad7e6d0e4df7ec",
+    "producer_sha256": "b62bd2b178f6e6228c84dcdae1fcf2fd3fc09b25cd4b33f36c559e4d11024eb3",
+    "production_contacted": false,
+    "request_sha256": "df6974edcee800d076062a82fa81d8ccb11af37bb6ec569daa3d5fcd8ea13e4d",
+    "schema": "research.source-evidence-batch/1"
+  },
+  "source_payload_sha256": "87b67caa334976b41210e5a94167ad24ca1424fdef13ccc1758ccce3476edd8d",
+  "statutory_cash_claimed": false,
+  "term": {
+    "added": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 3.99,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:122a8b99f5d2cc718cfbb34c814980f187e5f5b5a1e019804cd0946ba2fe7393",
+      "security_id": "896501989594575427",
+      "session": "2024-09-27"
+    },
+    "arm": "P06",
+    "description": "Research source exit only at the prior retained September26 raw-close proxy3.99 on the September27 native. Actual native-day quote3.23 remains unchanged evidence; no statutory cash, OTC extinction, legal settlement or execution-price claim. Actual never-held/no-intent/reservation/claim guard, portfolio zero-value no-op and original source delegation are mandatory.",
+    "identity_witness": {
+      "issuer_id": "SEC_CIK:1850079",
+      "listing_first_session": "2021-06-18",
+      "security_id": "896501989594575427",
+      "security_type_eligible": "1",
+      "session": "2024-09-26",
+      "source_observation_sha256": "0111e3fd816ad9a0a05edb5fe2bb167b0d6f8a96d907b2a982d0631ac18b2640",
+      "ticker": "TBIO"
+    },
+    "mandatory_common_share_completion_confirmed": false,
+    "native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/regulatorydelisting deal_value_musd=5.7",
+      "security_id": "896501989594575427",
+      "session": "2024-09-27"
+    },
+    "native_session": "2024-09-27",
+    "native_term_sha256": "05d22f1d178fe64951d7d26c25a948f7f81a8e248a9bd7beb8d10622c7573a4b",
+    "parent_cursor": "2024-08-30",
+    "parent_outer_sha256": "3a7dbe9befba4316481b5955203302edd057e5e90b655ba2531c8ccd92f5d12a",
+    "parent_positions": [],
+    "parent_root_admission_sha256": "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845",
+    "portfolio_completion_authorized": false,
+    "preopen_completion_confirmed": false,
+    "primary_source": "https://github.com/flabber1835/stocker/actions/runs/42395478997",
+    "recognition_rule": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH",
+    "require_unowned_and_unordered": true,
+    "research_assumption": {
+      "actual_settlement_claimed": false,
+      "execution_price_claimed": false,
+      "held_settlement_supported": false,
+      "legal_identity_admitted": false,
+      "recognition_session": "2024-09-27",
+      "retained_quote_session": "2024-09-26",
+      "retained_quote_sha256": "122a8b99f5d2cc718cfbb34c814980f187e5f5b5a1e019804cd0946ba2fe7393",
+      "retained_raw_close": "3.99",
+      "schema": "research.unheld-source-exit-assumption/1",
+      "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+      "treatment": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH"
+    },
+    "retained_quote": {
+      "raw_close": 3.99,
+      "security_id": "896501989594575427",
+      "session": "2024-09-26",
+      "ticker": "TBIO"
+    },
+    "security_id": "896501989594575427",
+    "source_valuation_phase": "CLOSE",
+    "ticker": "TBIO",
+    "timing_source": "https://github.com/flabber1835/stocker/actions/runs/42395478997"
+  }
+}

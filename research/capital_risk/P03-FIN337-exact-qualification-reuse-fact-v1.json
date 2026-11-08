@@ -1,0 +1,33 @@
+{
+  "actual_failed_artifact_id": 13520549642,
+  "actual_neutral17_outer_sha256": "5fb4362552632deb492c59b4348c73aa3be0b18733c2a7a4303c482efef191fc",
+  "entire_retained_proof": {
+    "bytes": 1149820,
+    "rows": 63,
+    "sha256": "3f51c77b0e6bc1de38f6c834db319bb4c274ef635363728b59ccdccb548647c7"
+  },
+  "exact_admitted_prefix": {
+    "bytes": 882675,
+    "rows": 49,
+    "sha256": "9a00c875be33441c6b85807dd87cbd7a1673dffb4697abcb6e7bb903234bb978"
+  },
+  "exact_controller_sources": {
+    "sentinel/controller/champion.py": "b96dc432492e5e3b098dff6336416bd711e95a01c79b74ab940dec009742049a",
+    "sentinel/controller/champion_config.py": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+    "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+    "sentinel/controller/median5.py": "177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1",
+    "sentinel/controller/terminal_returns.py": "172c55b738753bcc9bcf29cf6ab3618d9de42d6f63f7e555d606508f7f740867",
+    "sentinel/core/kernel.py": "d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739"
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "qualified_file": {
+    "bytes": 922,
+    "sha256": "0950272bfabe07499fcb862b74d753847e7f5fd7030757ed1686915b2f249c56"
+  },
+  "schema": "research.P03-FIN337-exact-qualification-reuse-fact/1",
+  "selected_parent_outer_sha256": "7bd2591e0e34b22e9800bd8df50a5773e26ddbc4052b015b7a9e17eaec7fe567",
+  "selected_root_admission_sha256": "4c56c4240f1e5f36c91e76f5033ba9748d1217879043885e415727894b67fad1",
+  "source_DATA_review_sha256": "6740c0a3afed021d7137bd501cd4fdac98171dfe50569bbf833c131f7b63422c",
+  "unadmitted_provenance_tail_rows": 14
+}

@@ -1,0 +1,332 @@
+{
+  "canonical_financial_source_changed": false,
+  "cases": [
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:927628",
+        "delivered_security_id": "326864109633904206",
+        "delivered_ticker": "COF",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": "1.0192",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1393612/000119312525122107/d928199d8k.htm",
+        "security_id": "884366050981445610",
+        "session": "2025-05-19"
+      },
+      "consideration_bounds": null,
+      "core_session": "2025-05-19",
+      "event_quote": {
+        "present": false,
+        "row_sha256": null,
+        "split_ratio": "1"
+      },
+      "native_session": "2025-05-16",
+      "native_term_sha256": "638b0d51e7a7601a41b651932bec0d789a2da27e17159048300b29f7f2d33fdb",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "CIL_unqualified": true,
+        "cash": null,
+        "delivered_security_id": "326864109633904206",
+        "delivered_ticker": "COF",
+        "exchange_ratio": "1.0192",
+        "kind": "CONVERSION",
+        "legal_completion": "2025-05-18",
+        "market_recognition": "2025-05-19",
+        "market_recognition_preopen_confirmed": true,
+        "security_id": "884366050981445610",
+        "source_discrepancy": "Native May16cash label wrong; preserve actual May16 trading.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1393612/000119312525122107/d928199d8k.htm"
+        ],
+        "ticker": "DFS",
+        "true_last_trading": "2025-05-16"
+      },
+      "security_id": "884366050981445610",
+      "sensor_session": "2025-05-19",
+      "ticker": "DFS",
+      "treatment": "CANONICAL_ORDINARY"
+    },
+    {
+      "consideration_bounds": [
+        "129",
+        "135"
+      ],
+      "core_session": "2025-07-18",
+      "event_quote": {
+        "present": false,
+        "row_sha256": null,
+        "split_ratio": "1"
+      },
+      "native_session": "2025-07-17",
+      "native_term_sha256": "77b3dd31d5a77ecbdcaf505630a891933e79b09e614dcfdff19ec56a025e7e5b",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "additional_CVR_maximum": "6.00",
+        "guaranteed_cash": "129.00",
+        "kind": "CASH_PLUS_UNPRICED_CVR",
+        "legal_completion": "CONFLICT_JUL17_8K_VS_JUL18_ISSUER_VENUE",
+        "market_recognition": "2025-07-18",
+        "market_recognition_preopen_confirmed": true,
+        "point_consideration_NOT_adopted": true,
+        "security_id": "142211284179578270",
+        "source_discrepancy": "8K narrative reports acceptance/mergerJuly17; exchange/issuer establish first closed sessionJuly18 and lasttradeJuly17. Preserve date discrepancy; no blanket legalJuly18 claim.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1597264/000119312525160804/d909980d8k.htm",
+          "https://www.sec.gov/Archives/edgar/data/1121404/000119312525160799/d82392dex991.htm",
+          "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-366"
+        ],
+        "ticker": "BPMC",
+        "true_last_trading": "2025-07-17"
+      },
+      "security_id": "142211284179578270",
+      "sensor_session": "2025-07-18",
+      "ticker": "BPMC",
+      "treatment": "CVR_RANGE"
+    },
+    {
+      "consideration_bounds": [
+        "14.50",
+        "20.50"
+      ],
+      "core_session": "2025-10-30",
+      "event_quote": {
+        "present": true,
+        "row_sha256": "363aa37aa8e7df6a2b24f1f46f697afff43c63eec214cc09ec1fd55f4934bfb8",
+        "split_ratio": "1"
+      },
+      "native_session": "2025-10-30",
+      "native_term_sha256": "bf5577c47d4d69ceaf8bf547c840580a079b495852b4d089f661bc1e5a4b7c89",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "additional_CVR_maximum": "6.00",
+        "guaranteed_cash": "14.50",
+        "kind": "CASH_PLUS_UNPRICED_CVR",
+        "legal_completion": "2025-10-30",
+        "market_recognition": "2025-10-30",
+        "market_recognition_preopen_confirmed": true,
+        "point_consideration_NOT_adopted": true,
+        "security_id": "146334772721825722",
+        "source_discrepancy": "Frozen quotes extend toOctober30 despite exchangehalt afterOctober29. Administrative suspensionOctober31 is not closing date.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1785173/000119312525257616/d48446d8k.htm",
+          "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-586"
+        ],
+        "ticker": "ETNB",
+        "true_last_trading": "2025-10-29"
+      },
+      "security_id": "146334772721825722",
+      "sensor_session": "2025-10-30",
+      "ticker": "ETNB",
+      "treatment": "CVR_RANGE"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 221.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1610618/000119312526005517/d57313d8k.htm | https://www.sec.gov/Archives/edgar/data/310158/000119312526005513/d55695dex99a5vi.htm",
+        "security_id": "1113557341267806383",
+        "session": "2026-01-07"
+      },
+      "consideration_bounds": null,
+      "core_session": "2026-01-07",
+      "event_quote": {
+        "present": false,
+        "row_sha256": null,
+        "split_ratio": "1"
+      },
+      "native_session": "2026-01-06",
+      "native_term_sha256": "944993f17a9eb2dcf26081fed8e05fba416f9a136b69a8e9255f5a2150f1374e",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "kind": "CASH_MERGER",
+        "legal_completion": "2026-01-07",
+        "mandatory_untendered_common_conversion": true,
+        "market_recognition": "2026-01-07",
+        "market_recognition_preopen_confirmed": true,
+        "ordinary_common_cash": "221.50",
+        "security_id": "1113557341267806383",
+        "source_discrepancy": "Native January6 term is premature. Preferred-share15505USD offer is a distinct instrument, never common consideration.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1610618/000119312526005517/d57313d8k.htm",
+          "https://www.sec.gov/Archives/edgar/data/310158/000119312526005513/d55695dex99a5vi.htm"
+        ],
+        "ticker": "CDTX",
+        "true_last_trading": "2026-01-06"
+      },
+      "security_id": "1113557341267806383",
+      "sensor_session": "2026-01-07",
+      "ticker": "CDTX",
+      "treatment": "CANONICAL_ORDINARY"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 58.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1673772/000119312526086878/d69681d8k.htm | https://nasdaqtrader.com/TraderNews.aspx?id=ECA2026-124",
+        "security_id": "117211213247402731",
+        "session": "2026-03-03"
+      },
+      "consideration_bounds": null,
+      "core_session": "2026-03-03",
+      "event_quote": {
+        "present": true,
+        "row_sha256": "1e34b90543f6a59f2ff5d9691d98753cb0308c38a4e394e81578198581796b23",
+        "split_ratio": "1"
+      },
+      "native_session": "2026-03-03",
+      "native_term_sha256": "77a4ab952aca53203df5a4972a51aac2d8d55669f32ac56c863fa64b896dbed0",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "kind": "CASH_MERGER",
+        "legal_completion": "2026-03-03",
+        "mandatory_untendered_common_conversion": true,
+        "market_recognition": "2026-03-03",
+        "market_recognition_preopen_confirmed": true,
+        "ordinary_common_cash": "58.00",
+        "security_id": "117211213247402731",
+        "source_discrepancy": "Frozen quotes extend toMarch3 despite primary pre-open closing and lasttradeMarch2. SuspensionMarch4 is administrative.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1673772/000119312526086878/d69681d8k.htm",
+          "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2026-124"
+        ],
+        "ticker": "RAPT",
+        "true_last_trading": "2026-03-02"
+      },
+      "security_id": "117211213247402731",
+      "sensor_session": "2026-03-03",
+      "ticker": "RAPT",
+      "treatment": "CANONICAL_ORDINARY"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 53.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1484565/000119312526228016/d143266d8k.htm | https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-322",
+        "security_id": "736275735073520563",
+        "session": "2026-05-18"
+      },
+      "consideration_bounds": null,
+      "core_session": "2026-05-18",
+      "event_quote": {
+        "present": true,
+        "row_sha256": "eb03072c89f3194bcb080201296d61fdef7d8df640a4d6f46cc844c24299e13e",
+        "split_ratio": "1"
+      },
+      "native_session": "2026-05-18",
+      "native_term_sha256": "2394da8743a299b2acf321096a51c90ac0e499222a56832d58a50b28bcba849a",
+      "phase": "CONFIRMED_PREOPEN_RECOGNITION",
+      "primary_facts": {
+        "kind": "CASH_MERGER",
+        "legal_completion": "2026-05-18",
+        "mandatory_untendered_common_conversion": true,
+        "market_recognition": "2026-05-18",
+        "market_recognition_preopen_confirmed": true,
+        "ordinary_common_cash": "53.00",
+        "security_id": "736275735073520563",
+        "source_discrepancy": "Frozen quotes extend toMay18 despite pre-open closing and lasttradeMay15. SuspensionMay19 is administrative.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1484565/000119312526228016/d143266d8k.htm",
+          "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-322"
+        ],
+        "ticker": "SLNO",
+        "true_last_trading": "2026-05-15"
+      },
+      "security_id": "736275735073520563",
+      "sensor_session": "2026-05-18",
+      "ticker": "SLNO",
+      "treatment": "CANONICAL_ORDINARY"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 72.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1562476/000119312526316037/d148123d8k.htm | https://www.sec.gov/Archives/edgar/data/1562476/000119312526316037/d148123dex991.htm",
+        "security_id": "13062188894457483",
+        "session": "2026-07-27"
+      },
+      "consideration_bounds": [
+        "72.50",
+        "72.50"
+      ],
+      "core_session": "2026-07-27",
+      "event_quote": {
+        "present": false,
+        "row_sha256": null,
+        "split_ratio": "1"
+      },
+      "native_session": "2026-07-23",
+      "native_term_sha256": "11fd2c4548f637a6ce8f3083ca50cb2f616f4f4e4c185ff46f745b5b51a4a2c8",
+      "phase": "LEGAL_CLOSING_INFORMATION_BEFORE_NEXT_EXECUTION_OPEN",
+      "primary_facts": {
+        "kind": "CASH_MERGER",
+        "legal_completion": "2026-07-24",
+        "mandatory_remaining_ordinary_conversion": true,
+        "market_recognition": null,
+        "market_recognition_preopen_confirmed": false,
+        "ordinary_common_cash": "72.50",
+        "security_id": "13062188894457483",
+        "source_discrepancy": "8K3.01 requests suspension following close ofJuly24trading; frozen quotes endJuly23. Exact effective timing/venue halt and possible missingJuly24print remain unresolved. Do not assert preopen or invent price.",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1562476/000119312526316037/d148123d8k.htm",
+          "https://www.sec.gov/Archives/edgar/data/1562476/000119312526316037/d148123dex991.htm"
+        ],
+        "ticker": "TMHC",
+        "true_last_trading": null
+      },
+      "public_information_accepted_at": "2026-07-24T16:00:24-04:00",
+      "security_id": "13062188894457483",
+      "sensor_session": "2026-07-24",
+      "ticker": "TMHC",
+      "treatment": "UNOWNED_CLOSING_DAY_CASH_SENSOR"
+    }
+  ],
+  "diagnostic_state_adopted": false,
+  "full_source_members": [
+    {
+      "all_rows": 1546125,
+      "bytes": 72786084,
+      "crc32": 873105560,
+      "name": "observations-2025.csv.gz",
+      "sha256": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6"
+    },
+    {
+      "all_rows": 904798,
+      "bytes": 42000680,
+      "crc32": 1965046687,
+      "name": "observations-2026.csv.gz",
+      "sha256": "4781bd89bb00e33a3911375f4ad907a8158aa49e9160349e53ee7d03f8a3237e"
+    }
+  ],
+  "production_contacted": false,
+  "provider_all_rows": 672423,
+  "provider_bytes": 9855560,
+  "provider_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "schema": "research.p02-remainder-terminal-catalog/1",
+  "unchanged_original_models": 8
+}

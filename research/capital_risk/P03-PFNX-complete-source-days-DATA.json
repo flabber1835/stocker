@@ -1,0 +1,309 @@
+{
+  "actions_member_sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+  "annual_member": "observations-2020.csv.gz",
+  "annual_member_sha256": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf",
+  "annual_rows": 1541141,
+  "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+  "bundle_manifest_sha256": "717f962c092748fa01c5d85e6e14d6f51bb1c8f345659dd0520893b14b7f0aa1",
+  "bundle_members": {
+    "benchmark.csv.gz": {
+      "bytes": 113014,
+      "sha256": "cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a"
+    },
+    "cash.csv.gz": {
+      "bytes": 60539,
+      "sha256": "87b2c928cf728d6a5a33f5c97f0c7577594e8cedf7fbad4771c8b3e46c6be2ba"
+    },
+    "classification-intervals.json.gz": {
+      "bytes": 44500,
+      "sha256": "3b8bc54142ff9a06122f11efc8cad012ce1b5262cd8719a50c616fc15a4f2709"
+    },
+    "initial-repairs/1/sec-8k.html": {
+      "bytes": 23430,
+      "sha256": "e5d38c8e8b15ad8cf0480d1515fead0366f59ddc8a54c21053d45df84e0c3818"
+    },
+    "initial-repairs/1/terminal-repair.json": {
+      "bytes": 1816,
+      "sha256": "ec50935c76c453f113b35e088ced6295fd5f388406080bbb73be9767d169f9b3"
+    },
+    "initial-repairs/2/paypal-completion.html": {
+      "bytes": 46143,
+      "sha256": "c339efd2464cf17b98a4847dc363b5ae0523af0d9781c5e97c141dbba6e3e4f3"
+    },
+    "initial-repairs/2/sec-8k.html": {
+      "bytes": 46970,
+      "sha256": "1c9d3c477aeacd6eac62aa45deb7fe83ffbb7104a4cd2b6839dcde048e350140"
+    },
+    "initial-repairs/2/terminal-repair.json": {
+      "bytes": 1811,
+      "sha256": "36115e2f8441eb5af7abfe3b2b7dc6d1aeae9914da2ee1647782e999b8e2e030"
+    },
+    "initial-repairs/3/issuer-completion.html": {
+      "bytes": 193213,
+      "sha256": "d6cab619e89995bfffbcdc3534f35f25d4bf69221e59d4de47a668af8885c19f"
+    },
+    "initial-repairs/3/sec-8k.html": {
+      "bytes": 75889,
+      "sha256": "c3411886c8b21207627d99f770c92b4974954c68097f112f5816df87238fbe71"
+    },
+    "initial-repairs/3/terminal-repair.json": {
+      "bytes": 1937,
+      "sha256": "dc648147bf41315b1fe26f260ced0d734683afd4329ac62402e24bab632a6abc"
+    },
+    "initial-repairs/4/nrg-completion.html": {
+      "bytes": 94484,
+      "sha256": "56c340d428e9bf4f543c408dbc7c2b74e3c9d8e06247f0ded583cf03392611ab"
+    },
+    "initial-repairs/4/sec-8k.html": {
+      "bytes": 39571,
+      "sha256": "5a6693527d96a35d4c1b5d221e10411b30a9f0aa1fe446a264b0cefa216f5b74"
+    },
+    "initial-repairs/4/terminal-repair.json": {
+      "bytes": 1966,
+      "sha256": "69fa9bc63447229e5f18a4c11c2bcfb3083207cecdfaadacb4abc164edfeb47e"
+    },
+    "initial-terminal-provenance.json": {
+      "bytes": 10829,
+      "sha256": "8a7c85d505afc48e05268dc4a7736442765837d992aa1468375224249106583e"
+    },
+    "matched-primary/0/att-retained-observations.json": {
+      "bytes": 5725,
+      "sha256": "e938310a06218cd3acbed327461784244b68951bb7a4567e1cc3f1ef668ada27"
+    },
+    "matched-primary/0/initial-case.json": {
+      "bytes": 2952,
+      "sha256": "b77eb1d45dcefd216ccd7fc715880aba3f96a54b0fbeb65e4410520ee3897d9c"
+    },
+    "matched-primary/0/primary-web-evidence.json": {
+      "bytes": 34178,
+      "sha256": "b888cd74ada459548a67e6b7c026168ae5674ba387e15c124e2ab55413b58ae9"
+    },
+    "matched-primary/1/initial-case.json": {
+      "bytes": 2012,
+      "sha256": "6c8365966819c095e28eb0283f62a05c43598e4d7137b82fe252245be53e2318"
+    },
+    "matched-primary/1/primary-web-evidence.json": {
+      "bytes": 9469,
+      "sha256": "16cbd94a13714db596ce11abd528407ddc4f975a7b69bee45307fc956d0dcf40"
+    },
+    "matched-terminal-contracts.json": {
+      "bytes": 5567,
+      "sha256": "0bd2cc3659e4c6ff2b9a138ed828868567cfea7f5629429201cfd56727bd3271"
+    },
+    "observations-2004.csv.gz": {
+      "bytes": 8421847,
+      "sha256": "b948c82e22db849edc11f4a56a9b5098bc4ba82a22a633f55d7228fe42618085"
+    },
+    "observations-2005.csv.gz": {
+      "bytes": 72660086,
+      "sha256": "b5e9446afec5520940fce68675a0270428212b6da5ac9ed3729532c71c9daa58"
+    },
+    "prefix-actions.csv.gz": {
+      "bytes": 267834,
+      "sha256": "aeeb636f2f5ae3517cbccb5e9b4d05577f7c526aa4e2794f8abb2963e67d6390"
+    },
+    "prefix-metadata-timeline.csv.gz": {
+      "bytes": 350019,
+      "sha256": "b131c251d5819328f4773a04834a82f7477a0a2bd7f9bc9ffdcfd2fc542ec3e3"
+    },
+    "prefix-validation.json": {
+      "bytes": 14462,
+      "sha256": "56428e7c75fdfbb3f23a76ec2bc0416e4aab782160e65f3316c5588696e31146"
+    },
+    "repaired-base-terminal-schedule.json": {
+      "bytes": 5606962,
+      "sha256": "cf51e742a122d597b88a0f68806954f3d7727a4fbcf2034e9e575adab30409f5"
+    },
+    "source-manifests/base-manifest.json": {
+      "bytes": 16765,
+      "sha256": "cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0"
+    },
+    "source-manifests/generated-prefix-manifest.json": {
+      "bytes": 10493,
+      "sha256": "70a128b9d49e1c5b29905d52345b81e4cd5815dbd44df0402afa66c86a044530"
+    },
+    "source-manifests/prefix-producer-report.json": {
+      "bytes": 14329,
+      "sha256": "5671e239b4fba017cefbc7637d4b63f8f135f9179b51df03dcc05f55f7b0c93e"
+    },
+    "source-manifests/repair-manifest.json": {
+      "bytes": 2601,
+      "sha256": "f4e0d5585a0d2f04a0ed6d40f6d8ce1f12288c48893bf2848a9589bebe484ade"
+    },
+    "source-manifests/retained-2005-manifest.json": {
+      "bytes": 10322,
+      "sha256": "14e0408c4432017a88e2d9cdff92a971c7e7d00ef615fb02a2ced0d70f18a061"
+    },
+    "spinoff-proxy-audit.json": {
+      "bytes": 1919,
+      "sha256": "eb0318a238e3572172d07374134dceb7c070f3b95f0afae42b80495f1494965e"
+    },
+    "spinoff-proxy-overlay.json": {
+      "bytes": 3736,
+      "sha256": "a9d57ab18552cae92b623572d2de3d5ef950b20263ae3074f14508ef94b7c512"
+    },
+    "supplements.json": {
+      "bytes": 210561,
+      "sha256": "e557e6e7590827334d95ed97478216048039d336db91069dddbc76bcb2272aba"
+    },
+    "terminal-schedule.json": {
+      "bytes": 6025510,
+      "sha256": "95ddb3e98d56b910529ed2bf8d1640f6cb89ce0b493dba2ae56f8328e6f1059e"
+    },
+    "validation.json": {
+      "bytes": 26914,
+      "sha256": "00803d66a145324b9ac283ab913e137f76f6c6af48d9452879c8970815d3a9eb"
+    }
+  },
+  "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
+  "canonical_runtime_executed": false,
+  "days": {
+    "2020-09-30": {
+      "benchmark_row": {
+        "close_to_close_factor": "1.0075840182276832",
+        "level": "3.5603132979087944",
+        "session": "2020-09-30",
+        "ticker": "SPY"
+      },
+      "cash_row": {
+        "close_to_close_factor": "0.99988293748861878",
+        "gap_factor": "0.99999219043196341",
+        "intraday_factor": "0.99989074620343044",
+        "session": "2020-09-30",
+        "source": "BIL"
+      },
+      "native_schedule_rows": [
+        {
+          "authority": "PIT_ACTIONS",
+          "cash_in_lieu_price_per_delivered_share": "",
+          "cash_per_share": "",
+          "delivered_issuer_id": "",
+          "delivered_security_id": "",
+          "delivered_ticker": "",
+          "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+          "effective_session": "2020-09-30",
+          "evidence_hash": "",
+          "exchange_ratio": "",
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=158",
+          "security_id": "1095215075645764063",
+          "ticker": "INWK"
+        },
+        {
+          "authority": "PIT_ACTIONS",
+          "cash_in_lieu_price_per_delivered_share": "",
+          "cash_per_share": "",
+          "delivered_issuer_id": "",
+          "delivered_security_id": "",
+          "delivered_ticker": "",
+          "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+          "effective_session": "2020-09-30",
+          "evidence_hash": "",
+          "exchange_ratio": "",
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=437.3",
+          "security_id": "326446597882092349",
+          "ticker": "PFNX"
+        },
+        {
+          "authority": "PIT_ACTIONS",
+          "cash_in_lieu_price_per_delivered_share": "",
+          "cash_per_share": "",
+          "delivered_issuer_id": "",
+          "delivered_security_id": "",
+          "delivered_ticker": "",
+          "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+          "effective_session": "2020-09-30",
+          "evidence_hash": "",
+          "exchange_ratio": "",
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=6237.1",
+          "security_id": "510659411298086546",
+          "ticker": "MNTA"
+        }
+      ],
+      "native_security_ids": [
+        "1095215075645764063",
+        "326446597882092349",
+        "510659411298086546"
+      ],
+      "overlay_keys": [],
+      "raw_action_group_sha256": "dec6877e2c5d741fd47868dcfdcd788aa65750a6aaea3154d5b6b2a8e007ce3d",
+      "raw_action_rows": 102,
+      "raw_group_sha256": "325381dc4376117b2a4976d517c6f0b4b03bc86b7b578f18f1f73bb20c0410e4",
+      "raw_rows": 6208
+    },
+    "2020-10-01": {
+      "benchmark_row": {
+        "close_to_close_factor": "1.0064188916347658",
+        "level": "3.5831665631538865",
+        "session": "2020-10-01",
+        "ticker": "SPY"
+      },
+      "cash_row": {
+        "close_to_close_factor": "1",
+        "gap_factor": "1",
+        "intraday_factor": "1",
+        "session": "2020-10-01",
+        "source": "BIL"
+      },
+      "native_schedule_rows": [
+        {
+          "authority": "PIT_ACTIONS",
+          "cash_in_lieu_price_per_delivered_share": "",
+          "cash_per_share": "",
+          "delivered_issuer_id": "",
+          "delivered_security_id": "",
+          "delivered_ticker": "",
+          "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+          "effective_session": "2020-10-01",
+          "evidence_hash": "",
+          "exchange_ratio": "",
+          "kind": "CASH_MERGER",
+          "reference": "actions/bankruptcyliquidation deal_value_musd=15.8",
+          "security_id": "294735061806405567",
+          "ticker": "EPEGQ"
+        },
+        {
+          "authority": "PIT_ACTIONS",
+          "cash_in_lieu_price_per_delivered_share": "",
+          "cash_per_share": "",
+          "delivered_issuer_id": "",
+          "delivered_security_id": "",
+          "delivered_ticker": "",
+          "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+          "effective_session": "2020-10-01",
+          "evidence_hash": "",
+          "exchange_ratio": "",
+          "kind": "CASH_MERGER",
+          "reference": "actions/acquisitionby deal_value_musd=1469.7",
+          "security_id": "82306245857970532",
+          "ticker": "DLPH"
+        }
+      ],
+      "native_security_ids": [
+        "294735061806405567",
+        "82306245857970532"
+      ],
+      "overlay_keys": [],
+      "raw_action_group_sha256": "4a11ec2581a402eb5d0a2b85dce264a062a67579d10c29ca66d292855c183a06",
+      "raw_action_rows": 66,
+      "raw_group_sha256": "ebd8c5e4036da2b280390842cfbc48ed2f7f1ab5052671d28ccbc4ecc1e01cf2",
+      "raw_rows": 6214
+    }
+  },
+  "financial_authority": false,
+  "financial_book_staged": false,
+  "financial_sessions_advanced": 0,
+  "former_missing_peer": {
+    "existing_recognition_session": "2020-10-01",
+    "native_session": "2020-09-30",
+    "security_id": "510659411298086546",
+    "ticker": "MNTA"
+  },
+  "parent_outer_sha256": "a317bf374d0c991c3d4e2982e87622ba20654845304c9ac0594a665f94a19424",
+  "passed": true,
+  "root_admission_sha256": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+  "schema": "research.P03-PFNX-complete-source-days-DATA/1",
+  "source_packet_producer_sha256": "04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c"
+}

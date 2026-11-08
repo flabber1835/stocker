@@ -1,0 +1,56 @@
+{
+  "asset_bytes": 9855560,
+  "asset_file": "P06-WWE-original-provider-SHARADAR_ACTIONS.zip",
+  "asset_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "canonical_financial_source_changed": false,
+  "consumer_catalog": "system-campaign-wwe-tko-terminal-facts.json",
+  "exact_original_WWE_sources": {
+    "system-campaign-wwe-registry-extension.json": "c59ac5bc05412ad7ae367982637e2e485d2479ab64c262562c048c4a2b685384",
+    "system-campaign-wwe-tko-terminal-facts.json": "385b8abbcfd0b26e411678cd65f2014309012778d0fbd173ed68635cfe1ff1bd",
+    "system_campaign_stock_calendar.py": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d",
+    "system_campaign_wwe_facts.py": "86bf03e3a5e5c8c427a0ad9da53a1e3c08a00b79c551d6af02ac4a2a7f95d631",
+    "system_campaign_wwe_gate.py": "b460c03694fa4f7edf2a36177042f22f19e2cc2a18bf59552edcc7324fe4e904",
+    "system_campaign_wwe_review.py": "b4c27858fc3e4dcae5e0b5ad1a393fd2b79de7cbec5f13ce13ee9bd414bae2fd"
+  },
+  "financial_authority": false,
+  "hosted_source_supply_network_required": false,
+  "input_adopted": false,
+  "original_git_object": "86fe82c474396ce84c91e8b774ae97a4500f7b39:sharadar/SHARADAR_ACTIONS.zip",
+  "original_parent_archive_mutated": false,
+  "original_provider_rows": [
+    {
+      "action": "mergerto",
+      "contraname": "TKO GROUP HOLDINGS INC",
+      "contraticker": "TKO",
+      "date": "2023-09-11",
+      "name": "WORLD WRESTLING ENTERTAINMENT INC",
+      "ticker": "WWE",
+      "value": "8370.2"
+    },
+    {
+      "action": "delisted",
+      "contraname": "N/A",
+      "contraticker": "N/A",
+      "date": "2023-09-11",
+      "name": "WORLD WRESTLING ENTERTAINMENT INC",
+      "ticker": "WWE",
+      "value": "8370.2"
+    },
+    {
+      "action": "mergerfrom",
+      "contraname": "WORLD WRESTLING ENTERTAINMENT INC",
+      "contraticker": "WWE",
+      "date": "2023-09-11",
+      "name": "TKO GROUP HOLDINGS INC",
+      "ticker": "TKO",
+      "value": "8370.2"
+    }
+  ],
+  "provider_metadata_upgraded": false,
+  "root_or_checkpoint_source": false,
+  "schema": "research.P06-WWE-immutable-source-asset-protocol/1",
+  "source_DATA_sha256": "de152e117143d9b08034d28b78e30409cf6f28ae6b157b8a3968cd0f3fec084d",
+  "source_qualification_sha256": "90bb819241b5cca698afbe8f519a9bde92bb3715165a2cb2c0287f408535dcf3",
+  "source_role": "ORIGINAL_PROVIDER_ACTION_PREIMAGES_ONLY",
+  "target_relative_path": "provider-source/SHARADAR_ACTIONS.zip"
+}

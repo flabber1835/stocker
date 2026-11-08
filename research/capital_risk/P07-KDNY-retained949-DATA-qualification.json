@@ -1,0 +1,99 @@
+{
+  "actual_hosted_neutral27_known": false,
+  "actual_resource_and_seed_DATA": {
+    "actual_new_neutral27_known": false,
+    "all_actual_original_and_positive_review_bytes_verified": true,
+    "current_selected_checkpoint_replaced": false,
+    "excluded_diagnostic_rows": 7,
+    "financial_book_or_alias_created": false,
+    "financial_sessions_advanced": 0,
+    "literal_committed_rows": 949,
+    "local_canonical_runtime_executed": false,
+    "logical_bytes": 366268272,
+    "original165_assets_preserved": true,
+    "passed": true,
+    "raw_rows_preserved": 956,
+    "resources": 216,
+    "trace_reads": 94,
+    "whole_full26_input_trace_verified": true
+  },
+  "actual_shared_financial_constructor_executed": false,
+  "counts": {
+    "actual_complete_input_reader_reads": 94,
+    "all_previous_assets": 165,
+    "committed_seed": 949,
+    "complete_resources": 216,
+    "excluded_August_diagnostic_rows": 7,
+    "full_parent_inputs": 26,
+    "logical_bytes": 366268272,
+    "raw_saved_proofs": 956
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\P07-KDNY-full26-read-trace-20261108.json": {
+      "bytes": 19148,
+      "sha256": "99737326e66d6fbbdcef01d4969e48fad719ea158ad846cdaa2c8792874d09de"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\P07-KDNY-resource-and-seed-DATA-20261108.json": {
+      "bytes": 551,
+      "sha256": "2de48c369b9a10c58dab85883eece312964009a451db424647eecfc18ba85f03"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\audit-P07-KDNY-resources-DATA-20261108.py": {
+      "bytes": 2243,
+      "sha256": "d4f94161356ec9cda8c6e248e58a30aa5cac819a7c3c8999db1f904ec8471f9b"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\prepare-P07-KDNY-resource-fact-20261108.py": {
+      "bytes": 6353,
+      "sha256": "9ba39b48bcaabef07dd52c15639398321e688fae01011b9cfe9d22775afae796"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\trace-P07-KDNY-full26-DATA-20261108.py": {
+      "bytes": 1604,
+      "sha256": "9b5b83e6df79865c4e3fff48ec73a5fdae16148ddfbbdcd80498281e15c35d40"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P07-KDNY-real1403-retained949-resource-fact.json": {
+      "bytes": 337161,
+      "sha256": "fc23241ac5c62f0c4ac6bf3c1b3326b1535d61869f6a5f1c61525d70531065e8"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\forecast_tests\\test_KDNY_certificate.py": {
+      "bytes": 2530,
+      "sha256": "11a3837a028a87e5cdb829dd0c0716352110fb9033c4f9bdada4faa336f6af3c"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\forecast_tests\\test_KDNY_resources.py": {
+      "bytes": 3994,
+      "sha256": "9bd3360b6ab93e280babd9575c94252dc8126dc501857fa4aabc310186d345d0"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p07_KDNY_certificate.py": {
+      "bytes": 5072,
+      "sha256": "21e9f4eb9382b55c70c34da0221b90e70d27e225490f2d46d1817c077445bd04"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p07_KDNY_history.py": {
+      "bytes": 4873,
+      "sha256": "4eec4eb2de0960223258ae2729ae2264ca994699a0b27354471c52b0a0e23bbd"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p07_KDNY_resources.py": {
+      "bytes": 7078,
+      "sha256": "b089453435a0d1ade1ea6a8000533dfb3657d15fd160f71306e217acfea87a6a"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "qualification_scope": "Exact source-only complete26 history, all actual resource bytes, literal949 committed seed and complete original constructor adapter. No actual neutral27, financial worker, full financial profile or new admission is claimed.",
+  "schema": "research.P07-KDNY-retained949-history-resource-constructor-DATA-qualification/1",
+  "tests": {
+    "commands": [
+      "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_resources.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-resource-tests-20261108-002",
+      "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-certificate-tests-20261108-001"
+    ],
+    "constructor_adapter_seconds": 1.66,
+    "constructor_adapter_tests": 8,
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "opaque_cooperative_constructor_DTO": true,
+    "passed": 24,
+    "resource_seconds": 1.71,
+    "resource_tests": 16,
+    "whole_original_ABMD_factory_AST_undo": true
+  }
+}

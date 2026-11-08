@@ -1,0 +1,147 @@
+{
+  "actual_DATA_audit": {
+    "actual628_role_and_cash_codec_checked": true,
+    "actual_copy_canary_performed": false,
+    "actual_hosted_packet_qualification_performed": false,
+    "actual_logical_bytes": 61315516,
+    "actual_neutral21_known": false,
+    "actual_parent_days": 628,
+    "actual_parent_inputs": 20,
+    "actual_resources": 127,
+    "all_six_original_future_functions_reused": true,
+    "both_bounded_descriptors_validated_against_actual_full20_metadata": true,
+    "closure_sha256": "772718bc072f6184a83c1343a6229889e42cda3369f2b89bc68802f171922ab1",
+    "committed_proofs": 174,
+    "files": {
+      "P03-PTLA-ordinary21-source-catalog.json": {
+        "bytes": 607933,
+        "sha256": "e1f19633299c9f61958bceeef1fe994072ec5a9a29cb6d8b34c9c654f8dd18ad"
+      },
+      "P03-PTLA-real628-retained174-resource-fact.json": {
+        "bytes": 224638,
+        "sha256": "eaf2d4da9195ee8f8430e61e28aeb422496aae258e528dd91768272a4c7a70f4"
+      },
+      "system_campaign_p03_PTLA_api.py": {
+        "bytes": 2773,
+        "sha256": "ec4f6c2c349a4106406cd93f9fa01b8592872764e18aaf46f3c63157b4c3f73a"
+      },
+      "system_campaign_p03_PTLA_data.py": {
+        "bytes": 6449,
+        "sha256": "eeaf81506c49f64ba7ada7af4b7fe9197bda9d5e01fa8e6b2cd13f4e7ac8392d"
+      },
+      "system_campaign_p03_PTLA_resources.py": {
+        "bytes": 7560,
+        "sha256": "d74811b3145a501758254b075abb53ebf20acfb3aefd576c352f3fa6ac95d171"
+      }
+    },
+    "financial_authority": false,
+    "financial_sessions_advanced": 0,
+    "local_canonical_runtime_executed": false,
+    "meaningful_seed_omission_refused": true,
+    "original105_preserved": true,
+    "original_resource_functions_unchanged": true,
+    "passed": true,
+    "raw_proofs": 174
+  },
+  "actual_DATA_audit_sha256": "d2bedf0f8162b817d5462fbf5d1d7dca2f28bbdad29ee62553ca85419cea68ac",
+  "actual_copy_canary_performed": false,
+  "actual_hosted_packet_qualification_performed": false,
+  "actual_neutral21_known": false,
+  "complete_original_and_new_source_generations_preserved": true,
+  "current_role_is_future_ownership_authority": false,
+  "files": {
+    "P03-PTLA-full20-factual-source-binding.json": {
+      "bytes": 51193,
+      "sha256": "b3c15fbab54f6c40bd58674ac772836b757956f50ced1093786d0b228b98828c"
+    },
+    "P03-PTLA-mandatory-common-cash-primary.json": {
+      "bytes": 1113,
+      "sha256": "423f16bec97e144f58361d46b862c9de8dd9d63bf58b7e9eee72f7c5dad95176"
+    },
+    "P03-PTLA-ordinary21-source-catalog.json": {
+      "bytes": 607933,
+      "sha256": "e1f19633299c9f61958bceeef1fe994072ec5a9a29cb6d8b34c9c654f8dd18ad"
+    },
+    "P03-PTLA-real628-retained174-resource-fact.json": {
+      "bytes": 224638,
+      "sha256": "eaf2d4da9195ee8f8430e61e28aeb422496aae258e528dd91768272a4c7a70f4"
+    },
+    "forecast_tests/test_PTLA_cash.py": {
+      "bytes": 3771,
+      "sha256": "0aadede388d90d88a71b854534e4fee6758f45c5f1af233d2fce4c6eed306d82"
+    },
+    "forecast_tests/test_PTLA_resources.py": {
+      "bytes": 3947,
+      "sha256": "d349a9d6dab9f4f99e57807d1a78c1bc2280b1aaf227df27ed7b47f1fc8678de"
+    },
+    "system_campaign_financial_future.py": {
+      "bytes": 371399,
+      "sha256": "54ebe4e7da0ecd090f5d9dc87a0dd80bb3571b34d2433127a12b35b1a102775c"
+    },
+    "system_campaign_p03_PTLA_api.py": {
+      "bytes": 2773,
+      "sha256": "ec4f6c2c349a4106406cd93f9fa01b8592872764e18aaf46f3c63157b4c3f73a"
+    },
+    "system_campaign_p03_PTLA_data.py": {
+      "bytes": 6449,
+      "sha256": "eeaf81506c49f64ba7ada7af4b7fe9197bda9d5e01fa8e6b2cd13f4e7ac8392d"
+    },
+    "system_campaign_p03_PTLA_resources.py": {
+      "bytes": 7560,
+      "sha256": "d74811b3145a501758254b075abb53ebf20acfb3aefd576c352f3fa6ac95d171"
+    },
+    "system_campaign_p03_STML_history.py": {
+      "bytes": 4396,
+      "sha256": "a103c6e44dc99cd79002f4c99ba2c5695de684bb633607c05e86c3ac35b4d213"
+    },
+    "system_campaign_p03_STML_resources.py": {
+      "bytes": 3961,
+      "sha256": "783f575249cf2cf1803d7d2f17f9ac97ba8e08ddfe28624f8c142ee700d989b9"
+    },
+    "system_campaign_p03_thor_api.py": {
+      "bytes": 5064,
+      "sha256": "2498a096294562a6c7a635df0bf7f0653be531f3f61a44513086c0c826618ca5"
+    },
+    "system_campaign_qualified_cash_batch.py": {
+      "bytes": 8673,
+      "sha256": "96c9763e021c72c784b04c7033dd32940b9809cff6b56ba0e394287e0cdd3f36"
+    },
+    "system_campaign_qualified_cash_subset.py": {
+      "bytes": 5031,
+      "sha256": "e0f7f8599032d6927a9fb84f156bcb60c8c0162b7abd37a47db5bdd1a7ae7ea2"
+    }
+  },
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "local_canonical_runtime_executed": false,
+  "meaningful_guard_removals_observed": [
+    "active diagnostic destination guard"
+  ],
+  "missing_financial_restart": [
+    "full21 history composition",
+    "consumed DOVA/STML constructor composition with174 seed",
+    "35-term financial observer and independent review",
+    "complete selected request/entry/preflight profile"
+  ],
+  "original_function_code_reused": [
+    "STML closure/verify/preserve/canary",
+    "cash subset validator",
+    "six future input API functions"
+  ],
+  "passed": true,
+  "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+  "schema": "research.P03-PTLA-source-retained174-DATA-qualification/1",
+  "tests": [
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_resources.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-resource-tests-20261108-004",
+      "passed": 15,
+      "seconds": 2.05
+    },
+    {
+      "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_cash.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-cash-tests-20261108-001",
+      "passed": 14,
+      "seconds": 3.62
+    }
+  ]
+}

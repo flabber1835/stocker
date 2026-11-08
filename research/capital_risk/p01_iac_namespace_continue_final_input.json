@@ -1,0 +1,22 @@
+{
+  "cash_per_share": 0.0001,
+  "closing_source": "https://www.sec.gov/Archives/edgar/data/1680056/000127956926000721/ex991.htm",
+  "delivered_issuer_id": "SID:18397188588917778",
+  "delivered_security_id": "18397188588917778",
+  "delivered_ticker": "EQX",
+  "earliest_affected_session": "2026-07-31",
+  "exchange_ratio": "1.00",
+  "financial_sources_sha256": "b925ecd2d5f9d6cbdb2017f971d42037622acfc3c6b7e3ba84427a70e3f0110a",
+  "fractional_cash_price_known": false,
+  "held_settlement_supported": false,
+  "native_term_sha256": "38af459b36abb7bbd88339f114ac17c3755db5be8836982edd3077f36e8b65da",
+  "parent_outer_sha256": "16577260b23ee3321d72ccd99a7e5742d073921feec3b03d8a9b55be9f409be0",
+  "parent_state_sha256": "2b9b52f531e2a4a21bb5399f0b8ecb204865581e376c9f19b79f157107584613",
+  "predecessor_checkpoint_sha256": "1ba14467bb7f0c5d5dcc9eb73332c7b83e0f609e63f1b0ec5c28cf822aba9000",
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/1680056/000127956926000709/ex991.htm",
+  "root_admission_sha256": "d5bfb93d098f9c45dd18697463f152a54c77df2b6fb23c987f1c418556a2c176",
+  "schema": "research.p01-unheld-stock-cash-input/1",
+  "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+  "source_security_id": "622077003929363486",
+  "source_ticker": "ORLA"
+}

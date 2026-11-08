@@ -1,0 +1,175 @@
+{
+  "admitted_completed": 628,
+  "admitted_root": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
+  "admitted_through": "2020-06-30",
+  "context_is_not_event_date_ownership": true,
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "frozen_axis_sha256": "cc5c05fc2392dcb41ac0de142329e49d590b937b53c4fadc49b50f857ed7c34a",
+  "input_adopted": false,
+  "schema": "research.P03-request235-next-eight-source-query-context/1",
+  "scopes": [
+    {
+      "known_prior": "2020-06-30",
+      "native_session": "2020-07-01",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=20.2",
+        "security_id": "40907041192978594",
+        "session": "2020-07-01"
+      },
+      "next_frozen_session": "2020-07-02",
+      "security_id": "40907041192978594",
+      "ticker": "CSHB"
+    },
+    {
+      "known_prior": "2020-06-30",
+      "native_session": "2020-07-01",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2268.8",
+        "security_id": "463756619808367774",
+        "session": "2020-07-01"
+      },
+      "next_frozen_session": "2020-07-02",
+      "security_id": "463756619808367774",
+      "ticker": "IBKC"
+    },
+    {
+      "known_prior": "2020-06-30",
+      "native_session": "2020-07-01",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1415.1",
+        "security_id": "77684744013377591",
+        "session": "2020-07-01"
+      },
+      "next_frozen_session": "2020-07-02",
+      "security_id": "77684744013377591",
+      "ticker": "PTLA"
+    },
+    {
+      "known_prior": "2020-07-08",
+      "native_session": "2020-07-09",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1.5",
+        "security_id": "608062988879848022",
+        "session": "2020-07-09"
+      },
+      "next_frozen_session": "2020-07-10",
+      "security_id": "608062988879848022",
+      "ticker": "TEAR"
+    },
+    {
+      "known_prior": "2020-07-08",
+      "native_session": "2020-07-09",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=36.1",
+        "security_id": "919160176508266297",
+        "session": "2020-07-09"
+      },
+      "next_frozen_session": "2020-07-10",
+      "security_id": "919160176508266297",
+      "ticker": "VSBN"
+    },
+    {
+      "known_prior": "2020-07-09",
+      "native_session": "2020-07-10",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=53.8",
+        "security_id": "829082329521684393",
+        "session": "2020-07-10"
+      },
+      "next_frozen_session": "2020-07-13",
+      "security_id": "829082329521684393",
+      "ticker": "MSBF"
+    },
+    {
+      "known_prior": "2020-07-14",
+      "native_session": "2020-07-15",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=248.7",
+        "security_id": "521663153955821544",
+        "session": "2020-07-15"
+      },
+      "next_frozen_session": "2020-07-16",
+      "security_id": "521663153955821544",
+      "ticker": "SDI"
+    },
+    {
+      "known_prior": "2020-07-17",
+      "native_session": "2020-07-20",
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=8461.1",
+        "security_id": "452001307021238603",
+        "session": "2020-07-20"
+      },
+      "next_frozen_session": "2020-07-21",
+      "security_id": "452001307021238603",
+      "ticker": "CZR2"
+    }
+  ],
+  "source": "P03-retained-SOURCE327-full-factual-generation.json",
+  "source_sha256": "183bc9e86aa008dbf1ddfed38360e2913f6d5adce603b922c5126a402a729fe7"
+}

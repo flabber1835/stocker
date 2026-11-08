@@ -1,0 +1,35 @@
+{
+  "schema": "research.system-campaign-parsley-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "PE",
+      "security_id": "980948154175032078",
+      "native_session": "2021-01-12",
+      "native_term_sha256": "e90cbdcc47e4210620a777fbf5da4b24b097c62dae6a9be92310e36def8148d2",
+      "added": {
+        "security_id": "980948154175032078",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1594466/000119312521007275/d112083d8k.htm | Issuercompletion8K confirmseligibleClassA .1252PXD commonshareconversion, legalJanuary12,2021 afterspecialmeetings, with suspension BEFORE January13NYSEopen. OCC48155 adjustmentJanuary13 https://infomemo.theocc.com/infomemos?number=48155 . PreserveJanuary12. Exactlegalminuteunobserved; January13dailyboundary. Allstock, no invented base cash. Fractional holdercash uses frozenJanuary13PXD raw-open proxy, not actualagentnetrate.",
+        "delivered_security_id": "276044719892003870",
+        "delivered_ticker": "PXD",
+        "delivered_issuer_id": "SEC_CIK:1038357",
+        "session": "2021-01-13",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 0.1252,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1594466/000119312521007275/d112083d8k.htm",
+      "description": "Issuercompletion8K confirmseligibleClassA .1252PXD commonshareconversion, legalJanuary12,2021 afterspecialmeetings, with suspension BEFORE January13NYSEopen. OCC48155 adjustmentJanuary13 https://infomemo.theocc.com/infomemos?number=48155 . PreserveJanuary12. Exactlegalminuteunobserved; January13dailyboundary. Allstock, no invented base cash. Fractional holdercash uses frozenJanuary13PXD raw-open proxy, not actualagentnetrate.",
+      "proxy": {
+        "session": "2021-01-13",
+        "security_id": "276044719892003870",
+        "source_observation_sha256": "2d275d5358ba4df4f35a5fe8527bdb1597f6fdfbaa84b033fd95bccb452a34d3"
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

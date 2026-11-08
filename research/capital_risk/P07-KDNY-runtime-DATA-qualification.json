@@ -1,0 +1,204 @@
+{
+  "actual_neutral27_known": false,
+  "actual_shared_financial_constructor_executed": false,
+  "authenticated_prior_failure": {
+    "artifact_id": 13605704841,
+    "artifact_zip_sha256": "5b137ab5cf9f5e88936b554e39530c400ab01d11a4659323c2dea54e9e8d8aa1",
+    "captured_logical_bytes": 366933523,
+    "captured_members": 250,
+    "cause": "early resource copy preceded original exclusive factual hydrator",
+    "correction": "early callback validates only; unchanged preparation copies after original retainer initialization",
+    "financial_worker_started": false,
+    "head_sha": "f6f6347c33d72c6604f23685f46f1fb174e5e06d",
+    "job_id": 128644273377,
+    "new_financial_days": 0,
+    "preflight_exit_code": 1,
+    "request": 236,
+    "run_id": 42452419846
+  },
+  "constructor_argument_qualification_sha256": "f64956f834ad12c5bf9b21b6a3e50c875fba73080ea372793a626b989f0ad954",
+  "counts": {
+    "parent_days": 1403,
+    "parent_inputs": 26,
+    "required_actual_neutral_inputs": 27,
+    "resources": 216,
+    "seed": 949
+  },
+  "files": {
+    "P07-KDNY-constructor-arguments-DATA-qualification.json": {
+      "bytes": 4647,
+      "sha256": "f64956f834ad12c5bf9b21b6a3e50c875fba73080ea372793a626b989f0ad954"
+    },
+    "P07-KDNY-full26-source-catalog.json": {
+      "bytes": 45155,
+      "sha256": "7d9301e0e9ead2ad5e4586d7f3a41b4449a51b3f6cca03e287570ae9b40c88d2"
+    },
+    "P07-KDNY-real1403-retained949-resource-fact.json": {
+      "bytes": 337161,
+      "sha256": "fc23241ac5c62f0c4ac6bf3c1b3326b1535d61869f6a5f1c61525d70531065e8"
+    },
+    "P07-KDNY-retained949-DATA-qualification.json": {
+      "bytes": 4790,
+      "sha256": "8179e6db6d38fd2bb816b12bfe55b2d6070e0778d7c7735b4fefffe0d1bf8c2b"
+    },
+    "P07-KDNY-source-packet-DATA-qualification.json": {
+      "bytes": 4288,
+      "sha256": "2e3d1d861874cc16fcdb9bf5b19eb6dd2462551e8ff425e877a402e0b5a2fa41"
+    },
+    "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt": {
+      "bytes": 8931,
+      "sha256": "43e319690ef34374daaa441e9a2096edcef882d05230735512e9673d98a9f810"
+    },
+    "P07-request231-parent-transport-DATA-qualification.json": {
+      "bytes": 2708,
+      "sha256": "45fe5132c892d99ae4049125ad7cd6c7473dcf1b68efa14880a52e00472d48fa"
+    },
+    "P07-request231-readonly-recovery-fact.json": {
+      "bytes": 50532,
+      "sha256": "f0064c4c904ae07e0fcdd5893ac9c6baf4c878292d9ba37b7afe8b850852d491"
+    },
+    "P07-request233-independent-readonly-review-transport.json": {
+      "bytes": 4828,
+      "sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6"
+    },
+    "forecast_tests/test_KDNY_constructor_arguments.py": {
+      "bytes": 6105,
+      "sha256": "9a98438d475dd9ab46495f328f545a838db28db38b87db57ae7a0217a1983960"
+    },
+    "forecast_tests/test_KDNY_runtime.py": {
+      "bytes": 8021,
+      "sha256": "0f2c163ab3b4e2a1194401baa5428cf55ff74ef2ca54ae67246af02ddedbc4e8"
+    },
+    "system_campaign_bounded_sensor_seed_binding.py": {
+      "bytes": 1523,
+      "sha256": "7b16d785a87a8cdfc615798da37f79c6731cd246cbb307f9aec36073827f1354"
+    },
+    "system_campaign_dependencies.py": {
+      "bytes": 3963,
+      "sha256": "49f74f093f1a206a6de27da7c355d57aa669b8dc2218c3fbabe115150f6f6869"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p03_thor_qualification_reuse.py": {
+      "bytes": 15354,
+      "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee"
+    },
+    "system_campaign_p07_KDNY_certificate.py": {
+      "bytes": 5593,
+      "sha256": "f61cd93203cf808f245614a5cf3fae09195b34abce5d9ce2caa28a0dfde8a8ad"
+    },
+    "system_campaign_p07_KDNY_entry.py": {
+      "bytes": 13449,
+      "sha256": "c8f11162067012e478de0e4db1cb6d2cde91ddd50fc711fd639fb55912c1930a"
+    },
+    "system_campaign_p07_KDNY_history.py": {
+      "bytes": 4873,
+      "sha256": "4eec4eb2de0960223258ae2729ae2264ca994699a0b27354471c52b0a0e23bbd"
+    },
+    "system_campaign_p07_KDNY_preparation.py": {
+      "bytes": 2491,
+      "sha256": "3cc79c9e5088082287147f6cebfdddaa7d278ef89a3e2cb93043894a57c20e18"
+    },
+    "system_campaign_p07_KDNY_resources.py": {
+      "bytes": 7078,
+      "sha256": "b089453435a0d1ade1ea6a8000533dfb3657d15fd160f71306e217acfea87a6a"
+    },
+    "system_campaign_p07_KDNY_retained.py": {
+      "bytes": 6596,
+      "sha256": "f7d8e2b4e162c4b282541cce98893a367b11bae59779662b6cb9072dc8fb1c01"
+    },
+    "system_campaign_p07_KDNY_runtime.py": {
+      "bytes": 17892,
+      "sha256": "2156620d7566be5bd0bd8bb4af57ba1049b7b27f93322b022b539ec65613bc69"
+    },
+    "system_campaign_p07_KDNY_source.py": {
+      "bytes": 13116,
+      "sha256": "9b5d23379173f95b350dd64f20fe2439f3f8a90312a9d1eed7eb3f5eca58c3af"
+    },
+    "system_campaign_p07_fin326_requalified_parent.py": {
+      "bytes": 16230,
+      "sha256": "ca981e5bc69446730cc390093aaf59ed5eec310ac15e950feacb68d4bdb6f680"
+    },
+    "system_campaign_p07_request231_parent.py": {
+      "bytes": 7904,
+      "sha256": "ac5e97844757af2d1e8e94860017d6e7465f74b14d49ac21cf5c7eae4dd7c941"
+    },
+    "system_campaign_p07_request231_review.py": {
+      "bytes": 12909,
+      "sha256": "ca6defa1f7170b6403c8394f97b717dcc1e66057289bf95a7548e9ac00c7a220"
+    },
+    "system_campaign_p07_vivo_certificate.py": {
+      "bytes": 2668,
+      "sha256": "c796a83686d13a236b6d62740569824f3b28d28de412a1b6517290375c5befd0"
+    },
+    "system_campaign_postclose_distribution_models.py": {
+      "bytes": 5265,
+      "sha256": "e1d8d7848dd58e7dbd1e834bb73f924ec5023e52d1d48c89db7aa712f374dca9"
+    },
+    "system_campaign_postclose_distribution_restart.py": {
+      "bytes": 20321,
+      "sha256": "a47846c4fa74b5b23c6975e89d31de0cf9bbf41bd88053680a402bc67be92126"
+    },
+    "system_campaign_postclose_distribution_runtime.py": {
+      "bytes": 11480,
+      "sha256": "2e9bbcef9584804d2dc98fa4f72710b5e87433d5b550b9e541bb6a1c680c89cf"
+    },
+    "system_campaign_second_bounded_codec.py": {
+      "bytes": 2448,
+      "sha256": "8467e2449e5a580bb9f55ca9507875ace183c77bcf4fa9eb8f01f9e908a93571"
+    },
+    "system_campaign_second_bounded_factory.py": {
+      "bytes": 3918,
+      "sha256": "28babac1d0ec4a511e336faeb1695a43991b3fef489e5c7c3d82661a8719dd4f"
+    }
+  },
+  "financial_authority": false,
+  "local_canonical_runtime_executed": false,
+  "passed": true,
+  "previous_request236_related_selector_parent_tests": {
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_request231_parent.py research/capital_risk/forecast_tests/test_request231_readonly_recovery.py research/capital_risk/forecast_tests/test_request232_final_reporting.py research/capital_risk/forecast_tests/test_STML_restart.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-selector-parent-tests-20261108-001",
+    "passed": 82,
+    "seconds": 14.37
+  },
+  "previous_request236_runtime_tests": {
+    "actual_complete_request_and_all_source_pins_checked": true,
+    "all_four_mature_worker_ASTs_unchanged": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-runtime-tests-20261108-002",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 1,
+    "passed": 20,
+    "seconds": 7.65,
+    "whole_original_adopter_AST_undo": true,
+    "whole_original_retained_declaration_AST_undo": true,
+    "whole_original_retained_worker_writer_dispatch": true
+  },
+  "previous_request237_runtime_tests": {
+    "actual_complete_request_and_all_source_pins_checked": true,
+    "all_four_mature_worker_ASTs_unchanged": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-request237-runtime-20261108-001",
+    "early_copy_regression": true,
+    "early_copy_restoration_falsifier_observed": true,
+    "financial_import_fences": 5,
+    "passed": 21,
+    "seconds": 5.13,
+    "whole_original_adopter_AST_undo": true,
+    "whole_original_retained_declaration_AST_undo": true,
+    "whole_original_retained_worker_writer_dispatch": true
+  },
+  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "schema": "research.P07-KDNY-whole-runtime-DATA-qualification/1",
+  "scope": "Complete original worker and decoder composition tested as DATA/opaque DTO only. Actual hosted packet preparation, canonical neutral27 and shared financial constructor remain mandatory before financial advance.",
+  "tests": {
+    "actual_complete_request_and_all_source_pins_checked": true,
+    "all_four_mature_worker_ASTs_unchanged": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py research/capital_risk/forecast_tests/test_KDNY_constructor_arguments.py research/capital_risk/forecast_tests/test_KDNY_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-request238-runtime-20261108-001",
+    "early_copy_regression": true,
+    "financial_import_fences": 5,
+    "inherited_required_signature_and_both_constructor_sites_covered": true,
+    "passed": 45,
+    "seconds": 5.93,
+    "whole_original_worker_constructor_call_exercised_with_opaque_DTO": true
+  }
+}
