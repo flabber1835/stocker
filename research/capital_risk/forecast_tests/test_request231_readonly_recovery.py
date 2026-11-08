@@ -26,6 +26,11 @@ def test_exact_failed_transport_is_not_financial_authority_or_a_successful_revie
 def test_closed_request_selects_only_new_readonly_case_and_has_exact_pins():
  import system_campaign_financial_resume as resume
  value=json.loads((C/resume.REQUEST).read_bytes())
+ if p.retired():
+  assert p.sha((C/resume.REQUEST).read_bytes())=='a04812eb39d904454d6cde823bc71c0eb5d8d839ce67bc9039983e0df617fbc6'
+  assert p.selected_request(value)
+  with pytest.raises(ValueError,match='ALREADY_ADMITTED_REQUEST_RETIRED'):resume.expected_request()
+  return
  assert value==resume.expected_request() and p.selected_request(value)
  assert value['schema'].endswith('/233') and not value.get('selected_p07_full25_readonly_reporting',{})
  assert all(p.sha((C/n).read_bytes())==pin for n,pin in value['sources'].items())
@@ -47,6 +52,29 @@ def test_readonly_guard_falsifier_detects_removal(monkeypatch):
  with pytest.raises(ValueError):p.request_only_readonly(r,p.target())
  old=p.need;monkeypatch.setattr(p,'need',lambda yes,label:None if label=='REQUEST231_EXPLICIT_ZERO_FINANCIAL_READONLY_REQUEST' else old(yes,label))
  assert p.request_only_readonly(r,p.target()) is True
+
+def test_retired_target_cannot_start_another_review_and_guard_removal_falsifier(monkeypatch):
+ module=SimpleNamespace(EXECUTION_MODE=p.MODE,SELECTED_ARMS=('P07',))
+ fn=p.bind_expected_request(lambda:dict(sources={},arm_inputs={'P07':{}}),module)
+ monkeypatch.setattr(p,'retired',lambda:True)
+ with pytest.raises(ValueError,match='ALREADY_ADMITTED_REQUEST_RETIRED'):fn()
+ old=p.need;monkeypatch.setattr(p,'need',lambda yes,label:None if label=='REQUEST233_ALREADY_ADMITTED_REQUEST_RETIRED' else old(yes,label))
+ assert fn()[p.FIELD]=={'P07':p.declaration(p.target())}
+
+def test_new_admission_keeps_original_failed_transport_and_fresh_review_distinct():
+ from system_campaign_financial_partial import root_spec
+ current=root_spec('P07')
+ if current['outer_sha256']!=p.OUTER:pytest.skip('Request231 target not independently admitted yet')
+ assert current['measured_closes']==1403 and len(current['repairs'])==26
+ assert current['root_request231_requalified_review_parent'] is True
+ assert 'readonly_failed_review_requalification' not in current
+ assert current['review_sha256'] is None and current['receipt_status']=='REFUSED_STOPPED_EVIDENCE_PRESERVED'
+ q=current['root_admission']['failed_review_requalification']
+ assert q['review_transport_sha256']==current['qualified_review_transport_sha256']
+ assert q['original_failed_stops_preserved'] is True
+ assert (current['root_admission']['branch_uncertainty_proof']['retained_rows'],current['root_admission']['branch_uncertainty_proof']['rows'])==(929,20)
+ prior=root_spec('P07',p.ORIGIN)
+ assert prior['measured_closes']==1383 and prior['root_admission_sha256']==p.ORIGIN
 
 @pytest.mark.parametrize('field,value',[('review_sha256','0'*64),('financial_authority',True),('measured_closes',1410),('receipt_status','PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT')])
 def test_saved_target_cannot_be_relabelled(field,value):

@@ -1,0 +1,88 @@
+{
+  "counts": {
+    "accountings": 40,
+    "daily": 20,
+    "full_inputs": 26,
+    "independent_decimal_metrics": 28,
+    "new_monthly_reports": 1,
+    "new_proofs": 20,
+    "resources": 165,
+    "retained_proofs": 929
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\DESIGN.md": {
+      "bytes": 1902,
+      "sha256": "df2ae217db3df640af7aac3e0352628910af7263b0515f9e1e795eb16c2a00ce"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\P07-independent-financial-review.json": {
+      "bytes": 11809,
+      "sha256": "3ad9419bbe87e61af3cd3488e27b63a97a4879ebf65d7c944a250541c6caebad"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\P07-request231-transport-target.json": {
+      "bytes": 43737,
+      "sha256": "3b0589405f1fb124e6898389b9285793d8b01c7f426a904f30318f66eaddcb49"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\independent_REQUEST231_DATA.py": {
+      "bytes": 8507,
+      "sha256": "15678181bcbe2c098bf993e15c31143275d4af39907d5474fb079425fec69f9d"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\p07_REQUEST231_components_DATA.py": {
+      "bytes": 7457,
+      "sha256": "5303e98b8507689cfb5e507c065a65004c0a858fc881c69ce160a02edc51b86a"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p07-request231-DATA-20261108\\test_REQUEST231_DATA.py": {
+      "bytes": 5275,
+      "sha256": "c5794deb8b03454791c53a2ae474e5268dc36b2a88220d8fa64ba1891c2f6bdd"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request231-source-snapshot\\authenticated-artifact-13598958730\\authenticated-manifest.json": {
+      "bytes": 119310,
+      "sha256": "1e9a5ef249a8661ae8e334ef2f467d7d1f05c1da3ed8ad5e7ba7d6df29b6a8dc"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request231-source-snapshot\\authenticated-artifact-13598958730\\campaign-factual-P07.json": {
+      "bytes": 1305,
+      "sha256": "da2c388015a9548002d37548bedd653d51c180285463a52129f5348dd5ff8ca8"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request231-source-snapshot\\authenticated-artifact-13598958730\\capture-review.json": {
+      "bytes": 661,
+      "sha256": "e84ad63e8ebfdc2f101104299a583d345adab1e2c8b1bdb642594534b842f1ef"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request233-source-snapshot\\authenticated-artifact-13601296206\\authenticated-manifest.json": {
+      "bytes": 22640,
+      "sha256": "9bac63c016ba3a7e6511b1bd3a93604ea79f2f720d1cc7bd2396cc051756dfe8"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request233-source-snapshot\\authenticated-artifact-13601296206\\campaign-factual-P07.json": {
+      "bytes": 1212,
+      "sha256": "a582e45b8675257294af7f3e81248020dad0d5680b4465086ba7d49bb599e1a7"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P07-request233-source-snapshot\\authenticated-artifact-13601296206\\capture-review.json": {
+      "bytes": 561,
+      "sha256": "fb46cd7aaf04799052ba37ac23fe74ac7a33f9f429856e40606ac95c8f2fa7bd"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "fresh_separate_readonly_stops_preserved": [
+    0,
+    0
+  ],
+  "independent_review_sha256": "3ad9419bbe87e61af3cd3488e27b63a97a4879ebf65d7c944a250541c6caebad",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    1,
+    1
+  ],
+  "passed": true,
+  "readonly_transport_sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6",
+  "root_admission_performed": false,
+  "schema": "research.P07-request231-independent-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest .codex-tmp/p07-request231-DATA-20261108/test_REQUEST231_DATA.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-request231-DATA-guards-20261108-002",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 10,
+    "seconds": 8.92,
+    "whole_mature_financial_AST_undo": true
+  },
+  "whole_result_identical_after_harness_import_fix": true
+}

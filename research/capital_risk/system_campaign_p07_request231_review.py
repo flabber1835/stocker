@@ -66,8 +66,15 @@ def selected_request(request):
 
 def source_names():return (Path(__file__).name,FACT,'system_campaign_postclose_distribution_runtime.py')
 
+def retired():
+ from system_campaign_financial_partial import root_spec
+ current=root_spec('P07')
+ return current['outer_sha256']==OUTER and current['measured_closes']==1403
+
 def bind_expected_request(original,module):
  def expected():
+  if module.EXECUTION_MODE==MODE and list(module.SELECTED_ARMS)==['P07'] and applies(target()):
+   need(not retired(),'REQUEST233_ALREADY_ADMITTED_REQUEST_RETIRED')
   value=original();value[FIELD]={}
   if module.EXECUTION_MODE==MODE and list(module.SELECTED_ARMS)==['P07'] and applies(target()):
    value[FIELD]={'P07':declaration(target())};value['arm_inputs']['P07']['new_factual_overlay']=False
@@ -194,6 +201,7 @@ def bind_launch(original):
   request=json.loads(Path(args.request).read_bytes())
   if not selected_request(request):return original(args)
   need(args.arm=='P07','REQUEST231_ONLY_P07_READONLY_LAUNCH')
+  need(not retired(),'REQUEST233_ALREADY_ADMITTED_REQUEST_RETIRED')
   with context(request,mode='launch'):return original(args)
  return launch
 
