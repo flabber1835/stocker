@@ -12,8 +12,8 @@ import system_campaign_p03_PTLA_entry as inactive_p03
 runtime,retained,history=entry.runtime,entry.retained,entry.history
 repair=previous.repair
 HERE=Path(__file__).parent
-FACT='P07-request238-readonly-recovery-fact.json'
-FACT_SHA='586b883ecc962d9a4310ca18a603e9e894bfd0afc2e58a09607d5a3ff3532d4f'
+FACT='P07-request238-readonly-recovery-fact-v2.json'
+FACT_SHA='ed45ba8f3784f386f5cc6ee6c22e5408fe279be53ce316c25a4e2e4974718eb4'
 FIELD='selected_p07_request238_readonly_recovery'
 MARKER='p07_request238_readonly_recovery'
 MODE=previous.MODE
@@ -79,7 +79,7 @@ def selected_request(request):return bool(request.get(FIELD)) and require_reques
 
 
 def source_names():
- return tuple(sorted({Path(__file__).name,FACT,'P07-request238-readonly-partials.json',*entry.source_names(),*inactive_p03.source_names()}))
+ return tuple(sorted({Path(__file__).name,FACT,'P07-request238-readonly-recovery-fact.json','P07-request238-readonly-partials.json',*entry.source_names(),*inactive_p03.source_names()}))
 
 
 def bind_expected_request(original,module):

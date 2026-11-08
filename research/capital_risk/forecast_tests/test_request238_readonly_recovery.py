@@ -27,6 +27,17 @@ def test_actual_saved_august_target_preserves_failed_stops_and_full27_history():
  assert not p.entry.parent_transport.applies(t)
 
 
+def test_every_required_literal_field_of_original_admitter_is_bound():
+ import system_campaign_financial_partial as partial
+ fn=next(n for n in ast.parse(Path(partial.crypto.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='admit')
+ keys={n.slice.value for n in ast.walk(fn) if isinstance(n,ast.Subscript) and isinstance(n.value,ast.Name)
+  and n.value.id=='spec' and isinstance(n.slice,ast.Constant) and isinstance(n.slice.value,str)}
+ prior=json.loads((C/'P07-request238-readonly-recovery-fact.json').read_bytes())
+ assert keys-set(prior['target'])=={'stage'} and keys<=set(p.target())
+ assert p.target()['stage']=='campaign-factual-suffix'
+ assert p.fact()['original_incomplete_transport_fact_sha256']==p.sha((C/'P07-request238-readonly-recovery-fact.json').read_bytes())
+
+
 @pytest.mark.parametrize('field,value',[('financial_resume_authorized',True),('readonly_partial_review',False),
  ('readonly_source_witnesses',True),('maximum_parallel_financial_workers',1),('maximum_parallel_financial_workers',False),
  ('maximum_parallel_readonly_workers',True),('arms',['P07','P03']),('execution_mode',p.entry.MODE)])

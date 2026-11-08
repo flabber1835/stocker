@@ -602,6 +602,7 @@
       },
       "selected_session": "2023-08-31",
       "source_binding_sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b",
+      "stage": "campaign-factual-suffix",
       "state_sha256": "3b225226e7245a58a86ff1ef50b0a7f24b76bc652f64a2b1a151184654d3a47e",
       "zip_bytes": 583836151,
       "zip_sha256": "60575848c4538ffe40cccd9c1aad754d75ff646538535bec710461c155102166"

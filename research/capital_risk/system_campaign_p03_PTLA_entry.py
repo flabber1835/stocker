@@ -140,6 +140,7 @@ def context(module,spec,*,mode,out,request):
  from system_campaign_registry_extension import RegistryExtension
  saved=[]
  def patch(owner,name,value):saved.append((owner,name,getattr(owner,name)));setattr(owner,name,value)
+ patch(history.previous.previous.origins,'load',history.origin_reader())
  old_models,old_context=partial.retained_models,partial.model_context
  old_implementation=router.implementation;old_phase,old_selected=additional.phase,additional.selected_declaration
  def implementation(root,current,target):

@@ -1,6 +1,7 @@
 """Entire admitted full20 plus one original ordinary input and real neutral21."""
 import gzip,json
 from pathlib import Path
+from types import FunctionType
 from full_system_benchmark import need
 from system_campaign_facts import sha,digest
 from system_campaign_bounded_sensor_origin_v2 import strict_json
@@ -23,6 +24,26 @@ QUALIFICATION_FLAGS=('only_terminal_field_changed','complete_terms_and_canonical
 
 
 def spec():return resources.spec()
+
+
+def historical_members(member):
+ def read(name):
+  if name!='branch-controller-qualification.json':return member(name)
+  try:raw=member(resources.QUALIFIED)
+  except FileNotFoundError:raw=member(name)
+  item=resources.fact()['resources'][resources.QUALIFIED]
+  need(resources.pin(raw)=={k:item[k] for k in ('bytes','sha256')},'PTLA_HISTORY_EXACT_ARCHIVED_ORIGINAL_CONTROLLER_QUALIFICATION')
+  return raw
+ return read
+
+
+def origin_reader():
+ fn=previous.previous.origins.load;original_bundle=fn.__globals__['validate_bundle']
+ need(fn.__closure__ is None,'PTLA_HISTORY_WHOLE_ORIGINAL_ORIGIN_LOADER_WITHOUT_CLOSURE')
+ def validate(value,current,catalog,typed,metadata,member,**kwargs):
+  return original_bundle(value,current,catalog,typed,metadata,historical_members(member),**kwargs)
+ result=FunctionType(fn.__code__,dict(fn.__globals__,validate_bundle=validate),fn.__name__,fn.__defaults__)
+ result.__kwdefaults__=fn.__kwdefaults__;return result
 
 
 def full_parent(root,parent):
