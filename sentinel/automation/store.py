@@ -310,7 +310,10 @@ def release_kill(
 
 
 def acquire_lease(
-        conn, *, holder_id: str, lease_seconds: int) -> LeaderPermit:
+        conn, *, holder_id: str, lease_seconds: int,
+        instance_state: str | None = None,
+        next_wake_at: datetime | None = None,
+        last_error: str | None = None) -> LeaderPermit:
     """Acquire or renew leadership using only PostgreSQL's clock.
 
     The existing execution writer lock serializes takeover with manual command
@@ -322,6 +325,10 @@ def acquire_lease(
     holder_id = _require_text(holder_id, "holder_id")
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
+    if instance_state is not None:
+        instance_state = _require_text(instance_state, "instance_state")
+        if instance_state.endswith("_CALLBACK"):
+            raise ValueError("foreground acquisition cannot start a callback")
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -341,7 +348,9 @@ def acquire_lease(
                 expires_at=owned[3])
             try:
                 return heartbeat_lease(
-                    conn, permit=permit, lease_seconds=lease_seconds)
+                    conn, permit=permit, lease_seconds=lease_seconds,
+                    **(dict(instance_state=instance_state, next_wake_at=next_wake_at,
+                            last_error=last_error) if instance_state is not None else {}))
             except StaleLeaderRefused:
                 # A kill, takeover or expiry raced the read. Only exclusive
                 # acquisition may now establish a fresh permit.
@@ -368,6 +377,12 @@ def acquire_lease(
                     "durable automation lease singleton is missing")
             (current_holder, current_token, current_generation,
              acquired_at, expires_at, database_now) = row
+            if instance_state is not None:
+                _lock_instance(cur, holder_id)
+            # Evaluate ownership after lock waits, never against the SELECT's
+            # pre-lock clock. The same fresh pulse is persisted on both rows.
+            cur.execute("SELECT clock_timestamp()")
+            database_now = cur.fetchone()[0]
             live = (
                 current_holder is not None
                 and current_generation == control.generation
@@ -386,13 +401,16 @@ def acquire_lease(
             cur.execute(
                 "UPDATE sentinel_automation_lease SET holder_id=%s,"
                 " fence_token=%s,control_generation=%s,acquired_at=%s,"
-                " heartbeat_at=clock_timestamp(),"
-                " expires_at=clock_timestamp()+(%s * INTERVAL '1 second'),"
-                " updated_at=clock_timestamp() WHERE id=1"
+                " heartbeat_at=%s,"
+                " expires_at=%s+(%s * INTERVAL '1 second'),"
+                " updated_at=%s WHERE id=1"
                 " RETURNING acquired_at,expires_at",
-                (holder_id, token, control.generation, acquired,
-                 lease_seconds))
+                (holder_id, token, control.generation, acquired, database_now,
+                 database_now, lease_seconds, database_now))
             acquired, expires = cur.fetchone()
+            if instance_state is not None:
+                _write_instance(cur, instance_id=holder_id, state=instance_state,
+                    next_wake_at=next_wake_at, last_error=last_error, pulse=database_now)
         return LeaderPermit(
             holder_id=holder_id, fence_token=token,
             control_generation=control.generation,
@@ -401,25 +419,38 @@ def acquire_lease(
 
 def heartbeat_lease(
         conn, *, permit: LeaderPermit,
-        lease_seconds: int, callback: bool = False) -> LeaderPermit:
+        lease_seconds: int, callback: bool = False,
+        instance_state: str | None = None,
+        next_wake_at: datetime | None = None,
+        last_error: str | None = None) -> LeaderPermit:
     """Renew only an unexpired, still-authorized lease; never resurrect one."""
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
+    if callback and instance_state is not None:
+        raise ValueError("callback renewal cannot publish foreground state")
+    if instance_state is not None:
+        instance_state = _require_text(instance_state, "instance_state")
+        if instance_state.endswith("_CALLBACK"):
+            raise ValueError("foreground renewal cannot start a callback")
     try:
         load_control(conn)
         with conn.cursor() as cur:
+            cur.execute("SELECT id FROM sentinel_automation_lease WHERE id=1 FOR UPDATE")
+            if callback or instance_state is not None:
+                _lock_instance(cur, permit.holder_id)
             cur.execute(
+                "WITH pulse AS MATERIALIZED (SELECT clock_timestamp() AS at) "
                 "UPDATE sentinel_automation_lease AS l SET"
-                " heartbeat_at=clock_timestamp(),"
-                " expires_at=clock_timestamp()+(%s * INTERVAL '1 second'),"
-                " updated_at=clock_timestamp()"
-                " FROM sentinel_automation_control AS c"
+                " heartbeat_at=pulse.at,"
+                " expires_at=pulse.at+(%s * INTERVAL '1 second'),"
+                " updated_at=pulse.at"
+                " FROM sentinel_automation_control AS c,pulse"
                 " WHERE l.id=1 AND c.id=1 AND c.enabled"
                 " AND NOT c.kill_switch_engaged"
                 " AND c.generation=%s AND l.control_generation=c.generation"
                 " AND l.holder_id=%s AND l.fence_token=%s"
                 " AND l.expires_at > clock_timestamp()"
-                " RETURNING l.acquired_at,l.expires_at",
+                " RETURNING l.acquired_at,l.expires_at,l.heartbeat_at",
                 (lease_seconds, permit.control_generation, permit.holder_id,
                  permit.fence_token))
             row = cur.fetchone()
@@ -430,14 +461,18 @@ def heartbeat_lease(
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE sentinel_automation_service_instances SET"
-                    " heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()"
+                    " heartbeat_at=%s,updated_at=%s"
                     " WHERE instance_id=%s AND right(state,9)='_CALLBACK'"
                     " AND callback_started_at <= clock_timestamp()"
                     " AND callback_deadline_at > clock_timestamp()",
-                    (permit.holder_id,))
+                    (row[2], row[2], permit.holder_id,))
                 if cur.rowcount != 1:
                     raise StaleLeaderRefused(
                         "callback instance is missing, changed or expired")
+        if instance_state is not None:
+            with conn.cursor() as cur:
+                _write_instance(cur, instance_id=permit.holder_id, state=instance_state,
+                    next_wake_at=next_wake_at, last_error=last_error, pulse=row[2])
         conn.commit()
         return permit.model_copy(update={"expires_at": row[1]})
     except BaseException:
@@ -1237,6 +1272,36 @@ def mark_historical_missed(
     return tuple(completed)
 
 
+def _lock_instance(cur, instance_id: str) -> None:
+    """Wait before sampling a pulse; callback expiry must survive lock waits."""
+    cur.execute("SELECT instance_id FROM sentinel_automation_service_instances "
+                "WHERE instance_id=%s FOR UPDATE", (instance_id,))
+    cur.fetchone()
+
+
+def _write_instance(
+        cur, *, instance_id: str, state: str,
+        next_wake_at: datetime | None = None,
+        last_error: str | None = None,
+        callback_deadline_seconds: int | None = None,
+        pulse: datetime | None = None) -> None:
+    callback = state.endswith("_CALLBACK")
+    cur.execute(
+        "WITH pulse AS MATERIALIZED (SELECT COALESCE(%s::timestamptz,clock_timestamp()) AS at) "
+        "INSERT INTO sentinel_automation_service_instances"
+        " (instance_id,state,next_wake_at,last_error,callback_started_at,"
+        " callback_deadline_at,heartbeat_at,updated_at) SELECT %s,%s,%s,%s,"
+        " CASE WHEN %s THEN at END,"
+        " CASE WHEN %s THEN at+(%s * INTERVAL '1 second') END,at,at FROM pulse"
+        " ON CONFLICT (instance_id) DO UPDATE SET"
+        " heartbeat_at=EXCLUDED.heartbeat_at,state=EXCLUDED.state,"
+        " next_wake_at=EXCLUDED.next_wake_at,last_error=EXCLUDED.last_error,"
+        " callback_started_at=EXCLUDED.callback_started_at,"
+        " callback_deadline_at=EXCLUDED.callback_deadline_at,updated_at=EXCLUDED.updated_at",
+        (pulse, instance_id, state, next_wake_at, last_error, callback, callback,
+         callback_deadline_seconds))
+
+
 def register_instance(
         conn, *, instance_id: str, state: str,
         next_wake_at: datetime | None = None,
@@ -1251,21 +1316,9 @@ def register_instance(
     if not callback and callback_deadline_seconds is not None:
         raise ValueError("non-callback instance cannot carry a callback deadline")
     with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_automation_service_instances"
-            " (instance_id,state,next_wake_at,last_error,callback_started_at,"
-            " callback_deadline_at) VALUES (%s,%s,%s,%s,"
-            " CASE WHEN %s THEN clock_timestamp() END,"
-            " CASE WHEN %s THEN clock_timestamp()+(%s * INTERVAL '1 second') END)"
-            " ON CONFLICT (instance_id) DO UPDATE SET"
-            " heartbeat_at=clock_timestamp(),state=EXCLUDED.state,"
-            " next_wake_at=EXCLUDED.next_wake_at,"
-            " last_error=EXCLUDED.last_error,"
-            " callback_started_at=EXCLUDED.callback_started_at,"
-            " callback_deadline_at=EXCLUDED.callback_deadline_at,"
-            " updated_at=clock_timestamp()",
-            (instance_id, state, next_wake_at, last_error, callback, callback,
-             callback_deadline_seconds))
+        _write_instance(cur, instance_id=instance_id, state=state,
+            next_wake_at=next_wake_at, last_error=last_error,
+            callback_deadline_seconds=callback_deadline_seconds)
     conn.commit()
 
 

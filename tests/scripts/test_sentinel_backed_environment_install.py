@@ -14,6 +14,10 @@ import sentinel_env
 
 
 def host_fixture(tmp_path, monkeypatch):
+    # This fixture isolates canonical metadata/receipt boundaries. Native-reader
+    # discovery and real credential changes are exercised in the focused shared
+    # environment continuity tests, without starting production maintenance.
+    monkeypatch.setattr(patch.environment,'readers',lambda *a,**kw:())
     root=tmp_path/'canonical';root.mkdir();(root/'.git').mkdir()
     authority=root/'artifacts/sentinel/authority'
     receipt=authority/'deployments/attempt/activation-receipt.json'
@@ -67,7 +71,7 @@ def test_canonical_absence_installs_under_native_ownership_without_archive_metad
 
 def test_exact_candidate_replay_does_not_replace_or_fabricate_metadata(tmp_path,monkeypatch):
     host,old,new,save=host_fixture(tmp_path,monkeypatch);save(new)
-    monkeypatch.setattr(Path,'replace',lambda *_:pytest.fail('exact candidate was rewritten'))
+    monkeypatch.setattr(os,'replace',lambda *a,**kw:pytest.fail('exact candidate was rewritten'))
     with host.owned():host.install_values(new,new)
     assert host.load_values()==new and not (host.deployment/'local-delivery.json').exists()
 
@@ -128,17 +132,17 @@ def test_failure_before_or_after_atomic_replace_has_safe_exact_resume(tmp_path,m
         if stat.S_ISDIR(os.fstat(fd).st_mode):synced.append('directory')
         return fsync(fd)
     monkeypatch.setattr(os,'fsync',sync)
-    replace=Path.replace
-    def fail(path,target):
-        if path.name.startswith('.env.local-delivery-'):
-            if after_replace:replace(path,target)
+    replace=os.replace
+    def fail(path,target,**kwargs):
+        if Path(path).name.startswith('.env.local-delivery-'):
+            if after_replace:replace(path,target,**kwargs)
             raise OSError('simulated lost host acknowledgement')
-        return replace(path,target)
-    monkeypatch.setattr(Path,'replace',fail)
+        return replace(path,target,**kwargs)
+    monkeypatch.setattr(os,'replace',fail)
     with host.owned():
         with pytest.raises(OSError):host.install_values(old,new)
     assert host.load_values()==(new if after_replace else old)
-    monkeypatch.setattr(Path,'replace',replace)
+    monkeypatch.setattr(os,'replace',replace)
     with host.owned():host.install_values(host.load_values(),new)
     assert synced==['directory'], 'lost acknowledgement did not complete the directory durability barrier'
     assert host.load_values()==new and not (host.deployment/'local-delivery.json').exists()

@@ -82,6 +82,9 @@ class _Heartbeat:
 def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
     shadow_service_status.publish(LATCH_FILE, _STATUS_INCARNATION)
+    from sentinel import shadow_drain
+    shadow_drain.acknowledge_idle(LATCH_FILE.parent,
+        os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION)
 
 
 def _latch_exists():

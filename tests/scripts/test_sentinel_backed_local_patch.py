@@ -16,6 +16,150 @@ patch=importlib.import_module('sentinel_backed_local_patch')
 from tests.scripts import test_sentinel_local_delivery_evidence as fixture
 
 
+def test_backed_cli_dispatches_terminal_abandonment_with_existing_witness(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    witness=tmp_path/'predecessor.json';witness.write_text('{}')
+    old={'commit':'1'*40,'image':'sha256:'+'a'*64}
+    (tmp_path/'build.json').write_text(json.dumps(dict(foundation=old,
+        predecessor_receipt={'path':str(witness),'sha256':patch.sha256_file(witness)})))
+    monkeypatch.setattr(patch,'Journal',lambda folder:SimpleNamespace(request={'predecessor':old}))
+    events=[]
+    monkeypatch.setattr(patch,'BackedHost',lambda *a:events.append('host'))
+    class Delivery:
+        def __init__(self,*a):pass
+        def abandon_drain(self):events.append('abandon')
+        def advance(self):pytest.fail('abandonment advanced installation')
+    monkeypatch.setattr(patch,'Delivery',Delivery)
+    monkeypatch.setattr(patch.cli,'status',lambda folder:{'abandoned':True})
+    assert patch.main(['abandon-drain','--operation-dir',str(tmp_path)])==0
+    assert events==['host','abandon']
+
+
+def immutable_values_host(tmp_path,monkeypatch):
+    host=object.__new__(patch.BackedHost)
+    host.deployment=tmp_path;host.literal=importlib.import_module('sentinel_env')
+    image='sha256:'+'a'*64
+    reference='example.invalid/sentinel@sha256:'+'1'*64
+    values=dict(ALPACA_BASE_URL='https://paper-api.alpaca.markets',
+        SENTINEL_LOCAL_PAPER_MODE='OWNER_AUTHORIZED_FUNCTION_FIRST_V1',
+        SENTINEL_LOCAL_PAPER_ACCOUNT_ID='PAqualification',
+        SENTINEL_PAPER_BUY_POLICY='PROTECTED_LIMIT_DAY_V1',SENTINEL_PAPER_BUY_CAP_BPS='100',
+        SENTINEL_LOCAL_PAPER_BACKUP_POLICY='REQUIRED_V1',SENTINEL_GIT_COMMIT='1'*40,
+        SENTINEL_RUNTIME_IMAGE_REF=reference,SENTINEL_RUNTIME_IMAGE_DIGEST=image,
+        SENTINEL_TEST_IMAGE_DIGEST=image,SENTINEL_LOCAL_PAPER_IMAGE=reference,
+        SENTINEL_SHADOW_OBSERVATION_ID='original')
+    def write():
+        (tmp_path/'.env').write_text(''.join(k+'='+json.dumps(v)+'\n' for k,v in values.items()))
+    write();calls=[]
+    def inspect(host,ref):
+        calls.append((host,ref))
+        return {'Id':values['SENTINEL_RUNTIME_IMAGE_DIGEST'],'RepoDigests':[ref]}
+    monkeypatch.setattr(patch.builder,'_inspect',inspect)
+    return host,values,write,calls
+
+
+def test_repeated_exact_image_resolution_is_one_inspect_but_environment_stays_fresh(tmp_path,monkeypatch):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    first=host.load_values()
+    values['SENTINEL_SHADOW_OBSERVATION_ID']='changed';write()
+    second=host.load_values()
+    assert first['SENTINEL_SHADOW_OBSERVATION_ID']=='original'
+    assert second['SENTINEL_SHADOW_OBSERVATION_ID']=='changed'
+    assert first['SENTINEL_RUNTIME_IMAGE_REF']==second['SENTINEL_RUNTIME_IMAGE_REF']=='sha256:'+'a'*64
+    assert len(calls)==1
+
+
+def test_image_cache_cannot_hide_changed_paper_envelope(tmp_path,monkeypatch):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    host.load_values();values['ALPACA_BASE_URL']='https://api.alpaca.markets';write()
+    with pytest.raises(patch.DeliveryRefused,match='LOCAL_PAPER_ENVELOPE_CHANGED'):host.load_values()
+    assert len(calls)==1
+
+
+def test_cached_reference_cannot_accept_changed_runtime_digest(tmp_path,monkeypatch):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    host.load_values()
+    values['SENTINEL_RUNTIME_IMAGE_DIGEST']=values['SENTINEL_TEST_IMAGE_DIGEST']='sha256:'+'b'*64
+    write()
+    with pytest.raises(patch.DeliveryRefused,match='RUNTIME_FACTS_DIFFER'):host.load_values()
+    assert len(calls)==1
+
+
+def test_distinct_old_new_immutable_references_have_distinct_entries(tmp_path,monkeypatch):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    old=host.load_values()['SENTINEL_RUNTIME_IMAGE_REF']
+    values['SENTINEL_RUNTIME_IMAGE_REF']='example.invalid/sentinel@sha256:'+'2'*64
+    values['SENTINEL_RUNTIME_IMAGE_DIGEST']=values['SENTINEL_TEST_IMAGE_DIGEST']='sha256:'+'b'*64
+    write();new=host.load_values()['SENTINEL_RUNTIME_IMAGE_REF']
+    assert old!=new and len(calls)==2 and len(host._immutable_runtime_ids)==2
+    host.load_values();assert len(calls)==2
+
+
+@pytest.mark.parametrize('reference',['mutable:latest','sha256:'+'a'*63,'repo@sha256:'+'A'*64])
+def test_immutable_shape_is_checked_before_cache_lookup(tmp_path,monkeypatch,reference):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    host._immutable_runtime_ids={reference:values['SENTINEL_RUNTIME_IMAGE_DIGEST']}
+    values['SENTINEL_RUNTIME_IMAGE_REF']=reference;write()
+    with pytest.raises(patch.DeliveryRefused,match='IMMUTABLE_IMAGE_REQUIRED'):host.load_values()
+    assert not calls
+
+
+def test_failed_or_foreign_repodbinding_is_never_cached(tmp_path,monkeypatch):
+    host,values,_write,calls=immutable_values_host(tmp_path,monkeypatch)
+    monkeypatch.setattr(patch.builder,'_inspect',lambda *a:{
+        'Id':values['SENTINEL_RUNTIME_IMAGE_DIGEST'],'RepoDigests':['foreign@sha256:'+'2'*64]})
+    with pytest.raises(patch.DeliveryRefused,match='IMMUTABLE_IMAGE_RESOLUTION_CHANGED'):host.load_values()
+    assert not getattr(host,'_immutable_runtime_ids',{})
+
+
+def test_next_host_instance_resolves_the_same_reference_fresh(tmp_path,monkeypatch):
+    host,values,_write,calls=immutable_values_host(tmp_path,monkeypatch)
+    host.load_values();host.load_values()
+    fresh=object.__new__(patch.BackedHost);fresh.deployment=tmp_path;fresh.literal=host.literal
+    fresh.load_values()
+    assert [h for h,_ in calls]==[host,fresh]
+    assert host._immutable_runtime_ids is not fresh._immutable_runtime_ids
+
+
+def test_bare_image_id_cannot_resolve_to_a_foreign_image(tmp_path,monkeypatch):
+    host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
+    values['SENTINEL_RUNTIME_IMAGE_REF']='sha256:'+'b'*64;write()
+    with pytest.raises(patch.DeliveryRefused,match='RUNTIME_FACTS_DIFFER'):host.load_values()
+    assert not calls
+
+
+@pytest.mark.parametrize('invariant',['runtime','reference','resolution'])
+def test_removed_immutable_fact_guard_has_an_executed_falsifier(tmp_path,monkeypatch,invariant):
+    reason={'runtime':'BACKED_RUNTIME_FACTS_DIFFER','reference':'BACKED_IMMUTABLE_IMAGE_REQUIRED',
+            'resolution':'BACKED_IMMUTABLE_IMAGE_RESOLUTION_CHANGED'}[invariant]
+    original=patch.require
+    monkeypatch.setattr(patch,'require',lambda valid,why:None if why==reason else original(valid,why))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        if invariant=='runtime':test_cached_reference_cannot_accept_changed_runtime_digest(tmp_path,monkeypatch)
+        elif invariant=='reference':test_immutable_shape_is_checked_before_cache_lookup(tmp_path,monkeypatch,'mutable:latest')
+        else:test_failed_or_foreign_repodbinding_is_never_cached(tmp_path,monkeypatch)
+
+
+def test_caching_the_environment_has_an_executed_falsifier(tmp_path,monkeypatch):
+    original=patch.BackedHost.load_values
+    def stale(self):
+        if not hasattr(self,'_wrongly_cached_environment'):
+            self._wrongly_cached_environment=original(self)
+        return self._wrongly_cached_environment
+    monkeypatch.setattr(patch.BackedHost,'load_values',stale)
+    with pytest.raises(AssertionError):
+        test_repeated_exact_image_resolution_is_one_inspect_but_environment_stays_fresh(tmp_path,monkeypatch)
+
+
+def test_cross_instance_image_cache_has_an_executed_falsifier(tmp_path,monkeypatch):
+    shared={}
+    def get(_self):return shared
+    def put(_self,value):shared.update(value)
+    monkeypatch.setattr(patch.BackedHost,'_immutable_runtime_ids',property(get,put),raising=False)
+    with pytest.raises(AssertionError):
+        test_next_host_instance_resolves_the_same_reference_fresh(tmp_path,monkeypatch)
+
+
 def backed_host():
     host=fixture.Host()
     host.state.update(archive_mode='on',archive_command='/canonical/archive %p %f')

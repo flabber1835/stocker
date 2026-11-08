@@ -128,28 +128,46 @@ def request(state, database_url, *, operation_id, request_sha256, now=None):
         return value
 
 
+def _acknowledge_idle(state, database_url, incarnation, *, now):
+    """Caller owns admission; this path has no worker-admission capability."""
+    path = state/REQUEST_NAME
+    if not path.exists():
+        return False
+    request_value = _load(path)
+    live = validate_request(request_value,binding=request_value.get('binding_sha256'),
+                            incarnation=request_value.get('incarnation'),now=now)
+    live = (live and request_value['binding_sha256'] == status.binding(database_url)
+            and request_value['incarnation'] == incarnation)
+    if not live:
+        return False
+    if (state/status.PENDING_NAME).exists() or (state/status.CRITICAL_NAME).exists():
+        raise ValueError('shadow drain cannot acknowledge unresolved work')
+    acknowledgement = dict(schema=SCHEMA,kind='DRAINED',request=request_value,
+        request_digest=_digest(request_value),quiescent_at=now.isoformat())
+    target = state/ACK_NAME
+    if target.exists():
+        prior = _load(target)
+        if prior.get('request_digest') == acknowledgement['request_digest']:
+            return True  # Preserve the original quiescent clock.
+    _write(target,acknowledgement)
+    return True
+
+
+def acknowledge_idle(state, database_url, incarnation, *, now=None):
+    """Observe idle control inside the existing bounded heartbeat, never arm."""
+    if not (state/REQUEST_NAME).exists():
+        return False
+    with admission(state):
+        if (state/status.PENDING_NAME).exists() or (state/status.CRITICAL_NAME).exists():
+            return False
+        return _acknowledge_idle(state,database_url,incarnation,now=now or _now())
+
+
 def arm_or_drain(state, database_url, incarnation, arm, *, now=None):
     """One atomic admission boundary; None means held, never an armed worker."""
-    now = now or _now()
     with admission(state):
-        path = state/REQUEST_NAME
-        if path.exists():
-            request_value = _load(path)
-            live = validate_request(request_value,binding=request_value.get('binding_sha256'),
-                                    incarnation=request_value.get('incarnation'),now=now)
-            live = live and request_value['binding_sha256'] == status.binding(database_url) and request_value['incarnation'] == incarnation
-            if live:
-                if (state/status.PENDING_NAME).exists() or (state/status.CRITICAL_NAME).exists():
-                    raise ValueError('shadow drain cannot acknowledge unresolved work')
-                acknowledgement = dict(schema=SCHEMA,kind='DRAINED',request=request_value,
-                    request_digest=_digest(request_value),quiescent_at=now.isoformat())
-                target = state/ACK_NAME
-                if target.exists():
-                    prior = _load(target)
-                    if prior.get('request_digest') == acknowledgement['request_digest']:
-                        return None  # Preserve the original quiescent clock.
-                _write(target,acknowledgement)
-                return None
+        if _acknowledge_idle(state,database_url,incarnation,now=now or _now()):
+            return None
         return arm()
 
 

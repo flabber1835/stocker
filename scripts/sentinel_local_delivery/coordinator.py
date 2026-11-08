@@ -159,6 +159,7 @@ class Delivery:
                 return current
 
     def step(self):
+        self.journal.require_active()
         receipt = self.journal.read(); stage = receipt['stage']; artifacts = receipt['artifacts']
         access_path=self._post_schema_access_path()
         if access_path and stage in ACCESS_PATH_QUALIFIED_STAGES:
@@ -240,6 +241,7 @@ class Delivery:
             self._unchanged(artifacts)
             evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
             self.host.compose(old,'stop','--timeout','120',*self.host.predecessor_services(),timeout=150)
+            evidence.check_stopped_drain(self.host,artifacts['drain_target'],artifacts['drain_proof'])
             self._apps('predecessor',running=False)
             self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'APPLICATIONS_STOPPED')
@@ -353,3 +355,67 @@ class Delivery:
                 if receipt['stage']=='VERIFIED': return receipt
                 if receipt['stage']==before: return receipt
             require(False,'DELIVERY_STAGE_LIMIT')
+
+    def abandon_drain(self):
+        """Terminal, owned recovery; never continue an installation after release."""
+        with self.host.owned():
+            receipt=self.journal.read();artifacts=receipt['artifacts']
+            require(receipt['stage'] in {'DRAIN_REQUESTED','DRAIN_ACKNOWLEDGED','STOP_REQUESTED'},
+                    'ABANDONMENT_AFTER_INSTALLATION_FORBIDDEN')
+            current,old,_=self._values(artifacts)
+            require(current==old,'ABANDONMENT_PREDECESSOR_ENVIRONMENT_CHANGED')
+            self.host.verify_compose('predecessor')
+            for service in self.host.predecessor_services():
+                if service=='sentinel-shadow':continue
+                item=self.host.container(service)
+                require(item['Image']==self.host.request['predecessor']['image']
+                    and item['State']['Running'] and not item['State']['Restarting'],
+                    'ABANDONMENT_OTHER_APPLICATION_CHANGED')
+            target=artifacts['drain_target']
+            record=self.journal.abandonment()
+            data=self.host.container('sentinel-shadow')
+            if record is None:
+                evidence._cooperative_target(data,target,held=False)
+                observed=self.host.drain_recovery_state(target,old)
+                evidence._cooperative_target(self.host.container('sentinel-shadow'),target,held=False)
+                record=self.journal.begin_abandonment(target,evidence.process_identity(data),
+                    data['State']['Running'],observed)
+            require(data['Id']==target['container'] and data['Image']==target['image'],
+                    'ABANDONMENT_TARGET_CHANGED')
+            if record['phase']=='COMPLETE':
+                require(data['HostConfig']['RestartPolicy']==target['restart_policy'],
+                        'ABANDONMENT_RESTORED_POLICY_CHANGED')
+                return record
+            # A start may have completed even if its host acknowledgement was lost.
+            if record['phase']=='START_REQUESTED':
+                return self._finish_abandoned_start(record,data)
+            evidence._cooperative_target(data,target,held=False)
+            if data['HostConfig']['RestartPolicy']!=target['restart_policy']:
+                self.host.run(['docker','update','--restart=unless-stopped',target['container']],timeout=15)
+            data=self.host.container('sentinel-shadow')
+            evidence._cooperative_target(data,target,held=False)
+            require(data['HostConfig']['RestartPolicy']==target['restart_policy'],
+                    'ABANDONMENT_POLICY_NOT_RESTORED')
+            if data['State']['Running']:
+                return self.journal.checkpoint_abandonment('COMPLETE',completion=dict(
+                    process=evidence.process_identity(data),running=True,start_observed=False,
+                    restart_policy=data['HostConfig']['RestartPolicy']))
+            record=self.journal.checkpoint_abandonment('START_REQUESTED',
+                start_before=evidence.process_identity(data))
+            self.host.run(['docker','start',target['container']],timeout=30)
+            return self._finish_abandoned_start(record,self.host.container('sentinel-shadow'))
+
+    def _finish_abandoned_start(self, record, data):
+        target=record['target'];before=record['start_before']
+        require(data['Id']==target['container'] and data['Image']==target['image'],
+                'ABANDONMENT_TARGET_CHANGED')
+        require(data['HostConfig']['RestartPolicy']==target['restart_policy']
+            and not data['State']['Restarting'],'ABANDONMENT_RESTORED_POLICY_CHANGED')
+        process=evidence.process_identity(data)
+        require(process['started_at']!=before['started_at'] and process['restart_count']==0,
+                'ABANDONMENT_START_OUTCOME_UNKNOWN')
+        # An exited startup can be the installed UNKNOWN/critical guard refusing.
+        # Its changed start clock proves one start, never successful financial work.
+        return self.journal.checkpoint_abandonment('COMPLETE',completion=dict(
+            process=process,running=data['State']['Running'],start_observed=True,
+            restart_policy=data['HostConfig']['RestartPolicy']))

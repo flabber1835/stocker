@@ -86,6 +86,57 @@ def test_malformed_authenticated_request_does_not_fall_through_to_arm(tmp_path):
         drain.arm_or_drain(tmp_path,DSN,INCARNATION,lambda:pytest.fail('new worker admitted'),now=NOW)
 
 
+def assert_idle_heartbeat_acknowledges(state, monkeypatch):
+    from sentinel import shadow_supervisor as supervisor
+    seed(state,now=NOW);original=request(state)
+    monkeypatch.setattr(supervisor,'LATCH_FILE',state/status.CRITICAL_NAME)
+    monkeypatch.setattr(supervisor,'HEARTBEAT_FILE',state/'heartbeat')
+    monkeypatch.setattr(supervisor,'_STATUS_INCARNATION',INCARNATION)
+    monkeypatch.setattr(supervisor,'_arm_worker',lambda *a:pytest.fail('idle heartbeat armed work'))
+    monkeypatch.setattr(drain,'_now',lambda:NOW+timedelta(seconds=1))
+    publish=status.publish
+    monkeypatch.setattr(status,'publish',lambda *a,**kw:publish(*a,**kw,now=NOW+timedelta(seconds=1)))
+    supervisor._write_heartbeat()
+    assert (state/drain.ACK_NAME).exists(),'idle heartbeat did not consume drain'
+    assert not (state/status.PENDING_NAME).exists()
+    value=drain.acknowledged(state,DSN,original,now=NOW+timedelta(seconds=2))
+    assert value['quiescent_at']==(NOW+timedelta(seconds=1)).isoformat()
+
+
+def test_existing_idle_heartbeat_acknowledges_without_waiting_for_market_poll(tmp_path,monkeypatch):
+    assert_idle_heartbeat_acknowledges(tmp_path,monkeypatch)
+
+
+def test_missing_idle_observation_has_an_executed_falsifier(tmp_path,monkeypatch):
+    monkeypatch.setattr(drain,'acknowledge_idle',lambda *a,**kw:False)
+    with pytest.raises(AssertionError,match='idle heartbeat'):
+        assert_idle_heartbeat_acknowledges(tmp_path,monkeypatch)
+
+
+@pytest.mark.parametrize('marker',[status.PENDING_NAME,status.CRITICAL_NAME])
+def test_idle_observer_cannot_acknowledge_pending_or_critical_work(tmp_path,marker):
+    seed(tmp_path,now=NOW);request(tmp_path)
+    path=tmp_path/marker;path.write_text('unresolved')
+    assert drain.acknowledge_idle(tmp_path,DSN,INCARNATION,now=NOW) is False
+    assert not (tmp_path/drain.ACK_NAME).exists() and path.read_text()=='unresolved'
+
+
+def test_idle_observer_never_arms_absent_expired_or_foreign_request(tmp_path):
+    assert drain.acknowledge_idle(tmp_path,DSN,INCARNATION,now=NOW) is False
+    seed(tmp_path,now=NOW);request(tmp_path)
+    assert drain.acknowledge_idle(tmp_path,DSN,'4'*32,now=NOW) is False
+    assert drain.acknowledge_idle(tmp_path,DSN,INCARNATION,now=NOW+timedelta(seconds=601)) is False
+    assert not (tmp_path/drain.ACK_NAME).exists() and not (tmp_path/status.PENDING_NAME).exists()
+
+
+def test_idle_observer_preserves_first_quiescence_clock(tmp_path):
+    seed(tmp_path,now=NOW);request(tmp_path)
+    assert drain.acknowledge_idle(tmp_path,DSN,INCARNATION,now=NOW)
+    first=(tmp_path/drain.ACK_NAME).read_bytes()
+    assert drain.acknowledge_idle(tmp_path,DSN,INCARNATION,now=NOW+timedelta(seconds=1))
+    assert (tmp_path/drain.ACK_NAME).read_bytes()==first
+
+
 def _request_worker(state, channel, remove_guard):
     if remove_guard:
         @contextmanager

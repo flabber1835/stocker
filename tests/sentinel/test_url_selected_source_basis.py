@@ -28,11 +28,16 @@ CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
 EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
 FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
+ROOT_CAUSE_CHANGES = {
+    'automation/health.py', 'automation/service.py', 'automation/store.py',
+    'alert_service.py', 'shadow_drain.py', 'shadow_supervisor.py',
+    'shadow_health_projection.py', 'url_selected_source_basis.py',
+}
 DIAGNOSTIC_CHANGES = {
     'supervisor_io.py', 'shadow_supervisor.py', 'automation_supervisor.py',
     'automation/health.py', 'alert_service.py',
     'url_selected_source_basis.py',
-}
+} | ROOT_CAUSE_CHANGES
 EFFICIENCY_CHANGES = {
     'dual_reconciliation.py', 'paper/preparation.py', 'panel/model.py',
     'panel/observer_codec.py', 'panel/read_projection.py', 'panel/sources.py',
@@ -343,6 +348,55 @@ def test_diagnostic_predecessor_independent_pin_has_a_behavioral_falsifier(tmp_p
                         (len(prior['files']), basis._closure(prior['files'])))
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_repinning_cannot_replace_installed_pr573(tmp_path, monkeypatch, 'changed')
+
+
+def test_installed_diagnostic_release_has_exact_complete_original_source():
+    profile = basis._profile()
+    previous = profile['retained_predecessors'][basis.ROOT_CAUSE_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    actual = _actual()
+    assert basis.ROOT_CAUSE_PREDECESSOR_REVISION == 'ba05fe76950fe6d976e08edaadfd88a9e39dec0e'
+    assert len(previous) == 456
+    assert admission.source_closure(previous) == (
+        '7706a3683dbee27c684291f520517f2e6f2447f3de4662dbd9b7b3b111692929')
+    assert previous['url_selected_source_basis.py'] == (
+        'c82dc2c6dbb1e57cf5c4964cb46f635d50010a25b33b7dec672a3b8d59ec98c6')
+    assert set(actual) == set(previous)
+    assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
+    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert len(profile['retained_predecessors']) == 17
+    assert profile['authority_effect'] == 'NONE'
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_diagnostic_release(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.ROOT_CAUSE_PREDECESSOR_REVISION]
+    if defect == 'changed':
+        prior['files']['shadow_health_projection.py'] = 'f' * 64
+    elif defect == 'missing':
+        prior['files'].pop('shadow_health_projection.py')
+    elif defect == 'extra':
+        prior['files']['unreviewed.py'] = 'f' * 64
+    else:
+        prior['files']['url_selected_source_basis.py'] = 'f' * 64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path / 'changed-root-cause-predecessor.json'
+    path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
+
+
+def test_root_cause_predecessor_independent_pin_has_a_behavioral_falsifier(tmp_path, monkeypatch):
+    prior = deepcopy(basis._profile()['retained_predecessors'][basis.ROOT_CAUSE_PREDECESSOR_REVISION])
+    prior['files']['shadow_health_projection.py'] = 'f' * 64
+    monkeypatch.setitem(basis.RETAINED_PREDECESSORS, basis.ROOT_CAUSE_PREDECESSOR_REVISION,
+                        (len(prior['files']), basis._closure(prior['files'])))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_repinning_cannot_replace_installed_diagnostic_release(tmp_path, monkeypatch, 'changed')
 
 
 @pytest.mark.parametrize('revision', [basis.STARTUP_PREDECESSOR_REVISION,

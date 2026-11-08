@@ -4,6 +4,26 @@
 the owner-approved diagnostic-only local patch: typed safe failure causes and
 bounded stage records without changing operational decisions or deadlines.
 
+[Scheduler pulse consistency](scheduler-pulse-consistency.md) selects coherent
+late health sampling and atomic main-owned pulse publication. [Scheduler incident
+attribution](scheduler-incident-attribution.md) preserves the exact negative
+decision facts before alert coalescing. These correct demonstrated defects;
+they do not establish the initiating causes of older unobserved incidents.
+
+[Drain control continuity](drain-control-continuity.md) separates idle control
+acknowledgement from economic polling and fences process replacement through
+stop, with explicit terminal abandonment recovery. [Immutable install
+facts](immutable-install-facts.md) reuses exact image identity within one owned
+invocation while keeping configuration and live state fresh.
+[Environment installation continuity](environment-install-continuity.md) preserves
+the native maintenance reader's access across atomic configuration replacement;
+an unexpired old proof does not attest that its producer can still renew it.
+
+[Cheap shadow health bounds](cheap-shadow-health-bounds.md) moves calendar
+resolution into the verified producer without changing session eligibility.
+These corrective changes require qualified local installation before becoming
+the operating release; the documented design alone does not activate them.
+
 [Removing redundant operational work](redundant-operational-work.md) separates
 restore worker phases and genuine daily renewal from avoidable repeated work;
 fresh financial and recovery admission guards retain their named boundaries.

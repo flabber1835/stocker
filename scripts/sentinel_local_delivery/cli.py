@@ -67,12 +67,15 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
 def status(operation_dir):
     journal = Journal(builder.safe_directory(operation_dir))
     receipt = journal.read()
+    abandoned=journal.abandonment()
     return dict(operation_id=journal.request['operation_id'],stage=receipt['stage'],
         request_sha256=receipt['request_sha256'],completed_stages=len(receipt['history']),
         last_stage_at=receipt['history'][-1]['at'] if receipt['history'] else None,
         predecessor={key:journal.request['predecessor'][key] for key in ('commit','image')},
         candidate={key:journal.request['candidate'][key] for key in ('commit','image')},
         receipt=str(journal.folder/'receipt.json'),
+        **({'abandoned':True,'abandonment_phase':abandoned['phase'],
+            'installation_may_resume':False} if abandoned else {}),
         **({'canonical_proof_phase':POST_SCHEMA_ACCESS_PATH}
            if journal.request['schema']==ACCESS_PATH_SCHEMA else {}),
         **({'handoff_mode':'BLOCKED_UNSENT','operational_ready':False,
@@ -99,6 +102,9 @@ def parser(*, backed=False):
             default='PRE_DRAIN',help='Select the explicit verified-predecessor access-path bootstrap')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
+    abandon = commands.add_parser('abandon-drain',
+        help='Permanently abandon a pre-install operation and recover its exact predecessor restart policy')
+    abandon.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):
         proceed = commands.add_parser(command,help='Continue only the next supported delivery stages')
         proceed.add_argument('--operation-dir',required=True)
@@ -128,7 +134,9 @@ def main(argv=None):
             journal = Journal(builder.safe_directory(args.operation_dir))
             host = Host(journal.request,journal.folder)
             delivery = Delivery(host,journal)
-            if args.one_stage:
+            if args.command=='abandon-drain':
+                delivery.abandon_drain()
+            elif args.one_stage:
                 with host.owned():
                     delivery.step()
             else:

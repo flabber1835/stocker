@@ -12,10 +12,9 @@ import os
 from pathlib import Path
 import re
 import sys
-import tempfile
 from types import SimpleNamespace
 
-from sentinel_local_delivery import builder, checks, cli
+from sentinel_local_delivery import builder, checks, cli, environment
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
 from sentinel_local_delivery.model import ACCESS_PATH_SCHEMA, DeliveryRefused, Journal, read_json, require, digest
@@ -201,7 +200,23 @@ class BackedHost(Host):
         require(values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1', 'BACKED_POLICY_REQUIRED')
         reference=values['SENTINEL_RUNTIME_IMAGE_REF']
         require(re.fullmatch(r'(?:[^\s]+@)?sha256:[0-9a-f]{64}',reference), 'BACKED_IMMUTABLE_IMAGE_REQUIRED')
-        actual=builder._inspect(self,reference)['Id']
+        expected=values['SENTINEL_RUNTIME_IMAGE_DIGEST']
+        require(isinstance(expected,str) and re.fullmatch(r'sha256:[0-9a-f]{64}',expected)
+            and expected==values['SENTINEL_TEST_IMAGE_DIGEST'], 'BACKED_RUNTIME_FACTS_DIFFER')
+        if reference.startswith('sha256:'):
+            require(reference==expected,'BACKED_RUNTIME_FACTS_DIFFER')
+        resolved=getattr(self,'_immutable_runtime_ids',{})
+        if reference in resolved:
+            actual=resolved[reference]
+        else:
+            metadata=builder._inspect(self,reference)
+            actual=metadata['Id']
+            require(isinstance(actual,str) and re.fullmatch(r'sha256:[0-9a-f]{64}',actual)
+                and (actual==reference if reference.startswith('sha256:') else
+                     isinstance(metadata.get('RepoDigests'),list) and reference in metadata['RepoDigests']),
+                'BACKED_IMMUTABLE_IMAGE_RESOLUTION_CHANGED')
+            require(actual==expected,'BACKED_RUNTIME_FACTS_DIFFER')
+            self._immutable_runtime_ids={**resolved,reference:actual}
         require(actual==values['SENTINEL_RUNTIME_IMAGE_DIGEST']==values['SENTINEL_TEST_IMAGE_DIGEST'],
             'BACKED_RUNTIME_FACTS_DIFFER')
         # Resolve an immutable RepoDigest into its actual local image identity.
@@ -237,29 +252,17 @@ class BackedHost(Host):
         require(witness['git_commit']==self.request['predecessor']['commit']
             and witness['runtime_image']==self.request['predecessor']['image'],
             'BACKED_INSTALL_ACTIVE_ANCHOR_CHANGED')
-        require(self.load_values()==previous, 'ENVIRONMENT_CHANGED_BEFORE_INSTALL')
         require(candidate==self.candidate_values(previous)
             and all(previous.get(k)==candidate.get(k) for k in set(previous)|set(candidate)
                     if k not in RUNTIME_KEYS), 'NON_RUNTIME_CONFIGURATION_CHANGED')
         # The preceding failed host may already have atomically selected these
         # exact bytes before discovering that archive-only metadata was absent.
         if previous==candidate:
-            directory=os.open(self.deployment,os.O_RDONLY)
-            try:os.fsync(directory)
-            finally:os.close(directory)
+            environment.install(self,previous)
             return
         raw=''.join(k+'='+json.dumps(v,ensure_ascii=False)+'\n' for k,v in sorted(candidate.items()))
         require(self.literal.parse_bytes(raw.encode())==candidate, 'LITERAL_ENV_ROUNDTRIP_FAILED')
-        fd,temporary=tempfile.mkstemp(prefix='.env.local-delivery-',dir=self.deployment)
-        try:
-            with os.fdopen(fd,'w',encoding='utf-8') as stream:
-                stream.write(raw);stream.flush();os.fsync(stream.fileno())
-            Path(temporary).replace(self.deployment/'.env')
-            directory=os.open(self.deployment,os.O_RDONLY)
-            try:os.fsync(directory)
-            finally:os.close(directory)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        environment.install(self,previous,raw.encode())
 
     def compose_paths(self, values):
         require(values['SENTINEL_GIT_COMMIT'] in {
@@ -557,7 +560,9 @@ def main(argv=None):
             require(sha256_file(built['predecessor_receipt']['path'])==built['predecessor_receipt']['sha256']
                 and built['foundation']==journal.request['predecessor'], 'BACKED_WITNESS_CHANGED')
             delivery=Delivery(host,journal)
-            if args.one_stage:
+            if args.command=='abandon-drain':
+                delivery.abandon_drain()
+            elif args.one_stage:
                 with host.owned():delivery.step()
             else:delivery.advance()
             output=cli.status(folder)

@@ -433,6 +433,153 @@ def test_removing_post_read_inspection_has_a_restart_policy_falsifier(monkeypatc
         test_recovered_compatibility_barrier_rechecks_hold_after_proof_read('policy')
 
 
+def cooperative_drain_host(*, changed=None):
+    host=Host()
+    host.request.update(operation_id='continuity-drain',predecessor={'commit':'1'*40,'image':'old'})
+    policy=deepcopy(evidence.ORIGINAL_RESTART_POLICY)
+    item=dict(Id='exact-container',Image='old',RestartCount=7,
+        State=dict(Running=True,Restarting=False,OOMKilled=False,StartedAt='2031-04-21T00:00:00Z'),
+        HostConfig={'RestartPolicy':policy})
+    target=dict(container=item['Id'],image=item['Image'],restart_policy=deepcopy(policy),
+        started_at=item['State']['StartedAt'],restart_count=item['RestartCount'])
+    request={'incarnation':'a'*32,'expires_at':'2099-01-01T00:00:00+00:00'}
+    proof=dict(method='COOPERATIVE',acknowledgement={'request':request})
+    host.container=lambda _name:deepcopy(item)
+    calls=[]
+    def run(argv,**kwargs):
+        calls.append(argv)
+        if argv[:2]==['docker','update']:
+            item['HostConfig']['RestartPolicy']=deepcopy(evidence.NO_RESTART_POLICY)
+            return SimpleNamespace(stdout=b'')
+        assert argv[:2]==['docker','exec']
+        if 'request' in argv:return SimpleNamespace(stdout=json.dumps(request).encode())
+        if changed=='started':item['State']['StartedAt']='2031-04-21T00:00:01Z'
+        elif changed=='count':item['RestartCount']+=1
+        elif changed=='policy':item['HostConfig']['RestartPolicy']=deepcopy(policy)
+        elif changed=='container':item['Id']='replacement'
+        elif changed=='image':item['Image']='foreign'
+        return SimpleNamespace(stdout=json.dumps(proof['acknowledgement']).encode())
+    host.run=run
+    return host,item,target,proof,calls
+
+
+def test_cooperative_drain_holds_restart_before_request_and_keeps_original_policy_in_target():
+    host,item,target,proof,calls=cooperative_drain_host()
+    assert evidence.request_drain(host,{},target)==proof
+    assert calls[0]==['docker','update','--restart=no','exact-container']
+    assert item['HostConfig']['RestartPolicy']==evidence.NO_RESTART_POLICY
+    assert target['restart_policy']==evidence.ORIGINAL_RESTART_POLICY
+    evidence.check_drain(host,{},target,proof)
+
+
+@pytest.mark.parametrize('changed',['started','count','policy','container','image'])
+def test_old_ack_cannot_cross_docker_process_or_policy_change(changed):
+    host,_item,target,_proof,_calls=cooperative_drain_host(changed=changed)
+    with pytest.raises(model.DeliveryRefused):evidence.request_drain(host,{},target)
+
+
+def test_lost_hold_update_ack_is_idempotent_and_cannot_arm_a_replacement():
+    host,item,target,_proof,calls=cooperative_drain_host()
+    original=host.run
+    def lost(argv,**kwargs):
+        answer=original(argv,**kwargs)
+        if argv[:2]==['docker','update']:raise model.DeliveryRefused('LOST_UPDATE_ACK')
+        return answer
+    host.run=lost
+    with pytest.raises(model.DeliveryRefused,match='LOST_UPDATE_ACK'):
+        evidence.hold_drain_restart(host,target)
+    assert item['HostConfig']['RestartPolicy']==evidence.NO_RESTART_POLICY
+    host.run=original;evidence.hold_drain_restart(host,target)
+    assert len(calls)==1
+
+
+def test_same_container_restart_before_hold_is_rejected_before_any_update():
+    host,item,target,_proof,calls=cooperative_drain_host()
+    item['RestartCount']+=1
+    with pytest.raises(model.DeliveryRefused,match='PROCESS_CHANGED'):
+        evidence.hold_drain_restart(host,target)
+    assert not calls
+
+
+def test_sampled_start_clock_alone_does_not_prevent_restart_after_ack():
+    host,item,target,_proof,_calls=cooperative_drain_host()
+    def crash_after_check():
+        # Exact StartedAt was just observed; a running restart policy can admit
+        # another supervisor before the installer's subsequent stop command.
+        evidence._cooperative_target(item,target,held=False)
+        item['State']['Running']=False
+        if item['HostConfig']['RestartPolicy']==evidence.ORIGINAL_RESTART_POLICY:
+            item['RestartCount']+=1;item['State']['Running']=True
+        return item['State']['Running']
+    assert crash_after_check() is True
+    host,item,target,_proof,_calls=cooperative_drain_host()
+    evidence.hold_drain_restart(host,target)
+    assert crash_after_check() is False
+
+
+def test_removing_restart_hold_has_an_executed_falsifier(monkeypatch):
+    monkeypatch.setattr(evidence,'hold_drain_restart',lambda *a:None)
+    with pytest.raises(AssertionError):
+        test_sampled_start_clock_alone_does_not_prevent_restart_after_ack()
+
+
+def test_stopped_cooperative_target_requires_original_process_and_restart_hold():
+    host,item,target,proof,_calls=cooperative_drain_host()
+    evidence.hold_drain_restart(host,target)
+    item['State']['Running']=False
+    evidence.check_stopped_drain(host,target,proof)
+    item['RestartCount']+=1
+    with pytest.raises(model.DeliveryRefused,match='PROCESS_CHANGED'):
+        evidence.check_stopped_drain(host,target,proof)
+
+
+def test_cooperative_receipt_without_continuity_target_refuses():
+    host,_item,target,_proof,calls=cooperative_drain_host()
+    target.pop('started_at')
+    with pytest.raises(model.DeliveryRefused,match='CONTINUITY_TARGET_REQUIRED'):
+        evidence.request_drain(host,{},target)
+    assert not calls
+
+
+@pytest.mark.parametrize('marker',['pending','critical','malformed-pending','malformed-critical'])
+def test_recovery_marker_reader_is_bounded_read_only_and_preserves_stopped_markers(tmp_path,marker):
+    from contextlib import redirect_stdout
+    import hashlib
+    import time
+    host=object.__new__(host_module.Host)
+    target={'container':'exact-container','image':'old-image'}
+    host.container=lambda _:dict(Id=target['container'],Image=target['image'],
+        Mounts=[dict(Destination='/var/lib/sentinel',Type='volume',Name='sentinel_sentinel_state')])
+    host.compose=lambda *a:SimpleNamespace(stdout=b'{"services":{"sentinel-shadow":{"environment":{}}}}')
+    @contextmanager
+    def environment(values):
+        assert values=={}
+        yield '/private-env'
+    host.private_environment=environment
+    pending=dict(schema='sentinel.shadow-supervisor-pending/2',attempt_id='a'*32,started_at_unix=time.time())
+    critical=dict(schema='sentinel.shadow-supervisor-critical/1',reason='retained',failures=None,latched_at_unix=time.time())
+    kind=marker.removeprefix('malformed-')
+    path=tmp_path/('shadow-supervisor-'+kind+'.json')
+    raw=b'{invalid' if marker.startswith('malformed-') else json.dumps(pending if kind=='pending' else critical).encode()
+    path.write_bytes(raw)
+    def run(argv,**kwargs):
+        assert '--network' in argv and argv[argv.index('--network')+1]=='none'
+        assert '--read-only' in argv and argv[argv.index('--mount')+1].endswith(',readonly')
+        assert kwargs=={'timeout':15}
+        code=argv[-1].replace("Path('/var/lib/sentinel')",'Path('+repr(str(tmp_path))+')')
+        output=io.StringIO()
+        with redirect_stdout(output):exec(compile(code,'actual bounded recovery marker reader','exec'),{})
+        return SimpleNamespace(stdout=output.getvalue().encode())
+    host.run=run
+    if marker.startswith('malformed-'):
+        with pytest.raises(ValueError):host.drain_recovery_state(target,{})
+    else:
+        result=host.drain_recovery_state(target,{})
+        assert result[kind]['sha256']==hashlib.sha256(raw).hexdigest()
+        assert result['critical' if kind=='pending' else 'pending'] is None
+    assert path.read_bytes()==raw
+
+
 def test_probe_uses_effective_shadow_subject_instead_of_release_literals():
     host = object.__new__(host_module.Host)
     selected = {'SENTINEL_SHADOW_OBSERVATION_ID': 'another-observer',

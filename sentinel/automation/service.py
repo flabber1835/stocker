@@ -1102,7 +1102,10 @@ class AutomationService:
         try:
             permit = store.acquire_lease(
                 conn, holder_id=self.holder_id,
-                lease_seconds=self.config.lease_seconds)
+                lease_seconds=self.config.lease_seconds,
+                instance_state=TickAction.WAITING.value,
+                next_wake_at=now + timedelta(seconds=min(
+                    self.config.heartbeat_seconds,self.config.control_poll_seconds)))
         except WriterLockUnavailable:
             # This acquisition failed before leadership or financial mutation.
             # Keep the same worker and its bounded scheduler wake; never steal
@@ -1836,16 +1839,20 @@ class AutomationService:
         This cannot acquire leadership. A blocked stage has no independent
         renewal, and an expired, killed or replaced permit is discarded.
         """
-        store.register_instance(
-            conn, instance_id=self.holder_id, state=state,
-            next_wake_at=next_wake_at, last_error=last_error)
         if permit is None or permit.holder_id != self.holder_id:
+            store.register_instance(
+                conn, instance_id=self.holder_id, state=state,
+                next_wake_at=next_wake_at, last_error=last_error)
             return None
         try:
             return store.heartbeat_lease(
-                conn, permit=permit, lease_seconds=self.config.lease_seconds)
+                conn, permit=permit, lease_seconds=self.config.lease_seconds,
+                instance_state=state, next_wake_at=next_wake_at,last_error=last_error)
         except StaleLeaderRefused:
             conn.rollback()
+            store.register_instance(
+                conn, instance_id=self.holder_id, state=state,
+                next_wake_at=next_wake_at, last_error=last_error)
             return None
 
     async def run(

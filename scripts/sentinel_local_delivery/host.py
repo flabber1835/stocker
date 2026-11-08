@@ -207,6 +207,53 @@ class Host:
                 return None
         return json.loads(self.run(['docker','inspect','sentinel-'+service+'-1']).stdout)[0]
 
+    def drain_recovery_state(self, target, values):
+        """Read exact predecessor markers without starting or mutating it."""
+        item=self.container('sentinel-shadow')
+        require(item['Id']==target['container'] and item['Image']==target['image'],
+                'ABANDONMENT_TARGET_CHANGED')
+        mounts=[m for m in item['Mounts'] if m['Destination']=='/var/lib/sentinel']
+        require(len(mounts)==1 and mounts[0]['Type']=='volume'
+            and mounts[0]['Name']=='sentinel_sentinel_state','ABANDONMENT_STATE_VOLUME_CHANGED')
+        config=json.loads(self.compose(values,'config','--format','json').stdout)
+        environment=config['services']['sentinel-shadow']['environment']
+        code='''import hashlib,json,math
+from pathlib import Path
+from sentinel import shadow_restart_recovery as recovery,shadow_service_status as status
+state=Path('/var/lib/sentinel')
+result={}
+for kind,name in [('pending',status.PENDING_NAME),('critical',status.CRITICAL_NAME)]:
+    path=state/name
+    try:raw=recovery._raw(path)
+    except FileNotFoundError:result[kind]=None;continue
+    value=json.loads(raw)
+    if kind=='pending':status._decode_pending(raw)
+    else:
+        assert isinstance(value,dict) and set(value)=={'schema','reason','failures','latched_at_unix'}
+        assert value['schema']=='sentinel.shadow-supervisor-critical/1' and isinstance(value['reason'],str)
+        assert value['failures'] is None or type(value['failures']) is int and value['failures']>=0
+        assert type(value['latched_at_unix']) in {int,float} and math.isfinite(value['latched_at_unix']) and value['latched_at_unix']>0
+    result[kind]={'schema':value['schema'],'sha256':hashlib.sha256(raw).hexdigest()}
+print(json.dumps(result,sort_keys=True))
+'''
+        with self.private_environment(environment) as path:
+            result=self.run(['docker','run','--rm','--pull=never','--network','none',
+                '--read-only','--cpus','0.25','--memory','128m','--env-file',path,'--mount',
+                'type=volume,src='+mounts[0]['Name']+',dst=/var/lib/sentinel,readonly',
+                '--entrypoint','python',target['image'],'-B','-c',code],timeout=15)
+        value=json.loads(result.stdout)
+        require(isinstance(value,dict) and set(value)=={'pending','critical'},
+                'ABANDONMENT_MARKER_OBSERVATION_MALFORMED')
+        for kind,schemas in (('pending',{'sentinel.shadow-supervisor-pending/2',
+                                        'sentinel.shadow-supervisor-pending/3'}),
+                             ('critical',{'sentinel.shadow-supervisor-critical/1'})):
+            entry=value[kind]
+            require(entry is None or isinstance(entry,dict) and set(entry)=={'schema','sha256'}
+                and entry['schema'] in schemas and isinstance(entry['sha256'],str)
+                and re.fullmatch('[0-9a-f]{64}',entry['sha256']),
+                'ABANDONMENT_MARKER_OBSERVATION_MALFORMED')
+        return value
+
     def postgres(self):
         data = self.container('sentinel-postgres')
         mounts = [m for m in data['Mounts'] if m['Destination']=='/var/lib/postgresql/data']
@@ -295,20 +342,12 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         return result
 
     def install_values(self, previous, candidate):
-        require(self.load_values()==previous, 'ENVIRONMENT_CHANGED_BEFORE_INSTALL')
         require(all(previous.get(k)==candidate.get(k) for k in set(previous)|set(candidate)
                     if k not in RUNTIME_KEYS), 'NON_RUNTIME_CONFIGURATION_CHANGED')
         raw = ''.join(k+'='+json.dumps(v,ensure_ascii=False)+'\n' for k,v in sorted(candidate.items()))
         require(self.literal.parse_bytes(raw.encode())==candidate, 'LITERAL_ENV_ROUNDTRIP_FAILED')
-        # The private temporary file is in the same directory for atomic replace.
-        import tempfile
-        fd, name = tempfile.mkstemp(prefix='.env.local-delivery-',dir=self.deployment)
-        try:
-            with os.fdopen(fd,'w',encoding='utf-8') as stream:
-                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
-            Path(name).replace(self.deployment/'.env')
-        finally:
-            if Path(name).exists(): Path(name).unlink()
+        from . import environment
+        environment.install(self,previous,raw.encode() if previous!=candidate else None)
         path = self.deployment/'local-delivery.json'
         metadata = read_json(path)
         metadata.update(commit=self.request['candidate']['commit'],image=self.request['candidate']['image'],

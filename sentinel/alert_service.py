@@ -15,15 +15,18 @@ import os
 import signal
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 from urllib.parse import urlparse
 
 import httpx
 
-from sentinel import alert_health
+from sentinel import alert_health, supervisor_io
 from sentinel.automation import outbox
-from sentinel.automation.health import ObservationDiagnostic, read_health
+from sentinel.automation.health import (
+    ObservationDiagnostic, SchedulerDiagnostic, read_health,
+)
 from sentinel.automation.model import AutomationRefused
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
@@ -135,6 +138,57 @@ def _report_transport_failure(exc: BaseException) -> None:
 _LEADERSHIP_STATES = frozenset({"WAITING_FOR_LEADER", "SCHEDULER_STALLED"})
 _LEADERSHIP_EPISODE_SCHEMA = "sentinel.alert-leadership-episode/1"
 _LEADERSHIP_RECOVERY_SECONDS = 60
+
+
+def _scheduler_diagnostic(health) -> SchedulerDiagnostic | None:
+    """Accept only the health reader's closed facts, never its free-text reason."""
+    diagnostic = getattr(health, "scheduler_diagnostic", None)
+    if diagnostic is None:
+        return None
+    try:
+        # Revalidate values even if a caller used model_construct/model_copy.
+        value = diagnostic.model_dump(mode="python", by_alias=True)
+        return SchedulerDiagnostic.model_validate(value)
+    except Exception:
+        return None
+
+
+@dataclass
+class _SchedulerIncidentDiagnostics:
+    """One process-local key bounds logging without changing durable episodes."""
+
+    _last_negative: tuple[int | None, str | None, int | None, str] | None = None
+
+    def observe(self, health) -> bool:
+        diagnostic = _scheduler_diagnostic(health)
+        if diagnostic is None:
+            if (getattr(health, "scheduler_diagnostic", None) is None
+                    and health.healthy is True
+                    and getattr(health, "leader_active", False) is True
+                    and getattr(health, "service_heartbeat_fresh", False) is True):
+                self._last_negative = None
+            # An unreadable or incomplete observation is not observed recovery.
+            return False
+        key = (diagnostic.control_generation, diagnostic.holder,
+               diagnostic.fence, diagnostic.predicate)
+        if key == self._last_negative:
+            return False
+        # A full sink consumes this attempt too: never retry on every poll.
+        self._last_negative = key
+        try:
+            value = {
+                "schema": "sentinel.scheduler-incident/1",
+                "pid": os.getpid(),
+                "monotonic_at": time.monotonic(),
+                "diagnostic": diagnostic.model_dump(mode="json", by_alias=True),
+            }
+            message = json.dumps(
+                value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            # Immediate-only diagnostics cannot create a logger child or delay
+            # notification coalescing when stderr is unavailable/full.
+            return supervisor_io._pipe_report(message) is True
+        except Exception:
+            return False
 
 
 def _health_cursor(conn):
@@ -319,21 +373,27 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
     diagnostic = getattr(health, 'observation_diagnostic', None)
     if diagnostic is not None:
         payload['observation_diagnostic'] = diagnostic.model_dump(mode='json', by_alias=True)
-        if row[0] == key:
-            # Attribution is additive only on a new immutable occurrence. A
-            # deployed diagnostic reader must not rewrite or re-key old history.
-            retained = outbox.load_alert(conn, outbox._alert_id(
-                f'automation-health-occurrence:{occurrence}'))
-            original = dict(retained.payload)
-            expected = {name: original.get(name) for name in payload
-                        if name != 'observation_diagnostic'}
-            if (set(original)-set(payload)
-                    or outbox._json(expected) != outbox._json({name: value for name, value in payload.items()
-                        if name != 'observation_diagnostic'})):
-                raise AutomationRefused('health occurrence and immutable alert disagree')
-            if 'observation_diagnostic' in original:
-                ObservationDiagnostic.model_validate(original['observation_diagnostic'])
-            payload = original
+    scheduler_diagnostic = _scheduler_diagnostic(health)
+    if scheduler_diagnostic is not None:
+        payload['scheduler_diagnostic'] = scheduler_diagnostic.model_dump(mode='json', by_alias=True)
+    if row[0] == key and (diagnostic is not None or scheduler_diagnostic is not None):
+        # Attribution is additive only on a new immutable occurrence. A
+        # deployed diagnostic reader must not rewrite or re-key old history.
+        retained = outbox.load_alert(conn, outbox._alert_id(
+            f'automation-health-occurrence:{occurrence}'))
+        original = dict(retained.payload)
+        diagnostic_fields = {'observation_diagnostic', 'scheduler_diagnostic'}
+        expected = {name: original.get(name) for name in payload
+                    if name not in diagnostic_fields}
+        if (set(original)-(set(payload) | diagnostic_fields)
+                or outbox._json(expected) != outbox._json({name: value for name, value in payload.items()
+                    if name not in diagnostic_fields})):
+            raise AutomationRefused('health occurrence and immutable alert disagree')
+        if 'observation_diagnostic' in original:
+            ObservationDiagnostic.model_validate(original['observation_diagnostic'])
+        if 'scheduler_diagnostic' in original:
+            SchedulerDiagnostic.model_validate_json(outbox._json(original['scheduler_diagnostic']))
+        payload = original
     return outbox.enqueue(
         conn,
         idempotency_key=f"automation-health-occurrence:{occurrence}",
@@ -345,9 +405,12 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
 
 def _observe_health(conn, *, health, max_attempts,
                     maximum_observation_gap_seconds=10.0,
-                    observation_interrupted=False):
+                    observation_interrupted=False,
+                    scheduler_diagnostics: _SchedulerIncidentDiagnostics | None = None):
     """Durable occurrence and outbox insertion share the enqueue commit."""
     try:
+        if scheduler_diagnostics is not None:
+            scheduler_diagnostics.observe(health)
         if _active_incident(health):
             if health.policy_state not in _LEADERSHIP_STATES:
                 _observe_health_recovery(
@@ -459,6 +522,7 @@ async def run() -> int:
     # A predecessor may have exited after an observation it could not persist.
     # Restart preserves the incident, but begins a fresh recovery interval.
     health_observation_interrupted = True
+    scheduler_diagnostics = _SchedulerIncidentDiagnostics()
 
     def report_database_failure(*, detail: str) -> None:
         nonlocal database_incident_bucket
@@ -513,7 +577,8 @@ async def run() -> int:
             _observe_health(
                 conn, health=health, max_attempts=automation.alert_max_attempts,
                 maximum_observation_gap_seconds=max(10.0, 2 * poll),
-                observation_interrupted=health_observation_interrupted)
+                observation_interrupted=health_observation_interrupted,
+                scheduler_diagnostics=scheduler_diagnostics)
             health_observation_interrupted = False
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
