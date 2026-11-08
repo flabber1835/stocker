@@ -54,6 +54,14 @@ dashboard snapshot, cheap process/leader fence, original expiry/deadline check,
 VERIFIED. Return the notification append observation from the preservation
 operation, avoiding its extra final scan. Checks across real mutations remain.
 
+A completed predecessor receipt is immutable historical evidence. A subsequent
+host boot can change PostgreSQL's process start without changing its container,
+image, named volume, source, command or database system identifier. Baseline
+selection applies the existing same-storage and forward-restart-time guard to
+that observation, then records the actual process witness for the new handoff.
+It never edits the prior receipt, accepts replacement storage, or skips the new
+canonical preservation proof and operational startup gates.
+
 ## WAL shell fanout
 
 The native PostgreSQL-OS archive checker batches required object metadata,

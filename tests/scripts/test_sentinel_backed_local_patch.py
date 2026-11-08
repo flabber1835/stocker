@@ -320,6 +320,36 @@ def test_restart_storage_guard_has_falsifier(monkeypatch):
         test_restart_observation_refuses_replacement_database_or_configuration('volume')
 
 
+@pytest.mark.parametrize('fault',[None,'container','image','volume','source','command','system','backwards'])
+def test_completed_baseline_accepts_only_forward_restart_of_exact_database(monkeypatch,fault):
+    from types import SimpleNamespace
+    before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
+    record=dict(git_commit='1'*40,runtime_image='sha256:'+'a'*64,
+        control_generation=7,certificate_sha256='certificate',system='123',postgres=before)
+    if fault in {'container','image','volume','source','command'}:after[fault]='foreign'
+    if fault=='backwards':after['started']='2025-01-01T00:00:00Z'
+    monkeypatch.setattr(patch,'predecessor_witness',lambda *a,**kw:record)
+    monkeypatch.setattr(patch.builder,'_inspect',lambda *a,**kw:{'Id':record['runtime_image'],
+        'Config':{'Labels':{'org.opencontainers.image.revision':record['git_commit']}}})
+    monkeypatch.setattr(patch,'postgres_facts',lambda _:after)
+    host=SimpleNamespace(load_values=lambda:dict(SENTINEL_GIT_COMMIT=record['git_commit'],
+        SENTINEL_RUNTIME_IMAGE_DIGEST=record['runtime_image']),
+        sql=lambda _:dict(system='foreign' if fault=='system' else '123',generation=7,certificate='certificate'),
+        container=lambda _:None,
+        compose=lambda *a,**kw:SimpleNamespace(stdout=json.dumps({'services':{'sentinel-postgres':{'command':before['command']}}})))
+    if fault:
+        with pytest.raises(patch.DeliveryRefused):patch.active_baseline('/historical/receipt.json',host)
+    else:
+        assert patch.active_baseline('/historical/receipt.json',host)['postgres']==after
+    assert before['started']=='2026-01-01T00:00:00Z'
+
+
+def test_completed_baseline_storage_guard_has_falsifier(monkeypatch):
+    monkeypatch.setattr(patch,'require_same_postgres_storage',lambda *a:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_completed_baseline_accepts_only_forward_restart_of_exact_database(monkeypatch,'volume')
+
+
 @pytest.mark.parametrize('fault', [None,'not_selected','not_started','financial','native',
                                  'history','image','unhealthy','stopped','oom','restarting'])
 def test_started_replacement_requires_each_preservation_boundary(monkeypatch, fault):

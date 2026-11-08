@@ -512,9 +512,10 @@ def active_baseline(path, host, *, blocked_unsent=False):
             and state.get('killed') is True and state.get('plain_kill') is True,
             'BLOCKED_UNSENT_PLAIN_KILL_REQUIRED')
     pg=postgres_facts(host.container('sentinel-postgres'))
-    require(record['postgres'] is None or (state['system']==record['system']
-        and (pg==record['postgres'] or record.get('unfinished'))),
+    require(record['postgres'] is None or state['system']==record['system'],
         'BACKED_VERIFIED_POSTGRES_CHANGED')
+    if record['postgres'] is not None and not record.get('unfinished'):
+        require_same_postgres_storage(record['postgres'],pg)
     if record.get('unfinished'):
         require_started_state(host,record,values,pg,image['Id'])
     # The primary command must equal the unchanged canonical backed Compose graph.
