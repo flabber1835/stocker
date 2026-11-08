@@ -75,6 +75,38 @@ def test_recovered_history_is_never_automatically_acknowledged(monkeypatch):
     assert page==original
 
 
+def test_expired_eligible_publication_waits_without_extending_any_fact(monkeypatch):
+    page,expected=scheduled_page(clean=True)
+    expired=deepcopy(page)
+    expired['dashboard_health']['valid_until']=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
+    original=deepcopy(expired)
+    result,calls,_,elapsed=run_child(monkeypatch,[expired,page],expected)
+    assert len(calls)==2 and elapsed==5 and expired==original
+    assert result['readiness_transitions'][0]['conditions']==['dashboard_publication_expired']
+
+
+def test_validator_dependencies_load_before_http_acquisition(monkeypatch):
+    import builtins
+    imports=[]
+    actual=builtins.__import__
+    def importing(name,*args,**kwargs):
+        if name in {'sentinel.panel.review_model','sentinel.panel.presentation'}:
+            imports.append(name)
+        return actual(name,*args,**kwargs)
+    monkeypatch.setattr(builtins,'__import__',importing)
+    page,expected=scheduled_page(clean=True)
+    # run_child owns the URL stub; its returned page serialization is the first
+    # json.dumps of a dictionary with this exact page subject.
+    dumps=json.dumps
+    observed=[]
+    def serializing(value,*args,**kwargs):
+        if value is page: observed.append(list(imports))
+        return dumps(value,*args,**kwargs)
+    monkeypatch.setattr(json,'dumps',serializing)
+    run_child(monkeypatch,[page],expected)
+    assert observed and {'sentinel.panel.review_model','sentinel.panel.presentation'}<=set(observed[0])
+
+
 def checking(page):
     page=deepcopy(page)
     until=(datetime.now(timezone.utc)+timedelta(seconds=60)).isoformat()

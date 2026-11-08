@@ -118,6 +118,11 @@ def parser(*, backed=False):
     abandon = commands.add_parser('abandon-drain',
         help='Permanently abandon a pre-install operation and recover its exact predecessor restart policy')
     abandon.add_argument('--operation-dir',required=True)
+    if backed:
+        recovery = commands.add_parser('recover-verification',
+            help='Explicit fresh final observation of an expired backed PRE_OPEN installation')
+        recovery.add_argument('--operation-dir', required=True)
+        recovery.add_argument('--recovery-id', required=True)
     for command in ('advance','resume'):
         proceed = commands.add_parser(command,help='Continue only the next supported delivery stages')
         proceed.add_argument('--operation-dir',required=True)

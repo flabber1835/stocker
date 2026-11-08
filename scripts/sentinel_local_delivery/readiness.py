@@ -6,7 +6,7 @@ from .model import require, utcnow
 SECONDS = 230
 
 
-def cutoff(receipt, *, now=None):
+def original_cutoff(receipt, *, now=None):
     now = utcnow() if now is None else now
     events = [event for event in receipt['history'] if event['stage'] == 'START_REQUESTED']
     require(len(events) == 1, 'READINESS_START_INTENT_REQUIRED')
@@ -15,7 +15,12 @@ def cutoff(receipt, *, now=None):
     require(started.utcoffset() is not None and proved.utcoffset() is not None
         and started <= now+timedelta(seconds=5) and proved <= now+timedelta(seconds=5),
         'READINESS_CLOCK_INVALID')
-    end = min(started+timedelta(seconds=SECONDS), proved+timedelta(seconds=900))
+    return min(started+timedelta(seconds=SECONDS), proved+timedelta(seconds=900))
+
+
+def cutoff(receipt, *, now=None):
+    now = utcnow() if now is None else now
+    end = original_cutoff(receipt, now=now)
     require(now < end, 'APPLICATION_READINESS_DEADLINE')
     return end
 
@@ -38,6 +43,10 @@ startup={'automation_leader','alert_dispatcher','shadow_worker'}
 previous=None
 attempts=0
 transitions=[]
+# Load validator dependencies before acquiring a short-lived published fact.
+from sentinel.panel.review_model import OperatorReview
+from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
+compiled_validator=compile(validator,'strict installation dashboard validator','exec')
 def budget():
  left=min(deadline-time.monotonic(),(cutoff-datetime.now(timezone.utc)).total_seconds())
  assert left>0,'APPLICATION_READINESS_DEADLINE'
@@ -113,9 +122,17 @@ while True:
   if not isinstance(error.reason,ConnectionRefusedError):raise
   reason=['dashboard_starting']
  if reason is None:
+  observation_until=datetime.fromisoformat(page['observation']['valid_until'])
+  health_until=datetime.fromisoformat(page['dashboard_health']['valid_until'])
+  observed=datetime.fromisoformat(page['as_of'])
+  assert all(at.utcoffset()==timedelta(0) for at in (observation_until,health_until,observed))
+  assert health_until<=observation_until<=observed+timedelta(seconds=30)
+  if datetime.now(timezone.utc)>=health_until:
+   reason=['dashboard_publication_expired']
+ if reason is None:
   response=io.StringIO(json.dumps(page));response.headers=headers
   printed=[]
-  exec(compile(validator,'strict installation dashboard validator','exec'),
+  exec(compiled_validator,
    {'_page':page,'_response':response,'print':printed.append})
   budget()
   assert len(printed)==1

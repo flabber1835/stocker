@@ -211,6 +211,43 @@ No proof, lease, snapshot or receipt expiry is extended. This is a host-installe
 patch through the existing local selector; no application-image rebuild or roll
 is needed to deploy it.
 
+### Explicit final-observation recovery (November 8, 2026)
+
+An expired APPLICATIONS_STARTED operation can be completed only by the explicit
+backed PAPER `recover-verification --recovery-id <unique-id>` command. Ordinary
+advance/resume retains its original deadline and still refuses. Recovery is
+restricted to PRE_OPEN with PRE_DRAIN canonical qualification, the original
+started-process bindings, unchanged installed candidate and REQUIRED_V1 backups.
+It cannot build, drain, migrate, change configuration, restart applications,
+acknowledge history or submit broker commands.
+
+Under the existing exclusive installation lock, recovery writes a new immutable
+intent containing the complete original receipt and its digest, request digest,
+unique attempt ID and a 600-second cutoff. Interruptions or failures retain that
+intent; the same ID cannot restart its clock. A new explicit attempt uses a new
+ID and fresh evidence, never a previous attempt's result. It verifies source,
+image presence, installed Compose/configuration and original process incarnations,
+then runs one fresh server-read-only canonical check of the installed candidate.
+Its complete result must equal the retained canonical proof, used solely as a
+comparison baseline rather than expired authority. Fresh preservation, PostgreSQL,
+GET-only native holdings/zero-open-orders and notification-history guards and an
+advancing stable current-generation leader must also pass.
+
+The final published dashboard observation is obtained after expensive financial
+and preservation reads. Its validator imports are warmed before HTTP acquisition,
+and an already expired otherwise eligible publication waits for the next published
+snapshot within the same bounded deadline. No fact's expiry is extended. Exact
+process/leader and configuration checks still bracket the work; the dashboard
+must remain within its original finite boundary at commit. Recovery appends only
+the normal VERIFIED event with its fresh evidence and linked recovery provenance;
+all original stages, clocks and artifacts remain unchanged. The retained result
+records success or refusal. Neither recovery record grants financial authority.
+
+```sh
+python3 -B /home/bron/sentinel-local-installer-current/scripts/sentinel_backed_local_patch.py recover-verification \
+  --operation-dir <absolute-operation-directory> --recovery-id <unique-lowercase-id>
+```
+
 ### Metadata observations owned once per boundary (November 8, 2026)
 
 Candidate validation uses the qualification validator's single fresh HEAD,

@@ -181,6 +181,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
 
 
 class BackedHost(Host):
+    supports_verification_recovery = True
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True
@@ -569,6 +570,9 @@ def main(argv=None):
             delivery=Delivery(host,journal)
             if args.command=='abandon-drain':
                 delivery.abandon_drain()
+            elif args.command=='recover-verification':
+                from sentinel_local_delivery.verification_recovery import recover
+                recover(delivery, args.recovery_id)
             elif args.one_stage:
                 with host.owned():delivery.step()
             else:delivery.advance()
