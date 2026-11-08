@@ -8,7 +8,7 @@ import system_campaign_p06_abmd_point_continuation as point
 import system_campaign_p06_abmd_initial_certificate as initial
 U_SHA='3ec636f898e9c3918047da18150660be37fd08f680818ec93064dfa355a1f6a8'
 CATALOG='system-campaign-retained-seed-successors.json'
-CATALOG_SHA='e33e469a21d5fe60ce87efc0b4556786ea8d7818941e3f120896b3afaf069d80'
+CATALOG_SHA='fb0f50ad8add05478047beffeffedefdbbd67a96f1bf6fec49bc74e230aece93'
 HERE=Path(__file__).parent
 
 def metadata(spec):

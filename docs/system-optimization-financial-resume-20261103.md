@@ -7967,6 +7967,46 @@ remains byte-identical; only the zero-financial stopped-review request changes.
 
 ## Next P06 terminal source batch (2026-11-07)
 
+The completed March16 batch identifies SGN, permanent
+security1043250249733367020/CIK1898474. Its March13 and March16 observations
+exist; March17 is explicitly absent. The native group contains acquisitionby
+and delisted with an incomplete CASH_MERGER term. Deal value2.2million is not
+per-share consideration. The genuine2050 saved state passes the original
+never-held/no-intent/no-claim scope check; actual event-date scope remains a
+mandatory hosted guard. Do not claim a complete March13 portfolio from its
+accounting summary, which omits ledger event history.
+
+Reuse the original source-exit convention at the exact March13 retained raw
+close, with no legal cash, execution-price, ownership or settlement claim.
+This is the original strict future-quote case: February27 < March13 < March16.
+The prior DM provider's boundary-equality case does not fit. Introduce a
+separately selected provider that preserves the complete original v1 compiler
+and changes only its exact native pair from delisted/regulatorydelisting to
+the authenticated acquisitionby/delisted pair. Keep both existing providers
+unchanged. Bind the complete request232 saved2050/full14 parent, all797
+committed strategy proofs, whole14-input history and every original resource,
+then require genuine neutral15 adoption and original constructor before
+financial execution. The native March16 quote remains unchanged and is not
+used as a replacement cash price. Source preparation is not financial authority.
+
+For the third retained source scope, walk the actual admitted-parent chain one
+input at a time. The existing observer's parent13 case hard-coded the original
+parent12 root and four historical terms; that cannot describe parent14. Select
+each exact predecessor from its admission, require one input and one consumed
+source term per step, and call that predecessor's complete history visitor.
+Preserve every original origin record, source payload, scope and term exactly.
+This generalization must produce identical historical metadata for the existing
+parent13 case and all five actual terms/three retained scopes for parent14.
+No old financial transitions are rerun and no current checkpoint is shortened.
+
+The2050 parent has its original positive stopped review in the same artifact.
+Route it through the unchanged original partial transport and original review
+filename. The separate failed-parent loader and replacement accounting-review
+path remain selected only for registered genuinely failed-review transports.
+Do not send this parent through that historical repair path merely because it
+uses a source-exit input. Its exact previously qualified1GiB size option,
+original0/1/0 stops, manifest and checkpoint commitments remain mandatory.
+
 The next batch after the2050-day admission uses that exact admitted root3d0a,
 through2026-02-27, as query context. The authentic request228 status identifies
 security1043250249733367020 and failed session2026-03-16, with last good
@@ -8061,3 +8101,20 @@ selected-checkpoint and journal-prefix checks. Other default transport limits
 remain unchanged.
 
 Admission result: Saved2050/2026-02-27/full14. Independently verified229 new financial closes,458 accounting snapshots,568 retained plus229 new committed strategy proofs,122 historical resources, actual neutral14 adoption, source-only DM delegation,11 monthly reports and308 Decimal metrics. Same original artifact passed stopped review0/1/0. Later March tail and March16 refusal excluded. Prior27c and its FIN366/REVIEW368 history retained unchanged. No local financial execution. Continuation from full14 requires separate qualification. New root 3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf. Independent qualification c8d9639532a1e3017a6699eef5f38ae7c1ef981319bd583b3fe41e72ddb0db3a. Accepted campaign total21019/25872; P06 has106 trading days remaining.
+
+
+## SGN complete restart qualification
+
+Validation commands from research/capital_risk:
+
+    python -B -m pytest forecast_tests/test_SGN_resources_observer.py forecast_tests/test_SGN_saved_parent.py forecast_tests/test_source_exit_future_acquisition.py forecast_tests/test_source_exit_observer.py forecast_tests/test_source_exit_runtime.py forecast_tests/test_source_exit_entry.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/SGN-final-integration-20261108-001
+
+All93 passed in53.58s.
+
+    python -B -m pytest forecast_tests/test_SGN_closed_request.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/SGN-request232-20261108-001
+
+Both passed in3.52s. The exact launcher probe and git diff check also pass.
+
+The complete targeted DATA gate passes93 tests. All138 requirements and288182311 resource bytes validate, retaining every prior resource pin. The original parent13 observer record remains exactly equal to the authentic hosted record; parent14 retains all five terms and three scopes. The exact797 committed proofs are preserved and10 diagnostic rows excluded. Whole original compiler/retained worker AST undo, original positive0/1/0 transport routing, genuine saved-state commitments and meaningful guard-removal cases pass. No local canonical financial code ran.
+
+Request232 selects only P06, one financial worker, from2050/2026-02-27/full14. The separate P07 request231 remains immutable and is not reselected or cancelled. Workflow concurrency is per arm, so the new P06 job may run alongside it. All fresh preparation, actual neutral15, constructor and event-day ownership/source guards remain mandatory. Profile SHA256 a266a8915cac893453653c02343025e3fa92cd5b15d371887edda16634f45da1. Original383/protected source files and four mature financial worker bodies remain unchanged. Independent financial admission remains separate.

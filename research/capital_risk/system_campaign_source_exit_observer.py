@@ -19,9 +19,12 @@ ORIGIN='observer-origin.json'
 def historical(parent,spec,member):
  from system_campaign_financial_partial import root_spec
  if profiles.profile(spec)['parent_inputs']>12:
-  history.parent_contract(parent,spec);oldspec=root_spec('P06',profiles.LEGACY_ROOT);names=profiles.paths(oldspec)
+  history.parent_contract(parent,spec);oldspec=root_spec('P06',spec['root_admission']['parent_root_admission_sha256']);names=profiles.paths(oldspec)
+  need(len(parent['repairs'])==len(oldspec['repairs'])+1
+   and profiles.profile(oldspec)['parent_inputs']==profiles.profile(spec)['parent_inputs']-1,
+   'SOURCE_EXIT_OBSERVER_EXACT_IMMEDIATE_ADMITTED_INPUT_PREDECESSOR')
   prior=history.archived_parent(oldspec,member);record=historical(prior,oldspec,member)
-  api=history.input_api(prior,oldspec,previous_models.full);neutral=history.strict_json(member(names['NEUTRAL']))
+  api=history.input_api(prior,oldspec,lambda root,current:profiles.previous(root,current,oldspec));neutral=history.strict_json(member(names['NEUTRAL']))
   material=json.loads(member(api.hydration_name(prior)))
   scopes=json.loads(member(api.SOURCE_SCOPES))
   prior_origin=json.loads(member(names['OBSERVATION']+'/'+ORIGIN))
@@ -30,9 +33,11 @@ def historical(parent,spec,member):
    'SOURCE_EXIT_OBSERVER_EXACT_COMPLETE_PREVIOUS_SOURCE_HISTORY')
   for name in (api.OVERLAY,api.hydration_name(prior),api.SOURCE_SCOPES):
    need(member(names['OBSERVATION']+'/'+name)==member(name),'SOURCE_EXIT_OBSERVER_UNCHANGED_PREVIOUS_SOURCE_PAYLOAD:'+name)
-  terms=record['terms']+[deepcopy(t['added']) for t in material['terms'] if prior['source_cursor']<t['added']['session']<=parent['source_cursor']]
+  added=[deepcopy(t['added']) for t in material['terms'] if prior['source_cursor']<t['added']['session']<=parent['source_cursor']]
+  terms=record['terms']+added
   retained=scopes+record['scopes']
-  need(len(retained)==profiles.profile(spec)['retained_scope_count'] and len(terms)==4
+  need(len(scopes)==len(added)==1 and len(retained)==profiles.profile(spec)['retained_scope_count']
+   and len(terms)==len(record['terms'])+1
    and all(t['session']<parent['source_cursor'] for t in terms),'SOURCE_EXIT_OBSERVER_ALL_PREVIOUS_SOURCE_TERMS_STRICTLY_HISTORICAL')
   return dict(schema='research.source-exit-original-observer-history/2',parent_sha256=parent['sha256'],
    previous_parent_sha256=prior['sha256'],original_origin=prior_origin,terms=terms,scopes=retained,historical_financial_sessions_reexecuted=0)

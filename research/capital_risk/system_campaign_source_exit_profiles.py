@@ -33,6 +33,9 @@ def source(spec):
  if value['source_version']==1:
   import system_campaign_source_exit_input_v1 as module
   selected=module.selected;catalog=module.catalog;validator=module.original.research_source_exit_term
+ elif value['source_version']==3:
+  import system_campaign_source_exit_future_acquisition as module
+  selected=partial(module.selected,catalog_name=value['catalog']);catalog=partial(module.catalog,value['catalog']);validator=module.original.research_source_exit_term
  else:
   import system_campaign_source_exit_input as module
   need(value['source_version']==2,'SOURCE_PROFILES_SUPPORTED_SOURCE_VERSION')

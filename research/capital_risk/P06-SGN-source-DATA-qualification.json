@@ -1,0 +1,27 @@
+{
+  "actual_event_date_scope_verified": false,
+  "actual_saved_parent_scope_verified": true,
+  "all_source_observations_native_actions_and_typed_term_preserved": true,
+  "artifact_id": 13598406920,
+  "canonical_runtime_executed": false,
+  "catalog_sha256": "a38255b1b86a03f0ee79e6b88245be4d685f6931cb238f0364d027f84d00cb45",
+  "diagnostic_accounting_not_used_as_complete_state": true,
+  "financial_authority": false,
+  "financial_profile_ready": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "native_cash_still_incomplete": true,
+  "native_event_raw_close_preserved": "0.54000000000000004",
+  "new_compiler_sha256": "396cb4d70d1059d59f82888ee16948e5bbc476f0dcf1e0a2f362c86d6255955f",
+  "original_v1_compiler_sha256": "d8b80226163b399251953d09c6877e1ef29b17bdf06a73530705ac72e60c9594",
+  "passed": true,
+  "raw_source_quote_preserved": "0.69999999999999996",
+  "retained_float_representation": 0.7,
+  "root_admission_sha256": "3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf",
+  "schema": "research.P06-SGN-source-DATA-qualification/1",
+  "source_payload_commitment": {
+    "bytes": 6809,
+    "sha256": "8acffbf030003a4f9c7b39c854d379a784f0eeddc56ac019868c6366f0fa3d1a"
+  },
+  "strict_future_quote_clock": true
+}

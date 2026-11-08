@@ -11,6 +11,9 @@ HERE=Path(__file__).parent
 CANARY='source-exit-successor-dependency-canary.json'
 PREPARATION='source-exit-successor-zero-financial-preparation.json'
 
+def failed_review_parent(spec):
+ return runtime.candidate(spec) and loader.applies(spec)
+
 def source_names():
  names=('system_campaign_source_exit_entry.py','system_campaign_source_exit_runtime.py','system_campaign_source_exit_api.py','system_campaign_source_exit_history.py',
   'system_campaign_source_exit_input.py','system_campaign_source_exit_input_v1.py','P06-TBIO-source-exit-input-catalog.json','P06-TBIO-source-exit-DATA-qualification.json','P06-DM-source-exit-input-catalog-v2.json','P06-DM-boundary-export-DATA-qualification.json',
@@ -20,7 +23,8 @@ def source_names():
   'P06-source-exit-API-history-DATA-qualification.json','system_campaign_source_exit_reporting.py','system_campaign_progress_observer.py','system_campaign_preflight_export.py',runtime.QUALIFICATION)
  extra=['system_campaign_source_exit_profiles.py',runtime.profiles.CATALOG]
  for value in runtime.profiles.records().values():
-  extra.extend(n for n in (value['resource_plan'],value['qualification']) if (HERE/n).is_file())
+  extra.extend(n for n in (value['resource_plan'],value['qualification'],value['catalog'],value.get('source_data_qualification')) if n and (HERE/n).is_file())
+  if value['source_version']==3:extra.append('system_campaign_source_exit_future_acquisition.py')
  return tuple(dict.fromkeys(n for n in (*names,*extra) if n!=runtime.QUALIFICATION or (HERE/n).is_file()))
 
 def expected_request(original,*,execution_mode,selected_arms,root_lookup):
@@ -99,8 +103,8 @@ def context(module,spec,*,mode,old,out,request,evidence=None):
   runtime.models.full(root,current);value=runtime.initial.catalog();native,_=hydrate(value,Path(out)/'source-exit-retained-codec-source.json')
   with InputCodec(value['event'],event_evidence(value),native):yield
  partial.retained_models,partial.model_context=retained_models,model_context
- dispatch.applies=lambda target:runtime.candidate(target) or saved_dispatch['applies'](target)
- dispatch.accounting_review=lambda target:loader.accounting_review(target) if runtime.candidate(target) else saved_dispatch['accounting_review'](target)
+ dispatch.applies=lambda target:failed_review_parent(target) or saved_dispatch['applies'](target)
+ dispatch.accounting_review=lambda target:loader.accounting_review(target) if failed_review_parent(target) else saved_dispatch['accounting_review'](target)
  runtime.legacy.uncertainty_phase=lambda target:runtime.candidate(target) or saved_legacy['uncertainty_phase'](target)
  runtime.legacy.run=lambda *a,spec=None,old=None,**k:runtime.run(*a,spec=spec,old=old,request=request,**k) if runtime.candidate(spec) else saved_legacy['run'](*a,spec=spec,old=old,**k)
  runtime.legacy.review=lambda *a,spec=None,old=None,**k:runtime.review(*a,spec=spec,old=old,request=request,**k) if runtime.candidate(spec) else saved_legacy['review'](*a,spec=spec,old=old,**k)

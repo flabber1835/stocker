@@ -14,6 +14,20 @@
       "seed_rows": 568,
       "source_version": 2
     },
+    "3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf": {
+      "catalog": "P06-SGN-source-exit-input-catalog.json",
+      "catalog_sha256": "a38255b1b86a03f0ee79e6b88245be4d685f6931cb238f0364d027f84d00cb45",
+      "compiler_sha256": "396cb4d70d1059d59f82888ee16948e5bbc476f0dcf1e0a2f362c86d6255955f",
+      "parent_inputs": 14,
+      "parent_outer_sha256": "d8712c45a270cc0af26f19502453731f668c49ba51cfb6c10fefeb0e0767aa8f",
+      "qualification": "P06-SGN-whole-profile-qualification.json",
+      "resource_plan": "P06-SGN-source-exit-resources.json",
+      "resource_plan_sha256": "7174eedd2a87aee6d52cc36e12be18ce7548135eac16010b6d03626957622e82",
+      "retained_scope_count": 3,
+      "seed_rows": 797,
+      "source_data_qualification": "P06-SGN-source-DATA-qualification.json",
+      "source_version": 3
+    },
     "ed91d2845587672a335b6af5a921c96668432a6129d337db062c3eedff88c845": {
       "catalog": "P06-TBIO-source-exit-input-catalog.json",
       "catalog_sha256": "72dcc80557947a48b6e8364052d4f32e374e161caadbe0658898c45ba445fc8c",
