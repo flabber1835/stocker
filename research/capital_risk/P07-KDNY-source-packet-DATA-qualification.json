@@ -1,0 +1,83 @@
+{
+  "actual_hosted_packet_qualification_completed": false,
+  "actual_neutral27_known": false,
+  "counts": {
+    "all_original_provider_rows": 3,
+    "effective_quote_absent": true,
+    "full_parent_inputs": 26,
+    "native_groups": 1,
+    "quotes_found": 2,
+    "source_observations": 3
+  },
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\capture-P07-KDNY-source-20261108.py": {
+      "bytes": 10932,
+      "sha256": "3cd6c705d702ea0622d40d5259c2e2f7c8f2e83b6303e5b16620fd214564fd7e"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\prepare-P07-KDNY-source-catalog-20261108.py": {
+      "bytes": 3110,
+      "sha256": "4321e4aee3b482a8a879c97de7dfdeb0d99a4fc812a44da3b9cc2b137721d6e5"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\P07-KDNY-full26-source-catalog.json": {
+      "bytes": 45155,
+      "sha256": "7d9301e0e9ead2ad5e4586d7f3a41b4449a51b3f6cca03e287570ae9b40c88d2"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\forecast_tests\\test_KDNY_preparation.py": {
+      "bytes": 2703,
+      "sha256": "474f8e1243c32a53acb064b2b44b7c6f9e60758e1744c05535a13ca636fe5583"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\forecast_tests\\test_KDNY_source.py": {
+      "bytes": 4997,
+      "sha256": "fda8d2063adf0975c157aa988ca161eeb469a1834002527c5098d1b0307e246e"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p07_KDNY_preparation.py": {
+      "bytes": 2491,
+      "sha256": "3cc79c9e5088082287147f6cebfdddaa7d278ef89a3e2cb93043894a57c20e18"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\wealth-variants-complete-20261105\\research\\capital_risk\\system_campaign_p07_KDNY_source.py": {
+      "bytes": 13116,
+      "sha256": "9b5d23379173f95b350dd64f20fe2439f3f8a90312a9d1eed7eb3f5eca58c3af"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\source-P07-KDNY-batch-source-snapshot\\authenticated-artifact-13603829822\\authenticated-manifest.json": {
+      "bytes": 966,
+      "sha256": "cb023c91e25fabe6022b4f8ec24bcd8ef9787a4a68da1bb8631ef082b1f58789"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\source-P07-KDNY-batch-source-snapshot\\authenticated-artifact-13603829822\\capture-review.json": {
+      "bytes": 1803,
+      "sha256": "3db49de8bb0907902ac791e45e80a06a118c7179dc93b13f86f81a95524d78bb"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\source-P07-KDNY-batch-source-snapshot\\authenticated-artifact-13603829822\\source-batch-receipt.json": {
+      "bytes": 858,
+      "sha256": "18929cffb64c7fba25c61c521cd0a26f1ecb73632ca2f7afa4d26111c7d4f932"
+    }
+  },
+  "financial_authority": false,
+  "financial_days_added": 0,
+  "financial_profile_ready": false,
+  "full_parent_inputs": 26,
+  "input_adopted": false,
+  "local_canonical_runtime_executed": false,
+  "next_required": "Complete full26 history/resource/949-seed binding and original ABMD->KDNY certificate with BWA projection, close a financial profile, then run actual hosted preparation/adoption/shared constructor before calculation.",
+  "passed": true,
+  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "schema": "research.P07-KDNY-source-packet-DATA-qualification/1",
+  "source_capture": {
+    "artifact": 13603829822,
+    "complete_original_crypto_and_worker_fences": true,
+    "job": 128633266922,
+    "logical_bytes": 100216,
+    "members": 4,
+    "run": 42448767108,
+    "zero_exit_nonoom": true
+  },
+  "tests": {
+    "all26_retained_input_order_DTO": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_source.py research/capital_risk/forecast_tests/test_KDNY_preparation.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-source-packet-tests-20261108-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 28,
+    "seconds": 4.3,
+    "whole_original_factual_hydrator_code_reused": true,
+    "whole_original_packet_qualifier_AST_undo": true
+  }
+}
