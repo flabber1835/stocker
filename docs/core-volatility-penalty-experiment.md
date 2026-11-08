@@ -112,6 +112,55 @@ journals and full artifact authentication before admitting any conclusion.
 
 ## Delivery
 
+Continuation design: a distinct request must commit each reviewed pilot's exact
+run, head, ZIP, public receipts, ciphertext, authenticated manifest and selected
+checkpoint. Authenticate the whole ciphertext before parsing its payload; check
+every member and actual stopped worker/reviewer inspection. Rebuild the same
+private financial source for that arm and compare its complete source binding.
+The hosted continuation must independently restore and review its own parent
+before copying its book, preserving every old checkpoint, journal prefix and
+tail. A control checkpoint cannot initialize the alternative. Existing repair
+documents remain bound to their own original predecessor; any new factual
+successor requires separate qualification. The original pilot request remains
+immutable and is not rerun after adding continuation tooling.
+
+Select the continuation's transition and wall-time bounds from the admitted
+pilot timings, allowing explicit formation/warmup and independent-review margin.
+The hard financial wait may not exceed 12,600 seconds and review 2,700 seconds.
+A timeout, refusal or unknown stop preserves the known evidence without a full
+performance claim. Completion requires both 2,156-session paths and their
+independent reviews, not merely successful launcher jobs.
+
+The paired pilot passed. Its control's 126 formation and eight measured records
+reproduce every saved P00 financial field exactly (excluding only the three
+top-level identity/chain digests). Both scalar/vector and ordering canaries,
+independent accounting reviews and complete encrypted artifact admissions passed.
+Worker times were 843.61 seconds for control and approximately 16 minutes for the
+alternative; control review took 24.01 seconds. Use admitted per-stage timings,
+not these rounded wall times, for the continuation budget.
+
+Before continuation, carry forward P00's already qualified ILG and TGI future
+completion facts on BOTH own January 11, 2018 predecessors. Reuse the original
+literal validators, primary-source/native identity witnesses, next-session clocks
+and ILG frozen raw-open fractional-cash proxy without changing their economics.
+Their original parent positions/checkpoints are provenance only. Recheck native
+preimages and source/delivery witnesses from the frozen archive, bind a new typed
+repair to each exact own predecessor, and run the existing canonical notional,
+wrong-native, missing-delivery, consumed-date and wrong-predecessor falsifiers
+before any financial transition. Do not install unrelated retrospective fixes or
+new tender/source-exit assumptions. Any further unsupported event must refuse and
+receive its own evidence review before continuation. No Sentinel rule changes.
+
+The admitted timings select a first continuation of 1,634 additional measured
+sessions per arm, not an all-history performance claim. The conservative projected
+remaining wall time is 15,410.42 seconds including 35% transition margin, two
+warmups and 600 seconds of reserve; that exceeds the 12,000-second planning
+budget. Retain the 12,600-second worker and 2,700-second reviewer stop limits.
+This segment can succeed only at the exact planned committed count with exit-0
+worker/reviewer stops. Its complete journals remain prerequisites for the final
+514 measured sessions. The 39 local DATA/AST/transport tests pass; canonical
+future-fact qualification and all further financial transitions remain hosted.
+
 Initial DATA/AST qualification: all 515 newly compiled control source hashes
 exactly equal the completed P00 source commitment. The alternative changes only
 the two score modules, the research runtime identity and the economic manifest

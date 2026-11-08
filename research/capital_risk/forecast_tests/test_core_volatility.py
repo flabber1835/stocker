@@ -104,7 +104,8 @@ def test_hosted_canary_closed_before_canonical_import(monkeypatch):
 
 @pytest.mark.parametrize('arm', compiler.ARMS)
 @pytest.mark.parametrize('review', (False, True))
-def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review):
+@pytest.mark.parametrize('continuation', (False, True))
+def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation):
     import full_system_trials_job as base
     uid = SimpleNamespace(getuid=lambda: 1001, getgid=lambda: 1001)
     monkeypatch.setattr(base, 'os', uid)
@@ -112,10 +113,13 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
     monkeypatch.setattr(job.os, 'getgid', lambda: 1001, raising=False)
     name = 'core-volatility-'+arm.lower()+'-'+('review' if review else 'worker')+'-123-1'
     values = job.command(name, Path('/source'), Path('/frozen'), Path('/output'), arm,
-                         Path('/evidence') if review else None)
+                         Path('/evidence') if review else None,
+                         maximum=0 if continuation else 134,
+                         previous=Path('/previous') if continuation else None)
     assert values[values.index('--network')+1] == 'none'
     assert values[values.index('--entrypoint')+1] == 'python'
     mounts = ['/variant', '/frozen', '/driver', '/out'] + (['/evidence'] if review else [])
+    mounts += ['/previous'] if continuation else []
     dto = {'Name': '/'+name, 'Image': job.EXECUTION_IMAGE, 'Id': 'a'*64,
            'HostConfig': {'NetworkMode': 'none', 'Memory': 8*1024**3, 'MemorySwap': 8*1024**3,
                           'NanoCpus': 2000000000, 'PidsLimit': 64, 'ReadonlyRootfs': True,
@@ -127,20 +131,40 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
     def response(v):
         monkeypatch.setattr(job.subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=json.dumps([v]).encode()))
     response(dto)
-    assert job.inspect(name, 'a'*64) == dto
+    def inspect():
+        return job.inspect(name, 'a'*64, maximum=0 if continuation else 134, continuation=continuation)
+    assert inspect() == dto
     for section, key, bad in (('HostConfig', 'NetworkMode', 'bridge'), ('Config', 'Cmd', ['wrong']),
                               ('Config', 'Env', ['GH_TOKEN=secret']), ('HostConfig', 'MemorySwap', 0)):
         changed = deepcopy(dto)
         changed[section][key] = bad
         response(changed)
         with pytest.raises(ValueError):
-            job.inspect(name, 'a'*64)
+            inspect()
 
 
-def test_exact_request_probe_has_no_canonical_imports():
+def test_exact_request_probe_has_no_canonical_imports(tmp_path):
     fence = NoCanonical()
     sys.meta_path.insert(0, fence)
     try:
-        assert job.probe(job.HERE/job.REQUEST)['canonical_runtime_executed'] is False
+        request = tmp_path/'current-request.json'
+        request.write_bytes(json.dumps(job.expected_request()).encode())
+        assert job.probe(request)['canonical_runtime_executed'] is False
     finally:
         sys.meta_path.remove(fence)
+
+
+def test_immutable_parent_copies_exact_bytes_to_writable_own_book(tmp_path):
+    from core_volatility_worker import copy_parent_book
+    import os
+    parent = tmp_path/'parent'
+    parent.mkdir()
+    (parent/'daily.jsonl').write_bytes(b'{"inert":true}\n')
+    os.chmod(parent/'daily.jsonl', 0o444)
+    own = tmp_path/'own'
+    copy_parent_book(parent, own)
+    assert (own/'daily.jsonl').read_bytes() == (parent/'daily.jsonl').read_bytes()
+    with (own/'daily.jsonl').open('ab') as stream:
+        stream.write(b'{"next":true}\n')
+    assert (parent/'daily.jsonl').read_bytes() == b'{"inert":true}\n'
+    os.chmod(parent/'daily.jsonl', 0o600)

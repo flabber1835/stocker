@@ -1,6 +1,7 @@
 """Single source-bound paired pilot on isolated hosted machines."""
 import argparse
 import base64
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -43,23 +44,28 @@ def probe(request):
             'source_files': len(expected_request()['sources']), 'canonical_runtime_executed': False}
 
 
-def command(name, source, frozen, output, arm, evidence=None):
+def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None):
     from full_system_trials_job import command as original
     mode = 'review' if evidence else 'economic'
     result = original(name, source, frozen, output, mode)
     result[result.index('research.study=full-system-search-20261029')] = 'research.study=core-volatility-20261108'
     result[result.index('/driver/full_system_core.py')] = '/driver/core_volatility_worker.py'
-    result += ['--arm', arm, '--maximum', str(expected_request()['maximum'])]
+    result += ['--arm', arm, '--maximum', str(maximum)]
     if evidence:
         index = result.index('--entrypoint')
         result[index:index] = ['--mount', f'type=bind,source={evidence},target=/evidence,readonly']
+    if previous:
+        index = result.index('--entrypoint')
+        result[index:index] = ['--mount', f'type=bind,source={previous},target=/previous,readonly']
+        result += ['--resume-root', '/previous']
     return result
 
 
-def inspect(name, identity=None):
+def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False):
     need(re.fullmatch(r'core-volatility-(control|vol075)-(worker|review)-[0-9]+-1', name), 'CONTAINER_NAME')
-    value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
-                                     check=True, timeout=20).stdout)[0]
+    if value is None:
+        value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
+                                         check=True, timeout=20).stdout)[0]
     h, c = value['HostConfig'], value['Config']
     mounts = {m['Destination']: m for m in value['Mounts'] if m['Type'] == 'bind'}
     review = '-review-' in name
@@ -70,24 +76,49 @@ def inspect(name, identity=None):
          and h['NanoCpus'] == 2000000000 and h['PidsLimit'] == 64 and h['ReadonlyRootfs']
          and h['CapDrop'] == ['ALL'] and any(s.startswith('no-new-privileges') for s in h['SecurityOpt']), 'FENCES')
     expected_mounts = {'/variant', '/frozen', '/driver', '/out'} | ({'/evidence'} if review else set())
+    if continuation:
+        expected_mounts.add('/previous')
     need(set(mounts) == expected_mounts and mounts['/out']['RW']
          and all(not m['RW'] for k, m in mounts.items() if k != '/out')
-         and c['WorkingDir'] == '/variant' and c['User'] == f'{os.getuid()}:{os.getgid()}'
+         and c['WorkingDir'] == '/variant' and c['User'] == (user or f'{os.getuid()}:{os.getgid()}')
          and c['Labels']['research.study'] == 'core-volatility-20261108'
          and c['Labels']['research.role'] == ('review' if review else 'worker'), 'MOUNTS')
     forbidden = set(FORBIDDEN_CREDENTIALS) | {SECRET, 'GH_TOKEN', 'GITHUB_TOKEN'}
     need(not any(k in forbidden and v for k, _, v in (s.partition('=') for s in c['Env'])), 'NO_CREDENTIALS')
-    need(c['Entrypoint'] == ['python'] and c['Cmd'] == [
+    expected = [
         '-B', '-u', '/driver/core_volatility_worker.py', '--mode', 'review' if review else 'economic',
-        '--arm', arm, '--maximum', str(expected_request()['maximum'])], 'EXACT_ENTRYPOINT')
+        '--arm', arm, '--maximum', str(maximum)]
+    if continuation:
+        expected += ['--resume-root', '/previous']
+    need(c['Entrypoint'] == ['python'] and c['Cmd'] == expected, 'EXACT_ENTRYPOINT')
     return value
 
 
-def launch(a):
+def require_continuation_stage(request, receipt, outcome, arm):
+    need(receipt['worker']['exit_code'] == 0 and receipt['reviewer']['exit_code'] == 0,
+         'SUCCESSFUL_STAGE_STOPS')
+    if request['maximum'] > 0:
+        need(receipt['status'] == 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+             and outcome.get('completed') == request['parents'][arm]['completed']+request['maximum'],
+             'EXACT_BOUNDED_SEGMENT_REVIEW_REQUIRED')
+    else:
+        need(receipt['status'] == 'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+             and outcome.get('completed') == 2156 and outcome.get('complete') is True
+             and outcome.get('session') == '2026-07-31', 'COMPLETE_REVIEWED_AXIS_REQUIRED')
+
+
+def launch(a, *, contract=None):
     check_context(os.environ)
     need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'NO_BLIND_RERUN')
-    probe(a.request)
-    request = expected_request()
+    if contract is None:
+        probe(a.request)
+        request = expected_request()
+    else:
+        need(json.loads(a.request.read_bytes()) == contract, 'EXACT_CONTINUATION_REQUEST')
+        request = contract
+        need(request['stage'] == 'OWN_PILOT_CONTINUATION' and set(request['parents']) == set(ARMS)
+             and 0 <= request['maximum'] <= 2156 and 0 < request['financial_wait_seconds'] <= 12600
+             and 0 < request['review_wait_seconds'] <= 2700, 'BOUNDED_OWN_CONTINUATION_CONTRACT')
     stage = json.loads(a.staging.read_bytes())
     need(stage['status'] == 'STAGING_PASSED' and stage['run_id'] == os.environ['GITHUB_RUN_ID']
          and stage['source_commit'] == os.environ['GITHUB_SHA'] and stage['protocol_sha256'] == PROTOCOL
@@ -102,10 +133,10 @@ def launch(a):
                              source_sha256=request['sources']['ephemeral_runner_capacity.py'])
     key = base64.b64decode(os.environ.pop(SECRET, ''), validate=True)
     need(len(key) == 32, 'TRANSFER_KEY')
-    os.environ.pop('GH_TOKEN', None)
     from full_system_trials_job import seal
     from alpaca_fit_job import stopped_run, StopUnknown
-    temp = Path(os.environ['RUNNER_TEMP'])/('core-volatility-'+a.arm.lower()+'-'+str(GENERATION))
+    generation = request['generation']
+    temp = Path(os.environ['RUNNER_TEMP'])/('core-volatility-'+a.arm.lower()+'-'+str(generation))
     temp.mkdir(mode=0o700, exist_ok=False)
     root = temp/'output'
     root.mkdir()
@@ -114,7 +145,7 @@ def launch(a):
     frozen = Path(os.environ['RUNNER_TEMP'])/'capital-risk-stage-001/inputs'
     source = temp/'source'
     receipt = {'schema': 'research.core-volatility-receipt/1', 'arm': a.arm,
-               'generation': GENERATION, 'stage': request['stage'], 'run_id': os.environ['GITHUB_RUN_ID'],
+               'generation': generation, 'stage': request['stage'], 'run_id': os.environ['GITHUB_RUN_ID'],
                'head': os.environ['GITHUB_SHA'], 'request_sha256': sha256_file(a.request),
                'protocol_sha256': request['protocol_sha256'], 'status': 'SETUP_PENDING',
                'performance_admitted': False, 'production_contacted': False, 'original_campaign_resumed': False}
@@ -129,6 +160,18 @@ def launch(a):
     try:
         need(memory_bytes()['MemAvailable'] >= 10*1024**3 and shutil.disk_usage(temp).free >= 12*1024**3, 'CAPACITY')
         binding = build(frozen/'source-fixed', source, a.arm)
+        previous = None
+        if contract is not None:
+            from core_volatility_admit import hosted as admit_parent
+            previous = admit_parent(request['parents'][a.arm], Path(os.environ['RUNNER_TEMP']) /
+                                    ('core-volatility-transfer-'+a.arm.lower()+'-'+str(generation)), key)
+            need(json.loads((previous/'source-bindings.json').read_bytes()) == binding,
+                 'EXACT_REBUILT_OWN_PARENT_SOURCE')
+            shutil.copyfile(previous.parent/'admission.json', root/'parent-artifact-admission.json')
+            for p in previous.rglob('*'):
+                os.chmod(p, 0o555 if p.is_dir() else 0o444)
+            os.chmod(previous, 0o555)
+        os.environ.pop('GH_TOKEN', None)
         (root/'source-bindings.json').write_text(json.dumps(binding, sort_keys=True, indent=2)+'\n')
         (root/'request.json').write_bytes(a.request.read_bytes())
         for p in source.rglob('*'):
@@ -137,9 +180,11 @@ def launch(a):
         receipt.update(status='BOUNDED_OWN_ORIGIN_RUNNING', setup_seconds=time.monotonic()-started)
         publish()
         name = 'core-volatility-'+a.arm.lower()+'-worker-'+os.environ['GITHUB_RUN_ID']+'-1'
+        inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None)
         then = time.monotonic()
-        receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm), name, root,
-                                       deadline=request['financial_wait_seconds'], inspector=inspect)
+        receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm,
+                                       maximum=request['maximum'], previous=previous), name, root,
+                                       deadline=request['financial_wait_seconds'], inspector=inspector)
         known = True
         receipt.update(status='WORKER_STOPPED_PREFIX_PRESERVED', worker_seconds=time.monotonic()-then)
         publish()
@@ -148,14 +193,19 @@ def launch(a):
             audit.mkdir()
             name = 'core-volatility-'+a.arm.lower()+'-review-'+os.environ['GITHUB_RUN_ID']+'-1'
             then = time.monotonic()
-            receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root), name,
-                                            audit, deadline=request['review_wait_seconds'], inspector=inspect)
+            receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root,
+                                            maximum=request['maximum'], previous=previous), name,
+                                            audit, deadline=request['review_wait_seconds'], inspector=inspector)
             receipt['review_seconds'] = time.monotonic()-then
             shutil.copytree(audit, root/'independent-review-stop')
             if receipt['reviewer']['exit_code'] == 0 and not receipt['reviewer']['oom_killed']:
                 proof = json.loads((audit/'core-review.json').read_bytes())
                 if receipt['worker']['exit_code'] == 0 and proof['counts'] == {'formation': 126, 'daily': 8}:
                     receipt['status'] = 'PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+                if contract is not None:
+                    receipt['status'] = ('COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+                        if proof['complete'] and receipt['worker']['exit_code'] == 0
+                        else 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION')
     except StopUnknown:
         receipt['status'] = 'STOP_UNKNOWN_NO_NEW_FINANCIAL_AUTHORITY'
         (diagnostic/'exception-chain.txt').write_text(traceback.format_exc())
@@ -175,7 +225,11 @@ def launch(a):
         receipt['elapsed_seconds'] = time.monotonic()-started
         publish()
     print(json.dumps(receipt), flush=True)
-    need(receipt['status'] == 'PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION', 'POSITIVE_PILOT_REQUIRED')
+    if contract is not None:
+        outcome = json.loads((root/'experiment-outcome.json').read_bytes()) if (root/'experiment-outcome.json').is_file() else {}
+        require_continuation_stage(request, receipt, outcome, a.arm)
+    else:
+        need(receipt['status'] == 'PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION', 'POSITIVE_REVIEWED_COMPLETION_REQUIRED')
 
 
 if __name__ == '__main__':

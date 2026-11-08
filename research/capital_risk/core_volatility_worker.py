@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import time
 import types
 
@@ -14,6 +15,15 @@ from full_system_core import arguments, hosted
 from full_system_benchmark import save
 
 PROFILE = 'wealth-core-v5-zero-share-fixed-2008-v1'
+
+
+def copy_parent_book(previous, root):
+    """Copy exact bytes from immutable evidence into this arm's writable book."""
+    need(not root.exists() and not any(p.is_symlink() for p in previous.rglob('*')), 'EXACT_REGULAR_PARENT_BOOK')
+    shutil.copytree(previous, root)
+    os.chmod(root, 0o700)
+    for p in root.rglob('*'):
+        os.chmod(p, 0o700 if p.is_dir() else 0o600)
 
 
 def qualify(arm):
@@ -70,7 +80,7 @@ def qualify(arm):
     return result
 
 
-def run(arm, maximum):
+def run(arm, maximum, previous=None):
     hosted()
     from research.pooled_vacancy_funding import backtest
     from research.pooled_vacancy_funding.journal import read_checkpoint
@@ -83,26 +93,50 @@ def run(arm, maximum):
     start = time.monotonic()
     save(Path('/out/canonical-qualification.json'), qualify(arm))
     qualified = time.monotonic()
-    os.environ['FULL_SYSTEM_WARMUP_ONLY'] = '1'
-    try:
-        code = backtest.main(arguments(root))
-    finally:
-        os.environ.pop('FULL_SYSTEM_WARMUP_ONLY', None)
-    need(code == 0, 'OWN_FEATURE_WARMUP')
-    warmed = time.monotonic()
-    overlay = facts(root)
+    if previous is None:
+        os.environ['FULL_SYSTEM_WARMUP_ONLY'] = '1'
+        try:
+            code = backtest.main(arguments(root))
+        finally:
+            os.environ.pop('FULL_SYSTEM_WARMUP_ONLY', None)
+        need(code == 0, 'OWN_FEATURE_WARMUP')
+        warmed = time.monotonic()
+        overlay = facts(root)
+        extra = ['--repair-overlay', str(overlay)]
+        prior_completed = -126
+    else:
+        need(previous == Path('/previous') and not root.exists(), 'OWN_READONLY_PARENT_MOUNT')
+        need(json.loads((previous/'source-bindings.json').read_bytes()) == binding, 'EXACT_OWN_SOURCE_BINDING')
+        from system_campaign_readonly import review
+        before = read_checkpoint(previous/'book/checkpoint.json.gz')
+        review(previous/'book', Path('/out/parent-preflight.json'))
+        proof = json.loads(Path('/out/parent-preflight.json').read_bytes())
+        need(proof['checkpoint_sha256'] == before['sha256'] and proof['all_prefixes_verified']
+             and proof['all_daily_factors_and_chains_verified'], 'OWN_CANONICAL_PARENT_PREFLIGHT')
+        copy_parent_book(previous/'book', root)
+        lineage = Path('/out/lineage')
+        lineage.mkdir()
+        shutil.copyfile(previous/'book/checkpoint.json.gz', lineage/'original-parent-checkpoint.json.gz')
+        shutil.copyfile(previous/'source-bindings.json', lineage/'parent-source-bindings.json')
+        shutil.copyfile(previous/'request.json', lineage/'parent-request.json')
+        need(read_checkpoint(root/'checkpoint.json.gz') == before, 'EXACT_COPIED_PARENT_CHECKPOINT')
+        prior_completed = before['completed']
+        warmed = time.monotonic()
+        from core_volatility_facts import prepare
+        extra = prepare(before, Path('/out'))
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
-        code = backtest.main(arguments(root, True, maximum) + ['--repair-overlay', str(overlay)])
+        code = backtest.main(arguments(root, True, maximum) + extra)
     save(Path('/out/acceleration-proof.json'), execution.proof())
     cp = read_checkpoint(root/'checkpoint.json.gz')
     complete = cp['completed'] == 2156 and cp['source_cursor'] == '2026-07-31'
-    if maximum == 134:
+    if maximum == 134 and previous is None:
         need(code == 0 and cp['completed'] == 8 and cp['source_cursor'] == '2018-01-11', 'PILOT_AXIS')
     save(Path('/out/experiment-outcome.json'), {
         'arm': arm, 'complete': complete, 'completed': cp['completed'], 'session': cp['source_cursor'],
         'qualification_seconds': qualified-start, 'warmup_seconds': warmed-qualified,
-        'financial_seconds': time.monotonic()-financial, 'formation_and_measured_transitions': maximum,
+        'financial_seconds': time.monotonic()-financial,
+        'new_financial_transitions': cp['completed']-prior_completed, 'maximum_requested': maximum,
         'checkpoint_sha256': cp['sha256'], 'production_contacted': False})
     need(code == 0, 'FINANCIAL_REFUSAL_PRESERVED')
 
@@ -112,10 +146,11 @@ if __name__ == '__main__':
     p.add_argument('--mode', choices=('economic', 'review'), required=True)
     p.add_argument('--arm', choices=ARMS, required=True)
     p.add_argument('--maximum', type=int, required=True)
+    p.add_argument('--resume-root', type=Path)
     a = p.parse_args()
     hosted()
     if a.mode == 'economic':
-        run(a.arm, a.maximum)
+        run(a.arm, a.maximum, a.resume_root)
     else:
         from system_campaign_readonly import review
         review(Path('/evidence/book'), Path('/out/core-review.json'))

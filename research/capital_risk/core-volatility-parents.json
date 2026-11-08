@@ -1,0 +1,139 @@
+{
+  "admissions": {
+    "CONTROL": {
+      "arm": "CONTROL",
+      "canonical_runtime_executed": false,
+      "checkpoint_sha256": "6f78a4e1dac0511eccd157077229c011a70f785fb4dd6d334d2cc49442658147",
+      "completed": 8,
+      "logical_bytes": 25525332,
+      "manifest_sha256": "7dba172e417a11e7a83c9757f12cfa58933348dca2f8a1512560222b5fd95d26",
+      "members_verified": 24,
+      "schema": "research.core-volatility-artifact-admission/1",
+      "whole_cipher_authenticated_before_parsing": true
+    },
+    "VOL075": {
+      "arm": "VOL075",
+      "canonical_runtime_executed": false,
+      "checkpoint_sha256": "542e506088a8d71bcb42b7e416e8e28b869fb2f79fe258c26030c8453f5733d0",
+      "completed": 8,
+      "logical_bytes": 25552730,
+      "manifest_sha256": "bd47b34e738a40b470e5cfd44da95464d04b0d7d612d06af14b2f4ccca05b6e6",
+      "members_verified": 24,
+      "schema": "research.core-volatility-artifact-admission/1",
+      "whole_cipher_authenticated_before_parsing": true
+    }
+  },
+  "arms": {
+    "CONTROL": {
+      "arm": "CONTROL",
+      "artifact_id": 13628012246,
+      "checkpoint_file_sha256": "04616f97775ae28e28c2a8bcda163579f509999a4dd8180ce654494d84f88e5b",
+      "checkpoint_sha256": "6f78a4e1dac0511eccd157077229c011a70f785fb4dd6d334d2cc49442658147",
+      "completed": 8,
+      "container_user": "1001:1001",
+      "continuation": false,
+      "encrypted_output": {
+        "bytes": 17387824,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "7dba172e417a11e7a83c9757f12cfa58933348dca2f8a1512560222b5fd95d26",
+        "name": "core-volatility-CONTROL.tar.crseal",
+        "sha256": "e850e5c03f3b548e96625363b8df885e34ddfb63de8336ac29c9bf615781cbdd"
+      },
+      "head": "94ab41e0569a59d63998693b2c8b0ba604a78e7f",
+      "maximum": 134,
+      "protocol_sha256": "37814f30938cde4fb0501e4bc64abd4318cc1ab03e429421a13d7adc87f33b25",
+      "public_members": {
+        "core-volatility-receipt.json": {
+          "bytes": 1238,
+          "sha256": "68b016a172b0e890025d414c55513f9e7514512c1464f94f5547dba570b37714"
+        },
+        "core-volatility-staging.json": {
+          "bytes": 964,
+          "sha256": "3a7bb54eefe0a251d6a3591279d3aced932496df60438e8630c92c3530dd3861"
+        },
+        "ephemeral-runner-capacity.json": {
+          "bytes": 674,
+          "sha256": "20f227a1871a5809f209ca75f47ae3f923627023325db86cf77d63a30b8ae900"
+        }
+      },
+      "request_sha256": "1d94401324658646da297383efbd5542e091f16eb669dc03f7d801811027f523",
+      "run_id": 42506835555,
+      "session": "2018-01-11",
+      "source_bindings_sha256": "6134b746b4e49423f3c09fb1a79d7a78eade35d9f74c7ec0ae1bdccae93c36a3",
+      "status": "PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION",
+      "worker_exit_code": 0,
+      "zip_bytes": 17391330,
+      "zip_sha256": "79a0a6a76821ca1d389f44db81d17f6afe3debd60d2d0831abd969f7deb0f905"
+    },
+    "VOL075": {
+      "arm": "VOL075",
+      "artifact_id": 13628775870,
+      "checkpoint_file_sha256": "a221feaf1803b80c3803cce30050fd679713b1480b41bc4753cf6b94c98b51b5",
+      "checkpoint_sha256": "542e506088a8d71bcb42b7e416e8e28b869fb2f79fe258c26030c8453f5733d0",
+      "completed": 8,
+      "container_user": "1001:1001",
+      "continuation": false,
+      "encrypted_output": {
+        "bytes": 17400341,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "bd47b34e738a40b470e5cfd44da95464d04b0d7d612d06af14b2f4ccca05b6e6",
+        "name": "core-volatility-VOL075.tar.crseal",
+        "sha256": "50989f8e92925ac840f83db8c852dacaa6677bdc2e3183dd9105ebc630dd9260"
+      },
+      "head": "94ab41e0569a59d63998693b2c8b0ba604a78e7f",
+      "maximum": 134,
+      "protocol_sha256": "37814f30938cde4fb0501e4bc64abd4318cc1ab03e429421a13d7adc87f33b25",
+      "public_members": {
+        "core-volatility-receipt.json": {
+          "bytes": 1241,
+          "sha256": "531ad885c280ee4833e541e0749e09e5535fd63dd6a0db5898d3f75947a7ccdb"
+        },
+        "core-volatility-staging.json": {
+          "bytes": 964,
+          "sha256": "c68c4354b6dc2905281c542f80548369af6c4af2c2aea6555c785124e91981ba"
+        },
+        "ephemeral-runner-capacity.json": {
+          "bytes": 674,
+          "sha256": "65c013d8d300ca3529c94ac7ccacc138232d522e53fef091feaca467f4293f78"
+        }
+      },
+      "request_sha256": "1d94401324658646da297383efbd5542e091f16eb669dc03f7d801811027f523",
+      "run_id": 42506835555,
+      "session": "2018-01-11",
+      "source_bindings_sha256": "c967cab9df2725c293783a800cd3e04e3daf31c678796b5a2d3044e1db944993",
+      "status": "PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION",
+      "worker_exit_code": 0,
+      "zip_bytes": 17403848,
+      "zip_sha256": "8655158a61dd7a871cd2d415421367063448239970c594845cef5160518d215f"
+    }
+  },
+  "schema": "research.core-volatility-reviewed-parents/1",
+  "timings": {
+    "CONTROL": {
+      "arm": "CONTROL",
+      "checkpoint_sha256": "6f78a4e1dac0511eccd157077229c011a70f785fb4dd6d334d2cc49442658147",
+      "complete": false,
+      "completed": 8,
+      "financial_seconds": 582.357310458,
+      "formation_and_measured_transitions": 134,
+      "new_financial_transitions": 134,
+      "production_contacted": false,
+      "qualification_seconds": 0.7416389490000057,
+      "session": "2018-01-11",
+      "warmup_seconds": 239.50999568299997
+    },
+    "VOL075": {
+      "arm": "VOL075",
+      "checkpoint_sha256": "542e506088a8d71bcb42b7e416e8e28b869fb2f79fe258c26030c8453f5733d0",
+      "complete": false,
+      "completed": 8,
+      "financial_seconds": 659.2571404370001,
+      "formation_and_measured_transitions": 134,
+      "new_financial_transitions": 134,
+      "production_contacted": false,
+      "qualification_seconds": 1.628321145000001,
+      "session": "2018-01-11",
+      "warmup_seconds": 271.948482774
+    }
+  }
+}
