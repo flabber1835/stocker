@@ -7967,6 +7967,28 @@ remains byte-identical; only the zero-financial stopped-review request changes.
 
 ## Next P06 terminal source batch (2026-11-07)
 
+The next batch after the2050-day admission uses that exact admitted root3d0a,
+through2026-02-27, as query context. The authentic request228 status identifies
+security1043250249733367020 and failed session2026-03-16, with last good
+session2026-03-13. Collect its original quotes for March13/16/17 and native
+March16 action group in one existing source-only job. Preserve the complete
+original refusal and its authenticated member commitment in a separate DATA
+fact. Do not guess the ticker, terms or event-date portfolio roles. The
+collector and zero-financial-worker contract are unchanged. Run this separate
+workflow alongside the existing P07 request231; leave that financial request
+byte-for-byte unchanged so it is neither restarted nor duplicated.
+
+The source request and its699 file commitments pass the existing complete
+source-batch validator. Targeted validation:
+
+    python -B -m pytest forecast_tests/test_source_batch.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P06-March16-source-batch-20261108-002
+
+All22 tests passed in2.13s, covering query bounds, exact admitted context,
+source-only authority, missing/ambiguous rows, meaningful guard removals,
+separate workflow triggering and all five financial import fences. The current
+query test follows the preserved original refusal DATA instead of an unrelated
+old hard-coded security identifier. Collector source and workflow are unchanged.
+
 Reuse the existing unchanged source-batch collector for SID698514937491238880:
 actual2025-03-31/2025-04-01/2025-04-02 quotes and the original2025-04-01 native
 action group. The authentic FIN366 worker reported that SID at its next-session

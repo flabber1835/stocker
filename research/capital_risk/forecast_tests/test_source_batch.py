@@ -19,7 +19,16 @@ def test_exact_batch_covers_all_missing_source_blockers_without_financial_author
  assert len(batch_request['observations'])==3 and len(batch_request['native_groups'])==1
  assert batch_request['financial_authority'] is batch_request['input_adopted'] is False
  assert batch_request['maximum_parallel_financial_workers']==0
- assert all(q['security_id']=='896501989594575427' and q['ticker'] is None for q in batch_request['observations'])
+ fact=json.loads((C/'P06-request228-March16-source-query-context.json').read_bytes())
+ assert fact['financial_authority'] is fact['input_adopted'] is False
+ assert fact['financial_sessions_advanced']==0 and fact['context_is_not_event_date_ownership'] is True
+ assert fact['failed_session']==fact['original_refusal_status']['failed_session']=='2026-03-16'
+ assert 'incomplete leadership cash terminal: '+fact['security_id'] in fact['original_refusal_status']['error']
+ assert all(q['security_id']==fact['security_id'] and q['ticker'] is None for q in batch_request['observations'])
+ assert {q['session'] for q in batch_request['observations']}=={fact[k] for k in ('prior_session','failed_session','after_session')}
+ assert batch_request['admitted_context']['P06']['root_admission_sha256']==fact['admitted_root']
+ assert batch_request['admitted_context']['P06']['completed']==fact['admitted_completed']==2050
+ assert batch_request['sources']['P06-request228-March16-source-query-context.json']==p.sha((C/'P06-request228-March16-source-query-context.json').read_bytes())
 
 @pytest.mark.parametrize('change',['authority','adopt','workers','duplicate','past','missing_parent'])
 def test_financial_or_unbounded_scope_refused(batch_request,change):

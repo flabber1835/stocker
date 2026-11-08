@@ -1,0 +1,44 @@
+{
+  "admitted_completed": 2050,
+  "admitted_root": "3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf",
+  "admitted_through": "2026-02-27",
+  "after_session": "2026-03-17",
+  "context_is_not_event_date_ownership": true,
+  "failed_session": "2026-03-16",
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "input_adopted": false,
+  "original_book_status": {
+    "completed_sessions": 2060,
+    "elapsed_seconds": 2461.605190041,
+    "failed_session": "2026-03-16",
+    "session": "2026-03-13",
+    "status": "REFUSED"
+  },
+  "original_refusal_status": {
+    "completed_sessions": 2060,
+    "error": "Traceback (most recent call last):\n  File \"/variant/research/pooled_vacancy_funding/backtest.py\", line 398, in run_backtest\n    next_run = runtime.advance(run, published)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/driver/system_campaign_financial_future.py\", line 3292, in advance\n    result = self.advance_original(run, publication)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/driver/system_campaign_acceleration.py\", line 70, in advance\n    try:return self.advance(run,published)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/driver/system_campaign_observe.py\", line 37, in advance\n    result=self.advance(run,published)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<whole-original-ABMD-factory-and-point-operation-order>\", line 85, in advance\n  File \"/driver/system_campaign_uncertainty_context.py\", line 184, in advance\n    result = self.original_advance(run, published)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/variant/research/pooled_vacancy_funding/runtime.py\", line 104, in advance\n    state = advance_session(run.state, published, controller_config=controller,\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/variant/sentinel/core/kernel.py\", line 278, in advance_session\n    terminal_values=terminal_returns.values(prior=env, published=published))\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/driver/system_campaign_financial_future.py\", line 3235, in source_values\n    return self.source_original(prior=prior, published=published)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<whole-original-ABMD-factory-and-point-operation-order>\", line 48, in values\n  File \"/variant/sentinel/controller/terminal_returns.py\", line 29, in values\n    raise ValueError('incomplete leadership cash terminal: ' + sid)\nValueError: incomplete leadership cash terminal: 1043250249733367020\n",
+    "events": null,
+    "failed_session": "2026-03-16",
+    "last_good_session": "2026-03-13",
+    "status": "REFUSED"
+  },
+  "original_worker_log_commitment": {
+    "bytes": 53391,
+    "sha256": "7598b19615e29ca94880f96cf4448692ef6f9505de3e5f7fde0143bec19383e9"
+  },
+  "prior_session": "2026-03-13",
+  "schema": "research.P06-next-terminal-source-query-context/1",
+  "security_id": "1043250249733367020",
+  "source": {
+    "artifact": 13596566525,
+    "commitment": {
+      "bytes": 154,
+      "sha256": "51cfa178cf38af2cafae7627353a09c8c3e082848aa2e3b9bb22fd5725406e83"
+    },
+    "head": "05f4896192ee168dc6f60f9a80a69f44ef80507c",
+    "member": "book/status.json",
+    "run": 42423079027,
+    "zip_sha256": "c4968df5adacf3340fac474133aa39dcffa3ff15b246ccd00dcf263067d05d0b"
+  }
+}
