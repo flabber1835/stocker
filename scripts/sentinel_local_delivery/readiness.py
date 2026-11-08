@@ -24,7 +24,7 @@ def cutoff(receipt, *, now=None):
 # The exact existing validator is supplied separately and consumes the very same
 # HTTP response; successful observations are never fetched twice.
 PANEL_WAIT = r'''import io,json,sys,time,urllib.error,urllib.request
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 expected=json.loads(sys.argv[1])
 validator=sys.argv[2]
 cutoff=datetime.fromisoformat(sys.argv[3])
@@ -55,16 +55,28 @@ def pending(page,header):
  assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
  assert str(plan.get('decision_session'))==expected['decision']
  assert str(plan.get('effective_session'))==expected['effective']
+ checking=set()
+ instant=datetime.now(timezone.utc)
+ for key in ('shadow_verification','paper_reconciliation','exposure','book','terminals'):
+  row=rows.get(key,{})
+  recovery=row.get('recovery') or {}
+  if (row.get('status')=='warn' and row.get('value')=='CHECK IN PROGRESS'
+   and recovery.get('phase')=='FINANCIAL_VERIFICATION' and recovery.get('automatic') is True
+   and recovery.get('operator_required') is False):
+   bound=datetime.fromisoformat(recovery['deadline'])
+   assert bound.utcoffset() is not None and instant<bound<=instant+timedelta(seconds=600)
+   assert datetime.fromisoformat(row['valid_until'])==bound
+   checking.add(key)
  for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure','paper_plan','backup_restore'):
-  if key in rows:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
+  if key in rows and key not in checking:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
  review=page['operator_review'];health=page['dashboard_health']
  assert isinstance(review,dict) and isinstance(health,dict)
  conditions=set(review['active'])|set(review['warnings'])|set(health['active_conditions'])|set(health['review_conditions'])
  negatives={row['key'] for row in page['rows'] if row.get('color')=='red'
   or row.get('status') in {'fail','unknown'}}
- assert conditions<=startup and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
- if conditions or negatives:
-  return sorted(conditions|negatives)
+ assert conditions<=startup|checking and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ if conditions or negatives or checking:
+  return sorted(conditions|negatives|checking)
  # A partial current-subject read may settle; its financial rows were still
  # checked for negatives above. The strict current validator must pass later.
  if header=='PARTIAL' or page['observation']['current'] is False:

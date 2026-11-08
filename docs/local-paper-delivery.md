@@ -185,8 +185,13 @@ canonical proof, restarts applications or acknowledges history. It retries only
 loopback connection refusal, HTTP 503, or explicitly named startup liveness
 conditions (leader, sender, shadow worker) with no unrelated negative
 condition or source error. Non-startup modes keep their exact existing dashboard
-contracts. Polling published snapshots is limited to once per five seconds;
-strict validation runs once on the eligible snapshot, without a second HTTP read.
+contracts. Polling published snapshots is limited to once per five seconds.
+An explicit FINANCIAL_VERIFICATION automatic CHECK IN PROGRESS row may also
+remain pending within its original unexpired, at-most-600-second recovery bound.
+This applies only to the named shadow/book/exposure/terminals/PAPER verification
+rows; a financial FAIL/UNKNOWN or an untyped/expired wait still refuses. The
+ordinary strict validator must pass after completion, within the common deadline.
+Strict validation runs once on the eligible snapshot, without a second HTTP read.
 Malformed data, unexpected HTTP errors, financial negatives, changed plans and
 strict-validator failures stop immediately. Pending diagnostics retain condition
 names; unchanged diagnostic output is not repeated. The successful panel result

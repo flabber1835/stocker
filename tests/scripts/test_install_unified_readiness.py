@@ -75,6 +75,40 @@ def test_recovered_history_is_never_automatically_acknowledged(monkeypatch):
     assert page==original
 
 
+def checking(page):
+    page=deepcopy(page)
+    until=(datetime.now(timezone.utc)+timedelta(seconds=60)).isoformat()
+    keys=['shadow_verification','book','exposure','terminals']
+    for key in keys:
+        keyed(page,key).update(status='warn',color='amber',value='CHECK IN PROGRESS',valid_until=until,
+            recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,deadline=until))
+    page['operator_review'].update(status='REVIEW',warnings=keys)
+    page['dashboard_health'].update(status='warn',color='amber',review_conditions=keys)
+    return page
+
+
+def test_typed_initial_financial_check_waits_for_actual_proof(monkeypatch):
+    page,expected=scheduled_page(clean=True)
+    result,calls,_,_=run_child(monkeypatch,[checking(page),page],expected)
+    assert result['readiness_observations']==2 and len(calls)==2
+    assert result['readiness_transitions'][0]['conditions']==['book','exposure','shadow_verification','terminals']
+
+
+@pytest.mark.parametrize('fault',['expired','indefinite','untyped','manual','negative','source_error'])
+def test_financial_wait_cannot_waive_failure_or_extend_authority(monkeypatch,fault):
+    page,expected=scheduled_page(clean=True);page=checking(page)
+    row=keyed(page,'shadow_verification')
+    if fault=='expired':row['recovery']['deadline']=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
+    elif fault=='indefinite':row['recovery']['deadline']=(datetime.now(timezone.utc)+timedelta(seconds=601)).isoformat()
+    elif fault=='untyped':row['recovery']=None
+    elif fault=='manual':row['recovery']['operator_required']=True
+    elif fault=='negative':row.update(status='fail',color='red')
+    else:page['source_errors']=['unavailable']
+    audit={}
+    with pytest.raises(AssertionError):run_child(monkeypatch,[page],expected,audit=audit)
+    assert len(audit['calls'])==1
+
+
 @pytest.mark.parametrize('fault',['plan','source','authority','broker','shadow_verification','review',
     'duplicate','missing_review','strict_expired','strict_leader','strict_scope'])
 def test_nonstartup_or_strict_failures_are_not_retried(monkeypatch,fault):
@@ -133,7 +167,7 @@ def test_repeated_pending_page_reaches_original_deadline_without_success_or_log_
 
 
 def test_nonstartup_classifier_has_an_executed_removed_guard_falsifier(monkeypatch):
-    guard=" assert conditions<=startup and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'\n"
+    guard=" assert conditions<=startup|checking and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'\n"
     assert readiness.PANEL_WAIT.count(guard)==1
     monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(guard,''))
     with pytest.raises(AssertionError):
