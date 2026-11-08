@@ -38,8 +38,9 @@ def memo_probe(filename, prior_failed):
             broker_observation=dict(completeness='COMPLETE', account_identity=['fixture'],
                 observed_at='2031-01-01T00:00:00+00:00', positions=[]))
     try:
-        intent_memo.row_version = lambda *args: ('2031-01-01', 'fixture',
-            str(current['version']), '(0,1)', 'a'*64)
+        intent_memo.row_version = lambda *args: ('2031-01-01', 100,
+            str(current['version']), '(0,1)', 101, 102, 'fixture-system',
+            '2031-01-01T00:00:00+00:00', '0', True)
         dual_plan_authority.load_authority = load
         projection = intent_memo.memo.read(SimpleNamespace(info=SimpleNamespace(dsn='credential-free-fixture')),
                                            plan_id='fixture-plan')

@@ -17,13 +17,14 @@ import uuid
 
 from sentinel import supervisor_io
 from sentinel.panel import operational_schema as schema
+from sentinel.panel.verification_health import OPERATIONAL_HEARTBEAT
 
 DEADLINE_SECONDS = 20
 POLL_SECONDS = 5
 SUPERSEDED_RETRY_SECONDS = .25
 MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
-HEARTBEAT = Path('/tmp/sentinel-operational-projection-heartbeat')
+HEARTBEAT = OPERATIONAL_HEARTBEAT
 _COLLECTION_STAGE = ContextVar('operational_collection_stage', default='NOT_STARTED')
 _READ_STAGES = frozenset({'COORDINATES','COLLECT','CONNECT','OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS'})
 
