@@ -26,18 +26,20 @@
       "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
     },
     {
-      "admitted_root": "27c4e51a5fc479b418668a7950a4146129380eb73dc029840b0a62a9a0163da0",
+      "active_request_schema": 232,
+      "active_run": 42435764758,
+      "admitted_root": "3d0a107ee7e00a4f8345d21a268ce7f5d097b0e57ccc3620f4ba7c23d2f633cf",
       "arm": "P06",
-      "completed_previous_event": "TBIO actual never-held source delegation independently admitted through1821/full13",
-      "event": "DM native April1,2025 source exit; legal April2 completion remains separate",
+      "completed_previous_event": "DM original never-held source delegation independently admitted through2050/full14",
+      "event": "SGN native March16,2026 source exit at the exact retained March13 raw close; no statutory-cash claim",
       "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
         "actual hosted preparation, saved-state restart and constructor gates",
         "hosted financial calculation and independent admission"
       ],
-      "previous_profile_qualification": "P06-WWE12-dependency-closure-profile-qualification.json",
-      "profile_qualification": "P06-DM-whole-profile-qualification.json",
-      "source_observations": "SOURCE369 authenticated March31 raw4.9100000000000001/nativeApril1 raw4.96/April2 absent; original acquisitionby+delisted group and incomplete cash terminal; DATA-only boundary catalog ready"
+      "previous_profile_qualification": "P06-DM-whole-profile-qualification.json",
+      "profile_qualification": "P06-SGN-whole-profile-qualification.json",
+      "source_observations": "Source batch42433217521 authenticated complete March13/nativeMarch16 SGN rows, explicit March17 absence and original acquisitionby+delisted group. Entire strict-future source compiler and2050/full14 restart passed95 targeted checks. Actual event-date ownership remains guarded."
     },
     {
       "arm": "P07",
@@ -83,5 +85,20 @@
     "observations_missing": 1,
     "run": 42388826916,
     "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION"
+  },
+  "source_captures": {
+    "P06_SGN": {
+      "artifact": 13598406920,
+      "artifact_bytes": 45813,
+      "artifact_sha256": "056dcf96b5ba7714d9130fc3f71887ef22fed838eff797a516266fea0d440361",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "financial_sessions_advanced": 0,
+      "head": "1e1a99a762e1b82b171d5e703b192279dfefd66a",
+      "native_groups_found": 1,
+      "observations_found": 2,
+      "observations_missing": 1,
+      "run": 42433217521,
+      "status": "AUTHENTICATED_SOURCE_DATA_QUALIFIED_FOR_GATED_HOSTED_INPUT"
+    }
   }
 }
