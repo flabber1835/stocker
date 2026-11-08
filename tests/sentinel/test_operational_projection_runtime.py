@@ -103,7 +103,8 @@ def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worke
     (SnapshotUnavailable('SNAPSHOT_PANEL_INVALID'), 'FAILED'),
     (ValueError('private malformed source'), 'FAILED'),
 ])
-def test_only_typed_collection_supersession_is_expected_work(monkeypatch, exception, outcome):
+def test_only_typed_collection_supersession_is_expected_work(monkeypatch, tmp_path, exception, outcome):
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'collection-heartbeat')
     def refused(*_, **_options): raise exception
     monkeypatch.setattr(producer, 'publish_once', refused)
     def unavailable_fallback(*_): raise RuntimeError('private unavailable fallback')

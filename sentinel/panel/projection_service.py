@@ -181,6 +181,9 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
     attempts = 0
     token = _COLLECTION_STAGE.set('NOT_STARTED')
     try:
+        # Actual child execution is liveness; only publication creates readiness.
+        # The existing parent deadline also bounds this filesystem write.
+        HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
         while True:
             attempts += 1
             try:
