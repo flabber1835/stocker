@@ -15,20 +15,17 @@ def batch_request():return json.loads((C/p.REQUEST).read_bytes())
 
 def test_exact_batch_covers_all_missing_source_blockers_without_financial_authority(batch_request):
  assert p.validate_files(batch_request) is None
- assert {q['arm'] for q in batch_request['observations']}=={'P03'}
- assert len(batch_request['observations'])==16 and len(batch_request['native_groups'])==8
+ assert {q['arm'] for q in batch_request['observations']}=={'P07'}
+ assert len(batch_request['observations'])==3 and len(batch_request['native_groups'])==1
  assert batch_request['financial_authority'] is batch_request['input_adopted'] is False
  assert batch_request['maximum_parallel_financial_workers']==0
- name='P03-request235-next-eight-source-query-context.json';fact=json.loads((C/name).read_bytes())
+ name='P07-KDNY-source-query-context.json';fact=json.loads((C/name).read_bytes())
  assert fact['financial_authority'] is fact['input_adopted'] is False
  assert fact['financial_sessions_advanced']==0 and fact['context_is_not_event_date_ownership'] is True
- assert len(fact['scopes'])==8 and any(x['ticker']=='PTLA' and x['native_session']=='2020-07-01' for x in fact['scopes'])
- assert all(q['ticker'] is None for q in batch_request['observations'])
- for scope in fact['scopes']:
-  selected=[q for q in batch_request['observations'] if q['security_id']==scope['security_id']]
-  assert {q['session'] for q in selected}=={scope['native_session'],scope['next_frozen_session']}
- assert batch_request['admitted_context']['P03']['root_admission_sha256']==fact['admitted_root']
- assert batch_request['admitted_context']['P03']['completed']==fact['admitted_completed']==628
+ assert all(q['ticker']=='KDNY' and q['security_id']==fact['security_id'] for q in batch_request['observations'])
+ assert {q['session'] for q in batch_request['observations']}=={fact[k] for k in ('identity_session','native_session','effective_session')}
+ assert batch_request['admitted_context']['P07']['root_admission_sha256']==fact['admitted_root']
+ assert batch_request['admitted_context']['P07']['completed']==fact['admitted_completed']==1403
  assert batch_request['sources'][name]==p.sha((C/name).read_bytes())
 
 @pytest.mark.parametrize('change',['authority','adopt','workers','duplicate','past','missing_parent'])
@@ -49,7 +46,7 @@ def test_source_only_guard_removal_is_meaningful(batch_request,monkeypatch):
  assert p.validate(value) is True
 
 def test_capture_context_cannot_be_relabelled_as_another_date(batch_request,monkeypatch):
- value=deepcopy(batch_request);value['admitted_context']['P03']['through']='2020-05-29'
+ value=deepcopy(batch_request);value['admitted_context']['P07']['through']='2023-06-30'
  with pytest.raises(ValueError,match='EXACT_ADMITTED_CAPTURE_CONTEXT'):p.validate_files(value)
  original=p.need;monkeypatch.setattr(p,'need',lambda value,label:None if label=='SOURCE_BATCH_EXACT_ADMITTED_CAPTURE_CONTEXT_NOT_EVENT_DATE_ROLES' else original(value,label))
  assert p.validate_files(value) is None
@@ -78,7 +75,7 @@ def test_known_sid_query_retains_actual_ticker_without_inventing_identity():
  assert p.select_observations(q,[other])[0]['status']=='NOT_FOUND'
 
 def test_query_without_both_ticker_and_sid_is_forbidden(batch_request):
- value=deepcopy(batch_request);value['observations'][0]['security_id']=None
+ value=deepcopy(batch_request);value['observations'][0]['security_id']=None;value['observations'][0]['ticker']=None
  with pytest.raises(ValueError,match='FUTURE_QUERY_CONTEXT'):p.validate(value)
 
 def test_ambiguous_frozen_identity_refused_and_guard_removal_is_meaningful(monkeypatch):

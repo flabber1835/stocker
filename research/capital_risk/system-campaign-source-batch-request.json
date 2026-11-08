@@ -1,11 +1,11 @@
 {
   "admitted_context": {
-    "P03": {
-      "completed": 628,
-      "input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
-      "outer_sha256": "1a247a7a31c5b8686651578794fa958a70778e90adbce89491263fe4da25f07a",
-      "root_admission_sha256": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
-      "through": "2020-06-30"
+    "P07": {
+      "completed": 1403,
+      "input_sha256": "9326d0d50de55f7f1c3134af9818a584107736bfe8383161baf2ccf8b5cabc7f",
+      "outer_sha256": "c7067ac86c8eda4e034a3b813a699f174c7216e462f3e123f6017aa26d825937",
+      "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+      "through": "2023-07-31"
     }
   },
   "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
@@ -16,174 +16,34 @@
   "maximum_parallel_readonly_workers": 1,
   "native_groups": [
     {
-      "arm": "P03",
-      "name": "p03-future01-native-group",
-      "security_id": "40907041192978594",
-      "session": "2020-07-01",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future02-native-group",
-      "security_id": "463756619808367774",
-      "session": "2020-07-01",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future03-native-group",
-      "security_id": "77684744013377591",
-      "session": "2020-07-01",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future04-native-group",
-      "security_id": "608062988879848022",
-      "session": "2020-07-09",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future05-native-group",
-      "security_id": "919160176508266297",
-      "session": "2020-07-09",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future06-native-group",
-      "security_id": "829082329521684393",
-      "session": "2020-07-10",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future07-native-group",
-      "security_id": "521663153955821544",
-      "session": "2020-07-15",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future08-native-group",
-      "security_id": "452001307021238603",
-      "session": "2020-07-20",
-      "ticker": null
+      "arm": "P07",
+      "name": "p07-kdny-native-group",
+      "security_id": "47247117758471252",
+      "session": "2023-08-10",
+      "ticker": "KDNY"
     }
   ],
   "observations": [
     {
-      "arm": "P03",
-      "name": "p03-future01-native-quote",
-      "security_id": "40907041192978594",
-      "session": "2020-07-01",
-      "ticker": null
+      "arm": "P07",
+      "name": "p07-kdny-identity",
+      "security_id": "47247117758471252",
+      "session": "2023-08-09",
+      "ticker": "KDNY"
     },
     {
-      "arm": "P03",
-      "name": "p03-future01-after-quote",
-      "security_id": "40907041192978594",
-      "session": "2020-07-02",
-      "ticker": null
+      "arm": "P07",
+      "name": "p07-kdny-native",
+      "security_id": "47247117758471252",
+      "session": "2023-08-10",
+      "ticker": "KDNY"
     },
     {
-      "arm": "P03",
-      "name": "p03-future02-native-quote",
-      "security_id": "463756619808367774",
-      "session": "2020-07-01",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future02-after-quote",
-      "security_id": "463756619808367774",
-      "session": "2020-07-02",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future03-native-quote",
-      "security_id": "77684744013377591",
-      "session": "2020-07-01",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future03-after-quote",
-      "security_id": "77684744013377591",
-      "session": "2020-07-02",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future04-native-quote",
-      "security_id": "608062988879848022",
-      "session": "2020-07-09",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future04-after-quote",
-      "security_id": "608062988879848022",
-      "session": "2020-07-10",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future05-native-quote",
-      "security_id": "919160176508266297",
-      "session": "2020-07-09",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future05-after-quote",
-      "security_id": "919160176508266297",
-      "session": "2020-07-10",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future06-native-quote",
-      "security_id": "829082329521684393",
-      "session": "2020-07-10",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future06-after-quote",
-      "security_id": "829082329521684393",
-      "session": "2020-07-13",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future07-native-quote",
-      "security_id": "521663153955821544",
-      "session": "2020-07-15",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future07-after-quote",
-      "security_id": "521663153955821544",
-      "session": "2020-07-16",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future08-native-quote",
-      "security_id": "452001307021238603",
-      "session": "2020-07-20",
-      "ticker": null
-    },
-    {
-      "arm": "P03",
-      "name": "p03-future08-after-quote",
-      "security_id": "452001307021238603",
-      "session": "2020-07-21",
-      "ticker": null
+      "arm": "P07",
+      "name": "p07-kdny-effective",
+      "security_id": "47247117758471252",
+      "session": "2023-08-11",
+      "ticker": "KDNY"
     }
   ],
   "protocol_sha256": "c3b4a339cec80641620c58b42341b0d981ebca6b01f89870ce00fb3291dbec28",
@@ -275,6 +135,7 @@
     "P06-request228-March16-source-query-context.json": "0af83b4ee3d8a4060a21d764d329f243b725b312434d23c80cff040d67afab0e",
     "P07-FIN326-readonly-recovery-fact-v1.json": "77c14f042c326798c2d6e00c7db898184262407ab6b109dcbba01cbd9e6424c5",
     "P07-FIN343-full25-reporting-fact-v2.json": "785a38fc180271536bcb50c086b6e7c78f6fa4ac4b3c18ef49b0d4b9c78f8223",
+    "P07-KDNY-source-query-context.json": "038ab367b91053c34b2df3c4ab8cde24b2c2688efb774a5fadd957ad4a2b9044",
     "P07-SOURCE335-independent-source-DATA-validation-v2.json": "8b65bebf761e39820ef9bc8aa0003f6f258b7c26821f1069b774317551380a1f",
     "P07-SOURCE335-independent-source-data-review.json": "0d4255c4591dadd8107b814b26b7a981110d12f5dae4fa70f312790d0c90391b",
     "P07-VIVO-source-payload.json": "744bfb7807b1ba0e643e0a53cc867f6b9db7ca2b202202990892a5426ceac1d7",
