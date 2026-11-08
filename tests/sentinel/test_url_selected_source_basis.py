@@ -30,7 +30,7 @@ EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
 FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
 DIAGNOSTIC_CHANGES = {
     'supervisor_io.py', 'shadow_supervisor.py', 'automation_supervisor.py',
-    'automation/health.py', 'alert_service.py', 'feed/rolling_store.py',
+    'automation/health.py', 'alert_service.py',
     'url_selected_source_basis.py',
 }
 EFFICIENCY_CHANGES = {
@@ -300,6 +300,20 @@ def test_installed_pr573_archive_is_exact_and_only_diagnostics_change():
     assert {name for name in previous if actual[name] != previous[name]} == DIAGNOSTIC_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
     assert profile['authority_effect'] == 'NONE'
+
+
+def test_each_diagnostic_module_change_or_removal_keeps_actual_identity():
+    actual = _actual()
+    previous = basis._profile()['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    for name in DIAGNOSTIC_CHANGES:
+        changed = {**actual, name: 'f' * 64}
+        assert basis.predecessor_view(changed, previous=previous) is changed, name
+        missing = {key: digest for key, digest in actual.items() if key != name}
+        assert basis.predecessor_view(missing, previous=previous) is missing, name
+    extra = {**actual, 'unreviewed_diagnostic.py': 'f' * 64}
+    assert basis.predecessor_view(extra, previous=previous) is extra
+    assert previous == saved
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])

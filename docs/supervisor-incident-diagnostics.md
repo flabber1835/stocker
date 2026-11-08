@@ -49,14 +49,11 @@ monotonic elapsed duration, exact already-known attempt identity and the closed
 error envelope. Failure reporting must not read another file or change admission,
 pending markers, worker outcomes, retry policy, restart behavior or hard bounds.
 
-To attribute concurrent full snapshot reads without collecting SQL bind values
-or process locals, emit one bounded begin/end diagnostic around the existing
-full-content verifier after it has read its manifest. Reuse the already owned
-candidate UUID, snapshot digest and connection backend PID when available; do
-not issue another identity query or hash payloads for logging. Include original
-elapsed monotonic duration and completed/failed outcome. Use immediate emission,
-no per-session stream records and no effect on verification, pins or exceptions.
-These records are metadata only and cannot supply a financial proof or cache hit.
+Snapshot-store instrumentation was rejected by private economic-manifest
+qualification. Its entire module is a frozen economic dependency. Retain its
+exact installed bytes and economic baseline. Full-read cost/overlap attribution
+uses private causal reproductions and external database observations; any future
+identity diagnostics must live at a separately qualified operational caller seam.
 
 Automation records snapshot versus confirmation failures and, before termination,
 the already confirmed heartbeat age/state, owned child PID, monotonic observation

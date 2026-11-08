@@ -176,13 +176,15 @@ def test_event_rejects_arbitrary_or_nonfinite_context(pipe, monkeypatch):
         os.read(reader, 4096)
 
 
-def test_feed_proof_identity_is_bounded_and_emits_no_private_context(pipe, monkeypatch):
+def test_unselected_feed_proof_context_is_refused_without_output(pipe, monkeypatch):
     reader, _writer, stream = pipe
     monkeypatch.setattr(sys, 'stderr', stream)
     context = {'snapshot_sha256': 'a'*64, 'candidate_id': '00000000-0000-0000-0000-000000000001',
                'backend_pid': 123, 'role': 'VERIFIER'}
-    assert supervisor_io.report_event('feed', 'SNAPSHOT_VERIFY_BEGIN', 'BEGIN', context=context, immediate=True)
-    assert json.loads(os.read(reader, 4096))['context'] == context
+    assert supervisor_io.report_event('feed', 'SNAPSHOT_VERIFY_BEGIN', 'BEGIN', context=context, immediate=True) is False
+    os.set_blocking(reader, False)
+    with pytest.raises(BlockingIOError):
+        os.read(reader, 4096)
 
 
 @pytest.mark.parametrize('stage', ['ARM', 'ACTIVE_PROOF', 'SPAWN', 'ACK'])

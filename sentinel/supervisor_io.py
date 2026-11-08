@@ -17,8 +17,7 @@ _UNREAPED = []
 MAX_RECORD_BYTES = 4096
 _STAGES = frozenset({'ARM', 'ACTIVE_PROOF', 'SPAWN', 'ACK', 'OWNERSHIP', 'OWNED_RUN',
                      'HEARTBEAT', 'SNAPSHOT', 'CONFIRMATION', 'IDLE_STALL',
-                     'CALLBACK_DEADLINE', 'DATABASE_DEADLINE',
-                     'SNAPSHOT_VERIFY_BEGIN', 'SNAPSHOT_VERIFY_END', 'SNAPSHOT_VERIFY_FAILED'})
+                     'CALLBACK_DEADLINE', 'DATABASE_DEADLINE'})
 _OUTCOMES = frozenset({'BEGIN', 'ACCEPTED', 'FAILED', 'TERMINATING', 'RECOVERED'})
 
 
@@ -184,21 +183,14 @@ def report_event(component: str, stage: str, outcome: str, *, error=None,
                  context: dict | None = None, immediate: bool = True) -> bool:
     """Closed diagnostic metadata cannot become financial or liveness evidence."""
     try:
-        if component not in {'shadow', 'automation', 'feed'} or stage not in _STAGES or outcome not in _OUTCOMES:
+        if component not in {'shadow', 'automation'} or stage not in _STAGES or outcome not in _OUTCOMES:
             return False
         facts = dict(context or {})
         for key, value in facts.items():
             if key in {'incarnation', 'attempt'}:
                 valid = isinstance(value, str) and re.fullmatch(r'[a-f0-9]{32}', value)
-            elif key in {'child_pid', 'supervisor_pid', 'backend_pid'}:
+            elif key in {'child_pid', 'supervisor_pid'}:
                 valid = type(value) is int and value > 0
-            elif key == 'snapshot_sha256':
-                valid = isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value)
-            elif key == 'candidate_id':
-                valid = isinstance(value, str) and re.fullmatch(
-                    r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', value)
-            elif key == 'role':
-                valid = value in {'SHADOW', 'VERIFIER', 'AUTOMATION', 'OTHER'}
             elif key == 'state':
                 valid = value is None or isinstance(value, str) and re.fullmatch(r'[A-Z_]{1,64}', value)
             elif key in {'started', 'completed', 'elapsed_seconds', 'decision_at',
