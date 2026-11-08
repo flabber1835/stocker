@@ -1,0 +1,76 @@
+{
+  "counts": {
+    "accountings": 86,
+    "daily": 43,
+    "full_inputs": 21,
+    "independent_decimal_metrics": 56,
+    "new_monthly_reports": 2,
+    "new_proofs": 43,
+    "ordinary_terms": 35,
+    "resources": 127,
+    "retained_proofs": 174
+  },
+  "diagnostic_September_days_excluded": 20,
+  "files": {
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\DESIGN.md": {
+      "bytes": 2658,
+      "sha256": "318b9b0cab6f3eb831237e8012e64c869c47a44823d2cfed814133b252fa10f5"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\P03-independent-financial-review.json": {
+      "bytes": 14416,
+      "sha256": "0028db526323b8d41a2f88536f8c24876975f956d193cbec1ca2a7cc0d36c385"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\P03-request244-transport-target.json": {
+      "bytes": 39537,
+      "sha256": "37e35dd46480a9d5313ee8445d594ef7d8337d837409356f3104c5772bd8fe7c"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\independent_REQUEST244_DATA.py": {
+      "bytes": 10086,
+      "sha256": "139908ba1299978c9a947ad2b2fdf883ae5aeb9273ccbbdfc08ca26157d69e61"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\p03_REQUEST244_components_DATA.py": {
+      "bytes": 9169,
+      "sha256": "f719fef51798b89a37d1f404a1ac62f1ba7f6792018a4214c89317fb0bd48f86"
+    },
+    "C:\\GitHub\\stocker\\.codex-tmp\\p03-request244-DATA-20261108\\test_REQUEST244_DATA.py": {
+      "bytes": 5959,
+      "sha256": "b606564fd74164edceee94608c261d8dc89623ea4e9a729d6f0f742ce8e2578f"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request244-source-snapshot\\authenticated-artifact-13612090570\\authenticated-manifest.json": {
+      "bytes": 93182,
+      "sha256": "1860672b68f37b4ad154a1eeab3445d6b38d8166e469005ab5c3bd4653baba50"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request244-source-snapshot\\authenticated-artifact-13612090570\\campaign-factual-P03.json": {
+      "bytes": 1317,
+      "sha256": "36ccb76256d257b59c38db0adb7e8ba9daa1f560feabfa60f504614b9704803e"
+    },
+    "C:\\Users\\mbron\\.codex\\visualizations\\2026\\11\\05\\01a1ac36-4c96-7aa1-82ca-4efb70a86ea8\\P03-request244-source-snapshot\\authenticated-artifact-13612090570\\capture-review.json": {
+      "bytes": 658,
+      "sha256": "3cc50aebd060e0ea98bb9c26b052e7ec26151088e059644b472a59fe9f12bfac"
+    }
+  },
+  "financial_admission_ready": true,
+  "financial_sessions_reexecuted": 0,
+  "independent_review_sha256": "0028db526323b8d41a2f88536f8c24876975f956d193cbec1ca2a7cc0d36c385",
+  "local_canonical_runtime_executed": false,
+  "original_financial_stops_preserved": [
+    0,
+    1,
+    0
+  ],
+  "original_result_preserved": true,
+  "passed": true,
+  "root_admission_performed": false,
+  "same_artifact_successful_original_review": true,
+  "schema": "research.P03-request244-independent-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest -q .codex-tmp/p03-request244-DATA-20261108/test_REQUEST244_DATA.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P03-request244-DATA-tests-20261108-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "passed": 8,
+    "retained_record_omission_refused": true,
+    "seconds": 14.5,
+    "whole_mature_financial_AST_undo": true,
+    "whole_ordinary_reader_AST_undo": true
+  }
+}

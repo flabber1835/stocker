@@ -4,19 +4,18 @@
   "maximum_independent_arms": 4,
   "next_events": [
     {
+      "admitted_root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
       "arm": "P03",
-      "event": "Incomplete cash terminal on September 30, 2020",
+      "event": "PFNX cash plus contingent right; native September30/legal October1,2020",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
-      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
       "missing": [
-        "independent admission of the saved 43 July/August sessions",
-        "native event and adjacent quotes from the combined source batch",
-        "source qualification and complete21 restart before hosted financial continuation"
+        "third bounded-event source qualification preserving both existing DOVA/STML models",
+        "explicit native/legal date policy and full21 restart",
+        "hosted canonical canaries, financial continuation and independent admission"
       ],
-      "new_sessions_pending_independent_admission": 43,
-      "saved_preliminary_completed": 671,
-      "saved_preliminary_through": "2020-08-31",
-      "security_id": "326446597882092349"
+      "security_id": "326446597882092349",
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json"
     },
     {
       "arm": "P05",
@@ -31,14 +30,16 @@
     {
       "admitted_root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
       "arm": "P07",
-      "event": "Incomplete cash terminal on September 25, 2023",
+      "event": "RETA cash merger; native September25/legal September26,2023",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
       "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
-        "native event and adjacent quotes from the combined source batch",
-        "source qualification and complete27 restart before hosted financial continuation"
+        "complete cash event source and native/legal date qualification",
+        "full27 restart and new ordinary input preserving all existing models",
+        "hosted canonical canaries, financial continuation and independent admission"
       ],
-      "security_id": "877716075426179792"
+      "security_id": "877716075426179792",
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json"
     },
     {
       "arm": "P09",
@@ -122,6 +123,21 @@
     "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION"
   },
   "source_captures": {
+    "P03_PFNX_P07_RETA": {
+      "artifact": 13612957167,
+      "artifact_bytes": 47060,
+      "artifact_sha256": "20cc416d54d8ac261b3634ec63192603c9b6de8c5ee7627bd9f9dbfdcbfcdde9",
+      "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "financial_sessions_advanced": 0,
+      "head": "d324a9068ede96339c683c3c776589f894a86fd5",
+      "native_groups_found": 2,
+      "observations_found": 4,
+      "observations_missing": 2,
+      "run": 42469385090,
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json",
+      "source_catalog_sha256": "067d6a8258967e24d1bf8d450fbc598a81320551df31d5e7ed4ffbba2a90c74c",
+      "status": "AUTHENTICATED_SOURCE_DATA_PENDING_EVENT_QUALIFICATION"
+    },
     "P06_SGN": {
       "artifact": 13598406920,
       "artifact_bytes": 45813,

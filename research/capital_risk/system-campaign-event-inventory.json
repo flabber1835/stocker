@@ -21,9 +21,9 @@
     {
       "arm": "P03",
       "complete": false,
-      "completed": 628,
-      "root": "fa1f39c050cbb125bcd6ab7b03189d7004c2e1149f3d893a35be78c07b89b36c",
-      "through": "2020-06-30"
+      "completed": 671,
+      "root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
+      "through": "2020-08-31"
     },
     {
       "arm": "P04",
@@ -232,19 +232,18 @@
   ],
   "next_events": [
     {
+      "admitted_root": "215aba53b3c8932ba7171b83f90d372b9add6a5c89322d8e5bdf75528c9b5cc8",
       "arm": "P03",
-      "event": "Incomplete cash terminal on September 30, 2020",
+      "event": "PFNX cash plus contingent right; native September30/legal October1,2020",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
-      "family": "TERMINAL_SOURCE_CLASSIFICATION",
+      "family": "CASH_AND_CONTINGENT_RIGHT",
       "missing": [
-        "independent admission of the saved 43 July/August sessions",
-        "native event and adjacent quotes from the combined source batch",
-        "source qualification and complete21 restart before hosted financial continuation"
+        "third bounded-event source qualification preserving both existing DOVA/STML models",
+        "explicit native/legal date policy and full21 restart",
+        "hosted canonical canaries, financial continuation and independent admission"
       ],
-      "new_sessions_pending_independent_admission": 43,
-      "saved_preliminary_completed": 671,
-      "saved_preliminary_through": "2020-08-31",
-      "security_id": "326446597882092349"
+      "security_id": "326446597882092349",
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json"
     },
     {
       "arm": "P05",
@@ -259,14 +258,16 @@
     {
       "admitted_root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
       "arm": "P07",
-      "event": "Incomplete cash terminal on September 25, 2023",
+      "event": "RETA cash merger; native September25/legal September26,2023",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
       "family": "TERMINAL_SOURCE_CLASSIFICATION",
       "missing": [
-        "native event and adjacent quotes from the combined source batch",
-        "source qualification and complete27 restart before hosted financial continuation"
+        "complete cash event source and native/legal date qualification",
+        "full27 restart and new ordinary input preserving all existing models",
+        "hosted canonical canaries, financial continuation and independent admission"
       ],
-      "security_id": "877716075426179792"
+      "security_id": "877716075426179792",
+      "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json"
     },
     {
       "arm": "P09",
