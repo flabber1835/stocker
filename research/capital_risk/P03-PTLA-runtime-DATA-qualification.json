@@ -156,6 +156,10 @@
       "bytes": 4327,
       "sha256": "321f60c253d6a8eaf2517bfa02aa4b1116f882167cb887bdc1b30ccca8d0599b"
     },
+    "forecast_tests/test_PTLA_history.py": {
+      "bytes": 5621,
+      "sha256": "b761407fbfb2407bcb44ce988bebab5c44ab8c8ba8ddea9ed2db92b21bbf1048"
+    },
     "forecast_tests/test_PTLA_observers.py": {
       "bytes": 4633,
       "sha256": "50447010c6224f4f758882d6beab642549b2418eedff7fcfcebc18646061384c"
@@ -221,12 +225,12 @@
       "sha256": "eeaf81506c49f64ba7ada7af4b7fe9197bda9d5e01fa8e6b2cd13f4e7ac8392d"
     },
     "system_campaign_p03_PTLA_entry.py": {
-      "bytes": 11929,
-      "sha256": "88fe0b43775b4a32c1ebd69b6289f09a4b31db1af91c0e2e66651d0cccf45313"
+      "bytes": 12002,
+      "sha256": "13defd09a99dc7043660678ef92dd005855bf7d3995f7f3c2639eb524bf317fc"
     },
     "system_campaign_p03_PTLA_history.py": {
-      "bytes": 5180,
-      "sha256": "389a5f7f07c7ad78bd89edc014e0f82e1998d3b90fa860ba169b825a93f6750e"
+      "bytes": 6159,
+      "sha256": "c8539f4471b58d651b3e60e3b2c83e8e2ce6615fed042e1941ae6c1a73b28eaa"
     },
     "system_campaign_p03_PTLA_models.py": {
       "bytes": 1903,
@@ -350,6 +354,48 @@
     }
   },
   "financial_authority": false,
+  "historical_origin_qualification_lookup_DATA": {
+    "audit_sha256": "613ce764583034c3bdd84b8a1a768804d8d9c29755a977c2e7efe6b8082aafce",
+    "entire_previous_entry_AST_unchanged_except_one_scoped_loader_binding": true,
+    "entire_previous_history_module_AST_unchanged_except_two_additive_helpers_and_import": true,
+    "result": {
+      "all_original_origin_input_files_verified": true,
+      "canonical_runtime_executed": false,
+      "completed": 628,
+      "composition": {
+        "current_sha256": "c9d6387b6bd34c3ce5c5e44430283bce72c80a2ad37305f6242600a12828d67e",
+        "financial_sessions_advanced": 0,
+        "full_inputs": 21,
+        "input_successor": {
+          "earliest_affected_session": "2020-07-01",
+          "overlay": {
+            "filename": "2826956037d3c8007e5ee14ee29bacae3be40f965ceef85d5792f638496ca243.json",
+            "predecessor_checkpoint_sha256": "e3d62daf9e20adcb3e6d1ad585dc57a70af18d1c773866800cc3f2f13a6eb942",
+            "resume_session": "2020-06-30",
+            "sha256": "2826956037d3c8007e5ee14ee29bacae3be40f965ceef85d5792f638496ca243"
+          },
+          "predecessor_checkpoint_sha256": "e3d62daf9e20adcb3e6d1ad585dc57a70af18d1c773866800cc3f2f13a6eb942",
+          "predecessor_input_sha256": "99e418da8c6a712d45aafb3e1549f23c723d9fb19477af5d83405e3645bae346",
+          "schema": "research.pooled-action-successor/1",
+          "state_sha256": "a6555a0f975704e417866ea700b66ab2b5d9fcf565e1eb6e53d04e0b90d4446e",
+          "successor_input_sha256": "1a2cd841c18ecf24dc684abc3570cfb15d26701bb10190abe13e98745a752f13",
+          "unchanged_through": "2020-06-30"
+        },
+        "neutral_sha256": "c9d6387b6bd34c3ce5c5e44430283bce72c80a2ad37305f6242600a12828d67e",
+        "new_input_adopted": true,
+        "parent_sha256": "1a247a7a31c5b8686651578794fa958a70778e90adbce89491263fe4da25f07a",
+        "passed": true
+      },
+      "diagnostic_neutral21_not_a_resume_seed": true,
+      "financial_authority": false,
+      "financial_sessions_advanced": 0,
+      "full_inputs": 21,
+      "original_origin_loader_code_unchanged": true,
+      "passed": true
+    },
+    "whole_bundle_arguments_unchanged": true,
+    "whole_original_loader_code_unchanged": true
+  },
   "inactive_P07_sources_do_not_activate_its_financial_profile": true,
   "local_canonical_runtime_executed": false,
   "old_class_code_and_original_worker_bodies_preserved": true,
@@ -382,6 +428,29 @@
     "seconds": 9.48,
     "worker_scope_guard_removal_falsifier_observed": true
   },
+  "request240_hosted_failure": {
+    "artifact": 13609663710,
+    "authenticated_members": 386,
+    "cause": "historical origin reader used old qualification path",
+    "diagnostic_neutral21_known": true,
+    "diagnostic_neutral_never_a_resume_seed": true,
+    "financial_constructor_executed": false,
+    "logical_bytes": 204211603,
+    "new_sessions": 0,
+    "preflight_exit": 0,
+    "reviewer_exit": 1,
+    "run": 42462525888,
+    "worker_exit": 1
+  },
+  "request240_tests": {
+    "actual_complete_request_and_imported_module_closure_checked": true,
+    "actual_filesystem_directory_regression_checked": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request240-20261108-001",
+    "financial_import_fences": 5,
+    "passed": 35,
+    "prior_unchanged_component_checks_preserved_in_request239_tests": true,
+    "seconds": 8.47
+  },
   "required_actual_hosted_gates": [
     "original two-packet preparation",
     "127-resource copy canary",
@@ -396,10 +465,12 @@
   "tests": {
     "actual_complete_request_and_imported_module_closure_checked": true,
     "actual_filesystem_directory_regression_checked": true,
-    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request240-20261108-001",
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_PTLA_resources.py research/capital_risk/forecast_tests/test_PTLA_cash.py research/capital_risk/forecast_tests/test_PTLA_history.py research/capital_risk/forecast_tests/test_PTLA_certificate.py research/capital_risk/forecast_tests/test_PTLA_observers.py research/capital_risk/forecast_tests/test_PTLA_runtime.py research/capital_risk/forecast_tests/test_PTLA_entry.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/PTLA-request244-20261108-001",
     "financial_import_fences": 5,
-    "passed": 35,
+    "historical_qualification_guard_removal_falsifier": true,
+    "passed": 109,
     "prior_unchanged_component_checks_preserved_in_request239_tests": true,
-    "seconds": 8.47
+    "seconds": 7.92,
+    "whole_original_origin_loader_and_bundle_verifier_preserved": true
   }
 }

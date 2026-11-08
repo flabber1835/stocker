@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        arm: [P07]
+        arm: [P03]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
