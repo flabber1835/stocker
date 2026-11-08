@@ -67,6 +67,17 @@ def pending(page,header):
    assert bound.utcoffset() is not None and instant<bound<=instant+timedelta(seconds=600)
    assert datetime.fromisoformat(row['valid_until'])==bound
    checking.add(key)
+ workflows=set()
+ if checking:
+  for key,phase in [('automation_cycle','AUTOMATION_WAITING_OPEN'),('automation_step_open','AUTOMATION_OPEN')]:
+   row=rows.get(key,{})
+   recovery=row.get('recovery') or {}
+   if (row.get('status')=='warn' and row.get('value')=='WAITING_OPEN'
+    and recovery.get('phase')==phase and recovery.get('automatic') is True
+    and recovery.get('operator_required') is False):
+    bound=datetime.fromisoformat(recovery['deadline'])
+    assert bound.utcoffset() is not None and instant<bound
+    workflows.add(key)
  for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure','paper_plan','backup_restore'):
   if key in rows and key not in checking:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
  review=page['operator_review'];health=page['dashboard_health']
@@ -74,7 +85,7 @@ def pending(page,header):
  conditions=set(review['active'])|set(review['warnings'])|set(health['active_conditions'])|set(health['review_conditions'])
  negatives={row['key'] for row in page['rows'] if row.get('color')=='red'
   or row.get('status') in {'fail','unknown'}}
- assert conditions<=startup|checking and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ assert conditions<=startup|checking|workflows and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
  if conditions or negatives or checking:
   return sorted(conditions|negatives|checking)
  # A partial current-subject read may settle; its financial rows were still

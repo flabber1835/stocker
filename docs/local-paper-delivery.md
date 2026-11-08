@@ -191,6 +191,10 @@ remain pending within its original unexpired, at-most-600-second recovery bound.
 This applies only to the named shadow/book/exposure/terminals/PAPER verification
 rows; a financial FAIL/UNKNOWN or an untyped/expired wait still refuses. The
 ordinary strict validator must pass after completion, within the common deadline.
+While that explicit financial check is pending, its unchanged saved WAITING_OPEN
+cycle/open-step rows may also carry their existing automatic workflow warnings.
+Only their exact named recovery phases and unexpired original clocks can wait;
+no unrelated workflow warning or financial negative is admitted.
 Strict validation runs once on the eligible snapshot, without a second HTTP read.
 Malformed data, unexpected HTTP errors, financial negatives, changed plans and
 strict-validator failures stop immediately. Pending diagnostics retain condition

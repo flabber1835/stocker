@@ -94,6 +94,24 @@ def test_typed_initial_financial_check_waits_for_actual_proof(monkeypatch):
     assert result['readiness_transitions'][0]['conditions']==['book','exposure','shadow_verification','terminals']
 
 
+def test_financial_check_preserves_the_existing_typed_scheduled_workflow_wait(monkeypatch):
+    page,expected=scheduled_page(clean=True);pending=checking(page)
+    for key in ('automation_cycle','automation_step_open'):
+        pending['operator_review']['warnings'].append(key)
+        pending['dashboard_health']['review_conditions'].append(key)
+    result,calls,_,_=run_child(monkeypatch,[pending,page],expected)
+    assert len(calls)==2 and result['readiness_observations']==2
+
+
+def test_untyped_workflow_cannot_hide_behind_a_financial_check(monkeypatch):
+    page,expected=scheduled_page(clean=True);page=checking(page)
+    page['operator_review']['warnings'].append('automation_cycle')
+    keyed(page,'automation_cycle')['recovery']['phase']='AUTOMATION_RETRY_WAIT'
+    audit={}
+    with pytest.raises(AssertionError):run_child(monkeypatch,[page],expected,audit=audit)
+    assert len(audit['calls'])==1
+
+
 @pytest.mark.parametrize('fault',['expired','indefinite','untyped','manual','negative','source_error'])
 def test_financial_wait_cannot_waive_failure_or_extend_authority(monkeypatch,fault):
     page,expected=scheduled_page(clean=True);page=checking(page)
@@ -167,7 +185,7 @@ def test_repeated_pending_page_reaches_original_deadline_without_success_or_log_
 
 
 def test_nonstartup_classifier_has_an_executed_removed_guard_falsifier(monkeypatch):
-    guard=" assert conditions<=startup|checking and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'\n"
+    guard=" assert conditions<=startup|checking|workflows and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'\n"
     assert readiness.PANEL_WAIT.count(guard)==1
     monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(guard,''))
     with pytest.raises(AssertionError):
