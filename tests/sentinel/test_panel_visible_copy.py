@@ -255,7 +255,7 @@ def test_brand_graphic_uses_available_width_and_preserves_its_intrinsic_aspect_r
     assert properties['display']=='block'
     assert properties['width']=='100%' and properties['max-width']=='100%'
     assert properties['height']=='auto'
-    assert '.brand{display:block;border:3px solid' in CSS
+    assert '.brand{display:block;border:4px solid' in CSS
     assert 'width:42px' not in declaration and 'height:42px' not in declaration
 
 

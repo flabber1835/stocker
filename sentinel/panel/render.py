@@ -394,20 +394,6 @@ def _detail_sections(panel: Panel) -> str:
         for title, content in sections)
 
 
-def _local_paper_guide(panel: Panel) -> str:
-    if not panel.local_paper_mode:
-        return ''
-    backup = panel.row('backup_restore')
-    if backup is not None and backup.value == 'DISABLED BY OWNER':
-        detail = ('Backup creation, restore drills and backup verification are disabled '
-                  'by owner instruction.')
-    else:
-        detail = ('Backup and restore readiness has its own current evidence check below. '
-                  'Owner PAPER mode alone does not prove a usable backup or restore.')
-    return ('<p>Owner-authorized local PAPER operation is active. '
-            + detail + '</p>')
-
-
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
@@ -542,13 +528,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 {errs}
 <div id="portfolio-overview">{overview}</div>
 <details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
-<details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
-  <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
-  <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
-  {_local_paper_guide(panel)}
-  <p>Green means expected healthy operation and a clean interval since explicit acknowledgement. Normal scheduled waiting is healthy. An active failure stays red. Recovery, a deployment or a restart leaves amber until acknowledged; acknowledgement cannot clear an active failure. A sleeping or offline browser shows a neutral status-not-current notice. Plan readiness and recorded financial verdicts remain separate.</p>
-  <p>A historical paper audit discrepancy remains recorded here when current autonomous scheduling is healthy. Green health does not resolve that old discrepancy or promise unrestricted holdings or filled orders; native execution keeps its fresh safeguards.</p>
-</div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
   <div id="push-status" aria-live="polite">Checking this device…</div>
@@ -613,7 +592,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}, 15000);
     }}
     refreshing = true;
-    document.body.dataset.fetching = 'true';
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
     var transportDelay = true;
@@ -659,7 +637,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }} finally {{
       clearTimeout(deadline);
       refreshing = false;
-      document.body.dataset.fetching = 'false';
     }}
   }}
   function originalCurrent(){{

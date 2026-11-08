@@ -377,7 +377,7 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 21
+    assert len(profile['retained_predecessors']) == 22
     assert profile['authority_effect'] == 'NONE'
 
 

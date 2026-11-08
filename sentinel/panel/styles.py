@@ -20,11 +20,11 @@ body{margin:0;color:var(--ink);font:15px/1.45 ui-sans-serif,-apple-system,BlinkM
  max(24px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));min-height:100vh}
 .wrap{position:relative;z-index:1;max-width:760px;margin:0 auto}
 header{display:block;padding:6px 0 0;margin:0 0 18px}
-.brand{display:block;border:3px solid #8b8b93;border-radius:14px;overflow:hidden}
+.brand{display:block;border:4px solid #8b8b93;border-radius:14px;overflow:hidden}
 body[data-health="green"] .brand{border-color:var(--ok)}
 body[data-health="amber"] .brand{border-color:var(--warn)}
 body[data-health="red"] .brand{border-color:var(--fail)}
-.not-current body .brand,.refreshing-status body .brand,body[data-fetching="true"] .brand,
+.not-current body .brand,.refreshing-status body .brand,
 body[data-observation-current="false"] .brand,body[data-refresh-pending="true"] .brand{border-color:#8b8b93}
 .brand img{display:block;width:100%;max-width:100%;height:auto}
 #operational-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}

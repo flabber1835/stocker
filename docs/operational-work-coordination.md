@@ -85,6 +85,9 @@ predecessor in schema 22; preserve all 20 existing predecessor maps, economic
 contributors and original witnesses byte for byte. The three new operational
 modules only coordinate reads or format display. The source compatibility edge
 has no financial authority effect and admits no unknown/missing/extra source.
+The subsequent presentation-only follow-up retains the exact installed a0a82c6ad
+map as schema 23, preserving all 21 prior records. Its only application changes
+are the renderer, stylesheet and metadata checker.
 
 ## Market-close work
 
@@ -107,7 +110,11 @@ execute fetched scripts, or repeat listener/timer/enrollment setup on refresh.
 Explicitly preserve details-open state and focused controls during reconciliation.
 
 The palace image border is the visible health indicator: green, amber or red
-from the existing server verdict, grey for partial, refreshing or stale data.
+from the existing server verdict, grey for partial, delayed-refresh or stale data.
+An ordinary background fetch retains the existing colour within its original
+proof lifetime; starting transport alone does not withdraw valid evidence.
+Use a four-pixel border. Remove the entire introductory mode guide under System
+details as requested; diagnostic rows and notification controls remain there.
 Keep an accessible hidden status for the freshness protocol; remove the visible
 health headline, review/history controls, environment selection, redundant plan
 readiness/session labels, model-book explanatory paragraph and footer. This is
