@@ -7,11 +7,12 @@ constant, mutate controls, or invoke preparation, orders or maintenance.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import re
 import time
 
 from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require, utcnow
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -475,18 +476,18 @@ def request_drain(host, values, target):
     hold_drain_restart(host,target)
     request=json.loads(host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
         'request','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15).stdout)
-    _cooperative_target(host.container('sentinel-shadow'),target,running=True)
+    current=host.container('sentinel-shadow')
+    _cooperative_target(current,target,running=True)
+    started_at=utcnow();accept_until=started_at+timedelta(seconds=180)
     deadline=time.monotonic()+180
-    while time.monotonic()<deadline:
-        result=host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
-            'acknowledged','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15)
-        acknowledgement=json.loads(result.stdout)
-        if acknowledgement is not None:
-            require(acknowledgement['request']==request,'DRAIN_REQUEST_REPLACED')
-            _cooperative_target(host.container('sentinel-shadow'),target,running=True)
-            return dict(method='COOPERATIVE',acknowledgement=acknowledgement)
-        time.sleep(2)
-    require(False,'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+    acknowledgement=host.observe_drain(target,current,request,started_at=started_at,
+        accept_until=accept_until,deadline=deadline)
+    require(isinstance(acknowledgement,dict) and acknowledgement.get('request')==request,
+        'DRAIN_REQUEST_REPLACED')
+    _cooperative_target(host.container('sentinel-shadow'),target,running=True)
+    require(time.monotonic()<deadline and started_at<=utcnow()<accept_until,
+        'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+    return dict(method='COOPERATIVE',acknowledgement=acknowledgement)
 
 
 def check_drain(host, values, target, proof):

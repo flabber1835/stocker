@@ -460,6 +460,11 @@ def cooperative_drain_host(*, changed=None):
         elif changed=='image':item['Image']='foreign'
         return SimpleNamespace(stdout=json.dumps(proof['acknowledgement']).encode())
     host.run=run
+    def observe(*args,**kwargs):
+        # The single observer replaces the old repeated exec wait. Keep the
+        # same injected process/policy mutation at its acknowledgement boundary.
+        return json.loads(run(['docker','exec','observer-result']).stdout)
+    host.observe_drain=observe
     return host,item,target,proof,calls
 
 
@@ -589,8 +594,10 @@ def test_probe_uses_effective_shadow_subject_instead_of_release_literals():
     host.compose = lambda values, *args: SimpleNamespace(stdout=json.dumps(
         {'services': {'sentinel-shadow': {'environment': selected}}}).encode())
     calls = []
-    host.run = lambda argv, **kwargs: calls.append((argv, kwargs)) or SimpleNamespace(stdout=b'{}')
-    assert host.probe('a'*40, 'sha256:'+'b'*64) == {}
+    identity={'source':'c'*64,'shadow_config':'d'*64,'wealth':'e'*64}
+    host.run = lambda argv, **kwargs: calls.append((argv, kwargs)) or SimpleNamespace(
+        stdout=json.dumps(identity).encode())
+    assert host.probe('a'*40, 'sha256:'+'b'*64) == identity
     argv, _ = calls[0]
     assert json.loads(argv[-1]) == selected
     assert "observation_id='primary'" not in argv[-2] and "starting_cash='50000'" not in argv[-2]

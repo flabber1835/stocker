@@ -11,10 +11,12 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import re
 import tempfile
+import time
 
 from sentinel import receipt_authentication, shadow_service_status as status
 
@@ -82,6 +84,42 @@ def admission(state):
             raise ValueError('shadow admission lock is aliased')
         fcntl.flock(fd,fcntl.LOCK_EX)
         yield
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def read_only_admission(state, *, deadline):
+    """Existing lock, shared read only; one finite main-thread acquisition."""
+    import fcntl
+    import signal
+    import stat
+    path=state/LOCK_NAME
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        def fence():
+            info=os.fstat(fd);named=os.stat(path,follow_symlinks=False)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1
+                    or not stat.S_ISREG(named.st_mode) or named.st_nlink!=1
+                    or (info.st_dev,info.st_ino)!=(named.st_dev,named.st_ino)):
+                raise ValueError('read-only admission lock changed or aliased')
+        fence()
+        remaining=deadline-time.monotonic()
+        if not math.isfinite(remaining) or not 0<remaining<=180:
+            raise TimeoutError('read-only admission deadline exhausted')
+        if signal.getitimer(signal.ITIMER_REAL)!=(0.0,0.0):
+            raise ValueError('read-only admission cannot replace an existing timer')
+        def expired(*_args):raise TimeoutError('read-only admission deadline exhausted')
+        prior=signal.signal(signal.SIGALRM,expired)
+        try:
+            signal.setitimer(signal.ITIMER_REAL,remaining)
+            fcntl.flock(fd,fcntl.LOCK_SH)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL,0)
+            signal.signal(signal.SIGALRM,prior)
+        fence()
+        yield
+        fence()
     finally:
         os.close(fd)
 
@@ -191,8 +229,8 @@ def _prior_acknowledgement(value, request_value, *, now):
         return False
 
 
-def _acknowledged(state, database_url, request_value, *, now, remaining_seconds=180,
-                  pending_prior=False):
+def _acknowledged_observation(state, database_url, request_value, *, now, remaining_seconds=180,
+                             pending_prior=False):
     """Caller holds admission across status, request and ACK reads."""
     current = status._load(state/status.NAME)
     if (not validate_request(request_value,binding=status.binding(database_url),incarnation=current.incarnation,now=now)
@@ -208,12 +246,18 @@ def _acknowledged(state, database_url, request_value, *, now, remaining_seconds=
             or value['schema'] != SCHEMA or value['kind'] != 'DRAINED'
             or value['request'] != request_value or value['request_digest'] != _digest(request_value)):
         if pending_prior and _prior_acknowledgement(value,request_value,now=now):
-            return None
+            return None,current
         raise ValueError('shadow drain acknowledgement identity refused')
     quiescent = datetime.fromisoformat(value['quiescent_at'])
     if not datetime.fromisoformat(request_value['requested_at']) <= quiescent <= now:
         raise ValueError('shadow drain acknowledgement clock refused')
-    return value
+    return value,current
+
+
+def _acknowledged(state, database_url, request_value, *, now, remaining_seconds=180,
+                  pending_prior=False):
+    return _acknowledged_observation(state,database_url,request_value,now=now,
+        remaining_seconds=remaining_seconds,pending_prior=pending_prior)[0]
 
 
 def acknowledged(state, database_url, request_value, *, now=None, remaining_seconds=180):
@@ -223,19 +267,33 @@ def acknowledged(state, database_url, request_value, *, now=None, remaining_seco
                              remaining_seconds=remaining_seconds)
 
 
+def _poll(state, database_url, request_value, *, now):
+    current = status._load(state/status.NAME)
+    if (not validate_request(request_value,binding=status.binding(database_url),
+            incarnation=current.incarnation,now=now)
+            or _load(state/REQUEST_NAME) != request_value):
+        raise ValueError('shadow drain request no longer current')
+    if current.state=='RUNNING' and current.reason=='ACTIVE_WORKER':
+        return None,current
+    if not (state/ACK_NAME).exists():
+        return None,current
+    return _acknowledged_observation(state,database_url,request_value,now=now,pending_prior=True)
+
+
 def poll(state, database_url, request_value, *, now=None):
-    instant = now or _now()
     with admission(state):
-        current = status._load(state/status.NAME)
-        if (not validate_request(request_value,binding=status.binding(database_url),
-                incarnation=current.incarnation,now=instant)
-                or _load(state/REQUEST_NAME) != request_value):
-            raise ValueError('shadow drain request no longer current')
-        if current.state=='RUNNING' and current.reason=='ACTIVE_WORKER':
-            return None
-        if not (state/ACK_NAME).exists():
-            return None
-        return _acknowledged(state,database_url,request_value,now=instant,pending_prior=True)
+        return _poll(state,database_url,request_value,now=now or _now())[0]
+
+
+def semantic_status(current):
+    """Wakeup hint only: heartbeat clocks cannot create an acknowledgement."""
+    return (current.binding_sha256,current.incarnation,current.state,current.reason,current.attempt_id)
+
+
+def observe_read_only(state, database_url, request_value, *, deadline, now=None):
+    with read_only_admission(state,deadline=deadline):
+        acknowledgement,current=_poll(state,database_url,request_value,now=now or _now())
+        return acknowledgement,semantic_status(current)
 
 
 def main(argv=None):

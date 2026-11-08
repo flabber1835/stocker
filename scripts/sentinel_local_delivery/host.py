@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 import uuid
 
 from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, handoff_mode, read_json, require
@@ -60,7 +61,7 @@ class Host:
         self.literal = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.literal)
 
-    def run(self, argv, *, env=None, data=None, timeout=90):
+    def run(self, argv, *, env=None, data=None, timeout=90, cleanup_image=None):
         argv=list(argv)
         owned_name=None
         if argv[:2]==['docker','run']:
@@ -72,9 +73,21 @@ class Host:
                 input=data, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             if owned_name is not None:
-                self._cleanup_owned(owned_name)
+                if cleanup_image is None:self._cleanup_owned(owned_name)
+                else:
+                    primary=DeliveryRefused('BOUNDED_HOST_OPERATION_TIMED_OUT')
+                    primary.__cause__=exc
+                    try:self._cleanup_owned(owned_name,image=cleanup_image)
+                    except DeliveryRefused as secondary:raise secondary from primary
                 raise DeliveryRefused('BOUNDED_HOST_OPERATION_TIMED_OUT') from exc
             raise
+        except OSError as exc:
+            if owned_name is None or cleanup_image is None:raise
+            primary=DeliveryRefused('CHILD_OPERATION_OUTCOME_UNKNOWN')
+            primary.__cause__=exc
+            try:self._cleanup_owned(owned_name,image=cleanup_image)
+            except DeliveryRefused as secondary:raise secondary from primary
+            raise primary from exc
         if result.returncode:
             # Expanded child errors may contain secrets. Keep them owner-private.
             path = self.operation_dir/('private-command-error-'+uuid.uuid4().hex+'.log')
@@ -83,17 +96,43 @@ class Host:
                 stream.write(result.stdout+b'\n'+result.stderr)
                 stream.flush()
                 os.fsync(stream.fileno())
-            raise DeliveryRefused('CHILD_OPERATION_REFUSED: '+path.name)
+            primary=DeliveryRefused('CHILD_OPERATION_REFUSED: '+path.name)
+            if owned_name is not None and cleanup_image is not None:
+                try:self._cleanup_owned(owned_name,image=cleanup_image)
+                except DeliveryRefused as secondary:raise secondary from primary
+            raise primary
         return result
 
-    def _cleanup_owned(self, name):
-        inspected = subprocess.run(['docker','inspect',name],env=self.clean,
-            capture_output=True,timeout=15)
+    def _cleanup_owned(self, name, *, image=None):
+        deadline=time.monotonic()+15
+        try:
+            inspected = subprocess.run(['docker','inspect',name],env=self.clean,
+                capture_output=True,timeout=15)
+        except (OSError,subprocess.TimeoutExpired):
+            if image is None:raise
+            raise DeliveryRefused('PROOF_CLEANUP_OUTCOME_UNKNOWN') from None
         if inspected.returncode==0:
             item=json.loads(inspected.stdout)[0]
             require(item['Config']['Labels'].get('sentinel.local-delivery.request')
                     ==digest(self.request), 'PROOF_CLEANUP_OWNERSHIP_CHANGED')
-            self.run(['docker','rm','-f',name],timeout=20)
+            require(image is None or item.get('Image')==image,'PROOF_CLEANUP_IMAGE_CHANGED')
+            target=name
+            if image is not None:
+                require(item.get('Name')=='/'+name and isinstance(item.get('Id'),str)
+                    and re.fullmatch('[0-9a-f]{64}',item['Id']) is not None,
+                    'PROOF_CLEANUP_TARGET_CHANGED')
+                target=item['Id']
+            self.run(['docker','rm','-f',target],timeout=20)
+        elif image is not None:
+            remaining=deadline-time.monotonic()
+            require(remaining>0,'PROOF_CLEANUP_OUTCOME_UNKNOWN')
+            try:
+                absent=subprocess.run(['docker','container','ls','--all','--quiet','--no-trunc',
+                    '--filter','name=^/'+re.escape(name)+'$'],env=self.clean,
+                    capture_output=True,timeout=remaining)
+            except (OSError,subprocess.TimeoutExpired):
+                raise DeliveryRefused('PROOF_CLEANUP_OUTCOME_UNKNOWN') from None
+            require(absent.returncode==0 and not absent.stdout.strip(),'PROOF_CLEANUP_OUTCOME_UNKNOWN')
 
     def git_bytes(self, *args):
         metadata = self.source/'.git'
@@ -321,6 +360,48 @@ class Host:
                     or labels.get('com.docker.compose.config-hash')!=hashes.get(service)):
                 return False
         return True
+
+    def observe_drain(self, target, container, request, *, started_at, accept_until, deadline):
+        """One owned canonical reader, exact volume read only and no network."""
+        require(container['Id']==target['container'] and container['Image']==target['image'],
+            'DRAIN_OBSERVER_TARGET_CHANGED')
+        mounts=[item for item in container['Mounts'] if item['Destination']=='/var/lib/sentinel']
+        require(len(mounts)==1 and mounts[0]['Type']=='volume'
+            and mounts[0]['Name']=='sentinel_sentinel_state','DRAIN_OBSERVER_VOLUME_CHANGED')
+        allowed={'SENTINEL_GIT_COMMIT','SENTINEL_RUNTIME_IMAGE_DIGEST',
+            'SENTINEL_SHADOW_OBSERVATION_ID','SENTINEL_DATABASE_URL','SENTINEL_PUBLICATION_RECEIPT_KEY'}
+        environment={}
+        for item in container['Config']['Env']:
+            key,separator,value=item.partition('=')
+            if key in allowed:
+                require(separator and key not in environment,'DRAIN_OBSERVER_ENVIRONMENT_AMBIGUOUS')
+                environment[key]=value
+        require(set(environment)==allowed and all(environment.values())
+            and environment['SENTINEL_GIT_COMMIT']==self.request['predecessor']['commit']
+            and environment['SENTINEL_RUNTIME_IMAGE_DIGEST']==target['image'],
+            'DRAIN_OBSERVER_ENVIRONMENT_CHANGED')
+        environment['SENTINEL_STATE_DIR']='/var/lib/sentinel'
+        user=container['Config'].get('User') or '0'
+        require(isinstance(user,str) and re.fullmatch(
+            '[A-Za-z0-9_][A-Za-z0-9_.-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]*)?',user) is not None,
+            'DRAIN_OBSERVER_USER_INVALID')
+        image=self.request['candidate']['image']
+        require(re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
+            'DRAIN_OBSERVER_IMAGE_INVALID')
+        with self.private_environment(environment) as path:
+            remaining=deadline-time.monotonic()
+            require(0<remaining<=180,'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+            result=self.run(['docker','run','--rm','-i','--pull=never','--network','none',
+                '--read-only','--user',user,'--cpus','0.25','--memory','128m','--pids-limit','16',
+                '--cap-drop','ALL','--security-opt','no-new-privileges:true','--env-file',path,
+                '--mount','type=volume,src=sentinel_sentinel_state,dst=/var/lib/sentinel,readonly',
+                '--entrypoint','python',image,'-B','-m','sentinel.shadow_drain_observer',
+                '--started-at',started_at.isoformat(),'--accept-until',accept_until.isoformat(),
+                '--timeout',str(remaining)],data=json.dumps(request,sort_keys=True).encode(),
+                timeout=remaining,cleanup_image=image)
+        acknowledgement=json.loads(result.stdout)
+        require(isinstance(acknowledgement,dict),'DRAIN_OBSERVER_RESULT_MALFORMED')
+        return acknowledgement
 
     def drain_recovery_state(self, target, values):
         """Read exact predecessor markers without starting or mutating it."""
