@@ -110,10 +110,10 @@ def qualify(arm):
     return result
 
 
-def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False):
+def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, sonc_facts=False):
     hosted()
-    need(not (aaap_model or completion_facts) or previous == Path('/previous'), 'INPUT_MODEL_REQUIRES_OWN_PARENT')
-    need(not (aaap_model and completion_facts), 'ONE_NEW_INPUT_MODEL_PER_SUCCESSOR')
+    need(not (aaap_model or completion_facts or sonc_facts) or previous == Path('/previous'), 'INPUT_MODEL_REQUIRES_OWN_PARENT')
+    need(sum((aaap_model, completion_facts, sonc_facts)) <= 1, 'ONE_NEW_INPUT_MODEL_PER_SUCCESSOR')
     from research.pooled_vacancy_funding import backtest
     from research.pooled_vacancy_funding.journal import read_checkpoint
     from system_campaign_baseline import facts
@@ -182,6 +182,11 @@ def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False):
             from core_volatility_completion_facts import prepare as prepare_completion, observer
             extra, material = prepare_completion(before, Path('/out'), arm)
             observed = observer(Path('/out'), before, material)
+        if sonc_facts:
+            need(not extra and not aaap_model and not completion_facts, 'ONE_NEW_SONC_SUCCESSOR')
+            from core_volatility_sonc_facts import prepare as prepare_sonc, observer
+            extra, material = prepare_sonc(before, Path('/out'), arm)
+            observed = observer(Path('/out'), before, material)
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
         with observed:
@@ -209,17 +214,18 @@ if __name__ == '__main__':
     p.add_argument('--aaap-model', action='store_true')
     p.add_argument('--recover-prefix', action='store_true')
     p.add_argument('--completion-facts', action='store_true')
+    p.add_argument('--sonc-facts', action='store_true')
     a = p.parse_args()
     hosted()
     if a.recover_prefix:
-        need(not a.aaap_model and not a.completion_facts, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
+        need(not a.aaap_model and not a.completion_facts and not a.sonc_facts, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
         from core_volatility_recovery import run as recover, review as recovery_review
         if a.mode == 'economic':
             recover(a.resume_root, a.arm, a.maximum)
         else:
             recovery_review(a.resume_root, Path('/evidence'), Path('/out'))
     elif a.mode == 'economic':
-        run(a.arm, a.maximum, a.resume_root, a.aaap_model, a.completion_facts)
+        run(a.arm, a.maximum, a.resume_root, a.aaap_model, a.completion_facts, a.sonc_facts)
     else:
         from system_campaign_readonly import review
         review(Path('/evidence/book'), Path('/out/core-review.json'))

@@ -44,7 +44,7 @@ def probe(request):
             'source_files': len(expected_request()['sources']), 'canonical_runtime_executed': False}
 
 
-def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False):
+def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False):
     from full_system_trials_job import command as original
     mode = 'review' if evidence else 'economic'
     result = original(name, source, frozen, output, mode)
@@ -64,10 +64,12 @@ def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, pr
         result += ['--recover-prefix']
     if completion_facts:
         result += ['--completion-facts']
+    if sonc_facts:
+        result += ['--sonc-facts']
     return result
 
 
-def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False):
+def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False):
     need(re.fullmatch(r'core-volatility-(control|vol075)-(worker|review)-[0-9]+-1', name), 'CONTAINER_NAME')
     if value is None:
         value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
@@ -102,6 +104,8 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
         expected += ['--recover-prefix']
     if completion_facts:
         expected += ['--completion-facts']
+    if sonc_facts:
+        expected += ['--sonc-facts']
     need(c['Entrypoint'] == ['python'] and c['Cmd'] == expected, 'EXACT_ENTRYPOINT')
     return value
 
@@ -211,12 +215,15 @@ def launch(a, *, contract=None):
         aaap_model = request.get('input_model') == 'ORIGINAL_AAAP_TENDER'
         recover_prefix = request['stage'] == 'OWN_REVIEW_RECOVERY'
         completion_facts = request.get('input_model') == 'ORIGINAL_COMPLETION_FACTS'
+        sonc_facts = request.get('input_model') == 'ORIGINAL_SONC_COMPLETION_FACTS'
         inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None,
-                            aaap_model=aaap_model, recover_prefix=recover_prefix, completion_facts=completion_facts)
+                            aaap_model=aaap_model, recover_prefix=recover_prefix, completion_facts=completion_facts,
+                            sonc_facts=sonc_facts)
         then = time.monotonic()
         receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm,
                                        maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
-                                       recover_prefix=recover_prefix, completion_facts=completion_facts), name, root,
+                                       recover_prefix=recover_prefix, completion_facts=completion_facts,
+                                       sonc_facts=sonc_facts), name, root,
                                        deadline=request['financial_wait_seconds'], inspector=inspector)
         known = True
         receipt.update(status='WORKER_STOPPED_PREFIX_PRESERVED', worker_seconds=time.monotonic()-then)
@@ -228,7 +235,8 @@ def launch(a, *, contract=None):
             then = time.monotonic()
             receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root,
                                             maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
-                                            recover_prefix=recover_prefix, completion_facts=completion_facts), name,
+                                            recover_prefix=recover_prefix, completion_facts=completion_facts,
+                                            sonc_facts=sonc_facts), name,
                                             audit, deadline=request['review_wait_seconds'], inspector=inspector)
             receipt['review_seconds'] = time.monotonic()-then
             shutil.copytree(audit, root/'independent-review-stop')

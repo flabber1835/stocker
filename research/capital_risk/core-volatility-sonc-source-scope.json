@@ -1,0 +1,37 @@
+{
+  "actual_completion_date": "2018-12-07",
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/868611/000094787118000950/ss117852_8k.htm",
+  "provider_metadata_upgraded": false,
+  "raw_prices_published": false,
+  "schema": "research.core-volatility-sonc-source-scope/1",
+  "security_id": "789689535963205828",
+  "witnesses": [
+    {
+      "issuer_id": "SEC_CIK:868611",
+      "listing_first_session": "1997-12-31",
+      "security_id": "789689535963205828",
+      "security_type_eligible": "1",
+      "session": "2018-11-26",
+      "source_observation_sha256": "9faa0be1021d8adf63cf146966ff29f1398a1ecd09e4a4b1dc953d0410860adf",
+      "ticker": "SONC"
+    },
+    {
+      "issuer_id": "SEC_CIK:868611",
+      "listing_first_session": "1997-12-31",
+      "security_id": "789689535963205828",
+      "security_type_eligible": "1",
+      "session": "2018-11-27",
+      "source_observation_sha256": "5be9c2a2b8f8a01a7f22a76f3614ea9389665ae38a28b3ef14772eb56bcd37d6",
+      "ticker": "SONC"
+    },
+    {
+      "issuer_id": "SEC_CIK:868611",
+      "listing_first_session": "1997-12-31",
+      "security_id": "789689535963205828",
+      "security_type_eligible": "1",
+      "session": "2018-12-06",
+      "source_observation_sha256": "f955facec5ed0eae947a7c44c5816d6cf758c32d8a83cdabe94016542674c53f",
+      "ticker": "SONC"
+    }
+  ]
+}

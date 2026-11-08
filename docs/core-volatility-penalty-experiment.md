@@ -260,6 +260,40 @@ Generation 5 has 95 passing targeted DATA/AST/transport/model/recovery cases
 boundary: 1,410 new measured closes from the admitted 232-close parent. Actual
 SODA notional and cash/ledger qualification remain mandatory on hosted compute.
 
+Generation 5 qualified SODA and its stopped independent review passed, but no
+new measured closes were committed. Its own November 30/232-close successor
+retains the SODA input repair. The four December 3--7 closes are uncommitted
+evidence: December 10 refused on SONC, permanent ID `789689535963205828`, held
+as 63 shares since November 27. Preserve that tail and every original artifact.
+
+Generation 6 reuses only the already published SONC additional-terminal fact:
+$43.50 per ordinary share at December 7 opening, replacing the incomplete native
+on the same date. SEC 8-K `0000947871-18-000950` confirms both the conversion and
+Nasdaq halt before December 7 open. Recheck the literal original catalog/native
+hash and frozen November 26 signal, November 27 entry and December 6 final-print
+witnesses. Bind this future-only successor to the new own reviewed November
+30/232-close checkpoint, require its actual 63-share SONC episode and preserve
+all previous repairs. Reuse canonical full-notional qualification and actual
+cash/ledger postconditions. No actual paying-agent timestamp, changed price,
+changed source eligibility or strategy/controller parameter is introduced.
+Retain 1,410 new closes toward the original 1,642-close segment boundary.
+
+The common-input comparison requirement now includes SODA and SONC as well as
+the AAAP research model. Use the new control's own authenticated November 30
+checkpoint for a bounded original-versus-added-facts diagnostic through December
+10. Every financial/controller field and complete canonical strategy state must
+match exactly to claim a no-op; otherwise replay the affected control suffix on
+the shared factual basis. Original control holdings, orders and repair history
+determine whether a new fact is already present, unused, or requires replay.
+Neither old P00 book state nor diagnostic forks can authorize continuation.
+
+Generation 6 DATA qualification: 106 targeted score/source, transport, model,
+recovery, completion and original tender tests passed in 36.64 seconds. The
+exact authenticated own SONC predecessor passes the local DATA scope check.
+Removing the 63-share guard in an isolated private source copy makes the shares
+falsifier fail as expected. Canonical financial imports remain fenced locally;
+the actual SONC notional and cash/ledger checks run only on the hosted worker.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run
