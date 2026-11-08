@@ -187,7 +187,8 @@ def test_complete_current_schedule_is_human_green_while_the_historical_audit_sta
     assert 'Historical paper audit' in html and 'Earlier-plan discrepancy retained' in html
     assert 'Historical Oct 20 informational corporate-action discrepancy remains recorded.' in html
     assert 'class="row warn" id="status-paper_reconciliation"' in html
-    assert 'Next trading plan: saved for its scheduled market open.' in front
+    assert 'Next trading plan: saved for its scheduled market open.' not in front
+    assert 'data-health="green"' in html
     assert page==before
 
 
@@ -278,7 +279,7 @@ def test_original_audit_and_current_proof_deadlines_bound_human_green_and_expire
     from sentinel.panel.render import render
     page = healthy_history_panel()
     assert presentation.dashboard_health(page)['valid_until']==(page.now+timedelta(seconds=12)).isoformat()
-    assert 'data-max-age-seconds="12.0"' in render(page) and 'refreshes every 6s' in render(page)
+    assert 'data-max-age-seconds="12.0"' in render(page) and '}, 6000);' in render(page)
     imminent = healthy_history_panel(now=LIVE_OPEN-timedelta(seconds=8))
     assert presentation.dashboard_health(imminent)['valid_until']==(LIVE_OPEN-timedelta(microseconds=1)).isoformat()
     assert 'data-max-age-seconds="7.999999"' in render(imminent)
@@ -312,7 +313,7 @@ def test_periodic_owned_paper_check_keeps_healthy_scheduling_green_without_claim
     assert page.row('paper_reconciliation').paper_alignment is None
     assert page.row('paper_reconciliation').as_of is None  # Existing owned-check wire shape.
     html = render(page)
-    assert 'Healthy · Checking paper account</span>' in html
+    assert 'data-health="green"' in html
     assert 'class="row warn" id="status-paper_reconciliation"' in html
     assert 'Historical paper audit' not in html
     assert 'No current financial verification is claimed.' in html
@@ -368,7 +369,7 @@ def test_periodic_paper_check_keeps_its_original_deadline_and_leader_bound():
     assert presentation.dashboard_health(page)['valid_until']==(page.now+timedelta(seconds=12)).isoformat()
     near = checking_schedule_panel(check_seconds=4)
     assert presentation.dashboard_health(near)['valid_until']==near.row('paper_reconciliation').valid_until.isoformat()
-    assert 'data-max-age-seconds="4.0"' in render(near) and 'refreshes every 5s' in render(near)
+    assert 'data-max-age-seconds="4.0"' in render(near) and '}, 5000);' in render(near)
     assert presentation.dashboard_health(replace(near,now=near.row('paper_reconciliation').valid_until))['color']!='green'
     before_open = checking_schedule_panel(now=LIVE_OPEN-timedelta(seconds=8),check_seconds=120)
     assert before_open.row('paper_reconciliation').valid_until>LIVE_OPEN
