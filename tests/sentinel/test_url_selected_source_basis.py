@@ -34,7 +34,7 @@ READ_COST_CHANGES = {
     'execution_collector.py', 'feed/retention.py', 'panel/intent_memo.py',
     'panel/projection_service.py', 'panel/verification_service.py', 'web_push.py',
     'shadow_drain.py', 'shadow_service.py', 'shadow_supervisor.py', 'shadow_worker.py',
-    'url_selected_source_basis.py', 'supervisor_io.py',
+    'url_selected_source_basis.py', 'supervisor_io.py', 'panel/authority_reader.py',
 }
 EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'} | READ_COST_ADDITIONS
 FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
@@ -374,7 +374,7 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 19
+    assert len(profile['retained_predecessors']) == 20
     assert profile['authority_effect'] == 'NONE'
 
 
