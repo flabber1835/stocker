@@ -44,7 +44,7 @@ def probe(request):
             'source_files': len(expected_request()['sources']), 'canonical_runtime_executed': False}
 
 
-def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None):
+def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None, control_replay=False):
     from full_system_trials_job import command as original
     mode = 'review' if evidence else 'economic'
     result = original(name, source, frozen, output, mode)
@@ -70,10 +70,12 @@ def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, pr
         result += ['--control-equivalence']
     if cash_case:
         result += ['--cash-case', cash_case]
+    if control_replay:
+        result += ['--control-replay']
     return result
 
 
-def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None):
+def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None, control_replay=False):
     need(re.fullmatch(r'core-volatility-(control|vol075)-(worker|review)-[0-9]+-1', name), 'CONTAINER_NAME')
     if value is None:
         value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
@@ -112,11 +114,15 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
         expected += ['--sonc-facts']
     if control_equivalence:
         need(arm == 'CONTROL' and continuation and maximum == 54
-             and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, cash_case)), 'CONTROL_DIAGNOSTIC_ENTRYPOINT_SCOPE')
+             and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, cash_case, control_replay)), 'CONTROL_DIAGNOSTIC_ENTRYPOINT_SCOPE')
         expected += ['--control-equivalence']
     if cash_case:
-        need(cash_case == 'BEL' and continuation and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence)), 'CLOSED_CASH_ENTRYPOINT_SCOPE')
+        need(cash_case == 'BEL' and continuation and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence, control_replay)), 'CLOSED_CASH_ENTRYPOINT_SCOPE')
         expected += ['--cash-case', cash_case]
+    if control_replay:
+        need(arm == 'CONTROL' and continuation and maximum == 1621
+             and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence, cash_case)), 'EXACT_CONTROL_REPLAY_ENTRYPOINT_SCOPE')
+        expected += ['--control-replay']
     need(c['Entrypoint'] == ['python'] and c['Cmd'] == expected, 'EXACT_ENTRYPOINT')
     return value
 
@@ -138,9 +144,20 @@ def require_continuation_stage(request, receipt, outcome, arm):
              and outcome.get('financial_sessions_advanced') == 0
              and outcome.get('recovered_existing_prefix') is True, 'RECOVERY_ONLY_NO_FINANCIAL_ADVANCE')
     elif request['maximum'] > 0:
-        need(receipt['status'] == 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
-             and outcome.get('completed') == request['parents'][arm]['completed']+request['maximum'],
+        replay = request.get('stage') == 'OWN_CONTROL_INPUT_REPLAY'
+        origin = request['selected_history'] if replay else request['parents'][arm]
+        target = origin['completed']+request['maximum']
+        complete = target == 2156
+        expected = ('COMPLETE' if complete else 'PARTIAL')+'_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+        need(0 < target <= 2156 and receipt['status'] == expected and outcome.get('completed') == target
+             and outcome.get('complete') is complete
+             and (outcome.get('session') == '2026-07-31' if complete else outcome.get('session', '') < '2026-07-31'),
              'EXACT_BOUNDED_SEGMENT_REVIEW_REQUIRED')
+        if replay:
+            need(outcome.get('input_alignment_replay') is True
+                 and outcome.get('selected_financial_parent_sha256') == request['selected_history']['outer_sha256']
+                 and outcome.get('diagnostic_book_authority_used') is False
+                 and outcome.get('common_models') == ['AAAP', 'SODA', 'SONC', 'BEL'], 'EXACT_SHARED_INPUT_FINANCIAL_REPLAY')
     else:
         need(receipt['status'] == 'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
              and outcome.get('completed') == 2156 and outcome.get('complete') is True
@@ -166,7 +183,11 @@ def launch(a, *, contract=None):
         diagnostic_only = (request['stage'] == 'OWN_CONTROL_INPUT_EQUIVALENCE' and request['generation'] == 7
                     and set(request['parents']) == set(request['arms']) == {'CONTROL'} and a.arm == 'CONTROL'
                     and request['maximum'] == 54 and set(request['historical_checkpoints']) == {'AAAP', 'DECEMBER', 'BEL'})
-        need((paired or followup or recovery or diagnostic_only)
+        replay = (request['stage'] == 'OWN_CONTROL_INPUT_REPLAY' and request['generation'] == 9
+                    and set(request['parents']) == set(request['arms']) == {'CONTROL'} and a.arm == 'CONTROL'
+                    and request['maximum'] == 1621 and request['selected_history']['completed'] == 21
+                    and request['selected_history']['session'] == '2018-01-31')
+        need((paired or followup or recovery or diagnostic_only or replay)
              and 0 <= request['maximum'] <= 2156 and 0 < request['financial_wait_seconds'] <= 12600
              and 0 < request['review_wait_seconds'] <= 2700, 'BOUNDED_OWN_CONTINUATION_CONTRACT')
     stage = json.loads(a.staging.read_bytes())
@@ -222,6 +243,18 @@ def launch(a, *, contract=None):
             need(json.loads((previous/'source-bindings.json').read_bytes()) == binding,
                  'EXACT_REBUILT_OWN_PARENT_SOURCE')
             shutil.copyfile(previous.parent/'admission.json', root/'parent-artifact-admission.json')
+            if request['stage'] == 'OWN_CONTROL_INPUT_REPLAY':
+                from core_volatility_control_equivalence import extract_diagnostic
+                diagnostic_root = admit_parent(request['equivalence_evidence'], Path(os.environ['RUNNER_TEMP']) /
+                    ('core-volatility-transfer-control-equivalence-'+str(generation)), key, extractor=extract_diagnostic)
+                proof = json.loads((diagnostic_root.parent/'admission.json').read_bytes())
+                diagnostic_request = json.loads((diagnostic_root/'request.json').read_bytes())
+                selected = {k: request['selected_history'][k] for k in ('path', 'file_sha256', 'outer_sha256')}
+                need(proof['diagnostic_only'] and proof['exact_noop'] is False and not proof['financial_continuation_authorized']
+                     and diagnostic_request['parents']['CONTROL'] == request['parents']['CONTROL']
+                     and diagnostic_request['historical_checkpoints']['AAAP'] == selected, 'NEGATIVE_DIAGNOSTIC_SAME_FINANCIAL_PARENT_EVIDENCE_ONLY')
+                shutil.copyfile(diagnostic_root.parent/'admission.json', root/'input-equivalence-admission.json')
+                shutil.copyfile(diagnostic_root/'control-model-differential.json', root/'negative-input-equivalence-result.json')
             for p in previous.rglob('*'):
                 os.chmod(p, 0o555 if p.is_dir() else 0o444)
             os.chmod(previous, 0o555)
@@ -240,14 +273,15 @@ def launch(a, *, contract=None):
         sonc_facts = request.get('input_model') == 'ORIGINAL_SONC_COMPLETION_FACTS'
         control_equivalence = request['stage'] == 'OWN_CONTROL_INPUT_EQUIVALENCE'
         cash_case = request.get('cash_case') if request.get('input_model') == 'ORIGINAL_CASH_CATALOG' else None
+        control_replay = request['stage'] == 'OWN_CONTROL_INPUT_REPLAY'
         inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None,
                             aaap_model=aaap_model, recover_prefix=recover_prefix, completion_facts=completion_facts,
-                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case)
+                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case, control_replay=control_replay)
         then = time.monotonic()
         receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm,
                                        maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
                                        recover_prefix=recover_prefix, completion_facts=completion_facts,
-                                       sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case), name, root,
+                                       sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case, control_replay=control_replay), name, root,
                                        deadline=request['financial_wait_seconds'], inspector=inspector)
         known = True
         receipt.update(status='WORKER_STOPPED_PREFIX_PRESERVED', worker_seconds=time.monotonic()-then)
@@ -260,7 +294,7 @@ def launch(a, *, contract=None):
             receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root,
                                             maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
                                             recover_prefix=recover_prefix, completion_facts=completion_facts,
-                                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case), name,
+                                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case, control_replay=control_replay), name,
                                             audit, deadline=request['review_wait_seconds'], inspector=inspector)
             receipt['review_seconds'] = time.monotonic()-then
             shutil.copytree(audit, root/'independent-review-stop')

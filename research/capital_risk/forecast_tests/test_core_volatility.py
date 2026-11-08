@@ -108,7 +108,7 @@ def test_hosted_canary_closed_before_canonical_import(monkeypatch):
 @pytest.mark.parametrize('aaap_model', (False, True))
 def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation, aaap_model,
                                                             completion_facts=False, recover_prefix=False, sonc_facts=False,
-                                                            control_equivalence=False, maximum=None, cash_case=None):
+                                                            control_equivalence=False, maximum=None, cash_case=None, control_replay=False):
     import full_system_trials_job as base
     uid = SimpleNamespace(getuid=lambda: 1001, getgid=lambda: 1001)
     monkeypatch.setattr(base, 'os', uid)
@@ -122,7 +122,7 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
                          maximum=maximum,
                          previous=Path('/previous') if continuation else None, aaap_model=aaap_model,
                          completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts,
-                         control_equivalence=control_equivalence, cash_case=cash_case)
+                         control_equivalence=control_equivalence, cash_case=cash_case, control_replay=control_replay)
     assert values[values.index('--network')+1] == 'none'
     assert values[values.index('--entrypoint')+1] == 'python'
     mounts = ['/variant', '/frozen', '/driver', '/out'] + (['/evidence'] if review else [])
@@ -142,7 +142,7 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
         return job.inspect(name, 'a'*64, maximum=maximum,
                            continuation=continuation, aaap_model=aaap_model,
                            completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts,
-                           control_equivalence=control_equivalence, cash_case=cash_case)
+                           control_equivalence=control_equivalence, cash_case=cash_case, control_replay=control_replay)
     assert inspect() == dto
     for section, key, bad in (('HostConfig', 'NetworkMode', 'bridge'), ('Config', 'Cmd', ['wrong']),
                               ('Config', 'Env', ['GH_TOKEN=secret']), ('HostConfig', 'MemorySwap', 0)):

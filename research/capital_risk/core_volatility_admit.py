@@ -104,11 +104,18 @@ def extract(archive, root, key, spec):
         inspect(name, value=v, user=spec['container_user'], maximum=spec['maximum'],
                 continuation=spec['continuation'], aaap_model=spec.get('aaap_model', False),
                 recover_prefix=spec.get('recover_prefix', False), completion_facts=spec.get('completion_facts', False),
-                sonc_facts=spec.get('sonc_facts', False), cash_case=spec.get('cash_case'))
+                sonc_facts=spec.get('sonc_facts', False), cash_case=spec.get('cash_case'),
+                control_replay=spec.get('control_replay', False))
         need(not v['State']['Running'] and not v['State']['OOMKilled']
              and v['State']['ExitCode'] == (spec['worker_exit_code'] if role == 'worker' else 0),
              'ACTUAL_POSITIVE_PARENT_STOP')
     proof = json.loads((root/'independent-review-stop/core-review.json').read_bytes())
+    if spec.get('control_replay', False):
+        from core_volatility_control_replay import ORIGINAL, PARENT, MODELS
+        need(proof.get('common_input_replay_verified') is True and proof.get('diagnostic_book_authority_used') is False
+             and proof.get('original_financial_parent_sha256') == ORIGINAL
+             and proof.get('selected_financial_parent_sha256') == PARENT
+             and proof.get('common_models') == list(MODELS), 'INDEPENDENT_COMMON_INPUT_REPLAY_REVIEW_REQUIRED')
     cp = json.loads(gzip.decompress((root/'book/checkpoint.json.gz').read_bytes()))
     need(sha256_file(root/'book/checkpoint.json.gz') == spec['checkpoint_file_sha256']
          and cp['sha256'] == spec['checkpoint_sha256'] == proof['checkpoint_sha256']

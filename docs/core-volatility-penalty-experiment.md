@@ -364,6 +364,73 @@ Do not extend the initial 134-record equality claim to the whole saved P00 path
 or hide nested identities. The newly admitted own control remains the comparison
 authority; the old completed book is never its continuation root.
 
+Analysis uses the existing first-measured-close normalization: January 2 is
+50,000 for both the standalone Core and funded account. Normalize Core from
+that day's recorded parent Core closing equity, not the preceding formation
+close; use the canonical funded NAV and factors directly. CAGR uses actual
+elapsed calendar days and 365.2425 days/year. Drawdown uses daily closes, and
+annual/fixed-block returns use the preceding included closing NAV. Do not
+substitute a weighted daily-return approximation for the funded account.
+
+Report Core gross turnover as BUY plus SELL notional divided by the preceding
+Core closing equity, with its annualized rate labelled explicitly; include the
+separate canonical funded turnover. Attribute observed Core dollar growth with
+its recorded per-security ledger cash deltas (fees included) plus ending minus
+starting marked assets/receivables. Aggregate actual positive-share delivery
+lineages to avoid treating a stock conversion as a parent loss and free child
+gain. Reconcile total cash deltas and contributions to the recorded cash and
+Core equity changes. Filled-entry features are matched to their prior actual
+signals by permanent ID and checked against the declared score. Sentinel's
+relative growth decomposition uses recorded gross/net factors, separating
+losing-Core days, winning-Core days and switching costs; label log-growth units
+and do not present them as counterfactual realized dollars. These are DATA-only
+analyses of authenticated committed prefixes, never new financial transitions.
+
+Generation 7's diagnostic passed stopped worker/reviewer and complete encrypted
+artifact admission, but its exact-no-op predicate is FALSE in all three windows.
+All 970 compared record pairs have identical economics and controller decisions.
+Canonical decision/input audit digests and subsequent cash-distribution input
+identities differ, including complete state hashes. All later packet checks
+pass. Preserve these results; do not waive the complete-state contract because
+account values happen to match in the bounded windows.
+
+Generation 9 therefore replays the affected CONTROL suffix with the common
+AAAP/SODA/SONC/BEL inputs. The financial predecessor authority is the admitted
+generation-2 control artifact, selecting ONLY its own January 31/21-close
+checkpoint `0f2dbfe6ee37ea47e6d0240b2cf0713a95474712e5648b1cab574198252be815`.
+Authenticate the negative diagnostic separately as evidence; it never supplies
+a financial book, position or continuation root. Strictly restore the selected
+historical financial checkpoint, copy only its committed prefixes/applicable
+snapshots into the new book, and retain the full original 1,642-close input
+read-only with a complete content inventory and selected/current checkpoint
+copies. The later original history is a superseded reference branch, not an
+uncommitted tail of that original run. Never erase or overwrite it.
+
+Reuse the unchanged, hash-pinned four input/observer bodies under a new explicit
+financial CONTROL scope: exact own January 31 predecessor, all four securities
+unowned and unordered there, and no foreign positions. Qualify each original
+literal model/fact and their combined future-only repair, then use one merged
+unchanged ActualEvents delegate with no source-only/P10/P11 capability. Keep
+all old repairs intact. This is input alignment of the existing control, with
+the original exponent 1 and original Sentinel, not an additional efficacy
+candidate. Preserve the original segment boundary with 1,621 new closes from
+21 through 1,642. Both stopped canonical reviews and financial artifact
+admission remain mandatory; the alternative continues its own generation 8.
+
+For a later positive-bound final segment, derive the expected reviewed status
+from the exact cumulative target: COMPLETE at 2,156/July 31, 2026, PARTIAL below
+that boundary. Require exact count, complete/date flags and positive stops;
+do not reject a correctly bounded final 514-close segment merely because its
+positive maximum was previously associated only with partial segments.
+
+Generation 9 DATA qualification: 156 targeted cases passed in 37.53 seconds,
+including exact original model bytecode, wrong/foreign/owned/pending predecessor
+refusals for all four models, inspected financial/review entrypoints, the
+selected-history replay count and positive-bound final completion. The actual
+own January 31 checkpoint passes all four DATA scope checks. Removing its exact
+parent-hash guard in a private source copy causes all four outer-predecessor
+falsifiers to fail as expected. No financial module was executed locally.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run

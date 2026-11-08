@@ -146,7 +146,7 @@ def test_exact_stage_completion_and_short_prefix_falsifier(maximum):
     receipt = {'status': ('PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION' if maximum else
                           'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'),
                'worker': {'exit_code': 0}, 'reviewer': {'exit_code': 0}}
-    outcome = {'completed': 1642 if maximum else 2156, 'complete': not maximum, 'session': '2026-07-31'}
+    outcome = {'completed': 1642 if maximum else 2156, 'complete': not maximum, 'session': '2024-07-12' if maximum else '2026-07-31'}
     require_continuation_stage(request, receipt, outcome, 'CONTROL')
     outcome['completed'] -= 1
     with pytest.raises(ValueError):

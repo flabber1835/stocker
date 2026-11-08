@@ -1,0 +1,353 @@
+{
+  "admissions": {
+    "CONTROL": {
+      "arm": "CONTROL",
+      "canonical_runtime_executed": false,
+      "checkpoint_sha256": "cf357b04513897586d869646cb0bdf850b5e051b4c847a75507a99e452ba847b",
+      "completed": 1642,
+      "logical_bytes": 270130367,
+      "manifest_sha256": "d5e2915bc76741d6e1cf8962f276def143ffb5357598a7933d91af923cc62131",
+      "members_verified": 132,
+      "schema": "research.core-volatility-artifact-admission/1",
+      "whole_cipher_authenticated_before_parsing": true
+    }
+  },
+  "arms": {
+    "CONTROL": {
+      "aaap_model": false,
+      "arm": "CONTROL",
+      "artifact_id": 13633685722,
+      "cash_case": null,
+      "checkpoint_file_sha256": "90c416a165bdf243cb4f3d1f7b535d98f07ddd98bb948c17c0778900d9bb78c3",
+      "checkpoint_sha256": "cf357b04513897586d869646cb0bdf850b5e051b4c847a75507a99e452ba847b",
+      "completed": 1642,
+      "completion_facts": false,
+      "container_user": "1001:1001",
+      "continuation": true,
+      "control_equivalence": false,
+      "encrypted_output": {
+        "bytes": 158394306,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "d5e2915bc76741d6e1cf8962f276def143ffb5357598a7933d91af923cc62131",
+        "name": "core-volatility-CONTROL.tar.crseal",
+        "sha256": "fb6923eee7aa9fc276905a2d970ccbe0542c09f61f6a826cbe84a42dd428cd7e"
+      },
+      "head": "50199d16dcb69610f295a4c7435ea704bc73eeb3",
+      "maximum": 1634,
+      "protocol_sha256": "88472f33ebf916a3eee093a7808b6b1aabbfd28163126d1fd93ccf9011c4398a",
+      "public_members": {
+        "core-volatility-receipt.json": {
+          "bytes": 1236,
+          "sha256": "6653dcdc39c11db2b750e9e73004bef7e6b4752fb94cd7bee4d72e371c460fb2"
+        },
+        "core-volatility-staging.json": {
+          "bytes": 964,
+          "sha256": "555316c54758259b070960a5dc4ea2938e9b7c6a83b5b1507955d80f93bbd877"
+        },
+        "ephemeral-runner-capacity.json": {
+          "bytes": 674,
+          "sha256": "d78dcd903f5cbff6111f04934b7eb4ea1d7a0969146482cf8982ecf2352d800d"
+        }
+      },
+      "recover_prefix": false,
+      "request_sha256": "4d97ec17f2ce12725ac8d086f8145b66d069569f9873c5cf8e9ec7dbcccc7c67",
+      "run_id": 42509098756,
+      "session": "2024-07-12",
+      "sonc_facts": false,
+      "source_bindings_sha256": "6134b746b4e49423f3c09fb1a79d7a78eade35d9f74c7ec0ae1bdccae93c36a3",
+      "status": "PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION",
+      "worker_exit_code": 0,
+      "zip_bytes": 158397810,
+      "zip_sha256": "588c278b2d5dc1621131e311a2c0eda0a4a2ac9f04b9143e811c4e186f53ba7a"
+    }
+  },
+  "equivalence_admission": {
+    "diagnostic_only": true,
+    "exact_noop": false,
+    "financial_continuation_authorized": false,
+    "manifest_sha256": "d0e0a7cd6ebb5f3e9f1c77d38674740c24899578f24ef02f21d98d6d27a04065",
+    "members_verified": 193,
+    "performance_admitted": false,
+    "schema": "research.core-volatility-control-input-admission/1",
+    "whole_cipher_authenticated_before_parsing": true,
+    "windows": {
+      "AAAP": {
+        "canonical_exit_codes": [
+          0,
+          0
+        ],
+        "counts": {
+          "daily": [
+            29,
+            29
+          ],
+          "formation": [
+            126,
+            126
+          ]
+        },
+        "differences": [
+          {
+            "index": 21,
+            "path": "$.evidence.wealth_core.hashes.decision",
+            "session": "2018-02-01",
+            "stream": "daily"
+          },
+          {
+            "index": 22,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-02",
+            "stream": "daily"
+          },
+          {
+            "index": 23,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-05",
+            "stream": "daily"
+          },
+          {
+            "index": 24,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-06",
+            "stream": "daily"
+          },
+          {
+            "index": 25,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-07",
+            "stream": "daily"
+          },
+          {
+            "index": 26,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-08",
+            "stream": "daily"
+          },
+          {
+            "index": 27,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-09",
+            "stream": "daily"
+          },
+          {
+            "index": 28,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-02-12",
+            "stream": "daily"
+          },
+          {
+            "path": "$.last_evidence.cash_distributions.input_sha256",
+            "stream": "complete_strategy_state"
+          },
+          {
+            "path": "$",
+            "stream": "state_sha256"
+          }
+        ],
+        "endpoints_reproduced": true,
+        "exact_noop": false,
+        "financial_continuation_authorized": false,
+        "future_input": {
+          "all_later_packets_equal": true,
+          "last_affected_session": "2018-02-09",
+          "later_packets_verified": 2127
+        },
+        "ignored_top_level_fields": [
+          "input_sha256",
+          "chain_sha256"
+        ],
+        "model_checkpoint_sha256": "8228bdcaec6303c5fb7ca7469ac26f53dd2730c038bcdaeefc1f76a90eef418c",
+        "model_state_sha256": "b56fade741b934032395bf2f298ccc4315b104e22856051e927b98d1ee818a8f",
+        "performance_admitted": false,
+        "reference_checkpoint_sha256": "2213c0ec9f56525ec8a9a682709ade2ea4880f06a61f009c7b411738f4c6587f",
+        "reference_state_sha256": "5dbce287042fa8f6278dc231ef729991d75d1573c4420d63a618371c8a5b6505",
+        "window": "AAAP"
+      },
+      "BEL": {
+        "canonical_exit_codes": [
+          0,
+          0
+        ],
+        "counts": {
+          "daily": [
+            326,
+            326
+          ],
+          "formation": [
+            126,
+            126
+          ]
+        },
+        "differences": [
+          {
+            "index": 323,
+            "path": "$.evidence.wealth_core.hashes.decision",
+            "session": "2019-04-16",
+            "stream": "daily"
+          },
+          {
+            "index": 324,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2019-04-17",
+            "stream": "daily"
+          },
+          {
+            "index": 325,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2019-04-18",
+            "stream": "daily"
+          },
+          {
+            "path": "$.last_evidence.cash_distributions.input_sha256",
+            "stream": "complete_strategy_state"
+          },
+          {
+            "path": "$",
+            "stream": "state_sha256"
+          }
+        ],
+        "endpoints_reproduced": true,
+        "exact_noop": false,
+        "financial_continuation_authorized": false,
+        "future_input": {
+          "all_later_packets_equal": true,
+          "last_affected_session": "2019-04-17",
+          "later_packets_verified": 1830
+        },
+        "ignored_top_level_fields": [
+          "input_sha256",
+          "chain_sha256"
+        ],
+        "model_checkpoint_sha256": "0f6bd7c070e7900d6a4b4b41f09d26bb7d7ec20cb518f8f4498906e30e188a78",
+        "model_state_sha256": "04b6d01b38ec626b95305a6e05986d22713877a7fa0a0de6e2d60576c5361765",
+        "performance_admitted": false,
+        "reference_checkpoint_sha256": "21019349423e42514e5223254e51a33237ce1b8cab95d9b93de7f661af4ce85f",
+        "reference_state_sha256": "1b054e47ba092ea8eb4e072518e381d4c2456eeb9e7c272f5528f4a6f3a8ffc6",
+        "window": "BEL"
+      },
+      "DECEMBER": {
+        "canonical_exit_codes": [
+          0,
+          0
+        ],
+        "counts": {
+          "daily": [
+            237,
+            237
+          ],
+          "formation": [
+            126,
+            126
+          ]
+        },
+        "differences": [
+          {
+            "index": 233,
+            "path": "$.evidence.wealth_core.hashes.decision",
+            "session": "2018-12-04",
+            "stream": "daily"
+          },
+          {
+            "index": 234,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-12-06",
+            "stream": "daily"
+          },
+          {
+            "index": 235,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-12-07",
+            "stream": "daily"
+          },
+          {
+            "index": 236,
+            "path": "$.evidence.cash_distributions.input_sha256",
+            "session": "2018-12-10",
+            "stream": "daily"
+          },
+          {
+            "path": "$.last_evidence.cash_distributions.input_sha256",
+            "stream": "complete_strategy_state"
+          },
+          {
+            "path": "$",
+            "stream": "state_sha256"
+          }
+        ],
+        "endpoints_reproduced": true,
+        "exact_noop": false,
+        "financial_continuation_authorized": false,
+        "future_input": {
+          "all_later_packets_equal": true,
+          "last_affected_session": "2018-12-07",
+          "later_packets_verified": 1919
+        },
+        "ignored_top_level_fields": [
+          "input_sha256",
+          "chain_sha256"
+        ],
+        "model_checkpoint_sha256": "8ec9cad192f789628071dfe11390f835bfd7573e88e6bc8a56d29a1d0806eb50",
+        "model_state_sha256": "4fa484d2ceb2a2d6a19b62663e9411d82b1268e4b091cbf0216b8c27d19e108d",
+        "performance_admitted": false,
+        "reference_checkpoint_sha256": "39b3a61d6c07451367f93f3b74cd566d7c92fbfeb86f79151c783786b8173cbf",
+        "reference_state_sha256": "6d4da16b420da4fa463c3a87e1ce966072b3e018063e7d8e6395e7929a53b0a8",
+        "window": "DECEMBER"
+      }
+    }
+  },
+  "equivalence_evidence": {
+    "aaap_model": false,
+    "arm": "CONTROL",
+    "artifact_id": 13634384064,
+    "cash_case": null,
+    "checkpoint_file_sha256": "81ac001fe174f2e172b9dac76185b08b7536e62d05ea00c5a2e2f4526b266a53",
+    "checkpoint_sha256": "2213c0ec9f56525ec8a9a682709ade2ea4880f06a61f009c7b411738f4c6587f",
+    "completed": 29,
+    "completion_facts": false,
+    "container_user": "1001:1001",
+    "continuation": true,
+    "control_equivalence": true,
+    "encrypted_output": {
+      "bytes": 181891910,
+      "compression": "TAR_GZIP_V1",
+      "manifest_sha256": "d0e0a7cd6ebb5f3e9f1c77d38674740c24899578f24ef02f21d98d6d27a04065",
+      "name": "core-volatility-CONTROL.tar.crseal",
+      "sha256": "d6ace893e2a5b905b2a0ca3c71990dc6464031dd893c799dcff4cb41759e0ad5"
+    },
+    "head": "4b109e955001794c2b7ec5633cb5f5050e554b3a",
+    "maximum": 54,
+    "protocol_sha256": "ed19c098099a3b6bf0dd5ff64203963a32f46a9663aef14a3d75e9bdf97d1aad",
+    "public_members": {
+      "core-volatility-receipt.json": {
+        "bytes": 1246,
+        "sha256": "971de9131f042dd11c758bd9a6b58461829608ef6e9540c1582188774c1c595b"
+      },
+      "core-volatility-staging.json": {
+        "bytes": 964,
+        "sha256": "68d2149c12060579684d9cd83052fe6b16539fdc991d489db16f72fb57e718a4"
+      },
+      "ephemeral-runner-capacity.json": {
+        "bytes": 674,
+        "sha256": "82b62e65b5ebeea4eae0e004e417bcbd952195be7d50fe5c42c012d4d29ce88a"
+      }
+    },
+    "recover_prefix": false,
+    "request_sha256": "52349acad59e8eec7fdfd0e7ba23c9bb8ff2c76819e94431a2d22eadc69dc572",
+    "run_id": 42522233308,
+    "session": "2018-02-12",
+    "sonc_facts": false,
+    "source_bindings_sha256": "6134b746b4e49423f3c09fb1a79d7a78eade35d9f74c7ec0ae1bdccae93c36a3",
+    "status": "CONTROL_INPUT_EQUIVALENCE_REVIEWED_PENDING_TRANSPORT_ADMISSION",
+    "worker_exit_code": 0,
+    "zip_bytes": 181895424,
+    "zip_sha256": "8b5700a8cd6c90e0e82298d3f6b0967a8d447b543ec018c2fd0f32794c3c343b"
+  },
+  "schema": "research.core-volatility-reviewed-parents/1",
+  "selected_history": {
+    "completed": 21,
+    "file_sha256": "5ad892a76cadee8d1a8bad2a3ea285fcc2c2b20f47d26830eb8f52f3c58de12e",
+    "outer_sha256": "0f2dbfe6ee37ea47e6d0240b2cf0713a95474712e5648b1cab574198252be815",
+    "path": "book/month-end/2018-01-31-0f2dbfe6ee37ea47e6d0240b2cf0713a95474712e5648b1cab574198252be815.json.gz",
+    "session": "2018-01-31"
+  }
+}

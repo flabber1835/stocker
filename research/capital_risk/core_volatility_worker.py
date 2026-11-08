@@ -222,17 +222,25 @@ if __name__ == '__main__':
     p.add_argument('--sonc-facts', action='store_true')
     p.add_argument('--control-equivalence', action='store_true')
     p.add_argument('--cash-case', choices=('BEL',))
+    p.add_argument('--control-replay', action='store_true')
     a = p.parse_args()
     hosted()
     if a.control_equivalence:
-        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.recover_prefix, a.cash_case)), 'DIAGNOSTIC_CANNOT_CONTINUE_FINANCIAL_BOOK')
+        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.recover_prefix, a.cash_case, a.control_replay)), 'DIAGNOSTIC_CANNOT_CONTINUE_FINANCIAL_BOOK')
         from core_volatility_control_equivalence import run as diagnostic, review as diagnostic_review
         if a.mode == 'economic':
             diagnostic(a.resume_root, a.arm, a.maximum)
         else:
             diagnostic_review(a.resume_root, Path('/evidence'), Path('/out'))
+    elif a.control_replay:
+        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.recover_prefix, a.cash_case)), 'ONE_SHARED_INPUT_REPLAY_ROLE')
+        from core_volatility_control_replay import run as replay, review as replay_review
+        if a.mode == 'economic':
+            replay(a.resume_root, a.arm, a.maximum)
+        else:
+            replay_review(a.resume_root, Path('/evidence'), Path('/out'))
     elif a.recover_prefix:
-        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.cash_case)), 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
+        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.cash_case, a.control_replay)), 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
         from core_volatility_recovery import run as recover, review as recovery_review
         if a.mode == 'economic':
             recover(a.resume_root, a.arm, a.maximum)
