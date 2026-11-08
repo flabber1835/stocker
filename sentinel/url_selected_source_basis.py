@@ -34,7 +34,9 @@ LIVENESS_PREDECESSOR_REVISION = 'c2569a4cb5085db15e24222478a1d5c98c53c74f'
 IDENTITY_AVAILABILITY_PREDECESSOR_REVISION = '34a28504a87610fd5c159115fc0b75017ae944ea'
 WORK_COORDINATION_PREDECESSOR_REVISION = '4bca82da1daff430b4f087493e4f200d2e9719dd'
 PANEL_PRESENTATION_PREDECESSOR_REVISION = 'a0a82c6ad9211fdcf9fdad9faa801b8af65239ea'
+STARTUP_PROFILE_PREDECESSOR_REVISION = '430462d951653469157b5746830c0002f10f41fe'
 RETAINED_PREDECESSORS = {
+    STARTUP_PROFILE_PREDECESSOR_REVISION: (463, 'fbacab07df6d2cc5410ad2e3ec3825b7e50a576ab2be0382e8dc37da123e8a5a'),
     PANEL_PRESENTATION_PREDECESSOR_REVISION: (463, '9385294419b070cf3955f0cc3eb3370442883f8113b8cc4dd8f5b64beece4d4f'),
     WORK_COORDINATION_PREDECESSOR_REVISION: (460, '09c34f464748a92aaa11f6290b34d3fbd0fdf699f5b3e7372bb1b865b42d08f2'),
     IDENTITY_AVAILABILITY_PREDECESSOR_REVISION: (460, 'e7d7971f85feb8e4432589d06cf796e4395dc2b1c2d7eddf4f5f38877d5ee73c'),
@@ -59,9 +61,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = '904f57c351471434dd4705b076e5a40ec2be0193859febc7c88456fb96aaa972'
+PROFILE_SHA256 = '702b65d985082572d3d7b1c3affe8b22c571b32e56194338fa61e26d9b6716a1'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/23'
+_SCHEMA = 'sentinel.url-selected-trading-transition/24'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -79,7 +81,7 @@ def _pairs(items):
 
 
 def _source_map(value: Mapping[str, str]) -> dict[str, str]:
-    if not isinstance(value, Mapping):
+    if not isinstance(value, Mapping) or len(value) > 1024:
         raise ValueError('URL_SOURCE_MAP_CHANGED')
     result = dict(value)
     for name, digest in result.items():
@@ -95,10 +97,40 @@ def _source_map(value: Mapping[str, str]) -> dict[str, str]:
 
 
 def _closure(files: Mapping[str, str]) -> str:
+    return _validated_closure(_source_map(files))
+
+
+def _validated_closure(files: Mapping[str, str]) -> str:
+    """Hash an already path/digest-validated complete inventory."""
     result = hashlib.sha256()
-    for name, digest in sorted(_source_map(files).items()):
+    for name, digest in sorted(files.items()):
         result.update(name.encode() + b'\0' + digest.encode() + b'\n')
     return result.hexdigest()
+
+
+def _expand_retained(candidate, records):
+    """Single-level deltas share validated paths, never independent pins."""
+    if not isinstance(records, dict) or set(records) != set(RETAINED_PREDECESSORS):
+        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    result = {}
+    for revision, record in records.items():
+        if not isinstance(record, dict) or set(record) != {'source_sha256', 'overrides', 'removed'}:
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        overrides = _source_map(record['overrides'])
+        removed = record['removed']
+        if (not isinstance(removed, list) or len(removed) > len(candidate)
+                or any(not isinstance(name, str) for name in removed)
+                or removed != sorted(set(removed)) or not set(removed) <= set(candidate)
+                or set(removed) & set(overrides)
+                or any(candidate.get(name) == digest for name, digest in overrides.items())):
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        removed_names = set(removed)
+        files = {name: digest for name, digest in candidate.items() if name not in removed_names}
+        files.update(overrides)
+        if len(files) > 1024:
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        result[revision] = dict(source_sha256=record['source_sha256'], files=files)
+    return result
 
 
 def _normalized(raw: bytes) -> str:
@@ -135,15 +167,14 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
-    retained = value['retained_predecessors']
-    if not isinstance(retained, dict) or set(retained) != set(RETAINED_PREDECESSORS):
-        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    retained = _expand_retained(candidate, value['retained_predecessors'])
+    value = {**value, 'retained_predecessors': retained}
     for revision, (count, expected_sha) in RETAINED_PREDECESSORS.items():
         record = retained[revision]
         if (not isinstance(record, dict) or set(record) != {'source_sha256', 'files'}
                 or record['source_sha256'] != expected_sha
-                or len(_source_map(record['files'])) != count
-                or _closure(record['files']) != expected_sha):
+                or len(record['files']) != count
+                or _validated_closure(record['files']) != expected_sha):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         if revision in {REVIEWED_PREDECESSOR_REVISION, INSTALLED_PREDECESSOR_REVISION,
                         DASHBOARD_PREDECESSOR_REVISION, PAPER_RELEASE_PREDECESSOR_REVISION,
@@ -157,12 +188,13 @@ def _profile() -> dict | None:
                         LIVENESS_PREDECESSOR_REVISION,
                         IDENTITY_AVAILABILITY_PREDECESSOR_REVISION,
                         WORK_COORDINATION_PREDECESSOR_REVISION,
-                        PANEL_PRESENTATION_PREDECESSOR_REVISION}:
+                        PANEL_PRESENTATION_PREDECESSOR_REVISION,
+                        STARTUP_PROFILE_PREDECESSOR_REVISION}:
             if not set(record['files']) <= set(candidate) | {_SELF}:
                 raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         elif set(record['files']) - set(baseline):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
-    if (len(baseline) != 422 or _closure(baseline) != BASE_SOURCE_SHA256
+    if (len(baseline) != 422 or _validated_closure(baseline) != BASE_SOURCE_SHA256
             or baseline != expected or set(baseline) - set(candidate)
             or _SELF in baseline or _SELF in candidate):
         raise ValueError('URL_SOURCE_COMPLETE_MAP_CHANGED')

@@ -158,3 +158,69 @@ notification-count tests; native archive integrity/race tests; close baseline
 call counts; and browser tests for node identity, scrolling/focus/details, fresh
 negative states, ACK and clock/visibility/offline behavior. Install only qualified
 exact sources via the existing backed local handoff and retain execution traces.
+
+## November 8 follow-up: cold initialization and compact retained inventories
+
+The owner selected startup-timeout causality and source-history size reduction.
+Read-only profiles of the installed image at its actual half-CPU quota measured
+1.47 seconds of cold imports and 6.31 seconds of first composition, versus 1.39
+seconds warm. Publication prerequisites alone measured 3.59 seconds cold versus
+0.39 seconds warm, before acquiring the owner row or publishing anything. Of
+the cold prerequisite time, 2.04 seconds came from an unnecessary exchange
+calendar lookup through preparation-warning classification during WAITING_OPEN.
+Connections in those probes were milliseconds. Together with the observed
+startup CPU-quota exhaustion, this establishes an avoidable initialization path;
+it does not retrospectively identify an unrecorded historical connection delay.
+After removing that unnecessary classification, profiling exposed a second,
+legitimate calendar consumer: published-preparation expiry. Keep that check.
+With the complete candidate dependency bootstrap, immutable initialization took
+4.31 seconds and the subsequent first publication prerequisites took 1.07 seconds
+(0.61 seconds warm), with zero database calls during bootstrap. These isolated
+read-only profiles stop before the owner lock/write; they are not full publication
+or historical production-event timing claims.
+
+Check the typed cycle phase and necessary local preparation facts before calling
+the calendar. A waiting-open or malformed/non-preparing panel must never build a
+calendar merely to reject preparation-warning eligibility. Genuine preparation
+retains all session, close/open, original expiry and evidence checks.
+
+Reusable operational subprocesses have an explicit, finite initialization phase
+and READY handshake before publication work is admitted. Initialize immutable
+imports/calendar tables once in the child, without database/broker calls or
+positive evidence. The existing 20-second collection ceiling also bounds each
+bootstrap; five-second fast work and 20-second full work retain their original
+independent wall-clock limits after READY. Generic direct worker calls retain
+their existing single overall call budget, including implicit startup. A hung,
+failed or malformed bootstrap is killed/reaped like a hung call. Parent-death
+and callable cleanup remain mandatory. Initialization is not liveness/readiness
+proof and cannot refresh any evidence or owner clock.
+
+The fast publisher starts its initialization only after the first full attempt
+has produced a component or an explicit failure. This removes concurrent cold
+initialization for a consumer that cannot yet publish and avoids repeated
+five-second kill/reimport cycles. Subsequent full collection cannot block fast
+publication. Shutdown budgets include the finite bootstrap plus admitted work;
+they grant no new runtime or financial deadline.
+
+Source profile schema 24 stores each retained inventory as a single-level delta
+from the candidate inventory: exact overrides plus a sorted removal list. It
+has no recursive references, external fetch, compression expansion or new trust
+root. Expand into the same complete maps before compatibility selection. Keep
+every existing independent revision/count/closure pin, original source digest
+and financial witness. Add the exact installed 430462d95 application inventory
+as the sole new predecessor. Reject redundant overrides, conflicting/duplicate
+or unknown removals, bad paths/digests and unrecognized shape; enforce finite
+module/delta counts and the existing one-million-byte file bound. Validate shared
+paths once and hash each complete reconstructed inventory against its independent
+pin. No mtime-only cache or cached source verdict replaces fresh source bytes.
+
+Qualification must reproduce the real cold-path defect, prove waiting-open
+classification performs zero calendar calls, falsify that guard, preserve genuine
+preparation verdict/deadline behavior, and exercise real spawned bootstrap,
+hang/reap, malformed handshake, parent death and strict work deadlines. Compare
+all expanded historical inventories with independently read original Git bytes,
+and falsify digest/count/path/removal checks even after repinning outer JSON.
+Keep economic contributors unchanged. Profile the candidate under the same
+resource limits, retain a traced backed local installation and observe the
+subsequent genuine startup. A green result never proves all past infrastructure
+timeouts have been explained.

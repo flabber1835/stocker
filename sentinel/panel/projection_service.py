@@ -242,6 +242,14 @@ class Collector:
         # This object is pickled by spawn. Allocate no child or descriptor here.
         self.observer = None
 
+    def prepare(self):
+        """Initialize immutable dependencies once, without IO or evidence."""
+        from sentinel.feed import calendar
+        from sentinel.panel import attempt_store, composition, segment_disclosure, serialization, sources  # noqa: F401
+        # Pinned tables are process-local. This earns no market/currentness
+        # verdict and is not a database, filesystem observer or broker probe.
+        calendar._calendar()
+
     def __call__(self, database_url, owner_id, state_dir, instance, prior_failed=False):
         if self.observer is None:
             from sentinel.shadow_service_probe import Observer
@@ -300,6 +308,7 @@ class Publisher:
         self.composition_busy=Event()
         self.composition_thread=Thread(target=self.run_composition,name='sentinel-full-composition',daemon=True)
         self.composition_started=False
+        self.component_attempted=Event()
         self.thread = Thread(target=self.run, name='sentinel-operational-projection', daemon=True)
         self.started = False
 
@@ -316,6 +325,13 @@ class Publisher:
             delay = POLL_SECONDS
             started = time.monotonic()
             try:
+                if self.worker is not None:
+                    if not self.component_attempted.wait(.1):
+                        continue
+                    self.worker.start(timeout=DEADLINE_SECONDS)
+                    if self.stopped.is_set():
+                        break
+                    started = time.monotonic()
                 result = (self.worker.call(failed, timeout=FAST_DEADLINE_SECONDS) if self.worker is not None
                     else self.runner(collect_result, self.database_url, self.owner_id,
                         self.state_dir, self.instance, failed,
@@ -344,6 +360,9 @@ class Publisher:
             self.composition_busy.set()
             delay=POLL_SECONDS
             try:
+                self.composition_worker.start(timeout=DEADLINE_SECONDS)
+                if self.stopped.is_set():
+                    break
                 result=self.composition_worker.call(False,timeout=DEADLINE_SECONDS)
                 if result.get('outcome')=='PUBLISHED':
                     remaining=(datetime.fromisoformat(result['valid_until'])-datetime.now(timezone.utc)).total_seconds()
@@ -354,14 +373,17 @@ class Publisher:
                 composition.failure(self.owner_id,self.instance,exc)
             finally:
                 self.composition_busy.clear()
+                self.component_attempted.set()
             self.composition_wake.wait(delay)
 
     def close(self):
         self.stopped.set()
         self.composition_wake.set()
-        end=time.monotonic()+DEADLINE_SECONDS+3
+        self.component_attempted.set()
+        shutdown_seconds=2*DEADLINE_SECONDS+3
+        end=time.monotonic()+shutdown_seconds
         if self.started:
-            self.thread.join(DEADLINE_SECONDS + 3)
+            self.thread.join(shutdown_seconds)
             if self.thread.is_alive():
                 raise TimeoutError('operational projection did not finish its bounded shutdown')
         if self.composition_started:

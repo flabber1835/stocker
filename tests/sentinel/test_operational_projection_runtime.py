@@ -87,7 +87,7 @@ def test_shutdown_retains_existing_bounded_join(monkeypatch, tmp_path, alive):
     else:
         worker.close()
         assert not heartbeat.exists()
-    assert worker.stopped.is_set() and joined == [producer.DEADLINE_SECONDS+3]
+    assert worker.stopped.is_set() and joined == [2*producer.DEADLINE_SECONDS+3]
 
 
 def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worker(monkeypatch, tmp_path):

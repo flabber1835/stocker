@@ -70,6 +70,7 @@ def test_fast_publication_keeps_running_while_next_full_collection_waits(monkeyp
     full_started,release=Event(),Event()
     full_calls=[];fast_calls=[]
     class Full:
+        def start(self,*,timeout):assert timeout==20
         def call(self,failed,*,timeout):
             assert timeout==20;full_calls.append(True)
             if len(full_calls)==2:
@@ -77,6 +78,7 @@ def test_fast_publication_keeps_running_while_next_full_collection_waits(monkeyp
             return dict(outcome='PUBLISHED',valid_until=(datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat())
         def close(self):pass
     class Fast:
+        def start(self,*,timeout):assert timeout==20
         def call(self,failed,*,timeout):
             assert timeout==5;fast_calls.append(True)
             return dict(outcome='PUBLISHED',valid_until=(datetime.now(timezone.utc)+timedelta(seconds=12)).isoformat())

@@ -88,6 +88,7 @@ def protocol_probe(filename, prior_failed):
 def oversized_wire(channel, function, args, parent_pid):
     supervisor_io._parent_death(parent_pid)
     try:
+        channel.send_bytes(b'R')
         channel.recv_bytes(maxlength=1)
         channel.send_bytes(b'x'*(worker.MAX_BYTES+1))
     finally:
@@ -97,6 +98,7 @@ def oversized_wire(channel, function, args, parent_pid):
 def malformed_wire(channel, function, args, parent_pid):
     supervisor_io._parent_death(parent_pid)
     try:
+        channel.send_bytes(b'R')
         channel.recv_bytes(maxlength=1)
         channel.send_bytes(b'not-json')
     finally:
@@ -208,6 +210,7 @@ def parent_death_probe(filename, prior_failed):
 def serve_without_parent_death(channel, function, args, parent_pid):
     """Executed removed-kernel-guard control, still using the real worker IPC."""
     try:
+        channel.send_bytes(b'R')
         while True:
             command = channel.recv_bytes(maxlength=1)
             if command == b'S':

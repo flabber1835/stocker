@@ -2,10 +2,11 @@
 from copy import deepcopy
 import hashlib
 import inspect
-import json
 from pathlib import Path
 
 import pytest
+
+from tests.support.source_history import expanded_profile, encoded_profile
 
 from sentinel import runtime_admission as admission
 from sentinel import structural_refactor_source_basis as structural
@@ -27,7 +28,7 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
 COORDINATION_ADDITIONS = {'panel/composition.py','panel/dom_refresh.py','snapshot_scan_admission.py'}
-COORDINATION_CHANGES = {'committed_read.py','rolling_runtime.py','paper/finalization.py','paper_plan_preview.py',
+COORDINATION_CHANGES = {'panel/presentation.py','panel/projection_worker.py','committed_read.py','rolling_runtime.py','paper/finalization.py','paper_plan_preview.py',
     'panel/projection_service.py','panel/overview.py','panel/render.py','panel/styles.py'}
 READ_COST_ADDITIONS = COORDINATION_ADDITIONS | {
     'panel/verification_health.py', 'shadow_drain_observer.py',
@@ -81,7 +82,7 @@ OPERATIONAL_CHANGES = {
     'panel/observer_codec.py', 'panel/overview.py', 'panel/presentation.py', 'panel/pwa.py',
     'panel/read_projection.py', 'panel/render.py', 'panel/styles.py',
     'panel/review.py', 'panel/verification_service.py', 'url_selected_source_basis.py',
-} | (PATCH_CHANGES - OPERATIONAL_ADDITIONS) | COORDINATION_CHANGES
+} | (PATCH_CHANGES - OPERATIONAL_ADDITIONS) | (COORDINATION_CHANGES - OPERATIONAL_ADDITIONS)
 
 
 def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
@@ -336,14 +337,14 @@ def test_each_diagnostic_module_change_or_removal_keeps_actual_identity():
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_pr573(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]
     if defect == 'changed': prior['files']['supervisor_io.py'] = 'f' * 64
     elif defect == 'missing': prior['files'].pop('supervisor_io.py')
     elif defect == 'extra': prior['files']['unreviewed.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'changed-diagnostic-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -377,13 +378,13 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 22
+    assert len(profile['retained_predecessors']) == 23
     assert profile['authority_effect'] == 'NONE'
 
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_diagnostic_release(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.ROOT_CAUSE_PREDECESSOR_REVISION]
     if defect == 'changed':
         prior['files']['shadow_health_projection.py'] = 'f' * 64
@@ -394,7 +395,7 @@ def test_repinning_cannot_replace_installed_diagnostic_release(tmp_path, monkeyp
     else:
         prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path / 'changed-root-cause-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -416,14 +417,14 @@ def test_root_cause_predecessor_independent_pin_has_a_behavioral_falsifier(tmp_p
                                       basis.EFFICIENCY_PREDECESSOR_REVISION])
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_pr570_or_pr572(tmp_path, monkeypatch, defect, revision):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][revision]
     if defect == 'changed': prior['files']['shadow_service_probe.py'] = 'f'*64
     elif defect == 'missing': prior['files'].pop('shadow_service_probe.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'changed-startup-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -433,14 +434,14 @@ def test_repinning_cannot_replace_installed_pr570_or_pr572(tmp_path, monkeypatch
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_running_feed_display_source(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.FEED_DISPLAY_PREDECESSOR_REVISION]
     if defect == 'changed': prior['files']['panel/feed_display.py'] = 'f' * 64
     elif defect == 'missing': prior['files'].pop('panel/feed_display.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'changed-feed-display-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -450,14 +451,14 @@ def test_repinning_cannot_replace_running_feed_display_source(tmp_path, monkeypa
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_operational_predecessor(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.OPERATIONAL_PREDECESSOR_REVISION]
     if defect == 'changed': prior['files']['panel/verification_service.py'] = 'f'*64
     elif defect == 'missing': prior['files'].pop('panel/verification_service.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'changed-operational-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -468,14 +469,14 @@ def test_repinning_cannot_replace_installed_operational_predecessor(tmp_path, mo
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_main_verifier_source(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.VERIFIER_PREDECESSOR_REVISION]
     if defect == 'changed': prior['files']['panel/sources.py'] = 'f'*64
     elif defect == 'missing': prior['files'].pop('panel/sources.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'changed-verifier-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -485,14 +486,14 @@ def test_repinning_cannot_replace_installed_main_verifier_source(tmp_path, monke
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_cannot_replace_installed_pr564(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.DASHBOARD_PREDECESSOR_REVISION]
     if defect == 'changed': prior['files']['panel/review_schema.py'] = 'f' * 64
     elif defect == 'missing': prior['files'].pop('panel/review_schema.py')
     elif defect == 'extra': prior['files']['unknown.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path / 'changed-dashboard-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -502,14 +503,14 @@ def test_repinning_cannot_replace_installed_pr564(tmp_path, monkeypatch, defect)
 
 @pytest.mark.parametrize('defect',['changed','missing','extra','checker'])
 def test_repinning_cannot_replace_the_installed_pr563_predecessor(tmp_path,monkeypatch,defect):
-    value=json.loads(basis.PROFILE.read_bytes())
+    value=expanded_profile()
     prior=value['retained_predecessors'][basis.INSTALLED_PREDECESSOR_REVISION]
     if defect=='changed':prior['files']['automation_supervisor.py']='f'*64
     elif defect=='missing':prior['files'].pop('automation_supervisor.py')
     elif defect=='extra':prior['files']['unknown.py']='f'*64
     else:prior['files']['url_selected_source_basis.py']='f'*64
     prior['source_sha256']=basis._closure(prior['files'])
-    raw=json.dumps(value,sort_keys=True,separators=(',', ':')).encode()
+    raw=encoded_profile(value)
     path=tmp_path/'changed-profile.json';path.write_bytes(raw)
     monkeypatch.setattr(basis,'PROFILE',path)
     monkeypatch.setattr(basis,'PROFILE_SHA256',hashlib.sha256(raw).hexdigest())
@@ -519,7 +520,7 @@ def test_repinning_cannot_replace_the_installed_pr563_predecessor(tmp_path,monke
 
 @pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
 def test_repinning_profile_cannot_replace_installed_pr561_source(tmp_path, monkeypatch, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     prior = value['retained_predecessors'][basis.REVIEWED_PREDECESSOR_REVISION]
     if defect == 'changed':
         prior['files']['automation_supervisor.py'] = 'f'*64
@@ -530,7 +531,7 @@ def test_repinning_profile_cannot_replace_installed_pr561_source(tmp_path, monke
     else:
         prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path/'foreign-profile.json';path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -559,7 +560,7 @@ def test_changed_checker_or_original_structural_witness_refuses(tmp_path, monkey
 def test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
         tmp_path, monkeypatch, defect):
     raw = basis.PROFILE.read_bytes()
-    value = json.loads(raw)
+    value = expanded_profile()
     if defect == 'raw_bytes':
         changed = raw + b' '
     else:
@@ -595,7 +596,7 @@ def test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
                 retained['files'].pop('core/decision.py')
             else:
                 retained['files']['unknown.py'] = 'f' * 64
-        changed = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        changed = encoded_profile(value)
         monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(changed).hexdigest())
     path = tmp_path / 'changed-profile.json'
     path.write_bytes(changed)
@@ -619,7 +620,7 @@ def test_no_authority_effect_guard_has_a_behavioral_falsifier(tmp_path, monkeypa
 
 def test_retained_predecessor_hash_guard_has_a_behavioral_falsifier(tmp_path, monkeypatch):
     source = inspect.getsource(basis._profile)
-    needle = "_closure(record['files']) != expected_sha"
+    needle = "_validated_closure(record['files']) != expected_sha"
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'False'), 'open-retained-predecessor', 'exec'),
@@ -704,7 +705,7 @@ def test_backed_owner_scope_keeps_actual_current_identity_and_operating_guards(h
 @pytest.mark.parametrize('defect', ['hash', 'neighbor', 'missing', 'extra', 'absent'])
 def test_each_retained_snapshot_requires_its_independent_complete_closure(
         tmp_path, monkeypatch, revision, defect):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = expanded_profile()
     record = value['retained_predecessors'][revision]
     if defect == 'hash':
         record['source_sha256'] = 'f' * 64
@@ -716,7 +717,7 @@ def test_each_retained_snapshot_requires_its_independent_complete_closure(
         record['files']['unreviewed.py'] = 'f' * 64
     else:
         del value['retained_predecessors'][revision]
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    raw = encoded_profile(value)
     path = tmp_path / 'retained-profile.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -728,7 +729,7 @@ def test_each_retained_snapshot_requires_its_independent_complete_closure(
 @pytest.mark.parametrize('revision', sorted(basis.RETAINED_PREDECESSORS))
 def test_each_retained_closure_guard_has_a_behavioral_falsifier(tmp_path, monkeypatch, revision):
     source = inspect.getsource(basis._profile)
-    guard = "_closure(record['files']) != expected_sha"
+    guard = "_validated_closure(record['files']) != expected_sha"
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'False'), '<removed-retained-closure-guard>', 'exec'),
