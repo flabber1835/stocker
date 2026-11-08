@@ -238,6 +238,16 @@ files remain unchanged. Request229 selects only P07 with one financial worker,
 zero readonly workers and 747 pinned source files. Its hosted preparation,
 neutral26, constructor and financial result remain unproven until they run.
 
+Request229 stopped in preflight before an economic job or current book was
+created. The original copy canary compared a seven-archive preservation
+manifest with its single ABMD permission argument. Bind its complete original
+dependency verifier to the full preservation list while retaining the single
+permission argument check. The original copy, verification and cleanup bodies
+stay unchanged. Three targeted checks passed in 5.98 seconds: they reproduce
+the actual mismatch on genuine saved data, verify the corrected argument
+binding without copying a book locally, and falsify the permission guard.
+Request230 retries P07 from the same accepted parent with this correction.
+
 ## Source qualification
 
 The source normalization, independent reconstruction and packet-codec checks passed 21 tests in 4.08 seconds. They read the genuine admitted 1383-day checkpoint and authentic SOURCE357 data, retain all three complete observations and both native records, and verify the actual frozen trading axis. The term builder and packet projection retain their complete original function bodies. Two guard-removal tests cover date relabeling and independent full-witness comparison. No financial state was created or advanced. Source closure is complete; the financial profile remains closed pending the full history, 929-proof preservation and hosted gates above.

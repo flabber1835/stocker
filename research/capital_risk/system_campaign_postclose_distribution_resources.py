@@ -70,6 +70,14 @@ def verify_preserved(source,destination,spec,*,rows,resolutions):
   'POSTCLOSE_RESOURCES_WHOLE_RAW_PROOF_AND_EXACT_PRESERVATION_RECEIPT')
  return True
 
+def canary_dependencies(spec):
+ def verify(manifest,declared,resolutions,source,destination):
+  value=plan(spec)
+  need(declared==value['resources'] and list(resolutions)==[value['historical_ABMD_permission_resolution']],
+   'POSTCLOSE_RESOURCES_CANARY_EXACT_ASSETS_AND_ORIGINAL_SINGLE_PERMISSION')
+  return dependencies.verify(manifest,declared,value['historical_archive_resolutions'],source,destination)
+ return SimpleNamespace(**dict(vars(dependencies),verify=verify))
+
 def bound_canary(spec):
  fn=original.canary
  need(fn.__closure__ is None,'POSTCLOSE_RESOURCES_ORIGINAL_CANARY_WITHOUT_HIDDEN_CLOSURE')
@@ -78,6 +86,7 @@ def bound_canary(spec):
   return dict(passed=True,plan_sha256=PLAN_SHA,resources=value['resources'],financial_authority=False,
    financial_book_aliases_created=False,financial_sessions_reexecuted=0,dependency_closure=closure(member,spec,resolutions))
  scope=dict(fn.__globals__,data=SimpleNamespace(parent_contract=saved.parent_contract,need=need),
+  dependencies=canary_dependencies(spec),
   closed_inventory=closed_inventory,plan=lambda:plan(spec))
  bound=FunctionType(fn.__code__,scope,fn.__name__,fn.__defaults__);bound.__kwdefaults__=fn.__kwdefaults__
  need(bound.__code__ is fn.__code__,'POSTCLOSE_RESOURCES_IDENTICAL_COMPLETE_ORIGINAL_OWNED_COPY_CANARY')

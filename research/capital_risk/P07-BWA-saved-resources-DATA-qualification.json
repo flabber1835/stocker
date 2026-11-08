@@ -26,8 +26,8 @@
       "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
     },
     "system_campaign_postclose_distribution_resources.py": {
-      "bytes": 5285,
-      "sha256": "8cb467fdb9dc5c01677a3c3465159bbb068d3ec1a290a1b396d72dd99c7d09c1"
+      "bytes": 5800,
+      "sha256": "6ae7e40e100d2a6a3ed567ce6d481f0150049e97dfa8f7fb1f25bee7c2f039da"
     }
   },
   "financial_authority": false,
@@ -35,17 +35,39 @@
   "financial_sessions_advanced": 0,
   "historical_archives": 7,
   "historical_assets": 158,
+  "hosted_execution_scope": "Corrected current binding has not executed hosted; request229 original canary stopped before qualification.",
   "logical_bytes": 287155235,
   "parent_completed": 1383,
   "parent_cursor": "2023-06-30",
   "passed": true,
   "raw_proof_rows": 930,
+  "regression_tests": {
+    "actual_saved_archives_read_without_local_copy": true,
+    "command": "python -B -m pytest forecast_tests/test_postclose_distribution_resources.py::test_original_copy_canary_keeps_complete_code_identity forecast_tests/test_postclose_distribution_resources.py::test_actual_request229_canary_failure_is_reproduced_and_fixed_without_copying_a_book forecast_tests/test_postclose_distribution_resources.py::test_canary_permission_guard_and_removal_falsifier_on_genuine_read_only_DATA -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-canary-archive-binding-20261108-001",
+    "meaningful_guard_removals": 1,
+    "passed": 3,
+    "seconds": 5.98
+  },
   "remaining": [
     "complete saved-state restart and original ordinary observers/review integration",
     "authenticated stopped-parent hosted transport",
     "actual hosted copy canary, input adoption and certificate constructor",
     "financial run and independent admission"
   ],
+  "request229_regression": {
+    "artifact": 13596202092,
+    "current_book_present": false,
+    "error": "Original canary verifier received the one ABMD permission resolution but the preservation manifest contained seven historical archives.",
+    "financial_job_started": false,
+    "financial_sessions_advanced": 0,
+    "fix": "Bind the complete original verifier to the complete seven-archive preservation list while requiring the original single permission argument; copy/check/removal code unchanged.",
+    "head": "c8af75cd31fcc896176ec71b9147175127b1e5d9",
+    "logical_bytes": 223812231,
+    "members": 133,
+    "preflight_exit_code": 1,
+    "run": 42427850028,
+    "zip_sha256": "20d3cea14894797a10ee6ac87c858341fcbca609005cb55a6bcaa05106678acb"
+  },
   "requirements": 165,
   "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
   "schema": "research.P07-postclose-saved-resources-DATA-qualification/1",

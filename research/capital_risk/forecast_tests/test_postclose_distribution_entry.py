@@ -108,7 +108,7 @@ def test_closed_real_request_selects_only_P07_and_preserves_all_hosted_gates(act
  import system_campaign_financial_resume as resume
  request=json.loads((C/'system-campaign-factual-request.json').read_bytes())
  assert request==resume.expected_request() and p.require_sources(request,spec) is True
- assert request['schema']=='research.system-campaign-accurate-resume-request/229' and request['arms']==['P07']
+ assert request['schema']==resume.SCHEMA and request['arms']==['P07']
  assert request['maximum_parallel_financial_workers']==1 and request['maximum_parallel_readonly_workers']==0
  assert request['selected_source_exit_successors']=={} and request['selected_abmd_bounded_inputs']=={}
  assert request['selected_p07_full25_readonly_reporting']=={} and request['selected_p07_vivo_ordinary25']=={}
@@ -116,7 +116,7 @@ def test_closed_real_request_selects_only_P07_and_preserves_all_hosted_gates(act
  assert request[p.runtime.FIELD]['P07']['genuine_adoption_and_constructor_required'] is True
  assert request['nonfinancial_preflight_export_policy']=='LARGE_IDENTICAL_NONFINANCIAL_PREFLIGHT_COPIES_V1'
  qualification=json.loads((C/p.runtime.PROFILE).read_bytes())
- assert qualification['actual_neutral26_known'] is qualification['actual_hosted_copy_canary_executed'] is False
+ assert qualification['actual_neutral26_known'] is qualification.get('selected_job_actual_hosted_copy_canary_known',qualification.get('actual_hosted_copy_canary_executed')) is False
  assert qualification['actual_financial_constructor_executed'] is qualification['canonical_runtime_executed'] is False
 
 def test_closed_real_request_refuses_a_changed_new_profile_source_pin(actual):

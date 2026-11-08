@@ -1,6 +1,6 @@
 {
   "actual_financial_constructor_executed": false,
-  "actual_hosted_copy_canary_executed": false,
+  "actual_hosted_copy_canary_passed": false,
   "actual_neutral26_known": false,
   "canonical_runtime_executed": false,
   "committed_seed_rows": 929,
@@ -18,7 +18,7 @@
   "files": {
     "P07-BWA-model-bindings-DATA-qualification.json": {
       "bytes": 3931,
-      "sha256": "fa5157977944f12828d346177db60c05bb8134c74d4548658be004de142e2513"
+      "sha256": "66c94e1df5c34a28a5112ced6ff03f837425418988306d83331635c089acd930"
     },
     "P07-BWA-postclose-source-catalog.json": {
       "bytes": 122263,
@@ -33,8 +33,8 @@
       "sha256": "91371866da7ff227aeccc437ac826b9e050968669763f824873dd74200f99378"
     },
     "P07-BWA-saved-resources-DATA-qualification.json": {
-      "bytes": 2387,
-      "sha256": "0d4dd70329e60937f1af955d574a96351be4d371048a1f1fbcfdbf2ec30bc8e9"
+      "bytes": 3988,
+      "sha256": "cb646ff48a411991f7476ad54386d953132e8cd6d231ab4b8024b61a54351e11"
     },
     "P07-BWA-saved-resources.json": {
       "bytes": 60707,
@@ -66,7 +66,7 @@
     },
     "system_campaign_financial_resume.py": {
       "bytes": 67719,
-      "sha256": "b3aa6b109b1cff75734af40e94b0207847cc5a01bad2ddb52cfd81688e7185a5"
+      "sha256": "f4474a46e4154288707201948a480de195373d55c460ebd247898dd3b5a94776"
     },
     "system_campaign_full_history_successor.py": {
       "bytes": 4566,
@@ -97,8 +97,8 @@
       "sha256": "e1d8d7848dd58e7dbd1e834bb73f924ec5023e52d1d48c89db7aa712f374dca9"
     },
     "system_campaign_postclose_distribution_resources.py": {
-      "bytes": 5285,
-      "sha256": "8cb467fdb9dc5c01677a3c3465159bbb068d3ec1a290a1b396d72dd99c7d09c1"
+      "bytes": 5800,
+      "sha256": "6ae7e40e100d2a6a3ed567ce6d481f0150049e97dfa8f7fb1f25bee7c2f039da"
     },
     "system_campaign_postclose_distribution_restart.py": {
       "bytes": 17663,
@@ -131,10 +131,21 @@
   "parent_inputs": 25,
   "parent_outer_sha256": "7c01a593be8a4e0e67f29e2dd78c950e42f2d6967a1f2f6f82cfdeeba0874f58",
   "passed": true,
+  "previous_failed_preparation": {
+    "artifact": 13596202092,
+    "current_book_present": false,
+    "financial_job_started": false,
+    "head": "c8af75cd31fcc896176ec71b9147175127b1e5d9",
+    "new_trading_days": 0,
+    "original_preflight_exit_code": 1,
+    "run": 42427850028,
+    "source_error": "One permission resolution versus seven archive-preservation resolutions in original canary verification; whole verifier argument binding corrected."
+  },
   "protected_B19_Future_uncertainty_sources_unchanged": true,
   "required_genuine_neutral_inputs": 26,
   "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
   "schema": "research.P07-postclose-whole-source-profile-qualification/1",
+  "selected_job_actual_hosted_copy_canary_known": false,
   "tests": {
     "distinct_restart_and_entry_passed": 35,
     "entry_and_affected_passed": 16,
