@@ -1,5 +1,5 @@
 """Review the genuine saved August book with two authentic historical records."""
-import ast,base64,json,shutil
+import ast,base64,json,re,shutil,sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -268,8 +268,29 @@ def bind_launch(original):
   request=json.loads(Path(args.request).read_bytes())
   if not selected_request(request):return original(args)
   need(args.arm=='P07','REQUEST238_ONLY_SELECTED_P07_REVIEW')
-  with context(request,mode='launch'):return original(args)
+  with context(request,mode='launch'):
+   return diagnose_launch(lambda:original(args),HERE/'system_campaign_financial_resume.py')
  return launch
+
+
+def diagnose_launch(invoke,source):
+ observed={};prior=sys.gettrace();filename=str(source)
+ def local(frame,event,arg):
+  if event=='exception':
+   kind,error,_=arg
+   observed.clear();observed.update(exception_type=kind.__name__,source_line=frame.f_lineno)
+   if kind is ValueError and len(error.args)==1 and isinstance(error.args[0],str):
+    text=error.args[0]
+    if re.fullmatch(r'(?:REFUSED_FULL_SYSTEM_|BOUNDED_SENSOR_|FACTUAL_|PARTIAL_)[A-Z0-9_:.\-]{1,200}',text):observed['guard_code']=text
+  return local
+ def trace(frame,event,arg):
+  if event=='call' and frame.f_code.co_filename==filename and frame.f_code.co_name=='launch':return local
+  return None
+ try:
+  sys.settrace(trace);result=invoke()
+ finally:sys.settrace(prior)
+ if result and observed:print(json.dumps(dict(schema='research.P07-request238-launch-refusal-diagnostic/1',**observed)),flush=True)
+ return result
 
 
 def bind_dispatch(original):

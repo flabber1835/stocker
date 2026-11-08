@@ -112,6 +112,22 @@ def test_local_financial_entry_closed():
   with p.worker_context(None,p.target(),mode='preflight',out=None,request=request()):pytest.fail('Local worker opened')
 
 
+def test_launch_diagnostic_reports_guard_and_restores_trace(capsys):
+ scope={};filename='EXPLICIT_NONCANONICAL_SOURCE_DTO'
+ exec(compile("def launch():\n try:raise ValueError('REFUSED_FULL_SYSTEM_EXPLICIT_NONCANONICAL_DTO')\n except ValueError:return 2\n",filename,'exec'),scope)
+ old=sys.gettrace();assert p.diagnose_launch(scope['launch'],filename)==2;assert sys.gettrace() is old
+ result=json.loads(capsys.readouterr().out)
+ assert result['exception_type']=='ValueError' and result['guard_code']=='REFUSED_FULL_SYSTEM_EXPLICIT_NONCANONICAL_DTO'
+
+
+def test_launch_diagnostic_does_not_emit_arbitrary_exception_text(capsys):
+ scope={};filename='EXPLICIT_NONCANONICAL_SOURCE_DTO'
+ exec(compile("def launch():\n try:raise ValueError('EXPLICIT_NONCANONICAL_PRIVATE_DTO')\n except ValueError:return 2\n",filename,'exec'),scope)
+ assert p.diagnose_launch(scope['launch'],filename)==2
+ raw=capsys.readouterr().out;assert 'EXPLICIT_NONCANONICAL_PRIVATE_DTO' not in raw
+ assert 'guard_code' not in json.loads(raw)
+
+
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])
 def test_financial_import_fences(name):
  assert not any(n==name or n.startswith(name+'.') for n in sys.modules)
