@@ -1,0 +1,149 @@
+{
+  "actual_financial_constructor_executed": false,
+  "actual_hosted_copy_canary_executed": false,
+  "actual_neutral26_known": false,
+  "canonical_runtime_executed": false,
+  "committed_seed_rows": 929,
+  "existing_transport": {
+    "artifact": 13534905567,
+    "existing_complete_crypto_and_transport_unchanged": true,
+    "original_stops": [
+      0,
+      1,
+      0
+    ],
+    "original_successful_financial_review_sha256": "4be11de95428c48325a703f454b226cfcc53c225490b6ba59567373b59a40ddc",
+    "zip_sha256": "d09bd7e1b4b56f328daf9a74255ab32406ab3835cf4a805d483cfe92a92dd731"
+  },
+  "files": {
+    "P07-BWA-model-bindings-DATA-qualification.json": {
+      "bytes": 3931,
+      "sha256": "fa5157977944f12828d346177db60c05bb8134c74d4548658be004de142e2513"
+    },
+    "P07-BWA-postclose-source-catalog.json": {
+      "bytes": 122263,
+      "sha256": "6a6de9498afc77747b26a2ed36c5f153289894ec4567f7ac9fe85db9d67eedcd"
+    },
+    "P07-BWA-retained929-source.json": {
+      "bytes": 21010,
+      "sha256": "92a073c9e1a4732e2b117fec79a6dfc9b84cbfeae688b139547ace704d52015f"
+    },
+    "P07-BWA-runtime-DATA-qualification.json": {
+      "bytes": 2862,
+      "sha256": "91371866da7ff227aeccc437ac826b9e050968669763f824873dd74200f99378"
+    },
+    "P07-BWA-saved-resources-DATA-qualification.json": {
+      "bytes": 2387,
+      "sha256": "0d4dd70329e60937f1af955d574a96351be4d371048a1f1fbcfdbf2ec30bc8e9"
+    },
+    "P07-BWA-saved-resources.json": {
+      "bytes": 60707,
+      "sha256": "8410aeeb5ecf54d83bec31f3bb9b9f978ac1c7319df01fd592f90ab270e92524"
+    },
+    "P07-BWA-saved-restart-DATA-qualification.json": {
+      "bytes": 3973,
+      "sha256": "1e1e3316c3caf05428b8ca993ebcc3a7b5cf0ae66e9c7613e5922b29d72dd8d4"
+    },
+    "P07-BWA-source-DATA-qualification.json": {
+      "bytes": 2882,
+      "sha256": "c7911bf6bee7ae65d03dfaa06c0464d4b00db0a9d19eb0470ca1c6f8f85ee9d3"
+    },
+    "P07-BWA-source-DATA-review.json": {
+      "bytes": 965,
+      "sha256": "fa868ee7b8e553b7a336a10a05732a88d1c18e1c8bacc72fd1902d1dbb5c44ed"
+    },
+    "P07-BWA-typed-input-DATA-qualification.json": {
+      "bytes": 2512,
+      "sha256": "1b529d99db2ac936d9fc31dbaa988c7e1ce8fb21f2bd184bdfe010111e9c7cff"
+    },
+    "P07-admitted-ABMD-continuation-factory-DATA-SOURCE.txt": {
+      "bytes": 8931,
+      "sha256": "43e319690ef34374daaa441e9a2096edcef882d05230735512e9673d98a9f810"
+    },
+    "system_campaign_dependencies.py": {
+      "bytes": 3963,
+      "sha256": "49f74f093f1a206a6de27da7c355d57aa669b8dc2218c3fbabe115150f6f6869"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 67719,
+      "sha256": "b3aa6b109b1cff75734af40e94b0207847cc5a01bad2ddb52cfd81688e7185a5"
+    },
+    "system_campaign_full_history_successor.py": {
+      "bytes": 4566,
+      "sha256": "4b3e154b67bd02bc2aa30c9e7b674fb1678728c24813ebc89cd05b06bda695f8"
+    },
+    "system_campaign_p07_saved_proofs.py": {
+      "bytes": 11066,
+      "sha256": "90349db9e987771c6d9aea860cf2e8851aeda40da0125a3e64623c874f95535f"
+    },
+    "system_campaign_postclose_distribution_codec.py": {
+      "bytes": 6628,
+      "sha256": "3e3b9c5a57c39bd5c280d1b6c66fb735343bad6ce46dfb6e47967340b0ed252b"
+    },
+    "system_campaign_postclose_distribution_entry.py": {
+      "bytes": 10362,
+      "sha256": "9c0bdbf3600d085ea982899809e7fe8dd72d1d1f7970debc43bf0d3bbdd584ab"
+    },
+    "system_campaign_postclose_distribution_history.py": {
+      "bytes": 3509,
+      "sha256": "f6f11a4467a2d261634abde25d0559b2d0d50c61e8b355cc82870121029cfbba"
+    },
+    "system_campaign_postclose_distribution_input.py": {
+      "bytes": 13722,
+      "sha256": "31a9fd1a035fdef15d508dc39ca89f665021037090411a335d04b0134296341b"
+    },
+    "system_campaign_postclose_distribution_models.py": {
+      "bytes": 5265,
+      "sha256": "e1d8d7848dd58e7dbd1e834bb73f924ec5023e52d1d48c89db7aa712f374dca9"
+    },
+    "system_campaign_postclose_distribution_resources.py": {
+      "bytes": 5285,
+      "sha256": "8cb467fdb9dc5c01677a3c3465159bbb068d3ec1a290a1b396d72dd99c7d09c1"
+    },
+    "system_campaign_postclose_distribution_restart.py": {
+      "bytes": 17663,
+      "sha256": "960eec348cacd753e82d21c3709dd966bda78c536114f6616d4408b8bc879b94"
+    },
+    "system_campaign_postclose_distribution_review.py": {
+      "bytes": 7515,
+      "sha256": "3f4c23d96f43170a6dc5f566436e19edbc3ff338e171978b965348b1e1fa892f"
+    },
+    "system_campaign_postclose_distribution_runtime.py": {
+      "bytes": 11472,
+      "sha256": "3009a67fd86300d38701d101c89290b0f417e5baad7d740dfee117eb1a52b9d0"
+    }
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "mandatory_hosted_gates": [
+    "actual unchanged frozen source reconstruction and original packet/primitive qualification",
+    "actual owned resource copy and removal canary",
+    "actual canonical zero-day neutral26 adoption",
+    "whole actual neutral seed reader and identical929 baseline",
+    "actual original cooperative certificate and complete original observers constructed",
+    "all resources and complete26 history verified before financial main",
+    "complete original financial/branch/event/cash review and independent admission"
+  ],
+  "original383_sources_unchanged": true,
+  "original_four_worker_bodies_unchanged": true,
+  "parent_completed": 1383,
+  "parent_cursor": "2023-06-30",
+  "parent_inputs": 25,
+  "parent_outer_sha256": "7c01a593be8a4e0e67f29e2dd78c950e42f2d6967a1f2f6f82cfdeeba0874f58",
+  "passed": true,
+  "protected_B19_Future_uncertainty_sources_unchanged": true,
+  "required_genuine_neutral_inputs": 26,
+  "root_admission_sha256": "66ea8c9f48fe10335a6255d12a8d2482fd9c2e3742702c71cbaa936c21f6b695",
+  "schema": "research.P07-postclose-whole-source-profile-qualification/1",
+  "tests": {
+    "distinct_restart_and_entry_passed": 35,
+    "entry_and_affected_passed": 16,
+    "entry_and_affected_seconds": 3.77,
+    "entry_command": "python -B -m pytest forecast_tests/test_postclose_distribution_entry.py forecast_tests/test_postclose_distribution_restart.py::test_incomplete_profile_cannot_grant_financial_authority forecast_tests/test_postclose_distribution_restart.py::test_hosted_guard_precedes_real_import_or_write[api] -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-entry-20261107-001",
+    "financial_import_fences": 5,
+    "meaningful_guard_removals": 2,
+    "restart_original_command": "python -B -m pytest forecast_tests/test_postclose_distribution_restart.py -q -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-restart-20261107-001",
+    "restart_original_passed": 20,
+    "restart_original_seconds": 3.42
+  }
+}

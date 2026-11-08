@@ -167,6 +167,77 @@ four tests in 6.57 seconds. The genuine existing parent and private
 929-row lifecycle phase passed. No future26 checkpoint or constructor was
 created or executed locally.
 
+## Hosted restart order
+
+Keep the complete old B19/APHA/ZOG/ABMD loader chain installed. Add the
+standalone distribution loader after it. Existing branch/factory inspection
+may look below only that actual, active, exact-document distribution layer;
+the complete old ABMD inspection still runs on its original delegated loader.
+Restore the exact previous layer on exit.
+
+Preserve all historical resources, reconstruct and qualify the new input,
+then use the whole original canonical pause/adoption routine. Bind its
+directory map and complete nested overlay filename, retaining the original
+boundary reader. Verify the genuine neutral26 archive, unchanged state,
+watch append and correlation bytes before preparing a temporary seed view.
+Keep the selected original25 gzip and raw proof file unchanged in that view;
+add only the actual new input/adoption files and committed neutral watch
+prefix. The complete original retained-seed reader must return precisely
+the same 929 rows, controller identities and qualification as the old parent.
+
+Use the complete old retained worker and cooperative certificate factory.
+Keep the existing inherited ordinary observers, add the original VIVO23
+cash observer with its genuine original24 source parent, then the unchanged
+distribution observer. Reuse the existing point/interval growth context
+with the exact current root and actual25/26 descriptor counts. A constructor
+canary runs after those contexts enter and before financial main; it checks
+the complete resource preservation, real neutral26 and exact seed929.
+
+Independent review keeps the same input chain active and requires the
+complete old financial/branch/event reviews, the complete original VIVO23
+cash review, new distribution event review and neutral-boundary checks.
+All real copying, adoption, factory construction and financial calls require
+the hosted guard and a separately closed explicit whole-profile request.
+No new financial profile is selected by adding this component.
+
+## Launch and existing transport
+
+FIN343's accepted June 30 result already has a positively stopped successful
+financial reviewer and exact core-review bytes. Its worker's nonzero stop
+remains explicit. Reuse the existing partial transport, public-member,
+authentication-before-parsing, complete extraction, source, inspection,
+selected-gzip and journal-prefix checks without a new crypto or alternate
+review-capsule format. All historical resources in this profile exist in
+the authenticated physical source. No replacement book or local staging is
+needed. The separate root admission retains its existing monthly authority.
+
+The new entry must be selected before older P07 count24/readonly routes.
+Preserve all original financial worker bodies. In its private process,
+bind the exact current lifecycle phase and original router implementation,
+then restore them on exit. Preflight prohibits financial main and runtime
+advance while the existing source/packet primitives and real owned-copy
+canary qualify the input; it creates no current or new neutral checkpoint.
+The saved preflight receipt must match again before economic work.
+
+Request generation retains the entire original metadata validator with
+exact root66, 1383-day, 929-row and six-controller bindings. Older P07
+dispatch declarations are excluded for this new explicit profile. The
+existing bounded nonfinancial-preflight export policy remains separately
+declared, with all financial paths protected and the same 1 GiB bound.
+Launch P07 in a separate request while an already active P06 request keeps
+running from its original commit. Retain the existing per-arm concurrency
+groups and do not reselect P06 in the new request.
+
+The restart and entry source checks passed 37 distinct tests: the original
+20 restart checks, 16 entry/affected checks (including the added API guard),
+and two new exact-request checks. The final targeted request run passed
+three tests in 4.40 seconds, including the affected incomplete-profile test.
+The official import/request probe also passed. The original 383 source
+files, four financial worker bodies and protected B19/Future/uncertainty
+files remain unchanged. Request229 selects only P07 with one financial worker,
+zero readonly workers and 747 pinned source files. Its hosted preparation,
+neutral26, constructor and financial result remain unproven until they run.
+
 ## Source qualification
 
 The source normalization, independent reconstruction and packet-codec checks passed 21 tests in 4.08 seconds. They read the genuine admitted 1383-day checkpoint and authentic SOURCE357 data, retain all three complete observations and both native records, and verify the actual frozen trading axis. The term builder and packet projection retain their complete original function bodies. Two guard-removal tests cover date relabeling and independent full-witness comparison. No financial state was created or advanced. Source closure is complete; the financial profile remains closed pending the full history, 929-proof preservation and hosted gates above.

@@ -8,7 +8,7 @@ permissions:
   actions: read
 jobs:
   suffix:
-    # Source/whole-profile checks close first; real preparation, neutral13 and
+    # Source/whole-profile checks close first; real preparation, neutral26 and
     # constructor canaries must then pass before financial main can advance.
     if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        arm: [P06]
+        arm: [P07]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3
