@@ -98,3 +98,14 @@ Exact command, from the isolated worktree:
 The source-bound CLI probe is `python -B research/capital_risk/p10_reentry_job.py --probe`.
 Hosted canonical canaries, all-baseline differentials, paired accounts and the
 independent rational metric/monthly review remain required before any outcome.
+
+Generation 1, run42496904174/job128781085537, stopped in capacity setup with
+`REFUSED_CAPACITY_OUTPUT`: the caller supplied a relative, renamed receipt path.
+No staging, controller, account or independent-review worker began; no artifact
+was produced. Preserve that stopped failure. Generation 2 restores the existing
+absolute `$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json`
+contract in the workflow and receipt consumer. A three-case inert Linux path DTO
+regression exercises the original capacity admission function against the actual
+workflow argument and both bad-path forms. The capacity implementation and its
+refusal are unchanged. This is a corrected new source/request generation, never
+an Actions rerun of generation 1.

@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     concurrency:
-      group: p10-reentry-pilot-generation-1
+      group: p10-reentry-pilot-generation-2
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -27,7 +27,7 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Prepare isolated research capacity
         timeout-minutes: 6
-        run: python3 -B research/capital_risk/ephemeral_runner_capacity.py --output artifacts/capital-risk/p10-reentry-capacity.json
+        run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
       - name: Install locked transfer dependencies
         timeout-minutes: 4
         run: |
@@ -48,7 +48,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p10_reentry_job.py --staging artifacts/capital-risk/p10-reentry-staging.json --capacity artifacts/capital-risk/p10-reentry-capacity.json --output artifacts/capital-risk/p10-reentry-receipt.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p10_reentry_job.py --staging artifacts/capital-risk/p10-reentry-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/p10-reentry-receipt.json'
       - name: Preserve stopped encrypted evidence
         if: always()
         timeout-minutes: 5
@@ -56,7 +56,7 @@ jobs:
         with:
           name: p10-reentry-pilot-${{ github.sha }}
           path: |
-            artifacts/capital-risk/p10-reentry-capacity.json
+            artifacts/capital-risk/ephemeral-runner-capacity.json
             artifacts/capital-risk/p10-reentry-staging.json
             artifacts/capital-risk/p10-reentry-receipt.json
             artifacts/capital-risk/p10-reentry.tar.crseal

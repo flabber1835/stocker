@@ -3,7 +3,8 @@ import ast
 from copy import deepcopy
 import importlib.abc
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import shlex
 import sys
 from types import SimpleNamespace
 
@@ -130,3 +131,31 @@ def test_data_import_probe_under_all_canonical_import_fences():
         assert probe(request)['canonical_runtime_executed'] is False
     finally:
         sys.meta_path.remove(finder)
+
+
+class CapacityPathDTO(PurePosixPath):
+    """Inert Linux path facts: no filesystem access or preparation operations."""
+    def resolve(self):
+        return self
+    def is_symlink(self):
+        return False
+    def exists(self):
+        return False
+
+
+@pytest.mark.parametrize('replacement', (None, 'artifacts/capital-risk/p10-reentry-capacity.json',
+                                       '$GITHUB_WORKSPACE/artifacts/capital-risk/p10-reentry-capacity.json'))
+def test_actual_workflow_capacity_argument_against_existing_guard(replacement, monkeypatch):
+    import ephemeral_runner_capacity as capacity
+    monkeypatch.setattr(capacity, 'Path', CapacityPathDTO)
+    text = (HERE.parent.parent / '.github/workflows/capital-p10-reentry-pilot.yml').read_text()
+    line, = [v.strip()[6:].strip("'") for v in text.splitlines()
+             if v.strip().startswith('run:') and 'ephemeral_runner_capacity.py' in v]
+    argv = shlex.split(line)
+    selected = argv[argv.index('--output') + 1] if replacement is None else replacement
+    dto = CapacityPathDTO(selected.replace('$GITHUB_WORKSPACE', capacity.WORKSPACE))
+    if replacement is None:
+        assert capacity.admitted_output(dto) == CapacityPathDTO(capacity.WORKSPACE) / capacity.OUTPUT
+    else:
+        with pytest.raises(capacity.Refusal, match='REFUSED_CAPACITY_OUTPUT'):
+            capacity.admitted_output(dto)

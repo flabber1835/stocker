@@ -22,6 +22,7 @@ REQUEST = 'p10-reentry-request.json'
 WORKFLOW = '.github/workflows/capital-p10-reentry-pilot.yml'
 DOC = 'docs/p10-core-health-reentry-experiment.md'
 ROOT = '6e20b57099843380d9436d7a60c25c313abe53785f9db40049f59b411c9e8105'
+GENERATION = 2
 
 
 def expected_request():
@@ -30,7 +31,7 @@ def expected_request():
     files = {p.name: sha256_file(p) for p in sorted(HERE.iterdir())
              if p.is_file() and p.suffix in ('.py', '.json', '.lock') and p.name != REQUEST}
     return dict(schema='research.p10-core-health-reentry-request/1', arm='P10',
-                original_completed_root=ROOT, generation=1, profiles=2,
+                original_completed_root=ROOT, generation=GENERATION, profiles=2,
                 production_contacted=False, original_campaign_resumed=False,
                 protocol_sha256=sha256_file(HERE.parent.parent / DOC),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW), sources=files)
@@ -105,7 +106,7 @@ def launch(a):
     key = base64.b64decode(os.environ.pop(SECRET, ''), validate=True)
     need(len(key) == 32, 'SEPARATE_TRANSFER_KEY')
     a.output.parent.mkdir(parents=True, exist_ok=True)
-    receipt = dict(schema='research.p10-reentry-receipt/1', arm='P10', generation=1,
+    receipt = dict(schema='research.p10-reentry-receipt/1', arm='P10', generation=GENERATION,
                    run_id=os.environ['GITHUB_RUN_ID'], head=os.environ['GITHUB_SHA'],
                    request_sha256=sha256_file(a.request), original_completed_root=ROOT,
                    status='PARENT_AUTHENTICATION_PENDING', performance_admitted=False,
@@ -115,7 +116,7 @@ def launch(a):
         temporary.write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
         os.replace(temporary, a.output)
     publish()
-    temp = Path(os.environ['RUNNER_TEMP']) / 'p10-reentry-001'
+    temp = Path(os.environ['RUNNER_TEMP']) / ('p10-reentry-' + str(GENERATION))
     temp.mkdir(mode=0o700, exist_ok=False)
     output = temp / 'output'
     output.mkdir()
