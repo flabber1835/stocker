@@ -26,13 +26,23 @@ ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
                        'rolling_daily_checkpoint.py', 'panel/review_migration.py'}
 CASH_ADDITIONS = {'paper/cash_retirement.py'}
 STARTUP_CHANGES = {'shadow_service_probe.py'}
-EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'}
+READ_COST_ADDITIONS = {
+    'panel/verification_health.py', 'shadow_drain_observer.py',
+    'shadow_service_config.py', 'shadow_exit_codes.py',
+}
+READ_COST_CHANGES = {
+    'execution_collector.py', 'feed/retention.py', 'panel/intent_memo.py',
+    'panel/projection_service.py', 'panel/verification_service.py', 'web_push.py',
+    'shadow_drain.py', 'shadow_service.py', 'shadow_supervisor.py', 'shadow_worker.py',
+    'url_selected_source_basis.py',
+}
+EFFICIENCY_ADDITIONS = {'panel/shadow_execution_projection.py'} | READ_COST_ADDITIONS
 FEED_EVIDENCE_CHANGES = {'panel/feed_display.py'}
 ROOT_CAUSE_CHANGES = {
     'automation/health.py', 'automation/service.py', 'automation/store.py',
     'alert_service.py', 'shadow_drain.py', 'shadow_supervisor.py',
     'shadow_health_projection.py', 'url_selected_source_basis.py',
-}
+} | READ_COST_CHANGES
 DIAGNOSTIC_CHANGES = {
     'supervisor_io.py', 'shadow_supervisor.py', 'automation_supervisor.py',
     'automation/health.py', 'alert_service.py',
@@ -301,7 +311,7 @@ def test_installed_pr573_archive_is_exact_and_only_diagnostics_change():
         '92dcbcf6559efb0d19476438dae0a653850d44afc7bb7dc7b69294b38f5035b5')
     assert previous['url_selected_source_basis.py'] == (
         '702439463966cfaa06d5eca2837d716b1204eb61a09b432b3967c1e2229bfeae')
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == DIAGNOSTIC_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
     assert profile['authority_effect'] == 'NONE'
@@ -311,7 +321,7 @@ def test_each_diagnostic_module_change_or_removal_keeps_actual_identity():
     actual = _actual()
     previous = basis._profile()['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
-    for name in DIAGNOSTIC_CHANGES:
+    for name in DIAGNOSTIC_CHANGES | READ_COST_ADDITIONS:
         changed = {**actual, name: 'f' * 64}
         assert basis.predecessor_view(changed, previous=previous) is changed, name
         missing = {key: digest for key, digest in actual.items() if key != name}
@@ -361,10 +371,10 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
         '7706a3683dbee27c684291f520517f2e6f2447f3de4662dbd9b7b3b111692929')
     assert previous['url_selected_source_basis.py'] == (
         'c82dc2c6dbb1e57cf5c4964cb46f635d50010a25b33b7dec672a3b8d59ec98c6')
-    assert set(actual) == set(previous)
+    assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
     assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 17
+    assert len(profile['retained_predecessors']) == 18
     assert profile['authority_effect'] == 'NONE'
 
 
