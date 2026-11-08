@@ -106,9 +106,21 @@ def test_current_complete_request_and_exact_source_closure():
  import system_campaign_financial_resume as m
  raw=(C/m.REQUEST).read_bytes();request=json.loads(raw)
  if not request.get(p.FIELD):pytest.skip('The new closed financial request has not been selected yet')
- assert request==m.expected_request() and request['schema'].endswith('/236')
+ assert request==m.expected_request() and request['schema']==m.SCHEMA
  assert p.require_request(request,p.history.spec())
  assert all(p.sha((C/n).read_bytes())==pin for n,pin in request['sources'].items())
+
+
+def test_prior_data_callback_verifies_without_writing_before_canonical_loader(monkeypatch):
+ seen=[]
+ def seed_reader():
+  return lambda *args:seen.append('VERIFY_EXPLICIT_NONCANONICAL_SEED_DTO') or ('HASHES_DTO',['SEED_DTO'],b'QUALIFIED_DTO')
+ monkeypatch.setattr(retained,'seed_reader',seed_reader)
+ monkeypatch.setattr(p.resources,'closure',lambda read:seen.append('VERIFY_EXPLICIT_NONCANONICAL_RESOURCE_DTO') or {'EXPLICIT_NONCANONICAL_CLOSURE_DTO':True})
+ monkeypatch.setattr(p.resources,'preserve',lambda *args:pytest.fail('Early copy recreates the authenticated request236 failure'))
+ result=p.verify_prior_data(Path('EXPLICIT_NONCANONICAL_ROOT_DTO'),{},Path('EXPLICIT_NONCANONICAL_OUT_DTO'),{})
+ assert result=={'EXPLICIT_NONCANONICAL_CLOSURE_DTO':True}
+ assert seen==['VERIFY_EXPLICIT_NONCANONICAL_SEED_DTO','VERIFY_EXPLICIT_NONCANONICAL_RESOURCE_DTO']
 
 
 @pytest.mark.parametrize('name',['research.pooled_','stock_strategy_shared','sentinel','numpy','pandas'])

@@ -130,6 +130,12 @@ def mature_review(module):
  exec(compile(ast.Module(body=[fn],type_ignores=[]),'<whole-original-mature-review-KDNY-installed-inputs>','exec'),scope);return scope['review']
 
 
+def verify_prior_data(root,parent,out,spec):
+ """The canonical retainer owns its first writes; copy only in preparation."""
+ retained.seed_reader()(root,parent,spec)
+ return resources.closure(lambda name:(Path(root)/name).read_bytes())
+
+
 @contextmanager
 def context(module,spec,*,mode,out,request,evidence=None):
  from full_system_core import hosted
@@ -145,10 +151,7 @@ def context(module,spec,*,mode,out,request,evidence=None):
  old_implementation=router.implementation
  def implementation(root,current,target):
   if not retained.selected(target):return old_implementation(root,current,target)
-  def preserve(where,parent,folder,selected):
-   baseline=retained.seed_reader()(where,parent,selected)
-   return resources.preserve(where,folder,parent,baseline[1],baseline[2])
-  return SimpleNamespace(preserve=preserve,retained_models=lambda where,parent,selected:history.full(where,parent))
+  return SimpleNamespace(preserve=verify_prior_data,retained_models=lambda where,parent,selected:history.full(where,parent))
  @contextmanager
  def models(root,current,target):
   if not retained.selected(target):

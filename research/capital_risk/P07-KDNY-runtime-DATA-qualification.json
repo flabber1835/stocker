@@ -1,6 +1,21 @@
 {
   "actual_neutral27_known": false,
   "actual_shared_financial_constructor_executed": false,
+  "authenticated_prior_failure": {
+    "artifact_id": 13605704841,
+    "artifact_zip_sha256": "5b137ab5cf9f5e88936b554e39530c400ab01d11a4659323c2dea54e9e8d8aa1",
+    "captured_logical_bytes": 366933523,
+    "captured_members": 250,
+    "cause": "early resource copy preceded original exclusive factual hydrator",
+    "correction": "early callback validates only; unchanged preparation copies after original retainer initialization",
+    "financial_worker_started": false,
+    "head_sha": "f6f6347c33d72c6604f23685f46f1fb174e5e06d",
+    "job_id": 128644273377,
+    "new_financial_days": 0,
+    "preflight_exit_code": 1,
+    "request": 236,
+    "run_id": 42452419846
+  },
   "counts": {
     "parent_days": 1403,
     "parent_inputs": 26,
@@ -42,8 +57,8 @@
       "sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6"
     },
     "forecast_tests/test_KDNY_runtime.py": {
-      "bytes": 7164,
-      "sha256": "6a68f8baf310464c2ab46e8861870f57278a0cab25e4076defc42124daa9d802"
+      "bytes": 8021,
+      "sha256": "0f2c163ab3b4e2a1194401baa5428cf55ff74ef2ca54ae67246af02ddedbc4e8"
     },
     "system_campaign_bounded_sensor_seed_binding.py": {
       "bytes": 1523,
@@ -66,8 +81,8 @@
       "sha256": "21e9f4eb9382b55c70c34da0221b90e70d27e225490f2d46d1817c077445bd04"
     },
     "system_campaign_p07_KDNY_entry.py": {
-      "bytes": 13320,
-      "sha256": "70acf8bcf07bead39eb2d25e577825a35011494c77b7d4add0cc2ab234b284a8"
+      "bytes": 13389,
+      "sha256": "651835ea79359c4afd5281156a5fd782610e9621c58999d3c62cb9d6ffd4ff2a"
     },
     "system_campaign_p07_KDNY_history.py": {
       "bytes": 4873,
@@ -133,15 +148,12 @@
   "financial_authority": false,
   "local_canonical_runtime_executed": false,
   "passed": true,
-  "related_selector_parent_tests": {
+  "previous_request236_related_selector_parent_tests": {
     "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_request231_parent.py research/capital_risk/forecast_tests/test_request231_readonly_recovery.py research/capital_risk/forecast_tests/test_request232_final_reporting.py research/capital_risk/forecast_tests/test_STML_restart.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-selector-parent-tests-20261108-001",
     "passed": 82,
     "seconds": 14.37
   },
-  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
-  "schema": "research.P07-KDNY-whole-runtime-DATA-qualification/1",
-  "scope": "Complete original worker and decoder composition tested as DATA/opaque DTO only. Actual hosted packet preparation, canonical neutral27 and shared financial constructor remain mandatory before financial advance.",
-  "tests": {
+  "previous_request236_runtime_tests": {
     "actual_complete_request_and_all_source_pins_checked": true,
     "all_four_mature_worker_ASTs_unchanged": true,
     "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-runtime-tests-20261108-002",
@@ -149,6 +161,22 @@
     "meaningful_guard_removals": 1,
     "passed": 20,
     "seconds": 7.65,
+    "whole_original_adopter_AST_undo": true,
+    "whole_original_retained_declaration_AST_undo": true,
+    "whole_original_retained_worker_writer_dispatch": true
+  },
+  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "schema": "research.P07-KDNY-whole-runtime-DATA-qualification/1",
+  "scope": "Complete original worker and decoder composition tested as DATA/opaque DTO only. Actual hosted packet preparation, canonical neutral27 and shared financial constructor remain mandatory before financial advance.",
+  "tests": {
+    "actual_complete_request_and_all_source_pins_checked": true,
+    "all_four_mature_worker_ASTs_unchanged": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-request237-runtime-20261108-001",
+    "early_copy_regression": true,
+    "early_copy_restoration_falsifier_observed": true,
+    "financial_import_fences": 5,
+    "passed": 21,
+    "seconds": 5.13,
     "whole_original_adopter_AST_undo": true,
     "whole_original_retained_declaration_AST_undo": true,
     "whole_original_retained_worker_writer_dispatch": true

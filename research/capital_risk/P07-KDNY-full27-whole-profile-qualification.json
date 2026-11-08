@@ -17,8 +17,8 @@
       "sha256": "8179e6db6d38fd2bb816b12bfe55b2d6070e0778d7c7735b4fefffe0d1bf8c2b"
     },
     "P07-KDNY-runtime-DATA-qualification.json": {
-      "bytes": 6755,
-      "sha256": "9fdbae0108080242cedb06d743cdfbb8c0fb2a4d3f47d6a4110fd0c3c724e9cc"
+      "bytes": 8139,
+      "sha256": "aaadeec927fa3e8623b6daa8ac7148316c277141bac403098333f7710e74f57e"
     },
     "P07-KDNY-source-packet-DATA-qualification.json": {
       "bytes": 4288,
@@ -50,7 +50,7 @@
     },
     "system_campaign_financial_resume.py": {
       "bytes": 68150,
-      "sha256": "b6b0434d84019b74ef10c523ad1cf798424cc9d99f3b9266804b0b9239f58e3b"
+      "sha256": "4130d78f7363c38b5e876cb848f9ac4b1b0433cd94f0b20b8a23f316ec6962b5"
     },
     "system_campaign_full_history_successor.py": {
       "bytes": 4566,
@@ -65,8 +65,8 @@
       "sha256": "21e9f4eb9382b55c70c34da0221b90e70d27e225490f2d46d1817c077445bd04"
     },
     "system_campaign_p07_KDNY_entry.py": {
-      "bytes": 13320,
-      "sha256": "70acf8bcf07bead39eb2d25e577825a35011494c77b7d4add0cc2ab234b284a8"
+      "bytes": 13389,
+      "sha256": "651835ea79359c4afd5281156a5fd782610e9621c58999d3c62cb9d6ffd4ff2a"
     },
     "system_campaign_p07_KDNY_history.py": {
       "bytes": 4873,
@@ -134,7 +134,7 @@
   "passed": true,
   "resource_and_seed_qualification": "8179e6db6d38fd2bb816b12bfe55b2d6070e0778d7c7735b4fefffe0d1bf8c2b",
   "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
-  "runtime_DATA_qualification": "9fdbae0108080242cedb06d743cdfbb8c0fb2a4d3f47d6a4110fd0c3c724e9cc",
+  "runtime_DATA_qualification": "aaadeec927fa3e8623b6daa8ac7148316c277141bac403098333f7710e74f57e",
   "schema": "research.P07-KDNY-full27-whole-profile-qualification/1",
   "source_and_packet_qualification": "2e3d1d861874cc16fcdb9bf5b19eb6dd2462551e8ff425e877a402e0b5a2fa41"
 }
