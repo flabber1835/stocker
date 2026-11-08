@@ -159,3 +159,28 @@ def test_actual_workflow_capacity_argument_against_existing_guard(replacement, m
     else:
         with pytest.raises(capacity.Refusal, match='REFUSED_CAPACITY_OUTPUT'):
             capacity.admitted_output(dto)
+
+
+@pytest.mark.parametrize('bad', (False, 'nested', 'prefix'))
+def test_actual_baseline_transfer_destination_guard_with_data_only_paths(bad, monkeypatch):
+    import p10_reentry_job as job
+    import system_campaign_factual_admit as transport
+    env = dict(RUNNER_TEMP='/home/runner/work/_temp', GITHUB_ACTIONS='true',
+               GITHUB_REPOSITORY='flabber1835/stocker', GITHUB_REF='refs/heads/codex/capital-risk-research',
+               GITHUB_ACTOR='flabber1835', RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux',
+               GITHUB_EVENT_NAME='push', GITHUB_SHA='a' * 40)
+    monkeypatch.setattr(job, 'Path', CapacityPathDTO)
+    monkeypatch.setattr(transport, 'Path', CapacityPathDTO)
+    monkeypatch.setattr(transport, 'os', SimpleNamespace(name='posix', environ=env))
+    monkeypatch.setattr(transport, 'shutil', SimpleNamespace(
+        disk_usage=lambda _: SimpleNamespace(free=12 * 1024**3)))
+    chosen = job.baseline_transfer_root(env['RUNNER_TEMP'], 3)
+    if bad == 'nested':
+        chosen = CapacityPathDTO(env['RUNNER_TEMP']) / 'p10-reentry-2/original'
+    if bad == 'prefix':
+        chosen = CapacityPathDTO(env['RUNNER_TEMP']) / 'p10-reentry-original'
+    if bad:
+        with pytest.raises(ValueError, match='HOSTED_FACTUAL_DESTINATION_CAPACITY'):
+            transport.hosted_destination(chosen)
+    else:
+        assert transport.hosted_destination(chosen) == chosen

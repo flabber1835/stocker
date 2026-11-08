@@ -22,7 +22,11 @@ REQUEST = 'p10-reentry-request.json'
 WORKFLOW = '.github/workflows/capital-p10-reentry-pilot.yml'
 DOC = 'docs/p10-core-health-reentry-experiment.md'
 ROOT = '6e20b57099843380d9436d7a60c25c313abe53785f9db40049f59b411c9e8105'
-GENERATION = 2
+GENERATION = 3
+
+
+def baseline_transfer_root(runner_temp, generation):
+    return Path(runner_temp) / ('campaign-factual-transfer-p10-reentry-' + str(generation))
 
 
 def expected_request():
@@ -126,7 +130,8 @@ def launch(a):
         entry = json.loads((HERE / partial.ROOTS).read_bytes())['completed_financial_roots']['P10']
         need(entry['admission_sha256'] == ROOT, 'EXACT_ORIGINAL_COMPLETED_ROOT')
         partial.authorized_completion(entry, 'P10')
-        core = partial.admit(entry['transport'], temp / 'original', key, old_inspector())
+        core = partial.admit(entry['transport'], baseline_transfer_root(os.environ['RUNNER_TEMP'], GENERATION),
+                             key, old_inspector())
         os.environ.pop('GH_TOKEN', None)
         frozen = Path(os.environ['RUNNER_TEMP']) / 'capital-risk-stage-001/inputs'
         binding = json.loads((core / 'source-bindings.json').read_bytes())

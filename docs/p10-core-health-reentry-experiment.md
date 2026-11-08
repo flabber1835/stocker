@@ -109,3 +109,16 @@ regression exercises the original capacity admission function against the actual
 workflow argument and both bad-path forms. The capacity implementation and its
 refusal are unchanged. This is a corrected new source/request generation, never
 an Actions rerun of generation 1.
+
+Generation 2, run42497160313/job128781868259, passed capacity, import closure and
+full frozen-runtime authentication (591 members/1,759,945,552 bytes). The original
+artifact transport then refused the nested destination before download or any
+controller/account launch: `HOSTED_FACTUAL_DESTINATION_CAPACITY`. Its preserved
+three-member artifact13623064437 is 2,742 bytes, SHA256
+`c0293ddbe8f0acd6bf54675a22ac17fb8d5940741fc3b9bb61414d41bdba2b89`.
+Generation 3 uses the unchanged transport contract: a direct RUNNER_TEMP child
+whose name starts `campaign-factual-transfer-`. The actual hosted-destination
+guard is covered by three inert path/environment/capacity DTO cases, including
+the actual rejected nested path. No original transport, path, resource or
+authentication guard changed. All other reused caller contracts were inspected
+before this corrected generation; controller/account execution remains pending.
