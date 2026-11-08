@@ -9,9 +9,9 @@ def stop(code=0,oom=False):return dict(stopped=True,exit_code=code,oom_killed=oo
 
 def test_actual_admitted_dates_and_counts_are_primary_reporting():
  rows=p.accepted_status();assert len(rows)==12 and sum(r['complete'] for r in rows)==8
- assert sum(r['completed'] for r in rows)==21233
+ assert sum(r['completed'] for r in rows)==21253
  assert next(r for r in rows if r['arm']=='P06')['through']=='2026-07-31'
- assert next(r for r in rows if r['arm']=='P07')['completed']==1426
+ assert next(r for r in rows if r['arm']=='P07')['completed']==1446
  assert next(r for r in rows if r['arm']=='P03')['completed']==671
  assert json.loads((C/'system-campaign-event-inventory.json').read_bytes())['accepted']==rows
 

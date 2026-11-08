@@ -31,7 +31,7 @@ def test_exact_original_transport_selects_existing_one_gib_option():
  assert p.reviewed_archive_limit(spec)==1024**3
  p.crypto.archive_bound(spec,1024**3)
  assert p.sha(Path(p.crypto.__file__).read_bytes())==p.CRYPTO_SHA
- assert p.reviewed_archive_limit(p.root_spec('P07'))==512*1024**2
+ assert p.reviewed_archive_limit(p.root_spec('P07','b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59'))==512*1024**2
 
 @pytest.mark.parametrize('mutation',['manifest','selected','stopped','oom','review','bool_exit'])
 def test_changed_commitments_and_unknown_or_failed_writers_refuse(mutation):

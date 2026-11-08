@@ -47,9 +47,9 @@
     {
       "arm": "P07",
       "complete": false,
-      "completed": 1426,
-      "root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
-      "through": "2023-08-31"
+      "completed": 1446,
+      "root": "4fd19a57b5a982d1e031a6c7b8916ffdb605dbbb57b39f3f9f5bdf073a63b444",
+      "through": "2023-09-29"
     },
     {
       "arm": "P08",
@@ -237,18 +237,18 @@
       "bounded_source_catalog": "P03-PFNX-full21-source-catalog.json",
       "event": "PFNX cash plus contingent right; native September30/legal October1,2020",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
+      "failed_retired_profile": "P03-PFNX-full22-whole-profile-qualification.json",
       "family": "CASH_AND_CONTINGENT_RIGHT",
       "missing": [
-        "authenticate full original admitted671 export",
-        "actual151-resource copy/removal canary",
-        "actual two original native/legal packets over all21 prior inputs",
-        "actual canonical neutral22 preserving entire671 state",
-        "actual217 three-event constructor plus35-term observer",
-        "original financial continuation and full retained/ordinary/monthly review",
+        "complete real September30/October1 source packets preserving simultaneous MNTA action",
+        "versioned source and restart qualification; retain original suppressed-terminal guard",
+        "genuine hosted neutral22, constructor and financial execution",
         "independent saved-prefix admission"
       ],
-      "profile_qualification": "P03-PFNX-full22-whole-profile-qualification.json",
+      "original_failed_artifact": 13617721778,
+      "original_failed_run": 42481611611,
       "resource_component_qualification": "P03-PFNX-retained217-resources-DATA-qualification.json",
+      "retry_authorized": false,
       "security_id": "326446597882092349",
       "source_catalog": "P03-PFNX-P07-RETA-native-source-catalog.json",
       "source_component_qualification": "P03-PFNX-source-packet-DATA-qualification.json",
@@ -265,24 +265,21 @@
       "source_observations": "BRG October6 quote absent; priorOctober5 BRG and October6 BHM present"
     },
     {
-      "admitted_root": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+      "admitted_root": "4fd19a57b5a982d1e031a6c7b8916ffdb605dbbb57b39f3f9f5bdf073a63b444",
       "arm": "P07",
-      "event": "Twelve remaining cash-calendar events from September2023 through August2025; includes RETA",
+      "event": "October5,2023 incomplete leadership terminal; exact identity and legal treatment unresolved",
       "event_date_ownership": "UNKNOWN_UNTIL_ACTUAL_GUARDED_TRANSITION",
-      "family": "CASH_MERGER_BATCH",
+      "family": "UNKNOWN_COMMON_RIGHTS",
       "missing": [
-        "authenticate original238 and positive243 exports",
-        "complete245 resource copy/removal canary",
-        "actual original packets and stopped preparation",
-        "actual canonical neutral28 preserving entire1426 state",
-        "actual972 constructor and35-term observer plus BWA",
-        "original financial worker and independent saved-prefix admission"
+        "source-only identity and full native/event-day records",
+        "qualified treatment preserving all28 inputs, ABMD/KDNY full intervals and BWA",
+        "fresh full28 restart profile and hosted gates",
+        "independent saved-prefix admission"
       ],
-      "profile_qualification": "P07-ordinary28-whole-profile-qualification.json",
-      "security_id": "877716075426179792",
-      "source_catalog": "P07-ordinary28-retained-cash-catalog.json",
-      "source_component_qualification": "P07-ordinary28-source-history-resources-DATA-qualification.json",
-      "source_resource_fact": "P07-ordinary28-real1426-retained972-resource-fact.json"
+      "original_stopped_artifact": 13618101866,
+      "original_stopped_run": 42477533629,
+      "retry_authorized": false,
+      "security_id": "383424504385495727"
     },
     {
       "arm": "P09",
