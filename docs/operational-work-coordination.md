@@ -115,6 +115,13 @@ fill interval coverage, finality and immutable-verdict checks. Current dual PAPE
 continues to bypass the official nondual trial-finalization branch. No blanket
 cached verdict replaces broker or financial authority.
 
+The paper-package equivalence witness preserves its original frozen hashes.
+Before comparing, it recognizes only the exact optional-baseline fallback and
+the exact same-callback `cash_baseline` argument described above, checks those
+AST shapes, and normalizes them to the predecessor form. A different fallback,
+default or supplied value must fail the witness. This is a narrow explicit
+delta, not permission to regenerate canonical fingerprints.
+
 ## Smooth dashboard refresh
 
 The observed five-second boundary fetch replaces the entire document using

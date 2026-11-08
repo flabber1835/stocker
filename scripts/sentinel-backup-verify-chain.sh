@@ -179,7 +179,7 @@ fi
 before="$(object_metadata)" || refuse "required archive metadata is unavailable"
 validate_metadata <<< "$before"
 checksum_manifest
-sha256sum --check --strict -- "$checks" >/dev/null || refuse "archive objects failed SHA-256 integrity validation"
+sha256sum --check --strict --quiet -- "$checks" >&2 || refuse "archive objects failed SHA-256 integrity validation"
 after="$(object_metadata)" || refuse "required archive metadata is unavailable after read"
 [ "$before" = "$after" ] || refuse "archive objects changed during verification"
 

@@ -431,7 +431,7 @@ jobs:
         if: ${{ matrix.lane == 'operator' }}
         run: |
           set -euo pipefail
-          docker run --rm --network none \
+          docker run --rm --network none --cap-add SYS_PTRACE \
             -v /tmp/sentinel-lane-evidence:/evidence \
             sentinel-test:ci tests/scripts -q -ra \
             --junitxml=/evidence/scripts.xml \

@@ -51,7 +51,7 @@ blocked = None
 code = None
 try:
     if remove == 'yes':
-        filename = Path(root)/'sentinel/panel/verification_service.py'
+        filename = Path(verification_health.__file__).with_name('verification_service.py')
         source = filename.read_text()
         tree = ast.parse(source)
         dispatch = [node for node in tree.body if isinstance(node, ast.If)

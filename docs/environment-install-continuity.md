@@ -52,3 +52,9 @@ removed. Cover malformed/foreign reader identity, native owner change, changed
 original inode/metadata/bytes, links/symlinks, unsupported extended metadata,
 unreadable candidate, and metadata operations failing before replacement. Keep
 the 456-module application source seal and economic fixtures unchanged.
+
+The CI operator test container grants `SYS_PTRACE` solely to inspect the real
+cross-uid fixture reader's `/proc/<pid>/cwd`. It retains its private PID
+namespace and disabled network, and has no host process namespace, production
+state or credentials mounted. This qualification capability does not change
+the permissions of any installed service or installer.

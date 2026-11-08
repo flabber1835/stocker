@@ -13,8 +13,22 @@ USER root
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      postgresql postgresql-client git nodejs \
+      ca-certificates curl gnupg git nodejs \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl --fail --silent --show-error \
+      https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+ && test "$(gpg --batch --show-keys --with-colons /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+      | awk -F: '$1=="fpr" {print $10; exit}')" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 \
+ && . /etc/os-release \
+ && printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 \
+ && /usr/lib/postgresql/16/bin/postgres --version | grep -E '^postgres \(PostgreSQL\) 16\.' \
  && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/usr/lib/postgresql/16/bin:$PATH
 
 COPY tests/requirements.lock /tmp/test-req/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \

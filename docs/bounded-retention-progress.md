@@ -286,6 +286,15 @@ cadence; it does not promise a cleanup completion time.
 
 ## Qualification and delivery scope
 
+The private CI test lens must select PostgreSQL 16 explicitly, matching the
+production retention access contract. Debian's unversioned `postgresql` package
+currently selects 17 and cannot qualify the PG16-only physical and logical
+planner paths. Install versioned server/client packages from the
+[signed PostgreSQL Apt repository](https://www.postgresql.org/download/linux/debian/),
+verify its published signing-key fingerprint, and assert major version 16 in
+the lens build. This changes test tooling only; the deployable runtime and the
+production `postgres:16` selection remain unchanged.
+
 Before implementation, prove the actual MATERIALIZED CTID query's PG16 plan and
 cumulative buffer work on a private already-depleted prefix, with an old ordinary
 MVCC snapshot that holds no canonical corpus/advisory read lock. Count heap/index

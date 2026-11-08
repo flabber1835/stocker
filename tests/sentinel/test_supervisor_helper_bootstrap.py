@@ -68,7 +68,8 @@ if __name__=='__main__':
 def fresh_probe(tmp_path, mode):
     script = tmp_path / 'helper_bootstrap_probe.py'
     script.write_text(PROBE)
-    source = Path(__file__).resolve().parents[2] / 'sentinel/supervisor_io.py'
+    import importlib.util
+    source = Path(importlib.util.find_spec('sentinel.supervisor_io').origin)
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONNOUSERSITE='1')
     result = subprocess.run([sys.executable, '-B', str(script), mode, str(source)],
                             capture_output=True, text=True, env=env, timeout=12)

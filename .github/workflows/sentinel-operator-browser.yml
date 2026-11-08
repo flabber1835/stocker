@@ -114,7 +114,10 @@ jobs:
             docker logs "$container" >&2
             exit 1
           fi
-          SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 \
+          docker exec -i "$container" python -B - \
+            < tests/support/browser_dom_fixture.py > /tmp/sentinel-dom-fixture.json
+          SENTINEL_DOM_FIXTURE=/tmp/sentinel-dom-fixture.json \
+            SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 \
             npm test --prefix tests/browser
 
       - name: Retain browser failure evidence
