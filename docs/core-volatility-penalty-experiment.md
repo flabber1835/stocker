@@ -287,12 +287,68 @@ the shared factual basis. Original control holdings, orders and repair history
 determine whether a new fact is already present, unused, or requires replay.
 Neither old P00 book state nor diagnostic forks can authorize continuation.
 
+The diagnostic uses three reference/model pairs, eight transitions each from
+January 31 through February 12 and five each from November 30 through December
+10, plus fourteen each from March 29 through April 18 (54 canonical diagnostic
+transitions total). For December, merge exactly the
+separately qualified SODA and SONC future overlays into one typed repair bound
+to that control checkpoint, then qualify the combined terminal-only packet
+again. Reuse hash-pinned original compiler/observer function bodies under an
+explicit own-CONTROL role; keep alternative position guards unchanged. Copy only
+the selected committed prefixes and applicable historical checkpoints into the
+new diagnostic books, making copied repair files writable without changing
+their bytes. Match date-named snapshots by a full ISO-date prefix, not by four
+numeric characters in a hash name. Preserve the complete original artifact as
+read-only evidence. Verify canonical packets on EVERY frozen session after each
+window are unchanged by its new overlay. Both stopped reviewers must reproduce
+the exact comparison result, including any differences. A diagnostic result has
+its own status and is always forbidden as a financial continuation root, whether
+it establishes exact equivalence or requires replay of the affected suffix.
+Combine the two December observers' already validated term maps into one
+unchanged `ActualEvents` delegate; nesting terminal wrappers would obscure the
+immediate canonical caller that its postcondition guard verifies. A reference
+refusal remains a refusal and requires common-input replay; retain and review
+its committed prefix rather than declaring equivalence from a shorter path.
+
 Generation 6 DATA qualification: 106 targeted score/source, transport, model,
 recovery, completion and original tender tests passed in 36.64 seconds. The
 exact authenticated own SONC predecessor passes the local DATA scope check.
 Removing the 63-share guard in an isolated private source copy makes the shares
 falsifier fail as expected. Canonical financial imports remain fenced locally;
 the actual SONC notional and cash/ledger checks run only on the hosted worker.
+
+Generation 6 passed SONC qualification and independent review through March 29,
+2019: 312 measured closes, 80 newly committed. Its next refusal is BEL, permanent
+ID `882904858327189489`, at April 17 after 12 uncommitted April closes. The own
+parent already holds 102 class A shares, entered December 26 from the December
+24 signal in slot 19. Retain the exact stopped prefix and diagnostic tail.
+
+Generation 8 may reuse only the existing catalog's BEL $25 cash term: April 17
+legal conversion and opening recognition, replacing the incomplete April 16
+native while retaining that day's trading. SEC 8-K `0001104659-19-021838` confirms
+the class A share cash right and cessation before April 17 open. A small closed
+cash-fact compiler may select this literal catalog case with its own exact
+312-close predecessor, 102-share guard and frozen source witnesses. It shares
+the existing canonical qualification and event observer, never accepts an
+arbitrary cash amount/date or imports foreign positions. Previous SODA/SONC
+compilers and their scopes remain byte-identical. Add a named cash-case flag to
+the inspected command rather than another event-specific worker branch.
+Keep the original 1,642-close segment target: 1,330 additional closes.
+
+Before final comparison, BEL also needs a common-input no-op check on the new
+control's own March 29 checkpoint through April 18, or replay of its affected
+suffix with the shared term. This is an input comparability diagnostic, not
+another strategy candidate. Preserve the original gross cash/no observed
+paying-agent timestamp convention and every source eligibility/price field.
+
+Generation 8 and pending control diagnostics: 130 targeted DATA/AST/transport,
+original-model and recovery cases passed in 35.81 seconds. Each reused input and
+observer function retains identical bytecode, names and local-variable layout;
+compilation includes its original import declarations. Both a removed BEL
+102-share guard and an incorrectly ignored strategy-state digest were killed
+by their respective falsifiers in isolated private copies. The exact admitted
+312-close BEL scope also passes. Hosted canonical qualification/review and
+control input equivalence remain prerequisites, not local test conclusions.
 
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private

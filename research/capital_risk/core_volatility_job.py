@@ -44,7 +44,7 @@ def probe(request):
             'source_files': len(expected_request()['sources']), 'canonical_runtime_executed': False}
 
 
-def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False):
+def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, previous=None, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None):
     from full_system_trials_job import command as original
     mode = 'review' if evidence else 'economic'
     result = original(name, source, frozen, output, mode)
@@ -66,10 +66,14 @@ def command(name, source, frozen, output, arm, evidence=None, *, maximum=134, pr
         result += ['--completion-facts']
     if sonc_facts:
         result += ['--sonc-facts']
+    if control_equivalence:
+        result += ['--control-equivalence']
+    if cash_case:
+        result += ['--cash-case', cash_case]
     return result
 
 
-def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False):
+def inspect(name, identity=None, *, value=None, user=None, maximum=134, continuation=False, aaap_model=False, recover_prefix=False, completion_facts=False, sonc_facts=False, control_equivalence=False, cash_case=None):
     need(re.fullmatch(r'core-volatility-(control|vol075)-(worker|review)-[0-9]+-1', name), 'CONTAINER_NAME')
     if value is None:
         value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
@@ -106,6 +110,13 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
         expected += ['--completion-facts']
     if sonc_facts:
         expected += ['--sonc-facts']
+    if control_equivalence:
+        need(arm == 'CONTROL' and continuation and maximum == 54
+             and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, cash_case)), 'CONTROL_DIAGNOSTIC_ENTRYPOINT_SCOPE')
+        expected += ['--control-equivalence']
+    if cash_case:
+        need(cash_case == 'BEL' and continuation and not any((aaap_model, recover_prefix, completion_facts, sonc_facts, control_equivalence)), 'CLOSED_CASH_ENTRYPOINT_SCOPE')
+        expected += ['--cash-case', cash_case]
     need(c['Entrypoint'] == ['python'] and c['Cmd'] == expected, 'EXACT_ENTRYPOINT')
     return value
 
@@ -113,7 +124,15 @@ def inspect(name, identity=None, *, value=None, user=None, maximum=134, continua
 def require_continuation_stage(request, receipt, outcome, arm):
     need(receipt['worker']['exit_code'] == 0 and receipt['reviewer']['exit_code'] == 0,
          'SUCCESSFUL_STAGE_STOPS')
-    if request.get('stage') == 'OWN_REVIEW_RECOVERY':
+    if request.get('stage') == 'OWN_CONTROL_INPUT_EQUIVALENCE':
+        need(arm == 'CONTROL' and request['maximum'] == 54
+             and receipt['status'] == 'CONTROL_INPUT_EQUIVALENCE_REVIEWED_PENDING_TRANSPORT_ADMISSION'
+             and outcome.get('schema') == 'research.core-volatility-control-input-equivalence/1'
+             and outcome.get('diagnostic_only') is True and outcome.get('performance_admitted') is False
+             and outcome.get('financial_continuation_authorized') is False
+             and outcome.get('financial_sessions_added_to_experiment') == 0,
+             'DIAGNOSTIC_NEVER_FINANCIAL_CONTINUATION')
+    elif request.get('stage') == 'OWN_REVIEW_RECOVERY':
         need(receipt['status'] == 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
              and outcome.get('completed') == 232 and outcome.get('session') == '2018-11-30'
              and outcome.get('financial_sessions_advanced') == 0
@@ -144,7 +163,10 @@ def launch(a, *, contract=None):
         recovery = (request['stage'] == 'OWN_REVIEW_RECOVERY' and request['generation'] == 4
                     and set(request['parents']) == set(request['arms']) == {'VOL075'} and a.arm == 'VOL075'
                     and request['maximum'] == 0)
-        need((paired or followup or recovery)
+        diagnostic_only = (request['stage'] == 'OWN_CONTROL_INPUT_EQUIVALENCE' and request['generation'] == 7
+                    and set(request['parents']) == set(request['arms']) == {'CONTROL'} and a.arm == 'CONTROL'
+                    and request['maximum'] == 54 and set(request['historical_checkpoints']) == {'AAAP', 'DECEMBER', 'BEL'})
+        need((paired or followup or recovery or diagnostic_only)
              and 0 <= request['maximum'] <= 2156 and 0 < request['financial_wait_seconds'] <= 12600
              and 0 < request['review_wait_seconds'] <= 2700, 'BOUNDED_OWN_CONTINUATION_CONTRACT')
     stage = json.loads(a.staging.read_bytes())
@@ -216,14 +238,16 @@ def launch(a, *, contract=None):
         recover_prefix = request['stage'] == 'OWN_REVIEW_RECOVERY'
         completion_facts = request.get('input_model') == 'ORIGINAL_COMPLETION_FACTS'
         sonc_facts = request.get('input_model') == 'ORIGINAL_SONC_COMPLETION_FACTS'
+        control_equivalence = request['stage'] == 'OWN_CONTROL_INPUT_EQUIVALENCE'
+        cash_case = request.get('cash_case') if request.get('input_model') == 'ORIGINAL_CASH_CATALOG' else None
         inspector = partial(inspect, maximum=request['maximum'], continuation=previous is not None,
                             aaap_model=aaap_model, recover_prefix=recover_prefix, completion_facts=completion_facts,
-                            sonc_facts=sonc_facts)
+                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case)
         then = time.monotonic()
         receipt['worker'] = stopped_run(command(name, source, frozen, root, a.arm,
                                        maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
                                        recover_prefix=recover_prefix, completion_facts=completion_facts,
-                                       sonc_facts=sonc_facts), name, root,
+                                       sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case), name, root,
                                        deadline=request['financial_wait_seconds'], inspector=inspector)
         known = True
         receipt.update(status='WORKER_STOPPED_PREFIX_PRESERVED', worker_seconds=time.monotonic()-then)
@@ -236,7 +260,7 @@ def launch(a, *, contract=None):
             receipt['reviewer'] = stopped_run(command(name, source, frozen, audit, a.arm, root,
                                             maximum=request['maximum'], previous=previous, aaap_model=aaap_model,
                                             recover_prefix=recover_prefix, completion_facts=completion_facts,
-                                            sonc_facts=sonc_facts), name,
+                                            sonc_facts=sonc_facts, control_equivalence=control_equivalence, cash_case=cash_case), name,
                                             audit, deadline=request['review_wait_seconds'], inspector=inspector)
             receipt['review_seconds'] = time.monotonic()-then
             shutil.copytree(audit, root/'independent-review-stop')
@@ -245,9 +269,14 @@ def launch(a, *, contract=None):
                 if receipt['worker']['exit_code'] == 0 and proof['counts'] == {'formation': 126, 'daily': 8}:
                     receipt['status'] = 'PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION'
                 if contract is not None:
-                    receipt['status'] = ('COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
-                        if proof['complete'] and receipt['worker']['exit_code'] == 0
-                        else 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION')
+                    if control_equivalence:
+                        need(proof['diagnostic_only'] and not proof['performance_admitted']
+                             and not proof['financial_continuation_authorized'], 'EXPLICIT_DIAGNOSTIC_REVIEW_ROLE')
+                        receipt['status'] = 'CONTROL_INPUT_EQUIVALENCE_REVIEWED_PENDING_TRANSPORT_ADMISSION'
+                    else:
+                        receipt['status'] = ('COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'
+                            if proof['complete'] and receipt['worker']['exit_code'] == 0
+                            else 'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION')
     except StopUnknown:
         receipt['status'] = 'STOP_UNKNOWN_NO_NEW_FINANCIAL_AUTHORITY'
         (diagnostic/'exception-chain.txt').write_text(traceback.format_exc())

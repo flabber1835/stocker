@@ -110,10 +110,10 @@ def qualify(arm):
     return result
 
 
-def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, sonc_facts=False):
+def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, sonc_facts=False, cash_case=None):
     hosted()
-    need(not (aaap_model or completion_facts or sonc_facts) or previous == Path('/previous'), 'INPUT_MODEL_REQUIRES_OWN_PARENT')
-    need(sum((aaap_model, completion_facts, sonc_facts)) <= 1, 'ONE_NEW_INPUT_MODEL_PER_SUCCESSOR')
+    need(not (aaap_model or completion_facts or sonc_facts or cash_case) or previous == Path('/previous'), 'INPUT_MODEL_REQUIRES_OWN_PARENT')
+    need(sum((aaap_model, completion_facts, sonc_facts, bool(cash_case))) <= 1, 'ONE_NEW_INPUT_MODEL_PER_SUCCESSOR')
     from research.pooled_vacancy_funding import backtest
     from research.pooled_vacancy_funding.journal import read_checkpoint
     from system_campaign_baseline import facts
@@ -187,6 +187,11 @@ def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, s
             from core_volatility_sonc_facts import prepare as prepare_sonc, observer
             extra, material = prepare_sonc(before, Path('/out'), arm)
             observed = observer(Path('/out'), before, material)
+        if cash_case:
+            need(not extra and not any((aaap_model, completion_facts, sonc_facts)), 'ONE_NEW_CLOSED_CASH_SUCCESSOR')
+            from core_volatility_cash_facts import prepare as prepare_cash, observer
+            extra, material = prepare_cash(before, Path('/out'), arm, cash_case)
+            observed = observer(Path('/out'), before, material)
     financial = time.monotonic()
     with Execution('FAST', signal_closes=1) as execution:
         with observed:
@@ -215,17 +220,26 @@ if __name__ == '__main__':
     p.add_argument('--recover-prefix', action='store_true')
     p.add_argument('--completion-facts', action='store_true')
     p.add_argument('--sonc-facts', action='store_true')
+    p.add_argument('--control-equivalence', action='store_true')
+    p.add_argument('--cash-case', choices=('BEL',))
     a = p.parse_args()
     hosted()
-    if a.recover_prefix:
-        need(not a.aaap_model and not a.completion_facts and not a.sonc_facts, 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
+    if a.control_equivalence:
+        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.recover_prefix, a.cash_case)), 'DIAGNOSTIC_CANNOT_CONTINUE_FINANCIAL_BOOK')
+        from core_volatility_control_equivalence import run as diagnostic, review as diagnostic_review
+        if a.mode == 'economic':
+            diagnostic(a.resume_root, a.arm, a.maximum)
+        else:
+            diagnostic_review(a.resume_root, Path('/evidence'), Path('/out'))
+    elif a.recover_prefix:
+        need(not any((a.aaap_model, a.completion_facts, a.sonc_facts, a.cash_case)), 'RECOVERY_CANNOT_INSTALL_NEW_MODEL')
         from core_volatility_recovery import run as recover, review as recovery_review
         if a.mode == 'economic':
             recover(a.resume_root, a.arm, a.maximum)
         else:
             recovery_review(a.resume_root, Path('/evidence'), Path('/out'))
     elif a.mode == 'economic':
-        run(a.arm, a.maximum, a.resume_root, a.aaap_model, a.completion_facts, a.sonc_facts)
+        run(a.arm, a.maximum, a.resume_root, a.aaap_model, a.completion_facts, a.sonc_facts, a.cash_case)
     else:
         from system_campaign_readonly import review
         review(Path('/evidence/book'), Path('/out/core-review.json'))

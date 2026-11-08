@@ -107,18 +107,22 @@ def test_hosted_canary_closed_before_canonical_import(monkeypatch):
 @pytest.mark.parametrize('continuation', (False, True))
 @pytest.mark.parametrize('aaap_model', (False, True))
 def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, review, continuation, aaap_model,
-                                                            completion_facts=False, recover_prefix=False, sonc_facts=False):
+                                                            completion_facts=False, recover_prefix=False, sonc_facts=False,
+                                                            control_equivalence=False, maximum=None, cash_case=None):
     import full_system_trials_job as base
     uid = SimpleNamespace(getuid=lambda: 1001, getgid=lambda: 1001)
     monkeypatch.setattr(base, 'os', uid)
     monkeypatch.setattr(job.os, 'getuid', lambda: 1001, raising=False)
     monkeypatch.setattr(job.os, 'getgid', lambda: 1001, raising=False)
     name = 'core-volatility-'+arm.lower()+'-'+('review' if review else 'worker')+'-123-1'
+    if maximum is None:
+        maximum = 0 if continuation else 134
     values = job.command(name, Path('/source'), Path('/frozen'), Path('/output'), arm,
                          Path('/evidence') if review else None,
-                         maximum=0 if continuation else 134,
+                         maximum=maximum,
                          previous=Path('/previous') if continuation else None, aaap_model=aaap_model,
-                         completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts)
+                         completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts,
+                         control_equivalence=control_equivalence, cash_case=cash_case)
     assert values[values.index('--network')+1] == 'none'
     assert values[values.index('--entrypoint')+1] == 'python'
     mounts = ['/variant', '/frozen', '/driver', '/out'] + (['/evidence'] if review else [])
@@ -135,9 +139,10 @@ def test_constructor_and_actual_inspector_on_inert_docker_dto(monkeypatch, arm, 
         monkeypatch.setattr(job.subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=json.dumps([v]).encode()))
     response(dto)
     def inspect():
-        return job.inspect(name, 'a'*64, maximum=0 if continuation else 134,
+        return job.inspect(name, 'a'*64, maximum=maximum,
                            continuation=continuation, aaap_model=aaap_model,
-                           completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts)
+                           completion_facts=completion_facts, recover_prefix=recover_prefix, sonc_facts=sonc_facts,
+                           control_equivalence=control_equivalence, cash_case=cash_case)
     assert inspect() == dto
     for section, key, bad in (('HostConfig', 'NetworkMode', 'bridge'), ('Config', 'Cmd', ['wrong']),
                               ('Config', 'Env', ['GH_TOKEN=secret']), ('HostConfig', 'MemorySwap', 0)):

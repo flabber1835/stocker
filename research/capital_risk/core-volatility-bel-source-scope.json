@@ -1,0 +1,28 @@
+{
+  "actual_completion_date": "2019-04-17",
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/1115836/000110465919021838/a19-8416_18k.htm",
+  "provider_metadata_upgraded": false,
+  "raw_prices_published": false,
+  "schema": "research.core-volatility-cash-source-scope/1",
+  "security_id": "882904858327189489",
+  "witnesses": [
+    {
+      "issuer_id": "SEC_UNKNOWN:882904858327189489",
+      "listing_first_session": "2000-08-03",
+      "security_id": "882904858327189489",
+      "security_type_eligible": "0",
+      "session": "2019-03-29",
+      "source_observation_sha256": "014718be54a64930d9908f8584be0837a65bef8303598420b1d66398d6ccc5ed",
+      "ticker": "BEL"
+    },
+    {
+      "issuer_id": "SEC_UNKNOWN:882904858327189489",
+      "listing_first_session": "2000-08-03",
+      "security_id": "882904858327189489",
+      "security_type_eligible": "0",
+      "session": "2019-04-16",
+      "source_observation_sha256": "b883c225868df8d72f61792268222c035cae46e8c154ded50c1ea91789f04788",
+      "ticker": "BEL"
+    }
+  ]
+}

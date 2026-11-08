@@ -84,6 +84,7 @@ def authenticated_payload(archive, root, key, spec):
 
 def extract(archive, root, key, spec):
     """Reviewed financial prefix: all original authority guards stay required."""
+    need(not spec.get('control_equivalence', False), 'DIAGNOSTIC_NEVER_FINANCIAL_ROOT')
     need(spec['status'] in ('PAIRED_ARM_PILOT_REVIEWED_PENDING_ARTIFACT_ADMISSION',
                            'COMPLETE_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION',
                            'PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION'), 'REVIEWED_STATUS_ONLY')
@@ -103,7 +104,7 @@ def extract(archive, root, key, spec):
         inspect(name, value=v, user=spec['container_user'], maximum=spec['maximum'],
                 continuation=spec['continuation'], aaap_model=spec.get('aaap_model', False),
                 recover_prefix=spec.get('recover_prefix', False), completion_facts=spec.get('completion_facts', False),
-                sonc_facts=spec.get('sonc_facts', False))
+                sonc_facts=spec.get('sonc_facts', False), cash_case=spec.get('cash_case'))
         need(not v['State']['Running'] and not v['State']['OOMKilled']
              and v['State']['ExitCode'] == (spec['worker_exit_code'] if role == 'worker' else 0),
              'ACTUAL_POSITIVE_PARENT_STOP')
