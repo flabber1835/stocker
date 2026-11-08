@@ -1,0 +1,82 @@
+{
+  "admissions": {
+    "CONTROL": {
+      "arm": "CONTROL",
+      "canonical_runtime_executed": false,
+      "checkpoint_sha256": "cf357b04513897586d869646cb0bdf850b5e051b4c847a75507a99e452ba847b",
+      "completed": 1642,
+      "logical_bytes": 270130367,
+      "manifest_sha256": "d5e2915bc76741d6e1cf8962f276def143ffb5357598a7933d91af923cc62131",
+      "members_verified": 132,
+      "schema": "research.core-volatility-artifact-admission/1",
+      "whole_cipher_authenticated_before_parsing": true
+    }
+  },
+  "arms": {
+    "CONTROL": {
+      "aaap_model": false,
+      "arm": "CONTROL",
+      "artifact_id": 13633685722,
+      "cash_case": null,
+      "checkpoint_file_sha256": "90c416a165bdf243cb4f3d1f7b535d98f07ddd98bb948c17c0778900d9bb78c3",
+      "checkpoint_sha256": "cf357b04513897586d869646cb0bdf850b5e051b4c847a75507a99e452ba847b",
+      "completed": 1642,
+      "completion_facts": false,
+      "container_user": "1001:1001",
+      "continuation": true,
+      "control_equivalence": false,
+      "encrypted_output": {
+        "bytes": 158394306,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "d5e2915bc76741d6e1cf8962f276def143ffb5357598a7933d91af923cc62131",
+        "name": "core-volatility-CONTROL.tar.crseal",
+        "sha256": "fb6923eee7aa9fc276905a2d970ccbe0542c09f61f6a826cbe84a42dd428cd7e"
+      },
+      "head": "50199d16dcb69610f295a4c7435ea704bc73eeb3",
+      "maximum": 1634,
+      "protocol_sha256": "88472f33ebf916a3eee093a7808b6b1aabbfd28163126d1fd93ccf9011c4398a",
+      "public_members": {
+        "core-volatility-receipt.json": {
+          "bytes": 1236,
+          "sha256": "6653dcdc39c11db2b750e9e73004bef7e6b4752fb94cd7bee4d72e371c460fb2"
+        },
+        "core-volatility-staging.json": {
+          "bytes": 964,
+          "sha256": "555316c54758259b070960a5dc4ea2938e9b7c6a83b5b1507955d80f93bbd877"
+        },
+        "ephemeral-runner-capacity.json": {
+          "bytes": 674,
+          "sha256": "d78dcd903f5cbff6111f04934b7eb4ea1d7a0969146482cf8982ecf2352d800d"
+        }
+      },
+      "recover_prefix": false,
+      "request_sha256": "4d97ec17f2ce12725ac8d086f8145b66d069569f9873c5cf8e9ec7dbcccc7c67",
+      "run_id": 42509098756,
+      "session": "2024-07-12",
+      "sonc_facts": false,
+      "source_bindings_sha256": "6134b746b4e49423f3c09fb1a79d7a78eade35d9f74c7ec0ae1bdccae93c36a3",
+      "status": "PARTIAL_ARM_REVIEWED_PENDING_ARTIFACT_ADMISSION",
+      "worker_exit_code": 0,
+      "zip_bytes": 158397810,
+      "zip_sha256": "588c278b2d5dc1621131e311a2c0eda0a4a2ac9f04b9143e811c4e186f53ba7a"
+    }
+  },
+  "historical_checkpoints": {
+    "AAAP": {
+      "file_sha256": "5ad892a76cadee8d1a8bad2a3ea285fcc2c2b20f47d26830eb8f52f3c58de12e",
+      "outer_sha256": "0f2dbfe6ee37ea47e6d0240b2cf0713a95474712e5648b1cab574198252be815",
+      "path": "book/month-end/2018-01-31-0f2dbfe6ee37ea47e6d0240b2cf0713a95474712e5648b1cab574198252be815.json.gz"
+    },
+    "BEL": {
+      "file_sha256": "42eb4288a28b9090960157785dd58a993848ff15323f0a5b4169880ed543625f",
+      "outer_sha256": "7466beebc66d1bb8e6a664bee3cb6a97a9463cec9ffb1cf3f67601e2c51eb1db",
+      "path": "book/month-end/2019-03-29-7466beebc66d1bb8e6a664bee3cb6a97a9463cec9ffb1cf3f67601e2c51eb1db.json.gz"
+    },
+    "DECEMBER": {
+      "file_sha256": "35ddd73a01ae7fa62bf912164935524bd5d4aa1b26a630acf145aca4403ef270",
+      "outer_sha256": "f9db5671f0deb919cb3870beabc8e2c69a9b4f953537120853eb21204bec7b24",
+      "path": "book/month-end/2018-11-30-f9db5671f0deb919cb3870beabc8e2c69a9b4f953537120853eb21204bec7b24.json.gz"
+    }
+  },
+  "schema": "research.core-volatility-reviewed-parents/1"
+}

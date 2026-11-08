@@ -350,6 +350,20 @@ by their respective falsifiers in isolated private copies. The exact admitted
 312-close BEL scope also passes. Hosted canonical qualification/review and
 control input equivalence remain prerequisites, not local test conclusions.
 
+The generation-2 control segment has passed both stopped exit-0 reviews and
+complete ZIP/cipher/member/checkpoint/prefix admission: 1,642 measured closes
+through July 12, 2024. Worker 8,307.05 seconds, independent review 362.16 seconds;
+the fixed last segment is 514 closes. Its own authenticated January 31, November
+30 and March 29 checkpoints contain no owned or pending AAAP, SODA, SONC or BEL.
+That is a scope check, not a no-op proof. The 54-transition diagnostic must still
+verify all financial/controller fields and complete state on hosted compute.
+
+A DATA comparison to old saved P00 found full-record/state identity through
+August 30, 2018, then factual-lineage/audit differences beginning August 31.
+Do not extend the initial 134-record equality claim to the whole saved P00 path
+or hide nested identities. The newly admitted own control remains the comparison
+authority; the old completed book is never its continuation root.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run
