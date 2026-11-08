@@ -343,7 +343,7 @@ def test_repinning_cannot_replace_installed_pr573(tmp_path, monkeypatch, defect)
     elif defect == 'extra': prior['files']['unreviewed.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'changed-diagnostic-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -394,7 +394,7 @@ def test_repinning_cannot_replace_installed_diagnostic_release(tmp_path, monkeyp
     else:
         prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path / 'changed-root-cause-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -423,7 +423,7 @@ def test_repinning_cannot_replace_installed_pr570_or_pr572(tmp_path, monkeypatch
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'changed-startup-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -440,7 +440,7 @@ def test_repinning_cannot_replace_running_feed_display_source(tmp_path, monkeypa
     elif defect == 'extra': prior['files']['unknown.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'changed-feed-display-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -457,7 +457,7 @@ def test_repinning_cannot_replace_installed_operational_predecessor(tmp_path, mo
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'changed-operational-predecessor.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
@@ -475,7 +475,7 @@ def test_repinning_cannot_replace_installed_main_verifier_source(tmp_path, monke
     elif defect == 'extra': prior['files']['unknown.py'] = 'f'*64
     else: prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'changed-verifier-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -492,7 +492,7 @@ def test_repinning_cannot_replace_installed_pr564(tmp_path, monkeypatch, defect)
     elif defect == 'extra': prior['files']['unknown.py'] = 'f' * 64
     else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path / 'changed-dashboard-predecessor.json'; path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -509,7 +509,7 @@ def test_repinning_cannot_replace_the_installed_pr563_predecessor(tmp_path,monke
     elif defect=='extra':prior['files']['unknown.py']='f'*64
     else:prior['files']['url_selected_source_basis.py']='f'*64
     prior['source_sha256']=basis._closure(prior['files'])
-    raw=json.dumps(value,sort_keys=True).encode()
+    raw=json.dumps(value,sort_keys=True,separators=(',', ':')).encode()
     path=tmp_path/'changed-profile.json';path.write_bytes(raw)
     monkeypatch.setattr(basis,'PROFILE',path)
     monkeypatch.setattr(basis,'PROFILE_SHA256',hashlib.sha256(raw).hexdigest())
@@ -530,7 +530,7 @@ def test_repinning_profile_cannot_replace_installed_pr561_source(tmp_path, monke
     else:
         prior['files']['url_selected_source_basis.py'] = 'f'*64
     prior['source_sha256'] = basis._closure(prior['files'])
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path/'foreign-profile.json';path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
@@ -595,7 +595,7 @@ def test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
                 retained['files'].pop('core/decision.py')
             else:
                 retained['files']['unknown.py'] = 'f' * 64
-        changed = json.dumps(value, sort_keys=True).encode()
+        changed = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
         monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(changed).hexdigest())
     path = tmp_path / 'changed-profile.json'
     path.write_bytes(changed)
@@ -716,7 +716,7 @@ def test_each_retained_snapshot_requires_its_independent_complete_closure(
         record['files']['unreviewed.py'] = 'f' * 64
     else:
         del value['retained_predecessors'][revision]
-    raw = json.dumps(value, sort_keys=True).encode()
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     path = tmp_path / 'retained-profile.json'
     path.write_bytes(raw)
     monkeypatch.setattr(basis, 'PROFILE', path)
