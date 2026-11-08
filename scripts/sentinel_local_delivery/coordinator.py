@@ -289,6 +289,7 @@ class Delivery:
             self._fresh(artifacts['preflight_at']);self._unchanged(artifacts,native=False)
             self._stopped_for_install()
             migration=evidence.migrate_operational_schema(self.host,candidate)
+            self._fresh(artifacts['preflight_at'])
             self._unchanged(artifacts,native=False)
             if not migration['complete']:
                 return receipt  # Durable page progress is resumed, never reset.
@@ -401,11 +402,20 @@ class Delivery:
 
     def advance(self):
         with self.host.owned():
-            for _ in range(15):
+            transitions=0
+            schema_pages=0
+            while transitions<15:
                 before=self.journal.read()['stage']
                 receipt=self.step()
                 if receipt['stage']=='VERIFIED': return receipt
-                if receipt['stage']==before: return receipt
+                if before=='SCHEMA_INSTALL_REQUESTED':
+                    schema_pages+=1
+                if receipt['stage']==before:
+                    require(before=='SCHEMA_INSTALL_REQUESTED','DELIVERY_UNEXPECTED_PENDING_STAGE')
+                    require(schema_pages<10,'OPERATIONAL_BOOTSTRAP_PAGE_LIMIT')
+                    self._fresh(receipt['artifacts']['preflight_at'])
+                    continue
+                transitions+=1
             require(False,'DELIVERY_STAGE_LIMIT')
 
     def abandon_drain(self):

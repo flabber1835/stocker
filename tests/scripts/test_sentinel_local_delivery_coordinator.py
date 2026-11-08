@@ -620,11 +620,12 @@ def test_expired_or_replaced_drain_never_reaches_stop(operation):
 def test_pending_bootstrap_retains_same_stage_and_resumes_pages_without_repreflight(operation):
     host,journal,delivery=operation
     host.schema_complete=False
-    first=delivery.advance()
-    assert first['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==1
+    with pytest.raises(model.DeliveryRefused,match='OPERATIONAL_BOOTSTRAP_PAGE_LIMIT'):
+        delivery.advance()
+    assert journal.read()['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==10
     assert host.canonical_count==2 and all(not item['State']['Running'] for item in host.items.values())
     host.schema_complete=True
-    assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==2
+    assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==11
     assert host.canonical_count==2
 
 

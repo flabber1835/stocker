@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Autonomous installation publication waits](autonomous-install-publication-waits.md)
+keeps valid partial subject revalidation inside the original owned startup wait;
+only a complete strict current publication can finish installation.
+
 [Attributable incident diagnostics](supervisor-incident-diagnostics.md) selects
 the owner-approved diagnostic-only local patch: typed safe failure causes and
 bounded stage records without changing operational decisions or deadlines.

@@ -33,7 +33,8 @@ def run_child(monkeypatch,pages,expected,*,seconds=20,audit=None):
         if isinstance(value,Exception):raise value
         response=io.BytesIO(json.dumps(value).encode())
         response.headers=Message()
-        response.headers['x-sentinel-panel-status']='CURRENT'
+        response.headers['x-sentinel-panel-status']=(
+            'PARTIAL' if value.get('observation',{}).get('current') is False else 'CURRENT')
         return response
     monkeypatch.setattr(urllib.request,'urlopen',get)
     monkeypatch.setattr(time,'monotonic',lambda:clock[0])

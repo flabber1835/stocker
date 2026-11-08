@@ -51,6 +51,46 @@ def budget():
  left=min(deadline-time.monotonic(),(cutoff-datetime.now(timezone.utc)).total_seconds())
  assert left>0,'APPLICATION_READINESS_DEADLINE'
  return left
+def partial_wait(page,rows,checking,workflows):
+ # Partial delivery withholds positive authority; it can only wait.
+ from types import SimpleNamespace
+ from sentinel.panel.delivery import row_current
+ observation=page['observation']
+ changed=observation['changed_scopes'];revalidated=observation['revalidated_keys']
+ assert observation['current'] is False
+ assert isinstance(changed,list) and changed and len(changed)==len(set(changed))
+ assert set(changed)<={'SHADOW','PAPER'},'READINESS_PARTIAL_SCOPE_INVALID'
+ assert isinstance(revalidated,list) and len(revalidated)==len(set(revalidated))
+ assert set(revalidated)<={'shadow_verification','shadow_nav','shadow_return','exposure','book','terminals','paper_reconciliation'}
+ context=SimpleNamespace(observation_current=False,observation_changed_scopes=tuple(changed),
+  observation_revalidated_keys=tuple(revalidated))
+ withdrawn=set();negatives=set()
+ for key,row in rows.items():
+  current=row_current(context,SimpleNamespace(key=key))
+  original=row.get('original_status')
+  assert original in {'ok','warn','pending','fail','unknown'}
+  assert row.get('current') is current
+  assert row['status']==(original if current else 'pending')
+  if original in {'fail','unknown'} or row.get('color')=='red':negatives.add(key)
+  if not current:
+   withdrawn.add(key)
+   assert row.get('color')=='neutral'
+   assert all(row.get(field) is None for field in ['shadow_book','paper_plan','paper_account','trading_run','preparation','operational_fact'])
+   assert row.get('order_outcomes')==[]
+ assert negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ plan=rows.get('paper_plan',{})
+ assert plan.get('current') is False and plan.get('original_status')=='ok'
+ assert plan.get('paper_plan') is None and plan.get('stale') is False and plan.get('future') is False
+ assert page['operator_review'] is None
+ health=page['dashboard_health'];assert isinstance(health,dict)
+ conditions=set(health['active_conditions'])|set(health['review_conditions'])
+ assert conditions<=startup|withdrawn|checking|workflows,'NONSTARTUP_READINESS_FAILURE'
+ observed=datetime.fromisoformat(page['as_of'])
+ expiry=datetime.fromisoformat(observation['valid_until'])
+ assert observed.utcoffset()==expiry.utcoffset()==timedelta(0)
+ assert observed<=datetime.now(timezone.utc) and observed<expiry<=observed+timedelta(seconds=30)
+ return ['dashboard_subject_revalidation']
+
 def pending(page,header):
  # A pending classification grants no readiness. Financial and other current
  # negatives are never turned into startup waits.
@@ -60,10 +100,6 @@ def pending(page,header):
  assert header in {'CURRENT','PARTIAL'},'READINESS_HEADER_INVALID'
  if expected.get('handoff_mode') in {'BLOCKED_UNSENT','POST_TRADE','POST_TRADE_SUCCESSOR'}:
   return None
- plan=rows.get('paper_plan',{}).get('paper_plan')
- assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
- assert str(plan.get('decision_session'))==expected['decision']
- assert str(plan.get('effective_session'))==expected['effective']
  checking=set()
  instant=datetime.now(timezone.utc)
  for key in ('shadow_verification','paper_reconciliation','exposure','book','terminals'):
@@ -87,6 +123,12 @@ def pending(page,header):
     bound=datetime.fromisoformat(recovery['deadline'])
     assert bound.utcoffset() is not None and instant<bound
     workflows.add(key)
+ if header=='PARTIAL':
+  return partial_wait(page,rows,checking,workflows)
+ plan=rows.get('paper_plan',{}).get('paper_plan')
+ assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
+ assert str(plan.get('decision_session'))==expected['decision']
+ assert str(plan.get('effective_session'))==expected['effective']
  for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure','paper_plan','backup_restore'):
   if key in rows and key not in checking:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
  review=page['operator_review'];health=page['dashboard_health']
