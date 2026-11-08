@@ -58,6 +58,19 @@ def test_view_keeps_all_book_bytes_and_nested_historical_review(tmp_path,monkeyp
  assert (view/p.PROVENANCE/'original-stopped-review--uncertainty-certificate-review.json').read_bytes()==b'ORIGINAL_HISTORICAL_REVIEW_DTO'
  assert (view/p.quarantine.retained.previous.EVENT_REVIEW).read_bytes()==(reviewed/'requalified-review'/p.quarantine.retained.previous.EVENT_REVIEW).read_bytes()
 
+def test_successful_monthly_proof_is_archived_outside_the_book(tmp_path,monkeypatch):
+ reviewed=tmp_path/'EXPLICIT_NONCANONICAL_REVIEW_DTO';reviewed.mkdir();raw=b'EXPLICIT_NONCANONICAL_MONTHLY_PROOF_DTO'
+ (reviewed/'monthly-reproduction.json').write_bytes(raw);view=tmp_path/'EXPLICIT_NONCANONICAL_SOURCE_VIEW_DTO';view.mkdir()
+ review=dict(monthly_review_sha256=p.sha(raw));target=dict(EXPLICIT_NONCANONICAL_TARGET_DTO=True)
+ monkeypatch.setattr(p.quarantine.previous,'launcher_guard',lambda:None)
+ monkeypatch.setattr(p.quarantine,'validate_target',lambda actual:actual==target)
+ monkeypatch.setattr(p,'transport',lambda:review);monkeypatch.setattr(p,'view_function',lambda:lambda *args:view)
+ monkeypatch.setattr(p.quarantine,'supplement_records',lambda:{})
+ assert p.qualified_view(None,reviewed,view,target,review)==view
+ assert (view/p.PROVENANCE/'prior-monthly-reproduction.json').read_bytes()==raw and not (view/'book').exists()
+ (reviewed/'monthly-reproduction.json').write_bytes(b'WRONG_OPAQUE_MONTHLY_PROOF_DTO')
+ with pytest.raises(ValueError,match='SUCCESSFUL_MONTHLY_PROOF'):p.qualified_view(None,reviewed,view,target,review)
+
 def test_book_identity_guard_removal_falsifier(tmp_path,monkeypatch):
  fn,financial,reviewed,view,proof=dto_view(tmp_path/'guard',monkeypatch,tamper=True)
  with pytest.raises(ValueError,match='BOOK_BYTE_UNCHANGED'):fn(financial,reviewed,view,{},proof)

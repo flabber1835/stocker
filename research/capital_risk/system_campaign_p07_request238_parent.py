@@ -99,6 +99,7 @@ def qualified_view(financial,reviewed,view,target,review):
  for name,raw in records.items():exact(value/name,raw)
  exact(value/PROVENANCE/'historical-observer-supplements.json',encoded(dict(passed=True,original_artifact_id=13598958730,
   records={n:quarantine.pin(raw) for n,raw in records.items()},financial_book_changed=False,financial_sessions_advanced=0)))
+ exact(value/PROVENANCE/'prior-monthly-reproduction.json',(Path(reviewed)/'monthly-reproduction.json').read_bytes())
  return value
 
 
