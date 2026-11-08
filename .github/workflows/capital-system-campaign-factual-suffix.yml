@@ -8,8 +8,8 @@ permissions:
   actions: read
 jobs:
   suffix:
-    # Admission metadata only; both earlier jobs are terminal. No replay selected.
-    if: false && github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    # Exact admitted P07 restart; hosted preparation and constructor precede finance.
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     concurrency:
@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        arm: [P03]
+        arm: [P07]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         timeout-minutes: 3

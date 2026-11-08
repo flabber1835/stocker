@@ -1,0 +1,142 @@
+{
+  "actual_hosted_copy_canary": false,
+  "actual_hosted_preparation": false,
+  "actual_neutral28_known": false,
+  "actual_retained972_constructor": false,
+  "all_four_mature_workers_AST_unchanged": true,
+  "files": {
+    "P07-ordinary28-source-history-resources-DATA-qualification.json": "0bdeeddab65e9d4cb4b02d1947bdb33b8fa77848be7374c72f56b6600b7a500b",
+    "forecast_tests/test_P07_ordinary28_certificate_retained.py": "5d9b20c0ab641a039b19fa2d36cc9ee4c24ecff25e32a23897665bba19593d71",
+    "forecast_tests/test_P07_ordinary28_observers.py": "622b6a9769dbf44d88e4ec4cb9952e5ba9e5bd8303a931977942e68c503d4613",
+    "forecast_tests/test_P07_ordinary28_request_transport.py": "4412222889ed596f694169523c7276d90b545cf1ff4194227ea91294cd86baa5",
+    "forecast_tests/test_P07_ordinary28_runtime_entry.py": "f3dca347453f63756cd4d6e2ceb04c4c37408c7e382da31560f8a2992869ec80",
+    "system_campaign_p07_ordinary28_certificate.py": "ae68078750f457c1f2333c5046c78aa1ec26d4183433ecd7de10dc82f7dd899a",
+    "system_campaign_p07_ordinary28_entry.py": "f09bf7c934892d517343516b79e65d079af52fe390a6acb42974fd949c93f722",
+    "system_campaign_p07_ordinary28_observers.py": "b2f2bdb5bcbaa73e210b34ec44868ce6ea67305486af51ced11236e11a915b7d",
+    "system_campaign_p07_ordinary28_retained.py": "a15ed73b045a94650932458e67a3648e1b2ed0658733a6b76cf9150f52dd037e",
+    "system_campaign_p07_ordinary28_runtime.py": "20a0037ba13b1d3c75343f26b67c94346a9a6354543eb8b9b4abaf6546034a13"
+  },
+  "financial_authority": false,
+  "financial_sessions_advanced": 0,
+  "genuine_archived_bases_DATA": {
+    "canonical_runtime_executed": false,
+    "committed_rows": 972,
+    "events": [
+      {
+        "archive_sha256": "9754bde7f0f9bedf5926bf0ade1561cef43a4fe198b66c2ab311c1d0bd00fa28",
+        "event": {
+          "cash_settlement_authorized": false,
+          "currency": "USD",
+          "effective_session": "2022-12-22",
+          "historical_causality": "UNVERIFIED",
+          "native_session": "2022-12-21",
+          "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
+          "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+          "price_or_probability_selected": false,
+          "prior_session": "2022-12-21",
+          "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+          "right_lower_per_share": "0",
+          "right_upper_per_share": "35.00",
+          "security_id": "1050970006012443443",
+          "ticker": "ABMD",
+          "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+          "upfront_cash_per_share": "380.00"
+        },
+        "permissions": {
+          "a3bcc6d1681a32081b0901e2a57a32ea528556281f170b52e7033ad5f3e7a464": [
+            "2022-12-22",
+            "1050970006012443443",
+            [
+              380.0,
+              415.0
+            ]
+          ]
+        },
+        "resolution": {
+          "actual": "book/pre-event/2022-12-22-5b3e55532bcb4c13557cb8d186a1f32e906cebdd283cf24d7b8ac1b907df2816.json.gz",
+          "gzip_sha256": "9754bde7f0f9bedf5926bf0ade1561cef43a4fe198b66c2ab311c1d0bd00fa28",
+          "input_sha256": "5b4b5d57c4803ce3a2cc8510dfaad2680315afcb709987cca4dcd905fe551000",
+          "outer_sha256": "5b3e55532bcb4c13557cb8d186a1f32e906cebdd283cf24d7b8ac1b907df2816",
+          "state_sha256": "cdcab0d6e237f4b9cbb8d779783dc2a2ce39a6532f5d6f62b6220ac80b373172"
+        },
+        "ticker": "ABMD"
+      },
+      {
+        "archive_sha256": "1eed20cd27f5fec63102cf9af670b2c7a426014fd1340a867b7a57ef1cbe9a60",
+        "event": {
+          "cash_settlement_authorized": false,
+          "currency": "USD",
+          "effective_session": "2023-08-11",
+          "historical_causality": "UNVERIFIED",
+          "native_session": "2023-08-10",
+          "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+          "ownership_scope": "UNOWNED_UNORDERED_SENSOR_ONLY",
+          "price_or_probability_selected": false,
+          "prior_session": "2023-08-10",
+          "right_kind": "NONTRANSFERABLE_CONTINGENT_VALUE_RIGHT",
+          "right_lower_per_share": "0",
+          "right_upper_per_share": "4.00",
+          "security_id": "47247117758471252",
+          "ticker": "KDNY",
+          "treatment": "EVERY_REACHABLE_CANONICAL_DECISION_MUST_MATCH",
+          "upfront_cash_per_share": "40.00"
+        },
+        "permissions": {
+          "8ba93ea96b411f1895593a34df3f46c8a80d6460ec8ec743430bf01c1cbcb3ca": [
+            "2023-08-11",
+            "47247117758471252",
+            [
+              40.0,
+              44.0
+            ]
+          ]
+        },
+        "resolution": {
+          "actual": "book/pre-event/2023-08-11-9813fa063600a4612d7a8219765670d725b73070bdc3e9bea7c44eb9c8bd0e11.json.gz",
+          "gzip_sha256": "1eed20cd27f5fec63102cf9af670b2c7a426014fd1340a867b7a57ef1cbe9a60",
+          "input_sha256": "0e21c3af228933f94a9ea08891a2159824b6f366ca378794ef82873f3f911fd2",
+          "outer_sha256": "9813fa063600a4612d7a8219765670d725b73070bdc3e9bea7c44eb9c8bd0e11",
+          "state_sha256": "48d7a6b4cba8d71e44c952351463bfec0ebc4fbd4e555f211fa581db4f1c8976"
+        },
+        "ticker": "KDNY"
+      }
+    ],
+    "financial_authority": false,
+    "financial_book_staged": false,
+    "financial_sessions_advanced": 0,
+    "genuine_archived26_used_for_original_descriptor_visitor": true,
+    "no_current_book_projection": true,
+    "no_prior_transition_replay": true,
+    "original_origin_sha256": "89b800ae5b44c5f24470877cddd007d9e70031dab48e5c240623b99ed41f3172",
+    "parent_completed": 1426,
+    "parent_inputs": 27,
+    "passed": true,
+    "schema": "research.P07-ordinary28-both-consumed-bases-DATA/1"
+  },
+  "genuine_archived_bases_DATA_sha256": "38083f76f887a50e7b7dba3eafa6b9f402294e6d3e56747bd1ac1dced0ad795d",
+  "local_canonical_runtime_executed": false,
+  "old23_and_new12_observers_with_original_review_code": true,
+  "original_required_Zogenix_keywords_bound": true,
+  "passed": true,
+  "remaining_hosted_gates": [
+    "authenticate original238 and positive243 exports",
+    "complete245 resource copy/removal canary",
+    "actual original packets and stopped preparation",
+    "actual canonical neutral28 preserving entire1426 state",
+    "actual972 constructor and35-term observer plus BWA",
+    "original financial worker and independent saved-prefix admission"
+  ],
+  "root_admission_sha256": "b134772ff8128b4f97a16dabbc357f07e019351c529c03419cb778726fad5a59",
+  "schema": "research.P07-ordinary28-model-runtime-DATA-qualification/1",
+  "shared_constructor_at_both_sites": true,
+  "tests": {
+    "all_five_import_fences": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_P07_ordinary28_certificate_retained.py research/capital_risk/forecast_tests/test_P07_ordinary28_observers.py research/capital_risk/forecast_tests/test_P07_ordinary28_runtime_entry.py research/capital_risk/forecast_tests/test_P07_ordinary28_request_transport.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/P07-ordinary28-whole-runtime-20261108-001",
+    "passed": 63,
+    "seconds": 3.09
+  },
+  "whole_original_codec_context": true,
+  "whole_original_constructor_code_and_closure": true,
+  "whole_original_mixed_growth_AST_undo": true,
+  "whole_six_runtime_templates_AST_undo": true
+}
