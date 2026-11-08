@@ -10,6 +10,16 @@ import system_campaign_p07_abmd_models as original_models
 import system_campaign_p07_abmd_origin as original_origin
 import system_campaign_p07_KDNY_resources as resources
 history,source=resources.history,resources.source
+ZOGENIX_ARGUMENTS=frozenset(('zogenix_codec','zogenix_native','zogenix_source'))
+
+
+def bind_arguments(factory,**arguments):
+ """Supply inherited constructor inputs without changing any class method."""
+ need(callable(factory) and set(arguments)==ZOGENIX_ARGUMENTS,'KDNY_CONSTRUCTOR_ALL_THREE_EXISTING_ZOGENIX_ARGUMENTS')
+ def constructor(*args,**kwargs):
+  need(not ZOGENIX_ARGUMENTS.intersection(kwargs),'KDNY_CONSTRUCTOR_NO_REPLACED_INHERITED_ARGUMENT')
+  return factory(*args,**kwargs,**arguments)
+ return constructor
 
 
 def continuation_namespace():

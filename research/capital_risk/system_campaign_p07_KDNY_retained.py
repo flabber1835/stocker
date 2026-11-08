@@ -101,6 +101,23 @@ def active_branch(backtest,old,current):
  return bodies.legacy.active_codec(SimpleNamespace(load_repair=z.original_load),old,current)
 
 
+def zogenix_arguments(codec,root):
+ from full_system_core import hosted
+ hosted()
+ from dataclasses import asdict
+ from system_campaign_zogenix_input import InputCodec
+ from system_campaign_zogenix_facts import PRIVATE,CONTRACT
+ need(codec is installed(),'KDNY_RETAINED_CONSTRUCTOR_ONLY_ACTUAL_INSTALLED_SUCCESSOR')
+ abmd=codec.previous_owner();loader=abmd.original_load;z=getattr(loader,'__self__',None)
+ need(isinstance(z,InputCodec) and loader==z.load and z.objects,'KDNY_RETAINED_ACTUAL_LOADED_ZOGENIX_CONSTRUCTOR_CODEC')
+ contract=json.loads((Path(__file__).parent/CONTRACT).read_bytes())
+ need(asdict(z.native)==contract['native'] and z.native_sha256==contract['native_term_sha256'],
+  'KDNY_RETAINED_ORIGINAL_ZOGENIX_CONSTRUCTOR_NATIVE')
+ raw=(Path(root)/PRIVATE).read_bytes();expected=resources.fact()['resources'][PRIVATE]
+ need(resources.pin(raw)=={k:expected[k] for k in ('bytes','sha256')},'KDNY_RETAINED_AUTHENTIC_COMPLETE_ZOGENIX_PRIVATE_SOURCE')
+ return dict(zogenix_codec=z,zogenix_native=z.native,zogenix_source=json.loads(raw))
+
+
 def growth_scope(current,spec):
  from full_system_core import hosted
  hosted()

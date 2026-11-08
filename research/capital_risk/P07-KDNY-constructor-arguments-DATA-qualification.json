@@ -1,0 +1,115 @@
+{
+  "actual_new_constructor_executed": false,
+  "actual_next_hosted_constructor_and_financial_run_required": true,
+  "all_three_omissions_and_replacements_refused": true,
+  "authenticated_prior_failure": {
+    "artifact_id": 13607955297,
+    "capture": {
+      "artifact_id": 13607955297,
+      "financial_job_started": true,
+      "financial_sessions_admitted": 0,
+      "head": "7ec93baff18382f3aff59a930e925cd9f6be29f1",
+      "logical_bytes": 716232355,
+      "members": 616,
+      "passed": true,
+      "preflight": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "reviewer": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "run": 42453810859,
+      "top_level_checkpoint_present": true,
+      "utc": "2026-11-08T06:48:25.467717+00:00",
+      "worker": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      }
+    },
+    "diagnostic_neutral27_observed": true,
+    "diagnostic_neutral_outer_sha256": "75d24099d5ab0357fd73e872cf6d4f5ba831504634480a96d3b64037a1cac0e5",
+    "financial_sessions_advanced": 0,
+    "hosted_packet_qualification_sha256": "9b6d8a74e95d98c63659d816899f4c32bbe218422e9177a800ffb6ea164bc83f",
+    "job_id": 128648438117,
+    "preparation_passed": true,
+    "receipt_sha256": "3f34a3b843997e6d0df85485ceb74e61914a95a0c8e4d496d9134d9b4eac4ac8",
+    "request": 237,
+    "review_cause": "constructor canary never created",
+    "run_id": 42453810859,
+    "unadmitted_neutral_is_not_a_new_resume_seed": true,
+    "worker_cause": "missing three inherited Zogenix keyword arguments",
+    "zip_sha256": "458b3aab4987b611741001607c9ddf8e7b02fdcd01797384877a68ff992e101b"
+  },
+  "files": {
+    "P07-KDNY-retained949-DATA-qualification.json": {
+      "bytes": 4790,
+      "sha256": "8179e6db6d38fd2bb816b12bfe55b2d6070e0778d7c7735b4fefffe0d1bf8c2b"
+    },
+    "forecast_tests/test_KDNY_certificate.py": {
+      "bytes": 2530,
+      "sha256": "11a3837a028a87e5cdb829dd0c0716352110fb9033c4f9bdada4faa336f6af3c"
+    },
+    "forecast_tests/test_KDNY_constructor_arguments.py": {
+      "bytes": 6105,
+      "sha256": "9a98438d475dd9ab46495f328f545a838db28db38b87db57ae7a0217a1983960"
+    },
+    "system-campaign-zogenix-sensor-contract.json": {
+      "bytes": 3485,
+      "sha256": "699149d418a932ca10f7c1f0848a5e9bb5f14083be431f7fde3a741c1d4313de"
+    },
+    "system_campaign_financial_resume.py": {
+      "bytes": 68150,
+      "sha256": "a740405976e8de07b0a2b0a376ac46d259fb748973ca502c7c3941e7a5aca5d1"
+    },
+    "system_campaign_p07_KDNY_certificate.py": {
+      "bytes": 5593,
+      "sha256": "f61cd93203cf808f245614a5cf3fae09195b34abce5d9ce2caa28a0dfde8a8ad"
+    },
+    "system_campaign_p07_KDNY_entry.py": {
+      "bytes": 13449,
+      "sha256": "c8f11162067012e478de0e4db1cb6d2cde91ddd50fc711fd639fb55912c1930a"
+    },
+    "system_campaign_p07_KDNY_retained.py": {
+      "bytes": 6596,
+      "sha256": "f7d8e2b4e162c4b282541cce98893a367b11bae59779662b6cb9072dc8fb1c01"
+    },
+    "system_campaign_p07_KDNY_runtime.py": {
+      "bytes": 17892,
+      "sha256": "2156620d7566be5bd0bd8bb4af57ba1049b7b27f93322b022b539ec65613bc69"
+    },
+    "system_campaign_zogenix_facts.py": {
+      "bytes": 4968,
+      "sha256": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056"
+    },
+    "system_campaign_zogenix_input.py": {
+      "bytes": 5390,
+      "sha256": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812"
+    },
+    "system_campaign_zogenix_sensor.py": {
+      "bytes": 4933,
+      "sha256": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+    }
+  },
+  "financial_authority": false,
+  "local_canonical_runtime_executed": false,
+  "original_class_methods_MRO_and_closures_unchanged": true,
+  "original_failure_reproduced_without_any_financial_runtime": true,
+  "original_retained949_qualification_inherited_by_exact_unchanged_assets_and_additive_function_AST": true,
+  "original_runtime_only_three_constructor_bindings_changed": true,
+  "passed": true,
+  "schema": "research.P07-KDNY-inherited-constructor-arguments-DATA-qualification/1",
+  "tests": {
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_constructor_arguments.py research/capital_risk/forecast_tests/test_KDNY_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-args-tests-20261108-002",
+    "passed": 24,
+    "seconds": 2.99
+  },
+  "whole_original_worker_constructor_call_qualified_against_actual_source_signature_as_opaque_DTO": true
+}

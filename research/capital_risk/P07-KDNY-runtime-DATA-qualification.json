@@ -16,6 +16,7 @@
     "request": 236,
     "run_id": 42452419846
   },
+  "constructor_argument_qualification_sha256": "f64956f834ad12c5bf9b21b6a3e50c875fba73080ea372793a626b989f0ad954",
   "counts": {
     "parent_days": 1403,
     "parent_inputs": 26,
@@ -24,6 +25,10 @@
     "seed": 949
   },
   "files": {
+    "P07-KDNY-constructor-arguments-DATA-qualification.json": {
+      "bytes": 4647,
+      "sha256": "f64956f834ad12c5bf9b21b6a3e50c875fba73080ea372793a626b989f0ad954"
+    },
     "P07-KDNY-full26-source-catalog.json": {
       "bytes": 45155,
       "sha256": "7d9301e0e9ead2ad5e4586d7f3a41b4449a51b3f6cca03e287570ae9b40c88d2"
@@ -56,6 +61,10 @@
       "bytes": 4828,
       "sha256": "40b4190964c7765e2d5829d1271b11bf8b0bf31d4744b51987ab58d67fe491d6"
     },
+    "forecast_tests/test_KDNY_constructor_arguments.py": {
+      "bytes": 6105,
+      "sha256": "9a98438d475dd9ab46495f328f545a838db28db38b87db57ae7a0217a1983960"
+    },
     "forecast_tests/test_KDNY_runtime.py": {
       "bytes": 8021,
       "sha256": "0f2c163ab3b4e2a1194401baa5428cf55ff74ef2ca54ae67246af02ddedbc4e8"
@@ -77,12 +86,12 @@
       "sha256": "ff3a4fcb9bc29bc9eaa087f3125b10de55cbccb8045962b85e83b1ca8377c5ee"
     },
     "system_campaign_p07_KDNY_certificate.py": {
-      "bytes": 5072,
-      "sha256": "21e9f4eb9382b55c70c34da0221b90e70d27e225490f2d46d1817c077445bd04"
+      "bytes": 5593,
+      "sha256": "f61cd93203cf808f245614a5cf3fae09195b34abce5d9ce2caa28a0dfde8a8ad"
     },
     "system_campaign_p07_KDNY_entry.py": {
-      "bytes": 13389,
-      "sha256": "651835ea79359c4afd5281156a5fd782610e9621c58999d3c62cb9d6ffd4ff2a"
+      "bytes": 13449,
+      "sha256": "c8f11162067012e478de0e4db1cb6d2cde91ddd50fc711fd639fb55912c1930a"
     },
     "system_campaign_p07_KDNY_history.py": {
       "bytes": 4873,
@@ -97,12 +106,12 @@
       "sha256": "b089453435a0d1ade1ea6a8000533dfb3657d15fd160f71306e217acfea87a6a"
     },
     "system_campaign_p07_KDNY_retained.py": {
-      "bytes": 5548,
-      "sha256": "e63025a43c4b4d3fabbf8fa91d26af3bf9a07ca590b4c778308692530ce9e5d7"
+      "bytes": 6596,
+      "sha256": "f7d8e2b4e162c4b282541cce98893a367b11bae59779662b6cb9072dc8fb1c01"
     },
     "system_campaign_p07_KDNY_runtime.py": {
-      "bytes": 17788,
-      "sha256": "2a1067a4054ca286a3622daba8033b8ef98e5d75f21a000ee1bd82be9e2e56d8"
+      "bytes": 17892,
+      "sha256": "2156620d7566be5bd0bd8bb4af57ba1049b7b27f93322b022b539ec65613bc69"
     },
     "system_campaign_p07_KDNY_source.py": {
       "bytes": 13116,
@@ -165,10 +174,7 @@
     "whole_original_retained_declaration_AST_undo": true,
     "whole_original_retained_worker_writer_dispatch": true
   },
-  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
-  "schema": "research.P07-KDNY-whole-runtime-DATA-qualification/1",
-  "scope": "Complete original worker and decoder composition tested as DATA/opaque DTO only. Actual hosted packet preparation, canonical neutral27 and shared financial constructor remain mandatory before financial advance.",
-  "tests": {
+  "previous_request237_runtime_tests": {
     "actual_complete_request_and_all_source_pins_checked": true,
     "all_four_mature_worker_ASTs_unchanged": true,
     "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-request237-runtime-20261108-001",
@@ -180,5 +186,19 @@
     "whole_original_adopter_AST_undo": true,
     "whole_original_retained_declaration_AST_undo": true,
     "whole_original_retained_worker_writer_dispatch": true
+  },
+  "root_admission_sha256": "8571f67e874bc4cc4677b8e8876bc116186952f4f7307d651e0131fce0017be2",
+  "schema": "research.P07-KDNY-whole-runtime-DATA-qualification/1",
+  "scope": "Complete original worker and decoder composition tested as DATA/opaque DTO only. Actual hosted packet preparation, canonical neutral27 and shared financial constructor remain mandatory before financial advance.",
+  "tests": {
+    "actual_complete_request_and_all_source_pins_checked": true,
+    "all_four_mature_worker_ASTs_unchanged": true,
+    "command": "python -B -m pytest -q research/capital_risk/forecast_tests/test_KDNY_runtime.py research/capital_risk/forecast_tests/test_KDNY_constructor_arguments.py research/capital_risk/forecast_tests/test_KDNY_certificate.py -p no:cacheprovider --tb=short --basetemp=C:/GitHub/stocker/.codex-tmp/KDNY-request238-runtime-20261108-001",
+    "early_copy_regression": true,
+    "financial_import_fences": 5,
+    "inherited_required_signature_and_both_constructor_sites_covered": true,
+    "passed": 45,
+    "seconds": 5.93,
+    "whole_original_worker_constructor_call_exercised_with_opaque_DTO": true
   }
 }

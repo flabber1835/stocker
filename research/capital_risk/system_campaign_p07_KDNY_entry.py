@@ -21,6 +21,7 @@ def source_names(*,profile=True):
   'system_campaign_p07_KDNY_source.py','system_campaign_p07_KDNY_preparation.py',resources.FACT,source.CATALOG,
   'P07-KDNY-source-packet-DATA-qualification.json','P07-KDNY-retained949-DATA-qualification.json',
   'P07-KDNY-runtime-DATA-qualification.json','P07-request231-parent-transport-DATA-qualification.json',
+  'P07-KDNY-constructor-arguments-DATA-qualification.json',
   'system_campaign_bounded_sensor_seed_binding.py','system_campaign_second_bounded_codec.py','system_campaign_second_bounded_factory.py',
   'system_campaign_full_history_successor.py','system_campaign_dependencies.py','system_campaign_p03_thor_qualification_reuse.py',
   'system_campaign_postclose_distribution_models.py','system_campaign_postclose_distribution_restart.py',

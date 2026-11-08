@@ -189,19 +189,20 @@ def run(parent,out,args,rows,observer,execution,*,spec,old):
   seed=neutral_seed(view,parent,current,spec,out,rows,baseline);seed(view,current,spec)
   with retained.growth_scope(current,spec) as mixed:
    C=factories.certificate_class(codec,codec.native,source.catalog()['market_source'],parent,current,spec,baseline,view,mixed=mixed)
+   constructor=factories.bind_arguments(C,**retained.zogenix_arguments(codec,view))
    def active(module,where,cp):
     need(Path(where)==view and cp==current,'KDNY_RUNTIME_ACTUAL_NEUTRAL27_ACTIVE_BRANCH_ONLY')
     return retained.active_branch(module,view,current)
    lower=active(None,view,current)
    from system_campaign_alder_date_v2 import AlderDateV2
    alder=AlderDateV2(Path(__file__).parent/'system-campaign-alder-unresolved-date.json');alder.hydrate(out/history.PREFIX/'constructor-alder-source.json')
-   candidate=C(out,lower,alder.native,baseline[0],seed=baseline[1],event_source=json.loads((view/'hydrated-uncertainty-event.json').read_bytes()))
+   candidate=constructor(out,lower,alder.native,baseline[0],seed=baseline[1],event_source=json.loads((view/'hydrated-uncertainty-event.json').read_bytes()))
    events=ordinary(view,out);distribution=retained.previous.inputs.observer(out)
    need(candidate.seed==baseline[1] and len(candidate.seed)==949 and candidate.append is not None,
     'KDNY_RUNTIME_ACTUAL_SHARED_CERTIFICATE_AND_ORIGINAL_OBSERVERS_CONSTRUCTED')
    exact(out/CONSTRUCTOR,source.encoded(dict(passed=True,current_checkpoint_sha256=current['sha256'],retained_rows=949,
     full_inputs=27,ordinary_terms=23,BWA_observer_preserved=True,financial_sessions_advanced=0)))
-   fn=retained_worker(dict(Certificate=C,preserve=preserve_archive,retained_seed=seed,active_codec=active,
+   fn=retained_worker(dict(Certificate=constructor,preserve=preserve_archive,retained_seed=seed,active_codec=active,
     unchanged_input_phase=lambda s:s==spec,own_unchanged_input_phase=lambda s:False,unchanged_input_receipt=lambda cp,s:proof),parent,current,spec,baseline,view)
    with events,distribution:code=fn(current,out,args,observer,execution,spec,view)
  from research.pooled_vacancy_funding import journal
