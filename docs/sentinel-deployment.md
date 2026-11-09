@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Plan preparation work and view continuity](plan-preparation-work-and-view.md)
+records the owner-authorized local correction of repeated archive/structural
+verification, callback authority renewal and duplicate or regressing plan cards.
+Its design is not an installation or financial readiness claim.
+
 [Activation producer health handoff](activation-shadow-health-handoff.md) joins
 the canonical publisher's configuration-bound health renewal before financial
 attestation can advance activation. An obsolete authenticated hint remains

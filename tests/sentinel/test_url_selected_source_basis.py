@@ -21,6 +21,13 @@ def _actual():
     return admission._source_files(Path(basis.__file__).parent)
 
 
+def _activation_endpoint():
+    """Historical deltas end at their frozen release, not an evolving HEAD."""
+    previous=basis._profile()['retained_predecessors'][basis.PLAN_WORK_PREDECESSOR_REVISION]['files']
+    assert basis.predecessor_view(_actual(),previous=previous)==previous
+    return previous
+
+
 ACCESS_PATH_ADDITIONS = {'checkpoint_lineage_access.py', 'operational_ddl_handoff.py',
                          'panel/feed_display.py'}
 ACCESS_PATH_CHANGES = {'operational_catalog.py', 'operational_schema.py',
@@ -182,10 +189,10 @@ def test_installed_pr565_source_is_exact_and_only_reviewed_modules_change():
     assert len(previous) == 442
     assert admission.source_closure(previous) == (
         '95b41c4029df447215be2f04bcce5a25c7a4fe629e130cc37a673badc22cedca')
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
     assert set(previous) <= set(actual)
-    assert basis.predecessor_view(actual, previous=previous) == previous
+    assert basis.predecessor_view(_actual(), previous=previous) == previous
     assert {name for name in previous if actual[name] != previous[name]} == {
         'automation/service.py', 'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
         'panel/presentation.py', 'panel/pwa.py', 'panel/render.py', 'panel/review.py',
@@ -199,13 +206,13 @@ def test_installed_main_verifier_predecessor_has_only_the_exact_display_successo
     assert len(previous) == 442
     assert admission.source_closure(previous) == (
         'db2228d6def65283cb75ac3da8f3250a99fb3f180600f9fd9e52b46cf6da0ee8')
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
     assert set(previous) <= set(actual)
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/authority_reader.py', 'panel/sources.py', 'panel/verification_service.py',
         'url_selected_source_basis.py'} | OPERATIONAL_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous
+    assert basis.predecessor_view(_actual(), previous=previous) == previous
     for name in actual:
         changed = {**actual, name: 'f'*64}
         assert basis.predecessor_view(changed, previous=previous) is changed
@@ -215,11 +222,11 @@ def test_installed_pr567_remains_exact_for_the_complete_operational_successor():
     previous = basis._profile()['retained_predecessors'][basis.OPERATIONAL_PREDECESSOR_REVISION]['files']
     assert len(previous) == 442
     assert admission.source_closure(previous) == '18de9f4c50f1695aeaa11cdc59081267ab1274f318ab9abc3e470a568ad48e42'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) - set(previous) == OPERATIONAL_ADDITIONS
     assert set(previous) <= set(actual)
     assert {name for name in previous if actual[name] != previous[name]} == OPERATIONAL_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous
+    assert basis.predecessor_view(_actual(), previous=previous) == previous
 
 
 def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_changes():
@@ -227,10 +234,10 @@ def test_installed_pr568_is_independently_pinned_and_only_exact_probe_patch_chan
     saved = deepcopy(previous)
     assert len(previous) == 451
     assert admission.source_closure(previous) == 'ea3e4e163241a2075bf5b49fa965b384e65bf2f8456a7e346e0fe8bba38978f8'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes():
@@ -238,10 +245,10 @@ def test_installed_local_probe_candidate_is_pinned_without_replacing_its_bytes()
     saved = deepcopy(previous)
     assert len(previous) == 451
     assert admission.source_closure(previous) == '2778b44660897768e9f808e4f26ac16847e158feba06f3b5187a3ab9defb8552'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == PATCH_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_reusable_observer_is_retained_for_exact_root_cause_corrections():
@@ -249,13 +256,13 @@ def test_installed_reusable_observer_is_retained_for_exact_root_cause_correction
     saved = deepcopy(previous)
     assert len(previous) == 451
     assert admission.source_closure(previous) == '9888f64b30c02da6b06091c52a6961d91282a5473142cdf4519b865bc6459f46'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) == set(previous) | ACCESS_PATH_ADDITIONS | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'panel/shadow_source_wait.py', 'panel/projection_service.py',
         'panel/sources.py',
         'shadow_drain.py', 'url_selected_source_basis.py'} | ACCESS_PATH_CHANGES | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display_changes():
@@ -263,11 +270,11 @@ def test_installed_checkpoint_access_runtime_has_only_reviewed_drain_and_display
     saved = deepcopy(previous)
     assert len(previous) == 453
     assert admission.source_closure(previous) == 'f4eaa5729cee9c2ce5794e4fa334c945dbf2ab2cadd55a77aa35a8b1abe61121'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) == set(previous) | {'panel/feed_display.py'} | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'shadow_drain.py', 'url_selected_source_basis.py', 'panel/sources.py'} | MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_running_feed_display_source_is_retained_without_claiming_completed_installation():
@@ -275,40 +282,40 @@ def test_running_feed_display_source_is_retained_without_claiming_completed_inst
     saved = deepcopy(previous)
     assert len(previous) == 454
     assert admission.source_closure(previous) == 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'
-    actual = _actual()
+    actual = _activation_endpoint()
     assert set(actual) == set(previous) | CASH_ADDITIONS | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == MARKET_OPEN_CHANGES | RECOVERY_CHANGES | STARTUP_CHANGES | EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_pr570_is_preserved_and_only_coherent_worker_collection_changes():
     previous = basis._profile()['retained_predecessors'][basis.STARTUP_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
-    actual = _actual()
+    actual = _activation_endpoint()
     assert len(previous) == 455
     assert admission.source_closure(previous) == '5470089498b2e6341865fd5483732c07f347e0019de71376dfdbbc8b2121c344'
     assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == {
         'shadow_service_probe.py', 'url_selected_source_basis.py'} | EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_pr572_and_every_original_predecessor_are_preserved():
     previous = basis._profile()['retained_predecessors'][basis.EFFICIENCY_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
-    actual = _actual()
+    actual = _activation_endpoint()
     assert len(previous) == 455
     assert admission.source_closure(previous) == 'abe9a2628cc3d46e43a73e9b811e5855c89f3af74619aca87fd765402c8bfc95'
     assert set(actual) == set(previous) | EFFICIENCY_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == EFFICIENCY_CHANGES | FEED_EVIDENCE_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
 
 
 def test_installed_pr573_archive_is_exact_and_only_diagnostics_change():
     profile = basis._profile()
     previous = profile['retained_predecessors'][basis.DIAGNOSTIC_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
-    actual = _actual()
+    actual = _activation_endpoint()
     assert basis.DIAGNOSTIC_PREDECESSOR_REVISION == '8fafcfae9c46f471a834d7bd221497d6d940732a'
     assert len(previous) == 456
     assert admission.source_closure(previous) == (
@@ -317,7 +324,7 @@ def test_installed_pr573_archive_is_exact_and_only_diagnostics_change():
         '702439463966cfaa06d5eca2837d716b1204eb61a09b432b3967c1e2229bfeae')
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == DIAGNOSTIC_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
     assert profile['authority_effect'] == 'NONE'
 
 
@@ -368,7 +375,7 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
     profile = basis._profile()
     previous = profile['retained_predecessors'][basis.ROOT_CAUSE_PREDECESSOR_REVISION]['files']
     saved = deepcopy(previous)
-    actual = _actual()
+    actual = _activation_endpoint()
     assert basis.ROOT_CAUSE_PREDECESSOR_REVISION == 'ba05fe76950fe6d976e08edaadfd88a9e39dec0e'
     assert len(previous) == 456
     assert admission.source_closure(previous) == (
@@ -377,8 +384,8 @@ def test_installed_diagnostic_release_has_exact_complete_original_source():
         'c82dc2c6dbb1e57cf5c4964cb46f635d50010a25b33b7dec672a3b8d59ec98c6')
     assert set(actual) == set(previous) | READ_COST_ADDITIONS
     assert {name for name in previous if actual[name] != previous[name]} == ROOT_CAUSE_CHANGES
-    assert basis.predecessor_view(actual, previous=previous) == previous == saved
-    assert len(profile['retained_predecessors']) == 24
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
+    assert set(profile['retained_predecessors']) == set(basis.RETAINED_PREDECESSORS)
     assert profile['authority_effect'] == 'NONE'
 
 

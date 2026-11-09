@@ -9,7 +9,9 @@ manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
 performs two bounded byte scrubs on first use and at least every five minutes.
-Within that interval unchanged objects reuse the proof; new or changed objects
+Within that interval unchanged objects reuse the proof; backed owner PAPER can
+authenticate a PostgreSQL-host-scoped receipt across disposable processes.
+Other callers retain their private process scope. New or changed objects
 are hashed immediately. Coarse timestamps cannot prove immutability, so expiry
 forces a full scrub even if metadata is unchanged. Reuse never extends expiry.
 The PostgreSQL OS identity also lstat-checks every required object so a symlink or
@@ -52,7 +54,8 @@ _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
-# Process-local proofs are never transferred to another process or database.
+# This fallback cache is never transferred. PAPER shared reuse independently
+# authenticates its separate physical-incarnation/boot-bound receipt.
 _PROOF_CACHE: dict[tuple, dict] = {}
 
 
@@ -446,6 +449,21 @@ def _validate_archive_objects(
         history_object: str | None, segment_size: int,
         start: str, end: str,
         require_current_selection: bool = False) -> tuple[dict[str, tuple], int, bool]:
+    from sentinel import backup_integrity_reuse
+    with backup_integrity_reuse.owner(conn, system_id=system_id, base=base,
+                                     start=start, segment_size=segment_size) as shared:
+        return _validate_archive_objects_owned(conn, operation=operation,
+            system_id=system_id, base=base, wal_root=wal_root, wal_objects=wal_objects,
+            history_object=history_object, segment_size=segment_size, start=start,
+            end=end, require_current_selection=require_current_selection, shared=shared)
+
+
+def _validate_archive_objects_owned(
+        conn, *, operation: str, system_id: str, base: str,
+        wal_root: str, wal_objects: tuple[str, ...],
+        history_object: str | None, segment_size: int,
+        start: str, end: str,
+        require_current_selection: bool = False, shared=None) -> tuple[dict[str, tuple], int, bool]:
     objects = wal_objects + ((history_object,) if history_object else ())
     if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
         raise BackupHorizonExceeded(
@@ -498,7 +516,7 @@ def _validate_archive_objects(
     scope = _connection_scope(conn)
     cache_key = (scope, system_id, base, start, segment_size)
     now = time.monotonic()
-    cached = _PROOF_CACHE.get(cache_key)
+    cached = shared.cached() if shared is not None else _PROOF_CACHE.get(cache_key)
     if cached is not None:
         previous_names = tuple(cached["objects"])
         if any(name not in objects for name in previous_names):
@@ -545,6 +563,8 @@ def _validate_archive_objects(
         "metadata": actual,
         "end": end,
     }
+    if shared is not None:
+        shared.publish(_PROOF_CACHE[cache_key], full_scrub=full_scrub)
     if len(_PROOF_CACHE) > 16:
         oldest = min(_PROOF_CACHE, key=lambda key: _PROOF_CACHE[key]["full_scrub_at"])
         if oldest != cache_key:

@@ -50,7 +50,8 @@ def test_partial_paper_withdraws_affected_positives_and_executable_payloads_only
     assert 'class="overview-card core-slots"' in html and 'class="overview retained-overview"' not in html
     assert 'class="overview-card scope-not-current account-overview"' in html
     assert 'Last known account' in html and 'Account snapshot:' in html
-    assert 'class="plan-legs"' not in html and 'All saved targets' not in html
+    assert 'Last known saved plan · status refreshing.' in html
+    assert 'Market-open time not current' in html
     assert page==before
 
 

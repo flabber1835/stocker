@@ -21,7 +21,8 @@ def test_exact_installed_map_and_only_identity_availability_and_checker_change()
     assert {name for name in prior if prior[name]!=actual[name]}=={
         'panel/authority_reader.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=prior)==prior
-    assert profile['authority_effect']=='NONE' and len(profile['retained_predecessors'])==24
+    assert profile['authority_effect']=='NONE'
+    assert set(profile['retained_predecessors'])==set(basis.RETAINED_PREDECESSORS)
     assert basis.PROFILE.stat().st_size<1_000_000
 
 

@@ -46,6 +46,7 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
     StaleLeaderRefused,
+    SupervisorIntegrityFailure,
     TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
@@ -604,6 +605,22 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _observe_callback_authority(sentinel_config, automation_config, holder_id, permit):
+    """Spawn-owned complete control check; never constructs a broker."""
+    runtime = ProductionAutomation(sentinel_config=sentinel_config,
+        automation_config=automation_config, holder_id=holder_id)
+    conn = runtime.connect()
+    try:
+        runtime._assert_control_authority(conn, permit, require_publication=True)
+        return 'PASS'
+    except NonRetryableCallbackRefused:
+        return 'REFUSED'
+    except TransientInfrastructureFailure:
+        return 'TRANSIENT'
+    finally:
+        conn.close()
+
+
 class ProductionAutomation:
     """Inject canonical production actions into the durable automation core."""
 
@@ -649,7 +666,27 @@ class ProductionAutomation:
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
             notify=self.notify, terminal=self.certify_terminal_cycle,
-            source_completion_hint=self.source_completion_hint)
+            source_completion_hint=self.source_completion_hint,
+            callback_authority=self.callback_authority)
+
+    def callback_authority(self, context, stopped):
+        from sentinel import supervisor_io
+        try:
+            result = supervisor_io.run(_observe_callback_authority,
+                self.sentinel_config, self.automation_config, self.holder_id, context.permit,
+                timeout=30, start_method='spawn', cancelled=stopped.is_set)
+        except TimeoutError as exc:
+            raise TransientInfrastructureFailure('callback authority observer exceeded its budget') from exc
+        except supervisor_io.DependencyError as exc:
+            if exc.diagnostic['exception_type'] == 'StaleLeaderRefused':
+                raise StaleLeaderRefused('callback authority observer lost its fence') from exc
+            raise SoftwareDefect('callback authority observer failed unexpectedly') from exc
+        if result == 'REFUSED':
+            raise NonRetryableCallbackRefused('current callback control authority was refused')
+        if result == 'TRANSIENT':
+            raise TransientInfrastructureFailure('callback authority validation temporarily unavailable')
+        if result != 'PASS':
+            raise SupervisorIntegrityFailure('callback authority observer returned an invalid result')
 
     def source_completion_hint(self, cycle):
         """A producer-change hint wakes verification; it grants no authority."""
@@ -687,11 +724,13 @@ class ProductionAutomation:
                 fence_token=permit.fence_token,
                 control_generation=permit.control_generation,
                 instance_id=self.holder_id)
+            return True
         except Exception:                                    # noqa: BLE001
             # A revocation, kill, or takeover commonly invalidates the same
             # fence needed to update the global display row. A stale worker may
             # not replace current truth merely to explain its own refusal.
             conn.rollback()
+            return False
 
     def _raise_authority_refusal(self, exc):
         if isinstance(exc, StaleLeaderRefused):
@@ -713,7 +752,7 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _assert_control_authority(self, conn, permit):
+    def _assert_control_authority(self, conn, permit, *, require_publication=False):
         """Verify current signed authority without requiring any cycle row."""
         try:
             store.require_leader(conn, permit)
@@ -757,10 +796,12 @@ class ProductionAutomation:
                     conn, permit, verdict="FAIL",
                     detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
-        self._record_authority_verdict(
+        published = self._record_authority_verdict(
             conn, permit, verdict="PASS",
             detail=(f"signed certificate {certificate.certificate_sha256} "
                     "verified for active automation control"))
+        if require_publication and not published:
+            raise TransientInfrastructureFailure('callback authority verdict could not be persisted')
         return control, certificate
 
     def _assert_cycle_authority(

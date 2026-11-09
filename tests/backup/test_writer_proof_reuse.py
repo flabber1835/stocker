@@ -181,12 +181,12 @@ def test_removing_inner_guard_is_detected_by_post_preflight_media_loss(world, mo
 
 
 def test_reverting_completion_clock_is_detected(world, monkeypatch):
-    source = inspect.getsource(authority._validate_archive_objects)
+    source = inspect.getsource(authority._validate_archive_objects_owned)
     old = '"full_scrub_at": time.monotonic() if full_scrub'
     assert old in source
     namespace = dict(authority.__dict__)
     exec(compile(source.replace(old, '"full_scrub_at": now if full_scrub'),
                  "<scrub-clock-falsifier>", "exec"), namespace)
-    monkeypatch.setattr(authority, "_validate_archive_objects", namespace["_validate_archive_objects"])
+    monkeypatch.setattr(authority, "_validate_archive_objects_owned", namespace["_validate_archive_objects_owned"])
     with pytest.raises(AssertionError):
         _slow_writer_admission(world, monkeypatch)

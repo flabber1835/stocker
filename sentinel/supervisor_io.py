@@ -85,7 +85,7 @@ def _call(channel, function, args, parent_pid):
         channel.close()
 
 
-def run(function, *args, timeout=1.0, start_method='fork'):
+def run(function, *args, timeout=1.0, start_method='fork', cancelled=None):
     """Do not let a silent server socket disable the parent's kill deadline.
 
     Callers return small fixed-shape rows or None. The child finishes sending
@@ -108,7 +108,14 @@ def run(function, *args, timeout=1.0, start_method='fork'):
     try:
         process.start()
         sender.close()
-        process.join(timeout)
+        deadline = time.monotonic()+timeout
+        while process.is_alive():
+            if cancelled is not None and cancelled():
+                raise TimeoutError('supervisor dependency observation cancelled by owner')
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                break
+            process.join(min(remaining, 0.1) if cancelled is not None else remaining)
         if process.is_alive():
             os.kill(process.pid, signal.SIGKILL)
             process.join(timeout=1)

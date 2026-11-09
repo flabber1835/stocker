@@ -6,6 +6,7 @@ a broker holding. This module performs no reads, writes, clock calls or trades.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from html import escape
@@ -97,7 +98,7 @@ def _leg_html(leg, outcomes) -> str:
         +_esc(target)+'</div>'+prior+'</li>')
 
 
-def _plan_html(panel: Panel) -> str:
+def _plan_html(panel: Panel, *, current: bool = True) -> str:
     row = panel.row('paper_plan')
     plan = row.paper_plan if row is not None else None
     # The saved plan expires at the same boundary as its original row. Neither
@@ -126,7 +127,8 @@ def _plan_html(panel: Panel) -> str:
     parts = [f'{value} {unit}'+('s' if value != 1 else '')
              for value, unit in ((days, 'day'), (hours, 'hour'), (minutes, 'minute'))
              if value or unit == 'minute']
-    countdown = ('Market-open time unavailable' if opened is None else
+    countdown = ('Market-open time not current' if not current else
+                 'Market-open time unavailable' if opened is None else
                  'Market open in '+ ' '.join(parts) if opened > panel.now else 'Scheduled market open reached')
     outcomes = row.visible_order_outcomes(panel.now)
     changes = (''.join(_leg_html(leg, outcomes) for leg in actions)
@@ -143,7 +145,8 @@ def _plan_html(panel: Panel) -> str:
         '<span class="overview-tag">PAPER</span></div>'
         '<div class="plan-schedule"><strong id="market-open-countdown" data-market-open-at="'
         +_esc(opened.isoformat() if opened is not None else '')+'">'+_esc(countdown)+'</strong></div>'
-        '<ul class="plan-legs">'+changes+'</ul>'
+        +('' if current else '<p class="overview-retained">Last known saved plan · status refreshing.</p>')
+        +'<ul class="plan-legs">'+changes+'</ul>'
         '<p class="overview-note">Saved proposals, not submitted orders or fills. Buy limits and funding '
         'are checked at execution.</p>'
         +_stamp(plan.observation_at, label='Recorded shares:')
@@ -353,15 +356,35 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
         if not current:
             html = html.replace('class="overview-card ', 'class="overview-card scope-not-current ', 1)
         return html.replace('<section ', '<section '+marker, 1)
-    plan = section(_plan_html(safe), ('paper_plan', 'trading_run', 'completed_trading_run'))
-    runs = (_run_html(safe) if safe.row('paper_plan') is not None
-            and safe.row('paper_plan').can_show_paper_plan(safe.now) else '')
+    # A receipt invalidation withdraws currentness, not the identity/content of
+    # an immutable saved intent. Keep that distinction in presentation only;
+    # payload_panel and every health/financial consumer retain their strict gate.
+    original_plan = panel.row('paper_plan')
+    plan_view = safe
+    plan_current = (not refresh_pending and original_plan is not None
+                    and delivery.row_current(panel, original_plan))
+    if (original_plan is not None and not plan_current
+            and original_plan.can_show_paper_plan(panel.now)):
+        plan_view = replace(safe, rows=[original_plan if row.key == 'paper_plan' else row
+                                       for row in safe.rows])
+    plan = section(_plan_html(plan_view, current=plan_current),
+                   ('paper_plan', 'trading_run', 'completed_trading_run'))
+    saved = plan_view.row('paper_plan')
+    run = safe.row('trading_run') or safe.row('completed_trading_run')
+    same_intent = (saved is not None and saved.can_show_paper_plan(safe.now)
+                   and run is not None and run.trading_run is not None
+                   and run.trading_run.state in {'PLAN_READY', 'WAITING_OPEN'}
+                   and not run.trading_run.orders
+                   and run.effective_status(safe.now) not in {FAIL, UNKNOWN}
+                   and run.trading_run.intent.plan_id == saved.paper_plan.plan_id)
+    runs = (_run_html(safe) if saved is not None
+            and saved.can_show_paper_plan(safe.now) and not same_intent else '')
     account = section(_account_html(panel), ('alpaca_account',))
     if panel.row('alpaca_account') is not None and not delivery.row_current(panel, panel.row('alpaca_account')):
         account = account.replace('</h2>', '</h2><p class="overview-retained">Last known account · original snapshot time below.</p>', 1)
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
             +retained
-            +section(_preparation_html(safe, refresh_pending=refresh_pending), ('ingest',))
+            +section(_preparation_html(plan_view, refresh_pending=refresh_pending), ('ingest',))
             +plan+section(runs, ('trading_run', 'completed_trading_run'))
             +account+section(_slots_html(safe), ('book', 'exposure'))+'</main>')

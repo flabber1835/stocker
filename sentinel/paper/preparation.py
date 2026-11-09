@@ -379,7 +379,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
-        with feed_inputs.pinned(conn, commit=False) as pinned:
+        from sentinel import structural_verification
+        with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn):
             feed_inputs.require_shadow_mode(pinned, dual_mode)
             observation_time = (now_et if now_et is not None else
                                 datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))

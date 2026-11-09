@@ -61,6 +61,9 @@ from sentinel.automation.model import (
 )
 
 
+CALLBACK_AUTHORITY_SECONDS = 60
+
+
 PrepareCallable: TypeAlias = Callable[
     [CycleContext], PrepareResult | Mapping[str, Any]
     | Awaitable[PrepareResult | Mapping[str, Any]]]
@@ -366,7 +369,8 @@ class AutomationService:
             recover: RecoverCallable, execute: ExecuteCallable,
             notify: NotifyCallable | None = None,
             terminal: TerminalCallable | None = None,
-            source_completion_hint: SourceCompletionCallable | None = None) -> None:
+            source_completion_hint: SourceCompletionCallable | None = None,
+            callback_authority: Callable | None = None) -> None:
         if not holder_id:
             raise ValueError("holder_id must be non-empty")
         self.config = config
@@ -378,6 +382,7 @@ class AutomationService:
         self.notify = notify
         self.terminal = terminal
         self.source_completion_hint = source_completion_hint
+        self.callback_authority = callback_authority
 
     def _source_completion(self, cycle: CycleRecord) -> SourceCompletionHint | None:
         """An unavailable optional hint cannot change the existing retry."""
@@ -820,12 +825,25 @@ class AutomationService:
 
         stopped = threading.Event()
         heartbeat_errors: list[BaseException] = []
+        authority_errors: list[BaseException] = []
         loop = asyncio.get_running_loop()
         heartbeat_failed = asyncio.Event()
 
         def signal_heartbeat_failure(exc: BaseException) -> None:
             heartbeat_errors.append(exc)
             loop.call_soon_threadsafe(heartbeat_failed.set)
+
+        def authority_observer():
+            while not stopped.wait(CALLBACK_AUTHORITY_SECONDS):
+                try:
+                    if context.cancellation.cancelled:
+                        return
+                    self.callback_authority(context, stopped)
+                except BaseException as exc:
+                    if not stopped.is_set():
+                        authority_errors.append(exc)
+                        loop.call_soon_threadsafe(heartbeat_failed.set)
+                    return
 
         def heartbeat() -> None:
             # Created in this parent thread after the callback child was forked.
@@ -866,6 +884,7 @@ class AutomationService:
 
         worker = None
         worker_started = False
+        authority_worker = None
         callback_process = None
         parent_channel = None
         child_channel = None
@@ -963,6 +982,10 @@ class AutomationService:
                     name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
                 worker.start()
                 worker_started = True
+                if self.callback_authority is not None:
+                    authority_worker = threading.Thread(target=authority_observer,
+                        name=f"sentinel-callback-authority-{self.holder_id}", daemon=True)
+                    authority_worker.start()
 
             callback_task = asyncio.create_task(invoke_callback())
             deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
@@ -971,14 +994,15 @@ class AutomationService:
                 {callback_task, deadline_task, heartbeat_task},
                 return_when=asyncio.FIRST_COMPLETED)
             if (callback_task in done and deadline_task not in done
-                    and heartbeat_task not in done):
+                    and heartbeat_task not in done and not authority_errors):
                 outcome = callback_task.result()
                 if outcome.error is not None:
                     raise outcome.error
                 context.require_active()
                 return outcome.value
             heartbeat_lost = heartbeat_task in done and heartbeat_errors
-            reason = (
+            reason = (f"{phase} callback authority validation failed: {authority_errors[0]}"
+                if authority_errors else
                 f"{phase} callback heartbeat failed: {heartbeat_errors[0]}"
                 if heartbeat_lost else
                 f"{phase} callback exceeded bounded runtime {deadline_seconds}s")
@@ -986,6 +1010,8 @@ class AutomationService:
             callback_task.cancel()
             callback_task.add_done_callback(_consume_background_result)
             _kill_callback_process(callback_process)
+            if authority_errors:
+                raise authority_errors[0]
             if heartbeat_lost:
                 raise StaleLeaderRefused(reason)
             raise CallbackDeadlineExceeded(reason)
@@ -1001,6 +1027,13 @@ class AutomationService:
             raise
         finally:
             stopped.set()
+            authority_stuck = False
+            if authority_worker is not None:
+                authority_worker.join(timeout=3)
+                if authority_worker.is_alive():
+                    context.cancellation.cancel(f"{phase} authority observer did not stop")
+                    _kill_callback_process(callback_process)
+                    authority_stuck = True
             for task in (deadline_task, heartbeat_task):
                 if task is not None:
                     task.cancel()
@@ -1018,6 +1051,8 @@ class AutomationService:
                 child_channel.close()
             if parent_channel is not None:
                 parent_channel.close()
+            if authority_stuck:
+                raise SupervisorIntegrityFailure(f"{phase} authority observer did not stop")
             if heartbeat_errors and not context.cancellation.cancelled:
                 reason = f"{phase} callback heartbeat cleanup failed: {heartbeat_errors[0]}"
                 context.cancellation.cancel(reason)
