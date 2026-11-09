@@ -74,6 +74,28 @@ The shallowest full-history drawdown was 26.2617%, paired with 17.4708% CAGR
 reselected from later-period outcomes. The complete class spans 10.8201%-20.9165%
 full-history CAGR and 26.2617%-33.1101% drawdown magnitude.
 
+## Protection tradeoffs on the declared frontier
+
+The primary protection objective required preserving the better no-extra-hold
+control's training wealth. That is a stricter objective than preserving original
+Sentinel growth. Do not interpret the primary picks or the shallowest-drawdown
+row above as the only available tradeoffs. Two profiles already on the
+predeclared training frontier deserve explicit reporting:
+
+| Profile | Full CAGR | Full maximum drawdown | Peak to recovery sessions |
+|---|---:|---:|---:|
+| Original Sentinel | 19.9551% | -29.3291% | 642 |
+| GRID_8c4c9f4b11e7404f1ba1 | 20.0093% | -27.0442% | 641 |
+| GRID_50fa11b9e59806cedd0b | 19.8301% | -26.3807% | 716 |
+
+This is a correction to the emphasis of the earlier summary, not a new
+later-period winner selection. The first profile preserves original growth
+with a 2.2849-point drawdown reduction; the second trades modest growth for
+more protection but prolongs recovery. "Nothing improved" and "protection
+requires growth to fall to 17.47%" both overstate the negative result.
+The separately authorized [RW1 experiment](p00-recovery-watch-results.md) is
+dominated by the first of these prior candidates and was rejected.
+
 ## Matched parameter comparisons
 
 Each comparison changes one axis while holding the other five axes fixed.
