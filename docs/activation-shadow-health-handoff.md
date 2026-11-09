@@ -53,3 +53,20 @@ the renewal prerequisite and the owner/attempt continuity guards. Join the
 actual activation wait to this response, including the post-resume path. The
 final health predicate, PAPER fences, immutable installation receipt and book
 remain unchanged.
+
+The runtime's exact complete-source seal must include this operational delta.
+Append the independently archived original main `2714afbb25fd169295358e035cefff59db2bf67d`
+as ACTIVATION_HEALTH_PREDECESSOR_REVISION: 463 modules, closure
+`ec90eb9779d0ea2b0b3c7a65dd4e2219347c9809c54a610a08e6f2716dc4f4a5`,
+original checker `504ef51e6961dae121d4da55fa4bc1ab760ab83541888389e7ed0cab113f231a`.
+The Git-created archive SHA256 is
+`936fcdc4a39b4d28336efdb4fceea0a0eb9ab4e2315435fe8f9ba292d5214881`.
+Advance only the descriptor to schema25 and the exact candidate/checker metadata;
+preserve all 23 original expanded historical maps and their independent pins.
+The only application changes from that main are shadow_health_projection.py and
+the checker's metadata. The checker algorithms, complete-map membership, unknown
+source refusal, authority_effect=NONE, all 116 economic contributors, rolling
+store and historical financial witnesses remain byte-identical. Historical
+presentation-delta tests continue comparing their actual historical endpoints;
+the new test separately proves this two-module successor edge. Review a frozen
+plan before applying its exact hash; never replace an older financial witness.
