@@ -47,18 +47,24 @@ def git(source, *args):
     return result.stdout.decode('utf-8').strip()
 
 
-def source_files(source, *, scope=None, predecessor_commit=None):
+def source_files(source, *, scope=None, predecessor_commit=None, commit=None, git_reader=None):
     """Hash the complete declared input scope, never ignored local evidence."""
     require(scope is None or scope == OPERATIONAL_SCOPE, 'QUALIFICATION_SOURCE_SCOPE_INVALID')
     source = Path(source).resolve()
-    names = git(source,'ls-files','-z').split('\0')
+    read = (lambda *args: git(source,*args)) if git_reader is None else git_reader
+    if git_reader is None:
+        names=read('ls-files','-z').split('\0')
+    else:
+        require(re.fullmatch('[0-9a-f]{40}',commit or '') is not None,
+                'QUALIFICATION_COMMIT_INVALID')
+        names=read('ls-tree','-r','--name-only','-z',commit).split('\0')
     names = [name for name in names if name]
     require(names and len(names) == len(set(names)), 'QUALIFICATION_SOURCE_SET_EMPTY')
     if scope == OPERATIONAL_SCOPE:
         require(re.fullmatch(r'[0-9a-f]{40}', predecessor_commit or '') is not None,
                 'QUALIFICATION_PREDECESSOR_INVALID')
-        changed = set(filter(None,git(source,'diff','--name-only','-z',
-            predecessor_commit,'HEAD').split('\0')))
+        changed = set(filter(None,read('diff','--name-only','-z',
+            predecessor_commit,commit if git_reader is not None else 'HEAD').split('\0')))
         require(all(name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
                     for name in changed), 'QUALIFICATION_NONOPERATIONAL_DELTA')
         names = [name for name in names if name.startswith(
@@ -82,19 +88,20 @@ def source_files(source, *, scope=None, predecessor_commit=None):
     return result
 
 
-def clean_candidate(source, commit, predecessor_commit):
+def clean_candidate(source, commit, predecessor_commit, *, git_reader=None):
     require(re.fullmatch(r'[0-9a-f]{40}', commit or '') is not None
             and re.fullmatch(r'[0-9a-f]{40}', predecessor_commit or '') is not None,
             'QUALIFICATION_COMMIT_INVALID')
-    require(git(source,'rev-parse','HEAD') == commit and not git(source,'status','--porcelain'),
+    read = (lambda *args: git(source,*args)) if git_reader is None else git_reader
+    require(read('rev-parse','HEAD') == commit and not read('status','--porcelain'),
             'QUALIFICATION_SOURCE_NOT_CLEAN')
-    branch = git(source,'branch','--show-current')
+    branch = read('branch','--show-current')
     require(bool(branch) and branch not in {'main','master'}, 'QUALIFICATION_FEATURE_BRANCH_REQUIRED')
-    require(git(source,'merge-base',predecessor_commit,commit) == predecessor_commit,
+    require(read('merge-base',predecessor_commit,commit) == predecessor_commit,
             'QUALIFICATION_PREDECESSOR_NOT_ANCESTOR')
 
 
-def validate_report(path, expected_sha, source, commit, predecessor_commit):
+def validate_report(path, expected_sha, source, commit, predecessor_commit, *, git_reader=None):
     """Derive success from retained exit/count/log evidence and current bytes."""
     require(isinstance(expected_sha,str) and _HEX.fullmatch(expected_sha) is not None
             and sha256_file(path) == expected_sha, 'QUALIFICATION_REPORT_CHANGED')
@@ -117,9 +124,10 @@ def validate_report(path, expected_sha, source, commit, predecessor_commit):
         require(False,'QUALIFICATION_TIME_INVALID')
     require(observed.utcoffset() is not None and observed.utcoffset().total_seconds() == 0,
             'QUALIFICATION_TIME_INVALID')
-    clean_candidate(source,commit,predecessor_commit)
+    clean_candidate(source,commit,predecessor_commit,git_reader=git_reader)
+    inputs=dict(commit=commit,git_reader=git_reader) if git_reader is not None else {}
     current_files = (source_files(source,scope=report['source_scope'],
-        predecessor_commit=predecessor_commit) if operational else source_files(source))
+        predecessor_commit=predecessor_commit,**inputs) if operational else source_files(source,**inputs))
     require(report['source_files'] == current_files,
         'QUALIFIED_SOURCE_BYTES_CHANGED')
     results = report['results']

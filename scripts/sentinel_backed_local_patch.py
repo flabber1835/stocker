@@ -15,7 +15,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 
-from sentinel_local_delivery import builder, checks, cli
+from sentinel_local_delivery import builder, checks, cli, environment
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
 from sentinel_local_delivery.model import ACCESS_PATH_SCHEMA, DeliveryRefused, Journal, read_json, require, digest
@@ -119,7 +119,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
     if unfinished:
         require(record['artifacts'].get('successor_proof_sha256')
             ==digest(record['artifacts']['canonical_proof']), 'BACKED_STARTED_CANONICAL_PROOF_CHANGED')
-    built = read_json(selected.parent/'build.json')
+    built = builder.operation_build(selected.parent)
     candidate = request['candidate']
     require(built.get('schema')==builder.BUILD_SCHEMA
         and built.get('commit')==candidate['commit'] and built.get('image')==candidate['image']
@@ -146,8 +146,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
     pg, preserved = record['artifacts']['postgres'],record['artifacts']['preserved']
     require(pg==foundation['postgres'] and preserved['system']==foundation['system']
         and 'archive_mode=on' in pg['command']
-        and (anchor['postgres'] is None or (preserved['system']==anchor['system']
-            and (pg==anchor['postgres'] or prior.get('allow_started') is True))),
+        and (anchor['postgres'] is None or preserved['system']==anchor['system']),
         'BACKED_PREDECESSOR_PRESERVATION_CHANGED')
     if anchor['postgres'] is not None and pg!=anchor['postgres']:
         require_same_postgres_storage(anchor['postgres'],pg)
@@ -181,16 +180,19 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
 
 
 class BackedHost(Host):
+    supports_verification_recovery = True
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True
     supports_post_schema_access_path = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
-        built = self.operation_dir/'build.json'
-        self.predecessor_receipt = Path(predecessor_receipt or read_json(built)['predecessor_receipt']['path'])
-        self.allow_started_predecessor=(allow_started or (built.is_file()
-            and read_json(built)['predecessor_receipt'].get('allow_started') is True))
+        present = any((self.operation_dir/name).exists() or (self.operation_dir/name).is_symlink()
+            for name in ('build.json','build-reference.json'))
+        built = builder.operation_build(self.operation_dir) if present else None
+        self.predecessor_receipt = Path(predecessor_receipt or built['predecessor_receipt']['path'])
+        self.allow_started_predecessor=(allow_started or (built is not None
+            and built['predecessor_receipt'].get('allow_started') is True))
         witness=predecessor_witness(self.predecessor_receipt,
             inspect_image=lambda ref:builder._inspect(self,ref),allow_started=self.allow_started_predecessor)
         self.predecessor_roots=witness['roots']
@@ -201,7 +203,23 @@ class BackedHost(Host):
         require(values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1', 'BACKED_POLICY_REQUIRED')
         reference=values['SENTINEL_RUNTIME_IMAGE_REF']
         require(re.fullmatch(r'(?:[^\s]+@)?sha256:[0-9a-f]{64}',reference), 'BACKED_IMMUTABLE_IMAGE_REQUIRED')
-        actual=builder._inspect(self,reference)['Id']
+        expected=values['SENTINEL_RUNTIME_IMAGE_DIGEST']
+        require(isinstance(expected,str) and re.fullmatch(r'sha256:[0-9a-f]{64}',expected)
+            and expected==values['SENTINEL_TEST_IMAGE_DIGEST'], 'BACKED_RUNTIME_FACTS_DIFFER')
+        if reference.startswith('sha256:'):
+            require(reference==expected,'BACKED_RUNTIME_FACTS_DIFFER')
+        resolved=getattr(self,'_immutable_runtime_ids',{})
+        if reference in resolved:
+            actual=resolved[reference]
+        else:
+            metadata=builder._inspect(self,reference)
+            actual=metadata['Id']
+            require(isinstance(actual,str) and re.fullmatch(r'sha256:[0-9a-f]{64}',actual)
+                and (actual==reference if reference.startswith('sha256:') else
+                     isinstance(metadata.get('RepoDigests'),list) and reference in metadata['RepoDigests']),
+                'BACKED_IMMUTABLE_IMAGE_RESOLUTION_CHANGED')
+            require(actual==expected,'BACKED_RUNTIME_FACTS_DIFFER')
+            self._immutable_runtime_ids={**resolved,reference:actual}
         require(actual==values['SENTINEL_RUNTIME_IMAGE_DIGEST']==values['SENTINEL_TEST_IMAGE_DIGEST'],
             'BACKED_RUNTIME_FACTS_DIFFER')
         # Resolve an immutable RepoDigest into its actual local image identity.
@@ -219,7 +237,7 @@ class BackedHost(Host):
         require((self.deployment/'.git').exists() and not (self.deployment/'.git').is_symlink(),
             'BACKED_CANONICAL_DEPLOYMENT_REQUIRED')
         require(not (self.deployment/'.env').is_symlink(), 'BACKED_ENVIRONMENT_PATH_UNSAFE')
-        built=read_json(self.operation_dir/'build.json')
+        built=builder.operation_build(self.operation_dir)
         anchor=built['predecessor_receipt']
         require(Path(anchor['path'])==self.predecessor_receipt
             and sha256_file(self.predecessor_receipt)==anchor['sha256'], 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
@@ -237,29 +255,17 @@ class BackedHost(Host):
         require(witness['git_commit']==self.request['predecessor']['commit']
             and witness['runtime_image']==self.request['predecessor']['image'],
             'BACKED_INSTALL_ACTIVE_ANCHOR_CHANGED')
-        require(self.load_values()==previous, 'ENVIRONMENT_CHANGED_BEFORE_INSTALL')
         require(candidate==self.candidate_values(previous)
             and all(previous.get(k)==candidate.get(k) for k in set(previous)|set(candidate)
                     if k not in RUNTIME_KEYS), 'NON_RUNTIME_CONFIGURATION_CHANGED')
         # The preceding failed host may already have atomically selected these
         # exact bytes before discovering that archive-only metadata was absent.
         if previous==candidate:
-            directory=os.open(self.deployment,os.O_RDONLY)
-            try:os.fsync(directory)
-            finally:os.close(directory)
+            environment.install(self,previous)
             return
         raw=''.join(k+'='+json.dumps(v,ensure_ascii=False)+'\n' for k,v in sorted(candidate.items()))
         require(self.literal.parse_bytes(raw.encode())==candidate, 'LITERAL_ENV_ROUNDTRIP_FAILED')
-        fd,temporary=tempfile.mkstemp(prefix='.env.local-delivery-',dir=self.deployment)
-        try:
-            with os.fdopen(fd,'w',encoding='utf-8') as stream:
-                stream.write(raw);stream.flush();os.fsync(stream.fileno())
-            Path(temporary).replace(self.deployment/'.env')
-            directory=os.open(self.deployment,os.O_RDONLY)
-            try:os.fsync(directory)
-            finally:os.close(directory)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        environment.install(self,previous,raw.encode())
 
     def compose_paths(self, values):
         require(values['SENTINEL_GIT_COMMIT'] in {
@@ -369,7 +375,7 @@ class BackedHost(Host):
 
     def predecessor_canonical_proof(self, state):
         """Reuse an unchanged predecessor fact, never a candidate startup fact."""
-        built=read_json(self.operation_dir/'build.json')
+        built=builder.operation_build(self.operation_dir)
         anchor=built['predecessor_receipt']
         require(str(self.predecessor_receipt)==anchor['path']
             and sha256_file(self.predecessor_receipt)==anchor['sha256'],
@@ -444,8 +450,9 @@ def require_started_state(host, record, values, pg, image):
     require(evidence.native_positions(host,values)==record['native_positions'],
         'BACKED_STARTED_NATIVE_POSITIONS_CHANGED')
     evidence.check_notification_history(host,record['notification_history'])
+    applications=host.containers(SERVICES)
     for service in SERVICES:
-        item=host.container(service)
+        item=applications[service]
         require(item['Image']==image and item['State']['Running']
             and item['State'].get('Health',{}).get('Status')=='healthy'
             and not item['State']['OOMKilled'] and not item['State']['Restarting'],
@@ -504,9 +511,10 @@ def active_baseline(path, host, *, blocked_unsent=False):
             and state.get('killed') is True and state.get('plain_kill') is True,
             'BLOCKED_UNSENT_PLAIN_KILL_REQUIRED')
     pg=postgres_facts(host.container('sentinel-postgres'))
-    require(record['postgres'] is None or (state['system']==record['system']
-        and (pg==record['postgres'] or record.get('unfinished'))),
+    require(record['postgres'] is None or state['system']==record['system'],
         'BACKED_VERIFIED_POSTGRES_CHANGED')
+    if record['postgres'] is not None and not record.get('unfinished'):
+        require_same_postgres_storage(record['postgres'],pg)
     if record.get('unfinished'):
         require_started_state(host,record,values,pg,image['Id'])
     # The primary command must equal the unchanged canonical backed Compose graph.
@@ -541,9 +549,12 @@ def main(argv=None):
             output=dict(build_record=str(folder/'build.json'),build_sha256=sha256_file(folder/'build.json'),
                 commit=result['commit'],image=result['image'])
         elif args.command=='prepare':
-            built=read_json(args.build_record)
+            folder=builder.safe_directory(args.operation_dir,create=True)
+            built=builder.pinned_build(args.build_record,args.build_sha256)
             host=BackedHost(dict(source=built['source'],deployment=built['deployment'],
-                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder)
+                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder,
+                predecessor_receipt=built['predecessor_receipt']['path'],
+                allow_started=built['predecessor_receipt'].get('allow_started') is True)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
                 operation_id=args.operation_id,host_type=BackedHost,
                 baseline_reader=lambda path:active_baseline(path,host,
@@ -553,11 +564,16 @@ def main(argv=None):
         elif args.command=='status':output=cli.status(folder)
         else:
             journal=Journal(folder);host=BackedHost(journal.request,folder)
-            built=read_json(folder/'build.json')
+            built=builder.operation_build(folder)
             require(sha256_file(built['predecessor_receipt']['path'])==built['predecessor_receipt']['sha256']
                 and built['foundation']==journal.request['predecessor'], 'BACKED_WITNESS_CHANGED')
             delivery=Delivery(host,journal)
-            if args.one_stage:
+            if args.command=='abandon-drain':
+                delivery.abandon_drain()
+            elif args.command=='recover-verification':
+                from sentinel_local_delivery.verification_recovery import recover
+                recover(delivery, args.recovery_id)
+            elif args.one_stage:
                 with host.owned():delivery.step()
             else:delivery.advance()
             output=cli.status(folder)

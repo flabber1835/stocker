@@ -22,7 +22,7 @@ def keyed(page, key):
 
 
 def scheduled_page(*, history=False, notices=False, clean=False, recovered=False,
-                   undated_open=False):
+                   undated_open=False, changed_scopes=()):
     now = datetime.now(timezone.utc)
     execute = now + timedelta(days=3)
     decision, effective = now.date(), execute.date()
@@ -72,6 +72,9 @@ def scheduled_page(*, history=False, notices=False, clean=False, recovered=False
     else:
         assert page['dashboard_health']['review_conditions'] == []
     assert page['dashboard_health']['color'] == ('green' if clean else 'amber')
+    if changed_scopes:
+        page = public_payload(replace(panel, observation_current=False,
+            observation_changed_scopes=tuple(changed_scopes)))
     return page, dict(plan=plan.plan_id, decision=str(decision), effective=str(effective))
 
 

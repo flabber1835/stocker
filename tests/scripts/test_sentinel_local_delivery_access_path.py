@@ -176,8 +176,10 @@ def test_bootstrap_contract_is_closed_and_bound_before_drain(access_operation,fi
 def test_pending_schema_pages_do_not_run_or_fabricate_candidate_proof(access_operation):
     host,journal,delivery=access_operation
     host.schema_complete=False
-    first=delivery.advance()
-    assert first['stage']=='SCHEMA_INSTALL_REQUESTED'
+    with pytest.raises(model.DeliveryRefused,match='OPERATIONAL_BOOTSTRAP_PAGE_LIMIT'):
+        delivery.advance()
+    first=journal.read()
+    assert first['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==10
     stamp=first['artifacts']['preflight_at']
     assert host.canonical_count==0 and 'canonical_proof' not in first['artifacts']
     assert not any(item['State']['Running'] for item in host.items.values())

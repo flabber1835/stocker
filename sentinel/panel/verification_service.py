@@ -1,10 +1,15 @@
 """Single independently owned broker-free verifier, in the common image."""
 from __future__ import annotations
 
+# A disposable heartbeat probe must not initialize the financial verifier.
+import sys
+if __name__ == '__main__' and sys.argv[1:] == ['--health']:
+    from sentinel.panel.verification_health import health
+    raise SystemExit(health())
+
 from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import signal
 from threading import BoundedSemaphore, Event
 import time
@@ -15,8 +20,9 @@ from psycopg.errors import LockNotAvailable, QueryCanceled
 from sentinel.panel import authority_reader as financial, observer_codec, observer_failure, read_projection
 from sentinel.panel import operational_schema as schema
 from sentinel.panel.verification_monitor import paper_unknown
+from sentinel.panel.verification_health import VERIFIER_HEARTBEAT
 
-HEARTBEAT = Path('/tmp/sentinel-verification-heartbeat')
+HEARTBEAT = VERIFIER_HEARTBEAT
 OWNER_LOCK = (1_397_050_964, 1_448_748_626)
 OWNER_SECONDS = 610
 RETRY_SECONDS = 20
@@ -311,15 +317,10 @@ def run(*, stopped=None):
 
 
 def health():
-    try:
-        from sentinel.panel.projection_service import HEARTBEAT as operational_heartbeat
-        stamp = datetime.fromisoformat(HEARTBEAT.read_text(encoding='ascii'))
-        operational = datetime.fromisoformat(operational_heartbeat.read_text(encoding='ascii'))
-        now = datetime.now(timezone.utc)
-        return 0 if all(timedelta(0) <= now-value <= timedelta(seconds=45)
-                        for value in (stamp, operational)) else 1
-    except (OSError,ValueError,TypeError):
-        return 1
+    from sentinel.panel.projection_service import HEARTBEAT as operational_heartbeat
+    from sentinel.panel.verification_health import health as heartbeat_health
+    return heartbeat_health(verifier_path=HEARTBEAT, operational_path=operational_heartbeat,
+                            now=datetime.now(timezone.utc))
 
 
 if __name__ == '__main__':

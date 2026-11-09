@@ -8,6 +8,7 @@ import re
 
 from .model import Journal, digest, read_json, require
 from .qualification import sha256_file
+from .builder import operation_build
 
 SCHEMA = 'sentinel.checkpoint-access-bootstrap/1'
 INSTALLED_SCHEMA = 'sentinel.checkpoint-access-installed/1'
@@ -74,7 +75,7 @@ def _bindings(host, state):
 
 def _predecessor(host, state, retained):
     require(isinstance(retained, dict) and bool(retained), 'ACCESS_BOOTSTRAP_RETAINED_PROOF_REQUIRED')
-    built = read_json(host.operation_dir/'build.json')
+    built = operation_build(host.operation_dir)
     require(built['foundation'] == host.request['predecessor']
         and built['commit'] == host.request['candidate']['commit']
         and built['image'] == host.request['candidate']['image']

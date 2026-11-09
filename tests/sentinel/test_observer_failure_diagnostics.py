@@ -244,7 +244,8 @@ def test_identity_read_failure_remains_failed_until_a_full_current_observation()
         return positive()
     value.evidence_reader, value.runner = evidence, observe
     assert value.read('fixture', include_paper=False)[0][0].status == model.UNKNOWN
-    assert value.failure is not None and 'READ_TIMEOUT' in value.failure and PRIVATE not in value.failure
+    assert value.failure is None and value.identity_failure.code == 'READ_TIMEOUT'
+    assert PRIVATE not in value.identity_failure.safe_detail() and value.attempt_state() is None
     unavailable[0] = False
     try:
         assert value.read('fixture', include_paper=False)[0][0].status == model.UNKNOWN
@@ -363,7 +364,7 @@ def test_removed_supersession_guards_are_detected(monkeypatch, defect):
         check = test_known_failure_survives_subject_change_and_superseded_work
     else:
         method = 'read'
-        old, new = "detail = 'current financial identity unreadable: '+self.diagnostic.safe_detail()\n            self.failure = detail", "detail = 'current financial identity unreadable: '+self.diagnostic.safe_detail()\n            self.failure = None"
+        old, new = ('if self.identity_failure is not None:', 'if False:')
         check = test_identity_read_failure_remains_failed_until_a_full_current_observation
     source = textwrap.dedent(inspect.getsource(getattr(reader.Reader, method)))
     assert old in source

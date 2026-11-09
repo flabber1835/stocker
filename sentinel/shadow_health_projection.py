@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
@@ -10,22 +10,75 @@ import os
 from pathlib import Path
 import tempfile
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sentinel.feed import calendar, publication, store
 
 MAX_BYTES = 65536
-SCHEMA = 'sentinel.shadow-health-projection/1'
+SCHEMA = 'sentinel.shadow-health-projection/2'
 
 
 class Projection(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
-    schema_id: str = Field(pattern=r'^sentinel\.shadow-health-projection/1$')
+    schema_id: str = Field(pattern=r'^sentinel\.shadow-health-projection/2$')
     config_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     inventory_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     record_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     runtime_authority_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    waiting_session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    calendar_identity: str = Field(min_length=1, max_length=128)
+    valid_from: str = Field(min_length=20, max_length=40)
+    current_until: str = Field(min_length=20, max_length=40)
+    valid_until: str = Field(min_length=20, max_length=40)
+
+    @model_validator(mode='after')
+    def causal_interval(self):
+        begin, current, end = map(_utc, (self.valid_from, self.current_until, self.valid_until))
+        if (not begin < current < end or begin.date().isoformat() != self.session
+                or current.date().isoformat() != self.waiting_session
+                or self.waiting_session <= self.session
+                or end.date().isoformat() <= self.waiting_session
+                or not self.calendar_identity.startswith('XNYS/exchange_calendars ')):
+            raise ValueError('shadow health causal interval changed')
+        return self
+
+
+def _utc(value):
+    instant = datetime.fromisoformat(value)
+    if instant.utcoffset() != timedelta(0):
+        raise ValueError('shadow health causal interval requires UTC')
+    return instant
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _calendar_bounds(session):
+    """Resolve once in the verified producer, never in a disposable reader."""
+    following = calendar.next_session(session)
+    after_following = calendar.next_session(following)
+    _opened, begin = calendar.session_window(session)
+    _opened, current = calendar.session_window(following)
+    end, _closed = calendar.session_window(after_following)
+    return dict(waiting_session=following, calendar_identity=calendar.calendar_version(),
+        valid_from=begin.astimezone(timezone.utc).isoformat(),
+        current_until=current.astimezone(timezone.utc).isoformat(),
+        valid_until=end.astimezone(timezone.utc).isoformat())
+
+
+def _temporal_health(projection, instant):
+    if instant.utcoffset() is None:
+        raise ValueError('shadow health clock requires a timezone')
+    instant = instant.astimezone(timezone.utc)
+    begin, current, end = map(_utc, (
+        projection.valid_from, projection.current_until, projection.valid_until))
+    if instant < begin or instant >= end:
+        raise ValueError('shadow health projection missed its causal session boundary')
+    if instant < current:
+        return {'service_health': 'HEALTHY_ATTESTED', 'target_session': projection.session}
+    return {'service_health': 'HEALTHY_WAITING', 'target_session': projection.waiting_session}
 
 
 def path():
@@ -127,7 +180,8 @@ def publish(config, result, conn):
         raise ValueError('health projection requires committed origin')
     payload = Projection(schema_id=SCHEMA, config_sha256=_config(config),
         inventory_sha256=inventory, session=value.session, record_sha256=value.record_sha256,
-        runtime_authority_sha256=result['runtime_authority_sha256']).model_dump()
+        runtime_authority_sha256=result['runtime_authority_sha256'],
+        **_calendar_bounds(value.session)).model_dump()
     _write({'projection': payload, 'hmac_sha256': _signature(payload)}, path())
 
 
@@ -160,12 +214,4 @@ def health(config, *, fallback, target=None, now=None):
     projection = Projection.model_validate(payload)
     if projection.config_sha256 != _config(config) or projection.inventory_sha256 != inventory:
         raise ValueError('shadow health projection binding changed')
-    instant = now or datetime.now(timezone.utc)
-    latest = calendar.latest_closed_session(instant)
-    if projection.session == latest:
-        return {'service_health': 'HEALTHY_ATTESTED', 'target_session': latest}
-    if calendar.next_session(projection.session) == latest:
-        opened, _ = calendar.session_window(calendar.next_session(latest))
-        if instant < opened.astimezone(timezone.utc):
-            return {'service_health': 'HEALTHY_WAITING', 'target_session': latest}
-    raise ValueError('shadow health projection missed its causal session boundary')
+    return _temporal_health(projection, now if now is not None else _now())

@@ -299,7 +299,8 @@ def test_backed_panel_guide_does_not_claim_suspended_or_successful_backup():
     row = model.backup_restore_row(base_at=None, restore_at=None, now=NOW)
     panel = model.Panel(rows=[row], now=NOW, local_paper_mode=True)
     html = render.render(panel)
-    assert 'Backup and restore readiness has its own current evidence check' in html
+    assert 'What am I looking at?' not in html
+    assert 'id="status-backup_restore"' in html
     assert 'backup verification are disabled' not in html
     assert 'PR release certification is suspended' not in html
     assert panel.operational == model.FAIL

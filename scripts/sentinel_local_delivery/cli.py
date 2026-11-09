@@ -11,7 +11,7 @@ from . import builder
 from .coordinator import Delivery
 from .host import Host
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH, DeliveryRefused, Journal,
-                    SCHEMA, SUCCESSOR_SCHEMA, handoff_mode, read_json, require,
+                    SCHEMA, SUCCESSOR_SCHEMA, digest, handoff_mode, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
@@ -25,20 +25,29 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         require(handoff_mode=='PRE_OPEN'
                 and getattr(host_type,'supports_post_schema_access_path',False) is True,
                 'ACCESS_PATH_BOOTSTRAP_REQUIRES_BACKED_PRE_OPEN')
-    folder = builder.safe_directory(operation_dir)
+    folder = builder.safe_directory(operation_dir,create=True)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
-    require(sha256_file(build_record) == build_sha256, 'BUILD_RECORD_CHANGED')
-    built = read_json(build_record)
+    require(not (folder/'build-reference.json').exists()
+            and not (folder/'build-reference.json').is_symlink(),
+            'BUILD_ARTIFACT_ALREADY_REFERENCED')
+    built = builder.pinned_build(build_record,build_sha256)
     require(isinstance(built,dict) and set(built) == {
         'schema','at','source','deployment','commit','image','tag','source_identity',
         'strategy_sha256','foundation','predecessor_receipt','qualification','allowed_delta',
         'changed_files','context','log','log_sha256','command'}
         and built['schema'] == builder.BUILD_SCHEMA, 'BUILD_RECORD_SHAPE')
-    require(Path(build_record).resolve().parent == folder
-        and Path(built['context']).resolve() == folder/'source-context'
-        and Path(built['log']).resolve() == folder/'build.log'
+    artifact = builder.safe_directory(Path(build_record).parent)
+    external = artifact != folder
+    require(not external or not any((folder/name).exists() or (folder/name).is_symlink()
+            for name in ('build.json','build-started.json','source-context','build.log')),
+            'BUILD_ARTIFACT_REFERENCE_AMBIGUOUS')
+    require(Path(built['context']) == artifact/'source-context'
+        and builder.safe_directory(built['context']) == artifact/'source-context'
+        and Path(built['log']) == artifact/'build.log'
         and sha256_file(built['log']) == built['log_sha256'], 'BUILD_ARTIFACTS_CHANGED')
+    require(not folder.is_relative_to(Path(built['source']).resolve()),
+            'BUILD_EVIDENCE_INSIDE_QUALIFIED_SOURCE')
     predecessor = built['predecessor_receipt']
     require(sha256_file(predecessor['path']) == predecessor['sha256'], 'PREDECESSOR_RECEIPT_CHANGED')
     old = (baseline_reader or builder.baseline)(predecessor['path'])
@@ -59,7 +68,11 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
     if bootstrap:
         selected['canonical_proof_phase'] = POST_SCHEMA_ACCESS_PATH
     request = validate_request(selected)
+    if external:
+        write_new(folder/'build-reference.json',dict(schema=builder.BUILD_REFERENCE_SCHEMA,
+            path=str(Path(build_record).resolve()),sha256=build_sha256,request_sha256=digest(request)))
     host_type(request,folder).verify_candidate()
+    require(builder.pinned_build(build_record,build_sha256) == built, 'BUILD_RECORD_CHANGED')
     write_new(folder/'request.json',request)
     return Journal(folder)
 
@@ -67,12 +80,15 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
 def status(operation_dir):
     journal = Journal(builder.safe_directory(operation_dir))
     receipt = journal.read()
+    abandoned=journal.abandonment()
     return dict(operation_id=journal.request['operation_id'],stage=receipt['stage'],
         request_sha256=receipt['request_sha256'],completed_stages=len(receipt['history']),
         last_stage_at=receipt['history'][-1]['at'] if receipt['history'] else None,
         predecessor={key:journal.request['predecessor'][key] for key in ('commit','image')},
         candidate={key:journal.request['candidate'][key] for key in ('commit','image')},
         receipt=str(journal.folder/'receipt.json'),
+        **({'abandoned':True,'abandonment_phase':abandoned['phase'],
+            'installation_may_resume':False} if abandoned else {}),
         **({'canonical_proof_phase':POST_SCHEMA_ACCESS_PATH}
            if journal.request['schema']==ACCESS_PATH_SCHEMA else {}),
         **({'handoff_mode':'BLOCKED_UNSENT','operational_ready':False,
@@ -99,6 +115,14 @@ def parser(*, backed=False):
             default='PRE_DRAIN',help='Select the explicit verified-predecessor access-path bootstrap')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
+    abandon = commands.add_parser('abandon-drain',
+        help='Permanently abandon a pre-install operation and recover its exact predecessor restart policy')
+    abandon.add_argument('--operation-dir',required=True)
+    if backed:
+        recovery = commands.add_parser('recover-verification',
+            help='Explicit fresh final observation of an expired backed PRE_OPEN installation')
+        recovery.add_argument('--operation-dir', required=True)
+        recovery.add_argument('--recovery-id', required=True)
     for command in ('advance','resume'):
         proceed = commands.add_parser(command,help='Continue only the next supported delivery stages')
         proceed.add_argument('--operation-dir',required=True)
@@ -128,7 +152,9 @@ def main(argv=None):
             journal = Journal(builder.safe_directory(args.operation_dir))
             host = Host(journal.request,journal.folder)
             delivery = Delivery(host,journal)
-            if args.one_stage:
+            if args.command=='abandon-drain':
+                delivery.abandon_drain()
+            elif args.one_stage:
                 with host.owned():
                     delivery.step()
             else:

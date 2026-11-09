@@ -744,3 +744,285 @@ def test_adoption_never_moves_pretransport_cycle_to_executable_state(conn) -> No
         store.adopt_cycle(
             conn, permit=second, cycle_id=created.cycle_id,
             to_state=CycleState.EXECUTING)
+
+
+class _PulseReadConnection:
+    """Interleave a real committed foreground pulse with earlier health work."""
+    def __init__(self, connection, after_history):
+        self.connection, self.after_history = connection, after_history
+        self.statements = []
+
+    def cursor(self):
+        owner = self
+        cursor = self.connection.cursor()
+        class Cursor:
+            def __enter__(self):
+                cursor.__enter__()
+                return self
+            def __exit__(self, *args):
+                return cursor.__exit__(*args)
+            def execute(self, query, params=None):
+                owner.statements.append(query)
+                cursor.execute(query, params)
+                if 'FROM sentinel_alert_outbox a' in query and owner.after_history:
+                    hook, owner.after_history = owner.after_history, None
+                    hook()
+                return self
+            def __getattr__(self, name):
+                return getattr(cursor, name)
+        return Cursor()
+
+    def __getattr__(self, name):
+        return getattr(self.connection, name)
+
+
+def _pulse_authority(conn):
+    from tests.sentinel.test_callback_liveness import authority
+    return authority(conn, AutomationConfig(lease_seconds=12, heartbeat_seconds=3))
+
+
+def _assert_late_holder_read(conn, pg, permit, reader=read_health):
+    store.heartbeat_lease(conn, permit=permit, lease_seconds=12, instance_state='WAITING')
+    conn.execute("UPDATE sentinel_automation_service_instances SET "
+                 "heartbeat_at=clock_timestamp()-INTERVAL '13 seconds' WHERE instance_id=%s",
+                 (permit.holder_id,))
+    conn.commit()
+    def advance():
+        with feed_store.connect(pg.sync_dsn) as writer:
+            store.heartbeat_lease(writer, permit=permit, lease_seconds=12,
+                                  instance_state='WAITING')
+    observed = _PulseReadConnection(conn, advance)
+    result = reader(observed)
+    assert result.policy_state == 'LEADER_ACTIVE'
+    assert result.service_heartbeat_fresh and result.operational_ready
+    temporal = [q for q in observed.statements if 'WITH sampled AS MATERIALIZED' in q]
+    assert len(temporal) == 1
+    assert 'i.instance_id=l.holder_id' in temporal[0]
+    assert result.scheduler_diagnostic is None
+
+
+def test_health_observes_one_late_coherent_holder_pulse(conn, pg):
+    _, permit = _pulse_authority(conn)
+    _assert_late_holder_read(conn, pg, permit)
+
+
+def test_early_temporal_read_falsifier_is_detected(conn, pg):
+    import inspect
+    from sentinel.automation import health
+    _, permit = _pulse_authority(conn)
+    _assert_late_holder_read(conn, pg, permit)
+    source = inspect.getsource(health.read_health)
+    history = source.index('            "SELECT COUNT(*) FROM sentinel_commands')
+    history = source.rfind('        cur.execute(', 0, history)
+    temporal = source.index('        # Slow integrity/history work precedes')
+    end = source.index('    conn.rollback()', temporal)
+    # Move the unchanged temporal query before the history work; the real
+    # independently committed pulse then falls outside that saved snapshot.
+    broken = source[:history]+source[temporal:end]+source[history:temporal]+source[end:]
+    scope = dict(health.__dict__)
+    exec(compile(broken, 'early scheduler observation falsifier', 'exec'), scope)
+    with pytest.raises(AssertionError):
+        _assert_late_holder_read(conn, pg, permit, scope['read_health'])
+
+
+@pytest.mark.parametrize('damage,predicate,policy', [
+    ('stale', 'INSTANCE_HEARTBEAT_STALE', 'SCHEDULER_STALLED'),
+    ('future', 'INSTANCE_HEARTBEAT_FUTURE', 'SCHEDULER_STALLED'),
+    ('missing', 'INSTANCE_MISSING', 'SCHEDULER_STALLED'),
+    ('expired', 'LEASE_EXPIRED', 'WAITING_FOR_LEADER'),
+])
+def test_coherent_health_preserves_negative_pulses_and_safe_facts(conn, damage, predicate, policy):
+    from datetime import timedelta
+    from pydantic import ValidationError
+    _, permit = _pulse_authority(conn)
+    store.register_instance(conn, instance_id=permit.holder_id, state='WAITING')
+    store.register_instance(conn, instance_id='fresh-standby', state='WAITING')
+    if damage in {'stale', 'future'}:
+        sign = '-' if damage == 'stale' else '+'
+        conn.execute('UPDATE sentinel_automation_service_instances SET '
+                     f"heartbeat_at=clock_timestamp(){sign}INTERVAL '13 seconds' "
+                     'WHERE instance_id=%s', (permit.holder_id,))
+    elif damage == 'missing':
+        conn.execute('DELETE FROM sentinel_automation_service_instances WHERE instance_id=%s',
+                     (permit.holder_id,))
+    else:
+        conn.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-INTERVAL '1 second'")
+    conn.commit()
+    result = read_health(conn)
+    assert result.policy_state == policy and not result.operational_ready
+    fact = result.scheduler_diagnostic
+    assert fact.predicate == predicate and fact.holder == permit.holder_id
+    assert fact.control_generation == permit.control_generation and fact.fence == permit.fence_token
+    assert fact.sampled_at == result.database_now and fact.sampled_at.utcoffset() == timedelta(0)
+    assert fact.lease_expires_at == result.leader_expires_at
+    assert fact.instance_heartbeat_at == result.last_instance_heartbeat_at
+    assert fact.heartbeat_window_seconds >= 1 and fact.read_elapsed_seconds >= 0
+    assert 'fresh-standby' not in repr(fact.model_dump())
+    assert len(fact.model_dump_json()) < 2048
+    raw = fact.model_dump()
+    for bad in (dict(raw, read_elapsed_seconds=float('nan')),
+                dict(raw, heartbeat_age_seconds=float('inf')),
+                dict(raw, holder='private value with spaces'),
+                dict(raw, sampled_at=fact.sampled_at.replace(tzinfo=None)),
+                dict(raw, extra='unbounded')):
+        with pytest.raises(ValidationError):
+            type(fact).model_validate(bad)
+
+
+def test_late_control_change_is_not_bound_to_old_validated_lineage(conn, pg):
+    _, permit = _pulse_authority(conn)
+    def revoke():
+        with feed_store.connect(pg.sync_dsn) as writer:
+            store.engage_kill(writer, actor='operator', reason='private race')
+    with pytest.raises(AutomationRefused, match='control changed'):
+        read_health(_PulseReadConnection(conn, revoke))
+
+
+def _pulse_pair(conn, holder):
+    row = conn.execute('SELECT l.heartbeat_at,l.expires_at,i.heartbeat_at,i.state '
+        'FROM sentinel_automation_lease l JOIN sentinel_automation_service_instances i '
+        'ON i.instance_id=l.holder_id WHERE l.holder_id=%s', (holder,)).fetchone()
+    conn.rollback()
+    return row
+
+
+def test_main_acquisition_and_renewal_publish_one_exact_timestamp(conn):
+    from datetime import timedelta
+    enable(conn)
+    permit = store.acquire_lease(conn, holder_id='foreground', lease_seconds=30,
+                                instance_state='WAITING')
+    for operation in ('initial', 'renew', 'owned_acquire'):
+        if operation == 'renew':
+            permit = store.heartbeat_lease(conn, permit=permit, lease_seconds=30,
+                                           instance_state='EXECUTED')
+        elif operation == 'owned_acquire':
+            permit = store.acquire_lease(conn, holder_id='foreground', lease_seconds=30,
+                                        instance_state='WAITING')
+        lease, expiry, instance, state = _pulse_pair(conn, permit.holder_id)
+        assert lease == instance and expiry-lease == timedelta(seconds=30)
+        assert expiry == permit.expires_at
+        assert state == ('EXECUTED' if operation == 'renew' else 'WAITING')
+
+
+def test_main_pulse_is_invisible_until_commit_and_rolls_back_as_one_pair(conn, pg, monkeypatch):
+    enable(conn)
+    permit = store.acquire_lease(conn, holder_id='foreground', lease_seconds=30,
+                                instance_state='WAITING')
+    before = _pulse_pair(conn, permit.holder_id)
+    real = store._write_instance
+    saw = []
+    def fail(cur, **kwargs):
+        real(cur, **kwargs)
+        with feed_store.connect(pg.sync_dsn) as observer:
+            saw.append(_pulse_pair(observer, permit.holder_id))
+        raise RuntimeError('private failure before publication commit')
+    monkeypatch.setattr(store, '_write_instance', fail)
+    with pytest.raises(RuntimeError, match='before publication commit'):
+        store.heartbeat_lease(conn, permit=permit, lease_seconds=30, instance_state='EXECUTED')
+    assert saw == [before] and _pulse_pair(conn, permit.holder_id) == before
+
+
+def test_split_timestamp_falsifier_is_detected(conn):
+    import inspect
+    enable(conn)
+    permit = store.acquire_lease(conn, holder_id='foreground', lease_seconds=30,
+                                instance_state='WAITING')
+    source = inspect.getsource(store.heartbeat_lease)
+    assert 'pulse=row[2]' in source
+    scope = dict(store.__dict__)
+    exec(compile(source.replace('pulse=row[2]', 'pulse=None'), 'split pulse falsifier', 'exec'), scope)
+    scope['heartbeat_lease'](conn, permit=permit, lease_seconds=30, instance_state='WAITING')
+    lease, _, instance, _ = _pulse_pair(conn, permit.holder_id)
+    with pytest.raises(AssertionError):
+        assert lease == instance
+
+
+@pytest.mark.parametrize('callback', [False, True])
+def test_row_lock_wait_cannot_resurrect_expired_pulse(conn, pg, callback):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    enable(conn)
+    permit = store.acquire_lease(conn, holder_id='foreground', lease_seconds=30 if callback else 1,
+                                instance_state='WAITING')
+    if callback:
+        store.register_instance(conn, instance_id=permit.holder_id, state='PREPARE_CALLBACK',
+                                callback_deadline_seconds=1)
+    before = _pulse_pair(conn, permit.holder_id)
+    blocker = feed_store.connect(pg.sync_dsn)
+    table = 'sentinel_automation_service_instances' if callback else 'sentinel_automation_lease'
+    blocker.execute('SELECT * FROM '+table+' FOR UPDATE').fetchall()
+    entered = Event()
+    def renew():
+        with feed_store.connect(pg.sync_dsn) as writer:
+            entered.set()
+            with pytest.raises(StaleLeaderRefused):
+                store.heartbeat_lease(writer, permit=permit, lease_seconds=30, callback=callback,
+                    **({} if callback else {'instance_state':'WAITING'}))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            task = pool.submit(renew)
+            assert entered.wait(3)
+            time.sleep(1.15)
+            blocker.rollback()
+            task.result(timeout=5)
+    finally:
+        blocker.close()
+    assert _pulse_pair(conn, permit.holder_id) == before
+
+
+def test_fresh_main_acquisition_rolls_back_lease_and_new_instance_together(conn, pg, monkeypatch):
+    enable(conn)
+    old = store.acquire_lease(conn, holder_id='old-foreground', lease_seconds=30,
+                              instance_state='WAITING')
+    conn.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-INTERVAL '1 second'")
+    conn.commit()
+    before = _pulse_pair(conn, old.holder_id)
+    real = store._write_instance
+    def fail(cur, **kwargs):
+        real(cur, **kwargs)
+        with feed_store.connect(pg.sync_dsn) as observer:
+            assert _pulse_pair(observer, old.holder_id) == before
+            assert observer.execute('SELECT count(*) FROM sentinel_automation_service_instances '
+                "WHERE instance_id='new-foreground'").fetchone()[0] == 0
+        raise RuntimeError('private fresh-acquisition publication failure')
+    monkeypatch.setattr(store, '_write_instance', fail)
+    with pytest.raises(RuntimeError, match='fresh-acquisition'):
+        store.acquire_lease(conn, holder_id='new-foreground', lease_seconds=30,
+                            instance_state='WAITING')
+    assert _pulse_pair(conn, old.holder_id) == before
+    assert conn.execute('SELECT count(*) FROM sentinel_automation_service_instances '
+        "WHERE instance_id='new-foreground'").fetchone()[0] == 0
+    conn.rollback()
+
+
+def test_callback_pulse_uses_same_timestamp_without_renewing_invocation(conn):
+    _, permit = _pulse_authority(conn)
+    store.register_instance(conn, instance_id=permit.holder_id, state='PREPARE_CALLBACK',
+                            callback_deadline_seconds=120)
+    query = ('SELECT callback_started_at,callback_deadline_at '
+        'FROM sentinel_automation_service_instances WHERE instance_id=%s')
+    original = conn.execute(query, (permit.holder_id,)).fetchone()
+    conn.rollback()
+    store.heartbeat_lease(conn, permit=permit, lease_seconds=12, callback=True)
+    lease, _, instance, state = _pulse_pair(conn, permit.holder_id)
+    assert lease == instance and state == 'PREPARE_CALLBACK'
+    assert conn.execute(query, (permit.holder_id,)).fetchone() == original
+    conn.rollback()
+
+
+@pytest.mark.parametrize('operation', ['acquire', 'renew', 'callback_renew'])
+def test_foreground_progress_cannot_start_or_reset_callback_bounds(conn, operation):
+    _, permit = _pulse_authority(conn)
+    store.register_instance(conn, instance_id=permit.holder_id, state='PREPARE_CALLBACK',
+                            callback_deadline_seconds=120)
+    before = _pulse_pair(conn, permit.holder_id)
+    with pytest.raises(ValueError, match='callback'):
+        if operation == 'acquire':
+            store.acquire_lease(conn, holder_id=permit.holder_id, lease_seconds=12,
+                                instance_state='PREPARE_CALLBACK')
+        else:
+            store.heartbeat_lease(conn, permit=permit, lease_seconds=12,
+                callback=operation=='callback_renew',
+                instance_state='WAITING' if operation=='callback_renew' else 'PREPARE_CALLBACK')
+    assert _pulse_pair(conn, permit.holder_id) == before

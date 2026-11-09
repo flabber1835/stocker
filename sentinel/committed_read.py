@@ -1,9 +1,9 @@
 """Owned read-only proofs of committed state, preserving borrowed work."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 
 @contextmanager
-def proof_connection(conn):
+def proof_connection(conn, *, serialize_snapshot=False):
     """Keep borrowed work intact; canonical status observes committed rows."""
     from psycopg.pq import TransactionStatus
     from sentinel.feed import readiness_scope
@@ -19,14 +19,16 @@ def proof_connection(conn):
     else:
         proof = conn
     try:
-        proof.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        if borrowed:
-            proof.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
-                          (statement_timeout,lock_timeout))
-        yield proof
-        if pin is not None:
-            with conn.transaction(force_rollback=True):
-                readiness_scope.require_token(conn,pin)
+        from sentinel.snapshot_scan_admission import admitted
+        with admitted(proof) if serialize_snapshot else nullcontext():
+            proof.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            if borrowed:
+                proof.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
+                              (statement_timeout,lock_timeout))
+            yield proof
+            if pin is not None:
+                with conn.transaction(force_rollback=True):
+                    readiness_scope.require_token(conn,pin)
     finally:
         try:
             proof.rollback()

@@ -30,6 +30,12 @@ OLD, NEW = 'a'*40, 'b'*40
 OLD_IMAGE, NEW_IMAGE = 'sha256:'+'c'*64, 'sha256:'+'d'*64
 
 
+@pytest.mark.parametrize('backed',[False,True])
+def test_explicit_abandonment_parser_has_no_install_or_financial_flags(backed):
+    args=cli.parser(backed=backed).parse_args(['abandon-drain','--operation-dir','/private/op'])
+    assert vars(args)=={'command':'abandon-drain','operation_dir':'/private/op'}
+
+
 @pytest.fixture
 def inputs(tmp_path,monkeypatch):
     source, deployment, folder = (tmp_path/name for name in ('source','deployment','operation'))
@@ -44,11 +50,13 @@ def inputs(tmp_path,monkeypatch):
     def git(root,*args):
         assert Path(root)==source
         if args==('ls-files','-z'): return '\0'.join(files)+'\0'
+        if args==('ls-tree','-r','--name-only','-z',NEW): return '\0'.join(files)+'\0'
         if args==('rev-parse','HEAD'): return NEW
         if args==('status','--porcelain'): return ''
         if args==('branch','--show-current'): return 'codex/simplify'
         if args==('merge-base',OLD,NEW): return OLD
         if args==('diff','--name-only',OLD,NEW): return '\n'.join(approved)
+        if args==('diff','--name-only','-z',OLD,NEW): return '\0'.join(approved)
         if args==('diff','--name-status','--no-renames',OLD,NEW):
             return '\n'.join('M\t'+name for name in approved)
         raise AssertionError(args)
@@ -459,6 +467,20 @@ def test_cli_delegates_only_supported_stage_progression(inputs,monkeypatch,comma
     args=[command,'--operation-dir',str(inputs.folder)]+(['--one-stage'] if one else [])
     assert cli.main(args)==0
     assert events==(['host','lock','step','unlock'] if one else ['host','advance'])
+
+
+def test_cli_dispatches_explicit_terminal_abandonment_without_advancing(inputs,monkeypatch):
+    events=[]
+    monkeypatch.setattr(cli,'Journal',lambda folder:SimpleNamespace(request={},folder=folder))
+    monkeypatch.setattr(cli,'Host',lambda *a:events.append('host'))
+    class Delivery:
+        def __init__(self,*a):pass
+        def abandon_drain(self):events.append('abandon')
+        def advance(self):pytest.fail('abandonment advanced installation')
+    monkeypatch.setattr(cli,'Delivery',Delivery)
+    monkeypatch.setattr(cli,'status',lambda folder:{'abandoned':True,'installation_may_resume':False})
+    assert cli.main(['abandon-drain','--operation-dir',str(inputs.folder)])==0
+    assert events==['host','abandon']
 
 
 def test_importing_entrypoint_performs_no_operation(monkeypatch):

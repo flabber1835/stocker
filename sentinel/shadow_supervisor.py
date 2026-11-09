@@ -21,18 +21,41 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic as diagnostic_clock
 
 from sentinel.feed import calendar
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
 from sentinel import shadow_restart_recovery as restart_recovery
-from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
-from sentinel.shadow_worker import (
+from sentinel.shadow_service_config import ShadowServiceConfig, ShadowServiceWaiting
+from sentinel.shadow_exit_codes import (
     EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "shadow-supervisor-critical.json"
 _STATUS_INCARNATION = uuid.uuid4().hex
+
+
+def service_health(config: ShadowServiceConfig, *, now: datetime | None = None) -> dict:
+    """Keep the public fallback seam without bootstrapping financial runtime."""
+    from sentinel.shadow_recovery import service_health as original
+    return original(config, now=now)
+
+
+def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,
+                child_pid=None, supervisor_pid=None):
+    context = {'incarnation': _STATUS_INCARNATION,
+               'supervisor_pid': supervisor_pid if supervisor_pid is not None else os.getpid()}
+    if started is not None:
+        completed = diagnostic_clock()
+        context.update(started=started, completed=completed,
+                       elapsed_seconds=completed-started)
+    if attempt is not None:
+        context['attempt'] = attempt
+    if child_pid is not None:
+        context['child_pid'] = child_pid
+    return supervisor_io.report_event('shadow', stage, outcome, error=error,
+                                      context=context, immediate=True)
 
 
 def _touch() -> None:
@@ -50,12 +73,14 @@ class _Heartbeat:
             _touch()
         except (OSError, RuntimeError, TimeoutError) as exc:
             if not self.unavailable:
+                _diagnostic('HEARTBEAT', 'FAILED', error=exc)
                 supervisor_io.report(
                     'WARNING: shadow heartbeat unavailable; worker deadline '
                     'remains enforced: ' + type(exc).__name__, file=sys.stderr)
             self.unavailable = True
         else:
             if self.unavailable:
+                _diagnostic('HEARTBEAT', 'RECOVERED')
                 supervisor_io.report('shadow heartbeat observation recovered',
                                      file=sys.stderr)
             self.unavailable = False
@@ -63,6 +88,9 @@ class _Heartbeat:
 def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
     shadow_service_status.publish(LATCH_FILE, _STATUS_INCARNATION)
+    from sentinel import shadow_drain
+    shadow_drain.acknowledge_idle(LATCH_FILE.parent,
+        os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION)
 
 
 def _latch_exists():
@@ -81,6 +109,7 @@ def _arm_worker(supervisor_pid=None):
         attempt = uuid.uuid4().hex
         _write_marker(_pending_file(), restart_recovery.make_pending(
             attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
+        _diagnostic('ARM', 'ACCEPTED', attempt=attempt, supervisor_pid=supervisor_pid)
         return attempt
     return shadow_drain.arm_or_drain(LATCH_FILE.parent,
         os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION,arm)
@@ -388,10 +417,13 @@ def _health_snapshot(max_age_seconds, config, *, financial=True):
 
 
 def run() -> int:
+    owned = False
     try:
         with restart_recovery.owner(LATCH_FILE.parent) as owner_fd:
+            owned = True
             return _run_owned(owner_fd)
     except (OSError, restart_recovery.RecoveryRefused) as exc:
+        _diagnostic('OWNED_RUN' if owned else 'OWNERSHIP', 'FAILED', error=exc)
         supervisor_io.report('REFUSED: shadow publisher ownership unavailable: '+type(exc).__name__)
         return EXIT_REFUSED
 
@@ -485,9 +517,12 @@ def _run_owned(owner_fd) -> int:
                 _report_retained_interruption()
                 return _latched_wait(lambda: stopping)
         while not stopping:
+            arm_started = diagnostic_clock()
+            _diagnostic('ARM', 'BEGIN', started=arm_started)
             try:
                 attempt = supervisor_io.run(_arm_worker, os.getpid(), timeout=2)
             except Exception as exc:
+                _diagnostic('ARM', 'FAILED', error=exc, started=arm_started)
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED
@@ -497,22 +532,31 @@ def _run_owned(owner_fd) -> int:
                 heartbeat()
                 time.sleep(1)
                 continue
+            _diagnostic('ARM', 'ACCEPTED', started=arm_started, attempt=attempt)
             started = time.monotonic()
             worker_env = dict(os.environ)
             worker_env[shadow_budget.DEADLINE_ENV] = (
                 shadow_budget.now() + timedelta(seconds=deadline_seconds)).isoformat()
-            active = subprocess.Popen(
-                [sys.executable, "-m", "sentinel.shadow_worker"],
-                stdin=subprocess.DEVNULL, env=worker_env, pass_fds=(owner_fd,))
+            spawn_started = diagnostic_clock()
+            try:
+                active = subprocess.Popen(
+                    [sys.executable, "-m", "sentinel.shadow_worker"],
+                    stdin=subprocess.DEVNULL, env=worker_env, pass_fds=(owner_fd,))
+            except OSError as exc:
+                _diagnostic('SPAWN', 'FAILED', error=exc, started=spawn_started, attempt=attempt)
+                raise
             if stopping:
                 stop()  # A signal during arming/spawn must also terminate this child.
             if active.poll() is None:
+                proof_started = diagnostic_clock()
                 try:
                     supervisor_io.run(shadow_worker_liveness.record, attempt,
                                       os.getpid(), active.pid,
                                       started + deadline_seconds, timeout=2)
                 except Exception as exc:
                     if active.poll() is None:
+                        _diagnostic('ACTIVE_PROOF', 'FAILED', error=exc, started=proof_started,
+                                    attempt=attempt, child_pid=getattr(active, 'pid', None))
                         supervisor_io.report('REFUSED: active worker proof unavailable: '
                                              + type(exc).__name__)
                         return EXIT_REFUSED  # finally reaps child; pending stays fenced.
@@ -567,9 +611,12 @@ def _run_owned(owner_fd) -> int:
                 # Successful work and supervised deadlines remain restartable.
                 consecutive_failures = 0
 
+            acknowledgement_started = diagnostic_clock()
             try:
                 supervisor_io.run(_clear_worker, timeout=2)
             except Exception as exc:
+                _diagnostic('ACK', 'FAILED', error=exc, started=acknowledgement_started,
+                            attempt=attempt)
                 supervisor_io.report('REFUSED: shadow worker acknowledgement unavailable: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED

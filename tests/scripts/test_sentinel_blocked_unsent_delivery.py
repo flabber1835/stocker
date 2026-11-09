@@ -144,11 +144,21 @@ def test_repair_final_check_refuses_a_new_live_leader(operation,monkeypatch):
     assert journal.read()['stage']=='APPLICATIONS_STARTED'
 
 
-def test_normal_modes_keep_green_panel_and_advancing_leader_contract():
+def test_normal_modes_keep_green_panel_and_advancing_leader_contract(operation,monkeypatch):
     assert "assert not any(row.get('color')=='red'" in readers.checks.PANEL
-    source=inspect.getsource(flow.coordinator.Delivery.step)
-    assert "leader=self._leader(artifacts['preserved']['control']['generation'])" in source
-    assert "if repair:" in source and "'operational_ready':False" in source
+    host,journal,delivery=operation
+    observed=[]
+    original=delivery._leader
+    def leader(generation,*,deadline=None):
+        observed.append((generation,deadline,host.clock))
+        return original(generation,deadline=deadline)
+    monkeypatch.setattr(delivery,'_leader',leader)
+    receipt=delivery.advance()
+    assert receipt['stage']=='VERIFIED' and host.heartbeat>0
+    assert len(observed)==1
+    generation,deadline,started=observed[0]
+    assert generation==receipt['artifacts']['preserved']['control']['generation']
+    assert started<deadline
 
 
 @pytest.mark.parametrize('fault',[None,'rw','other_mount','environment','neighbor','unqualified'])

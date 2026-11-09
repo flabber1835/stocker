@@ -332,7 +332,8 @@ def test_reader_pin_excludes_cleanup_and_incremental_retry_finishes(conn, operat
     step = MAINTAIN(conn, batch_rows=100)
     assert step['deleted_rows'] == 100 and step['more_work']
     for _ in range(9):
-        assert MAINTAIN(conn, batch_rows=100)['status'] == 'COMPLETE'
+        step = MAINTAIN(conn, batch_rows=100)
+        assert step['status'] == 'COMPLETE', step
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s', (first['candidate_id'],)).fetchone()[0] == 0
     assert len(list(rolling_store.read_bars(conn, second['candidate_id']))) == 600
     with pytest.raises(rolling_store.SnapshotStorageRefused, match='PAYLOAD_RETIRED'):
@@ -363,6 +364,15 @@ def test_repeated_publications_bound_bulk_storage_and_preserve_failed_attempts(c
     first = publish(conn)
     for _ in range(4):
         latest = publish(conn)
+    conn.commit()
+    # Publication admits one finite cleanup pass, not an unbounded drain.
+    # Exercise the real ordinary idle wakes before requiring convergence; a
+    # broken/no-op cleanup still fails the exact storage and history checks.
+    for _ in range(10):
+        if conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600:
+            break
+        conn.rollback()
+        retention.idle_pass(conn.info.dsn)
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_jobs').fetchone()[0] == 5
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 5
@@ -499,8 +509,12 @@ def test_pinned_candidates_do_not_starve_retirement(conn, operational_source, mo
                      'VALUES(%s,%s,%s,%s::jsonb,%s,%s,%s)',
                      (str(uuid.UUID(int=index)), template[0], template[1], canonical_json(template[2]), *template[3:]))
     conn.commit()
-    assert MAINTAIN(conn)['deleted_rows'] == 0
     assert MAINTAIN(conn)['deleted_rows'] == 900
+    assert conn.execute('SELECT count(*) FROM sentinel_snapshot_retirements '
+                        'WHERE candidate_id=ANY(%s::uuid[])',
+                        ([str(uuid.UUID(int=index)) for index in range(1,34)],)).fetchone()[0] == 0
+    conn.commit()
+    assert MAINTAIN(conn)['deleted_rows'] == 0
 
 
 def test_idempotent_schema_migration_after_cleanup_preserves_archive(conn, aged):

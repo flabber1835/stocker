@@ -1,5 +1,46 @@
 # Sentinel current operating contract
 
+[Autonomous installation publication waits](autonomous-install-publication-waits.md)
+keeps valid partial subject revalidation inside the original owned startup wait;
+only a complete strict current publication can finish installation.
+
+[Attributable incident diagnostics](supervisor-incident-diagnostics.md) selects
+the owner-approved diagnostic-only local patch: typed safe failure causes and
+bounded stage records without changing operational decisions or deadlines.
+
+[Scheduler pulse consistency](scheduler-pulse-consistency.md) selects coherent
+late health sampling and atomic main-owned pulse publication. [Scheduler incident
+attribution](scheduler-incident-attribution.md) preserves the exact negative
+decision facts before alert coalescing. These correct demonstrated defects;
+they do not establish the initiating causes of older unobserved incidents.
+
+[Drain control continuity](drain-control-continuity.md) separates idle control
+acknowledgement from economic polling and fences process replacement through
+stop, with explicit terminal abandonment recovery. [Immutable install
+facts](immutable-install-facts.md) reuses exact image identity within one owned
+invocation while keeping configuration and live state fresh.
+[Environment installation continuity](environment-install-continuity.md) preserves
+the native maintenance reader's access across atomic configuration replacement;
+an unexpired old proof does not attest that its producer can still renew it.
+
+[Cheap shadow health bounds](cheap-shadow-health-bounds.md) moves calendar
+resolution into the verified producer without changing session eligibility.
+These corrective changes require qualified local installation before becoming
+the operating release; the documented design alone does not activate them.
+
+[Bounded retention progress](bounded-retention-progress.md) selects finite
+physical/logical traversal, atomic disposal checkpoints and independent work
+classes. [Lightweight verifier health](cheap-verifier-health.md) and the
+[shadow health entrypoint](cheap-shadow-health-entrypoint.md) remove unnecessary
+bootstrap while preserving the existing health predicates and deadlines.
+[Install work reuse](installation-work-reuse.md) reuses immutable facts and
+batches fresh role observations. [Installation observers](installation-observers.md)
+replaces repeated drain subprocesses with one owned read-only event waiter.
+[Collector incident diagnostics](execution-collector-incident-diagnostics.md)
+preserves the original safe cause before notification coalescing; older missing
+causes remain unproved. The [exact source handover](operational-work-source-handover.md)
+preserves all prior source witnesses and frozen financial contributors.
+
 [Removing redundant operational work](redundant-operational-work.md) separates
 restore worker phases and genuine daily renewal from avoidable repeated work;
 fresh financial and recovery admission guards retain their named boundaries.
@@ -126,6 +167,11 @@ See [protected orders](free-data-execution-proposal.md),
 [share-unit actions](automatic-share-unit-reconciliation.md).
 
 ## Dashboard and notifications
+
+[Verifier identity availability](verifier-identity-read-availability.md) separates
+a failed current-identity read from the actual in-flight verification outcome.
+Current evidence remains unavailable until a qualifying current verification
+completes; a parent connection error does not fail a still-running worker.
 
 [Fresh worker supervision and bounded verifier recovery](worker-liveness-recovery.md)
 requires current heartbeat evidence before idle termination and retains verifier

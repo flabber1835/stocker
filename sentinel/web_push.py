@@ -310,6 +310,14 @@ def notification_payload(alert) -> dict:
         title = "Closing data not ready"
         body = ("The next trading plan is waiting for closing data; preparation will retry. "
                 + _original_notice_clock(details["detail"].get("first_failure_at"), alert))
+    elif (alert.event_type == "AUTOMATION_OPERATIONAL_RED"
+          and str(alert.severity).upper() == "CRITICAL"
+          and details.get("reason") in ("SCHEDULER_STALLED", "WAITING_FOR_LEADER")):
+        title = "Caesar's Palace — action required"
+        recorded = _recorded_notice_time(alert)
+        clock = _pacific_time(recorded) if recorded is not None else "time unavailable"
+        body = (str(details["reason"]) + ". Warning recorded " + clock
+                + ". Open the dashboard for current status.")
     else:
         critical = str(alert.severity).upper() == "CRITICAL"
         title = (

@@ -82,7 +82,7 @@ async def _record_due_close_nav_or_refuse(
 
 async def _record_due_fill_interval_or_refuse(
         conn, *, broker: ExecutionBroker, deployment, plan: ExecutionPlan,
-        session: date, required_through: datetime) -> dict:
+        session: date, required_through: datetime, baseline=None) -> dict:
     """Retain the complete plan-baseline-to-paper-time account fill ledger."""
     if not getattr(broker, "supports_account_fill_interval_evidence", False):
         raise PaperRetryableRefused(
@@ -91,7 +91,8 @@ async def _record_due_fill_interval_or_refuse(
             "be adopted")
 
     try:
-        baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)
+        if baseline is None:
+            baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)
     except broker_cash.BrokerCashAuthorityRefused as exc:
         raise PaperActivationRefused(
             f"authoritative plan cash baseline is invalid: {exc}") from exc
@@ -246,7 +247,7 @@ async def _finalize_due_succeeded_cycle_or_refuse(
         conn, broker=broker, deployment=deployment, plan=plan,
         session=session,
         required_through=max(
-            observed_at, reconciliation.observation.observed_at))
+            observed_at, reconciliation.observation.observed_at), baseline=cash_baseline)
     trial.record_account_evidence(
         conn,
         session=session,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -9,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 import uuid
 
 from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, handoff_mode, read_json, require
@@ -23,6 +25,30 @@ RUNTIME_KEYS = frozenset({'SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST'
     'SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256', 'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256'})
 
 
+def _immutable_git(args):
+    sha = lambda value: isinstance(value,str) and re.fullmatch('[0-9a-f]{40}',value) is not None
+    if len(args)==3 and args[0]=='merge-base':
+        return all(sha(value) for value in args[1:])
+    if len(args) in {4,5} and args[:2]==('diff','--name-only'):
+        return ((len(args)==4 or args[2]=='-z') and all(sha(value) for value in args[-2:]))
+    if len(args)==5 and args[:4]==('ls-tree','-r','--name-only','-z'):
+        return sha(args[4])
+    if len(args)==2 and args[0]=='show' and ':' in args[1]:
+        commit,name=args[1].split(':',1)
+        return sha(commit) and name in COMPOSE
+    return False
+
+
+def application_healthy(item, image):
+    if not isinstance(item,dict): return False
+    state=item.get('State')
+    if not isinstance(state,dict): return False
+    health=state.get('Health')
+    return (item.get('Image')==image and state.get('Running') is True
+        and isinstance(health,dict) and health.get('Status')=='healthy'
+        and state.get('OOMKilled') is False and state.get('Restarting') is False)
+
+
 class Host:
     def __init__(self, request, operation_dir):
         self.request = request
@@ -35,7 +61,7 @@ class Host:
         self.literal = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.literal)
 
-    def run(self, argv, *, env=None, data=None, timeout=90):
+    def run(self, argv, *, env=None, data=None, timeout=90, cleanup_image=None):
         argv=list(argv)
         owned_name=None
         if argv[:2]==['docker','run']:
@@ -47,9 +73,21 @@ class Host:
                 input=data, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             if owned_name is not None:
-                self._cleanup_owned(owned_name)
+                if cleanup_image is None:self._cleanup_owned(owned_name)
+                else:
+                    primary=DeliveryRefused('BOUNDED_HOST_OPERATION_TIMED_OUT')
+                    primary.__cause__=exc
+                    try:self._cleanup_owned(owned_name,image=cleanup_image)
+                    except DeliveryRefused as secondary:raise secondary from primary
                 raise DeliveryRefused('BOUNDED_HOST_OPERATION_TIMED_OUT') from exc
             raise
+        except OSError as exc:
+            if owned_name is None or cleanup_image is None:raise
+            primary=DeliveryRefused('CHILD_OPERATION_OUTCOME_UNKNOWN')
+            primary.__cause__=exc
+            try:self._cleanup_owned(owned_name,image=cleanup_image)
+            except DeliveryRefused as secondary:raise secondary from primary
+            raise primary from exc
         if result.returncode:
             # Expanded child errors may contain secrets. Keep them owner-private.
             path = self.operation_dir/('private-command-error-'+uuid.uuid4().hex+'.log')
@@ -58,17 +96,43 @@ class Host:
                 stream.write(result.stdout+b'\n'+result.stderr)
                 stream.flush()
                 os.fsync(stream.fileno())
-            raise DeliveryRefused('CHILD_OPERATION_REFUSED: '+path.name)
+            primary=DeliveryRefused('CHILD_OPERATION_REFUSED: '+path.name)
+            if owned_name is not None and cleanup_image is not None:
+                try:self._cleanup_owned(owned_name,image=cleanup_image)
+                except DeliveryRefused as secondary:raise secondary from primary
+            raise primary
         return result
 
-    def _cleanup_owned(self, name):
-        inspected = subprocess.run(['docker','inspect',name],env=self.clean,
-            capture_output=True,timeout=15)
+    def _cleanup_owned(self, name, *, image=None):
+        deadline=time.monotonic()+15
+        try:
+            inspected = subprocess.run(['docker','inspect',name],env=self.clean,
+                capture_output=True,timeout=15)
+        except (OSError,subprocess.TimeoutExpired):
+            if image is None:raise
+            raise DeliveryRefused('PROOF_CLEANUP_OUTCOME_UNKNOWN') from None
         if inspected.returncode==0:
             item=json.loads(inspected.stdout)[0]
             require(item['Config']['Labels'].get('sentinel.local-delivery.request')
                     ==digest(self.request), 'PROOF_CLEANUP_OWNERSHIP_CHANGED')
-            self.run(['docker','rm','-f',name],timeout=20)
+            require(image is None or item.get('Image')==image,'PROOF_CLEANUP_IMAGE_CHANGED')
+            target=name
+            if image is not None:
+                require(item.get('Name')=='/'+name and isinstance(item.get('Id'),str)
+                    and re.fullmatch('[0-9a-f]{64}',item['Id']) is not None,
+                    'PROOF_CLEANUP_TARGET_CHANGED')
+                target=item['Id']
+            self.run(['docker','rm','-f',target],timeout=20)
+        elif image is not None:
+            remaining=deadline-time.monotonic()
+            require(remaining>0,'PROOF_CLEANUP_OUTCOME_UNKNOWN')
+            try:
+                absent=subprocess.run(['docker','container','ls','--all','--quiet','--no-trunc',
+                    '--filter','name=^/'+re.escape(name)+'$'],env=self.clean,
+                    capture_output=True,timeout=remaining)
+            except (OSError,subprocess.TimeoutExpired):
+                raise DeliveryRefused('PROOF_CLEANUP_OUTCOME_UNKNOWN') from None
+            require(absent.returncode==0 and not absent.stdout.strip(),'PROOF_CLEANUP_OUTCOME_UNKNOWN')
 
     def git_bytes(self, *args):
         metadata = self.source/'.git'
@@ -81,12 +145,46 @@ class Host:
             metadata = Path(raw)
             if not metadata.is_absolute():
                 metadata = self.source/metadata
-        result = self.run(['git', '--no-optional-locks', '--git-dir', str(metadata),
+        immutable=_immutable_git(args)
+        if immutable:
+            common=metadata
+            if (metadata/'commondir').is_file():
+                common=Path((metadata/'commondir').read_text().strip())
+                if not common.is_absolute(): common=metadata/common
+            for folder in {metadata,common}:
+                graft=folder/'info/grafts'
+                require(not graft.exists() and not graft.is_symlink(),'IMMUTABLE_GIT_GRAFTS_REFUSED')
+            facts=getattr(self,'_git_object_facts',{})
+            if args in facts:
+                return facts[args]
+        result = self.run(['git', *(['--no-replace-objects'] if immutable else []),
+                          '--no-optional-locks', '--git-dir', str(metadata),
                           '--work-tree', str(self.source), *args])
+        if immutable:
+            self._git_object_facts={**facts,args:result.stdout}
         return result.stdout
 
     def git(self, *args):
         return self.git_bytes(*args).decode().strip()
+
+    def image_metadata(self, reference, *, fresh=False):
+        """Memo immutable bytes, never a mutable tag or mutation-time presence."""
+        immutable=isinstance(reference,str) and re.fullmatch(r'(?:[^\s]+@)?sha256:[0-9a-f]{64}',reference)
+        facts=getattr(self,'_image_metadata_facts',{})
+        if immutable and not fresh and reference in facts:
+            return deepcopy(facts[reference])
+        values=json.loads(self.run(['docker','image','inspect',reference]).stdout)
+        require(isinstance(values,list) and len(values)==1 and isinstance(values[0],dict),
+                'IMAGE_INSPECTION_SHAPE')
+        value=values[0]
+        require(isinstance(value.get('Id'),str) and re.fullmatch(r'sha256:[0-9a-f]{64}',value['Id'])
+            and isinstance(value.get('Config'),dict),'IMAGE_INSPECTION_SHAPE')
+        if immutable:
+            require(value['Id']==reference if reference.startswith('sha256:') else
+                isinstance(value.get('RepoDigests'),list) and reference in value['RepoDigests'],
+                'IMAGE_INSPECTION_SUBJECT_CHANGED')
+            self._image_metadata_facts={**facts,reference:deepcopy(value),value['Id']:deepcopy(value)}
+        return deepcopy(value)
 
     def load_values(self):
         values = self.literal.operational_values(self.literal.load(self.deployment/'.env', required=True))
@@ -207,6 +305,204 @@ class Host:
                 return None
         return json.loads(self.run(['docker','inspect','sentinel-'+service+'-1']).stdout)[0]
 
+    def wait_application_health(self, service, *, deadline, clock=time.monotonic):
+        """Events replace inspection polling; only fresh exact state proves health."""
+        return self._wait_health((service,),deadline=deadline,clock=clock)
+
+    def wait_applications_health(self, *, deadline, clock=time.monotonic, expected=None):
+        return self._wait_health(SERVICES,deadline=deadline,clock=clock,expected=expected)
+
+    def _wait_health(self, services, *, deadline, clock, expected=None):
+        from . import docker_health
+
+        require(services and all(service in SERVICES for service in services),
+                'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        try:
+            remaining = docker_health._remaining(deadline, clock)
+            context = self.run(['docker','context','inspect'],
+                timeout=min(docker_health.IO_SECONDS, remaining))
+            require(len(context.stdout) <= docker_health.MAX_HEADERS,
+                'ENGINE_CONTEXT_EXCEEDS_BOUND')
+            docker_health.require_context(docker_health._json(context.stdout))
+            engine = docker_health.Engine(clock=clock)
+            engine.version(deadline)
+            if len(services)==1:
+                return docker_health.wait(engine, 'sentinel-'+services[0]+'-1',
+                    self.request['candidate']['image'], deadline, clock=clock)
+            values=docker_health.wait_many(engine,tuple('sentinel-'+service+'-1' for service in services),
+                self.request['candidate']['image'],deadline,clock=clock,
+                expected={('sentinel-'+key+'-1'):value for key,value in expected.items()} if expected else None)
+            return {service:values['sentinel-'+service+'-1'] for service in services}
+        except docker_health._Deadline as exc:
+            raise DeliveryRefused('SHADOW_STARTUP_DEADLINE' if len(services)==1
+                else 'APPLICATION_READINESS_DEADLINE') from exc
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            raise DeliveryRefused('ENGINE_HEALTH_OBSERVATION_UNAVAILABLE') from exc
+
+    def containers(self, services, *, missing_ok=False):
+        """One fresh boundary observation; no container state is retained."""
+        services=tuple(services)
+        require(services and len(services)==len(set(services))
+            and all(name in SERVICES for name in services),'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        names={'sentinel-'+service+'-1':service for service in services}
+        identities=None
+        if missing_ok:
+            pattern='^/(?:'+'|'.join(re.escape(name) for name in names)+')$'
+            lines=self.run(['docker','container','ls','--all','--no-trunc','--format','{{json .}}',
+                '--filter','name='+pattern]).stdout.decode().splitlines()
+            identities={}
+            for line in lines:
+                value=json.loads(line)
+                require(isinstance(value,dict) and value.get('Names') in names
+                    and isinstance(value.get('ID'),str) and value['ID']
+                    and value['Names'] not in identities,'APPLICATION_CONTAINER_AMBIGUOUS')
+                identities[value['Names']]=value['ID']
+            if not identities: return dict.fromkeys(services)
+            targets=list(identities.values())
+        else:
+            targets=list(names)
+        observed=json.loads(self.run(['docker','container','inspect',*targets]).stdout)
+        require(isinstance(observed,list),'APPLICATION_CONTAINER_OBSERVATION_MALFORMED')
+        result=dict.fromkeys(services)
+        for item in observed:
+            require(isinstance(item,dict) and isinstance(item.get('Name'),str)
+                and isinstance(item.get('Id'),str) and item['Id']
+                and isinstance(item.get('Image'),str) and isinstance(item.get('State'),dict),
+                'APPLICATION_CONTAINER_OBSERVATION_MALFORMED')
+            name=item['Name'].removeprefix('/')
+            require(item['Name']=='/'+name and name in names and result[names[name]] is None,
+                'APPLICATION_CONTAINER_AMBIGUOUS')
+            require(identities is None or identities.get(name)==item.get('Id'),
+                'APPLICATION_CONTAINER_CHANGED_DURING_OBSERVATION')
+            result[names[name]]=item
+        expected=set(names if identities is None else identities)
+        require({name for name,service in names.items() if result[service] is not None}==expected,
+            'APPLICATION_CONTAINER_MISSING')
+        return result
+
+    def candidate_config_hashes(self, values):
+        """Render current configuration once, before observing running roles."""
+        try:
+            output=self.compose(values,'config','--hash','*',timeout=90).stdout.decode()
+            hashes={}
+            for line in output.splitlines():
+                fields=line.split()
+                if (len(fields)!=2 or fields[0] in hashes
+                        or re.fullmatch('[0-9a-f]{64}',fields[1]) is None):
+                    return None
+                hashes[fields[0]]=fields[1]
+        except (DeliveryRefused,UnicodeError,ValueError,TypeError):
+            return None
+        return hashes if all(name in hashes for name in SERVICES) else None
+
+    def candidate_apps_ready(self, hashes, applications):
+        """Positive proof of a completed software start, never financial readiness."""
+        if (not isinstance(hashes,dict) or any(not isinstance(hashes.get(name),str)
+                or re.fullmatch('[0-9a-f]{64}',hashes[name]) is None for name in SERVICES)):
+            return False
+        image=self.request['candidate']['image']
+        for service in SERVICES:
+            item=applications.get(service)
+            if not application_healthy(item,image): return False
+            config=item.get('Config')
+            if not isinstance(config,dict): return False
+            labels=config.get('Labels')
+            if (not isinstance(labels,dict)
+                    or labels.get('com.docker.compose.project')!='sentinel'
+                    or labels.get('com.docker.compose.service')!=service
+                    or labels.get('com.docker.compose.config-hash')!=hashes.get(service)):
+                return False
+        return True
+
+    def observe_drain(self, target, container, request, *, started_at, accept_until, deadline):
+        """One owned canonical reader, exact volume read only and no network."""
+        require(container['Id']==target['container'] and container['Image']==target['image'],
+            'DRAIN_OBSERVER_TARGET_CHANGED')
+        mounts=[item for item in container['Mounts'] if item['Destination']=='/var/lib/sentinel']
+        require(len(mounts)==1 and mounts[0]['Type']=='volume'
+            and mounts[0]['Name']=='sentinel_sentinel_state','DRAIN_OBSERVER_VOLUME_CHANGED')
+        allowed={'SENTINEL_GIT_COMMIT','SENTINEL_RUNTIME_IMAGE_DIGEST',
+            'SENTINEL_SHADOW_OBSERVATION_ID','SENTINEL_DATABASE_URL','SENTINEL_PUBLICATION_RECEIPT_KEY'}
+        environment={}
+        for item in container['Config']['Env']:
+            key,separator,value=item.partition('=')
+            if key in allowed:
+                require(separator and key not in environment,'DRAIN_OBSERVER_ENVIRONMENT_AMBIGUOUS')
+                environment[key]=value
+        require(set(environment)==allowed and all(environment.values())
+            and environment['SENTINEL_GIT_COMMIT']==self.request['predecessor']['commit']
+            and environment['SENTINEL_RUNTIME_IMAGE_DIGEST']==target['image'],
+            'DRAIN_OBSERVER_ENVIRONMENT_CHANGED')
+        environment['SENTINEL_STATE_DIR']='/var/lib/sentinel'
+        user=container['Config'].get('User') or '0'
+        require(isinstance(user,str) and re.fullmatch(
+            '[A-Za-z0-9_][A-Za-z0-9_.-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]*)?',user) is not None,
+            'DRAIN_OBSERVER_USER_INVALID')
+        image=self.request['candidate']['image']
+        require(re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
+            'DRAIN_OBSERVER_IMAGE_INVALID')
+        with self.private_environment(environment) as path:
+            remaining=deadline-time.monotonic()
+            require(0<remaining<=180,'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+            result=self.run(['docker','run','--rm','-i','--pull=never','--network','none',
+                '--read-only','--user',user,'--cpus','0.25','--memory','128m','--pids-limit','16',
+                '--cap-drop','ALL','--security-opt','no-new-privileges:true','--env-file',path,
+                '--mount','type=volume,src=sentinel_sentinel_state,dst=/var/lib/sentinel,readonly',
+                '--entrypoint','python',image,'-B','-m','sentinel.shadow_drain_observer',
+                '--started-at',started_at.isoformat(),'--accept-until',accept_until.isoformat(),
+                '--timeout',str(remaining)],data=json.dumps(request,sort_keys=True).encode(),
+                timeout=remaining,cleanup_image=image)
+        acknowledgement=json.loads(result.stdout)
+        require(isinstance(acknowledgement,dict),'DRAIN_OBSERVER_RESULT_MALFORMED')
+        return acknowledgement
+
+    def drain_recovery_state(self, target, values):
+        """Read exact predecessor markers without starting or mutating it."""
+        item=self.container('sentinel-shadow')
+        require(item['Id']==target['container'] and item['Image']==target['image'],
+                'ABANDONMENT_TARGET_CHANGED')
+        mounts=[m for m in item['Mounts'] if m['Destination']=='/var/lib/sentinel']
+        require(len(mounts)==1 and mounts[0]['Type']=='volume'
+            and mounts[0]['Name']=='sentinel_sentinel_state','ABANDONMENT_STATE_VOLUME_CHANGED')
+        config=json.loads(self.compose(values,'config','--format','json').stdout)
+        environment=config['services']['sentinel-shadow']['environment']
+        code='''import hashlib,json,math
+from pathlib import Path
+from sentinel import shadow_restart_recovery as recovery,shadow_service_status as status
+state=Path('/var/lib/sentinel')
+result={}
+for kind,name in [('pending',status.PENDING_NAME),('critical',status.CRITICAL_NAME)]:
+    path=state/name
+    try:raw=recovery._raw(path)
+    except FileNotFoundError:result[kind]=None;continue
+    value=json.loads(raw)
+    if kind=='pending':status._decode_pending(raw)
+    else:
+        assert isinstance(value,dict) and set(value)=={'schema','reason','failures','latched_at_unix'}
+        assert value['schema']=='sentinel.shadow-supervisor-critical/1' and isinstance(value['reason'],str)
+        assert value['failures'] is None or type(value['failures']) is int and value['failures']>=0
+        assert type(value['latched_at_unix']) in {int,float} and math.isfinite(value['latched_at_unix']) and value['latched_at_unix']>0
+    result[kind]={'schema':value['schema'],'sha256':hashlib.sha256(raw).hexdigest()}
+print(json.dumps(result,sort_keys=True))
+'''
+        with self.private_environment(environment) as path:
+            result=self.run(['docker','run','--rm','--pull=never','--network','none',
+                '--read-only','--cpus','0.25','--memory','128m','--env-file',path,'--mount',
+                'type=volume,src='+mounts[0]['Name']+',dst=/var/lib/sentinel,readonly',
+                '--entrypoint','python',target['image'],'-B','-c',code],timeout=15)
+        value=json.loads(result.stdout)
+        require(isinstance(value,dict) and set(value)=={'pending','critical'},
+                'ABANDONMENT_MARKER_OBSERVATION_MALFORMED')
+        for kind,schemas in (('pending',{'sentinel.shadow-supervisor-pending/2',
+                                        'sentinel.shadow-supervisor-pending/3'}),
+                             ('critical',{'sentinel.shadow-supervisor-critical/1'})):
+            entry=value[kind]
+            require(entry is None or isinstance(entry,dict) and set(entry)=={'schema','sha256'}
+                and entry['schema'] in schemas and isinstance(entry['sha256'],str)
+                and re.fullmatch('[0-9a-f]{64}',entry['sha256']),
+                'ABANDONMENT_MARKER_OBSERVATION_MALFORMED')
+        return value
+
     def postgres(self):
         data = self.container('sentinel-postgres')
         mounts = [m for m in data['Mounts'] if m['Destination']=='/var/lib/postgresql/data']
@@ -221,12 +517,20 @@ class Host:
         return actual
 
     def probe(self, commit, image, values=None):
+        require(re.fullmatch('[0-9a-f]{40}',commit or '') is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
+            'IMAGE_IDENTITY_PROBE_SUBJECT_INVALID')
         selected = self.load_values() if values is None else values
         rendered = json.loads(self.compose(selected, 'config', '--format', 'json').stdout)
         environment = rendered['services']['sentinel-shadow']['environment']
         config = {key:environment[key] for key in (
             'SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH',
             'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY')}
+        canonical=json.dumps(config,sort_keys=True,separators=(',',':'),ensure_ascii=True)
+        key=(image,commit,canonical)
+        probes=getattr(self,'_image_identity_probes',{})
+        if key in probes:
+            return deepcopy(probes[key])
         code = '''import hashlib,json,re,sys
 from decimal import Decimal
 from sentinel import identity,shadow_runtime
@@ -241,10 +545,15 @@ assert r['environment']['compatible'] is True
 c=dict(schema='sentinel.shadow-reviewed-config/1',observation_id=name,starting_cash=format(cash.normalize(),'f'),execution_model=shadow_runtime.SHADOW_EXECUTION_MODEL,cutoff_policy=shadow_runtime.SHADOW_CUTOFF_POLICY,publication_timing_policy=shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY,validated_source_identity_sha256=r['identity_hash'])
 print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(json.dumps(c,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest(),wealth=r['environment']['wealth_core_source']['hash'])))
 '''
-        return json.loads(self.run(['docker','run','--rm','--pull=never','--network','none',
+        result=json.loads(self.run(['docker','run','--rm','--pull=never','--network','none',
             '--cpus','0.5','--memory','384m','-e','SENTINEL_GIT_COMMIT='+commit,
             '-e','SENTINEL_RUNTIME_IMAGE_DIGEST='+image,'-e','SENTINEL_TEST_IMAGE_DIGEST='+image,
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
+        require(isinstance(result,dict) and set(result)=={'source','shadow_config','wealth'}
+            and all(isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value) is not None
+                    for value in result.values()),'IMAGE_IDENTITY_PROBE_MALFORMED')
+        self._image_identity_probes={**probes,key:deepcopy(result)}
+        return deepcopy(result)
 
     def verify_candidate(self):
         require(handoff_mode(self.request)!='POST_TRADE_SUCCESSOR'
@@ -255,26 +564,22 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         require(handoff_mode(self.request)!='BLOCKED_UNSENT' or getattr(self,'supports_blocked_unsent',False),
                 'BLOCKED_UNSENT_BACKED_ADAPTER_REQUIRED')
         selected = self.request['candidate']; old = self.request['predecessor']
-        require(self.git('rev-parse','HEAD')==selected['commit']
-                and not self.git('status','--porcelain'), 'CANDIDATE_SOURCE_NOT_CLEAN')
-        require(self.git('merge-base',old['commit'],selected['commit'])==old['commit'],
-                'CANDIDATE_NOT_DESCENDANT')
+        qualification = self.request['qualification']
+        from .qualification import validate_report
+        report = validate_report(qualification['report_path'],qualification['report_sha256'],
+            self.source,selected['commit'],old['commit'],git_reader=self.git)
         changed = self.git('diff','--name-only',old['commit'],selected['commit']).splitlines()
         require(sorted(changed)==sorted(self.request['allowed_delta']), 'CANDIDATE_DELTA_CHANGED')
         for name in COMPOSE:
             require((self.deployment/name).read_bytes() in ((self.source/name).read_bytes(),
                     self.git_bytes('show',old['commit']+':'+name)),
                     'INSTALLED_COMPOSE_CHANGED')
-        metadata = json.loads(self.run(['docker','image','inspect',selected['image']]).stdout)[0]
+        metadata = self.image_metadata(selected['image'],fresh=True)
         require(metadata['Id']==selected['image']
             and metadata['Config']['Labels']['org.opencontainers.image.revision']==selected['commit'],
             'CANDIDATE_IMAGE_CHANGED')
         require(self.probe(selected['commit'],selected['image'])==selected['source_identity'],
                 'CANDIDATE_SOURCE_IDENTITY_CHANGED')
-        qualification = self.request['qualification']
-        from .qualification import validate_report
-        report = validate_report(qualification['report_path'],qualification['report_sha256'],
-            self.source,selected['commit'],old['commit'])
         require(qualification['commit']==selected['commit'] and qualification['passed'] is True,
                 'CANDIDATE_QUALIFICATION_ABSENT')
         require(report['source_files']==qualification['source_files'],
@@ -295,20 +600,12 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         return result
 
     def install_values(self, previous, candidate):
-        require(self.load_values()==previous, 'ENVIRONMENT_CHANGED_BEFORE_INSTALL')
         require(all(previous.get(k)==candidate.get(k) for k in set(previous)|set(candidate)
                     if k not in RUNTIME_KEYS), 'NON_RUNTIME_CONFIGURATION_CHANGED')
         raw = ''.join(k+'='+json.dumps(v,ensure_ascii=False)+'\n' for k,v in sorted(candidate.items()))
         require(self.literal.parse_bytes(raw.encode())==candidate, 'LITERAL_ENV_ROUNDTRIP_FAILED')
-        # The private temporary file is in the same directory for atomic replace.
-        import tempfile
-        fd, name = tempfile.mkstemp(prefix='.env.local-delivery-',dir=self.deployment)
-        try:
-            with os.fdopen(fd,'w',encoding='utf-8') as stream:
-                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
-            Path(name).replace(self.deployment/'.env')
-        finally:
-            if Path(name).exists(): Path(name).unlink()
+        from . import environment
+        environment.install(self,previous,raw.encode() if previous!=candidate else None)
         path = self.deployment/'local-delivery.json'
         metadata = read_json(path)
         metadata.update(commit=self.request['candidate']['commit'],image=self.request['candidate']['image'],

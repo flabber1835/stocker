@@ -1296,10 +1296,10 @@ class TestEveryBinaryTheSuiteShellsOutToIsInstalled:
 
     @staticmethod
     def apt_packages() -> set[str]:
+        import re
         body = (ROOT / "Dockerfile.sentinel-test").read_text()
-        i = body.index("apt-get install")
-        chunk = body[i:body.index("rm -rf", i)]
-        return {tok for tok in chunk.replace("\\", " ").split()
+        chunks = re.findall(r'apt-get install\s+([^&]+)', body)
+        return {tok for chunk in chunks for tok in chunk.replace("\\", " ").split()
                 if tok not in {"apt-get", "install", "-y",
                                "--no-install-recommends", "&&"}}
 
@@ -1314,7 +1314,8 @@ class TestEveryBinaryTheSuiteShellsOutToIsInstalled:
 
     def test_the_parser_sees_the_install_line(self):
         pkgs = self.apt_packages()
-        assert "postgresql" in pkgs, pkgs
+        assert {"postgresql-16", "postgresql-client-16"} <= pkgs, pkgs
+        assert not {"postgresql", "postgresql-client"} & pkgs, pkgs
 
     def test_every_invoked_binary_is_installed(self):
         missing = sorted(b for b in self.invoked() if b not in self.apt_packages())

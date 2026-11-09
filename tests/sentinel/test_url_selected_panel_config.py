@@ -15,7 +15,8 @@ from sentinel.panel import model, overview, read_projection, sources
 def test_selection_is_explicit_and_does_not_claim_trading_authority(url, label):
     row = sources.trading_environment_row(url)
     html = overview.overview_html(model.Panel(rows=[row]))
-    assert 'Selected trading environment: <strong>'+label+'</strong>' in html
+    assert 'Selected trading environment:' not in html
+    assert row.value == label
     assert row.key == 'trading_environment'
     assert row.paper_plan is None and row.paper_account is None
 

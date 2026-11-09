@@ -138,8 +138,8 @@ validation on a miss. A bounded display-only memo may retain only the small
 validated intent projection, never executable sizing authority or a complete
 operational result. Every use must re-read the exact row identity/version, plan,
 binding and current mutable facts. Bind the memo to database/physical incarnation,
-relation identity, full transaction epoch plus tuple xmin/ctid, cursor/session and
-stored digest; clear it on configuration change and clock regression. The
+relation and physical-file identity, full transaction epoch plus tuple xmin/ctid,
+and cursor/session; clear it on configuration change and clock regression. The
 November 4 launch decision below replaces the original one-minute eviction with
 reuse only while that exact physical row version still matches. A changed/deleted/reinserted/restored row forces
 full validation; a changed row with an unchanged claimed digest must refuse.
@@ -406,7 +406,7 @@ the request took 2.52 seconds; its already validated display projection needed
 immutable projection after every minute even if the physical row is unchanged.
 Retain the small bounded LRU projection for that exact physical row version
 instead. Every hit still reads database/system/postmaster/relation/tuple/full-XID
-epoch/session/digest identity; configuration changes and monotonic-clock rollback
+epoch/session identity; configuration changes and monotonic-clock rollback
 clear it. Changed, deleted, reinserted or restored rows force canonical validation,
 including changes retaining a claimed digest. The entry/byte bounds remain.
 Current generation, account, plan selection, opening intents, observations and
@@ -414,6 +414,57 @@ execution time are read afresh outside this memo. Their original timestamps and
 all financial/evidence expiries stay unchanged. Execution/notification loaders
 remain uncached. This removes repeated validation of unchanged immutable bytes;
 it does not cache a complete operational result or extend authority.
+
+### November 7: keep the version witness out of the authority payload
+
+Decision before implementation. Forensics found that the memo's supposedly
+small version query extracted `authority_sha256` from a 9.61 MB JSONB authority
+record on every hit. PostgreSQL must read and decompress the TOAST value to
+extract that field: the measured query used 1,099 buffers instead of the two
+needed for row identity, and one operational read reached its eight-second
+statement timeout. The cache was still repeating the expensive payload read.
+
+Use only native row and database metadata for that version witness. Bind it to
+the selected cursor/session, relation OID and current relation filenode, tuple
+`xmin`/`ctid`, database OID/system identifier/postmaster start, the current full-XID
+epoch and the existing process configuration. The physical-file identity also
+invalidates relation rewrite/truncate reuse; relation OID alone is insufficient.
+The current full-XID epoch alone does not identify a frozen tuple's insertion
+epoch. An old tuple's raw `xmin` can still be ahead of the current epoch's
+allocation counter, allowing the same raw transaction number and slot to recur
+before the next epoch change. Sample full snapshot `xmax` once and permit a memo
+hit or admission only when the tuple's raw `xmin` is strictly below that
+snapshot's raw 32-bit `xmax`. An ahead/equal value still receives canonical
+validation but no reuse. Any transaction with an assigned transaction ID is
+canonical and uncached; checking assignment must not allocate an ID for a
+reader. This also excludes its own subtransaction tuples and rollback cases.
+Require a positive physical filenode and an actual boolean true reuse predicate.
+Store only the epoch and conservative reuse predicate
+in the version key, not the complete advancing transaction counter. Once the
+raw allocation number has passed a cacheable tuple, it cannot allocate the same
+number again without invalidating the epoch. Qualify the old-frozen-tuple wrap
+counterexample and own-write/rollback behavior explicitly.
+This is an ordinary PostgreSQL MVCC row-identity proof, not a guarantee against
+direct physical corruption or privileged out-of-band storage rewriting. A hit
+describes the selected statement snapshot and does not lock out a later commit.
+The same display-only limitation already applies to the canonical reader.
+Every miss still invokes the unchanged canonical authority loader, including
+payload SHA256 and decision-session validation. Compare native versions before
+and after that validation and refuse changes before admitting the small display
+projection. Every hit re-reads the same native witness. A changed row retaining
+a claimed digest therefore misses and fails canonical validation. No JSONB
+field is a required part of the cheap query; its integrity is proved by the
+canonical miss path and the exact physical version, not by re-reading a claimed
+hash on every hit.
+
+Keep the existing bounded LRU, copy isolation, clock-regression invalidation,
+configuration fences and original observation clocks. This memo remains confined
+to dated display intent. Current plans, account facts, financial readiness,
+execution and notification authority continue through their existing readers.
+Qualify actual PostgreSQL changed/reinserted/re-written rows, all native witness
+fields and the removed-guard falsifiers. A large out-of-line private fixture must
+show that the hit query avoids its TOAST buffers; do not infer improvement from
+a timing-only microbenchmark or run a production load test.
 
 Qualify held-network launch before the first document, foreground freshness,
 offline/no fabricated green, single-flight/abort/hidden-response/parser guards,

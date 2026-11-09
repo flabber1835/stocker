@@ -27,7 +27,23 @@ CHECKPOINT_ACCESS_PREDECESSOR_REVISION = '67458b20746979d08b8091f4519122bca52817
 FEED_DISPLAY_PREDECESSOR_REVISION = 'e97a15753a71cb7e4e033db6171f1a2ee0e15955'
 STARTUP_PREDECESSOR_REVISION = '64da9cccb49040acc4f32434bcdf6c31b7b6259e'
 EFFICIENCY_PREDECESSOR_REVISION = 'c0d4ed7b6888e63c9d49584c6fcf063c6950f8f9'
+DIAGNOSTIC_PREDECESSOR_REVISION = '8fafcfae9c46f471a834d7bd221497d6d940732a'
+ROOT_CAUSE_PREDECESSOR_REVISION = 'ba05fe76950fe6d976e08edaadfd88a9e39dec0e'
+READ_COST_PREDECESSOR_REVISION = '29ff5f6592a46e89f13ed5d8416503071dc74ccf'
+LIVENESS_PREDECESSOR_REVISION = 'c2569a4cb5085db15e24222478a1d5c98c53c74f'
+IDENTITY_AVAILABILITY_PREDECESSOR_REVISION = '34a28504a87610fd5c159115fc0b75017ae944ea'
+WORK_COORDINATION_PREDECESSOR_REVISION = '4bca82da1daff430b4f087493e4f200d2e9719dd'
+PANEL_PRESENTATION_PREDECESSOR_REVISION = 'a0a82c6ad9211fdcf9fdad9faa801b8af65239ea'
+STARTUP_PROFILE_PREDECESSOR_REVISION = '430462d951653469157b5746830c0002f10f41fe'
 RETAINED_PREDECESSORS = {
+    STARTUP_PROFILE_PREDECESSOR_REVISION: (463, 'fbacab07df6d2cc5410ad2e3ec3825b7e50a576ab2be0382e8dc37da123e8a5a'),
+    PANEL_PRESENTATION_PREDECESSOR_REVISION: (463, '9385294419b070cf3955f0cc3eb3370442883f8113b8cc4dd8f5b64beece4d4f'),
+    WORK_COORDINATION_PREDECESSOR_REVISION: (460, '09c34f464748a92aaa11f6290b34d3fbd0fdf699f5b3e7372bb1b865b42d08f2'),
+    IDENTITY_AVAILABILITY_PREDECESSOR_REVISION: (460, 'e7d7971f85feb8e4432589d06cf796e4395dc2b1c2d7eddf4f5f38877d5ee73c'),
+    LIVENESS_PREDECESSOR_REVISION: (460, 'f736ee435a581843342b64420e371ae1e8169d138121aa6454fc623437f50581'),
+    READ_COST_PREDECESSOR_REVISION: (456, 'a51ce3e5b875a0e359160d9e76e73b50156fba244411546e741a14f4839d0c46'),
+    ROOT_CAUSE_PREDECESSOR_REVISION: (456, '7706a3683dbee27c684291f520517f2e6f2447f3de4662dbd9b7b3b111692929'),
+    DIAGNOSTIC_PREDECESSOR_REVISION: (456, '92dcbcf6559efb0d19476438dae0a653850d44afc7bb7dc7b69294b38f5035b5'),
     EFFICIENCY_PREDECESSOR_REVISION: (455, 'abe9a2628cc3d46e43a73e9b811e5855c89f3af74619aca87fd765402c8bfc95'),
     STARTUP_PREDECESSOR_REVISION: (455, '5470089498b2e6341865fd5483732c07f347e0019de71376dfdbbc8b2121c344'),
     FEED_DISPLAY_PREDECESSOR_REVISION: (454, 'c3eb52854101901c854cdf84b944ba5e0abcb0e077824ded15ca714b10161eab'),
@@ -45,9 +61,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = '729864b911668a3c7bf3e8b28e34477704cdeb2d685f193dab6423d1f2aa82e8'
+PROFILE_SHA256 = '076bb1c7587d76c7ec3b156081f1b06d44586cce56739d967ffb2a85f6451159'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/16'
+_SCHEMA = 'sentinel.url-selected-trading-transition/24'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -65,7 +81,7 @@ def _pairs(items):
 
 
 def _source_map(value: Mapping[str, str]) -> dict[str, str]:
-    if not isinstance(value, Mapping):
+    if not isinstance(value, Mapping) or len(value) > 1024:
         raise ValueError('URL_SOURCE_MAP_CHANGED')
     result = dict(value)
     for name, digest in result.items():
@@ -81,10 +97,40 @@ def _source_map(value: Mapping[str, str]) -> dict[str, str]:
 
 
 def _closure(files: Mapping[str, str]) -> str:
+    return _validated_closure(_source_map(files))
+
+
+def _validated_closure(files: Mapping[str, str]) -> str:
+    """Hash an already path/digest-validated complete inventory."""
     result = hashlib.sha256()
-    for name, digest in sorted(_source_map(files).items()):
+    for name, digest in sorted(files.items()):
         result.update(name.encode() + b'\0' + digest.encode() + b'\n')
     return result.hexdigest()
+
+
+def _expand_retained(candidate, records):
+    """Single-level deltas share validated paths, never independent pins."""
+    if not isinstance(records, dict) or set(records) != set(RETAINED_PREDECESSORS):
+        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    result = {}
+    for revision, record in records.items():
+        if not isinstance(record, dict) or set(record) != {'source_sha256', 'overrides', 'removed'}:
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        overrides = _source_map(record['overrides'])
+        removed = record['removed']
+        if (not isinstance(removed, list) or len(removed) > len(candidate)
+                or any(not isinstance(name, str) for name in removed)
+                or removed != sorted(set(removed)) or not set(removed) <= set(candidate)
+                or set(removed) & set(overrides)
+                or any(candidate.get(name) == digest for name, digest in overrides.items())):
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        removed_names = set(removed)
+        files = {name: digest for name, digest in candidate.items() if name not in removed_names}
+        files.update(overrides)
+        if len(files) > 1024:
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        result[revision] = dict(source_sha256=record['source_sha256'], files=files)
+    return result
 
 
 def _normalized(raw: bytes) -> str:
@@ -121,15 +167,14 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
-    retained = value['retained_predecessors']
-    if not isinstance(retained, dict) or set(retained) != set(RETAINED_PREDECESSORS):
-        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    retained = _expand_retained(candidate, value['retained_predecessors'])
+    value = {**value, 'retained_predecessors': retained}
     for revision, (count, expected_sha) in RETAINED_PREDECESSORS.items():
         record = retained[revision]
         if (not isinstance(record, dict) or set(record) != {'source_sha256', 'files'}
                 or record['source_sha256'] != expected_sha
-                or len(_source_map(record['files'])) != count
-                or _closure(record['files']) != expected_sha):
+                or len(record['files']) != count
+                or _validated_closure(record['files']) != expected_sha):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         if revision in {REVIEWED_PREDECESSOR_REVISION, INSTALLED_PREDECESSOR_REVISION,
                         DASHBOARD_PREDECESSOR_REVISION, PAPER_RELEASE_PREDECESSOR_REVISION,
@@ -137,12 +182,19 @@ def _profile() -> dict | None:
                         PATCH_PREDECESSOR_REVISION, LOCAL_PROBE_PREDECESSOR_REVISION,
                         PREPARATION_PREDECESSOR_REVISION, CHECKPOINT_ACCESS_PREDECESSOR_REVISION,
                         FEED_DISPLAY_PREDECESSOR_REVISION, STARTUP_PREDECESSOR_REVISION,
-                        EFFICIENCY_PREDECESSOR_REVISION}:
+                        EFFICIENCY_PREDECESSOR_REVISION, DIAGNOSTIC_PREDECESSOR_REVISION,
+                        ROOT_CAUSE_PREDECESSOR_REVISION,
+                        READ_COST_PREDECESSOR_REVISION,
+                        LIVENESS_PREDECESSOR_REVISION,
+                        IDENTITY_AVAILABILITY_PREDECESSOR_REVISION,
+                        WORK_COORDINATION_PREDECESSOR_REVISION,
+                        PANEL_PRESENTATION_PREDECESSOR_REVISION,
+                        STARTUP_PROFILE_PREDECESSOR_REVISION}:
             if not set(record['files']) <= set(candidate) | {_SELF}:
                 raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         elif set(record['files']) - set(baseline):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
-    if (len(baseline) != 422 or _closure(baseline) != BASE_SOURCE_SHA256
+    if (len(baseline) != 422 or _validated_closure(baseline) != BASE_SOURCE_SHA256
             or baseline != expected or set(baseline) - set(candidate)
             or _SELF in baseline or _SELF in candidate):
         raise ValueError('URL_SOURCE_COMPLETE_MAP_CHANGED')
