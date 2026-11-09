@@ -550,7 +550,7 @@ def health_facts(panel) -> dict:
 def dashboard_health(panel) -> dict:
     """Human system health is separate from unchanged machine readiness."""
     plan = panel.row('paper_plan')
-    from sentinel.panel.delivery import row_current
+    from sentinel.panel.delivery import display_current, row_current
     plan_readiness = ('unavailable' if plan is not None and not row_current(panel, plan)
                       else 'ready' if plan is not None and plan.can_show_paper_plan(panel.now)
                       else 'unavailable' if plan is not None
@@ -618,7 +618,7 @@ def dashboard_health(panel) -> dict:
         if work.active_at(panel.now) and not (stage == 'Publishing closing data'):
             boundaries.append(work.active_until)
     boundary = min(boundaries).astimezone(timezone.utc) if boundaries else None
-    if not panel.observation_current and not negative:
+    if not display_current(panel) and not negative:
         return dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],

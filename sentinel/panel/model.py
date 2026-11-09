@@ -569,6 +569,11 @@ class Panel:
     #: Neither field can be present in a signed producer snapshot.
     observation_retained: bool = False
     observation_generated_at: Optional[datetime] = None
+    #: Signed producer-owned cause witness, separate from financial authority.
+    display_basis: dict = field(default_factory=dict)
+    #: Consumer-only human delivery; strict observation gates remain separate.
+    observation_display_current: Optional[bool] = None
+    observation_display_keys: tuple[str, ...] = ()
 
     @property
     def overall(self) -> str:

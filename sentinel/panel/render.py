@@ -515,7 +515,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 </head><body data-generated-at="{_esc(generated)}"
              data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
-             data-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
+             data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
+             data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
@@ -741,7 +742,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if (!counter){{ return; }}
     var card = counter.closest('.overview-card');
     var current = originalCurrent() && !invalidated && !refreshDelayed &&
-      document.body.dataset.observationCurrent === 'true' && card && card.dataset.current === 'true';
+      card && card.dataset.current === 'true';
     var end = Date.parse(counter.dataset.marketOpenAt);
     var value = current ? 'Market-open time unavailable' : 'Market-open time not current';
     if (current && Number.isFinite(end)){{

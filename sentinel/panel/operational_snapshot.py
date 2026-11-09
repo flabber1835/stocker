@@ -87,7 +87,7 @@ def context(conn, database_url):
     return hashlib.sha256(review_store.canonical(material)).hexdigest()
 
 
-def subjects(conn, database_url):
+def subjects(conn, database_url, *, facts=None):
     """Bind native subjects and exact financial receipt versions independently.
 
     A newly negative receipt can replace a positive one for an unchanged native
@@ -95,7 +95,7 @@ def subjects(conn, database_url):
     display too; these tokens are invalidation hints, never financial authority.
     """
     schema.require_schema(conn)
-    facts = read_projection._subject_facts(conn)
+    facts = read_projection._subject_facts(conn) if facts is None else facts
     result = {}
     for scope in ('SHADOW', 'PAPER'):
         native = read_projection._subject(conn, database_url, scope, facts=facts)
@@ -138,7 +138,9 @@ def _validate_panel(raw):
              and raw.get('observation_revalidated_keys') == []
              and raw.get('observation_valid_until') is None
              and raw.get('observation_retained') is False
-             and raw.get('observation_generated_at') is None,
+             and raw.get('observation_generated_at') is None
+             and raw.get('observation_display_current') is None
+             and raw.get('observation_display_keys') == [],
              'SNAPSHOT_CONSUMER_STATE_REFUSED')
     expected = {item.name for item in fields(model.Row)}
     _require(all(isinstance(row, dict) and set(row) == expected for row in rows),
@@ -162,6 +164,8 @@ def _validate_panel(raw):
                      'SNAPSHOT_RECOVERY_INVALID')
     try:
         panel = _PANEL.validate_json(json.dumps(raw, allow_nan=False))
+        from sentinel.panel.display_dependencies import validate_basis
+        validate_basis(panel.display_basis)
     except (ValueError, TypeError, OverflowError):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     _require(_utc(panel.now), 'SNAPSHOT_PANEL_CLOCK_INVALID')
@@ -192,6 +196,10 @@ def encode(panel, *, context_sha256, subjects, valid_until=None):
     except (ValueError, TypeError, OverflowError):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     panel = _validate_panel(raw)
+    if panel.display_basis:
+        from sentinel.panel import display_dependencies
+        _require(display_dependencies.combined_subjects(panel.display_basis) == subjects,
+                 'SNAPSHOT_DISPLAY_BASIS_CHANGED')
     boundary = original_boundary(panel)
     expiry = valid_until if valid_until is not None else boundary
     _require(_utc(expiry) and panel.now < expiry <= boundary, 'SNAPSHOT_EXPIRY_INVALID')
@@ -220,6 +228,10 @@ def decode(value, signature, *, context_sha256, now):
              and timedelta(0) < expiry-generated <= timedelta(seconds=MAX_SECONDS),
              'SNAPSHOT_EXPIRED_OR_CLOCK_INVALID')
     panel = _validate_panel(value['panel'])
+    if panel.display_basis:
+        from sentinel.panel import display_dependencies
+        _require(display_dependencies.combined_subjects(panel.display_basis) == value['subjects'],
+                 'SNAPSHOT_DISPLAY_BASIS_CHANGED')
     _require(panel.now == generated and expiry <= original_boundary(panel),
              'SNAPSHOT_ORIGINAL_BOUNDARY_CHANGED')
     return Snapshot(panel, dict(value['subjects']), context_sha256, generated, expiry)

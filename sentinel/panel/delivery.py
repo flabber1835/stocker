@@ -15,9 +15,30 @@ _INDEPENDENT = frozenset({'backup_restore', 'shadow_worker', 'automation_alerts'
 _KNOWN = _SHADOW | _PAPER | _INDEPENDENT
 
 
+def display_current(panel):
+    """Human delivery can be proved independently of strict financial subjects."""
+    return (panel.observation_current if panel.observation_display_current is None
+            else panel.observation_display_current)
+
+
+def display_keys(panel):
+    return tuple(row.key for row in panel.rows
+                 if row.key in _KNOWN or row.key.startswith('automation_step_'))
+
+
 def row_current(panel, row):
     if panel.observation_current:
         return True
+    if row.key in panel.observation_display_keys and (
+            row.key in _KNOWN or row.key.startswith('automation_step_')):
+        if row.status in {model.FAIL, model.UNKNOWN}:
+            return True
+        if row.is_future(panel.now) or row.is_stale(panel.now):
+            return False
+        from sentinel.panel.presentation import _row_boundary
+        boundary = _row_boundary(row)
+        return ((boundary is None or panel.now < boundary)
+                and (row.paper_plan is None or panel.now < row.paper_plan.execute_at))
     changed = set(panel.observation_changed_scopes)
     if (not changed and not panel.observation_retained) or changed - {'SHADOW', 'PAPER'}:
         return False

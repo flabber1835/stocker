@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Dashboard dependency handoff](dashboard-dependency-handoff.md) separates routine
+account/receipt renewal from independent display facts, retaining strict financial
+subjects and coherent read-only consumption.
+
 [Dashboard boundary delivery](dashboard-boundary-delivery.md) separates bounded
 human display continuity from strict current evidence at workflow transitions.
 

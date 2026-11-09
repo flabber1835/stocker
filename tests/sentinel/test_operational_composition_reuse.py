@@ -23,6 +23,9 @@ def component(monkeypatch,tmp_path):
     coordinates=('a'*64,{'SHADOW':'b'*64,'PAPER':'c'*64})
     calls=[]
     monkeypatch.setattr(producer,'_coordinates',lambda *_:coordinates)
+    # This fixture exercises legacy composition reuse without a native cause
+    # witness. Database-backed dependency admission is qualified separately.
+    monkeypatch.setattr(producer,'_display_coordinates',lambda *_:(*coordinates,{}))
     from sentinel.panel import segment_disclosure,sources
     monkeypatch.setattr(segment_disclosure,'disclose',lambda panel,*_:panel)
     def collect(**_):calls.append(True);return panel
@@ -36,6 +39,7 @@ def test_twenty_unchanged_liveness_reads_do_not_recompose_or_renew_financial_clo
     for second in range(20):
         page,context,subjects,expiry=composition.read('owner',instance,now=now+timedelta(seconds=second))
         assert page==panel and (context,subjects)==coordinates
+        assert page.display_basis=={}
         assert expiry==now+timedelta(seconds=30)
         assert page.rows[0].valid_until==panel.rows[0].valid_until
     assert calls==[True] and result['valid_until']==(now+timedelta(seconds=30)).isoformat()

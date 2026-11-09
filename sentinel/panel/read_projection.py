@@ -58,6 +58,15 @@ def _subject(conn, database_url, scope, *, facts=None):
                        (scope,)).fetchone()
     if row is None:
         raise ValueError('verification invalidation state unavailable')
+    return _subject_for_revision(conn,database_url,scope,row,facts=facts)
+
+
+def _subject_for_revision(conn, database_url, scope, row, *, facts=None):
+    """Bind a supplied revision to this transaction's current physical facts."""
+    if scope not in SCOPES:
+        raise ValueError('unknown operational verification scope')
+    if row is None:
+        raise ValueError('verification invalidation state unavailable')
     physical,installation,epoch,environment = facts if facts is not None else _subject_facts(conn)
     if scope == 'SHADOW':
         # Plan/rollout are projected fresh by the consumer. Include every
@@ -220,59 +229,76 @@ def changed_subject_wait(conn, row, *, scope, now):
     return [item for item in result[0] if item.key in selected], {}, [], result[3]
 
 
-def read(database_url, *, include_paper=True, now=None, only_scope=None):
-    """HTTP consumes bounded receipts; it cannot spawn a financial observer."""
+def _selected_scopes(include_paper, only_scope):
     if (only_scope is not None and (not isinstance(only_scope, str) or only_scope not in SCOPES
                                    or only_scope == 'PAPER' and not include_paper)):
         raise ValueError('unknown or contradictory verification receipt scope')
+    return ((only_scope,) if only_scope is not None else
+            ('SHADOW', 'PAPER') if include_paper else ('SHADOW',))
+
+
+def read(database_url, *, include_paper=True, now=None, only_scope=None):
+    """Consume bounded receipts in one owned read-only transaction."""
+    _selected_scopes(include_paper,only_scope)
     from sentinel.feed import store
     instant = now or datetime.now(timezone.utc)
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
-    results = []
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        schema.require_schema(conn)
-        scopes=((only_scope,) if only_scope is not None else
-                ('SHADOW', 'PAPER') if include_paper else ('SHADOW',))
-        facts = facts_error = None
+        return read_owned(conn,database_url,include_paper=include_paper,
+                          now=instant,only_scope=only_scope)
+    finally:
+        conn.rollback(); conn.close()
+
+
+def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None):
+    """Read through the caller's snapshot without owning its transaction.
+
+    Optional facts are invocation-local `_subject_facts` from this same
+    transaction. No connection, observer, commit, rollback or isolation change.
+    """
+    scopes=_selected_scopes(include_paper,only_scope)
+    instant = now or datetime.now(timezone.utc)
+    schema.require_schema(conn)
+    facts_error = None
+    if facts is None:
         try:
             facts=_subject_facts(conn)
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
             facts_error=exc
-        for scope in scopes:
-            key = row = None
-            try:
-                if facts_error is not None:
-                    raise facts_error
-                key = _subject(conn, database_url, scope, facts=facts)
-                row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
-                if (row is None or row[1].isoformat() != row[3].get('observed_at')
-                        or row[2].isoformat() != row[3].get('valid_until')):
-                    raise ValueError('current verification receipt unavailable')
-                if row[0] != key:
-                    waiting = changed_subject_wait(conn,row,scope=scope,now=instant)
-                    if waiting is not None:
-                        results.append(waiting)
-                        continue
-                    raise ValueError('current verification receipt unavailable')
-                result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
-                if scope == 'SHADOW':
-                    from sentinel.panel.shadow_execution_projection import project
-                    result = (project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant),
-                              result[1], result[2], result[3])
-            except (ValueError,TypeError,KeyError,OverflowError) as exc:
-                retained = None
-                if row is not None and row[0] == key:
-                    try:
-                        retained = decode(row[3],row[4],current_subject=key,scope=scope,
-                            now=datetime.fromisoformat(row[3]['observed_at']))[0]
-                    except (ValueError,TypeError,KeyError,OverflowError):
-                        pass
-                result = financial._unknown(scope == 'PAPER', 'durable '+scope.lower()+' verification unavailable: '+type(exc).__name__,retained)
-                result = ([r for r in result[0] if (r.key == 'paper_reconciliation') == (scope == 'PAPER')], {}, [], result[3])
-            results.append(result)
-    finally:
-        conn.rollback(); conn.close()
+    results = []
+    for scope in scopes:
+        key = row = None
+        try:
+            if facts_error is not None:
+                raise facts_error
+            key = _subject(conn, database_url, scope, facts=facts)
+            row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
+            if (row is None or row[1].isoformat() != row[3].get('observed_at')
+                    or row[2].isoformat() != row[3].get('valid_until')):
+                raise ValueError('current verification receipt unavailable')
+            if row[0] != key:
+                waiting = changed_subject_wait(conn,row,scope=scope,now=instant)
+                if waiting is not None:
+                    results.append(waiting)
+                    continue
+                raise ValueError('current verification receipt unavailable')
+            result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
+            if scope == 'SHADOW':
+                from sentinel.panel.shadow_execution_projection import project
+                result = (project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant),
+                          result[1], result[2], result[3])
+        except (ValueError,TypeError,KeyError,OverflowError) as exc:
+            retained = None
+            if row is not None and row[0] == key:
+                try:
+                    retained = decode(row[3],row[4],current_subject=key,scope=scope,
+                        now=datetime.fromisoformat(row[3]['observed_at']))[0]
+                except (ValueError,TypeError,KeyError,OverflowError):
+                    pass
+            result = financial._unknown(scope == 'PAPER', 'durable '+scope.lower()+' verification unavailable: '+type(exc).__name__,retained)
+            result = ([r for r in result[0] if (r.key == 'paper_reconciliation') == (scope == 'PAPER')], {}, [], result[3])
+        results.append(result)
     rows = {row.key:row for result in results for row in result[0]}
     order = ('shadow_verification','shadow_nav','shadow_return','paper_reconciliation','exposure','book','terminals')
     return [rows[key] for key in order if key in rows], {}, [], [error for result in results for error in result[3]]

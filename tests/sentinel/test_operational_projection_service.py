@@ -89,11 +89,11 @@ def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject
         assert page.row('broker').as_of==original.row('broker').as_of
         assert datetime.fromisoformat(result['valid_until'])==expiry
     assert heavy==[True] and len(native)==3
-    coords=producer._coordinates
-    monkeypatch.setattr(producer,'_coordinates',lambda db:('0'*64,coords(db)[1]))
-    with pytest.raises(producer.CollectionSuperseded,match='subject changed'):
+    original_context=snapshots.context
+    monkeypatch.setattr(snapshots,'context',lambda *args:'0'*64)
+    with pytest.raises(producer.CollectionSuperseded,match='inputs changed'):
         producer.publish_once(conn.info.dsn,owner,'/private',instance,use_composition=True)
-    monkeypatch.setattr(producer,'_coordinates',coords)
+    monkeypatch.setattr(snapshots,'context',original_context)
     composition.failure(owner,instance,TimeoutError())
     result=producer.collect_result(conn.info.dsn,owner,'/private',instance,use_composition=True)
     assert result['outcome']=='PUBLISHED'
@@ -412,8 +412,9 @@ def test_authenticated_snapshot_without_operator_review_has_controlled_refusal(o
 
 
 def test_removed_collection_subject_binding_is_detected(operational, monkeypatch):
+    from sentinel.panel import display_dependencies
     constant = {'SHADOW': 'a'*64, 'PAPER': 'b'*64}
-    monkeypatch.setattr(snapshots, 'subjects', lambda *_: constant)
+    monkeypatch.setattr(display_dependencies, 'combined_subjects', lambda *_: constant)
     with pytest.raises(pytest.fail.Exception):
         test_collection_superseded_by_native_revision_commits_neither_half(operational)
 
