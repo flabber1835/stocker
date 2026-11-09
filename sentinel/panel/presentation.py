@@ -433,6 +433,10 @@ def _normal_warning(panel, row: Row) -> bool:
             or not recovery.active(panel.now) or not _aware(recovery.deadline)
             or not panel.now < recovery.deadline or row.is_future(panel.now)):
         return False
+    if (row.key == 'backup_restore' and row.value == 'BACKUP CHECK IN PROGRESS'
+            and recovery.phase == 'BACKUP_MAINTENANCE' and row.required_current
+            and _aware(row.as_of) and row.valid_until == recovery.deadline):
+        return True
     if (is_closing_data_preparation(row, 'warn') and _closing_source_proof(panel)):
         return True
     if _paper_check_normal(panel, row):

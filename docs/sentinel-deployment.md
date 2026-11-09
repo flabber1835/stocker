@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Independent backup renewal projection](backup-renewal-projection.md) binds
+bounded maintenance progress to its physical database and exact base lineage,
+independently of the application image. It preserves financial backup gates.
+
 [Plan preparation work and view continuity](plan-preparation-work-and-view.md)
 records the owner-authorized local correction of repeated archive/structural
 verification, callback authority renewal and duplicate or regressing plan cards.

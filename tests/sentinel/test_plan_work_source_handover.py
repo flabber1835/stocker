@@ -18,17 +18,18 @@ def test_operational_successor_preserves_all_twenty_four_source_maps():
     profile=basis._profile()
     assert basis.PLAN_WORK_PREDECESSOR_REVISION==REVISION
     previous=profile['retained_predecessors'][REVISION]['files']
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.BACKUP_RENEWAL_PREDECESSOR_REVISION]['files']
     assert len(previous)==463 and len(actual)==464
     assert admission.source_closure(previous)==CLOSURE
     assert set(actual)-set(previous)=={'backup_integrity_reuse.py'}
     assert {name for name in actual if actual[name]!=previous.get(name)}==CHANGED
-    assert basis.predecessor_view(actual,previous=previous)==previous
-    originals={revision:value for revision,value in profile['retained_predecessors'].items() if revision!=REVISION}
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=previous)==previous
+    originals={revision:value for revision,value in profile['retained_predecessors'].items()
+               if revision not in {REVISION,basis.BACKUP_RENEWAL_PREDECESSOR_REVISION}}
     assert len(originals)==24
     assert hashlib.sha256(json.dumps(originals,sort_keys=True,separators=(',',':')).encode()).hexdigest()==(
         'a5c06518948b779dbc47890fb6c30b27000aaa948c6bd9bbafbc8f8554e82a08')
-    assert profile['authority_effect']=='NONE' and profile['schema']=='sentinel.url-selected-trading-transition/26'
+    assert profile['authority_effect']=='NONE' and profile['schema']=='sentinel.url-selected-trading-transition/27'
 
 
 @pytest.mark.parametrize('fault',['changed','missing','extra'])

@@ -1921,7 +1921,6 @@ def backup_restore_row(
         runtime_proof: Optional[dict] = None,
         maintenance_proof: Optional[dict] = None,
         maintenance_at: Optional[datetime] = None,
-        expected_image: Optional[str] = None,
         now: datetime, recovery: Optional[RecoveryEvidence] = None,
         runtime_valid_until: Optional[datetime] = None,
         error: Optional[str] = None) -> Row:
@@ -2007,8 +2006,6 @@ def backup_restore_row(
             identity_matches = (
                 progress.system_identifier == system_id
                 and str(runtime_proof.get('system_identifier') or '') == system_id
-                and expected_image is not None
-                and expected_image.rsplit('sha256:', 1)[-1] == progress.image.rsplit('sha256:', 1)[-1]
                 and progress.base_backup == base_name_value
                 and progress.predecessor_base == str(runtime_proof.get('base_backup') or '')
                 and maintenance_at is not None and start <= maintenance_at <= now
@@ -2017,14 +2014,19 @@ def backup_restore_row(
                 and start-timedelta(minutes=10) <= runtime_at <= now)
             transition = hard_failures == ['runtime chain disagrees with base backup']
             ordinary_lag = not hard_failures and lag_failures == ['runtime restore-chain proof is past its cadence']
+            copying_predecessor = (progress.phase == 'BASE_BACKUP'
+                and progress.base_backup == progress.predecessor_base
+                and ordinary_lag)
+            verifying_successor = (progress.phase in {'VERIFY_RESTORE', 'VERIFY_CHAIN'}
+                and (transition or ordinary_lag))
             if (identity_matches and start <= now < end
-                    and progress.phase in {'VERIFY_RESTORE', 'VERIFY_CHAIN'}
                     and all(lag == 'runtime restore-chain proof is past its cadence' for lag in lag_failures)
-                    and (transition or ordinary_lag)):
+                    and (copying_predecessor or verifying_successor)):
+                boundary = min(end, base_at+timedelta(hours=26), restore_at+timedelta(days=31))
                 return Row('backup_restore', 'Backup / Restore', 'BACKUP CHECK IN PROGRESS', WARN,
-                    detail + f' · verifying successor; {progress.phase}; deadline {end.isoformat()}',
-                    maintenance_at, required_current=True, valid_until=end,
-                    recovery=RecoveryEvidence(phase='BACKUP_MAINTENANCE', automatic=True, deadline=end))
+                    detail + f' · maintenance {progress.phase}; deadline {end.isoformat()}',
+                    maintenance_at, required_current=True, valid_until=boundary,
+                    recovery=RecoveryEvidence(phase='BACKUP_MAINTENANCE', automatic=True, deadline=boundary))
             if identity_matches and progress.phase == 'FAILED' and maintenance_at >= runtime_at:
                 failures.append('the latest backup maintenance attempt failed')
                 detail += ' · the latest backup maintenance attempt failed'

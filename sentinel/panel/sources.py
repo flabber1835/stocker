@@ -1677,7 +1677,6 @@ def _operator_evidence_rows(
             runtime_proof=(runtime_backup or {}).get("proof"),
             maintenance_proof=(maintenance or {}).get('proof'),
             maintenance_at=(maintenance or {}).get('observed_at'),
-            expected_image=os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST'),
             # PostgreSQL archive catch-up may self-heal while the automation's
             # typed backup retry remains bounded. Phase or error prose alone
             # can never lend that recovery budget to backup evidence.
