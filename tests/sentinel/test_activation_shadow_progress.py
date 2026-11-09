@@ -39,7 +39,7 @@ def result(value=None, **updates):
         updates.get('stdout', probe.WAIT_MARKER+json.dumps(value or document())), updates.get('stderr', ''))
 
 
-@pytest.mark.parametrize('state', ['PUBLICATION_AHEAD', 'TRAILING_CANDIDATE', 'NEXT_FRESH_SESSION'])
+@pytest.mark.parametrize('state', ['PUBLICATION_AHEAD', 'TRAILING_CANDIDATE', 'NEXT_FRESH_SESSION', 'HEALTH_REBINDING'])
 def test_versioned_negative_documents_are_accepted(state):
     value = document(state=state)
     assert probe.decode_result(result(value), now=NOW) == value
@@ -290,8 +290,8 @@ def test_owner_handoff_reobserves_native_status_once_without_stale_wait(formatio
 @pytest.mark.parametrize('error', [refusal('OTHER_REFUSAL'),
     refusal('ROLLING_RUNTIME_PUBLICATION_CHANGED', ValueError),
     refusal('prefix ROLLING_RUNTIME_PUBLICATION_CHANGED')])
-def test_only_exact_native_refusal_type_and_code_can_enter_formation(error):
-    ns=child_namespace()
+def test_only_exact_native_refusal_type_and_code_can_enter_formation(error,formation_fixture):
+    ns=formation_fixture[0]
     def original(*_, **__): raise error
     ns['_original_shadow_status']=original
     ns['_formation']=lambda *_:pytest.fail('unknown refusal must remain fatal')

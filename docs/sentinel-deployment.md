@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Activation producer health handoff](activation-shadow-health-handoff.md) joins
+the canonical publisher's configuration-bound health renewal before financial
+attestation can advance activation. An obsolete authenticated hint remains
+unhealthy; only a fresh bound active producer earns a finite negative wait.
+
 [Autonomous installation publication waits](autonomous-install-publication-waits.md)
 keeps valid partial subject revalidation inside the original owned startup wait;
 only a complete strict current publication can finish installation.

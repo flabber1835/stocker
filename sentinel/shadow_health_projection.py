@@ -185,6 +185,15 @@ def publish(config, result, conn):
     _write({'projection': payload, 'hmac_sha256': _signature(payload)}, path())
 
 
+class ProjectionRenewalRequired(ValueError):
+    """Negative auxiliary evidence; only the canonical producer can renew it."""
+
+    def __init__(self, reason: str, *, session: str | None = None):
+        self.reason = reason
+        self.session = session
+        super().__init__('shadow health projection ' + reason)
+
+
 def health(config, *, fallback, target=None, now=None):
     """Reobserve row versions and causal age without reading retained payloads."""
     if not getattr(config, 'operational_source_only', False):
@@ -201,8 +210,11 @@ def health(config, *, fallback, target=None, now=None):
         if source.exists():
             raise ValueError('retained health projection origin is absent')
         return fallback(config)
-    with source.open('rb') as stream:
-        raw = stream.read(MAX_BYTES + 1)
+    try:
+        with source.open('rb') as stream:
+            raw = stream.read(MAX_BYTES + 1)
+    except FileNotFoundError as exc:
+        raise ProjectionRenewalRequired('missing') from exc
     if len(raw) > MAX_BYTES:
         raise ValueError('shadow health projection exceeds bound')
     wrapped = json.loads(raw)
@@ -213,5 +225,5 @@ def health(config, *, fallback, target=None, now=None):
         raise ValueError('shadow health projection authentication failed')
     projection = Projection.model_validate(payload)
     if projection.config_sha256 != _config(config) or projection.inventory_sha256 != inventory:
-        raise ValueError('shadow health projection binding changed')
+        raise ProjectionRenewalRequired('binding changed', session=projection.session)
     return _temporal_health(projection, now if now is not None else _now())
