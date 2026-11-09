@@ -138,3 +138,23 @@ Add PostgreSQL digit-boundary and tied-clock cases, the production-like sequence
 range, execution-plan checks, and an executed text-ordering omission falsifier.
 No financial trigger or cause-proof invariant is weakened. Preserve the failed
 renewal capture and repeat the real routine-renewal observation after correction.
+
+## Adjacent installer contract
+
+The post-trade installation exposed another boundary error: final verification
+required an OK notification-history row even when a delivered, resolved incident
+was the only remaining unacknowledged item. It also skipped post-trade publication
+waiting and did not distinguish the new human-current dimension from strict
+readiness. Its partial-publication adapter called a private runtime row predicate
+with incomplete stand-in models. These are host-readiness contract defects;
+rebuilding the already healthy application does not correct them.
+
+The selected host-only correction consumes the public JSON protocol and explicitly
+requires strict readiness for final acceptance. The existing reviewed-history
+allowance is extended narrowly to completed, positively reconciled post-trade
+installs, with zero pending/DLQ deliveries, no active conditions or warnings and
+an explicit restricted result. The installer never acknowledges history. An
+expired final observation uses the existing separately journaled recovery command
+with a new finite observation, unchanged processes and fresh canonical proof;
+it never resets the original deadline or restarts trading. See
+[dashboard-posttrade-install-readiness.md](dashboard-posttrade-install-readiness.md).

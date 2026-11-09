@@ -52,24 +52,23 @@ def budget():
  assert left>0,'APPLICATION_READINESS_DEADLINE'
  return left
 def partial_wait(page,rows,checking,workflows):
- # Partial delivery withholds positive authority; it can only wait.
- from types import SimpleNamespace
- from sentinel.panel.delivery import row_current
+ # Validate the public protocol. Human display admission is not installation
+ # authority and private runtime model predicates are not a host-tool API.
  observation=page['observation']
  changed=observation['changed_scopes'];revalidated=observation['revalidated_keys']
- assert observation['current'] is False
- assert isinstance(changed,list) and changed and len(changed)==len(set(changed))
+ assert type(observation['current']) is bool
+ assert observation.get('strict_current',observation['current']) is False
+ assert isinstance(changed,list) and len(changed)==len(set(changed))
+ assert changed or observation.get('retained') is True,'READINESS_PARTIAL_SCOPE_INVALID'
  assert set(changed)<={'SHADOW','PAPER'},'READINESS_PARTIAL_SCOPE_INVALID'
  assert isinstance(revalidated,list) and len(revalidated)==len(set(revalidated))
  assert set(revalidated)<={'shadow_verification','shadow_nav','shadow_return','exposure','book','terminals','paper_reconciliation'}
- context=SimpleNamespace(observation_current=False,observation_changed_scopes=tuple(changed),
-  observation_revalidated_keys=tuple(revalidated))
  withdrawn=set();negatives=set()
  for key,row in rows.items():
-  current=row_current(context,SimpleNamespace(key=key))
+  current=row.get('current')
+  assert type(current) is bool
   original=row.get('original_status')
   assert original in {'ok','warn','pending','fail','unknown'}
-  assert row.get('current') is current
   assert row['status']==(original if current else 'pending')
   if original in {'fail','unknown'} or row.get('color')=='red':negatives.add(key)
   if not current:
@@ -77,11 +76,29 @@ def partial_wait(page,rows,checking,workflows):
    assert row.get('color')=='neutral'
    assert all(row.get(field) is None for field in ['shadow_book','paper_plan','paper_account','trading_run','preparation','operational_fact'])
    assert row.get('order_outcomes')==[]
+  else:
+   assert row.get('color')=={'ok':'green','warn':'amber','pending':'amber','fail':'red','unknown':'red'}[original]
  assert negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
- plan=rows.get('paper_plan',{})
- assert plan.get('current') is False and plan.get('original_status')=='ok'
- assert plan.get('paper_plan') is None and plan.get('stale') is False and plan.get('future') is False
- assert page['operator_review'] is None
+ assert not any(row.get('original_status')=='fail' and key in startup
+  for key,row in rows.items()),'NONSTARTUP_READINESS_FAILURE'
+ if expected.get('handoff_mode')=='POST_TRADE':
+  run=rows['trading_run']
+  assert run.get('original_status')=='ok' and run.get('stale') is False and run.get('future') is False
+  if run.get('current'):
+   assert run['trading_run']['state']=='SUCCEEDED'
+   assert run['trading_run']['intent']['plan_id']==expected['plan']
+ else:
+  plan=rows.get('paper_plan',{})
+  assert plan.get('original_status')=='ok'
+  assert plan.get('stale') is False and plan.get('future') is False
+  if plan.get('current'):
+   assert plan['paper_plan']['plan_id']==expected['plan']
+  else: assert plan.get('paper_plan') is None
+ review=page['operator_review']
+ if observation['current'] is False: assert review is None
+ else:
+  assert review is None or isinstance(review,dict)
+  if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows
  health=page['dashboard_health'];assert isinstance(health,dict)
  conditions=set(health['active_conditions'])|set(health['review_conditions'])
  assert conditions<=startup|withdrawn|checking|workflows,'NONSTARTUP_READINESS_FAILURE'
@@ -98,8 +115,13 @@ def pending(page,header):
  rows={row['key']:row for row in page['rows']}
  assert len(rows)==len(page['rows']) and not page['source_errors']
  assert header in {'CURRENT','PARTIAL'},'READINESS_HEADER_INVALID'
- if expected.get('handoff_mode') in {'BLOCKED_UNSENT','POST_TRADE','POST_TRADE_SUCCESSOR'}:
+ if expected.get('handoff_mode') in {'BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'}:
   return None
+ observation=page['observation']
+ assert type(observation['current']) is bool
+ strict=observation.get('strict_current',observation['current'])
+ assert type(strict) is bool
+ assert (header=='CURRENT') is observation['current'],'READINESS_HEADER_INVALID'
  checking=set()
  instant=datetime.now(timezone.utc)
  for key in ('shadow_verification','paper_reconciliation','exposure','book','terminals'):
@@ -125,11 +147,19 @@ def pending(page,header):
     workflows.add(key)
  if header=='PARTIAL':
   return partial_wait(page,rows,checking,workflows)
- plan=rows.get('paper_plan',{}).get('paper_plan')
+ if strict is False:
+  return partial_wait(page,rows,checking,workflows)
+ post_trade=expected.get('handoff_mode')=='POST_TRADE'
+ plan=((rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade
+       else rows.get('paper_plan',{}).get('paper_plan'))
  assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
  assert str(plan.get('decision_session'))==expected['decision']
  assert str(plan.get('effective_session'))==expected['effective']
- for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure','paper_plan','backup_restore'):
+ if post_trade:
+  assert rows['trading_run']['trading_run']['state']=='SUCCEEDED'
+  assert rows['automation_cycle']['value']=='SUCCEEDED' and rows['automation_cycle']['status']=='ok'
+ for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure',
+             'trading_run' if post_trade else 'paper_plan','backup_restore'):
   if key in rows and key not in checking:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
  review=page['operator_review'];health=page['dashboard_health']
  assert isinstance(review,dict) and isinstance(health,dict)
@@ -137,11 +167,13 @@ def pending(page,header):
  negatives={row['key'] for row in page['rows'] if row.get('color')=='red'
   or row.get('status') in {'fail','unknown'}}
  assert conditions<=startup|checking|workflows and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ assert not any(row.get('status')=='fail' and row['key'] in startup
+  for row in page['rows']),'NONSTARTUP_READINESS_FAILURE'
  if conditions or negatives or checking:
   return sorted(conditions|negatives|checking)
  # A partial current-subject read may settle; its financial rows were still
  # checked for negatives above. The strict current validator must pass later.
- if header=='PARTIAL' or page['observation']['current'] is False:
+ if header=='PARTIAL' or strict is False:
   return ['dashboard_publication_pending']
  return None
 while True:
@@ -179,7 +211,7 @@ while True:
   budget()
   assert len(printed)==1
   output=json.loads(printed[0])
-  if expected.get('handoff_mode') is None:
+  if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
    output['installation_panel_valid_until']=min(datetime.fromisoformat(page['observation']['valid_until']),
     datetime.fromisoformat(page['dashboard_health']['valid_until'])).isoformat()
   output['readiness_observations']=attempts

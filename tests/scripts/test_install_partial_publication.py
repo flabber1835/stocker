@@ -25,7 +25,8 @@ def test_actual_withheld_plan_and_review_settle_in_one_child(monkeypatch,scopes)
 
 
 def test_restoring_the_old_eager_plan_assertion_reproduces_the_recorded_failure(monkeypatch):
-    fix=" if header=='PARTIAL':\n  return partial_wait(page,rows,checking,workflows)\n"
+    fix=(" if header=='PARTIAL':\n  return partial_wait(page,rows,checking,workflows)\n"
+         " if strict is False:\n  return partial_wait(page,rows,checking,workflows)\n")
     assert readiness.PANEL_WAIT.count(fix)==1
     monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(fix,''))
     with pytest.raises(AssertionError):

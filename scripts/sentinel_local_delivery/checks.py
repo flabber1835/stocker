@@ -663,7 +663,7 @@ assert all(Decimal(row['qty']).is_finite() and Decimal(row['qty'])>0 for row in 
 print(json.dumps({row['asset_id']:row['qty'] for row in positions},sort_keys=True))
 '''
 
-PANEL = r'''import json,sys,urllib.request
+PANEL = r'''import json,re,sys,urllib.request
 from datetime import datetime,timedelta,timezone
 expected=json.loads(sys.argv[1])
 with urllib.request.urlopen('http://127.0.0.1:8000/panel.json',timeout=25) as response:
@@ -681,12 +681,13 @@ def utc_clock(value):
 def current_boundaries(at):
  assert at<health_until<=observation_until<=observed+timedelta(seconds=30)
 review_amber=None
-if not post_trade:
+if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
  from sentinel.panel.review_model import OperatorReview
  assert observed.utcoffset()==timedelta(0)
  assert response.headers.get('X-Sentinel-Panel-Status')=='CURRENT'
  observation=page['observation']
  assert observation['current'] is True and observation['changed_scopes']==[]
+ if 'strict_current' in observation: assert observation['strict_current'] is True
  assert observation['revalidated_keys']==[]
  observation_until=utc_clock(observation['valid_until'])
  review=OperatorReview.model_validate(page['operator_review'])
@@ -699,18 +700,21 @@ if not post_trade:
  health_until=utc_clock(health['valid_until'])
  current_boundaries(now)
  assert len(rows)==len(page['rows']) and not page['source_errors']
- if review.status=='REVIEW':
+ if post_trade or review.status=='REVIEW':
   from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
-  assert review.head>review.reviewed_head
-  assert health['status']=='warn' and health['color']=='amber'
-  assert page['color'] in {'green','amber'}
-  for key in (*_HISTORY_CURRENT_FACTS,'paper_plan'):
+  for key in (*_HISTORY_CURRENT_FACTS,'trading_run' if post_trade else 'paper_plan'):
    fact=rows[key]
    assert fact['status']=='ok' and fact['color']=='green' and fact['current'] is True
    assert fact['stale'] is False and fact['future'] is False
    assert utc_clock(fact['as_of'])<=now+timedelta(seconds=5)
    if fact.get('valid_until') is not None: assert now<utc_clock(fact['valid_until'])
-  assert all(rows[key]['status']=='warn' for key in ('automation_cycle','automation_step_open'))
+ if review.status=='REVIEW':
+  assert review.head>review.reviewed_head
+  assert health['status']=='warn' and health['color']=='amber'
+  assert page['color'] in {'green','amber'}
+  if not post_trade:
+   assert all(rows[key]['status']=='warn' for key in ('automation_cycle','automation_step_open'))
+ if post_trade or review.status=='REVIEW':
   for fact in page['rows']:
    assert fact['current'] is True
    assert fact['status'] in {'ok','warn','pending'}
@@ -721,15 +725,23 @@ if not post_trade:
     if fact['as_of'] is not None:
      assert utc_clock(fact['as_of'])<=now+timedelta(seconds=5)
     elif fact['key']=='paper_reconciliation':
-     assert fact['paper_alignment'] in {'SCHEDULED','SCHEDULED_WITH_HISTORY'}
-     assert utc_clock(fact['valid_until'])==utc_clock(rows['paper_plan']['paper_plan']['execute_at'])-timedelta(microseconds=1)
+     if post_trade:
+      assert fact['recovery'] is None and fact['operational_fact']['kind']=='PAPER_VERIFICATION'
+      assert fact['operational_fact']['state']=='PENDING' and now<utc_clock(fact['valid_until'])
+     else:
+      assert fact['paper_alignment'] in {'SCHEDULED','SCHEDULED_WITH_HISTORY'}
+      assert utc_clock(fact['valid_until'])==utc_clock(rows['paper_plan']['paper_plan']['execute_at'])-timedelta(microseconds=1)
     else:
      assert fact['key'] in {'automation_cycle','automation_step_open'}
     if fact.get('valid_until') is not None: assert now<utc_clock(fact['valid_until'])
    if fact['status']=='warn':
-    assert fact['key'] in {'paper_reconciliation','automation_cycle','automation_step_open','automation_alerts'}
+    assert fact['key'] in ({'paper_reconciliation','automation_alerts'} if post_trade else
+     {'paper_reconciliation','automation_cycle','automation_step_open','automation_alerts'})
     if fact['key']=='automation_alerts':
      assert fact['required_current'] is False and fact['stale'] is False and fact['future'] is False
+     if post_trade:
+      assert re.fullmatch(r'0 pending · 0 DLQ · [1-9][0-9]* unacked',fact['value'])
+      assert fact.get('recovery') is None
     elif fact['key']!='paper_reconciliation':
      assert fact['value']=='WAITING_OPEN' and fact['required_current'] is True
      workflow=fact['operational_fact']
@@ -744,10 +756,15 @@ if not post_trade:
   assert now-timedelta(seconds=30)<=utc_clock(leader['as_of'])<=now+timedelta(seconds=5)
   assert now<utc_clock(leader['valid_until'])
   assert rows['shadow_verification']['value']=='SHADOW VERIFIED THROUGH '+expected['decision']
+ if review.status=='REVIEW':
   review_amber=dict(dashboard_health=health,observation={key:observation[key] for key in ('current','valid_until')},
    operator_review={key:page['operator_review'][key] for key in
     ('scope','head','reviewed_head','status','observed_at','reviewed_at')},
-   operational_ready=False,installation_scope='PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW')
+   operational_ready=False,installation_scope=('POST_TRADE_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW'
+    if post_trade else 'PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW'))
+  if post_trade:
+   review_amber['installation_review_pending']=True
+   review_amber['observation']['strict_current']=observation.get('strict_current',observation['current'])
  else:
   assert health['status']=='ok' and health['color']=='green'
 plan=(rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade else rows.get('paper_plan',{}).get('paper_plan')
@@ -755,6 +772,8 @@ assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
 assert str(plan.get('decision_session'))==expected['decision']
 assert str(plan.get('effective_session'))==expected['effective']
 assert rows['automation_cycle']['value']==('SUCCEEDED' if post_trade else 'WAITING_OPEN')
+if post_trade:
+ assert rows['automation_cycle']['status']=='ok' and rows['trading_run']['trading_run']['state']=='SUCCEEDED'
 history_warning=None
 if not post_trade and (rows['paper_reconciliation']['status']=='warn'
  or rows['paper_reconciliation'].get('paper_alignment')=='SCHEDULED_WITH_HISTORY'
@@ -817,6 +836,7 @@ if history_warning is not None:
   installation_scope='PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_HISTORY_WARNING')
 output.update(review_amber or {})
 if not post_trade: current_boundaries(datetime.now(timezone.utc))
+if post_trade: current_boundaries(datetime.now(timezone.utc))
 print(json.dumps(output,sort_keys=True))
 '''
 
