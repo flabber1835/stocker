@@ -87,6 +87,8 @@ class Delivery:
         return current,old,candidate
 
     def _fresh(self, timestamp):
+        from .fenced_recovery import effective_time
+        timestamp = effective_time(self, timestamp)
         observed = datetime.fromisoformat(timestamp)
         require(observed.utcoffset() is not None, 'PROOF_TIME_INVALID')
         require(-5 <= (utcnow()-observed).total_seconds() <= 900, 'PROOF_HANDOFF_INTERVAL_EXPIRED')
@@ -206,6 +208,9 @@ class Delivery:
             self.host.verify_candidate()
         values = self.host.load_values()
         if stage=='NEW':
+            preflight = getattr(self.host, 'preflight_environment', None)
+            if preflight is not None:
+                preflight(values)
             self.host.verify_compose('predecessor')
             old = self.host.request['predecessor']
             require(values['SENTINEL_GIT_COMMIT']==old['commit']

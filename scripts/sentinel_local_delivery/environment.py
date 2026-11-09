@@ -18,6 +18,7 @@ from .model import DeliveryRefused, require
 MAX_BYTES = 1024 * 1024
 MAX_PROCESSES = 16384
 READER_SELECTION = 'artifacts/sentinel/deployment/maintenance-reader.json'
+HOST_READER_SELECTION = '.sentinel-native-maintenance-reader.json'
 READER_PURPOSE = b'sentinel-native-maintenance-reader-v1\0'
 
 
@@ -52,16 +53,23 @@ def _selection_bytes(path,limit):
 
 def selected_reader(deployment, previous):
     path=deployment/READER_SELECTION
+    binding=deployment
     if not path.exists():
         require(not path.is_symlink(),'ENVIRONMENT_READER_SELECTION_INVALID')
-        return deployment,None
+        # Host policy outlives a release checkout; it remains signed and scoped
+        # to this exact parent and the same literal deployment key.
+        path=deployment.parent/HOST_READER_SELECTION
+        binding=deployment.parent
+        if not path.exists():
+            require(not path.is_symlink(),'ENVIRONMENT_READER_SELECTION_INVALID')
+            return deployment,None
     require(not path.is_symlink() and path.resolve()==path,'ENVIRONMENT_READER_SELECTION_INVALID')
     try:
         record=json.loads(_selection_bytes(path,8192));value=record['value'];signature=record['signature']
         require(set(record)=={'value','signature'} and isinstance(value,dict)
             and set(value)=={'schema','deployment','source','commit','script_sha256','environment_sha256'}
             and value['schema']=='sentinel.native-maintenance-reader/1'
-            and value['deployment']==str(deployment)
+            and value['deployment']==str(binding)
             and isinstance(signature,str) and hmac.compare_digest(signature,
                 reader_signature(value,previous.get('SENTINEL_PUBLICATION_RECEIPT_KEY'))),
             'ENVIRONMENT_READER_SELECTION_INVALID')
@@ -90,6 +98,46 @@ def selected_reader(deployment, previous):
     except (KeyError,TypeError,ValueError,OSError) as exc:
         if isinstance(exc,DeliveryRefused):raise
         raise DeliveryRefused('ENVIRONMENT_READER_SELECTION_INVALID') from None
+
+
+def handover_reader(previous_deployment, deployment, previous, current):
+    """Carry an authenticated, unchanged reader; never discover a new policy."""
+    require(previous_deployment.parent == deployment.parent
+        and deployment.resolve() == deployment, 'ENVIRONMENT_READER_HANDOVER_SCOPE')
+    root, native = selected_reader(previous_deployment, previous)
+    require(native is not None, 'ENVIRONMENT_SELECTED_READER_REQUIRED')
+    selected = readers(previous_deployment, required=True, selected_root=root)
+    original = previous_deployment/READER_SELECTION
+    if not original.exists():
+        original = previous_deployment.parent/HOST_READER_SELECTION
+    value = json.loads(_selection_bytes(original,8192))['value']
+    require(value['source'] == str(root), 'ENVIRONMENT_READER_SELECTION_CHANGED')
+    metadata = (deployment/'.env').stat()
+    for path, binding in ((deployment.parent/HOST_READER_SELECTION, deployment.parent),
+                          (deployment/READER_SELECTION, deployment)):
+        record = dict(value, deployment=str(binding))
+        envelope = dict(value=record, signature=reader_signature(record,
+            current.get('SENTINEL_PUBLICATION_RECEIPT_KEY')))
+        raw=(json.dumps(envelope,sort_keys=True,separators=(',',':'))+'\n').encode()
+        if path.exists() or path.is_symlink():
+            require(_selection_bytes(path,8192)==raw, 'ENVIRONMENT_READER_HANDOVER_CONFLICT')
+            continue
+        require(not any(p.is_symlink() for p in (path.parent,*path.parent.parents)),
+            'ENVIRONMENT_READER_SELECTION_INVALID')
+        path.parent.mkdir(parents=True,exist_ok=True)
+        fd,temporary=tempfile.mkstemp(prefix='.reader-handover-',dir=path.parent)
+        try:
+            with os.fdopen(fd,'wb') as stream:
+                os.fchown(stream.fileno(),metadata.st_uid,metadata.st_gid)
+                stream.write(raw);stream.flush();os.fsync(stream.fileno())
+            os.link(temporary,path,follow_symlinks=False)
+        finally:
+            os.unlink(temporary)
+        parent=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(parent)
+        finally:os.close(parent)
+    require(selected_reader(deployment,current)==(root,native), 'ENVIRONMENT_READER_SELECTION_CHANGED')
+    _same_readers(previous_deployment,selected)
 
 
 def _read(path, limit):

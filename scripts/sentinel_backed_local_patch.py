@@ -185,6 +185,10 @@ class BackedHost(Host):
     supports_blocked_unsent = True
     supports_post_trade_successor = True
     supports_post_schema_access_path = True
+
+    def preflight_environment(self, values):
+        environment.install(self, values)
+
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         present = any((self.operation_dir/name).exists() or (self.operation_dir/name).is_symlink()
@@ -570,6 +574,9 @@ def main(argv=None):
             delivery=Delivery(host,journal)
             if args.command=='abandon-drain':
                 delivery.abandon_drain()
+            elif args.command=='recover-fenced-preflight':
+                from sentinel_local_delivery.fenced_recovery import recover
+                recover(delivery, args.recovery_id)
             elif args.command=='recover-verification':
                 from sentinel_local_delivery.verification_recovery import recover
                 recover(delivery, args.recovery_id)

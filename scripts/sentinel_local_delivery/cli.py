@@ -119,6 +119,10 @@ def parser(*, backed=False):
         help='Permanently abandon a pre-install operation and recover its exact predecessor restart policy')
     abandon.add_argument('--operation-dir',required=True)
     if backed:
+        fenced = commands.add_parser('recover-fenced-preflight',
+            help='Requalify one expired, stopped PRE_OPEN installation before starting it')
+        fenced.add_argument('--operation-dir', required=True)
+        fenced.add_argument('--recovery-id', required=True)
         recovery = commands.add_parser('recover-verification',
             help='Explicit fresh final observation of an expired backed PRE_OPEN installation')
         recovery.add_argument('--operation-dir', required=True)

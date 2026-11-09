@@ -104,3 +104,28 @@ coordinator and completed activation receipt as predecessor, preserve PostgreSQL
 and archive configuration, and verify current green dashboard and all 20 slots.
 Keep the local patch identity distinct from the signed CI base image. Export
 the source patch and qualification/installation receipts for subsequent PR work.
+
+## Native policy handover and interrupted installation
+
+The November 9 local roll exposed a release-staging omission: copying the
+literal environment into a new checkout did not carry the independently
+selected maintenance reader. Preserve that signed selection across checkout
+staging; authenticate the old selection and its unchanged source, environment
+and running reader before rebinding it to the new deployment. Never infer a
+new policy from an arbitrary process or rewrite the maintenance installation.
+Validate reader continuity before requesting an application drain as well as
+at the environment mutation boundary. Missing policy must leave applications
+running. A stable, authenticated host selection may supply the same reader
+when a release-local selector was omitted; it cannot select another reader.
+
+An interrupted, already quiescent PRE_OPEN roll may outlive its original proof
+window. Recovery is an explicit operation, restricted to COMPOSE_INSTALLED,
+with the predecessor environment still selected and all predecessor processes
+stopped. Re-earn canonical, financial/native, storage, drain, source, compose
+and reader proofs before recording one immutable recovery certificate. Keep
+the original receipt, timestamps and refusal intact. Bind the certificate to
+the exact request and original receipt history/artifacts. It supplies one new
+900-second preflight window; it does not renew itself, weaken normal deadlines,
+skip stages or grant financial authority. Later resume still performs the
+ordinary mutation-boundary checks. Qualify this host-only repair independently
+of the already built, immutable application candidate.
