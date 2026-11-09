@@ -1,0 +1,51 @@
+{
+  "origin_artifact": 13642433891,
+  "origin_head": "7f0587214e902776f9d3cc1dfa1088554bb45838",
+  "origin_run": 42545391756,
+  "origin_zip_sha256": "9a9f855c289945e4c9a134bdb765d9ecb289322bc33b360e42392e749a8c2856",
+  "profiles": {
+    "P00_FROZEN_SENTINEL": {
+      "direct_journal": {
+        "bytes": 3125044,
+        "prefix_sha256": "818cf0ebaab0aa4afd7fef46aa9194e8953bceb41f265f844699e3c02a0fe6b4",
+        "records": 2156
+      },
+      "full": {
+        "anchor": "2018-01-02",
+        "cagr": 0.1995508889067838,
+        "closes": 2155,
+        "end": "2026-07-31",
+        "initial_nav": "50000",
+        "maximum_drawdown_magnitude": "1628920041558816630442851503/5553939430209123545802603510",
+        "measured_closes": 2156,
+        "multiple": "2379934562116778913904717261/500000000000000000000000000",
+        "nav": "2379934562116778913904717261/10000000000000000000000",
+        "start": "2018-01-03",
+        "total_return": "1879934562116778913904717261/500000000000000000000000000"
+      },
+      "measured_target_sha256": "c2bd2b485351ee2aafd295fd9f0b38bb27f38aca3055f68f4676a802cd456999"
+    },
+    "P00_NO_EXTRA_RECOVERY_HOLD": {
+      "direct_journal": {
+        "bytes": 3125945,
+        "prefix_sha256": "75c6669e292aca819ee95fa6358749782224d12b14902734e7aedfa36f7bb39b",
+        "records": 2156
+      },
+      "full": {
+        "anchor": "2018-01-02",
+        "cagr": 0.20550926502316252,
+        "closes": 2155,
+        "end": "2026-07-31",
+        "initial_nav": "50000",
+        "maximum_drawdown_magnitude": "553120489559292439120518466/1908904643976959202906241405",
+        "measured_closes": 2156,
+        "multiple": "620808460027887545956822111/125000000000000000000000000",
+        "nav": "620808460027887545956822111/2500000000000000000000",
+        "start": "2018-01-03",
+        "total_return": "495808460027887545956822111/125000000000000000000000000"
+      },
+      "measured_target_sha256": "51d85a2c67c3ebf8df021871afd28e6969f9f1dda8247e9e2465d4fb043138e0"
+    }
+  },
+  "schema": "research.p00-sentinel-grid-references/1"
+}

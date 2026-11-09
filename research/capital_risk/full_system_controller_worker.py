@@ -114,7 +114,7 @@ def metrics(values,start,end):
     for d,n in selected:metric.add(d,n)
     result=metric.result();result['measured_closes']=len(subset);return result
 
-def run(root,out,*,reference=False):
+def run(root,out,*,reference=False,source_review_path=None,core_identity=None):
     need(os.environ.get('FULL_SYSTEM_HOSTED')=='1' and str(Path(__file__).resolve()).startswith('/driver/'),'HOSTED_ONLY')
     out.mkdir(exist_ok=False);started=time.monotonic()
     from research.pooled_vacancy_funding.journal import read_checkpoint
@@ -124,14 +124,14 @@ def run(root,out,*,reference=False):
         from trace_screen import validate_baseline
         validate_baseline(root)
     else:
-        source_review=json.loads((root.parent/'core-review.json').read_bytes());need(source_review['complete'] and source_review['all_daily_factors_and_chains_verified'],'ACTUAL_CORE_REVIEW')
+        source_review=json.loads((source_review_path or root.parent/'core-review.json').read_bytes());need(source_review['complete'] and source_review['all_daily_factors_and_chains_verified'],'ACTUAL_CORE_REVIEW')
     formation=[json.loads(v) for v in (root/'formation.jsonl').read_bytes().splitlines()];rows=[json.loads(v) for v in (root/'daily.jsonl').read_bytes().splitlines()]
     need(len(formation)==126 and len(rows)==count and rows[0]['session']==start,'FULL_CORE_AXIS')
-    registered,allpaths=controller_paths(formation+rows,out)
+    registered,allpaths=controller_paths(formation+rows,out);registered_count=len(registered)
     if reference:
         admitted=[i for i in range(len(registered)) if allpaths[i,126]==0.]
         need(0 in admitted and D(rows[0]['economics']['pending_allocation'])==0 and D(rows[1]['economics']['held_allocation'])==0,'REFERENCE_BASELINE_ZERO_PREFIX')
-        write(out/'reference-scope.json',{'kind':'ORIGINAL_2008_CORE_REFERENCE_ONLY','core_variants_tested':False,'profiles_registered':256,
+        write(out/'reference-scope.json',{'kind':'ORIGINAL_2008_CORE_REFERENCE_ONLY','core_variants_tested':False,'profiles_registered':registered_count,
             'admitted_profiles':[registered[i]['id'] for i in admitted],
             'excluded_before_performance':[{'id':p['id'],'reason':'FIRST_COMMITMENT_REQUIRES_NEW_CANONICAL_FORMED_ENTRY_EVIDENCE'} for i,p in enumerate(registered) if i not in admitted],
             'same_exact_first_two_zero_held_economic_rows':True,'not_a_result_for_failed_fresh_2018_arms':True})
@@ -148,7 +148,7 @@ def run(root,out,*,reference=False):
                     if i==len(series)-1 or day[:7]!=series[i+1][0][:7]:value_cp.write({'group':group,'session':day,'completed':i+1,'nav':nav,
                         'prefix_sha256':digest(series[:i+1])})
             g=groups[group]
-            record={'id':profile['id'],'core_id':'ORIGINAL_2008_FROZEN_CORE' if reference else json.loads((root.parent/'private-source-bindings.json').read_bytes())['profile_sha256'],
+            record={'id':profile['id'],'core_id':('ORIGINAL_2008_FROZEN_CORE' if reference else (core_identity or json.loads((root.parent/'private-source-bindings.json').read_bytes())['profile_sha256'])),
                 'group':group,'metrics':metrics(g['series'],'2018-01-02','2022-12-30'),
                 'turnover':str(sum((n for (day,_),n in zip(g['series'],g['turnover']) if '2018-01-02'<=day<='2022-12-30'),Q(0)))}
             records.append(record)
@@ -199,7 +199,7 @@ def run(root,out,*,reference=False):
                 'annual':{str(y):metrics(series,f'{y}-01-01',max(d for d,_ in series if d[:4]==str(y))) for y in range(int(start[:4]),2027)},
                 'different_funded_evaluation_closes':sum(int(codes[index,i-1]!=codes[0,i-1]) for i,r in enumerate(rows) if i and '2023-01-03'<=r['session']<='2024-12-31')}
         finally:journal.close()
-    write(out/'summary.json',{'status':'COMPLETE_CONTROLLER_REVIEW_REQUIRED','profiles':len(registered),'registered_profiles':256,'reference_only':reference,'unique_paths':len(groups),'selection':locked,'reports':reports,
+    write(out/'summary.json',{'status':'COMPLETE_CONTROLLER_REVIEW_REQUIRED','profiles':len(registered),'registered_profiles':registered_count,'reference_only':reference,'unique_paths':len(groups),'selection':locked,'reports':reports,
         'development_selection':earlier,'training_frontier':sorted(frontier),
         'elapsed_seconds':time.monotonic()-started,'production_contacted':False,'persistent_execution_certified':False,'known_history_not_unseen':True})
 

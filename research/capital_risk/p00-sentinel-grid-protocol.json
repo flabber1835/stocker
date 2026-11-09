@@ -1,0 +1,49 @@
+{
+  "axes": {
+    "extra_hold": [
+      true,
+      false
+    ],
+    "fast_healthy": [
+      2,
+      3
+    ],
+    "owned_ceiling": [
+      "0.25",
+      "0.55",
+      "0.75"
+    ],
+    "owned_entry_damage": [
+      "0.75",
+      "0.88"
+    ],
+    "owned_entry_sessions": [
+      1,
+      3,
+      5
+    ],
+    "slow_healthy": [
+      3,
+      6
+    ]
+  },
+  "budgets": [
+    "0.50",
+    "0.75",
+    "1.0"
+  ],
+  "core_recomputed": false,
+  "development_end": "2020-12-31",
+  "frozen_parent_sha256": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+  "latest_end": "2026-07-31",
+  "latest_start": "2025-01-02",
+  "original_core_backtests_resumed": false,
+  "postselection_retuning": false,
+  "profile_count": 144,
+  "schema": "research.p00-sentinel-grid-protocol/1",
+  "selection_uses_later_periods": false,
+  "training_end": "2022-12-30",
+  "training_start": "2018-01-02",
+  "validation_end": "2024-12-31",
+  "validation_start": "2023-01-03"
+}

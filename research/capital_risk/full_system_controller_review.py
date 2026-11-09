@@ -67,7 +67,7 @@ def review(root,evidence,out,*,reference=False):
         validate_baseline(root)
     allregistered=registered;allvector=targets(formation+rows,registered);vector=allvector
     if reference:
-        scope=json.loads((evidence/'reference-scope.json').read_bytes());admitted=[i for i in range(256) if allvector[i,126]==0.]
+        scope=json.loads((evidence/'reference-scope.json').read_bytes());admitted=[i for i in range(len(allregistered)) if allvector[i,126]==0.]
         need(scope['admitted_profiles']==[registered[i]['id'] for i in admitted]
             and [r['id'] for r in scope['excluded_before_performance']]==[p['id'] for i,p in enumerate(registered) if i not in admitted],'INDEPENDENT_STARTUP_ADMISSION')
         registered=[registered[i] for i in admitted];vector=allvector[admitted,:]
@@ -130,8 +130,8 @@ def review(root,evidence,out,*,reference=False):
             m=metric(chosen,anchor);m['measured_closes']=len(wanted);return m
         for key,lo,end in [('full',start,'2026-07-31'),('evaluation_2021_2022','2021-01-04','2022-12-30'),('evaluation_2023_2024','2023-01-03','2024-12-31'),('diagnostic_2025_2026','2025-01-02','2026-07-31')]:need(report[key]==period(lo,end),'INDEPENDENT_LATER_METRICS')
         for year,m in report['annual'].items():need(m==period(year+'-01-01',max(d for d,_ in series if d[:4]==year)),'EVERY_ANNUAL_METRIC')
-    out.mkdir(exist_ok=False);(out/'independent-review.json').write_text(json.dumps({'status':'FULL_SYSTEM_CONTROLLER_REVIEW_PASSED','profiles':len(registered),'registered_profiles':256,'reference_only':reference,
-        'independent_targets':len(rows+formation)*256,'dated_factors':factor_count,'value_steps':len(groups)*(len(rows)-1),
+    out.mkdir(exist_ok=False);(out/'independent-review.json').write_text(json.dumps({'status':'FULL_SYSTEM_CONTROLLER_REVIEW_PASSED','profiles':len(registered),'registered_profiles':len(allregistered),'reference_only':reference,
+        'independent_targets':len(rows+formation)*len(allregistered),'dated_factors':factor_count,'value_steps':len(groups)*(len(rows)-1),
         'direct_account_records':direct_count,'all_controller_value_journal_prefixes_verified':True,'all_training_locks_verified':True,
         'all_metrics_verified':True,'production_contacted':False},indent=2)+'\n')
 
