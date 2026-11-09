@@ -14,7 +14,8 @@ from tests.support.source_history import expanded_profile
 def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
     profile = basis._profile()
     original = {revision: record for revision, record in profile['retained_predecessors'].items()
-                if revision != basis.STARTUP_PROFILE_PREDECESSOR_REVISION}
+                if revision not in {basis.STARTUP_PROFILE_PREDECESSOR_REVISION,
+                                    basis.ACTIVATION_HEALTH_PREDECESSOR_REVISION}}
     # Canonical aggregate of every complete map in Git 430462d95, independently
     # captured before conversion; no historical digest was re-pinned.
     assert len(original) == 22
@@ -23,12 +24,12 @@ def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
     prior = profile['retained_predecessors'][basis.STARTUP_PROFILE_PREDECESSOR_REVISION]['files']
     assert len(prior) == 463
     assert admission.source_closure(prior) == 'fbacab07df6d2cc5410ad2e3ec3825b7e50a576ab2be0382e8dc37da123e8a5a'
-    actual = admission._source_files(basis.PROFILE.parent)
+    actual = profile['retained_predecessors'][basis.ACTIVATION_HEALTH_PREDECESSOR_REVISION]['files']
     assert set(actual) == set(prior)
     assert {name for name in prior if actual[name] != prior[name]} == {
         'panel/projection_worker.py', 'panel/projection_service.py',
         'panel/presentation.py', 'url_selected_source_basis.py'}
-    assert basis.predecessor_view(actual, previous=prior) == prior
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent), previous=prior) == prior
 
 
 def test_storage_is_small_and_roundtrip_preserves_every_logical_map():
@@ -37,7 +38,7 @@ def test_storage_is_small_and_roundtrip_preserves_every_logical_map():
     logical = expanded_profile()
     assert encoded(logical) == raw
     assert logical == basis._profile()
-    assert len(logical['retained_predecessors']) == 23
+    assert len(logical['retained_predecessors']) == 24
 
 
 def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(monkeypatch):

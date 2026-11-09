@@ -2468,7 +2468,9 @@ class AutonomousDeploy:
                 print("[WAIT] shadow attestation for %s; elapsed %ds; data-work budget remaining %ds" %
                       (decision_session, now - started, max(0, deadline - now)), flush=True)
                 last_report = now
-            time.sleep(3)
+            delay = (30 if forming is not None
+                     and forming['state'] == 'HEALTH_REBINDING' else 3)
+            time.sleep(min(delay, max(0, deadline - time.monotonic())))
         raise ActivationPending(
             "certified shadow did not attest the PAPER decision close before "
             "the activation attempt timeout")

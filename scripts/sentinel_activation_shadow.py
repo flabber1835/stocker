@@ -11,7 +11,7 @@ _CODE = r'''
 import json,os
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
-from sentinel import committed_read,rolling_runtime,shadow_runtime,shadow_service,shadow_service_status,shadow_service_probe
+from sentinel import committed_read,rolling_runtime,shadow_runtime,shadow_service,shadow_service_status,shadow_service_probe,shadow_health_projection
 from sentinel.feed import calendar,operational_snapshot,readers,rolling_go_inputs
 from sentinel.cli.main import main
 _original_shadow_status=shadow_runtime.verified_shadow_status
@@ -101,9 +101,48 @@ def _formation(conn,observation_id,starting_cash,reason):
         publisher_observed_at=after['observed_at'].isoformat(),
         publisher_deadline=after['worker_deadline'].isoformat() if after['worker_deadline'] is not None else None)
 
+def _health_renewal(config):
+    if not getattr(config,'operational_source_only',False):
+        return None
+    before=_owner(config)
+    try:
+        shadow_health_projection.health(config,fallback=lambda _:None)
+        return None
+    except shadow_health_projection.ProjectionRenewalRequired as exc:
+        if type(exc) is not shadow_health_projection.ProjectionRenewalRequired:
+            raise
+        session=exc.session
+    after=_owner(config)
+    if (after['incarnation']!=before['incarnation']
+            or after['binding_sha256']!=before['binding_sha256']
+            or after['observed_at']<before['observed_at']):
+        raise ValueError('shadow publisher changed during health renewal observation')
+    if after['reason']!=before['reason'] or after['attempt_id']!=before['attempt_id']:
+        return False  # Reobserve a worker completion instead of accepting stale progress.
+    if after['reason']!='ACTIVE_WORKER':
+        raise ValueError('shadow health renewal has no active producer')
+    if after['worker_deadline']>before['worker_deadline']:
+        raise ValueError('shadow worker deadline changed during health renewal observation')
+    return dict(schema='sentinel.activation-shadow-wait/1',state='HEALTH_REBINDING',session=session,
+        publisher_attempt_id=after['attempt_id'],publisher_binding_sha256=after['binding_sha256'],
+        publisher_observed_at=after['observed_at'].isoformat(),
+        publisher_deadline=after['worker_deadline'].isoformat())
+
+def _wait(value):
+    print('SENTINEL_ACTIVATION_SHADOW_WAIT='+json.dumps(value,sort_keys=True,separators=(',',':')),flush=True)
+    raise SystemExit(76)
+
 def _status_with_formation(conn,*,observation_id,starting_cash):
     last=None
     for _observation in range(2):
+        config=shadow_service.ShadowServiceConfig.from_env()
+        if config.observation_id!=observation_id or config.starting_cash!=starting_cash:
+            raise ValueError('shadow health scope differs from its publisher')
+        renewal=_health_renewal(config)
+        if renewal is False:
+            continue
+        if renewal is not None:
+            _wait(renewal)
         try:
             return _original_shadow_status(conn,observation_id=observation_id,starting_cash=starting_cash)
         except shadow_runtime.ShadowRuntimeRefused as exc:
@@ -116,9 +155,10 @@ def _status_with_formation(conn,*,observation_id,starting_cash):
             wait=_formation(conn,observation_id,starting_cash,str(cause))
             if wait is None:
                 continue
-            print('SENTINEL_ACTIVATION_SHADOW_WAIT='+json.dumps(wait,sort_keys=True,separators=(',',':')),flush=True)
-            raise SystemExit(76)
-    raise last
+            _wait(wait)
+    if last is not None:
+        raise last
+    raise ValueError('shadow publisher changed repeatedly during health renewal')
 
 shadow_runtime.verified_shadow_status=_status_with_formation
 raise SystemExit(main(['shadow-status']))
@@ -155,12 +195,17 @@ def decode_result(result, *, now=None):
                 'publisher_observed_at','publisher_deadline'}
     if (not isinstance(value,dict) or set(value)!=expected
             or any(type(item) is not str for key,item in value.items()
-                   if key not in {'publisher_attempt_id','publisher_deadline'})
-            or value['schema']!=SCHEMA or value['state'] not in {'PUBLICATION_AHEAD','TRAILING_CANDIDATE','NEXT_FRESH_SESSION'}
-            or not re.fullmatch('[0-9]{4}-[0-9]{2}-[0-9]{2}',value['session'])
+                   if key not in {'publisher_attempt_id','publisher_deadline','session'})
+            or value['schema']!=SCHEMA or value['state'] not in {'PUBLICATION_AHEAD','TRAILING_CANDIDATE','NEXT_FRESH_SESSION','HEALTH_REBINDING'}
             or not re.fullmatch('[0-9a-f]{64}',value['publisher_binding_sha256'])):
         raise ValueError('shadow formation identity is malformed')
-    date.fromisoformat(value['session'])
+    if value['session'] is None:
+        if value['state']!='HEALTH_REBINDING':
+            raise ValueError('shadow formation session is absent')
+    else:
+        if type(value['session']) is not str or not re.fullmatch('[0-9]{4}-[0-9]{2}-[0-9]{2}',value['session']):
+            raise ValueError('shadow formation session is malformed')
+        date.fromisoformat(value['session'])
     observed = datetime.fromisoformat(value['publisher_observed_at'].replace('Z','+00:00'))
     instant = now or datetime.now(timezone.utc)
     if (observed.utcoffset()!=timedelta(0)
