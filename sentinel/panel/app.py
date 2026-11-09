@@ -112,7 +112,7 @@ def _read_panel():
                 installed=None, error=detail)], source_errors=[detail])
     def build():
         try:
-            return projection_service.read(dsn)
+            return projection_service.read(dsn, display=True)
         except operational_snapshot.SnapshotUnavailable as exc:
             raise singleflight.BuildUnavailable('current operational snapshot unavailable') from exc
     result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)

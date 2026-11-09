@@ -367,6 +367,11 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
             and original_plan.can_show_paper_plan(panel.now)):
         plan_view = replace(safe, rows=[original_plan if row.key == 'paper_plan' else row
                                        for row in safe.rows])
+    elif (panel.observation_retained and panel.observation_generated_at is not None
+            and original_plan is not None and not plan_current
+            and original_plan.can_show_paper_plan(panel.observation_generated_at)):
+        plan_view = replace(safe, now=panel.observation_generated_at,
+            rows=[original_plan if row.key == 'paper_plan' else row for row in safe.rows])
     plan = section(_plan_html(plan_view, current=plan_current),
                    ('paper_plan', 'trading_run', 'completed_trading_run'))
     saved = plan_view.row('paper_plan')
@@ -379,12 +384,31 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
                    and run.trading_run.intent.plan_id == saved.paper_plan.plan_id)
     runs = (_run_html(safe) if saved is not None
             and saved.can_show_paper_plan(safe.now) and not same_intent else '')
-    account = section(_account_html(panel), ('alpaca_account',))
+    account_view = panel
+    account_row = panel.row('alpaca_account')
+    if (panel.observation_retained and panel.observation_generated_at is not None
+            and account_row is not None and not delivery.row_current(panel, account_row)
+            and account_row.can_show_paper_account(panel.observation_generated_at)):
+        account_view = replace(panel, now=panel.observation_generated_at)
+    account = section(_account_html(account_view), ('alpaca_account',))
     if panel.row('alpaca_account') is not None and not delivery.row_current(panel, panel.row('alpaca_account')):
         account = account.replace('</h2>', '</h2><p class="overview-retained">Last known account · original snapshot time below.</p>', 1)
+    slots_view = safe
+    book_row = panel.row('book')
+    retained_book = (panel.observation_retained and panel.observation_generated_at is not None
+        and book_row is not None and not delivery.row_current(panel, book_row)
+        and book_row.can_show_shadow_book(panel.observation_generated_at))
+    if retained_book:
+        slots_view = replace(safe, now=panel.observation_generated_at,
+            rows=[book_row if row.key == 'book' else row for row in safe.rows])
+    slots = _slots_html(slots_view)
+    if retained_book:
+        slots = slots.replace('</h2>', '</h2><p class="overview-retained">Last known book · '
+            'original session '+_esc(book_row.shadow_book.session)+'</p>'
+            +_stamp(book_row.as_of, label='Book observation:'), 1)
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
             +retained
             +section(_preparation_html(plan_view, refresh_pending=refresh_pending), ('ingest',))
             +plan+section(runs, ('trading_run', 'completed_trading_run'))
-            +account+section(_slots_html(safe), ('book', 'exposure'))+'</main>')
+            +account+section(slots, ('book', 'exposure'))+'</main>')

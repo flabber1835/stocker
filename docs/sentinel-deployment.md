@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Dashboard boundary delivery](dashboard-boundary-delivery.md) separates bounded
+human display continuity from strict current evidence at workflow transitions.
+
 [Opening observation isolation](opening-observation-isolation.md) separates
 private warm proof reuse and coherent operational reads from financial writes.
 

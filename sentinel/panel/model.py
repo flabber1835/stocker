@@ -565,6 +565,10 @@ class Panel:
     observation_revalidated_keys: tuple[Literal['shadow_verification', 'shadow_nav',
         'shadow_return', 'exposure', 'book', 'terminals', 'paper_reconciliation'], ...] = ()
     observation_valid_until: Optional[datetime] = None
+    #: Display-only reuse inside the original maximum observation window.
+    #: Neither field can be present in a signed producer snapshot.
+    observation_retained: bool = False
+    observation_generated_at: Optional[datetime] = None
 
     @property
     def overall(self) -> str:

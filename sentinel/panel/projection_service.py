@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import math
 from pathlib import Path
@@ -403,7 +403,7 @@ class Publisher:
         HEARTBEAT.unlink(missing_ok=True)
 
 
-def read(database_url):
+def read(database_url, *, display=False):
     """SELECT-only current snapshot; requests never discover or record incidents."""
     from sentinel.feed import store
     from sentinel.panel import operational_snapshot as snapshots, review
@@ -412,7 +412,8 @@ def read(database_url):
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         context = snapshots.context(conn, database_url)
         now = review.store.database_now(conn)
-        value = snapshots.read_owned(conn, context_sha256=context, now=now)
+        value = snapshots.read_owned(conn, context_sha256=context, now=now,
+                                     **({'display':True} if display else {}))
         if value.panel.operator_review is None:
             raise snapshots.SnapshotUnavailable('operational review observation missing')
         current_subjects = snapshots.subjects(conn, database_url)
@@ -424,10 +425,17 @@ def read(database_url):
             raise snapshots.SnapshotUnavailable('operational review state missing')
         review.store.authenticate(dict(scope=value.panel.operator_review.scope, state=recorded[0]),
                                   recorded[1], purpose=review.store.SCHEMA)
-        if recorded[0].get('head') != value.panel.operator_review.head and not changed:
+        head_changed = recorded[0].get('head') != value.panel.operator_review.head
+        if head_changed and not changed and not display:
             raise snapshots.SnapshotUnavailable('operational review head changed')
-        panel = replace(value.panel, now=now, observation_current=not changed,
+        retained = display and (now >= value.valid_until or head_changed)
+        panel = replace(value.panel, now=now, observation_current=not changed and not retained,
             observation_changed_scopes=changed, observation_valid_until=value.valid_until)
+        if display:
+            panel = replace(panel, observation_generated_at=value.generated_at)
+        if display and head_changed and recorded[0].get('active'):
+            panel = replace(panel, source_errors=list(dict.fromkeys([*panel.source_errors,
+                'Current signed review records active conditions; current display composition is pending.'])))
         if changed:
             from sentinel.panel import read_projection
             # Cheap receipt consumption only. A PAPER update must not discard
@@ -447,7 +455,15 @@ def read(database_url):
                             observation_revalidated_keys=tuple(replacements),
                             source_errors=list(dict.fromkeys([*panel.source_errors, *selected_errors])))
         finished = review.store.database_now(conn)
-        if finished >= value.valid_until:
+        if display:
+            display_until = value.generated_at + timedelta(seconds=snapshots.MAX_SECONDS)
+            if not value.generated_at <= finished < display_until:
+                raise snapshots.SnapshotUnavailable('SNAPSHOT_DISPLAY_WINDOW_EXHAUSTED')
+            retained = retained or finished >= value.valid_until
+            panel = replace(panel, observation_retained=retained,
+                observation_current=panel.observation_current and not retained,
+                observation_valid_until=display_until if retained else value.valid_until)
+        elif finished >= value.valid_until:
             raise snapshots.SnapshotUnavailable('operational snapshot expired during read')
         return replace(panel, now=finished)
     finally:
@@ -457,6 +473,8 @@ def read(database_url):
 
 def guard_acknowledgement(conn, panel, database_url):
     from sentinel.panel import operational_snapshot as snapshots, review
+    if not panel.observation_current:
+        raise review.store.ReviewRefused('operational snapshot is not current during acknowledgement')
     owner = conn.execute(f'SELECT owner_id FROM {schema.OWNER} '
                          'WHERE id=1 AND expires_at>clock_timestamp() FOR SHARE').fetchone()
     if owner is None:
@@ -465,8 +483,7 @@ def guard_acknowledgement(conn, panel, database_url):
     now = review.store.database_now(conn)
     latest = snapshots.read_owned(conn, context_sha256=snapshots.context(conn, database_url),
                                   now=now, lock=True)
-    if (not panel.observation_current
-            or latest.subjects != snapshots.subjects(conn, database_url)
+    if (latest.subjects != snapshots.subjects(conn, database_url)
             or latest.panel.operator_review != panel.operator_review
             or review.view_subject(latest.panel) != review.view_subject(panel)):
         raise review.store.ReviewRefused('operational snapshot changed during acknowledgement')

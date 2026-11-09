@@ -40,7 +40,7 @@ def test_http_builds_share_one_slot(monkeypatch, owner, contender):
         entered.set()
         assert release.wait(10), 'test did not release the active build'
         return fixture_panel()
-    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn: blocked())
+    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn, **_options: blocked())
     monkeypatch.setattr(panel_app, '_shadow_segment_disclosure', lambda value, _dsn: value)
     monkeypatch.setattr(panel_app, '_probe_database', lambda _dsn: None)
     with TestClient(panel_app.app) as client, ThreadPoolExecutor(max_workers=2) as pool:
@@ -71,7 +71,7 @@ def test_failed_build_releases_admission(monkeypatch, route):
         if len(calls) == 1:
             raise OSError('unavailable source')
         return fixture_panel()
-    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn: fails_once())
+    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn, **_options: fails_once())
     monkeypatch.setattr(panel_app, '_shadow_segment_disclosure', lambda value, _dsn: value)
     with TestClient(panel_app.app, raise_server_exceptions=False) as client:
         assert client.get(route).status_code == 500
@@ -102,7 +102,7 @@ def test_contending_phone_keeps_last_known_but_machine_health_never_reuses_it(mo
             entered.set()
             assert release.wait(10)
         return value
-    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn: build())
+    monkeypatch.setattr(panel_app.projection_service, 'read', lambda _dsn, **_options: build())
     monkeypatch.setattr(panel_app, '_shadow_segment_disclosure', lambda value, _dsn: value)
     with TestClient(panel_app.app) as client, ThreadPoolExecutor(max_workers=2) as pool:
         fresh = client.get('/')

@@ -136,7 +136,9 @@ def _validate_panel(raw):
     _require(raw.get('observation_current') is True
              and raw.get('observation_changed_scopes') == []
              and raw.get('observation_revalidated_keys') == []
-             and raw.get('observation_valid_until') is None,
+             and raw.get('observation_valid_until') is None
+             and raw.get('observation_retained') is False
+             and raw.get('observation_generated_at') is None,
              'SNAPSHOT_CONSUMER_STATE_REFUSED')
     expected = {item.name for item in fields(model.Row)}
     _require(all(isinstance(row, dict) and set(row) == expected for row in rows),
@@ -223,7 +225,20 @@ def decode(value, signature, *, context_sha256, now):
     return Snapshot(panel, dict(value['subjects']), context_sha256, generated, expiry)
 
 
-def read_owned(conn, *, context_sha256, now, lock=False):
+def decode_display(value, signature, *, context_sha256, now):
+    """Authenticate once; retain display facts only inside their original window."""
+    try:
+        generated = datetime.fromisoformat(value['generated_at'])
+    except (KeyError, TypeError, ValueError):
+        raise SnapshotUnavailable('SNAPSHOT_CLOCK_INVALID') from None
+    snapshot = decode(value, signature, context_sha256=context_sha256, now=generated)
+    _require(_utc(now) and snapshot.generated_at <= now
+             < snapshot.generated_at + timedelta(seconds=MAX_SECONDS),
+             'SNAPSHOT_DISPLAY_WINDOW_EXHAUSTED')
+    return snapshot
+
+
+def read_owned(conn, *, context_sha256, now, lock=False, display=False):
     """Read only, without changing the caller's transaction or any evidence."""
     row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature '
         f'FROM {schema.RECEIPTS} WHERE scope=%s'+(' FOR SHARE' if lock else ''), (SCOPE,)).fetchone()
@@ -233,7 +248,8 @@ def read_owned(conn, *, context_sha256, now, lock=False):
              and _utc(row[1]) and _utc(row[2])
              and row[1].isoformat() == value.get('generated_at')
              and row[2].isoformat() == value.get('valid_until'), 'SNAPSHOT_METADATA_CHANGED')
-    return decode(value, signed, context_sha256=context_sha256, now=now)
+    decoder = decode_display if display else decode
+    return decoder(value, signed, context_sha256=context_sha256, now=now)
 
 
 def publish_owned(conn, *, owner_id, value, signature, context_sha256, subjects, now):
