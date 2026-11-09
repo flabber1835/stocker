@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Opening observation isolation](opening-observation-isolation.md) separates
+private warm proof reuse and coherent operational reads from financial writes.
+
 [Independent backup renewal projection](backup-renewal-projection.md) binds
 bounded maintenance progress to its physical database and exact base lineage,
 independently of the application image. It preserves financial backup gates.

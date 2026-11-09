@@ -264,6 +264,21 @@ def test_baseline_reuse_witness_refuses_any_other_delta(definition, defect):
 
 def _check_and_remove_backup_gate_delta(node):
     """Check exact post-decomposition safety additions against frozen bodies."""
+    if node.name == 'prepare_paper_plan':
+        # The prior plan-work patch added this exact performance-only scope.
+        owner = next(item for item in node.body if isinstance(item, ast.With))
+        extra_import = ast.parse('from sentinel import structural_verification').body[0]
+        positions = [i for i, item in enumerate(owner.body)
+            if ast.dump(item) == ast.dump(extra_import)]
+        assert len(positions) == 1
+        at = positions[0]
+        scope = owner.body[at+1]
+        expected = ast.parse('with feed_inputs.pinned(conn, commit=False) as pinned, '
+            'structural_verification.callback(conn):\n    pass').body[0]
+        assert isinstance(scope, ast.With)
+        assert [ast.dump(item) for item in scope.items] == [ast.dump(item) for item in expected.items]
+        scope.items.pop()
+        del owner.body[at]
     if node.name == '_record_due_fill_interval_or_refuse':
         assert node.args.kwonlyargs[-1].arg == 'baseline'
         assert ast.dump(node.args.kw_defaults[-1]) == ast.dump(ast.Constant(None))
@@ -318,6 +333,31 @@ def _check_and_remove_backup_gate_delta(node):
         assert ast.dump(statements[index - 1]) == ast.dump(predecessor)
         del statements[index]
     elif node.name == "recover_automated_paper_cycle":
+        # The opening-isolation design adds only an owned rolling proof scope.
+        # Strip its exact reviewed syntax before comparing the frozen financial
+        # body; do not re-pin the historical recovery fingerprint.
+        owner = next(item for item in node.body if isinstance(item, ast.With))
+        extra = ast.parse('with ExitStack() as proof_scope:\n    pass').body[0].items[0]
+        assert len(owner.items) == 2 and ast.dump(owner.items[1]) == ast.dump(extra)
+        owner.items.pop()
+        expected_scope = ast.parse('recovery_pin = None\n'
+            'if dual_mode and feed_inputs.is_rolling(current):\n'
+            '    from sentinel import structural_verification\n'
+            '    recovery_pin = proof_scope.enter_context(feed_inputs.pinned(conn, commit=False))\n'
+            '    proof_scope.enter_context(structural_verification.callback(conn))').body
+        at = next(i for i, item in enumerate(owner.body)
+            if isinstance(item, ast.Assign) and any(isinstance(t, ast.Name)
+                and t.id == 'recovery_pin' for t in item.targets))
+        assert [ast.dump(item) for item in owner.body[at:at+2]] == [ast.dump(item) for item in expected_scope]
+        del owner.body[at:at+2]
+        mirror = [item for item in ast.walk(node) if isinstance(item, ast.With)
+            and any(isinstance(v.optional_vars, ast.Name) and v.optional_vars.id == 'mirror_pin'
+                for v in item.items)]
+        expected_pin = ast.parse('with (nullcontext(recovery_pin) if recovery_pin is not None '
+            'else feed_inputs.pinned(conn, commit=False)) as mirror_pin:\n    pass').body[0].items[0]
+        assert len(mirror) == 1 and len(mirror[0].items) == 1
+        assert ast.dump(mirror[0].items[0]) == ast.dump(expected_pin)
+        mirror[0].items[0].context_expr = ast.parse('feed_inputs.pinned(conn, commit=False)').body[0].value
         locks = [call for call in ast.walk(node)
                  if isinstance(call, ast.Call)
                  and isinstance(call.func, ast.Attribute)
@@ -329,3 +369,33 @@ def _check_and_remove_backup_gate_delta(node):
             "journal.writer_lock(conn, recovery_only=True)").body[0].value
         assert ast.dump(locks[0]) == ast.dump(expected)
         locks[0].keywords = []
+
+
+@pytest.mark.parametrize('before,after', [
+    ('dual_mode and feed_inputs.is_rolling(current)', 'dual_mode'),
+    ('structural_verification.callback(conn)', 'structural_verification.callback(other)'),
+    ('recovery_pin = proof_scope.enter_context(feed_inputs.pinned(conn, commit=False))',
+     'recovery_pin = proof_scope.enter_context(feed_inputs.pinned(conn, commit=True))'),
+    ('nullcontext(recovery_pin)', 'nullcontext(current)'),
+])
+def test_recovery_scope_witness_refuses_other_wrapper_changes(before, after):
+    source = (PACKAGE / 'recovery.py').read_text()
+    assert source.count(before) == 1
+    node = next(item for item in ast.parse(source.replace(before, after)).body
+        if isinstance(item, ast.AsyncFunctionDef) and item.name == 'recover_automated_paper_cycle')
+    with pytest.raises(AssertionError):
+        _check_and_remove_backup_gate_delta(node)
+
+
+@pytest.mark.parametrize('before,after', [
+    ('structural_verification.callback(conn)', 'structural_verification.callback(other)'),
+    ('feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn)',
+     'feed_inputs.pinned(conn, commit=True) as pinned, structural_verification.callback(conn)'),
+])
+def test_preparation_scope_witness_refuses_other_wrapper_changes(before, after):
+    source = (PACKAGE / 'preparation.py').read_text()
+    assert source.count(before) == 1
+    node = next(item for item in ast.parse(source.replace(before, after)).body
+        if isinstance(item, ast.AsyncFunctionDef) and item.name == 'prepare_paper_plan')
+    with pytest.raises(AssertionError):
+        _check_and_remove_backup_gate_delta(node)

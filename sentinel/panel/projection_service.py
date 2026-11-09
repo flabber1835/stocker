@@ -58,7 +58,7 @@ def lock_inputs(conn):
     """Short publication/ACK boundary; never lock plans, commands or authority."""
     conn.execute("SET LOCAL lock_timeout='1000ms'")
     conn.execute(f'SELECT scope FROM {schema.REVISION} '
-                 "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
+                 "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR KEY SHARE").fetchall()
     conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
                  "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
 
@@ -409,6 +409,7 @@ def read(database_url):
     from sentinel.panel import operational_snapshot as snapshots, review
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
+        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         context = snapshots.context(conn, database_url)
         now = review.store.database_now(conn)
         value = snapshots.read_owned(conn, context_sha256=context, now=now)

@@ -49,13 +49,13 @@ def selected(conn):
     return rolling
 
 
-def _closure(conn, context, *, status_only=False):
+def _closure(conn, context, *, status_only=False, cached_only=False):
     if status_only:
         from sentinel import runtime_admission, structural_verification
         process_context = dict(context)
         result = structural_verification.material(conn, slot='rolling-checkpoint',
             key={**context, 'controller': context['controller'].to_dict()},
-            load=lambda: _status_closure(conn, context))
+            load=lambda: _status_closure(conn, context), cached_only=cached_only)
         runtime_admission._require_backed_owner_scope(
             conn, result[0].runtime_identity, process_context)
         return result
@@ -85,11 +85,23 @@ def _guard_projection(value):
 
 def _guard_status(conn, *, observation_id, starting_cash):
     """Fresh status from private structural inputs; no full state escapes."""
+    return _committed_status(conn, _guard_status_owned,
+        observation_id=observation_id, starting_cash=starting_cash)
+
+
+def _committed_status(conn, operation, **kwargs):
+    from sentinel import structural_verification
+    if structural_verification.has_material('rolling-checkpoint'):
+        try:
+            with committed_read.proof_connection(conn) as proof:
+                return operation(proof, cached_only=True, **kwargs)
+        except structural_verification.MaterialNotCached:
+            pass
     with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
-        return _guard_status_owned(proof,observation_id=observation_id,starting_cash=starting_cash)
+        return operation(proof, **kwargs)
 
 
-def _guard_status_owned(conn, *, observation_id, starting_cash):
+def _guard_status_owned(conn, *, observation_id, starting_cash, cached_only=False):
     from sentinel import runtime_admission, structural_verification
     if not structural_verification.active():
         raise Refused('ROLLING_GUARD_SCOPE_REQUIRED')
@@ -108,7 +120,7 @@ def _guard_status_owned(conn, *, observation_id, starting_cash):
                 conn, slot='rolling-checkpoint',
                 key={**context, 'controller': context['controller'].to_dict()},
                 load=lambda: _status_closure(conn, context),
-                projection_slot='rolling-guard-inputs', project=_guard_projection)
+                projection_slot='rolling-guard-inputs', project=_guard_projection, cached_only=cached_only)
             runtime_admission._require_backed_owner_scope(
                 conn, checkpoint.runtime_identity, process_context)
             if attested is None:
@@ -164,13 +176,13 @@ def _result(result, value):
 def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
              unchanged_through=None):
     """Prove committed status without ending an active caller transaction."""
-    with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
-        return _classify_owned(proof,observation_id=observation_id,starting_cash=starting_cash,
-            structural_only=structural_only,clock=clock,unchanged_through=unchanged_through)
+    return _committed_status(conn, _classify_owned, observation_id=observation_id,
+        starting_cash=starting_cash, structural_only=structural_only,
+        clock=clock, unchanged_through=unchanged_through)
 
 
 def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
-                    unchanged_through=None):
+                    unchanged_through=None, cached_only=False):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
@@ -183,7 +195,7 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                                 "WHERE cursor_name=%s)", (origin.CURSOR,)).fetchone()[0]:
                 origin.require_fresh(conn)
                 return {"status": "NOT_STARTED"}
-            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True)
+            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True, cached_only=cached_only)
             if attested is None:
                 if structural_only:
                     return {"status": "RECONSTRUCTION_REQUIRED", "latest_session": checkpoint.session}

@@ -50,7 +50,7 @@ def _observe_once(database_url, include_paper, expected_key):
         from sentinel.feed import readers, store
         conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
         try:
-            conn.execute('BEGIN TRANSACTION READ ONLY')
+            conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             rows = [sources._dual_paper_row(conn, informational_paper_mirror=informational_paper_mirror,
                                             publication=readers, feed_store=store)]
             errors = []

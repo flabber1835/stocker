@@ -1454,6 +1454,14 @@ _AUTOMATION_RETRY_STEP = {
 }
 
 
+def _historical_wake(value):
+    try:
+        result = datetime.fromisoformat(value) if isinstance(value, str) else value
+        return result if isinstance(result, datetime) and result.utcoffset() is not None else None
+    except ValueError:
+        return None
+
+
 def automation_step_rows(
         *, installed: Optional[bool], enabled: Optional[bool] = None,
         cycle: Optional[Mapping] = None, events=(),
@@ -1535,7 +1543,7 @@ def automation_step_rows(
                     failure_code=interrupted_transport.get('failure_code'),
                     diagnostic=interrupted_transport.get('diagnostic'),
                     clean_reconciliation_id=interrupted_transport.get('last_clean_reconciliation_id'),
-                    next_wake_at=interrupted_transport.get('next_wake_at'),
+                    next_wake_at=_historical_wake(interrupted_transport.get('next_wake_at')),
                     updated_at=event.get('at'))):
                 interrupted_transport = None
         for field in ("from_state", "to_state"):

@@ -18,6 +18,10 @@ class VerificationScopeRefused(ValueError):
     pass
 
 
+class MaterialNotCached(VerificationScopeRefused):
+    """A warm-only lookup requires the original admitted cold path."""
+
+
 _current = ContextVar('structural_verification_scope', default=None)
 _ECONOMIC_INPUT_SLOTS: frozenset[Literal[
     'rolling-checkpoint', 'dual-sizing', 'held-share-targets', 'held-share-basis', 'retained-runtime-checkpoint',
@@ -29,6 +33,12 @@ _ECONOMIC_INPUT_SLOTS: frozenset[Literal[
 def active():
     """Only a performance hint; material() still checks all ownership fences."""
     return _current.get() is not None
+
+
+def has_material(slot):
+    """A lookup hint only; cached-only reads still prove ownership and versions."""
+    scope = _current.get()
+    return scope is not None and slot in scope.values
 
 
 def _inventory(conn, slot):
@@ -97,11 +107,13 @@ def owned(owner):
     return None
 
 
-def _record(conn, scope, *, slot, key, load):
+def _record(conn, scope, *, slot, key, load, cached_only=False):
     scope.require(conn)
     before = _inventory(conn, slot)
     retained = scope.values.get(slot)
     if retained is None or retained[:2] != (key, before):
+        if cached_only:
+            raise MaterialNotCached('STRUCTURAL_MATERIAL_NOT_CACHED')
         value = load()
         scope.require(conn)
         if _inventory(conn, slot) != before:
@@ -114,22 +126,24 @@ def _record(conn, scope, *, slot, key, load):
     return scope.values[slot]
 
 
-def material(conn, *, slot, key, load):
+def material(conn, *, slot, key, load, cached_only=False):
     scope = _current.get()
     if scope is None:
+        if cached_only:
+            raise MaterialNotCached('STRUCTURAL_SCOPE_NOT_ACTIVE')
         return load()
-    record = _record(conn, scope, slot=slot, key=key, load=load)
+    record = _record(conn, scope, slot=slot, key=key, load=load, cached_only=cached_only)
     result = pickle.loads(record[2])
     scope.require(conn)
     return result
 
 
-def projected_material(conn, *, slot, key, load, projection_slot, project):
+def projected_material(conn, *, slot, key, load, projection_slot, project, cached_only=False):
     """Project only private verified bytes, under their exact original record."""
     scope = _current.get()
     if scope is None:
         raise VerificationScopeRefused('STRUCTURAL_PROJECTION_SCOPE_REQUIRED')
-    record = _record(conn, scope, slot=slot, key=key, load=load)
+    record = _record(conn, scope, slot=slot, key=key, load=load, cached_only=cached_only)
     name = (slot, projection_slot)
     retained = scope.projections.get(name)
     if retained is None or retained[0] is not record or retained[1] is not project:

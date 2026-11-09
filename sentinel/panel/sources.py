@@ -2358,6 +2358,77 @@ def _completed_postopen_mirror(conn, cycle, active_publication, frontier, *, now
         paper_alignment='COMPLETED_WITH_HISTORY')
 
 
+def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=None):
+    """Historical warnings cannot turn proven ongoing transport into a mismatch."""
+    from sentinel import local_paper
+    from sentinel.automation.health import read_health
+    from sentinel.execution import journal
+    from sentinel.feed import calendar
+    from sentinel.panel.retry_status import submitted_commands_progress
+
+    now = now or datetime.now(timezone.utc)
+    state = cycle.get('state')
+    if (state not in {'EXECUTING', 'RECONCILING'}
+            or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))
+            or not local_paper.require_bound_account(conn)):
+        return None
+    if state == 'RECONCILING':
+        if not submitted_commands_progress(cycle):
+            return None
+    elif cycle.get('failure_code') or cycle.get('failure_detail'):
+        return None
+    opened, closed = (cycle.get(k) for k in ('execute_at', 'execution_close_at'))
+    if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (opened, closed))
+            or not opened <= now < closed):
+        return None
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.enabled is not True or health.kill_switch_engaged is not False
+            or health.policy_state != 'LEADER_ACTIVE' or health.authority_verdict != 'PASS'
+            or health.authority_lifecycle_current is not True
+            or (health.latest_cycle_id, health.latest_cycle_state) != (cycle.get('cycle_id'), state)):
+        return None
+    current = _current_trading_run(conn)
+    if (current is None or current.key != 'trading_run'
+            or current.effective_status(now) != model.WARN
+            or not current.can_show_trading_run(now) or current.valid_until is None
+            or current.as_of is None):
+        return None
+    run = current.trading_run
+    if (run.state != state or run.intent.cycle_id != cycle.get('cycle_id')
+            or run.intent.plan_id != cycle.get('plan_id') or run.completed_at is not None
+            or run.intent.execute_at != opened or run.updated_at != cycle.get('updated_at')
+            or str(run.intent.decision_session) != str(frontier)
+            or str(run.intent.effective_session) != calendar.next_session(str(frontier))
+            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
+            or health.broker_outcome_unresolved != sum(order.state != 'FILLED' for order in run.orders)):
+        return None
+    if state == 'RECONCILING' and not set(cycle['diagnostic']['execution']['submitted']) <= {
+            order.client_key for order in run.orders}:
+        return None
+    plan = journal.load_plan(conn, run.intent.plan_id)
+    if (plan is None or plan.fingerprint() != cycle.get('plan_fingerprint')
+            or plan.data_version != active_publication.version):
+        return None
+    callback = cycle.get('observation_callback')
+    if isinstance(callback, Mapping):
+        started, deadline = (callback.get(k) for k in ('started_at', 'deadline'))
+        if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (started, deadline))
+                or not run.updated_at <= started <= now < deadline):
+            return None
+    elif state == 'RECONCILING':
+        deadline = cycle['next_wake_at']
+    else:
+        return None
+    boundary = min(closed, current.valid_until, deadline)
+    if now >= boundary:
+        return None
+    return replace(model.paper_reconciliation_row(state='PENDING', cycle_state=state,
+        detail='current saved plan is executing; recorded orders and fills remain in progress; post-close verification is separate'),
+        as_of=current.as_of, valid_until=boundary, required_current=True,
+        recovery=model.RecoveryEvidence(phase='PAPER_TRANSPORT', automatic=True, deadline=boundary))
+
+
 def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     """Keep authenticated all-history warnings distinct from exact future readiness."""
     from sentinel import informational_paper_mirror
@@ -2369,6 +2440,11 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
     if historical:
         if scheduled is None:
+            ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
+            if ongoing is not None:
+                return replace(ongoing, detail=(
+                    f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+                    + ongoing.detail))
             completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
             if completed is not None:
                 return replace(completed, detail=(
