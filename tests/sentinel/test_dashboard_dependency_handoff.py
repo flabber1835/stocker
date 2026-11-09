@@ -69,6 +69,63 @@ def test_one_valuation_append_exhausts_the_guarded_counter(operational):
     c.rollback()
 
 
+def numbered_account(c,sequence,*,equity,observed_at):
+    c.execute('INSERT INTO sentinel_broker_account_evidence '
+        '(seq,broker,broker_account_id,status,flags,equity,cash,buying_power,multiplier,observed_at) '
+        "VALUES(%s,'alpaca','paper-qualified','ACTIVE','{}'::jsonb,%s,50,50,1,%s)",
+        (sequence,equity,observed_at))
+    c.commit()
+
+
+@pytest.mark.parametrize('before_sequence,after_sequence',[(9,10),(99,100),(9999,10000),(9999,22862)])
+@pytest.mark.parametrize('same_clock',[False,True])
+def test_valuation_appends_keep_numeric_anchor_at_digit_boundaries(operational,before_sequence,after_sequence,same_clock):
+    c,_,_=operational
+    first=datetime.now(timezone.utc)
+    numbered_account(c,before_sequence,equity='100',observed_at=first)
+    before=basis(c)
+    assert before['account_anchor'] is not None
+    assert before['account_anchor'][0]==str(before_sequence)
+    numbered_account(c,after_sequence,equity='103',
+        observed_at=first if same_clock else first+timedelta(microseconds=1))
+    after=basis(c)
+    assert after['account_anchor'] is not None
+    assert after['account_anchor'][0]==str(after_sequence)
+    assert after['paper_revision'][1]==before['paper_revision'][1]+1
+    assert deps.valuation_only_advance(c,c.info.dsn,before,after)
+    assert deps.native_reuse(c,c.info.dsn,before,after)
+    c.rollback()
+
+
+def test_numeric_account_queries_never_plan_text_sequence_sort(operational):
+    c,_,_=operational
+    account(c)
+    # Explain the actual runtime SQL constants, including the bounded append
+    # query. Small private tables may legitimately choose a numeric Sort.
+    queries=[query for function in (deps.capture,deps.valuation_only_advance)
+        for query in function.__code__.co_consts if isinstance(query,str)
+        and 'FROM sentinel_broker_account_evidence' in query and 'ORDER BY' in query]
+    assert len(queries)==3
+    def nodes(plan):
+        yield plan
+        for child in plan.get('Plans',[]):yield from nodes(child)
+    for query in queries:
+        plan=c.execute('EXPLAIN (FORMAT JSON) '+query,(0,) if '%s' in query else None).fetchone()[0]
+        for node in nodes(plan[0]['Plan']):
+            assert not any('seq' in key and '::text' in key for key in node.get('Sort Key',[])),node
+    c.rollback()
+
+
+def test_removing_numeric_maximum_qualification_is_caught_by_real_counter_oracle(operational,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(deps.capture))
+    original='ORDER BY a.seq DESC LIMIT 1'
+    assert source.count(original)==1
+    scope=dict(vars(deps));exec(source.replace(original,'ORDER BY seq DESC LIMIT 1'),scope)
+    monkeypatch.setattr(deps,'capture',scope['capture'])
+    with pytest.raises(AssertionError):
+        test_valuation_appends_keep_numeric_anchor_at_digit_boundaries(operational,9,10,False)
+
+
 @pytest.mark.parametrize('change', ['mixed','identical_mixed','two_appends','anchor_update',
     'anchor_delete','unrelated','out_of_order','configuration','ddl','wrong_version'])
 def test_counterproof_refuses_every_unproved_native_change(operational,monkeypatch,change):

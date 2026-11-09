@@ -16,4 +16,4 @@ def test_dependency_handoff_preserves_the_exact_installed_source_and_only_panel_
         'panel/projection_service.py','panel/read_projection.py','panel/render.py',
         'panel/serialization.py','panel/styles.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(actual,previous=previous)==previous
-    assert len(profile['retained_predecessors'])==29 and profile['authority_effect']=='NONE'
+    assert len(profile['retained_predecessors'])==30 and profile['authority_effect']=='NONE'

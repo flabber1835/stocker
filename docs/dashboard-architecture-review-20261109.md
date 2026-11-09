@@ -118,3 +118,23 @@ files it actually executes. Every changed test must be covered by a successful
 cohort, and the final qualification binds all tracked candidate bytes. A change
 to an unrelated test assertion or explanatory document does not require another
 database test run when its runtime inputs are unchanged.
+
+## Post-install falsification: numeric account sequence ordering
+
+The first installed candidate was deliberately observed across three ordinary
+account renewals before acceptance. That check rejected the candidate: each
+account renewal still produced a brief partial response, although receipt-only
+handoffs worked. A coherent read-only diagnostic isolated the cause to the new
+account-coordinate SQL. Selecting `seq::text` and then `ORDER BY seq` lets the
+output alias control ordering, so the maximum query chose `9999` instead of the
+actual numeric latest record `22862`. Both anchors became null and the cause
+witness correctly refused reuse. Existing small single-digit fixtures missed it.
+
+The same query also performed an avoidable scan and text sort of about 22,765
+account rows. Qualified numeric ordering uses the existing primary-key index
+backwards with `LIMIT 1`. Qualify numeric sequence columns in maximum, latest
+tie-break and bounded append queries; keep text only for wire representation.
+Add PostgreSQL digit-boundary and tied-clock cases, the production-like sequence
+range, execution-plan checks, and an executed text-ordering omission falsifier.
+No financial trigger or cause-proof invariant is weakened. Preserve the failed
+renewal capture and repeat the real routine-renewal observation after correction.

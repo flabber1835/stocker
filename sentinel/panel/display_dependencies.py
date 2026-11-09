@@ -73,9 +73,9 @@ def capture(conn, database_url, *, facts=None):
         "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope").fetchall()}
     table = conn.execute("SELECT 'sentinel_broker_account_evidence'::regclass::oid::text,"
         "pg_relation_filenode('sentinel_broker_account_evidence')::text").fetchone()
-    anchor = conn.execute('SELECT seq::text,xmin::text,ctid::text '
-        'FROM sentinel_broker_account_evidence ORDER BY observed_at DESC,seq DESC LIMIT 1').fetchone()
-    maximum = conn.execute('SELECT seq::text FROM sentinel_broker_account_evidence ORDER BY seq DESC LIMIT 1').fetchone()
+    anchor = conn.execute('SELECT a.seq::text,a.xmin::text,a.ctid::text '
+        'FROM sentinel_broker_account_evidence a ORDER BY a.observed_at DESC,a.seq DESC LIMIT 1').fetchone()
+    maximum = conn.execute('SELECT a.seq::text FROM sentinel_broker_account_evidence a ORDER BY a.seq DESC LIMIT 1').fetchone()
     basis = dict(schema=SCHEMA, native=native,
         receipts={scope: receipts.get(scope) for scope in ('SHADOW', 'PAPER')},
         paper_revision=revisions['PAPER'], account_table=list(table),
@@ -98,8 +98,8 @@ def valuation_only_advance(conn, database_url, before, after, *, facts=None):
     if read_projection._subject_for_revision(conn, database_url, 'PAPER', prior,
             facts=facts) != before['native']['PAPER']:
         return False
-    appended = conn.execute('SELECT seq::text,xmin::text,ctid::text '
-        'FROM sentinel_broker_account_evidence WHERE seq>%s ORDER BY seq LIMIT 2',
+    appended = conn.execute('SELECT a.seq::text,a.xmin::text,a.ctid::text '
+        'FROM sentinel_broker_account_evidence a WHERE a.seq>%s ORDER BY a.seq LIMIT 2',
         (int(anchor[0]),)).fetchall()
     if appended != [tuple(latest)]:
         return False
