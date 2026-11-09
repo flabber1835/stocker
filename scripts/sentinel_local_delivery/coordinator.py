@@ -1,11 +1,11 @@
 """One resumable PAPER application handoff; no financial mutation commands."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
-from . import access_path_qualification, evidence
-from .host import RUNTIME_KEYS, SERVICES
+from . import access_path_qualification, evidence, readiness
+from .host import RUNTIME_KEYS, SERVICES, application_healthy
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH,
                     canonical_proof_phase, digest, handoff_mode, require, utcnow)
 
@@ -27,8 +27,9 @@ class Delivery:
         image = self.host.request[role]['image']
         result = {}
         names=self.host.predecessor_services() if role=='predecessor' else SERVICES
+        applications=self.host.containers(names)
         for service in names:
-            item = self.host.container(service)
+            item = applications[service]
             require(item['Image']==image, 'APPLICATION_IMAGE_CHANGED')
             if (role=='predecessor' and handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR'
                     and service=='sentinel-automation' and running is True and healthy):
@@ -55,26 +56,27 @@ class Delivery:
 
     def _stopped_for_install(self):
         old=self.host.request['predecessor']['image']
+        applications=self.host.containers(SERVICES,missing_ok=True)
         for service in SERVICES:
-            item=self.host.container(service,missing_ok=True)
+            item=applications[service]
             if item is None:
                 require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
             else:
                 require(item['Image']==old and not item['State']['Running'],
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
-    def _unchanged(self, artifacts, *, native=True, allow_restart=False):
+    def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False):
         require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
         if allow_restart and hasattr(self.host, 'postgres_after_restart'):
             postgres = self.host.postgres_after_restart(artifacts['postgres'])
         else:
             postgres = self.host.postgres()
             require(postgres==artifacts['postgres'], 'POSTGRES_CHANGED')
-        evidence.check_notification_history(self.host,artifacts['notification_history'])
         if native:
             require(evidence.native_positions(self.host,self.host.load_values())==artifacts['native_positions'],
                     'NATIVE_HOLDINGS_OR_OPEN_ORDERS_CHANGED')
-        return postgres
+        appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
+        return (postgres,appends) if observation else postgres
 
     def _values(self, artifacts):
         current = self.host.load_values()
@@ -132,33 +134,66 @@ class Delivery:
             contract_sha256=digest(contract),installation=installed,
             canonical_proof_sha256=digest(proof),qualified_at=utcnow().isoformat()))
 
-    def _wait_shadow(self):
-        deadline = self.monotonic()+180
-        while True:
-            item = self.host.container('sentinel-shadow')
-            require(item['Image']==self.host.request['candidate']['image'] and item['State']['Running']
-                and not item['State']['OOMKilled'] and not item['State']['Restarting'],
-                'SUCCESSOR_SHADOW_FAILED')
-            if item['State'].get('Health',{}).get('Status')=='healthy':
-                return
-            require(self.monotonic()<deadline, 'SHADOW_STARTUP_DEADLINE')
-            self.sleep(3)
+    def _wait_shadow(self, *, deadline=None):
+        deadline = min(self.monotonic()+180,deadline) if deadline is not None else self.monotonic()+180
+        self.host.wait_application_health('sentinel-shadow', deadline=deadline,
+            clock=self.monotonic)
 
-    def _leader(self, generation):
-        first = evidence.leader(self.host)
-        require(first['current'] and first['holder'] and first['generation']==generation,
-                'CURRENT_LEADERSHIP_ABSENT')
-        deadline = self.monotonic()+75
+    def _leader(self, generation, *, deadline=None):
+        deadline = min(self.monotonic()+75,deadline) if deadline is not None else self.monotonic()+75
+        first = None
         while True:
             require(self.monotonic()<deadline, 'LEADER_HEARTBEAT_NOT_ADVANCING')
-            self.sleep(3)
             current = evidence.leader(self.host)
-            require(current['current'] and all(current[k]==first[k] for k in ('holder','generation','fence')),
-                    'LEADERSHIP_CHANGED_DURING_CHECK')
-            if current['heartbeat']>first['heartbeat']:
-                return current
+            require(self.monotonic()<deadline,'LEADER_HEARTBEAT_NOT_ADVANCING')
+            if first is None:
+                if current['current'] and current['holder']:
+                    require(current['generation']==generation,'CURRENT_LEADERSHIP_GENERATION_CHANGED')
+                    first=current
+            else:
+                require(current['current'] and all(current[k]==first[k] for k in ('holder','generation','fence')),
+                        'LEADERSHIP_CHANGED_DURING_CHECK')
+                if current['heartbeat']>first['heartbeat']:
+                    return current
+            self.sleep(min(3,deadline-self.monotonic()))
+
+    def _readiness(self, receipt):
+        end=readiness.cutoff(receipt,now=utcnow())
+        deadline=self.monotonic()+min(readiness.SECONDS,(end-utcnow()).total_seconds())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        applications=self.host.wait_applications_health(
+            deadline=min(deadline,self.monotonic()+120),clock=self.monotonic,
+            expected=receipt['artifacts'].get('started_applications'))
+        repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
+        if repair:
+            leader=evidence.leader(self.host)
+            require(leader['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
+        else:
+            leader=self._leader(receipt['artifacts']['preserved']['control']['generation'],deadline=deadline)
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        readiness.cutoff(receipt,now=utcnow())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        return leader,end,deadline,applications
+
+    def _readiness_unchanged(self, applications, leader):
+        # Publication waiting must never silently admit a replacement process or
+        # a new leader, including while the final preservation proof ran.
+        current=self._apps('candidate',running=True,healthy=True)
+        for service,before in applications.items():
+            after=current[service]
+            require(after['Id']==before['Id'] and after['RestartCount']==before['RestartCount']
+                and after['State']['StartedAt']==before['State']['StartedAt'],
+                'APPLICATION_STARTUP_PROCESS_CHANGED')
+        latest=evidence.leader(self.host)
+        if handoff_mode(self.host.request)=='BLOCKED_UNSENT':
+            require(latest['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
+        else:
+            require(latest['current'] and all(latest[k]==leader[k] for k in ('holder','generation','fence'))
+                and latest['heartbeat']>=leader['heartbeat'],'LEADERSHIP_CHANGED_DURING_CHECK')
+        return latest
 
     def step(self):
+        self.journal.require_active()
         receipt = self.journal.read(); stage = receipt['stage']; artifacts = receipt['artifacts']
         access_path=self._post_schema_access_path()
         if access_path and stage in ACCESS_PATH_QUALIFIED_STAGES:
@@ -240,6 +275,7 @@ class Delivery:
             self._unchanged(artifacts)
             evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
             self.host.compose(old,'stop','--timeout','120',*self.host.predecessor_services(),timeout=150)
+            evidence.check_stopped_drain(self.host,artifacts['drain_target'],artifacts['drain_proof'])
             self._apps('predecessor',running=False)
             self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'APPLICATIONS_STOPPED')
@@ -253,6 +289,7 @@ class Delivery:
             self._fresh(artifacts['preflight_at']);self._unchanged(artifacts,native=False)
             self._stopped_for_install()
             migration=evidence.migrate_operational_schema(self.host,candidate)
+            self._fresh(artifacts['preflight_at'])
             self._unchanged(artifacts,native=False)
             if not migration['complete']:
                 return receipt  # Durable page progress is resumed, never reset.
@@ -272,8 +309,9 @@ class Delivery:
         if stage=='COMPOSE_INSTALLED':
             self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
             self.host.verify_compose('candidate')
+            applications=self.host.containers(SERVICES,missing_ok=True)
             for service in SERVICES:
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if service=='sentinel-shadow' and item and item['Image']==self.host.request['candidate']['image']:
                     require(current==candidate,'SHADOW_WITH_WRONG_CONFIGURATION')
                 elif item is not None:
@@ -297,9 +335,10 @@ class Delivery:
         if stage=='SHADOW_VERIFIED':
             self._fresh(artifacts['successor_verified_at'])
             self._wait_shadow()
+            applications=self.host.containers(SERVICES,missing_ok=True)
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if item is None:
                     require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
                     continue
@@ -308,34 +347,50 @@ class Delivery:
             return self.journal.advance(stage,'START_REQUESTED')
         if stage=='START_REQUESTED':
             self._fresh(artifacts['successor_verified_at'])
-            self._wait_shadow(); self._unchanged(artifacts)
+            end=readiness.cutoff(receipt,now=utcnow())
+            deadline=self.monotonic()+min(readiness.SECONDS,(end-utcnow()).total_seconds())
+            require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+            self._wait_shadow(deadline=deadline); self._unchanged(artifacts)
+            hashes=self.host.candidate_config_hashes(candidate)
+            applications=self.host.containers(SERVICES,missing_ok=True)
+            require(application_healthy(applications.get('sentinel-shadow'),
+                self.host.request['candidate']['image']),'SUCCESSOR_SHADOW_CHANGED')
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service,missing_ok=True)
+                item=applications[service]
                 if item is None:
                     require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
                     continue
                 require(item['Image'] in (self.host.request['predecessor']['image'],
                                           self.host.request['candidate']['image']), 'FOREIGN_APPLICATION_IMAGE')
-            self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
-                '--wait','--wait-timeout','120',*SERVICES[1:],timeout=150)
-            self._apps('candidate',running=True,healthy=True)
+            if not self.host.candidate_apps_ready(hashes,applications):
+                readiness.cutoff(receipt,now=utcnow())
+                require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+                self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
+                    *SERVICES[1:],timeout=min(90,deadline-self.monotonic()))
+                applications=self._apps('candidate',running=True)
+            readiness.cutoff(receipt,now=utcnow())
+            require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
             self._unchanged(artifacts,native=False)
-            return self.journal.advance(stage,'APPLICATIONS_STARTED')
+            started={service:dict(Id=item['Id'],RestartCount=item['RestartCount'],
+                State={'StartedAt':item['State']['StartedAt']}) for service,item in applications.items()}
+            return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started)
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
-        self._apps('candidate',running=True,healthy=True)
+        leader,end,deadline,applications=self._readiness(receipt)
         repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
-        postgres=self._unchanged(artifacts,allow_restart=not repair)
-        if repair:
-            leader=evidence.leader(self.host)
-            require(leader['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
-        else:
-            leader=self._leader(artifacts['preserved']['control']['generation'])
-        panel=evidence.panel(self.host,artifacts['preserved'])
-        appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
+        postgres,appends=self._unchanged(artifacts,allow_restart=not repair,observation=True)
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
+        panel=evidence.panel(self.host,artifacts['preserved'],
+            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())))
+        leader=self._readiness_unchanged(applications,leader)
+        readiness.cutoff(receipt,now=utcnow())
+        require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        if handoff_mode(self.host.request)=='PRE_OPEN':
+            boundary=datetime.fromisoformat(panel['installation_panel_valid_until'])
+            require(boundary.utcoffset() is not None and utcnow()<boundary,
+                    'INSTALLATION_PANEL_EXPIRED')
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
                                     verified_postgres=postgres,
@@ -347,9 +402,83 @@ class Delivery:
 
     def advance(self):
         with self.host.owned():
-            for _ in range(15):
+            transitions=0
+            schema_pages=0
+            while transitions<15:
                 before=self.journal.read()['stage']
                 receipt=self.step()
                 if receipt['stage']=='VERIFIED': return receipt
-                if receipt['stage']==before: return receipt
+                if before=='SCHEMA_INSTALL_REQUESTED':
+                    schema_pages+=1
+                if receipt['stage']==before:
+                    require(before=='SCHEMA_INSTALL_REQUESTED','DELIVERY_UNEXPECTED_PENDING_STAGE')
+                    require(schema_pages<10,'OPERATIONAL_BOOTSTRAP_PAGE_LIMIT')
+                    self._fresh(receipt['artifacts']['preflight_at'])
+                    continue
+                transitions+=1
             require(False,'DELIVERY_STAGE_LIMIT')
+
+    def abandon_drain(self):
+        """Terminal, owned recovery; never continue an installation after release."""
+        with self.host.owned():
+            receipt=self.journal.read();artifacts=receipt['artifacts']
+            require(receipt['stage'] in {'DRAIN_REQUESTED','DRAIN_ACKNOWLEDGED','STOP_REQUESTED'},
+                    'ABANDONMENT_AFTER_INSTALLATION_FORBIDDEN')
+            current,old,_=self._values(artifacts)
+            require(current==old,'ABANDONMENT_PREDECESSOR_ENVIRONMENT_CHANGED')
+            self.host.verify_compose('predecessor')
+            applications=self.host.containers(self.host.predecessor_services())
+            for service in self.host.predecessor_services():
+                if service=='sentinel-shadow':continue
+                item=applications[service]
+                require(item['Image']==self.host.request['predecessor']['image']
+                    and item['State']['Running'] and not item['State']['Restarting'],
+                    'ABANDONMENT_OTHER_APPLICATION_CHANGED')
+            target=artifacts['drain_target']
+            record=self.journal.abandonment()
+            data=self.host.container('sentinel-shadow')
+            if record is None:
+                evidence._cooperative_target(data,target,held=False)
+                observed=self.host.drain_recovery_state(target,old)
+                evidence._cooperative_target(self.host.container('sentinel-shadow'),target,held=False)
+                record=self.journal.begin_abandonment(target,evidence.process_identity(data),
+                    data['State']['Running'],observed)
+            require(data['Id']==target['container'] and data['Image']==target['image'],
+                    'ABANDONMENT_TARGET_CHANGED')
+            if record['phase']=='COMPLETE':
+                require(data['HostConfig']['RestartPolicy']==target['restart_policy'],
+                        'ABANDONMENT_RESTORED_POLICY_CHANGED')
+                return record
+            # A start may have completed even if its host acknowledgement was lost.
+            if record['phase']=='START_REQUESTED':
+                return self._finish_abandoned_start(record,data)
+            evidence._cooperative_target(data,target,held=False)
+            if data['HostConfig']['RestartPolicy']!=target['restart_policy']:
+                self.host.run(['docker','update','--restart=unless-stopped',target['container']],timeout=15)
+            data=self.host.container('sentinel-shadow')
+            evidence._cooperative_target(data,target,held=False)
+            require(data['HostConfig']['RestartPolicy']==target['restart_policy'],
+                    'ABANDONMENT_POLICY_NOT_RESTORED')
+            if data['State']['Running']:
+                return self.journal.checkpoint_abandonment('COMPLETE',completion=dict(
+                    process=evidence.process_identity(data),running=True,start_observed=False,
+                    restart_policy=data['HostConfig']['RestartPolicy']))
+            record=self.journal.checkpoint_abandonment('START_REQUESTED',
+                start_before=evidence.process_identity(data))
+            self.host.run(['docker','start',target['container']],timeout=30)
+            return self._finish_abandoned_start(record,self.host.container('sentinel-shadow'))
+
+    def _finish_abandoned_start(self, record, data):
+        target=record['target'];before=record['start_before']
+        require(data['Id']==target['container'] and data['Image']==target['image'],
+                'ABANDONMENT_TARGET_CHANGED')
+        require(data['HostConfig']['RestartPolicy']==target['restart_policy']
+            and not data['State']['Restarting'],'ABANDONMENT_RESTORED_POLICY_CHANGED')
+        process=evidence.process_identity(data)
+        require(process['started_at']!=before['started_at'] and process['restart_count']==0,
+                'ABANDONMENT_START_OUTCOME_UNKNOWN')
+        # An exited startup can be the installed UNKNOWN/critical guard refusing.
+        # Its changed start clock proves one start, never successful financial work.
+        return self.journal.checkpoint_abandonment('COMPLETE',completion=dict(
+            process=process,running=data['State']['Running'],start_observed=True,
+            restart_policy=data['HostConfig']['RestartPolicy']))

@@ -60,6 +60,59 @@ results or re-pin historical fixtures to satisfy admission.
 
 ## Build, prepare and inspect
 
+### Build ownership independent of installation attempts (November 8, 2026)
+
+A completed build is an immutable artifact selected by the SHA256 of its original
+`build.json`, not by an installation attempt's directory. A fresh operation may
+use `prepare --build-record <original-build-directory>/build.json --build-sha256
+<original-digest>` without invoking Docker build, copying the source context,
+retagging the image or producing new BuildKit attestations. Prepare creates the
+new private operation directory when its parent exists. The original build,
+context, log, qualification and predecessor receipt remain in place; incomplete
+builds and changed evidence still refuse. There is no automatic cache search or
+fallback rebuild when explicit artifact admission fails.
+
+For an external artifact, prepare exclusively writes `build-reference.json`
+containing its original absolute path, digest and the new request digest. All
+backed delivery readers, including predecessor-chain recovery and access-path
+bootstrap, resolve that same pinned artifact. Legacy operations with their own
+`build.json` keep their existing interpretation. A directory containing both
+forms is ambiguous and refuses. An interrupted prepare retains its reference for
+inspection and refuses replacement. A fresh directory can reference the same
+original artifact; no rebuild or receipt edit is needed.
+
+Reuse applies only to completed build evidence. Prepare still validates current
+qualified source bytes, exact allowed changes, retained qualification logs,
+predecessor receipt and candidate image/source identity. The backed adapter still
+requires the actually installed predecessor. Each new operation gets its own
+request, journal, canonical/current-state proof, drain and original freshness
+clocks. Abandonment or expiry of an earlier operation grants no installation
+authority to its replacement. A moved tag, absent image or changed predecessor
+refuses; it does not trigger a rebuild.
+
+This owner-authorized local patch changes the host installer only. Deploy its
+qualified standalone checkout through the host's installer selector, preserving
+the installed runtime checkout, exact image and all running services. It requires
+no application-image build, application roll, financial activation or database
+migration. PR delivery follows the owner's requested local stability period.
+
+The local host selector is `/home/bron/sentinel-local-installer-current`.
+It selects the qualified host tool, independently of `--source`, which still
+names the exact qualified runtime source in the retained build. For reuse:
+
+```sh
+python3 -B /home/bron/sentinel-local-installer-current/scripts/sentinel_backed_local_patch.py prepare \
+  --operation-dir <absolute-fresh-operation-directory> \
+  --build-record <absolute-original-build-directory>/build.json \
+  --build-sha256 <original-build-record-sha256> \
+  --operation-id <fresh-operation-id>
+```
+
+Select the same host tool for `advance`, `resume` and predecessor recovery. Older
+tools do not understand referenced operations. An installed build whose original
+foundation is no longer the running predecessor cannot authorize another roll;
+artifact reuse never substitutes for current predecessor admission.
+
 The following are templates, not literal paths or identities. Replace every
 angle-bracket placeholder with the independently verified value. These shell
 examples run in Linux/WSL; never shell-source the installed `.env`.
@@ -103,6 +156,116 @@ digest-linked `receipt.json` binds each completed stage and its artifacts to
 that request. Do not hand-edit either record.
 
 ## Advance and recover supported stages
+
+### One bounded application-readiness gate (November 8, 2026)
+
+After the shadow handoff, Compose starts the other roles without its separate
+`--wait` polling loop. APPLICATIONS_STARTED records started processes, not a
+claim of readiness. One final gate owns exact six-role health, advancing stable
+leadership and the actual dashboard validator. It uses a single deadline:
+the earlier of START_REQUESTED's original journal timestamp plus 230 seconds
+(the prior 120-second Compose health, 75-second leadership and 35-second final
+reader allowances), or the original successor proof timestamp plus 900 seconds.
+Resume cannot restart that allowance. A monotonic bound also prevents wall-clock
+adjustments during a call from extending the wait. Expired operations refuse.
+
+Health uses one Engine event subscription for the exact candidate container IDs;
+events only wake fresh inspections. Death, OOM, restart, replacement or changed
+image refuses. New APPLICATIONS_STARTED records retain the observed process
+incarnations so resume also detects a restart before its first health read.
+Older unfinished journals lacking this field bind their first observation;
+their original deadlines still apply. Health has at most its prior 120-second allowance within the common
+deadline. Leadership has at most its prior 75 seconds within that same deadline;
+initial absence may settle, but a changed holder, generation or fence after first
+acquisition refuses. The fenced BLOCKED_UNSENT policy still requires inactivity.
+
+The final dashboard wait is one bounded read-only child in the panel container.
+It reads existing published snapshots, never starts collection, recomputes a
+canonical proof, restarts applications or acknowledges history. It retries only
+loopback connection refusal, HTTP 503, or explicitly named startup liveness
+conditions (leader, sender, shadow worker) with no unrelated negative
+condition or source error. Non-startup modes keep their exact existing dashboard
+contracts. Polling published snapshots is limited to once per five seconds.
+An explicit FINANCIAL_VERIFICATION automatic CHECK IN PROGRESS row may also
+remain pending within its original unexpired, at-most-600-second recovery bound.
+This applies only to the named shadow/book/exposure/terminals/PAPER verification
+rows; a financial FAIL/UNKNOWN or an untyped/expired wait still refuses. The
+ordinary strict validator must pass after completion, within the common deadline.
+While that explicit financial check is pending, its unchanged saved WAITING_OPEN
+cycle/open-step rows may also carry their existing automatic workflow warnings.
+Only their exact named recovery phases and unexpired original clocks can wait;
+no unrelated workflow warning or financial negative is admitted.
+Strict validation runs once on the eligible snapshot, without a second HTTP read.
+Malformed data, unexpected HTTP errors, financial negatives, changed plans and
+strict-validator failures stop immediately. Pending diagnostics retain condition
+names; unchanged diagnostic output is not repeated. The successful panel result
+retains changed pending-condition summaries and the observation count, so the
+receipt can explain time spent waiting after recovery. Current failures never
+count as readiness, and historical review/ACK remains visible under its existing policy.
+
+Before VERIFIED, recheck the same process incarnations, current stable leader,
+all preservation/broker/notification guards and the original common cutoff.
+The accepted PRE_OPEN panel's original finite health/observation boundary must
+also still hold after those final guards; an expired page cannot complete.
+No proof, lease, snapshot or receipt expiry is extended. This is a host-installer
+patch through the existing local selector; no application-image rebuild or roll
+is needed to deploy it.
+
+### Explicit final-observation recovery (November 8, 2026)
+
+An expired APPLICATIONS_STARTED operation can be completed only by the explicit
+backed PAPER `recover-verification --recovery-id <unique-id>` command. Ordinary
+advance/resume retains its original deadline and still refuses. Recovery is
+restricted to PRE_OPEN with PRE_DRAIN canonical qualification, the original
+started-process bindings, unchanged installed candidate and REQUIRED_V1 backups.
+It cannot build, drain, migrate, change configuration, restart applications,
+acknowledge history or submit broker commands.
+
+Under the existing exclusive installation lock, recovery writes a new immutable
+intent containing the complete original receipt and its digest, request digest,
+unique attempt ID and a 600-second cutoff. Interruptions or failures retain that
+intent; the same ID cannot restart its clock. A new explicit attempt uses a new
+ID and fresh evidence, never a previous attempt's result. It verifies source,
+image presence, installed Compose/configuration and original process incarnations,
+then runs one fresh server-read-only canonical check of the installed candidate.
+Its complete result must equal the retained canonical proof, used solely as a
+comparison baseline rather than expired authority. Fresh preservation, PostgreSQL,
+GET-only native holdings/zero-open-orders and notification-history guards and an
+advancing stable current-generation leader must also pass.
+
+The final published dashboard observation is obtained after expensive financial
+and preservation reads. Its validator imports are warmed before HTTP acquisition,
+and an already expired otherwise eligible publication waits for the next published
+snapshot within the same bounded deadline. No fact's expiry is extended. Exact
+process/leader and configuration checks still bracket the work; the dashboard
+must remain within its original finite boundary at commit. Recovery appends only
+the normal VERIFIED event with its fresh evidence and linked recovery provenance;
+all original stages, clocks and artifacts remain unchanged. The retained result
+records success or refusal. Neither recovery record grants financial authority.
+
+```sh
+python3 -B /home/bron/sentinel-local-installer-current/scripts/sentinel_backed_local_patch.py recover-verification \
+  --operation-dir <absolute-operation-directory> --recovery-id <unique-lowercase-id>
+```
+
+### Metadata observations owned once per boundary (November 8, 2026)
+
+Candidate validation uses the qualification validator's single fresh HEAD,
+worktree status and branch read; do not run a second identical clean/ancestry
+check in the same candidate boundary. Exact-object Git queries retain their
+existing closed, graft-checked memoization. Current source bytes, qualification
+and log hashes, installed configuration and all mutable runtime observations
+remain freshly verified at each real boundary.
+
+One Host invocation shares immutable image inspection results by exact local
+digest or authenticated RepoDigest. Return independent copies; failed or malformed
+inspections never populate the memo. Mutable tags are always inspected anew.
+Candidate validation still performs a fresh exact-digest presence/label inspection
+at every source/mutation boundary, so deletion or substitution cannot hide behind
+cached ancestry metadata. Backed predecessor traversal and immutable runtime
+resolution reuse those facts instead of repeatedly inspecting the same image.
+The memo is neither persisted across commands nor a cache of container health,
+running state, image availability at mutation, configuration or broker evidence.
 
 ```sh
 python3 -B <source>/scripts/sentinel_local_delivery.py advance \

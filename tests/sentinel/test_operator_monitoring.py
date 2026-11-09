@@ -1209,7 +1209,11 @@ def day_wait_runner(monkeypatch, *, known=False, failure=None, duration=95, read
     monkeypatch.setattr(module.store, "load_control", lambda *_a, **_k: control)
     monkeypatch.setattr(module.store, "acquire_lease", lambda *_a, **_k: permit)
     monkeypatch.setattr(module.store, "require_leader", lambda _c, p: p)
-    monkeypatch.setattr(module.store, "heartbeat_lease", lambda _c, *, permit, **_k: permit)
+    def heartbeat(_conn, *, permit, **fields):
+        if 'next_wake_at' in fields:
+            progress.append(dict(state=fields['instance_state'],next_wake_at=fields['next_wake_at']))
+        return permit
+    monkeypatch.setattr(module.store, "heartbeat_lease", heartbeat)
     monkeypatch.setattr(module.store, "register_instance", lambda _c, **fields: progress.append(fields))
     monkeypatch.setattr(module.store, "oldest_nonterminal_other_generation_cycle", lambda *_a, **_k: None)
     monkeypatch.setattr(module.store, "blocked_cycle_for_generation", lambda *_a, **_k: None)

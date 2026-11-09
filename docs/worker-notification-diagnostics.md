@@ -86,6 +86,32 @@ recovery for a warning they never received. Enrollment/rotation must retain the
 existing recipient-snapshot and expiry rules. Delivery acceptance
 still does not prove when a physical phone displayed the notification.
 
+### November 7: distinguish recorded scheduler warnings from device arrival
+
+Decision before implementation. The owner reported a scheduler-stalled push
+while the installed scheduler was healthy. Retained logs contained no new
+scheduler incident; the newest durable warning had been recorded at 4:46 PM
+Pacific and accepted by the push service one second later. The device's exact
+notification identity is not yet confirmed. Independently, the source establishes
+a presentation defect: generic scheduler pushes contain only the reason, while
+the provider may retain a push for 24 hours and acceptance does not prove when
+the device displays it. Arrival can therefore appear to be a new incident.
+
+For `AUTOMATION_OPERATIONAL_RED` leadership warnings (`SCHEDULER_STALLED` and
+`WAITING_FOR_LEADER`), include the immutable outbox recording time with calendar
+date and Pacific zone and tell the operator to open the dashboard for current
+status. Label this as the recording time, not an invented exact failure time.
+An absent or unsafe original clock is explicitly unavailable. Keep alert IDs,
+severity, payload history, recipient snapshots, delivery policy, provider TTL,
+deduplication and acknowledgement unchanged. Do not suppress an old critical
+warning, fetch current health from the device, infer recovery, or re-date it at
+retry/display time. Other notification categories retain their existing copy.
+
+Qualify delayed/retried presentation with stable original clocks and identity,
+both leadership reasons, unavailable recording clocks, ignored arbitrary
+diagnostic text and unchanged existing notification categories. No test push or
+production history mutation is needed.
+
 ## Qualification and installation
 
 Exercise the composed original typed exception -> wrapping -> worker warning

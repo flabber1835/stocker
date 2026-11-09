@@ -72,6 +72,34 @@ def state(conn):
     return row[0]
 
 
+def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject_fence(operational,monkeypatch,tmp_path):
+    from sentinel.panel import composition, sources
+    conn,owner,condition=operational
+    instance=str(uuid.uuid4())
+    monkeypatch.setattr(composition.tempfile,'gettempdir',lambda:str(tmp_path))
+    native=[]
+    monkeypatch.setattr(composition,'native_services',lambda c,rows,**kw:(native.append(True) or rows))
+    heavy=[]
+    condition['collect']=lambda:heavy.append(True)
+    result=composition.collect(conn.info.dsn,owner,'/private',instance)
+    original,_,_,expiry=composition.read(owner,instance,now=datetime.now(timezone.utc))
+    for _ in range(3):
+        producer.publish_once(conn.info.dsn,owner,'/private',instance,use_composition=True)
+        page=producer.read(conn.info.dsn)
+        assert page.row('broker').as_of==original.row('broker').as_of
+        assert datetime.fromisoformat(result['valid_until'])==expiry
+    assert heavy==[True] and len(native)==3
+    coords=producer._coordinates
+    monkeypatch.setattr(producer,'_coordinates',lambda db:('0'*64,coords(db)[1]))
+    with pytest.raises(producer.CollectionSuperseded,match='subject changed'):
+        producer.publish_once(conn.info.dsn,owner,'/private',instance,use_composition=True)
+    monkeypatch.setattr(producer,'_coordinates',coords)
+    composition.failure(owner,instance,TimeoutError())
+    result=producer.collect_result(conn.info.dsn,owner,'/private',instance,use_composition=True)
+    assert result['outcome']=='PUBLISHED'
+    assert producer.read(conn.info.dsn).row('operational_projection').status==model.UNKNOWN
+
+
 def test_background_failure_and_recovery_record_once_without_any_http(operational):
     conn, _, condition = operational
     publish(operational)

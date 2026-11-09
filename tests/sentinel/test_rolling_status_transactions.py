@@ -221,8 +221,8 @@ def test_removing_pin_check_transaction_context_leaks_idle_input_and_is_detected
               '    pin = readiness_scope.capture(conn)\n'
               "    statement_timeout = conn.execute('SHOW statement_timeout').fetchone()[0]\n"
               "    lock_timeout = conn.execute('SHOW lock_timeout').fetchone()[0]") if removed=='capture' else
-             ('            with conn.transaction(force_rollback=True):\n                readiness_scope.require_token(conn,pin)',
-              '            readiness_scope.require_token(conn,pin)'))
+             ('                with conn.transaction(force_rollback=True):\n                    readiness_scope.require_token(conn,pin)',
+              '                readiness_scope.require_token(conn,pin)'))
     _mutated(monkeypatch,old,new)
     with pytest.raises(AssertionError,match='pin checking left initially idle input'):
         test_pin_checks_leave_initially_idle_input_idle_and_preserve_original_owner(material,False,False)
@@ -271,10 +271,10 @@ def test_missing_readonly_mode_is_killed_by_real_owned_proof(material,monkeypatc
 
 def test_missing_timeout_propagation_is_killed_by_real_statement_cancellation(material,monkeypatch):
     _mutated(monkeypatch,
-        "        if borrowed:\n"
-        "            proof.execute(\"SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)\",\n"
-        "                          (statement_timeout,lock_timeout))",
-        '        if borrowed:\n            pass')
+        "            if borrowed:\n"
+        "                proof.execute(\"SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)\",\n"
+        "                              (statement_timeout,lock_timeout))",
+        '            if borrowed:\n                pass')
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         test_borrowed_statement_timeout_cancels_only_proof_and_preserves_owner(material)
 

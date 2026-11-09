@@ -2,13 +2,81 @@
 from __future__ import annotations
 
 import json
+import math
+import re
+import time
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sentinel.automation import store
-from sentinel.automation.model import MissingAutomationState, ProtectedDayWait
+from sentinel.automation.model import AutomationRefused, MissingAutomationState, ProtectedDayWait
 from sentinel.execution import journal
+
+
+class ObservationDiagnostic(BaseModel):
+    """Closed attribution metadata; it never changes health or trading policy."""
+
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
+    schema_version: Literal['sentinel.observation-diagnostic/1'] = Field(
+        default='sentinel.observation-diagnostic/1', alias='schema')
+    stage: Literal['OBSERVATION_INTEGRITY'] = 'OBSERVATION_INTEGRITY'
+    code: Literal['READ_UNAVAILABLE', 'EVIDENCE_INVALID', 'CHECK_FAILED']
+    exception_type: str | None = Field(default=None, pattern=r'^[A-Za-z_][A-Za-z0-9_]{0,79}$')
+    errno: int | None = Field(default=None, ge=0, le=4095)
+    sqlstate: str | None = Field(default=None, pattern=r'^[A-Z0-9]{5}$')
+
+
+class SchedulerDiagnostic(BaseModel):
+    """Closed facts from one scheduler decision; never financial authority."""
+
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True, allow_inf_nan=False)
+    schema_version: Literal['sentinel.scheduler-diagnostic/1'] = Field(
+        default='sentinel.scheduler-diagnostic/1', alias='schema')
+    policy_state: Literal['SCHEDULER_STALLED', 'WAITING_FOR_LEADER']
+    predicate: Literal['LEASE_HOLDER_MISSING', 'LEASE_GENERATION_MISMATCH',
+        'LEASE_EXPIRY_MISSING', 'LEASE_EXPIRED', 'INSTANCE_MISSING',
+        'INSTANCE_HOLDER_MISMATCH', 'INSTANCE_HEARTBEAT_MISSING',
+        'INSTANCE_HEARTBEAT_FUTURE', 'INSTANCE_HEARTBEAT_STALE']
+    sampled_at: datetime
+    control_generation: int = Field(ge=1)
+    fence: int = Field(ge=0)
+    holder: str | None = Field(default=None, max_length=128, pattern=r'^[A-Za-z0-9_.:-]+$')
+    holder_present: bool
+    holder_matches: bool
+    leader_active: bool
+    service_heartbeat_fresh: bool
+    lease_heartbeat_at: datetime | None
+    lease_expires_at: datetime | None
+    instance_state: str | None = Field(max_length=64, pattern=r'^[A-Z0-9_]+$')
+    instance_heartbeat_at: datetime | None
+    heartbeat_age_seconds: float | None
+    heartbeat_window_seconds: float = Field(ge=1)
+    callback_started_at: datetime | None
+    callback_deadline_at: datetime | None
+    callback_current: bool
+    scheduler_overdue: bool
+    read_elapsed_seconds: float | None = Field(ge=0)
+
+    @field_validator('sampled_at', 'lease_heartbeat_at', 'lease_expires_at',
+                     'instance_heartbeat_at', 'callback_started_at', 'callback_deadline_at')
+    @classmethod
+    def aware_clock(cls, value):
+        if value is not None and value.utcoffset() is None:
+            raise ValueError('scheduler diagnostic clock must be timezone aware')
+        return value
+
+
+def _observation_diagnostic(error: Exception | None = None) -> ObservationDiagnostic:
+    if error is None:
+        return ObservationDiagnostic(code='EVIDENCE_INVALID')
+    from sentinel.dependency_availability import database_unavailable
+    from sentinel.supervisor_io import error_diagnostic
+    code = ('READ_UNAVAILABLE' if database_unavailable(error) else
+            'EVIDENCE_INVALID' if isinstance(error, journal.ObservationEvidenceUncertifiable)
+            else 'CHECK_FAILED')
+    return ObservationDiagnostic(code=code, **error_diagnostic(error))
 
 
 class AutomationHealth(BaseModel):
@@ -65,8 +133,10 @@ class AutomationHealth(BaseModel):
     callback_deadline_at: datetime | None = None
     scheduler_overdue: bool = False
     database_now: datetime | None = None
+    scheduler_diagnostic: SchedulerDiagnostic | None = None
     host_database_clock_skew_seconds: float | None = None
     reason: str | None = None
+    observation_diagnostic: ObservationDiagnostic | None = None
 
 
 def read_health(conn) -> AutomationHealth:
@@ -77,6 +147,7 @@ def read_health(conn) -> AutomationHealth:
     broker commands remain visible after kill/deactivation because revoking local
     authority cannot recall an already accepted broker request.
     """
+    started = time.monotonic()
     from sentinel.notification_policy import CANCELLED_TEST_SQL
     with conn.cursor() as cur:
         cur.execute(
@@ -114,6 +185,7 @@ def read_health(conn) -> AutomationHealth:
             enabled=control.enabled,
             kill_switch_engaged=control.kill_switch_engaged,
             control_generation=control.generation,
+            observation_diagnostic=_observation_diagnostic(exc),
             reason=("broker observation integrity gate failed: "
                     f"{type(exc).__name__}: {exc}"))
     if observation_issues:
@@ -127,36 +199,10 @@ def read_health(conn) -> AutomationHealth:
             enabled=control.enabled,
             kill_switch_engaged=control.kill_switch_engaged,
             control_generation=control.generation,
+            observation_diagnostic=_observation_diagnostic(),
             reason=f"UNCERTIFIABLE broker observation evidence: {detail}")
 
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT holder_id,fence_token,heartbeat_at,expires_at,"
-            " (holder_id IS NOT NULL"
-            "  AND control_generation=%s"
-            "  AND expires_at > clock_timestamp()),clock_timestamp()"
-            " FROM sentinel_automation_lease WHERE id=1",
-            (control.generation,))
-        lease = cur.fetchone()
-        if lease is None:
-            conn.rollback()
-            return AutomationHealth(
-                healthy=False, installed=True, operational_ready=False,
-                policy_state="CORRUPT", enabled=control.enabled,
-                kill_switch_engaged=control.kill_switch_engaged,
-                control_generation=control.generation,
-                reason="durable automation lease singleton is missing")
-
-        cur.execute(
-            "SELECT cycle_id,state,next_wake_at,failure_code,failure_detail,"
-            " last_clean_reconciliation_id,attempt_count,diagnostic"
-            " FROM sentinel_automation_cycles c"
-            " WHERE c.control_generation=%s OR EXISTS ("
-            " SELECT 1 FROM sentinel_automation_cycle_events e"
-            " WHERE e.cycle_id=c.cycle_id AND e.control_generation=%s)"
-            " ORDER BY decision_session DESC,created_at DESC LIMIT 1",
-            (control.generation, control.generation))
-        cycle = cur.fetchone()
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_commands WHERE state IN "
             "('SEND_PENDING','ACKNOWLEDGED','UNKNOWN','PARTIALLY_FILLED',"
@@ -169,43 +215,62 @@ def read_health(conn) -> AutomationHealth:
             " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
             f" FROM sentinel_alert_outbox a WHERE NOT {CANCELLED_TEST_SQL}")
         pending, dead, unacknowledged = cur.fetchone()
-        # Health belongs to the CURRENT LEASE HOLDER. A hot standby also emits
-        # its own heartbeat; selecting the globally newest service row would let
-        # that passive process either mask or falsely accuse the active leader.
+        # Slow integrity/history work precedes this one temporal observation.
+        # The lease, its exact holder and their clock must share an MVCC snapshot.
+        columns = ",".join("c." + name for name in store._CONTROL_COLUMNS.split(","))
         cur.execute(
-            "SELECT i.instance_id,i.heartbeat_at,i.state,"
-            " i.callback_started_at,i.callback_deadline_at FROM"
-            " sentinel_automation_service_instances i"
-            " JOIN sentinel_automation_lease l ON l.id=1"
-            " WHERE i.instance_id=l.holder_id LIMIT 1")
-        instance = cur.fetchone()
-        cur.execute(
-            "SELECT a.active_certificate_sha256,"
-            " (a.active_certificate_sha256=%s"
-            "  AND l.status='ACTIVE'"
-            "  AND (c.expires_at > clock_timestamp()"
-            "       OR c.claims->>'authorization_mode'='PAPER_OBSERVATION_ONLY')"
-            "  AND cr.certificate_sha256 IS NULL"
-            "  AND kr.key_id IS NULL),c.claims,c.expires_at"
-            " FROM sentinel_execution_authority_state a"
-            " LEFT JOIN sentinel_signed_execution_certificates c"
-            "   ON c.certificate_sha256=a.active_certificate_sha256"
-            " LEFT JOIN sentinel_execution_certificate_lifecycle l"
-            "   ON l.certificate_sha256=a.active_certificate_sha256"
+            "WITH sampled AS MATERIALIZED (SELECT clock_timestamp() AS now) "
+            f"SELECT {columns},l.holder_id,l.fence_token,l.heartbeat_at,l.expires_at,"
+            " l.control_generation,i.instance_id,i.heartbeat_at,i.state,"
+            " i.callback_started_at,i.callback_deadline_at,"
+            " x.cycle_id,x.state,x.next_wake_at,x.failure_code,x.failure_detail,"
+            " x.last_clean_reconciliation_id,x.attempt_count,x.diagnostic,"
+            " a.active_certificate_sha256,"
+            " (a.active_certificate_sha256=c.certificate_sha256"
+            "  AND lifecycle.status='ACTIVE'"
+            "  AND (certificate.expires_at > n.now"
+            "       OR certificate.claims->>'authorization_mode'='PAPER_OBSERVATION_ONLY')"
+            "  AND cr.certificate_sha256 IS NULL AND kr.key_id IS NULL),"
+            " certificate.claims,certificate.expires_at,n.now"
+            " FROM sampled n LEFT JOIN sentinel_automation_control c ON c.id=1"
+            " LEFT JOIN sentinel_automation_lease l ON l.id=1"
+            " LEFT JOIN sentinel_automation_service_instances i ON i.instance_id=l.holder_id"
+            " LEFT JOIN LATERAL (SELECT cycle_id,state,next_wake_at,failure_code,"
+            " failure_detail,last_clean_reconciliation_id,attempt_count,diagnostic"
+            " FROM sentinel_automation_cycles cycle WHERE cycle.control_generation=c.generation"
+            " OR EXISTS (SELECT 1 FROM sentinel_automation_cycle_events e"
+            " WHERE e.cycle_id=cycle.cycle_id AND e.control_generation=c.generation)"
+            " ORDER BY decision_session DESC,created_at DESC LIMIT 1) x ON TRUE"
+            " LEFT JOIN sentinel_execution_authority_state a ON a.id=1"
+            " LEFT JOIN sentinel_signed_execution_certificates certificate"
+            " ON certificate.certificate_sha256=a.active_certificate_sha256"
+            " LEFT JOIN sentinel_execution_certificate_lifecycle lifecycle"
+            " ON lifecycle.certificate_sha256=a.active_certificate_sha256"
             " LEFT JOIN sentinel_execution_certificate_revocations cr"
-            "   ON cr.certificate_sha256=a.active_certificate_sha256"
-            " LEFT JOIN sentinel_execution_key_revocations kr"
-            "   ON kr.key_id=c.key_id WHERE a.id=1",
-            (control.certificate_sha256,))
-        authority_row = cur.fetchone()
-        # Sampling before the instance read can falsely classify a heartbeat
-        # committed during these reads as coming from the future.
-        cur.execute("SELECT clock_timestamp()")
-        database_now = cur.fetchone()[0]
+            " ON cr.certificate_sha256=a.active_certificate_sha256"
+            " LEFT JOIN sentinel_execution_key_revocations kr ON kr.key_id=certificate.key_id")
+        temporal = cur.fetchone()
     conn.rollback()
-
-    holder, token, heartbeat, expires, active, _lease_sample_at = lease
-    active = bool(active and expires is not None and expires > database_now)
+    if temporal is None or temporal[0] is None or temporal[18] is None:
+        return AutomationHealth(
+            healthy=False, installed=True, operational_ready=False,
+            policy_state="CORRUPT", enabled=control.enabled,
+            kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,
+            reason="durable automation control or lease singleton is missing")
+    late_control = store._control(temporal[:17])
+    if ((late_control.generation, late_control.enabled, late_control.kill_switch_engaged,
+         late_control.binding) !=
+            (control.generation, control.enabled, control.kill_switch_engaged, control.binding)):
+        raise AutomationRefused("automation control changed during health observation")
+    control = late_control
+    holder, token, heartbeat, expires, lease_generation = temporal[17:22]
+    instance = temporal[22:27] if temporal[22] is not None else None
+    cycle = temporal[27:35] if temporal[27] is not None else None
+    authority_row = temporal[35:39]
+    database_now = temporal[39]
+    active = bool(holder is not None and lease_generation == control.generation
+                  and expires is not None and expires > database_now)
     authority_current = bool(
         authority_row is not None and authority_row[0] is not None
         and authority_row[1])
@@ -288,6 +353,48 @@ def read_health(conn) -> AutomationHealth:
         policy = "LEADER_ACTIVE"
     else:
         policy = "WAITING_FOR_LEADER"
+    scheduler_diagnostic = None
+    if policy in {'SCHEDULER_STALLED', 'WAITING_FOR_LEADER'}:
+        age = ((database_now-instance[1]).total_seconds()
+               if instance is not None and instance[1] is not None else None)
+        if holder is None:
+            predicate = 'LEASE_HOLDER_MISSING'
+        elif lease_generation != control.generation:
+            predicate = 'LEASE_GENERATION_MISMATCH'
+        elif expires is None:
+            predicate = 'LEASE_EXPIRY_MISSING'
+        elif not active:
+            predicate = 'LEASE_EXPIRED'
+        elif instance is None:
+            predicate = 'INSTANCE_MISSING'
+        elif instance[0] != holder:
+            predicate = 'INSTANCE_HOLDER_MISMATCH'
+        elif age is None:
+            predicate = 'INSTANCE_HEARTBEAT_MISSING'
+        elif age < 0:
+            predicate = 'INSTANCE_HEARTBEAT_FUTURE'
+        else:
+            predicate = 'INSTANCE_HEARTBEAT_STALE'
+        elapsed = time.monotonic()-started
+        safe_holder = (holder if isinstance(holder,str) and len(holder)<=128
+                       and re.fullmatch(r'[A-Za-z0-9_.:-]+',holder) else None)
+        state = instance[2] if instance is not None else None
+        safe_state = (state if isinstance(state,str) and len(state)<=64
+                      and re.fullmatch(r'[A-Z0-9_]+',state) else None)
+        scheduler_diagnostic = SchedulerDiagnostic(
+            policy_state=policy, predicate=predicate, sampled_at=database_now,
+            control_generation=control.generation, fence=token, holder=safe_holder,
+            holder_present=holder is not None,
+            holder_matches=bool(instance is not None and instance[0]==holder),
+            leader_active=active, service_heartbeat_fresh=service_heartbeat_fresh,
+            lease_heartbeat_at=heartbeat, lease_expires_at=expires,
+            instance_state=safe_state,
+            instance_heartbeat_at=instance[1] if instance is not None else None,
+            heartbeat_age_seconds=age, heartbeat_window_seconds=lease_window_seconds,
+            callback_started_at=instance[3] if instance is not None else None,
+            callback_deadline_at=instance[4] if instance is not None else None,
+            callback_current=callback_current, scheduler_overdue=scheduler_overdue,
+            read_elapsed_seconds=elapsed if math.isfinite(elapsed) and elapsed>=0 else None)
     return AutomationHealth(
         healthy=True,
         installed=True,
@@ -352,6 +459,7 @@ def read_health(conn) -> AutomationHealth:
         callback_deadline_at=instance[4] if instance else None,
         scheduler_overdue=scheduler_overdue,
         database_now=database_now,
+        scheduler_diagnostic=scheduler_diagnostic,
         host_database_clock_skew_seconds=host_database_clock_skew_seconds,
     )
 

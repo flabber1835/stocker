@@ -23,6 +23,12 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     html = render(panel if panel is not None else Panel(rows=[], now=generated))
     budget = re.search(r'data-max-age-seconds="([^"]+)"',html).group(1)
     script = '// Negative authority only.' + html.split('// Negative authority only.', 1)[1].split('</script>', 1)[0]
+    # This harness tests the freshness controller, with a fake renderer. The
+    # actual DOM reconciler is exercised independently in browser qualification.
+    from sentinel.panel.dom_refresh import SCRIPT as DOM_SCRIPT
+    assert script.count(DOM_SCRIPT) == 1
+    script = script.replace(DOM_SCRIPT,
+        'function reconcileDocument(next) { document.acceptSnapshot(next); }')
     if remove_guard:
         script = script.replace('refreshing || retryTimer !== null || ', '')
     if mutation == 'premature-invalidation':

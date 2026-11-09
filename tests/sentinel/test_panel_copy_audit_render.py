@@ -9,18 +9,17 @@ from sentinel.paper_plan_preview import PlanPreview
 NOW = datetime(2026, 10, 22, 22, tzinfo=timezone.utc)
 
 
-def test_guide_discloses_local_profile_without_imposing_it_on_reviewed_operation():
+def test_removed_guide_does_not_reintroduce_profile_or_obsolete_backup_claims():
     row = model.Row('shadow_verification', 'Shadow', 'VERIFIED', model.OK)
     suspended = model.Row('backup_restore', 'Backup', 'DISABLED BY OWNER', model.OK)
     local = render.render(model.Panel(rows=[row, suspended], now=NOW, local_paper_mode=True))
     other = render.render(model.Panel(rows=[row], now=NOW, local_paper_mode=False))
     for html in (local, other):
-        assert 'OpenFIGI classifies eligible equity instruments' in html
-        assert 'unscaled stock-selection book' in html
-        assert 'Alpaca paper account has its own recorded holdings' in html
-    assert 'Backup creation, restore drills and backup verification are disabled' in local
-    assert 'Owner-authorized local PAPER operation is active' not in other
-    assert 'backup verification are disabled' not in other
+        assert 'What am I looking at?' not in html and 'data-detail-key="mode-guide"' not in html
+        assert 'Backup creation, restore drills and backup verification are disabled' not in html
+        assert 'Owner-authorized local PAPER operation is active' not in html
+    assert 'data-key="backup_restore"' in local and 'DISABLED BY OWNER' in local
+    assert 'data-key="backup_restore"' not in other
 
 
 def test_dollar_budget_preview_never_claims_an_opening_quote_or_changes_saved_terms():

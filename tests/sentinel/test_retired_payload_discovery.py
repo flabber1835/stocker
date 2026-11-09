@@ -14,7 +14,7 @@ def _nodes(plan):
         yield from _nodes(child)
 
 
-def test_empty_and_benchmark_only_retirements_use_index_probes_and_drain(
+def test_empty_and_benchmark_only_retirements_use_bounded_extents_and_drain(
         conn, operational_source, monkeypatch):
     monkeypatch.setattr(retention, 'maintain', lambda *_: None)
     first, second, third, current = [publish(conn) for _ in range(4)]
@@ -48,33 +48,29 @@ def test_empty_and_benchmark_only_retirements_use_index_probes_and_drain(
     conn.execute('ANALYZE sentinel_snapshot_benchmarks')
     conn.commit()
 
-    assert str(conn.execute(retention.RETIRED_PAYLOAD_QUERY).fetchone()[0]) == second['candidate_id']
-    plan = conn.execute('EXPLAIN (ANALYZE, TIMING FALSE, FORMAT JSON) ' +
-                        retention.RETIRED_PAYLOAD_QUERY).fetchone()[0][0]['Plan']
-    bulk = [node for node in _nodes(plan) if node.get('Relation Name') in {
-        'sentinel_snapshot_bars','sentinel_snapshot_benchmarks'}]
-    assert {node['Relation Name'] for node in bulk} == {
-        'sentinel_snapshot_bars','sentinel_snapshot_benchmarks'}
-    assert all(node['Node Type'] in {'Index Scan','Index Only Scan'} for node in bulk)
+    # The legacy prefix discovery query has been replaced by finite TID extents.
+    # Exercise each actual access query beside the larger, pinned live payload.
+    for table in retention.PAYLOAD_TABLES.values():
+        plan = conn.execute('EXPLAIN (ANALYZE, TIMING FALSE, FORMAT JSON) ' +
+            retention._physical_select_sql(table), ('(0,0)', '(1,0)', 101)).fetchone()[0][0]['Plan']
+        bulk = [node for node in _nodes(plan) if node.get('Relation Name') == table]
+        assert len(bulk) == 1 and bulk[0]['Node Type'] == 'Tid Range Scan'
     conn.commit()
 
-    # One hundred rows per wake; benchmark-only work must precede newer bars.
+    # One hundred rows per wake, including the benchmark-only retirement.
     monkeypatch.setattr(retention, 'maintain', MAINTAIN)
     deleted = 0
-    visited = []
     for _ in range(15):
         step = retention.maintain(conn, batch_rows=100)
         assert step['status'] == 'COMPLETE'
         assert 0 <= step['deleted_rows'] <= 100
         deleted += step['deleted_rows']
-        if step['candidate_id']:
-            visited.append(step['candidate_id'])
         if not step['more_work']:
             break
     assert deleted == 1200
-    assert visited[:3] == [second['candidate_id']]*3
-    assert set(visited[3:]) == {third['candidate_id']}
-    assert conn.execute(retention.RETIRED_PAYLOAD_QUERY).fetchone() is None
+    for table in retention.PAYLOAD_TABLES.values():
+        assert conn.execute(f'SELECT count(*) FROM {table} p '
+            'JOIN sentinel_snapshot_retirements r USING(candidate_id)').fetchone()[0] == 0
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s',
                         (large,)).fetchone()[0] == 20000
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s',

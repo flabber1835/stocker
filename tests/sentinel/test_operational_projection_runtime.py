@@ -53,7 +53,7 @@ def test_superseded_work_does_not_create_failure_or_clear_a_real_failure(monkeyp
     worker.run()
     assert [args[-1] for _, args, _ in calls] == [False, False, False, True, True, False]
     assert all(args[1] == 'same-owner' and args[3] == worker.instance for _, args, _ in calls)
-    assert all(options == {'timeout': producer.DEADLINE_SECONDS, 'start_method': 'spawn'}
+    assert all(options == {'timeout': producer.FAST_DEADLINE_SECONDS, 'start_method': 'spawn'}
                for _, _, options in calls)
     assert heartbeat.exists() and all(0 <= delay <= 30 for delay in stop.waits)
 
@@ -87,7 +87,7 @@ def test_shutdown_retains_existing_bounded_join(monkeypatch, tmp_path, alive):
     else:
         worker.close()
         assert not heartbeat.exists()
-    assert worker.stopped.is_set() and joined == [producer.DEADLINE_SECONDS+3]
+    assert worker.stopped.is_set() and joined == [2*producer.DEADLINE_SECONDS+3]
 
 
 def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worker(monkeypatch, tmp_path):
@@ -103,7 +103,8 @@ def test_shutdown_before_first_financial_refresh_closes_without_starting_a_worke
     (SnapshotUnavailable('SNAPSHOT_PANEL_INVALID'), 'FAILED'),
     (ValueError('private malformed source'), 'FAILED'),
 ])
-def test_only_typed_collection_supersession_is_expected_work(monkeypatch, exception, outcome):
+def test_only_typed_collection_supersession_is_expected_work(monkeypatch, tmp_path, exception, outcome):
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'collection-heartbeat')
     def refused(*_, **_options): raise exception
     monkeypatch.setattr(producer, 'publish_once', refused)
     def unavailable_fallback(*_): raise RuntimeError('private unavailable fallback')
@@ -131,7 +132,7 @@ def test_role_health_requires_fresh_valid_independent_heartbeats(monkeypatch, tm
     assert verifier.health() == (0 if defect == 'none' else 1)
 
 
-@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 8), (10, 6, .25),
+@pytest.mark.parametrize('remaining,cost,expected', [(30, 2, 23), (10, 6, 2),
     (90, 1, 30), (2, 6, .25)])
 def test_adaptive_refresh_reserves_original_ceiling_and_measured_cost(remaining, cost, expected):
     now = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
@@ -151,7 +152,7 @@ def test_variable_collection_cost_does_not_add_a_gap_between_short_native_leases
     """A quick previous call cannot justify sleeping through the next slow one."""
     anchor = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
     clock = SimpleNamespace(seconds=0.0)
-    costs = [2.0, 8.0, 7.0, 8.0]
+    costs = [2.0, 4.9, 3.0, 4.9]
     intervals = []
     stop = Stop()
     class Wall(datetime):
@@ -210,11 +211,11 @@ def test_superseded_collection_retries_before_original_short_lease_expires(monke
     monkeypatch.setattr(producer, 'HEARTBEAT', heartbeat)
     def runner(_function, *args, **options):
         calls.append((args, options))
-        assert options == {'timeout': 20, 'start_method': 'spawn'}
+        assert options == {'timeout': producer.FAST_DEADLINE_SECONDS, 'start_method': 'spawn'}
         if len(calls) == 2:
-            # A receipt changes during this eight-second collection. Its
+            # A receipt changes during this fast publication. Its
             # superseded result publishes no replacement for the t12 proof.
-            clock.seconds += 8
+            clock.seconds += 3
             return {'outcome': 'SUPERSEDED'}
         if len(calls) == 3:
             clock.seconds += 2
@@ -228,9 +229,9 @@ def test_superseded_collection_retries_before_original_short_lease_expires(monke
     assert len(calls) == 3 and [args[-1] for args, _ in calls] == [False, False, False]
     assert publications[0] == (0, 0, 12)
     assert publications[1][0] < publications[0][2], 'superseded collection left an expiry gap'
-    assert publications[1][0] == 10.5
+    assert publications[1][0] == 11
     assert all(expiry-native == 12 for _, native, expiry in publications)
-    assert stop.waits[:2] == [.25, .25]
+    assert stop.waits[:2] == [5, 1]
 
 
 def test_five_second_supersession_backoff_falsifier(monkeypatch, tmp_path):
@@ -260,8 +261,8 @@ def test_repeated_supersessions_yield_keep_failure_and_stop_without_heartbeat(
     assert len(calls) == len(answers) and not heartbeat.exists()
     assert [args[-1] for args, _ in calls] == [False]+[prior_failure]*(len(answers)-1)
     superseded_waits = stop.waits[1:] if prior_failure else stop.waits
-    assert superseded_waits == [.25]*4 and all(value > 0 for value in superseded_waits)
-    assert all(options == {'timeout': 20, 'start_method': 'spawn'} for _, options in calls)
+    assert superseded_waits == [1]*4 and all(value > 0 for value in superseded_waits)
+    assert all(options == {'timeout': producer.FAST_DEADLINE_SECONDS, 'start_method': 'spawn'} for _, options in calls)
 
 
 @pytest.mark.parametrize('refusal', [verifier.QueryCanceled, verifier.LockNotAvailable])

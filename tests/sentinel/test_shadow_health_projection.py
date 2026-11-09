@@ -35,9 +35,9 @@ def projection(conn, tmp_path, monkeypatch):
     conn.rollback()
     payload = health.Projection(schema_id=health.SCHEMA, config_sha256=health._config(config),
         inventory_sha256=inventory, session='2026-09-14', record_sha256='a'*64,
-        runtime_authority_sha256='b'*64).model_dump()
+        runtime_authority_sha256='b'*64, **health._calendar_bounds('2026-09-14')).model_dump()
     health._write({'projection':payload, 'hmac_sha256':health._signature(payload)},health.path())
-    monkeypatch.setattr(calendar,'latest_closed_session',lambda _: '2026-09-14')
+    monkeypatch.setattr(health,'_now',lambda:datetime(2026,9,14,21,tzinfo=timezone.utc))
     return config
 
 
@@ -93,14 +93,23 @@ def test_changed_health_binding_refuses(projection, conn, damage, monkeypatch, r
 
 
 def test_causal_session_age_is_reobserved(projection, monkeypatch):
-    monkeypatch.setattr(calendar,'latest_closed_session',lambda _: '2026-09-15')
     assert health.health(projection,fallback=forbidden,
         now=datetime(2026,9,16,12,tzinfo=timezone.utc))['service_health']=='HEALTHY_WAITING'
     with pytest.raises(ValueError,match='causal'):
         health.health(projection,fallback=forbidden,now=datetime(2026,9,16,15,tzinfo=timezone.utc))
-    monkeypatch.setattr(calendar,'latest_closed_session',lambda _: '2026-09-17')
     with pytest.raises(ValueError,match='causal'):
-        health.health(projection,fallback=forbidden)
+        health.health(projection,fallback=forbidden,
+            now=datetime(2026,9,17,21,tzinfo=timezone.utc))
+
+
+def test_reader_never_constructs_calendar(projection, monkeypatch):
+    def forbidden_calendar(*_a, **_kw):
+        pytest.fail('a disposable health reader rebuilt the exchange calendar')
+    for name in ('latest_closed_session','next_session','session_window','calendar_version','_calendar'):
+        monkeypatch.setattr(calendar,name,forbidden_calendar)
+    assert health.health(projection,fallback=forbidden)['service_health']=='HEALTHY_ATTESTED'
+    assert health.health(projection,fallback=forbidden,
+        now=datetime(2026,9,16,12,tzinfo=timezone.utc))['service_health']=='HEALTHY_WAITING'
 
 
 @pytest.mark.parametrize('cursor', [
@@ -138,6 +147,7 @@ def test_new_database_uses_existing_reconstruction_check(conn, tmp_path, monkeyp
 def test_canonical_worker_publishes_projection_and_io_failure_does_not_change_book(
         conn, provider, tmp_path, monkeypatch, capsys):
     from sentinel import rolling_runtime, shadow_worker, rolling_initialization as init, shadow_recovery
+    monkeypatch.setattr(health,'_now',lambda:init._now(conn))
     prices,publish=provider
     publish()
     config=shadow_service.ShadowServiceConfig(conn.info.dsn,OBS,Decimal(50000),

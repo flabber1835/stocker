@@ -18,14 +18,27 @@ MAX_BYTES = 262144
 
 def row_version(conn, plan_id):
     from sentinel.dual_plan_authority import _cursor
-    row = conn.execute("""SELECT s.session,s.tableoid::oid,s.xmin::text,s.ctid::text,
-        s.state->>'authority_sha256',d.oid,
+    row = conn.execute("""WITH snapshot AS MATERIALIZED (
+        SELECT pg_snapshot_xmax(pg_current_snapshot())::text::numeric AS xmax,
+               pg_current_xact_id_if_assigned() IS NULL AS read_only_version)
+        SELECT s.session,s.tableoid::oid,s.xmin::text,s.ctid::text,
+        pg_relation_filenode(s.tableoid),d.oid,
         (SELECT system_identifier::text FROM pg_control_system()),
         pg_postmaster_start_time(),
-        floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::text
-        FROM sentinel_processed_sessions s CROSS JOIN pg_database d
+        floor(snapshot.xmax/4294967296)::text,
+        (snapshot.read_only_version AND s.xmin::text::numeric < mod(snapshot.xmax,4294967296))
+        FROM sentinel_processed_sessions s CROSS JOIN pg_database d CROSS JOIN snapshot
         WHERE s.cursor_name=%s AND d.datname=current_database()""", (_cursor(plan_id),)).fetchone()
     return tuple(row) if row else None
+
+
+def _reusable(version):
+    # A prior-epoch frozen xmin can be ahead of this epoch's allocation counter.
+    # Until it has passed, raw xmin/ctid could recur without an epoch change.
+    # Assigned writer transactions also exclude their own subtransaction rows.
+    return (version is not None and len(version) == 10
+            and type(version[4]) is int and version[4] > 0
+            and version[9] is True)
 
 
 def projection(value):
@@ -60,7 +73,7 @@ class IntentMemo:
             if configuration != self.configuration or self.last_clock is not None and now < self.last_clock:
                 self.entries.clear()
             self.configuration, self.last_clock = configuration, now
-            if version is not None and key in self.entries:
+            if _reusable(version) and key in self.entries:
                 self.entries.move_to_end(key)
                 return deepcopy(self.entries[key])
         value = load_authority(conn, plan_id=plan_id)
@@ -68,11 +81,11 @@ class IntentMemo:
             raise DualPlanAuthorityRefused('dated intent changed during canonical validation')
         if value is None:
             return None
-        if version is None or str(version[0]) != value['decision_session'] or version[4] != value['authority_sha256']:
+        if version is None or str(version[0]) != value['decision_session']:
             raise DualPlanAuthorityRefused('dated intent row version disagrees with canonical authority')
         result = projection(value)
         encoded = json.dumps(result, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
-        if len(encoded) <= MAX_BYTES:
+        if _reusable(version) and len(encoded) <= MAX_BYTES:
             with self.lock:
                 if self.configuration == configuration and self.last_clock == now:
                     self.entries[key] = deepcopy(result)

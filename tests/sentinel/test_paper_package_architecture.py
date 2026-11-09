@@ -236,8 +236,54 @@ def test_paper_delta_registry_rejects_an_unreviewed_canonical_fingerprint(
         test_equivalence_manifest_covers_every_canonical_definition()
 
 
+@pytest.mark.parametrize('definition,defect', [
+    ('_record_due_fill_interval_or_refuse', 'default'),
+    ('_record_due_fill_interval_or_refuse', 'fallback'),
+    ('_finalize_due_succeeded_cycle_or_refuse', 'value'),
+])
+def test_baseline_reuse_witness_refuses_any_other_delta(definition, defect):
+    from copy import deepcopy
+    tree = ast.parse((PACKAGE / 'finalization.py').read_text())
+    node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef)
+        and item.name == definition)
+    _check_and_remove_backup_gate_delta(deepcopy(node))
+    if defect == 'default':
+        node.args.kw_defaults[-1] = ast.Constant(False)
+    elif defect == 'fallback':
+        block = next(item for item in node.body if isinstance(item, ast.Try))
+        block.body[0].test = ast.Constant(True)
+    else:
+        call = next(item for item in ast.walk(node) if isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Name)
+            and item.func.id == '_record_due_fill_interval_or_refuse')
+        next(item for item in call.keywords if item.arg == 'baseline').value = ast.Name(
+            id='account', ctx=ast.Load())
+    with pytest.raises(AssertionError):
+        _check_and_remove_backup_gate_delta(node)
+
+
 def _check_and_remove_backup_gate_delta(node):
     """Check exact post-decomposition safety additions against frozen bodies."""
+    if node.name == '_record_due_fill_interval_or_refuse':
+        assert node.args.kwonlyargs[-1].arg == 'baseline'
+        assert ast.dump(node.args.kw_defaults[-1]) == ast.dump(ast.Constant(None))
+        node.args.kwonlyargs.pop()
+        node.args.kw_defaults.pop()
+        expected = ast.parse('if baseline is None:\n'
+            '    baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)').body[0]
+        blocks = [item for item in node.body if isinstance(item, ast.Try)]
+        assert blocks and len(blocks[0].body) == 1
+        assert ast.dump(blocks[0].body[0]) == ast.dump(expected)
+        blocks[0].body = expected.body
+    elif node.name == '_finalize_due_succeeded_cycle_or_refuse':
+        calls = [item for item in ast.walk(node) if isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Name)
+            and item.func.id == '_record_due_fill_interval_or_refuse']
+        assert len(calls) == 1
+        values = [item for item in calls[0].keywords if item.arg == 'baseline']
+        assert len(values) == 1
+        assert ast.dump(values[0].value) == ast.dump(ast.Name(id='cash_baseline', ctx=ast.Load()))
+        calls[0].keywords.remove(values[0])
     operations = {
         "prepare_paper_plan": "paper plan preparation",
         "execute_paper_plan": "paper order execution",

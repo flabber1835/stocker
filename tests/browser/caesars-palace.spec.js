@@ -115,7 +115,9 @@ test.describe('Banner resource recovery', () => {
       await expect(page.locator('.brand-fallback')).toBeHidden();
       await expect(page.locator('.brand img:visible')).toHaveCount(1);
       const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();
-      expect(box.height).toBeLessThanOrEqual(image.height+2);
+      await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+      await expect(page.locator('.brand')).toHaveCSS('border-bottom-width','4px');
+      expect(box.height).toBeLessThanOrEqual(image.height+8);
       expect(fixture.requests).toHaveLength(1);
       expect(fixture.requests[0].url).toBe(assetPath);
     } finally {
@@ -189,7 +191,7 @@ test.describe('Banner resource recovery', () => {
 async function openSystemDetails(page) {
   const details = page.locator("#system-details");
   await expect(details).not.toHaveAttribute("open", "");
-  await expect(page.locator("#operational-state")).toBeVisible();
+  await expect(page.locator(".brand")).toBeVisible();
   await details.locator(":scope > summary").click();
   await expect(details).toHaveAttribute("open", "");
 }
@@ -231,9 +233,13 @@ test.describe('App resume presentation', () => {
     const response = await page.request.get('/');
     const source = await response.text();
     const duePattern = /var ordinaryDue = Date\.now\(\) \+ \d+;/g;
+    const nextDuePattern = /ordinaryDue = Date\.now\(\)\+\d+;/g;
     const refreshPattern = /refreshTimer = setTimeout\(function\(\)\{ checkAge\(\); refreshDocument\(\); \}, \d+\);/g;
     expect([...source.matchAll(duePattern)]).toHaveLength(1);
-    expect([...source.matchAll(refreshPattern)]).toHaveLength(1);
+    expect([...source.matchAll(nextDuePattern)]).toHaveLength(1);
+    // Both the initial timer and the post-reconciliation timer share the
+    // shortened fixture cadence; fetched documents do not execute scripts.
+    expect([...source.matchAll(refreshPattern)]).toHaveLength(2);
     const base = new Date('2026-10-30T23:00:00Z');
     const requests = [];
     let closing = false;
@@ -247,6 +253,7 @@ test.describe('App resume presentation', () => {
         .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
         .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"')
         .replace(duePattern, 'var ordinaryDue = Date.now() + 5000;')
+        .replace(nextDuePattern, 'ordinaryDue = Date.now()+5000;')
         .replace(refreshPattern,
           'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);');
       if (positive) body = body.replace(
@@ -458,7 +465,9 @@ test.describe('App resume presentation', () => {
         await page.clock.install();
         await page.goto('/', {waitUntil:'domcontentloaded'});
         await openSystemDetails(page);
-        await page.locator('[data-detail-key="mode-guide"] summary').click();
+        const nested = page.locator('#system-details details[data-detail-key]').first();
+        const detailKey = await nested.getAttribute('data-detail-key');
+        await nested.locator(':scope > summary').click();
         const generated = await page.locator('body').getAttribute('data-generated-at');
         await page.evaluate(() => {
           window.__resumeRealNow = Date.now;
@@ -486,7 +495,7 @@ test.describe('App resume presentation', () => {
           await expect(page.locator('html')).not.toHaveClass('refreshing-status');
         }
         await expect(page.locator('#system-details')).toHaveAttribute('open','');
-        await expect(page.locator('[data-detail-key="mode-guide"]')).toHaveAttribute('open','');
+        await expect(page.locator(`[data-detail-key="${detailKey}"]`)).toHaveAttribute('open','');
       } finally { release(); }
     });
   }
@@ -505,7 +514,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
         await page.emulateMedia({ colorScheme: appearance });
         await page.goto("/", { waitUntil: "domcontentloaded" });
 
-        await expect(page.locator("#operational-state")).toBeVisible();
+        await expect(page.locator(".brand")).toBeVisible();
         await expect(page.locator("#dashboard-heartbeat")).toContainText(
           "DASHBOARD HEARTBEAT");
         await expect(page.locator('[data-key="automation_step_discovery"]')).toBeHidden();
@@ -532,7 +541,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
         await page.locator("#system-details > summary").click();
         await expect(page.locator("#system-details")).not.toHaveAttribute("open", "");
         await expect(page.locator('[data-key="automation_step_discovery"]')).toBeHidden();
-        await expect(page.locator("#operational-state")).toBeVisible();
+        await expect(page.locator(".brand")).toBeVisible();
       });
     }
   }
@@ -583,7 +592,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     page
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#operational-state")).toBeVisible();
+    await expect(page.locator(".brand")).toBeVisible();
     await context.setOffline(true);
 
     await expect(page.locator("#dashboard-heartbeat")).toContainText("UNAVAILABLE");

@@ -66,12 +66,17 @@ class Host:
             'issuer_evidence':{'count':0,'md5':'d41d8cd98f00b204e9800998ecf8427e'}}
         self.native={'native-id':'17'};self.notifications={'old':'immutable-payload'}
         self.calls=[];self.busy=False;self.canonical_count=0;self.clock=0;self.heartbeat=0
-        self.items={name:self.item(selected['predecessor']['image'],True) for name in host_module.SERVICES}
+        self.config_renders=0
+        self.items={name:self.item(selected['predecessor']['image'],True,name) for name in host_module.SERVICES}
         self.fail_after=None
         self.drain_current=True;self.schema_complete=True;self.migration_count=0
-    def item(self,image,running):
-        return dict(Image=image,State=dict(Running=running,Health={'Status':'healthy'},
-            OOMKilled=False,Restarting=False))
+    def item(self,image,running,service=None):
+        return dict(Id=image+'-container',Image=image,RestartCount=0,
+            Config={'Labels':{'com.docker.compose.project':'sentinel',
+                'com.docker.compose.service':service,'com.docker.compose.config-hash':'a'*64}},
+            HostConfig={'RestartPolicy':{'Name':'unless-stopped','MaximumRetryCount':0}},
+            State=dict(Running=running,Health={'Status':'healthy'},
+            OOMKilled=False,Restarting=False,StartedAt='2031-04-21T00:00:00Z'))
     def load_values(self): return dict(self.values)
     def candidate_values(self,old):
         new=dict(old)
@@ -85,6 +90,25 @@ class Host:
     def container(self,name,missing_ok=False):
         if missing_ok and name not in self.items:return None
         return deepcopy(self.items[name])
+    def containers(self,names,missing_ok=False):
+        return {name:self.container(name,missing_ok=missing_ok) for name in names}
+    def wait_application_health(self,service,*,deadline,clock):
+        assert clock()<deadline
+        model.require(host_module.application_healthy(self.container(service),
+            self.request['candidate']['image']),'SUCCESSOR_SHADOW_FAILED')
+    def wait_applications_health(self,*,deadline,clock,expected=None):
+        assert clock()<deadline
+        values=self.containers(host_module.SERVICES)
+        model.require(all(host_module.application_healthy(item,self.request['candidate']['image'])
+            for item in values.values()),'APPLICATION_STARTUP_FAILED')
+        if expected:
+            model.require(all(item['Id']==expected[name]['Id']
+                and item['RestartCount']==expected[name]['RestartCount']
+                and item['State']['StartedAt']==expected[name]['State']['StartedAt']
+                for name,item in values.items()),'APPLICATION_STARTUP_PROCESS_CHANGED')
+        return values
+    candidate_apps_ready=host_module.Host.candidate_apps_ready
+    candidate_config_hashes=host_module.Host.candidate_config_hashes
     def predecessor_services(self):return host_module.SERVICES
     def verify_compose(self,role):self.calls.append('verify-compose-'+role)
     def install_compose(self):
@@ -98,6 +122,11 @@ class Host:
         if self.fail_after=='install':
             self.fail_after=None;raise model.DeliveryRefused('LOST_ACK')
     def compose(self,values,*args,**kwargs):
+        if args==('config','--hash','*'):
+            from types import SimpleNamespace
+            self.config_renders+=1
+            return SimpleNamespace(stdout=''.join(name+' '+'a'*64+'\n'
+                for name in host_module.SERVICES).encode())
         self.calls.append(args)
         if args[0]=='stop':
             assert set(args[3:])==set(self.predecessor_services())
@@ -106,7 +135,7 @@ class Host:
         else:
             names=[v for v in args if v in host_module.SERVICES]
             assert names and '--no-deps' in args and '--no-build' in args and 'never' in args
-            for service in names:self.items[service]=self.item(self.request['candidate']['image'],True)
+            for service in names:self.items[service]=self.item(self.request['candidate']['image'],True,service)
             name='shadow' if names==['sentinel-shadow'] else 'apps'
         if self.fail_after==name:
             self.fail_after=None;raise model.DeliveryRefused('LOST_ACK')
@@ -116,6 +145,21 @@ class Host:
         try:yield
         finally:self.busy=False
     def sleep(self,seconds):self.clock+=seconds;self.heartbeat+=1
+    def drain_recovery_state(self,target,values):return {'pending':None,'critical':None}
+    def run(self,argv,**kwargs):
+        self.calls.append(list(argv));item=self.items['sentinel-shadow']
+        if argv[:2]==['docker','update']:
+            item['HostConfig']['RestartPolicy']['Name']=argv[2].split('=')[1]
+            if self.fail_after=='restore-policy':
+                self.fail_after=None;raise model.DeliveryRefused('LOST_POLICY_ACK')
+        elif argv[:2]==['docker','start']:
+            if self.fail_after=='start-unsent':
+                self.fail_after=None;raise model.DeliveryRefused('UNKNOWN_START')
+            item['State'].update(Running=True,StartedAt='2031-04-21T00:01:00Z')
+            item['RestartCount']=0
+            if self.fail_after=='start-ack':
+                self.fail_after=None;raise model.DeliveryRefused('LOST_START_ACK')
+        else:raise AssertionError(argv)
 
 
 @pytest.fixture
@@ -137,20 +181,28 @@ def operation(tmp_path,monkeypatch):
     def idle(h,*args):model.require(not h.busy_worker,'WORKER_ACTIVE')
     host.busy_worker=False
     monkeypatch.setattr(evidence,'idle',idle)
-    monkeypatch.setattr(evidence,'drain_target',lambda h:{'target':'exact-original-container'})
+    def drain_target(h):
+        item=h.items['sentinel-shadow']
+        return dict(container=item['Id'],image=item['Image'],
+            restart_policy=deepcopy(item['HostConfig']['RestartPolicy']),
+            started_at=item['State']['StartedAt'],restart_count=item['RestartCount'])
+    monkeypatch.setattr(evidence,'drain_target',drain_target)
     def request_drain(h,*args):
         model.require(not h.busy_worker,'WORKER_ACTIVE')
         return {'method':'COOPERATIVE','acknowledgement':{'immutable':'incarnation-bound'}}
     monkeypatch.setattr(evidence,'request_drain',request_drain)
     def check_drain(h,*args):model.require(h.drain_current,'DRAIN_ACK_EXPIRED_OR_REPLACED')
     monkeypatch.setattr(evidence,'check_drain',check_drain)
+    monkeypatch.setattr(evidence,'check_stopped_drain',lambda h,*args:
+        model.require(not h.items['sentinel-shadow']['State']['Running'],'DRAIN_NOT_STOPPED'))
     def migrate(h,*args):
         h.migration_count+=1
         return {'installation':{'installation_id':'immutable-current-schema'},'complete':h.schema_complete}
     monkeypatch.setattr(evidence,'migrate_operational_schema',migrate)
     monkeypatch.setattr(evidence,'leader',lambda h:dict(current=True,holder='owner',generation=77,
         fence=8,heartbeat=h.heartbeat))
-    monkeypatch.setattr(evidence,'panel',lambda *args:{'fresh':True,'green':True})
+    monkeypatch.setattr(evidence,'panel',lambda *args,**kwargs:{'fresh':True,'green':True,
+        'installation_panel_valid_until':(model.utcnow()+timedelta(seconds=30)).isoformat()})
     delivery=coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
     return host,journal,delivery
 
@@ -170,6 +222,26 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==2
 
 
+def test_final_history_read_occurs_once_after_native_before_panel(operation,monkeypatch):
+    host,journal,delivery=operation
+    order=[]
+    original_native=coordinator.evidence.native_positions
+    original_history=coordinator.evidence.check_notification_history
+    original_panel=coordinator.evidence.panel
+    def native(*a,**kw):
+        order.append('native');return original_native(*a,**kw)
+    def history(*a,**kw):
+        order.append('history');return original_history(*a,**kw)
+    def panel(*a,**kw):
+        assert order[-2:]==['native','history']
+        order.append('panel');return original_panel(*a,**kw)
+    monkeypatch.setattr(coordinator.evidence,'native_positions',native)
+    monkeypatch.setattr(coordinator.evidence,'check_notification_history',history)
+    monkeypatch.setattr(coordinator.evidence,'panel',panel)
+    assert delivery.advance()['stage']=='VERIFIED'
+    assert order[-3:]==['native','history','panel']
+
+
 def successor_operation(operation,monkeypatch):
     host,journal,_=operation
     host.request.update(schema=model.SUCCESSOR_SCHEMA,handoff_mode='POST_TRADE_SUCCESSOR')
@@ -184,7 +256,7 @@ def successor_operation(operation,monkeypatch):
         h.canonical_count+=1
         return {'book':'same','proof':'same','settled_native_positions':deepcopy(h.native)}
     monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
-    monkeypatch.setattr(coordinator.evidence,'panel',lambda *args:{'color':'red','operational_ready':False,
+    monkeypatch.setattr(coordinator.evidence,'panel',lambda *args,**kwargs:{'color':'red','operational_ready':False,
         'retained_incidents':['original-incident'],'completed_plan':'recorded-old-plan'})
     delivery=coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
     return host,journal,delivery
@@ -269,6 +341,115 @@ def test_full_source_checks_run_at_mutation_boundaries_not_journal_intents(opera
         'COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED','APPLICATIONS_STARTED']
     delivery.advance()
     assert len(checked)==8
+
+
+def prepare_abandonment(operation, *, stopped=False):
+    host,journal,delivery=operation
+    while journal.read()['stage']!='DRAIN_REQUESTED':delivery.step()
+    item=host.items['sentinel-shadow']
+    item['HostConfig']['RestartPolicy']={'Name':'no','MaximumRetryCount':0}
+    item['State']['Running']=not stopped
+    return host,journal,delivery,item
+
+
+def test_abandonment_is_terminal_before_policy_restore_and_never_extends_receipt(operation):
+    host,journal,delivery,item=prepare_abandonment(operation)
+    before=deepcopy(journal.read());run=host.run
+    def guarded(argv,**kw):
+        assert journal.abandonment()['phase']=='INTENT'
+        with pytest.raises(model.DeliveryRefused,match='DELIVERY_ABANDONED'):delivery.step()
+        return run(argv,**kw)
+    host.run=guarded
+    result=delivery.abandon_drain()
+    assert result['phase']=='COMPLETE' and not result['completion']['start_observed']
+    assert item['HostConfig']['RestartPolicy']['Name']=='unless-stopped'
+    assert journal.read()==before
+    assert delivery.abandon_drain()==result
+    with pytest.raises(model.DeliveryRefused,match='DELIVERY_ABANDONED'):delivery.advance()
+
+
+def test_lost_policy_restore_ack_resumes_without_repeating_update(operation):
+    host,journal,delivery,item=prepare_abandonment(operation)
+    host.fail_after='restore-policy'
+    with pytest.raises(model.DeliveryRefused,match='LOST_POLICY_ACK'):delivery.abandon_drain()
+    assert journal.abandonment()['phase']=='INTENT'
+    assert item['HostConfig']['RestartPolicy']['Name']=='unless-stopped'
+    assert delivery.abandon_drain()['phase']=='COMPLETE'
+    assert len([c for c in host.calls if isinstance(c,list) and c[:2]==['docker','update']])==1
+
+
+@pytest.mark.parametrize('marker',['pending','critical'])
+def test_stopped_predecessor_enters_existing_startup_recovery_without_clearing_markers(operation,marker):
+    host,journal,delivery,item=prepare_abandonment(operation,stopped=True)
+    state={'pending':None,'critical':None};state[marker]={'schema':'existing','sha256':'a'*64}
+    host.drain_recovery_state=lambda *a:deepcopy(state)
+    result=delivery.abandon_drain()
+    assert result['phase']=='COMPLETE' and result['completion']['start_observed']
+    assert result['recovery_state']==state and item['State']['Running']
+    assert not any('rm' in c or 'kill' in c or 'exec' in c for c in host.calls if isinstance(c,list))
+    assert len([c for c in host.calls if isinstance(c,list) and c[:2]==['docker','start']])==1
+
+
+def test_lost_start_ack_observes_changed_start_clock_without_second_start(operation):
+    host,journal,delivery,_item=prepare_abandonment(operation,stopped=True)
+    host.fail_after='start-ack'
+    with pytest.raises(model.DeliveryRefused,match='LOST_START_ACK'):delivery.abandon_drain()
+    assert journal.abandonment()['phase']=='START_REQUESTED'
+    assert delivery.abandon_drain()['completion']['start_observed']
+    assert len([c for c in host.calls if isinstance(c,list) and c[:2]==['docker','start']])==1
+
+
+def test_unknown_start_outcome_never_retries_start_or_revives_installation(operation):
+    host,journal,delivery,_item=prepare_abandonment(operation,stopped=True)
+    host.fail_after='start-unsent'
+    with pytest.raises(model.DeliveryRefused,match='UNKNOWN_START'):delivery.abandon_drain()
+    with pytest.raises(model.DeliveryRefused,match='START_OUTCOME_UNKNOWN'):delivery.abandon_drain()
+    assert len([c for c in host.calls if isinstance(c,list) and c[:2]==['docker','start']])==1
+    with pytest.raises(model.DeliveryRefused,match='DELIVERY_ABANDONED'):delivery.step()
+
+
+@pytest.mark.parametrize('damage',['container','image','started','count','policy','other-stopped',
+    'other-image','environment','compose','malformed-marker'])
+def test_abandonment_refuses_foreign_or_mutated_predecessor_before_terminal_intent(operation,damage):
+    host,journal,delivery,item=prepare_abandonment(operation,stopped=True)
+    if damage=='container':item['Id']='foreign'
+    elif damage=='image':item['Image']='foreign'
+    elif damage=='started':item['State']['StartedAt']='2031-04-21T00:02:00Z'
+    elif damage=='count':item['RestartCount']+=1
+    elif damage=='policy':item['HostConfig']['RestartPolicy']['Name']='always'
+    elif damage=='other-stopped':host.items['sentinel-panel']['State']['Running']=False
+    elif damage=='other-image':host.items['sentinel-panel']['Image']='foreign'
+    elif damage=='environment':host.values['SECRET']='changed'
+    elif damage=='compose':
+        def changed(*a):raise model.DeliveryRefused('COMPOSE_CHANGED')
+        host.verify_compose=changed
+    else:
+        def malformed(*a):raise ValueError('malformed retained pending')
+        host.drain_recovery_state=malformed
+    with pytest.raises((model.DeliveryRefused,ValueError)):delivery.abandon_drain()
+    assert journal.abandonment() is None
+    assert not any(isinstance(c,list) for c in host.calls)
+
+
+def test_abandonment_cannot_release_during_candidate_installation(operation):
+    host,journal,delivery=operation
+    while journal.read()['stage']!='APPLICATIONS_STOPPED':delivery.step()
+    with pytest.raises(model.DeliveryRefused,match='AFTER_INSTALLATION_FORBIDDEN'):delivery.abandon_drain()
+    assert journal.abandonment() is None
+
+
+def test_malformed_terminal_intent_still_refuses_installation(operation):
+    _host,journal,delivery,_item=prepare_abandonment(operation)
+    (journal.folder/'abandonment.json').write_text('{}')
+    with pytest.raises(model.DeliveryRefused,match='DELIVERY_ABANDONED'):delivery.step()
+
+
+def test_removed_terminal_guard_has_an_executed_falsifier(operation,monkeypatch):
+    host,journal,delivery,_item=prepare_abandonment(operation)
+    delivery.abandon_drain()
+    monkeypatch.setattr(journal,'require_active',lambda:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        with pytest.raises(model.DeliveryRefused,match='DELIVERY_ABANDONED'):delivery.step()
 
 
 @pytest.mark.parametrize('stage', ['DRAIN_REQUESTED','STOP_REQUESTED','SCHEMA_INSTALL_REQUESTED',
@@ -439,11 +620,12 @@ def test_expired_or_replaced_drain_never_reaches_stop(operation):
 def test_pending_bootstrap_retains_same_stage_and_resumes_pages_without_repreflight(operation):
     host,journal,delivery=operation
     host.schema_complete=False
-    first=delivery.advance()
-    assert first['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==1
+    with pytest.raises(model.DeliveryRefused,match='OPERATIONAL_BOOTSTRAP_PAGE_LIMIT'):
+        delivery.advance()
+    assert journal.read()['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==10
     assert host.canonical_count==2 and all(not item['State']['Running'] for item in host.items.values())
     host.schema_complete=True
-    assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==2
+    assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==11
     assert host.canonical_count==2
 
 
@@ -549,6 +731,11 @@ def test_stale_durable_intent_cannot_mutate_applications(operation,monkeypatch,s
     assert all(not isinstance(c,tuple) for c in host.calls[before:])
     # Falsifier: removing the original-clock check permits the rejected mutation.
     monkeypatch.setattr(delivery,'_fresh',lambda _:None)
+    if stage=='START_REQUESTED':
+        # The unified readiness cutoff independently enforces the same proof's
+        # expiry. Neither guard alone may be bypassed by a persisted intent.
+        with pytest.raises(model.DeliveryRefused,match='READINESS_DEADLINE'):delivery.step()
+        monkeypatch.setattr(coordinator.readiness,'cutoff',lambda *a,**kw:now+timedelta(seconds=230))
     delivery.step()
     assert any(isinstance(c,tuple) for c in host.calls[before:])
 

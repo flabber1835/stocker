@@ -7,11 +7,12 @@ constant, mutate controls, or invoke preparation, orders or maintenance.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import re
 import time
 
 from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require, utcnow
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -360,7 +361,52 @@ def drain_target(host):
     data=host.container('sentinel-shadow')
     require(data['Image']==host.request['predecessor']['image'] and data['State']['Running'],
             'DRAIN_PREDECESSOR_CHANGED')
-    return dict(container=data['Id'],image=data['Image'],restart_policy=data['HostConfig']['RestartPolicy'])
+    target=dict(container=data['Id'],image=data['Image'],restart_policy=data['HostConfig']['RestartPolicy'])
+    if host.request['predecessor']['commit']!=COMPAT_DRAIN_PREDECESSOR:
+        target.update(started_at=data['State']['StartedAt'],restart_count=data['RestartCount'])
+        _cooperative_target(data,target,held=False,running=True)
+    return target
+
+
+NO_RESTART_POLICY = {'Name':'no','MaximumRetryCount':0}
+ORIGINAL_RESTART_POLICY = {'Name':'unless-stopped','MaximumRetryCount':0}
+
+
+def process_identity(data):
+    started, count=data['State']['StartedAt'],data['RestartCount']
+    require(isinstance(started,str) and bool(started) and not started.startswith('0001-')
+        and type(count) is int and count>=0, 'DRAIN_PROCESS_IDENTITY_MALFORMED')
+    return dict(started_at=started,restart_count=count)
+
+
+def _cooperative_target(data, target, *, held=True, running=None):
+    require(isinstance(target,dict) and set(target)=={
+        'container','image','restart_policy','started_at','restart_count'},
+        'DRAIN_CONTINUITY_TARGET_REQUIRED')
+    require(target['restart_policy']==ORIGINAL_RESTART_POLICY,'DRAIN_RESTART_POLICY_UNREVIEWED')
+    require(data['Id']==target['container'] and data['Image']==target['image'], 'DRAIN_TARGET_CHANGED')
+    require(process_identity(data)=={key:target[key] for key in ('started_at','restart_count')},
+            'DRAIN_PROCESS_CHANGED')
+    require(not data['State']['Restarting'] and not data['State']['OOMKilled'],
+            'DRAIN_PROCESS_UNSTABLE')
+    if running is not None:
+        require(data['State']['Running'] is running,'DRAIN_RUNNING_STATE_CHANGED')
+    allowed=(NO_RESTART_POLICY,) if held else (target['restart_policy'],NO_RESTART_POLICY)
+    require(data['HostConfig']['RestartPolicy'] in allowed,'DRAIN_RESTART_HOLD_CHANGED')
+
+
+def hold_drain_restart(host, target):
+    """DRAIN_REQUESTED already journals intent before this idempotent mutation."""
+    data=host.container('sentinel-shadow')
+    _cooperative_target(data,target,held=False,running=True)
+    if data['HostConfig']['RestartPolicy']!=NO_RESTART_POLICY:
+        host.run(['docker','update','--restart=no',target['container']],timeout=15)
+    _cooperative_target(host.container('sentinel-shadow'),target,running=True)
+
+
+def check_stopped_drain(host, target, proof):
+    if proof['method']=='COOPERATIVE':
+        _cooperative_target(host.container('sentinel-shadow'),target,running=False)
 
 
 def _compat_barrier(host, values, target):
@@ -427,18 +473,21 @@ def request_drain(host, values, target):
                     'COMPAT_RESTART_POLICY_NOT_RESTORED')
             require(False,'DRAIN_BUSY_BEFORE_BARRIER')
         return _compat_barrier(host,values,target)
+    hold_drain_restart(host,target)
     request=json.loads(host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
         'request','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15).stdout)
+    current=host.container('sentinel-shadow')
+    _cooperative_target(current,target,running=True)
+    started_at=utcnow();accept_until=started_at+timedelta(seconds=180)
     deadline=time.monotonic()+180
-    while time.monotonic()<deadline:
-        result=host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
-            'acknowledged','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15)
-        acknowledgement=json.loads(result.stdout)
-        if acknowledgement is not None:
-            require(acknowledgement['request']==request,'DRAIN_REQUEST_REPLACED')
-            return dict(method='COOPERATIVE',acknowledgement=acknowledgement)
-        time.sleep(2)
-    require(False,'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+    acknowledgement=host.observe_drain(target,current,request,started_at=started_at,
+        accept_until=accept_until,deadline=deadline)
+    require(isinstance(acknowledgement,dict) and acknowledgement.get('request')==request,
+        'DRAIN_REQUEST_REPLACED')
+    _cooperative_target(host.container('sentinel-shadow'),target,running=True)
+    require(time.monotonic()<deadline and started_at<=utcnow()<accept_until,
+        'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+    return dict(method='COOPERATIVE',acknowledgement=acknowledgement)
 
 
 def check_drain(host, values, target, proof):
@@ -448,6 +497,7 @@ def check_drain(host, values, target, proof):
         require(_compat_barrier(host,values,target)==proof,'COMPATIBILITY_BARRIER_CHANGED')
     else:
         require(proof['method']=='COOPERATIVE','DRAIN_METHOD_UNREVIEWED')
+        _cooperative_target(data,target)
         if not data['State']['Running']:
             # A stopped exact container cannot admit work; finite request still
             # binds the stage, rather than pretending its old live ack is fresh.
@@ -458,6 +508,7 @@ def check_drain(host, values, target, proof):
         result=host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
             'acknowledged','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15)
         require(json.loads(result.stdout)==proof['acknowledgement'],'DRAIN_ACKNOWLEDGEMENT_CHANGED')
+        _cooperative_target(host.container('sentinel-shadow'),target,running=True)
 
 
 def migrate_operational_schema(host, candidate):
@@ -472,7 +523,7 @@ def migrate_operational_schema(host, candidate):
     return value
 
 
-def panel(host, state):
+def panel(host, state, *, wait_until=None):
     """Require a current green page with the same saved plan and healthy sender."""
     data = host.container('sentinel-panel')
     repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
@@ -487,8 +538,17 @@ def panel(host, state):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
-    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',
-        checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
-            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL,
-        json.dumps(expected, sort_keys=True)], timeout=35)
+    program=(checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
+            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL)
+    arguments=[json.dumps(expected, sort_keys=True)]
+    timeout=35
+    if wait_until is not None:
+        from . import readiness
+        remaining=(wait_until-utcnow()).total_seconds()
+        require(0<remaining<=readiness.SECONDS+5,'APPLICATION_READINESS_DEADLINE')
+        arguments.extend([readiness.panel_validator(program),wait_until.isoformat()])
+        program=readiness.PANEL_WAIT
+        timeout=remaining+5  # Owned child has the earlier original internal cutoff.
+    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',program,
+        *arguments], timeout=timeout)
     return json.loads(result.stdout)

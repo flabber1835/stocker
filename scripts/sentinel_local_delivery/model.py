@@ -24,6 +24,7 @@ STAGES = ('NEW','PREFLIGHT_PASS','DRAIN_REQUESTED','DRAIN_ACKNOWLEDGED','STOP_RE
 REVIEWED_HOST_ARTIFACTS = frozenset({'README.md','docker-compose.sentinel-automation.yml',
                                     'docker-compose.sentinel-local-paper.yml'})
 COMPAT_DRAIN_PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
+ABANDONMENT_SCHEMA = 'sentinel.local-delivery-abandonment/1'
 
 
 class DeliveryRefused(RuntimeError):
@@ -220,6 +221,7 @@ class Journal:
         return value
 
     def advance(self, expected, stage, **artifacts):
+        self.require_active()
         require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA},
                 'LEGACY_DELIVERY_CANNOT_RESUME')
         current = self.read()
@@ -236,3 +238,53 @@ class Journal:
         current['stage'] = stage
         atomic_json(self.folder/'receipt.json', current)
         return current
+
+    def require_active(self):
+        # Even an interrupted or malformed terminal intent forbids installation.
+        path=self.folder/'abandonment.json'
+        require(not path.exists() and not path.is_symlink(),'DELIVERY_ABANDONED')
+
+    def abandonment(self):
+        path=self.folder/'abandonment.json'
+        if not path.exists() and not path.is_symlink():
+            return None
+        value=read_json(path)
+        require(isinstance(value,dict) and set(value)=={
+            'schema','request_sha256','receipt_sha256','target','initial_process',
+            'initial_running','recovery_state','at','phase','start_before',
+            'completion','record_sha256'},'ABANDONMENT_SHAPE')
+        require(value['schema']==ABANDONMENT_SCHEMA and value['request_sha256']==self.subject
+            and value['receipt_sha256']==digest(self.read())
+            and value['target']==self.read()['artifacts'].get('drain_target')
+            and value['phase'] in {'INTENT','START_REQUESTED','COMPLETE'}
+            and type(value['initial_running']) is bool
+            and value['record_sha256']==digest({k:v for k,v in value.items() if k!='record_sha256'}),
+            'ABANDONMENT_IDENTITY_CHANGED')
+        require((value['phase']!='INTENT' or value['start_before'] is None)
+            and (value['phase']!='START_REQUESTED' or isinstance(value['start_before'],dict))
+            and (isinstance(value['completion'],dict) if value['phase']=='COMPLETE'
+                 else value['completion'] is None),'ABANDONMENT_PHASE_MALFORMED')
+        return value
+
+    def begin_abandonment(self, target, process, running, recovery_state):
+        require(self.abandonment() is None,'ABANDONMENT_ALREADY_REQUESTED')
+        value=dict(schema=ABANDONMENT_SCHEMA,request_sha256=self.subject,
+            receipt_sha256=digest(self.read()),target=target,initial_process=process,
+            initial_running=running,recovery_state=recovery_state,at=utcnow().isoformat(),
+            phase='INTENT',start_before=None,completion=None)
+        value['record_sha256']=digest(value)
+        atomic_json(self.folder/'abandonment.json',value)
+        return self.abandonment()
+
+    def checkpoint_abandonment(self, phase, *, start_before=None, completion=None):
+        value=self.abandonment()
+        require(value is not None and (value['phase'],phase) in {
+            ('INTENT','START_REQUESTED'),('INTENT','COMPLETE'),('START_REQUESTED','COMPLETE')},
+            'ABANDONMENT_CHECKPOINT_CONFLICT')
+        value.update(phase=phase,completion=completion)
+        if start_before is not None:
+            value['start_before']=start_before
+        value.pop('record_sha256')
+        value['record_sha256']=digest(value)
+        atomic_json(self.folder/'abandonment.json',value)
+        return self.abandonment()

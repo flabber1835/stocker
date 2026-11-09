@@ -85,7 +85,7 @@ def _guard_projection(value):
 
 def _guard_status(conn, *, observation_id, starting_cash):
     """Fresh status from private structural inputs; no full state escapes."""
-    with committed_read.proof_connection(conn) as proof:
+    with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
         return _guard_status_owned(proof,observation_id=observation_id,starting_cash=starting_cash)
 
 
@@ -164,7 +164,7 @@ def _result(result, value):
 def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
              unchanged_through=None):
     """Prove committed status without ending an active caller transaction."""
-    with committed_read.proof_connection(conn) as proof:
+    with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
         return _classify_owned(proof,observation_id=observation_id,starting_cash=starting_cash,
             structural_only=structural_only,clock=clock,unchanged_through=unchanged_through)
 

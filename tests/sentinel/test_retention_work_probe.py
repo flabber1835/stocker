@@ -112,13 +112,16 @@ def test_all_metadata_candidates_are_considered_beyond_the_pass_cursor(metadata)
 
 
 def test_metadata_query_actually_runs_in_a_read_only_transaction(metadata):
+    observed=[]
     class Observed:
         def execute(self,query,*args):
-            if query.startswith('SELECT\n EXISTS('):
+            if query.startswith('SELECT EXISTS('):
                 assert metadata.execute("SELECT current_setting('transaction_read_only')").fetchone()[0]=='on'
+                observed.append(True)
             return metadata.execute(query,*args)
         def rollback(self):metadata.rollback()
     assert retention._possible_work(Observed()) is False
+    assert observed
     assert metadata.info.transaction_status.value==0
 
 
@@ -152,24 +155,30 @@ def test_actual_positive_path_requires_backup_before_any_disposal(metadata,monke
     assert metadata.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0]==1
 
 
-def test_probe_timeout_retains_data_and_never_takes_writer(metadata,monkeypatch):
+def test_one_timed_hint_does_not_hide_independent_work_or_bypass_backup(metadata,monkeypatch):
     seed(metadata,'acquisition')
     class Timed:
         info=metadata.info
         def execute(self,query,*args):
-            if query.startswith('SELECT\n EXISTS('):return metadata.execute('SELECT pg_sleep(2)')
+            if query=='SELECT '+retention._HINTS[0]:return metadata.execute('SELECT pg_sleep(2)')
             return metadata.execute(query,*args)
         def rollback(self):metadata.rollback()
-    monkeypatch.setattr(backup_runtime_authority,'require',lambda *a,**kw:pytest.fail('timeout entered writer'))
+    calls=[]
+    def refuse(*a,**kw):
+        calls.append(kw['operation'])
+        raise backup_runtime_authority.BackupRuntimeUnavailable('no deletion without backup')
+    monkeypatch.setattr(backup_runtime_authority,'require',refuse)
     assert retention.maintain(Timed())['status']=='RETRY'
+    assert calls==['plan/execution writer mutation']
     assert metadata.info.transaction_status.value==0
     assert metadata.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone()[0]==1
 
 
 def test_dropping_a_disposal_class_is_detected(metadata,monkeypatch):
     guard='EXISTS(SELECT 1 FROM sentinel_acquisition_parts a WHERE NOT sentinel_acquisition_part_pinned(a.part_id))'
-    assert retention._WORK_QUERY.count(guard)==1
-    monkeypatch.setattr(retention,'_WORK_QUERY',retention._WORK_QUERY.replace(guard,'FALSE'))
+    assert retention._HINTS[5]==guard
+    hints=list(retention._HINTS);hints[5]='FALSE'
+    monkeypatch.setattr(retention,'_HINTS',tuple(hints))
     with pytest.raises(AssertionError,match='hidden from disposal admission'):
         test_each_disposal_class_remains_possible_work(metadata,'acquisition')
 
@@ -180,8 +189,10 @@ def test_removing_the_empty_gate_is_detected(metadata,monkeypatch):
         test_no_work_never_takes_writer_or_changes_progress_and_is_not_cached(metadata,monkeypatch)
 
 
-def test_probe_has_no_book_or_checkpoint_pin_reader_and_keeps_ordered_price_lookup():
-    assert 'sentinel_processed_sessions' not in retention._WORK_QUERY
-    assert 'sentinel_snapshot_pins(' not in retention._WORK_QUERY
-    assert retention.RETIRED_PAYLOAD_QUERY in retention._WORK_QUERY
-    assert 'canonical_payload::' not in retention._WORK_QUERY
+def test_probe_has_no_book_or_checkpoint_pin_reader_or_bulk_payload_lookup():
+    query='\n'.join(hint for hint in retention._HINTS if hint)
+    assert 'sentinel_processed_sessions' not in query
+    assert 'sentinel_snapshot_pins(' not in query
+    assert 'sentinel_snapshot_bars' not in query
+    assert 'sentinel_snapshot_benchmarks' not in query
+    assert 'canonical_payload::' not in query

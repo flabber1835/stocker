@@ -38,8 +38,9 @@ def memo_probe(filename, prior_failed):
             broker_observation=dict(completeness='COMPLETE', account_identity=['fixture'],
                 observed_at='2031-01-01T00:00:00+00:00', positions=[]))
     try:
-        intent_memo.row_version = lambda *args: ('2031-01-01', 'fixture',
-            str(current['version']), '(0,1)', 'a'*64)
+        intent_memo.row_version = lambda *args: ('2031-01-01', 100,
+            str(current['version']), '(0,1)', 101, 102, 'fixture-system',
+            '2031-01-01T00:00:00+00:00', '0', True)
         dual_plan_authority.load_authority = load
         projection = intent_memo.memo.read(SimpleNamespace(info=SimpleNamespace(dsn='credential-free-fixture')),
                                            plan_id='fixture-plan')
@@ -87,6 +88,7 @@ def protocol_probe(filename, prior_failed):
 def oversized_wire(channel, function, args, parent_pid):
     supervisor_io._parent_death(parent_pid)
     try:
+        channel.send_bytes(b'R')
         channel.recv_bytes(maxlength=1)
         channel.send_bytes(b'x'*(worker.MAX_BYTES+1))
     finally:
@@ -96,6 +98,7 @@ def oversized_wire(channel, function, args, parent_pid):
 def malformed_wire(channel, function, args, parent_pid):
     supervisor_io._parent_death(parent_pid)
     try:
+        channel.send_bytes(b'R')
         channel.recv_bytes(maxlength=1)
         channel.send_bytes(b'not-json')
     finally:
@@ -207,6 +210,7 @@ def parent_death_probe(filename, prior_failed):
 def serve_without_parent_death(channel, function, args, parent_pid):
     """Executed removed-kernel-guard control, still using the real worker IPC."""
     try:
+        channel.send_bytes(b'R')
         while True:
             command = channel.recv_bytes(maxlength=1)
             if command == b'S':

@@ -37,6 +37,14 @@ def _result(value):
 def _serve(channel, function, args, parent_pid):
     supervisor_io._parent_death(parent_pid)
     try:
+        try:
+            prepare = getattr(function, 'prepare', None)
+            if prepare is not None:
+                prepare()
+        except Exception as exc:
+            channel.send_bytes(b'F'+type(exc).__name__.encode('ascii')[:128])
+            return
+        channel.send_bytes(b'R')
         while True:
             command = channel.recv_bytes(maxlength=1)
             if command == b'S':
@@ -69,6 +77,28 @@ class Worker:
         self.process = None
         self.channel = None
 
+    def start(self, *, timeout):
+        """Bound cold initialization separately when explicitly requested.
+
+        READY attests only dependency initialization, never source/financial
+        currentness. A direct call still charges implicit startup to its budget.
+        """
+        if self.process is not None:
+            return
+        started = time.monotonic()
+        try:
+            self._start()
+            remaining = timeout-(time.monotonic()-started)
+            if remaining <= 0 or not self.channel.poll(remaining):
+                raise TimeoutError('operational worker initialization exceeded its wall-clock budget')
+            if self.channel.recv_bytes(maxlength=129) != b'R':
+                raise ValueError('operational worker initialization refused')
+            if time.monotonic()-started >= timeout:
+                raise TimeoutError('operational worker initialized after deadline')
+        except BaseException:
+            self.close()
+            raise
+
     def _start(self):
         for previous in list(_UNREAPED):
             if previous.is_alive():
@@ -92,7 +122,7 @@ class Worker:
     def call(self, prior_failed, *, timeout):
         started = time.monotonic()
         if self.process is None:
-            self._start()
+            self.start(timeout=timeout)
         try:
             self.channel.send_bytes(b'1' if prior_failed else b'0')
             remaining = timeout-(time.monotonic()-started)

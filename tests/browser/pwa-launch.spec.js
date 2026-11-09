@@ -20,7 +20,8 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
     // synthetic document time; never fabricate a healthy financial verdict.
     const html=template.replace(/data-generated-at="[^"]+"/,
       `data-generated-at="${new Date().toISOString()}"`)
-      .replace(/data-observation-current="[^"]+"/, `data-observation-current="${partial?'false':'true'}"`);
+      .replace(/(<body\b[^>]*\bdata-observation-current=")[^"]+("[^>]*>)/,
+        `$1${partial?'false':'true'}$2`);
     response.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store',
       'X-Sentinel-Panel-Status':partial?'PARTIAL':'CURRENT'});response.end(html);
   }
@@ -63,7 +64,7 @@ test.describe('First document before current evidence',()=>{
     try {
       await page.goto(f.url,{waitUntil:'domcontentloaded'});
       await expect(page.locator('#launch-status')).toBeVisible();
-      f.release();await expect(page.locator('#operational-state')).toBeVisible();
+      f.release();await expect(page.locator('.brand')).toBeVisible();
       await expect(page.locator('body')).toHaveAttribute('data-observation-current','false');
       await expect(page.locator('body')).toHaveAttribute('data-refresh-pending','false');
       await expect(page.locator('#review-acknowledge')).toHaveCount(0);
@@ -78,7 +79,7 @@ test.describe('First document before current evidence',()=>{
       await expect.poll(()=>f.requests.filter(x=>!x.navigation).length).toBe(1);
       await expect(page.locator('#operational-state')).toHaveCount(0);
       await testInfo.attach('launch-before-status',{body:await page.screenshot(),contentType:'image/png'});
-      f.release();await expect(page.locator('#operational-state')).toBeVisible();
+      f.release();await expect(page.locator('.brand')).toBeVisible();
       await expect(page.locator('[data-panel-launch]')).toHaveCount(0);
     } finally {f.release();await page.goto('about:blank',{waitUntil:'commit',timeout:3000}).catch(()=>{});await f.close();}
   });
@@ -98,7 +99,7 @@ test.describe('Installed worker launch',()=>{
       await expect.poll(()=>f.requests.filter(x=>!x.navigation).length).toBe(1);
       expect(f.requests.filter(x=>x.navigation)).toHaveLength(1);
       await expect(page.locator('#operational-state')).toHaveCount(0);
-      f.release();await expect(page.locator('#operational-state')).toBeVisible();
+      f.release();await expect(page.locator('.brand')).toBeVisible();
     } finally {f.release();await page.goto('about:blank',{waitUntil:'commit',timeout:3000}).catch(()=>{});await f.close();}
   });
   test('closed page reopens immediately through the real worker with no cached health',async({context,page,request},testInfo)=>{
@@ -119,7 +120,7 @@ test.describe('Installed worker launch',()=>{
       await expect(reopened.locator('#operational-state')).toHaveCount(0);
       expect(await reopened.evaluate(()=>caches.keys())).toEqual([]);
       await testInfo.attach('controlled-reopen-before-status',{body:await reopened.screenshot(),contentType:'image/png'});
-      f.release();await expect(reopened.locator('#operational-state')).toBeVisible();
+      f.release();await expect(reopened.locator('.brand')).toBeVisible();
     } finally {if(reopened)await reopened.goto('about:blank');await f.close();}
   });
   test('offline reopening paints a neutral document and stores no financial snapshot',async({context,page,request})=>{

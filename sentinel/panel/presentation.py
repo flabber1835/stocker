@@ -341,6 +341,20 @@ def _preparing_work_normal(panel) -> bool:
     if (not panel.local_paper_mode or panel.source_errors
             or len({row.key for row in panel.rows}) != len(panel.rows)):
         return False
+    paper, plan, cycle = (panel.row(key) for key in (
+        'paper_reconciliation', 'paper_plan', 'automation_cycle'))
+    # Reject non-preparation before loading a calendar or evaluating inputs.
+    # WAITING_OPEN is common; it cannot earn this preparation exception.
+    if (cycle is None or cycle.recovery is None or cycle.recovery.phase not in {
+            'AUTOMATION_CLOSING_DATA', 'AUTOMATION_SHADOW_ATTESTATION',
+            'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING', 'AUTOMATION_PLAN_READY'}
+            or cycle.effective_status(panel.now) != 'warn' or not cycle.required_current
+            or not _aware(cycle.as_of) or cycle.is_future(panel.now)
+            or not cycle.recovery.automatic or cycle.recovery.operator_required
+            or not cycle.recovery.active(panel.now) or not _aware(cycle.recovery.deadline)
+            or not _fresh_worker(panel, 'automation_leader')
+            or not _fresh_worker(panel, 'shadow_worker')):
+        return False
     if not _closing_source_proof(panel) and not _preparation_inputs_current(panel):
         return False
     from sentinel.feed import calendar
@@ -350,8 +364,6 @@ def _preparing_work_normal(panel) -> bool:
     closed = calendar.session_window(session)[1]
     if not closed <= panel.now < opened:
         return False
-    paper, plan, cycle = (panel.row(key) for key in (
-        'paper_reconciliation', 'paper_plan', 'automation_cycle'))
     pending = (paper is not None and paper.status == 'warn'
         and _paper_verification(paper, 'PENDING')
         and paper.paper_alignment is None and paper.recovery is None
@@ -361,15 +373,7 @@ def _preparing_work_normal(panel) -> bool:
         and paper.effective_status(panel.now) == 'warn')
     if not (pending or _paper_check_normal(panel, paper)) or plan is None:
         return False
-    if (cycle is None or cycle.effective_status(panel.now) != 'warn' or not cycle.required_current
-            or not _aware(cycle.as_of) or cycle.as_of < closed or cycle.is_future(panel.now)
-            or cycle.recovery is None or cycle.recovery.phase not in {
-                'AUTOMATION_CLOSING_DATA', 'AUTOMATION_SHADOW_ATTESTATION',
-                'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING', 'AUTOMATION_PLAN_READY'}
-            or not cycle.recovery.automatic or cycle.recovery.operator_required
-            or not cycle.recovery.active(panel.now) or not _aware(cycle.recovery.deadline)
-            or not _fresh_worker(panel, 'automation_leader')
-            or not _fresh_worker(panel, 'shadow_worker')):
+    if cycle.as_of < closed:
         return False
     if (cycle.recovery.phase in {'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING'}
             and cycle.recovery.deadline != opened):

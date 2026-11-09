@@ -182,14 +182,13 @@ def test_browser_document_cannot_outlive_original_worker_proof(state, monkeypatc
     worker = row(state, monkeypatch)
     healthy = render(model.Panel(rows=[worker], now=NOW))
     assert 'data-max-age-seconds="45"' in healthy
-    assert 'refreshes every 30s' in healthy
+    assert 'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 30000);' in healthy
     for elapsed in (50, 56, 59.5):
         late = render(model.Panel(rows=[worker], now=NOW+timedelta(seconds=elapsed)))
         remaining = 60.0-elapsed
         assert f'data-max-age-seconds="{remaining}"' in late
         # Polling remains bounded even when the original proof expires sooner.
         # The independent negative-authority timer withdraws that document.
-        assert 'refreshes every 5s' in late
         assert 'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);' in late
         assert 'ageTimer = setInterval(checkAge, 1000);' in late
     expired = model.Panel(rows=[worker], now=NOW+timedelta(seconds=61))

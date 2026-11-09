@@ -119,6 +119,44 @@ def test_unsafe_recorded_clock_never_overflows_the_notification_renderer():
     assert web_push.notification_payload(alert)["body"].endswith("event time unavailable")
 
 
+@pytest.mark.parametrize('reason', ['SCHEDULER_STALLED','WAITING_FOR_LEADER'])
+def test_scheduler_warning_distinguishes_recording_time_from_later_delivery(reason):
+    alert=_alert('AUTOMATION_OPERATIONAL_RED','CRITICAL',reason=reason,
+        scheduler_diagnostic={'private':'must not appear'}, detail='private-account-value')
+    original=web_push.notification_payload(alert)
+    alert.delivered_at=datetime(2026,10,24,0,7,tzinfo=timezone.utc)
+    alert.updated_at=alert.delivered_at
+    alert.attempt_count=3
+    assert web_push.notification_payload(alert)==original
+    assert original['title']=="Caesar's Palace — action required"
+    assert reason in original['body']
+    assert 'Warning recorded Oct 23, 2026 at 1:07 PM PDT (Pacific)' in original['body']
+    assert 'Open the dashboard for current status.' in original['body']
+    assert original['alert_id']==original['tag']==alert.alert_id
+    assert 'private' not in json.dumps(original)
+
+
+@pytest.mark.parametrize('clock', [None,NOW.replace(tzinfo=None),datetime(1,1,1,tzinfo=timezone.utc)])
+def test_scheduler_warning_with_missing_recording_time_does_not_invent_arrival_time(clock):
+    alert=_alert('AUTOMATION_OPERATIONAL_RED','CRITICAL',reason='SCHEDULER_STALLED')
+    alert.created_at=clock
+    assert web_push.notification_payload(alert)['body']==(
+        'SCHEDULER_STALLED. Warning recorded time unavailable. Open the dashboard for current status.')
+
+
+@pytest.mark.parametrize('reason', [None,[],{},'OTHER'])
+def test_unrecognized_scheduler_payload_keeps_original_generic_behavior(reason):
+    alert=_alert('AUTOMATION_OPERATIONAL_RED','CRITICAL',reason=reason)
+    assert web_push.notification_payload(alert)['body']==str(reason or 'AUTOMATION_OPERATIONAL_RED')
+
+
+def test_noncritical_leadership_copy_keeps_severity_classification():
+    alert=_alert('AUTOMATION_OPERATIONAL_RED','WARN',reason='SCHEDULER_STALLED')
+    value=web_push.notification_payload(alert)
+    assert value['title']=="Caesar's Palace — automatic recovery"
+    assert value['body']=='SCHEDULER_STALLED'
+
+
 def test_source_data_pending_refresh_names_the_actual_wait():
     value = web_push.notification_payload(_alert("AUTOMATION_RETRY_SCHEDULED", "WARN",
         reason="SourceDataPending", detail={"retry_phase": "REFRESH", "first_failure_at": OBSERVED}))

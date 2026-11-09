@@ -403,7 +403,8 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         return {}
 
     async def fills(
-            _conn, *, broker, deployment, plan, session, required_through):
+            _conn, *, broker, deployment, plan, session, required_through, baseline):
+        assert baseline is BASELINE
         calls.append((
             "fills", _conn, broker, deployment, plan, session,
             required_through))
@@ -427,8 +428,11 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         return {"status": "VERIFIED"}
 
     monkeypatch.setattr(trial, "due_succeeded_cycle_id", due)
-    monkeypatch.setattr(
-        broker_cash, "load_plan_baseline", lambda *_args, **_kwargs: BASELINE)
+    baseline_reads = []
+    def load_baseline(*_args, **_kwargs):
+        baseline_reads.append(True)
+        return BASELINE
+    monkeypatch.setattr(broker_cash, "load_plan_baseline", load_baseline)
     monkeypatch.setattr(
         broker_cash.PlanCashBaseline,
         "close_cash_finality_authoritative", property(lambda _self: True))
@@ -456,6 +460,7 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         clock=lambda: verified_at))
 
     assert result == {"status": "VERIFIED"}
+    assert baseline_reads == [True]
     assert calls[0] == ("query", conn, PLAN.plan_id, SESSION)
     assert calls[1] == ("close", conn, broker, DEPLOYMENT, SESSION)
     assert calls[2] == (

@@ -99,5 +99,5 @@ def test_secondary_worker_is_hot_passive_until_live_lease_expires():
 def test_global_health_is_bound_to_current_lease_holder_not_latest_instance():
     text = (ROOT / "sentinel" / "automation" / "health.py").read_text(
         encoding="utf-8")
-    assert "WHERE i.instance_id=l.holder_id LIMIT 1" in text
+    assert "LEFT JOIN sentinel_automation_service_instances i ON i.instance_id=l.holder_id" in text
     assert "ORDER BY heartbeat_at DESC LIMIT 1" not in text

@@ -9,10 +9,11 @@ import shutil
 import subprocess
 
 from .host import Host
-from .model import Journal, REVIEWED_HOST_ARTIFACTS, read_json, require, utcnow, write_new
+from .model import Journal, REVIEWED_HOST_ARTIFACTS, digest, read_json, require, utcnow, write_new
 from .qualification import clean_candidate, git, sha256_file, source_files, validate_report
 
 BUILD_SCHEMA = 'sentinel.local-paper-build/1'
+BUILD_REFERENCE_SCHEMA = 'sentinel.local-paper-build-reference/1'
 
 
 def safe_directory(path, *, create=False):
@@ -24,6 +25,42 @@ def safe_directory(path, *, create=False):
         path.mkdir(mode=0o700,parents=False,exist_ok=True)
     require(path.is_dir(), 'DELIVERY_DIRECTORY_ABSENT')
     return path.resolve()
+
+
+def pinned_build(path, expected_sha256):
+    """Read the original artifact without trusting a mutable image tag."""
+    path = Path(path)
+    require(path.is_absolute() and path.name == 'build.json' and '..' not in path.parts,
+            'BUILD_RECORD_PATH_UNSAFE')
+    safe_directory(path.parent)
+    require(isinstance(expected_sha256,str)
+        and re.fullmatch(r'[0-9a-f]{64}',expected_sha256) is not None
+        and sha256_file(path) == expected_sha256, 'BUILD_RECORD_CHANGED')
+    return read_json(path)
+
+
+def operation_build(folder):
+    """Both legacy and referenced operations consume one completed build."""
+    folder = safe_directory(folder)
+    reference = folder/'build-reference.json'
+    if not reference.exists() and not reference.is_symlink():
+        return read_json(folder/'build.json')
+    require(not (folder/'build.json').exists() and not (folder/'build.json').is_symlink(),
+            'BUILD_ARTIFACT_REFERENCE_AMBIGUOUS')
+    selected = read_json(reference)
+    require(isinstance(selected,dict) and set(selected) == {
+        'schema','path','sha256','request_sha256'}
+        and selected['schema'] == BUILD_REFERENCE_SCHEMA
+        and isinstance(selected['path'],str)
+        and isinstance(selected['request_sha256'],str)
+        and re.fullmatch(r'[0-9a-f]{64}',selected['request_sha256']) is not None,
+        'BUILD_ARTIFACT_REFERENCE_SHAPE')
+    if (folder/'request.json').exists() or (folder/'request.json').is_symlink():
+        require(digest(read_json(folder/'request.json')) == selected['request_sha256'],
+                'BUILD_ARTIFACT_REQUEST_CHANGED')
+    path = Path(selected['path'])
+    require(path.parent != folder, 'BUILD_ARTIFACT_REFERENCE_SELF')
+    return pinned_build(path,selected['sha256'])
 
 
 def baseline(path):
@@ -86,6 +123,8 @@ def _changed(source, predecessor, commit, approved):
 
 
 def _inspect(host, reference):
+    if callable(getattr(host,'image_metadata',None)):
+        return host.image_metadata(reference)
     values = json.loads(host.run(['docker','image','inspect',reference]).stdout)
     require(isinstance(values,list) and len(values) == 1, 'IMAGE_INSPECTION_SHAPE')
     return values[0]
@@ -127,6 +166,8 @@ def build(*, source, deployment, predecessor_receipt, qualification, qualificati
     source, deployment = safe_directory(source), safe_directory(deployment)
     folder = safe_directory(operation_dir,create=True)
     require(not folder.is_relative_to(source), 'BUILD_EVIDENCE_INSIDE_QUALIFIED_SOURCE')
+    require(not (folder/'build-reference.json').exists()
+            and not (folder/'build-reference.json').is_symlink(), 'BUILD_ARTIFACT_ALREADY_REFERENCED')
     require(not (folder/'build.json').exists() and not (folder/'build-started.json').exists(),
             'BUILD_ALREADY_STARTED_INSPECT_RETAINED_EVIDENCE')
     old = baseline_reader(predecessor_receipt)
