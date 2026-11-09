@@ -163,6 +163,14 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                        for scope in ('SHADOW', 'PAPER')}
         panel = replace(panel, now=now, trial_details={**panel.trial_details,
             'verification_attempts': {key: value for key, value in diagnostics.items() if value is not None}})
+        from sentinel.panel import postclose_feed_wait, readiness_handoff
+        progress = readiness_handoff.capture(conn, panel, subject=current_basis['native']['SHADOW'],
+            owner_expiry=owner[1], now=now)
+        panel = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff': progress})
+        panel = postclose_feed_wait.reproject(panel, now=now, subject=current_basis['native']['SHADOW'])
+        # Fresh receipt/native overlays enter after build_panel's producer
+        # boundary. Apply the same known-instant contract to this final handoff.
+        panel = replace(panel, rows=[sources._utc_row(row) for row in panel.rows])
         _COLLECTION_STAGE.set('REVIEW')
         result = recorder.observe_owned(conn, panel, database_url)
         panel = replace(panel, operator_review=result)
@@ -498,6 +506,9 @@ def read(database_url, *, display=False):
                                         *[row for key, row in replacements.items() if key not in existing]],
                             observation_revalidated_keys=tuple(replacements),
                             source_errors=list(dict.fromkeys([*panel.source_errors, *selected_errors])))
+        from sentinel.panel import postclose_feed_wait
+        panel = postclose_feed_wait.reproject(panel, now=now,
+            subject=current_basis['native']['SHADOW'] if current_basis else None)
         negative_keys = ()
         if (display and value.panel.display_basis
                 and value.panel.display_basis.get('account_anchor') != current_basis.get('account_anchor')):

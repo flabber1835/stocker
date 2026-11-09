@@ -14,4 +14,4 @@ def test_boundary_delivery_has_only_the_documented_panel_delta():
         'panel/model.py','panel/operational_snapshot.py','panel/overview.py',
         'panel/projection_service.py','panel/serialization.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert profile['authority_effect']=='NONE' and len(profile['retained_predecessors'])==30
+    assert profile['authority_effect']=='NONE' and len(profile['retained_predecessors'])==31

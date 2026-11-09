@@ -32,8 +32,9 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     if remove_guard:
         script = script.replace('refreshing || retryTimer !== null || ', '')
     if mutation == 'premature-invalidation':
-        script = script.replace('checkAge(); refreshDocument(); }, 30000',
-                                'invalidate(true); }, 30000')
+        guard='refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, refreshDelayMs);'
+        assert script.count(guard)==1
+        script = script.replace(guard,'refreshTimer = setTimeout(function(){ invalidate(true); }, refreshDelayMs);')
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'age-withdrawal':

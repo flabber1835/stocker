@@ -116,9 +116,9 @@ Freshness follows producer cadence rather than a four-calendar-day tolerance:
   sessions behind is not green;
 - automation leader and authority verdict budgets remain derived from their
   heartbeat/check cadences;
-- an account or broker observation is current for ten minutes while execution
-  or reconciliation is active, and otherwise through the durable cycle's next
-  scheduled wake;
+- an account or broker observation is current for ten minutes from its original
+  independent collector observation, regardless of the trading cycle's phase
+  or next wake; stricter reservation and protected-order boundaries still apply;
 - canonical book, exposure, and terminal evidence are current through the next
   required exchange-session decision. Session identity disagreement is red;
   elapsed holiday/weekend calendar time alone is not an outage;

@@ -161,19 +161,26 @@ _WORKING_ORDER_STATES = frozenset({
 
 
 def _utc(dt) -> Optional[datetime]:
-    """Normalise whatever the driver hands back. A naive timestamp compared
-    against an aware `now` raises, and a panel that 500s because a database
-    column had no timezone is a panel that fails exactly when it is needed."""
+    """Normalize a known instant; an absent timezone cannot establish one."""
     if dt is None:
         return None
     if isinstance(dt, str):
         try:
             dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if not isinstance(dt, datetime):
-        return None
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        except ValueError as exc:
+            raise ValueError('source clock is malformed') from exc
+    if not isinstance(dt, datetime) or dt.utcoffset() is None:
+        raise ValueError('source clock is not timezone aware')
+    return dt.astimezone(timezone.utc)
+
+
+def _utc_row(row: model.Row) -> model.Row:
+    """Freeze producer clocks as UTC without changing any absolute deadline."""
+    recovery = (replace(row.recovery,
+        next_attempt_at=_utc(row.recovery.next_attempt_at),
+        deadline=_utc(row.recovery.deadline)) if row.recovery is not None else None)
+    return replace(row, as_of=_utc(row.as_of), valid_until=_utc(row.valid_until),
+                   recovery=recovery)
 
 
 def _bounded_dsn(dsn: str) -> str:
@@ -567,8 +574,8 @@ def _trading_run_row(conn, row, *, completed_history=False):
         detail=('Recorded completed run from before the current software activation; '
                 if completed_history else '')
                +'Saved original intent and durable command progress; post-close verification is separate.',
-        as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
-        valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
+        as_of=_utc(max([run.updated_at]+[item.observed_at for item in run.orders])),
+        valid_until=_utc(plan['valid_until'])-timedelta(microseconds=1), trading_run=run)
 
 
 def _first_inconsistent_observation(conn, *, cycle_id):
@@ -1215,16 +1222,10 @@ def _cycle_recovery(
 def _runtime_valid_until(
         cycle: Mapping | None, fact_at: datetime | None, *,
         broker_fact: bool = False) -> datetime | None:
-    """Use the durable scheduler cadence, with a ten-minute active fallback."""
+    """Broker evidence has its own producer clock; other facts follow the cycle."""
     if fact_at is None:
         return None
-    state = str((cycle or {}).get("state") or "").upper()
-    retry_phase = str((cycle or {}).get("retry_phase") or "").upper()
-    broker_active = (
-        state in {"EXECUTING", "RECONCILING"}
-        or (state == "RETRY_WAIT" and retry_phase in {
-            "PREFLIGHT_RECOVER", "EXECUTE", "RECOVER"}))
-    if broker_fact and broker_active:
+    if broker_fact:
         return fact_at + timedelta(minutes=10)
     wake = (cycle or {}).get("next_wake_at")
     if isinstance(wake, datetime) and wake > fact_at:
@@ -3400,7 +3401,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 detail='Saved plan; proposed changes use the dated recorded Alpaca observation. '
                        'Fresh account, funding, corporate-action and execution checks can restrict saved targets. '
                        'No orders are submitted by this view.',
-                as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
+                as_of=_utc(preview.created_at),valid_until=_utc(preview.execute_at),paper_plan=preview)
             outcomes, outcome_error = _read(conn,
                 lambda c: _previous_buy_outcomes(c, preview=preview),
                 STATEMENT_TIMEOUT_MS, default=[])
@@ -3563,7 +3564,7 @@ def build_panel(*, state_dir: Path, database_url: str,
         local_mode = local_paper.enabled()
     except (RuntimeError, ValueError):
         local_mode = False  # Existing runtime/account error rows remain visible.
-    return model.Panel(rows=rows, now=completed_at, source_errors=errors,
+    return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at, source_errors=errors,
                        trial_details={**trial_details, **worker_diagnostics},
                        trial_history=trial_history,
                        local_paper_mode=local_mode)

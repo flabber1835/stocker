@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 
@@ -170,6 +171,18 @@ def _validate_panel(raw):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     _require(_utc(panel.now), 'SNAPSHOT_PANEL_CLOCK_INVALID')
     for row in panel.rows:
+        for field in ('as_of', 'valid_until'):
+            clock = getattr(row, field)
+            if clock is not None and not _utc(clock):
+                # Closed identifiers only; neither row payloads nor clock values
+                # (nor arbitrary producer text) enter this diagnostic.
+                known = {'feed', 'ingest', 'shadow_verification', 'paper_reconciliation',
+                    'book', 'exposure', 'terminals', 'shadow_nav', 'shadow_return',
+                    'broker', 'alpaca_account', 'paper_plan', 'trading_run',
+                    'completed_trading_run', 'shadow_worker', 'backup_restore'}
+                logging.getLogger(__name__).warning('snapshot row clock refused key=%s field=%s kind=%s',
+                    row.key if row.key in known else 'OTHER', field,
+                    'NAIVE' if clock.utcoffset() is None else 'NON_UTC')
         _require(all(value is None or _utc(value) for value in (row.as_of, row.valid_until)),
                  'SNAPSHOT_ROW_CLOCK_INVALID')
         _require(row.freshness is None or row.freshness >= timedelta(0),

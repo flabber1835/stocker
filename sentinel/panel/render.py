@@ -406,8 +406,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if health['valid_until'] is not None:
         health_until = datetime.fromisoformat(health['valid_until'])
         document_age = min(document_age, max(0, (health_until-now).total_seconds()))
-    if document_age < PRESENTATION_MAX_AGE_SECONDS:
-        refresh_seconds = min(refresh_seconds, max(5, int(document_age/2)))
+    refresh_limit_ms = min(30, max(5, refresh_seconds)) * 1000
     overall = panel.overall
     operational = panel.operational
     if health['color'] == 'neutral':
@@ -517,6 +516,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
              data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
+             data-controller-version="2"
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
@@ -544,6 +544,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 // Negative authority only. This code can remove green before a network read;
 // only the server can earn it again by returning a new complete document.
 (function(){{
+  // Receiving new HTML does not execute its controller. This identifies the
+  // live controller independently of the version offered by the latest body.
+  window.sentinelDashboardControllerVersion = "2";
   var invalidated = false;
   {CURRENT_DOCUMENT_SCRIPT}
   {DOM_REFRESH_SCRIPT}
@@ -554,6 +557,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
+  var maximumRefreshMs = {refresh_limit_ms};
+  var refreshDelayMs = refreshCadence(budget);
+  var visualAnchor = performance.now();
+  var visualAge = Math.max(0, Date.now() - generated);
   var hasBeenVisible = document.visibilityState === "visible";
   var pageAway = !hasBeenVisible;
   var wentToBackground = false;
@@ -568,7 +575,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var ordinaryStarted = null;
   var ordinaryEligible = false;
   var ordinaryTimer = null;
-  var ordinaryDue = Date.now() + {refresh_seconds * 1000};
+  var ordinaryDue = Date.now() + refreshDelayMs;
   var resumeStarted = null;
   var resumeExhausted = false;
   var resumeTimer = null;
@@ -576,6 +583,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var refreshTimer;
   function validBudget(value){{
     return Number.isFinite(value) && value > 0 && value <= maximumBudget;
+  }}
+  function refreshCadence(value){{
+    return validBudget(value) && value < maximumBudget ?
+      Math.min(maximumRefreshMs, Math.max(5000, Math.floor(value / 2000) * 1000)) : maximumRefreshMs;
+  }}
+  function elapsedVisualAge(){{
+    return visualAge + Math.max(0, performance.now() - visualAnchor);
+  }}
+  function armHeartbeat(){{
+    clearTimeout(ageTimer);
+    var elapsed = elapsedVisualAge();
+    var delay = Number.isFinite(elapsed) ? Math.max(1, 1000 - elapsed % 1000) : 1000;
+    ageTimer = setTimeout(function heartbeatTick(){{ checkAge(); armHeartbeat(); }}, delay);
+  }}
+  function armRefresh(){{
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, refreshDelayMs);
   }}
   async function refreshDocument(){{
     if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
@@ -619,12 +643,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       planReadiness = document.getElementById('plan-readiness');
       generated = Date.parse(document.body.dataset.generatedAt);
       budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+      refreshDelayMs = refreshCadence(budget);
+      visualAnchor = performance.now();
+      visualAge = Math.max(0, Date.now() - generated);
       invalidated = false; hardFailure = false; refreshDelayed = false;
-      ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = Date.now()+{refresh_seconds * 1000};
+      ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = Date.now()+refreshDelayMs;
       resumeStarted = null; resumeExhausted = false; wentToBackground = false;
       document.documentElement.classList.remove('not-current', 'refreshing-status');
-      refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
+      armRefresh();
       checkAge();
+      armHeartbeat();
     }} catch (_error) {{
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
@@ -733,8 +761,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       if (!invalidated && continuityCurrent()){{ showResume(); }}
       else {{ invalidate(true); }}
     }} else if (!invalidated && !refreshDelayed){{
-      heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
-        Math.max(0, Math.floor(age / 1000)) + "s AGO";
+      var text = "DASHBOARD HEARTBEAT · UPDATED " +
+        Math.max(0, Math.floor(elapsedVisualAge() / 1000)) + "s AGO";
+      if (heartbeat.textContent !== text){{ heartbeat.textContent = text; }}
     }}
   }}
   function updateMarketCountdown(){{
@@ -798,8 +827,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     invalidate(false, true);
   }});
   if (wentOffline){{ invalidate(false, true); }}
-  ageTimer = setInterval(checkAge, 1000);
-  refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
+  armHeartbeat();
+  armRefresh();
   if (document.body.dataset.refreshPending === "true"){{
     resumeDocument();
   }} else {{ checkAge(); }}

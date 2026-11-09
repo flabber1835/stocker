@@ -8,9 +8,11 @@ def test_numeric_sequence_handoff_preserves_the_installed_architecture():
     before=profile['retained_predecessors'][revision]['files']
     assert len(before)==465 and admission.source_closure(before)==(
         '108be080769643dac94a1f092633adb38661b52c6776ef7a999df9ad51a7be05')
-    actual=admission._source_files(basis.PROFILE.parent)
+    # Qualify this historical edge against its retained exact successor. The
+    # independently pinned close-trace successor is qualified separately.
+    actual=profile['retained_predecessors'][basis.CLOSE_TRACE_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before[n]}=={
         'panel/display_dependencies.py','url_selected_source_basis.py'}
-    assert basis.predecessor_view(actual,previous=before)==before
-    assert len(profile['retained_predecessors'])==30 and profile['authority_effect']=='NONE'
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
+    assert profile['authority_effect']=='NONE'
