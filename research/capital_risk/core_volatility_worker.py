@@ -192,6 +192,9 @@ def run(arm, maximum, previous=None, aaap_model=False, completion_facts=False, s
             if cash_case == 'GBT':
                 from core_volatility_gbt_facts import prepare as prepare_gbt, observer
                 extra, material = prepare_gbt(before, Path('/out'), arm)
+            elif cash_case == 'FMTX':
+                from core_volatility_fmtx_facts import prepare as prepare_fmtx, observer
+                extra, material = prepare_fmtx(before, Path('/out'), arm)
             else:
                 from core_volatility_cash_facts import prepare as prepare_cash, observer
                 extra, material = prepare_cash(before, Path('/out'), arm, cash_case)
@@ -225,7 +228,7 @@ if __name__ == '__main__':
     p.add_argument('--completion-facts', action='store_true')
     p.add_argument('--sonc-facts', action='store_true')
     p.add_argument('--control-equivalence', action='store_true')
-    p.add_argument('--cash-case', choices=('BEL', 'GBT'))
+    p.add_argument('--cash-case', choices=('BEL', 'GBT', 'FMTX'))
     p.add_argument('--control-replay', action='store_true')
     a = p.parse_args()
     hosted()

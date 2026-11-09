@@ -489,6 +489,34 @@ Generation 11 is a new source-bound retry from the same already admitted
 September 30 predecessor, requesting the same 960 closes. Never rerun the
 unchanged failed request or relax the exact term/ownership/input guards.
 
+Generation 11 passed GBT selection, qualification and its actual completion,
+then refused October 14 because newly held FMTX had no resolved completion mark.
+Its last committed September 30 checkpoint now includes the qualified GBT
+future input (`15f55129e14c582e944f1f4341667be9b87dad78ae8f685fd3b5ee699cb8068d`).
+Preserve its nine uncommitted October 3-13 closes and failed state as evidence;
+they do not authorize resuming after the committed boundary.
+
+Generation 12 selects only FMTX from the existing source-bound October cash
+calendar catalog. That catalog explicitly awaited hosted canonical qualification;
+do not relabel it previously adopted. The SEC completion 8-K accession
+0001193125-22-262644 confirms the October 14 mandatory $20 ordinary-share cash
+right and preopen trading suspension. Bind this future-only input to the exact
+new committed predecessor, where FMTX is unowned/unordered; future own quantity
+must be observed dynamically. Preserve the original holder exceptions and no
+actual-payment-time claim. Revalidate the original calendar validator, native
+preimage and October 13 frozen identity witness; run canonical notional/parser
+falsifiers and actual cash/ledger postconditions before admitting any continuation.
+Keep the remaining 960-close bound and all strategy/controller rules unchanged.
+FMTX must also be included in the final matched control input basis.
+
+The SEC complete-submission header independently confirms acceptance at
+08:48:02 New York time on October 14, before the regular open; the filed report
+already states completion. Local FMTX/GBT/BEL DATA and inspected-command
+regressions passed 55 tests in 9.06 seconds using the canonical-import fence
+and `C:/GitHub/stocker/.codex-tmp/vfmtx12-data-tests-1` basetemp. Actual source
+hydration, original incomplete-term guards and ordinary cash accounting remain
+hosted qualifications, not local financial calculation.
+
 Control-model differential implementation: select only the new control's own
 authenticated January 31 checkpoint and committed prefixes into two private
 diagnostic forks. Preserve the full original input as read-only evidence. Run
