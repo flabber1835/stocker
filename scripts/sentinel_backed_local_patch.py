@@ -182,6 +182,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
 class BackedHost(Host):
     supports_verification_recovery = True
     supports_post_trade_verification_recovery = True
+    supports_dashboard_ack_progress = True
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True

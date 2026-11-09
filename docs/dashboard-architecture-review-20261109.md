@@ -158,3 +158,11 @@ expired final observation uses the existing separately journaled recovery comman
 with a new finite observation, unchanged processes and fresh canonical proof;
 it never resets the original deadline or restarts trading. See
 [dashboard-posttrade-install-readiness.md](dashboard-posttrade-install-readiness.md).
+
+A supported dashboard acknowledgement after the original install snapshot also
+changes the legacy combined alert/ACK digest. The preservation guard must retain
+that digest and prove the monotonic acknowledgement separately: unchanged payload
+reconstructs the exact old unacknowledged digest, and a signed same-scope review
+event authenticates the actor, alert and exact clock. All delivered history stays
+exact. This is an installer metadata boundary, with no runtime image or financial
+authority change. See [dashboard-install-acknowledgement-progress.md](dashboard-install-acknowledgement-progress.md).

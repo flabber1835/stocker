@@ -328,14 +328,20 @@ def notification_history(host):
 
 
 def check_notification_history(host, previous):
-    """Allow append/progress while retaining payloads, acks and delivered receipts."""
+    """Retain history; prove supported ACK progress separately from payloads."""
     require(isinstance(previous, dict) and set(previous) == _NOTIFICATION_GROUPS
             and all(isinstance(records, dict) for records in previous.values()),
             'Predecessor notification history is incomplete')
     current = notification_history(host)
     for group, records in previous.items():
-        require(all(current[group].get(key) == value for key, value in records.items()),
-                'Existing notification history changed: '+group)
+        if group != 'alerts':
+            require(all(current[group].get(key) == value for key, value in records.items()),
+                    'Existing notification history changed: '+group)
+    # Refuse altered delivery history before the rare authenticated ACK proof.
+    records = previous['alerts']
+    if not all(current['alerts'].get(key) == value for key, value in records.items()):
+        from .notification_ack_progress import prove
+        prove(host, records, current['alerts'])
     return {group: len(set(current[group])-set(previous[group])) for group in previous}
 
 
