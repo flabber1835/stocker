@@ -71,6 +71,11 @@ def digest(value: object) -> str:
     return hashlib.sha256(encoded(value)).hexdigest()
 
 
+def json_value(value: object) -> object:
+    """Use the journal's JSON representation without relaxing field values."""
+    return json.loads(encoded(value))
+
+
 def file_sha(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -580,7 +585,9 @@ def verify_projection(row: dict, arm: str, record: dict, prior: dict | None,
     wanted = {s: str(q) for s, q in api.desired_basket(final).items()}
     for intent in intents:
         wanted[intent.security_id] = "0"
-    ownership = api.ownership(SimpleNamespace(**state))
+    # Canonical ownership uses (slot, signal-session) tuples in memory. The
+    # journal necessarily stores those exact tuples as JSON arrays.
+    ownership = json_value(api.ownership(SimpleNamespace(**state)))
     for sid in ownership:
         wanted.setdefault(sid, "0")
     need(audit["ownership"] == ownership and pending["ownership"] == ownership,
