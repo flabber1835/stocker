@@ -28,7 +28,7 @@ def cutoff(receipt, *, now=None):
 # Self-contained because the selected runtime image does not contain host tools.
 # The exact existing validator is supplied separately and consumes the very same
 # HTTP response; successful observations are never fetched twice.
-PANEL_WAIT = r'''import io,json,sys,time,urllib.error,urllib.request
+PANEL_WAIT = r'''import hashlib,io,json,sys,time,urllib.error,urllib.request
 from datetime import datetime,timedelta,timezone
 expected=json.loads(sys.argv[1])
 validator=sys.argv[2]
@@ -53,12 +53,13 @@ def budget():
  left=min(deadline-time.monotonic(),(cutoff-datetime.now(timezone.utc)).total_seconds())
  assert left>0,'APPLICATION_READINESS_DEADLINE'
  return left
-def clean_retired_projection_wait(rows,checking,instant):
+def clean_retired_projection_wait(rows,checking,instant,page):
  if not (expected.get('handoff_mode')=='POST_TRADE' and expected.get('clean_retired') is True
-         and 'paper_reconciliation' in checking):return set()
+         and ('paper_reconciliation' in checking or 'backup_restore' in checking)):return set()
+ checking_paper='paper_reconciliation' in checking
  paper=rows['paper_reconciliation']
  fact=OperationalFact.model_validate(paper['operational_fact']);fact.require_key('paper_reconciliation')
- assert fact.kind=='PAPER_VERIFICATION' and fact.state=='CHECKING','READINESS_CLEAN_RETIRED_PAPER_CHECK'
+ assert fact.kind=='PAPER_VERIFICATION' and fact.state==('CHECKING' if checking_paper else 'AWAITING_NEXT_DECISION'),'READINESS_CLEAN_RETIRED_PAPER_CHECK'
  assert paper['current'] is True and paper['required_current'] is True,'READINESS_CLEAN_RETIRED_PAPER_CURRENT'
  assert paper['stale'] is False and paper['future'] is False,'READINESS_CLEAN_RETIRED_PAPER_CLOCK'
  bound=datetime.fromisoformat(paper['valid_until'])
@@ -86,6 +87,11 @@ def clean_retired_projection_wait(rows,checking,instant):
   assert instant<original_end,'READINESS_CLEAN_RETIRED_HISTORY_EXPIRED'
  if current['status']=='warn' and current.get('recovery') is None:
   assert history is not None and datetime.fromisoformat(current['valid_until'])==history.opening.deadline,'READINESS_CLEAN_RETIRED_HISTORY_REQUIRED'
+ if not checking_paper:
+  progress=paper['recovery']
+  assert paper['status']=='warn' and paper['original_status']=='warn' and paper['color']=='amber' and paper['value']=='PLAN SKIPPED · CASH ACTIVITY RECONCILED','READINESS_CLEAN_RETIRED_PAPER_POSITIVE'
+  assert (fact.opening.plan_id,fact.opening.cycle_id,fact.opening.observation_id,fact.opening.started_at)==(expected['plan'],expected['cycle_id'],int(expected['reconciliation_id']),completed),'READINESS_CLEAN_RETIRED_PAPER_SUBJECT'
+  assert fact.opening.deadline==bound and progress['phase']=='AWAITING_NEXT_DECISION' and progress['automatic'] is True and progress['operator_required'] is False and progress['active'] is True,'READINESS_CLEAN_RETIRED_PAPER_RECOVERY'
  keys={'trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
  for key in keys-{'trading_run'}:
   row=rows[key];workflow=OperationalFact.model_validate(row['operational_fact']);workflow.require_key(key)
@@ -103,7 +109,65 @@ def clean_retired_projection_wait(rows,checking,instant):
     assert row['value']=='INTERRUPTED · RECONCILED · PLAN SKIPPED','READINESS_CLEAN_RETIRED_TRANSPORT_RESOLUTION:automation_step_transport'
     assert progress['phase']=='AWAITING_NEXT_DECISION' and progress['automatic'] is True and progress['operator_required'] is False,'READINESS_CLEAN_RETIRED_TRANSPORT_RECOVERY:automation_step_transport'
     assert instant<datetime.fromisoformat(progress['deadline'])==datetime.fromisoformat(row['valid_until']),'READINESS_CLEAN_RETIRED_TRANSPORT_DEADLINE:automation_step_transport'
+ if not checking_paper:keys.add('paper_reconciliation')
+ broker=rows['broker']
+ if broker['status']!='ok':
+  assert checking_paper and history is not None,'READINESS_CLEAN_RETIRED_BROKER_CHECK_REQUIRED'
+  assert broker['status']=='fail' and broker['original_status']=='fail' and broker['color']=='red','READINESS_CLEAN_RETIRED_BROKER_EXPIRY_STATUS'
+  assert broker['current'] is True and broker['required_current'] is True and broker['stale'] is True and broker['future'] is False and broker.get('recovery') is None,'READINESS_CLEAN_RETIRED_BROKER_EXPIRY_STATE'
+  observed=datetime.fromisoformat(broker['as_of']);expired=datetime.fromisoformat(broker['valid_until'])
+  assert observed.utcoffset()==expired.utcoffset()==timedelta(0) and observed<expired<=instant and expired==observed+timedelta(minutes=10),'READINESS_CLEAN_RETIRED_BROKER_EXPIRY_CLOCK'
+  assert history.opening.reconciled_at<=observed<=completed,'READINESS_CLEAN_RETIRED_BROKER_HISTORY_CLOCK'
+  candidate=OperationalFact.model_validate(broker['operational_fact']);candidate.require_key('broker')
+  assert candidate.kind=='EXECUTION_PROGRESS' and candidate.state=='AWAITING_NEXT_DECISION','READINESS_CLEAN_RETIRED_BROKER_CANDIDATE'
+  assert (candidate.opening.cycle_id,candidate.opening.plan_id,candidate.opening.observation_id,candidate.opening.started_at)==(expected['cycle_id'],expected['plan'],int(expected['reconciliation_id']),completed),'READINESS_CLEAN_RETIRED_BROKER_SUBJECT'
+  from sentinel.automation import schedule
+  from sentinel.automation.model import AutomationConfig
+  from sentinel.feed import calendar
+  obligation=schedule.for_decision_session(calendar.next_session(str(run.intent.decision_session)),AutomationConfig()).prepare_at.astimezone(timezone.utc)
+  assert instant<candidate.opening.deadline==obligation,'READINESS_CLEAN_RETIRED_BROKER_OBLIGATION'
+  frame=page['observation'];generated=datetime.fromisoformat(page['as_of']);until=datetime.fromisoformat(frame['valid_until'])
+  assert frame['current'] is True and frame.get('strict_current',True) is True and generated.utcoffset()==until.utcoffset()==timedelta(0) and generated<=instant<until<=generated+timedelta(seconds=30),'READINESS_CLEAN_RETIRED_BROKER_FRAME'
+  keys.add('broker')
  return keys
+
+def maintenance_wait(row,instant):
+ if row.get('value')!='BACKUP CHECK IN PROGRESS':return False
+ progress=row.get('recovery') or {}
+ assert row['status']=='warn' and row['original_status']=='warn' and row['color']=='amber','READINESS_BACKUP_MAINTENANCE_STATUS'
+ assert row['current'] is True and row['required_current'] is True and row['stale'] is False and row['future'] is False,'READINESS_BACKUP_MAINTENANCE_CURRENT'
+ assert progress.get('phase')=='BACKUP_MAINTENANCE' and progress.get('automatic') is True and progress.get('operator_required') is False and progress.get('active') is True,'READINESS_BACKUP_MAINTENANCE_RECOVERY'
+ observed=datetime.fromisoformat(row['as_of']);until=datetime.fromisoformat(row['valid_until'])
+ assert observed.utcoffset()==until.utcoffset()==timedelta(0) and observed<=instant<until<=observed+timedelta(hours=1) and until==datetime.fromisoformat(progress['deadline']),'READINESS_BACKUP_MAINTENANCE_CLOCK'
+ return True
+
+def status_code(value):
+ return value if isinstance(value,str) and value in {'ok','warn','pending','fail','unknown'} else 'INVALID'
+
+def refusal_summary(page,stage):
+ def stamp(value):
+  try:
+   at=datetime.fromisoformat(value)
+   return at.isoformat() if at.utcoffset()==timedelta(0) else 'INVALID'
+  except (ValueError,TypeError):return None if value is None else 'INVALID'
+ closed={'authority','broker','runtime_identity','feed','ownership','book','exposure','backup_restore','paper_reconciliation','trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
+ result=[]
+ for row in page['rows'] if isinstance(page,dict) and isinstance(page.get('rows'),list) else []:
+  if not isinstance(row,dict) or not isinstance(row.get('key'),str) or row['key'] not in closed:continue
+  progress=row.get('recovery') or {};phase=progress.get('phase') if isinstance(progress,dict) else None
+  item=dict(key=row['key'],status=status_code(row.get('status')),original_status=status_code(row.get('original_status')),
+   as_of=stamp(row.get('as_of')),valid_until=stamp(row.get('valid_until')),
+   current=row.get('current') is True,stale=row.get('stale') is True,future=row.get('future') is True,
+   recovery_phase=phase if isinstance(phase,str) and phase in {'FINANCIAL_VERIFICATION','BACKUP_MAINTENANCE','AWAITING_NEXT_DECISION'} else 'OTHER' if phase else None,
+   recovery_deadline=stamp(progress.get('deadline')) if isinstance(progress,dict) else None,
+   value_sha256=hashlib.sha256(row.get('value','')[:4096].encode('utf-8','backslashreplace')).hexdigest() if isinstance(row.get('value'),str) else None)
+  result.append(item)
+  if len(result)==len(closed):break
+ print(json.dumps(dict(schema='sentinel.install-readiness-refusal/1',stage=stage,rows=result),sort_keys=True),file=sys.stderr,flush=True)
+
+def retain_refusal(page,stage):
+ try:refusal_summary(page,stage)
+ except Exception:pass  # Diagnostics cannot replace the original refusal.
 def partial_wait(page,rows,checking,workflows,retiring):
  # Validate the public protocol. Human display admission is not installation
  # authority and private runtime model predicates are not a host-tool API.
@@ -189,6 +253,7 @@ def pending(page,header):
    assert bound.utcoffset() is not None and instant<bound<=instant+timedelta(seconds=600)
    assert datetime.fromisoformat(row['valid_until'])==bound
    checking.add(key)
+ if maintenance_wait(rows.get('backup_restore',{}),instant):checking.add('backup_restore')
  workflows=set()
  if checking:
   for key,phase in [('automation_cycle','AUTOMATION_WAITING_OPEN'),('automation_step_open','AUTOMATION_OPEN')]:
@@ -200,7 +265,7 @@ def pending(page,header):
     bound=datetime.fromisoformat(recovery['deadline'])
     assert bound.utcoffset() is not None and instant<bound
     workflows.add(key)
- retiring=clean_retired_projection_wait(rows,checking,instant)
+ retiring=clean_retired_projection_wait(rows,checking,instant,page)
  if header=='PARTIAL':
   return partial_wait(page,rows,checking,workflows,retiring)
  if strict is False:
@@ -218,9 +283,10 @@ def pending(page,header):
  for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure',
              'trading_run' if post_trade else 'paper_plan','backup_restore'):
   if key in rows and key not in checking:
+   if key=='broker' and key in retiring:continue
    if key=='trading_run' and expected.get('clean_retired'):
     assert rows[key]['status'] in ({'fail','warn'} if key in retiring else {'warn'}),'NONSTARTUP_READINESS_FAILURE'
-   else:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
+   else:assert rows[key]['status']=='ok',f'NONSTARTUP_READINESS_FAILURE:{key}:{status_code(rows[key].get("status"))}'
  review=page['operator_review'];health=page['dashboard_health']
  assert isinstance(review,dict) and isinstance(health,dict)
  conditions=set(review['active'])|set(review['warnings'])|set(health['active_conditions'])|set(health['review_conditions'])
@@ -247,7 +313,10 @@ while True:
    headers=response.headers
    header=response.headers.get('X-Sentinel-Panel-Status')
   budget()
-  reason=pending(page,header)
+  try:reason=pending(page,header)
+  except (AssertionError,ValueError,KeyError,TypeError):
+   retain_refusal(page,'PENDING')
+   raise
  except urllib.error.HTTPError as error:
   if error.code!=503:raise
   error.close()
@@ -266,8 +335,11 @@ while True:
  if reason is None:
   response=io.StringIO(json.dumps(page));response.headers=headers
   printed=[]
-  exec(compiled_validator,
-   {'_page':page,'_response':response,'print':printed.append})
+  try:
+   exec(compiled_validator,{'_page':page,'_response':response,'print':printed.append})
+  except (AssertionError,ValueError,KeyError,TypeError):
+   retain_refusal(page,'FINAL')
+   raise
   budget()
   assert len(printed)==1
   output=json.loads(printed[0])

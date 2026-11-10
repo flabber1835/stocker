@@ -131,3 +131,51 @@ positions, notification history, PostgreSQL storage and six healthy applications
 This corrects subject routing only. It does not accept an empty SQL result, infer
 a mode from current data, bypass any guard, mark the old receipt VERIFIED, rebuild
 an unchanged application, or mutate installed source.
+
+## Wait for independent startup proof without hiding its expired predecessor
+
+Decision before implementation, based on authenticated review events 3807–3808
+at 2026-11-10 16:58:17Z: the broker row was raw OK but effectively FAIL because
+its original 14:37:50.477990Z observation expired at 14:47:50.477990Z. Financial
+verification was still checking, with its original deadline 17:02:56.805727Z.
+The pending-only clean-retired gate may wait for this exact intersection. It
+must retain the failure on screen and require a fresh full PAPER and broker
+proof before the unchanged strict final validator can succeed.
+
+Public row status/original_status are effective statuses, not native raw status.
+Do not invent a raw-status field. The qualified source's existing
+_clean_idle_candidate can attach EXECUTION_PROGRESS/AWAITING_NEXT_DECISION only
+to raw broker OK with no durable command counts. Require that typed provenance,
+the same exact validated EXECUTION_HISTORY cycle/plan/observation/completion,
+zero run orders, current nonfuture public frame/row, no broker recovery, genuine
+staleness at its original as_of + 10-minute expiry, and the exact future
+obligation deadline. Recompute only that deterministic deadline using the same
+existing next-decision schedule as the source; no preparation or broker IO.
+Unknown/raw negative source rows cannot earn the candidate. Missing/mismatched
+evidence, unexpired/future/altered clocks, unrelated failures and expired checks
+still refuse. No fact or original host/check deadline is changed.
+
+Separately, an already producer-admitted BACKUP CHECK IN PROGRESS WARN may wait
+under its exact automatic BACKUP_MAINTENANCE recovery, current required row,
+original finite as_of/deadline and no stale/future state. The producer retains
+all existing owner/system/image/base/restore-integrity admission. The host
+consumes this typed result without re-running media checks or parsing prose.
+This is pending only: final installation still requires positive backup proof.
+The recorded 16:58 broker incident had no overlapping maintenance pass.
+
+Eight-row readiness refusals name only the closed row key and status code.
+Before propagating a pending/final refusal, retain one bounded private stderr
+summary of closed row keys/statuses/booleans, canonical timestamps, closed
+recovery phases and a value hash. Never retain acknowledgement tokens, arbitrary
+payloads, details, connection strings or secrets. This diagnostic grants no
+readiness, does not retry failures and does not extend any budget.
+
+The broker predecessor observation also belongs to the original recorded
+retirement sequence: independently proved reconciliation at 14:37:30.254546Z
+<= broker observation at 14:37:50.477990Z <= completion at 14:38:03.128438Z.
+Require that ordering, not equality between different events. Shifting both
+broker observation and expiry outside those original historical bounds must
+refuse even when all candidate IDs still match.
+
+Diagnostic formatting is best effort and cannot replace the original refusal,
+including malformed Unicode or a failed private stderr sink.
