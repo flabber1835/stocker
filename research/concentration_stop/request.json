@@ -11,23 +11,27 @@
     "0.20",
     "0.25"
   ],
-  "generation": 1,
+  "generation": 2,
+  "harness_correction": "END_MARK_SESSION_AND_PHASE_ORDERING",
   "legacy_commit": "0bc38753ac1f85b31eb95f560720e6b037e892c5",
   "original_stop": "0.30",
   "portfolio_performance_claim": false,
+  "prior_stopped_unadmitted_runs": [
+    42746342186
+  ],
   "production_contacted": false,
   "reference_budget": "0.015",
   "schema": "research.concentration-stop-request/1",
   "sources": {
     ".github/workflows/concentration-stop-diagnostic.yml": "1699b3fcd2a6711ab437c0b1cba77707a63e1ae0e8a9485d09493831181f7382",
-    "docs/concentration-stop-diagnostic-20261109.md": "322ccbe190eb20a889f5c141b984cb0a7d1569fec1aad11233b44ae801a7e4a8",
+    "docs/concentration-stop-diagnostic-20261109.md": "d0e1c87fe24a0557aa4a5368ca19d4296686ad4afd84170d700222e33e52b6ca",
     "research/concentration_stop/data.py": "106105423b48ebac2872871801abf263e05f4cc10a2e40bf8cd799957e4ada23",
-    "research/concentration_stop/job.py": "ccfd065633393afc500d51f7d0e40609382e2d374d572aef08b6ce2de2991526",
-    "research/concentration_stop/review.py": "e639d4abeaab9823508c6691d5dce751cd653a85aad5a910ac3ddc2173b6e929",
+    "research/concentration_stop/job.py": "9a70afdc54123ed0f43e17b2fdea2d2604c144ea1e4c5e0071444d17e5601256",
+    "research/concentration_stop/review.py": "c9e52e501b1f87f47e66e84dc76d020e01b906f89c6022f08ad0a5c6a0b0eb6d",
     "research/concentration_stop/test_launch_guards.py": "51604cdf7638d7ed4d87192a9658611c0295cab6c11a1345ee1af377920d91d0",
     "research/concentration_stop/test_review_guards.py": "ff9a20df84ee4fbed3ce85bd9fd3752bc7c54512a21e5e8a6f9e884874a2f611",
     "research/concentration_stop/transport.py": "b92b2bc8932f7c7c57bf7b7811d8ea630c7ceda3d04c30f713341c5210534c26",
-    "research/concentration_stop/worker.py": "626a0055b84507f2dacea03ca55e9540b479cb5b9b7f42f7b56f9d01217d8f17"
+    "research/concentration_stop/worker.py": "596be622c5216764b0baa03438845af3ffe5854284ac759471187515bbd0e525"
   },
   "start": "2018-01-02",
   "transport_commit": "553590ca197c55942aadeb690d5436abd49a35d1",

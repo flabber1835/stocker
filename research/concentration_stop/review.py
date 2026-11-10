@@ -166,7 +166,8 @@ def evaluate(episode, minimum, axis):
         net = exit_gross - fee
     else:
         exit_gross, fee, net = original_gross, original_fee, original_net
-    early = opening is not None and opening["session"] < endpoint
+    early = opening is not None and (opening["session"] < endpoint or
+        episode["endpoint_kind"] == "END_MARK" and opening["session"] == endpoint)
     candidate_dividends = (sum((num(e["detail"]["amount"]) for e in accrued
                                if e["session"] <= opening["session"]), Fraction(0))
                            if early else original_dividends)
@@ -364,6 +365,30 @@ def review(args):
     failure_required(lambda: need(num(distribution_result["candidate_dividends"]) == 5,
         "POST_EXIT_CLAIM_WRONGLY_RETAINED"), "retained_post_exit_claim")
     negatives.append("retained_post_exit_claim")
+    # Opening and closing are different economic phases even when their ISO
+    # session dates agree. A last-date open sale precedes an END_MARK close.
+    phase_samples = []
+    phase_days = ["2018-01-02", "2018-01-03", "2018-01-04"]
+    for index, (day, price) in enumerate(zip(phase_days, (100, 80, 70), strict=True)):
+        phase_samples.append(dict(index=index, session=day, raw_close=price, price_status="CURRENT", nav=500,
+            own_dd=float(Fraction(price, 100)-1), episode=dict(slot_id=0, signal_date="2017-12-29",
+                entry_date="2018-01-02", security_id="SYNTH:PHASE", initial_shares=1, current_shares=1,
+                entry_raw_open=100, entry_split_adjusted_price=100, episode_peak_split_adjusted_close=100)))
+    phase_episode = dict(key="0|2017-12-29", slot_id=0, signal_date="2017-12-29", entry_date="2018-01-02",
+        anchor_held=False, sids=["SYNTH:PHASE"], tickers=["PHASE"], observations=phase_samples,
+        openings=[dict(index=2, session="2018-01-04", raw_open=90, price_status="RAW_OPEN",
+                       episode=deepcopy(phase_samples[-1]["episode"]))], source_events=[],
+        endpoint_session="2018-01-04", endpoint_kind="END_MARK", original_sell=None)
+    phase_result = evaluate(phase_episode, Fraction(1, 10), phase_days)
+    need(phase_result["fill_session"] == phase_result["endpoint_session"] and phase_result["early_exit"]
+         and num(phase_result["net_difference"]) == Fraction(1991, 100), "END_MARK_OPEN_PRECEDES_SAME_DATE_CLOSE")
+    bad_phase = deepcopy(phase_result)
+    bad_phase["early_exit"] = False
+    failure_required(lambda: compare_result(bad_phase, phase_result, "PHASE"), "same_date_end_mark_phase")
+    phase_control = evaluate(phase_episode, Fraction(3, 10), phase_days)
+    need(phase_control["unexecuted_signal"] and phase_control["fill_session"] is None
+         and num(phase_control["net_difference"]) == 0, "NO_INVENTED_OPEN_AFTER_LAST_CLOSE")
+    negatives.append("same_date_end_mark_phase")
     corrupted = deepcopy(report)
     corrupted["arms"][ordered[0]]["episodes"][0]["net_difference"] = "999999999"
     expected = expected_arms[ordered[0]]["episodes"][0]

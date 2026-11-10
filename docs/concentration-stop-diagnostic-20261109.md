@@ -75,6 +75,9 @@ with original terminal stock proceeds/mark plus original dividends. Use the
 existing 10bp exit cost; do not charge an extra original exit after early sale.
 Common entry costs cancel. This arithmetic does not reinvest dividends or sale
 cash into other episodes and does not model freed-slot replacements/re-entry.
+Compare endpoint session and phase: a sale at the July 31 opening is earlier
+than an original July 31 closing END_MARK, even on the same calendar date.
+A candidate sale at the same original SELL opening is unchanged, not earlier.
 
 Report every episode, first activation, source peak weight, new signal/open,
 original endpoint, net terminal difference, dividends and fee difference, and

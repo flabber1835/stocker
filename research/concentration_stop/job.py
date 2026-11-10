@@ -46,7 +46,9 @@ def save(path, value):
 
 def expected_request():
     files = list(HERE.glob('*.py')) + [ROOT/DOC, ROOT/WORKFLOW]
-    return dict(schema='research.concentration-stop-request/1', generation=1,
+    return dict(schema='research.concentration-stop-request/1', generation=2,
+        prior_stopped_unadmitted_runs=[42746342186],
+        harness_correction='END_MARK_SESSION_AND_PHASE_ORDERING',
         verified_main=BASE, legacy_commit=LEGACY, transport_commit=TRANSPORT,
         start='2018-01-02', end='2026-07-31', closes=2156, activation='0.10',
         reference_budget='0.015', floors=['0.06','0.10','0.15','0.20','0.25'],

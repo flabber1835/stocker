@@ -179,7 +179,8 @@ def evaluate(ep, floor, rows):
     signal, level, trace = scan(ep, floor, unit)
     fill = fill_after(ep, signal, rows)
     original_value, original_fee, original_gross = original_endpoint(ep)
-    early = fill is not None and fill['session'] < ep['endpoint_session']
+    early = fill is not None and (fill['session'] < ep['endpoint_session']
+        or ep['endpoint_kind'] == 'END_MARK' and fill['session'] == ep['endpoint_session'])
     dividends = dividend_records(ep)
     original_dividend = sum((fraction(e['detail']['amount']) for e in dividends), F(0))
     candidate_dividend = sum((fraction(e['detail']['amount']) for e in dividends
@@ -188,7 +189,7 @@ def evaluate(ep, floor, rows):
     exit_fee = fill['fee'] if fill is not None else original_fee
     delta = exit_value+candidate_dividend-original_value-original_dividend
     if not early:
-        need(delta == 0, 'NO_DIFFERENCE_WITHOUT_EARLIER_EXIT')
+        need(delta == 0, 'NO_DIFFERENCE_WITHOUT_EARLIER_EXIT:'+ep['key']+':'+str(floor)+':'+str(delta))
     peak_after = None
     foregone = F(0)
     if early:
@@ -301,6 +302,18 @@ def synthetic_tests():
     test('ACTUAL_EX_DATE_SALE_ENTITLEMENT',fraction(alternate['candidate_dividends'])==1
          and fraction(alternate['original_dividends'])==3)
     test('ACTUAL_NET_TERMINAL_ARITHMETIC',fraction(alternate['net_difference'])==F('18.979'))
+    marked=deepcopy(episode)
+    marked.update(endpoint_kind='END_MARK',endpoint_session='2018-01-04',original_sell=None)
+    marked['source_events']=[e for e in marked['source_events'] if e['session'] <= marked['endpoint_session']]
+    marked['openings']=[p for p in marked['openings'] if p['session'] <= marked['endpoint_session']]
+    marked_exit=evaluate(marked,'.10',rows[:3])
+    test('END_DATE_OPEN_PRECEDES_CLOSING_MARK',marked_exit['early_exit']
+         and marked_exit['fill_session']==marked_exit['endpoint_session']
+         and fraction(marked_exit['net_difference'])==F('19.91')
+         and fraction(marked_exit['candidate_dividends'])==1)
+    marked_control=evaluate(marked,'.30',rows[:3])
+    test('FINAL_CLOSE_SIGNAL_UNEXECUTED_CONTROL_ZERO',marked_control['unexecuted_signal']
+         and marked_control['fill_session'] is None and fraction(marked_control['net_difference'])==0)
     broken=deepcopy(episode);broken['openings']=[x for x in broken['openings'] if x['session']!='2018-01-04']
     refuse('MISSING_OPEN_NO_FUTURE_SUBSTITUTION',lambda:evaluate(broken,'.10',rows))
     broken_units=deepcopy(episode)
