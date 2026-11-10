@@ -538,7 +538,7 @@ def main(argv=None):
             folder=builder.safe_directory(folder,create=True)
             def factory(request,op):return BackedHost(request,op,predecessor_receipt=args.predecessor_receipt,
                 allow_started=args.allow_started_predecessor)
-            draft=factory(dict(source=args.source,deployment=args.deployment),folder)
+            draft=factory(dict(source=args.source,deployment=args.deployment,handoff_mode=args.handoff_mode),folder)
             witness=predecessor_witness(args.predecessor_receipt,
                 inspect_image=lambda ref:builder._inspect(draft,ref),allow_started=args.allow_started_predecessor)
             # The draft graph needs only the two already bound source revisions.
@@ -558,7 +558,7 @@ def main(argv=None):
             folder=builder.safe_directory(args.operation_dir,create=True)
             built=builder.pinned_build(args.build_record,args.build_sha256)
             host=BackedHost(dict(source=built['source'],deployment=built['deployment'],
-                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder,
+                predecessor=built['foundation'],candidate=dict(commit=built['commit']),handoff_mode=args.handoff_mode),folder,
                 predecessor_receipt=built['predecessor_receipt']['path'],
                 allow_started=built['predecessor_receipt'].get('allow_started') is True)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,

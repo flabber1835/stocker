@@ -115,3 +115,19 @@ mismatched IDs, unknown outcomes, future/unreconciled interruptions, unrelated
 negatives or expired evidence still refuse. This can only wait within the
 original installation cutoff, including an ordinary partial publication; it
 cannot satisfy final readiness or reset any event/evidence clock.
+
+## Preserve the selected handoff subject during forward build and prepare
+
+Decision before implementation: the public backed build and prepare commands
+must put their CLI-selected handoff_mode into each temporary BackedHost request
+before reading the active predecessor baseline. These draft readers perform the
+same financial-preservation snapshot as a complete operation; omitting the mode
+incorrectly selects PRE_OPEN when the preserved subject is POST_TRADE.
+
+Keep the default PRE_OPEN selection for callers that omit the flag. An explicitly
+allowed APPLICATIONS_STARTED predecessor still requires its authenticated
+journal/build/qualification lineage, exact preserved financial snapshot, native
+positions, notification history, PostgreSQL storage and six healthy applications.
+This corrects subject routing only. It does not accept an empty SQL result, infer
+a mode from current data, bypass any guard, mark the old receipt VERIFIED, rebuild
+an unchanged application, or mutate installed source.
