@@ -19,7 +19,7 @@ def test_close_patch_is_exact_nonfinancial_successor_of_installed_application():
         'panel/postclose_feed_wait.py','panel/projection_service.py','panel/publication_wait.py',
         'panel/readiness_handoff.py','panel/render.py','panel/sources.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==34 and profile['authority_effect']=='NONE'
+    assert len(profile['retained_predecessors'])==35 and profile['authority_effect']=='NONE'
 
 
 def test_partial_or_changed_candidate_cannot_translate_into_old_authority():

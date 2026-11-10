@@ -9,9 +9,10 @@ import re
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 
 from sentinel_backup_maintenance import COMPOSE, Refused, runtime_image
-from sentinel_backup_integrity_report import FAILURE_PREFIX, failure, parse_failure, validate
+from sentinel_backup_integrity_report import FAILURE_PREFIX, failure, parse_failure, validate, validate_failure
 from sentinel_maintenance_process import run_bounded
 
 PAPER_URL = 'https://paper-api.alpaca.markets'
@@ -59,6 +60,10 @@ def environment(values):
 def observe(args, *, values=None, runner=None, bounded=run_bounded):
     values = os.environ if values is None else values
     started = time.monotonic()
+    started_at = datetime.now(timezone.utc).isoformat()
+    def host_failure(**facts):
+        return failure(**facts, timing=dict(alarm_budget_seconds=None, alarm_fired=False,
+            started_at=started_at, failed_at=datetime.now(timezone.utc).isoformat()))
     budget = getattr(args, 'timeout_seconds', 580)
     deadline = started+budget if type(budget) is int and 0 <= budget <= 600 else started
     def remaining(maximum):
@@ -106,7 +111,7 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
                 record = parse_failure(getattr(result, 'stderr', ''),
                     returncode=result.returncode, origin='WORKER')
             except (TypeError, ValueError, KeyError):
-                record = failure(origin='HOST', code='TRANSPORT_FAILURE', stage=stage,
+                record = host_failure(origin='HOST', code='TRANSPORT_FAILURE', stage=stage,
                     cause_type='TimeoutError' if result.returncode == 124 else 'PROTOCOL',
                     elapsed_seconds=time.monotonic()-started, worker_container='FAILED')
             raise IntegrityFailure(record)
@@ -128,7 +133,7 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
     except IntegrityFailure:
         pass
     except Exception as exc:
-        record = failure(origin='HOST', code='DEADLINE_EXCEEDED' if isinstance(exc, TimeoutError)
+        record = host_failure(origin='HOST', code='DEADLINE_EXCEEDED' if isinstance(exc, TimeoutError)
             else 'POLICY_REFUSED' if isinstance(exc, Refused)
             and stage in {'HOST_POLICY', 'HOST_IMAGE', 'HOST_POSTGRES'} else 'PROTOCOL_FAILURE',
             stage=stage, cause_type='TimeoutError' if isinstance(exc, TimeoutError)
@@ -152,13 +157,13 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
             except Exception:
                 pass
             if record is not None:
-                record = failure(**{key: record[key] for key in ('code', 'stage', 'cause_type',
-                    'elapsed_seconds', 'owner_wait_seconds', 'proof_seconds',
-                    'proof_completed_uptime', 'proof_observed_uptime', 'exception_chain')}, origin='HOST',
-                    proof_lock=record['cleanup']['proof_lock'],
-                    worker_container='REMOVED' if removed else 'FAILED')
+                record = dict(record, origin='HOST', cleanup=dict(record['cleanup'],
+                    worker_container='REMOVED' if removed else 'FAILED'))
+                record['retryable'] = (record['code'] in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
+                    and record['cleanup']['proof_lock'] in {'NOT_ACQUIRED', 'RELEASED'} and removed)
+                validate_failure(record)
             elif not removed:
-                record = failure(origin='HOST', code='TRANSPORT_FAILURE', stage='HOST_CLEANUP',
+                record = host_failure(origin='HOST', code='TRANSPORT_FAILURE', stage='HOST_CLEANUP',
                     cause_type='PROTOCOL', elapsed_seconds=time.monotonic()-started,
                     proof_lock='RELEASED', worker_container='FAILED')
     if record is not None:

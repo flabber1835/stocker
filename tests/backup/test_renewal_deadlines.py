@@ -351,3 +351,63 @@ def test_callback_start_deferral_guard_removal_is_executed(tmp_path,monkeypatch)
     monkeypatch.setattr(process,'run_bounded',namespace['run_bounded'])
     with pytest.raises(AssertionError):
         test_callback_start_failure_is_deferred_until_writer_finishes(tmp_path,monkeypatch,'next_at')
+
+
+def test_progress_failure_cannot_replace_initiating_closed_failure(monkeypatch,capsys):
+    initiating = coordinator.Refused('private initiating refusal',failure=typed())
+    def broken(root,runner,progress,started,state):
+        progress.update(phase='BASE_BACKUP')
+        state['phase']='BASE_BACKUP'
+        raise initiating
+    monkeypatch.setattr(coordinator,'_tick',broken)
+    monkeypatch.setattr(coordinator,'publish_progress',lambda *args,**kwargs:
+        (_ for _ in ()).throw(ValueError('private progress write failure')))
+    before=datetime.now(timezone.utc)
+    with pytest.raises(coordinator.Refused) as caught:coordinator.tick('/private')
+    after=datetime.now(timezone.utc)
+    assert caught.value is initiating
+    value=renewal.parse(capsys.readouterr().out)
+    assert value['failure']==initiating.failure and value['outcome']=='RETRYABLE'
+    assert value['cause_type']=='Refused' and value['phase']=='BASE_BACKUP'
+    assert before<=renewal.timestamp(value['started_at'])<=renewal.timestamp(value['finished_at'])<=after
+
+
+def test_outer_exception_binding_guard_removal_is_executed(monkeypatch,capsys):
+    source=inspect.getsource(coordinator.tick)
+    guard='except Exception as progress_error:'
+    assert source.count(guard)==1
+    mutant=source.replace(guard,'except Exception as primary:').replace(
+        'type(progress_error).__name__','type(primary).__name__')
+    namespace=dict(vars(coordinator));exec(compile(mutant,'<lost-primary-exception>','exec'),namespace)
+    namespace['_tick']=lambda *args,**kwargs:coordinator._tick(*args,**kwargs)
+    namespace['publish_progress']=lambda *args,**kwargs:coordinator.publish_progress(*args,**kwargs)
+    monkeypatch.setattr(coordinator,'tick',namespace['tick'])
+    with pytest.raises(UnboundLocalError):
+        test_progress_failure_cannot_replace_initiating_closed_failure(monkeypatch,capsys)
+
+
+def test_buffered_forwarding_preserves_owner_times_without_restamping(monkeypatch,capsys):
+    clock=Clock();schedule=clock.schedule();clock.now=300
+    value=renewal.result(outcome='SUCCESS',phase='COMPLETE',code='OK',publication_at=clock.publication(),
+        elapsed_seconds=243,started_at='2026-11-10T09:06:34+00:00',finished_at='2026-11-10T09:10:37+00:00')
+    monkeypatch.setattr(coordinator,'run_bounded',lambda *args,**kwargs:process.Result(
+        0,renewal.REFRESH_PREFIX+json.dumps(value)))
+    coordinator.FreshnessReader(schedule)(400)
+    assert renewal.parse(capsys.readouterr().out,refresh=True)==value
+
+
+@pytest.mark.parametrize('fault',('missing_start','missing_finish','naive','reversed','legacy'))
+def test_pass_timing_is_closed_utc_and_versioned(fault):
+    value=renewal.result(outcome='BLOCKED',phase='PREFLIGHT',code='INVALID_RESULT',
+        started_at='2026-11-10T09:06:34+00:00',finished_at='2026-11-10T09:10:37+00:00')
+    if fault=='missing_start':value.pop('started_at')
+    elif fault=='missing_finish':value.pop('finished_at')
+    elif fault=='naive':value['started_at']='2026-11-10T09:06:34'
+    elif fault=='reversed':value['finished_at']='2026-11-10T09:06:33+00:00'
+    else:value['schema']='sentinel.maintenance-pass-result/1'
+    with pytest.raises(ValueError):renewal.validate_result(value)
+
+
+def test_nonzero_elapsed_cannot_invent_absolute_start():
+    with pytest.raises(ValueError,match='owner timing'):
+        renewal.result(outcome='BLOCKED',phase='PREFLIGHT',code='INVALID_RESULT',elapsed_seconds=243)

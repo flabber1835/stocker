@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Backup maintenance transition continuity](backup-maintenance-transition-continuity.md)
+keeps already-proved bounded maintenance visible across ordinary proof expiry
+and preserves initiating worker failures before transaction cleanup.
+
 [Deadline-owned backup renewal](backup-renewal-deadline-recovery.md) records the
 local correction of failed-pass scheduling, lost diagnostic causes and unrelated
 waiting-row attribution. It preserves proof expiries and financial authority;

@@ -13,6 +13,8 @@ import re
 import signal
 import time
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -43,9 +45,26 @@ class FailureCause(BaseModel):
     errno: int | None = Field(ge=-(2**31), lt=2**31)
 
 
+class FailureTiming(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
+    alarm_budget_seconds: int | None = Field(ge=1, le=540)
+    alarm_fired: bool
+    started_at: str
+    failed_at: str
+
+    @model_validator(mode='after')
+    def clocks(self):
+        clocks = [datetime.fromisoformat(v.replace('Z', '+00:00'))
+                  for v in (self.started_at, self.failed_at)]
+        if (any(c.utcoffset() is None or c.utcoffset().total_seconds() != 0 for c in clocks)
+                or clocks[1] < clocks[0] or self.alarm_fired and self.alarm_budget_seconds is None):
+            raise ValueError('invalid owner failure timing')
+        return self
+
+
 class MaintenanceFailure(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, strict=True, allow_inf_nan=False)
-    schema: Literal['sentinel.maintenance-integrity-failure/1']
+    schema: Literal['sentinel.maintenance-integrity-failure/2']
     origin: Literal['WORKER', 'HOST']
     code: Literal['BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED', 'POLICY_REFUSED', 'PHYSICAL_UNAVAILABLE',
                   'INTEGRITY_REFUSED', 'DATABASE_FAILURE', 'DEADLINE_EXCEEDED',
@@ -64,6 +83,8 @@ class MaintenanceFailure(BaseModel):
     proof_observed_uptime: float | None
     cleanup: FailureCleanup
     exception_chain: list[FailureCause] = Field(min_length=1, max_length=4)
+    cleanup_exception_chain: list[FailureCause] = Field(max_length=4)
+    timing: FailureTiming
 
     @model_validator(mode='after')
     def coherent_failure(self):
@@ -107,12 +128,41 @@ class _Trace:
     lock_cleanup: str = 'NOT_ACQUIRED'
     primary: BaseException | None = None
     failure_stage: str | None = None
+    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    failed_at: str | None = None
+    alarm_budget_seconds: int | None = None
+    alarm_fired: bool = False
+    cleanup_error: BaseException | None = None
 
     def mark(self, stage):
         now = time.monotonic()
         if self.stage == 'OWNER_WAIT': self.wait += now-self.phase_started
         if self.stage == 'PROOF': self.proof += now-self.phase_started
         self.stage, self.phase_started = stage, now
+
+    def remember(self, exc):
+        if self.primary is None:
+            self.primary, self.failure_stage = exc, self.stage
+            self.failed_at = datetime.now(timezone.utc).isoformat()
+            self.mark('FAILED')
+        elif exc is not self.primary:
+            self.cleanup_error = exc
+
+
+@contextmanager
+def _capture_failure(trace):
+    try:
+        yield
+    except BaseException as exc:
+        trace.remember(exc)
+        raise
+
+
+def _alarm(trace):
+    trace.alarm_fired = True
+    exc = TimeoutError('maintenance integrity worker deadline exceeded')
+    trace.remember(exc)
+    raise exc
 
 
 def failure_record(exc, trace):
@@ -140,6 +190,25 @@ def failure_record(exc, trace):
     elif isinstance(original, OSError): code, cause = 'DATABASE_FAILURE', 'OSError'
     elif isinstance(original, ValueError): cause = 'ValueError'
     elif isinstance(original, RuntimeError): cause = 'RuntimeError'
+    chain = _exception_chain(original)
+    cleanup = trace.cleanup_error or (exc if exc is not original else None)
+    now = time.monotonic()
+    wait = trace.wait+(now-trace.phase_started if trace.stage == 'OWNER_WAIT' else 0)
+    proof = trace.proof+(now-trace.phase_started if trace.stage == 'PROOF' else 0)
+    return MaintenanceFailure.model_validate(dict(schema='sentinel.maintenance-integrity-failure/2',
+        origin='WORKER', code=code, cause_type=cause, stage=stage,
+        elapsed_seconds=now-trace.started, owner_wait_seconds=wait, proof_seconds=proof,
+        proof_completed_uptime=clocks[0], proof_observed_uptime=clocks[1], exception_chain=chain,
+        cleanup_exception_chain=_exception_chain(cleanup) if cleanup is not None else [],
+        timing=dict(alarm_budget_seconds=trace.alarm_budget_seconds, alarm_fired=trace.alarm_fired,
+            started_at=trace.started_at, failed_at=trace.failed_at or datetime.now(timezone.utc).isoformat()),
+        cleanup=dict(proof_lock=trace.lock_cleanup, worker_container='NOT_OBSERVED'),
+        retryable=code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
+            and trace.lock_cleanup in {'NOT_ACQUIRED', 'RELEASED'}))
+
+
+def _exception_chain(original):
+    import psycopg
     chain, seen, current = [], set(), original
     while current is not None and id(current) not in seen and len(chain) < 4:
         seen.add(id(current))
@@ -160,17 +229,7 @@ def failure_record(exc, trace):
             sqlstate=state if type(state) is str and re.fullmatch(r'[0-9A-Z]{5}', state) else None,
             errno=number if type(number) is int and -(2**31) <= number < 2**31 else None))
         current = current.__cause__ or current.__context__
-    now = time.monotonic()
-    wait = trace.wait+(now-trace.phase_started if trace.stage == 'OWNER_WAIT' else 0)
-    proof = trace.proof+(now-trace.phase_started if trace.stage == 'PROOF' else 0)
-    return MaintenanceFailure.model_validate(dict(schema='sentinel.maintenance-integrity-failure/1',
-        origin='WORKER', code=code, cause_type=cause, stage=stage,
-        elapsed_seconds=now-trace.started, owner_wait_seconds=wait, proof_seconds=proof,
-        proof_completed_uptime=clocks[0], proof_observed_uptime=clocks[1],
-        exception_chain=chain,
-        cleanup=dict(proof_lock=trace.lock_cleanup, worker_container='NOT_OBSERVED'),
-        retryable=code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
-            and trace.lock_cleanup in {'NOT_ACQUIRED', 'RELEASED'}))
+    return chain
 
 
 class MaintenanceProof(BaseModel):
@@ -252,7 +311,7 @@ def prove(conn, *, base_backup: str, system_identifier: str,
                 raise authority.BackupIntegrityBusy('shared maintenance proof owner wait expired')
             time.sleep(min(.1, max(0, deadline-time.monotonic())))
         trace.mark('PROOF')
-        with conn.transaction():
+        with conn.transaction(), _capture_failure(trace):
             # The inner owner reacquires this session lock and releases exactly
             # its own count. The outer count serializes the entire admission.
             result = authority.require(conn, operation='maintenance common WAL integrity',
@@ -282,8 +341,7 @@ def prove(conn, *, base_backup: str, system_identifier: str,
                 integrity_completed_uptime=owner.proof.completed_uptime,
                 integrity_observed_uptime=owner.uptime))
     except BaseException as exc:
-        trace.primary, trace.failure_stage = exc, trace.stage
-        trace.mark('FAILED')
+        trace.remember(exc)
         raise
     finally:
         if acquired:
@@ -291,9 +349,10 @@ def prove(conn, *, base_backup: str, system_identifier: str,
                 if conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,)).fetchone() != (True,):
                     raise authority.BackupRuntimeRefused('shared maintenance proof ownership lost')
                 trace.lock_cleanup = 'RELEASED'
-            except BaseException:
+            except BaseException as exc:
                 trace.lock_cleanup = 'FAILED'
-                if trace.primary is None: trace.failure_stage = 'LOCK_RELEASE'
+                if trace.primary is None: trace.mark('LOCK_RELEASE')
+                trace.remember(exc)
                 raise
 
 
@@ -310,11 +369,12 @@ def main():
     trace = _Trace()
     import psycopg
     def expired(_signum, _frame):
-        raise TimeoutError('maintenance integrity worker deadline exceeded')
+        _alarm(trace)
     signal.signal(signal.SIGALRM, expired)
     if not 1 <= budget <= 540:
         record = failure_record(ValueError('worker transport budget invalid'), trace)
         parser.exit(4, FAILURE_PREFIX+record.model_dump_json()+'\n')
+    trace.alarm_budget_seconds = budget
     signal.alarm(budget)
     try:
         with psycopg.connect(os.environ['SENTINEL_DATABASE_URL'], autocommit=True,
@@ -328,12 +388,15 @@ def main():
             # Even a malformed third-party exception/clock cannot print its
             # private repr through a diagnostic-construction traceback.
             record = MaintenanceFailure.model_validate(dict(
-                schema='sentinel.maintenance-integrity-failure/1', origin='WORKER',
+                schema='sentinel.maintenance-integrity-failure/2', origin='WORKER',
                 code='INTERNAL_FAILURE', retryable=False, stage='CONNECT', cause_type='UNCLASSIFIED',
                 elapsed_seconds=0., owner_wait_seconds=0., proof_seconds=0.,
                 proof_completed_uptime=None, proof_observed_uptime=None,
                 cleanup=dict(proof_lock=trace.lock_cleanup, worker_container='NOT_OBSERVED'),
-                exception_chain=[dict(type='UNCLASSIFIED', sqlstate=None, errno=None)]))
+                exception_chain=[dict(type='UNCLASSIFIED', sqlstate=None, errno=None)],
+                cleanup_exception_chain=[],timing=dict(alarm_budget_seconds=trace.alarm_budget_seconds,
+                    alarm_fired=trace.alarm_fired,started_at=trace.started_at,
+                    failed_at=trace.failed_at or datetime.now(timezone.utc).isoformat())))
         parser.exit(75 if record.retryable else 4, FAILURE_PREFIX+record.model_dump_json()+'\n')
     finally:
         signal.alarm(0)

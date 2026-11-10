@@ -15,12 +15,12 @@ def test_backup_deadline_successor_preserves_every_installed_map():
     profile=basis._profile();assert basis.BACKUP_DEADLINE_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==468 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before[n]}==CHANGED
-    assert basis.predecessor_view(actual,previous=before)==before
-    assert len(profile['retained_predecessors'])==34 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
+    assert len(profile['retained_predecessors'])==35 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='1a71e17201610a7a0d44e34d72860be6b30c9986f6944e35c7966307c0c012f6'
 

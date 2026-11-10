@@ -2033,7 +2033,7 @@ def backup_restore_row(
             ordinary_lag = not hard_failures and lag_failures == ['runtime restore-chain proof is past its cadence']
             copying_predecessor = (progress.phase == 'BASE_BACKUP'
                 and progress.base_backup == progress.predecessor_base
-                and ordinary_lag)
+                and not hard_failures and (not lag_failures or ordinary_lag))
             verifying_successor = (progress.phase in {'VERIFY_RESTORE', 'VERIFY_CHAIN'}
                 and (transition or ordinary_lag))
             if (identity_matches and start <= now < end

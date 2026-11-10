@@ -12,4 +12,4 @@ def test_exact_installed_backup_projection_predecessor_is_preserved():
     assert {n for n in actual if actual[n]!=before[n]}=={
         'panel/model.py','panel/presentation.py','panel/sources.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==34 and profile['authority_effect']=='NONE'
+    assert len(profile['retained_predecessors'])==35 and profile['authority_effect']=='NONE'

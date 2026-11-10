@@ -422,6 +422,7 @@ class FreshnessReader:
     def next_at(self): return self.schedule.next_at()
 
     def __call__(self,remaining):
+        started,started_at = time.monotonic(),datetime.now(timezone.utc).isoformat()
         limits = [remaining,600]
         with self.schedule.lock:
             if self.schedule.deadline is not None and self.schedule.deadline > self.schedule.clock():
@@ -429,7 +430,8 @@ class FreshnessReader:
         budget = math.floor(min(limits)-20)
         if budget < 15:
             value = renewal.result(outcome='BLOCKED',phase='PREFLIGHT',code='DEADLINE_EXCEEDED',
-                publication_at=self.schedule.publication())
+                publication_at=self.schedule.publication(),started_at=started_at,
+                finished_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started)
         else:
             try:
                 child = run_bounded([sys.executable,'-B','scripts/sentinel_backup_maintenance.py',
@@ -439,7 +441,8 @@ class FreshnessReader:
                 if child.returncode != expected: raise ValueError('freshness child result mismatch')
             except Exception:
                 value = renewal.result(outcome='BLOCKED',phase='VERIFY_CHAIN',code='INVALID_RESULT',
-                    publication_at=self.schedule.publication(),cause_type='UNKNOWN')
+                    publication_at=self.schedule.publication(),cause_type='UNKNOWN',started_at=started_at,
+                    finished_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started)
         self.schedule.consume(value)
         renewal.emit(value,refresh=True)
 
@@ -447,6 +450,7 @@ class FreshnessReader:
 def tick(root, runner=run, *, freshness=False, budget=None):
     progress = {}
     started = time.monotonic()
+    started_at = datetime.now(timezone.utc).isoformat()
     state = dict(phase='PREFLIGHT',schedule=renewal.Schedule())
     if budget is not None:
         deadline = started+budget
@@ -467,22 +471,24 @@ def tick(root, runner=run, *, freshness=False, budget=None):
     try:
         value = (_fresh_tick(root,runner,state) if freshness else _tick(root, runner, progress, started,state))
         renewal.emit(renewal.result(outcome='SUCCESS',phase='COMPLETE',code='OK',
-            publication_at=state['schedule'].publication(),elapsed_seconds=time.monotonic()-started),refresh=freshness)
+            publication_at=state['schedule'].publication(),elapsed_seconds=time.monotonic()-started,
+            started_at=started_at,finished_at=datetime.now(timezone.utc).isoformat()),refresh=freshness)
         return value
-    except Exception as exc:
+    except Exception as primary:
         if progress:
             progress['phase'] = 'FAILED'
             try:
                 publish_progress(progress, runner)
-            except Exception as exc:
-                print('maintenance failure progress unreadable: ' + type(exc).__name__, file=sys.stderr)
-        failure = exc.failure if isinstance(exc,Refused) else None
+            except Exception as progress_error:
+                print('maintenance failure progress unreadable: ' + type(progress_error).__name__, file=sys.stderr)
+        failure = primary.failure if isinstance(primary,Refused) else None
         renewal.emit(renewal.result(outcome='RETRYABLE' if failure and failure['retryable'] else 'BLOCKED',
             phase=state['phase'],code=failure['code'] if failure else 'COORDINATOR_REFUSED'
-                if isinstance(exc,Refused) else 'UNCLASSIFIED',
-            cause_type=type(exc).__name__ if type(exc).__name__ in {'Refused','OSError','ValueError','KeyError','TypeError'}
+                if isinstance(primary,Refused) else 'UNCLASSIFIED',
+            cause_type=type(primary).__name__ if type(primary).__name__ in {'Refused','OSError','ValueError','KeyError','TypeError'}
                 else 'UNKNOWN',publication_at=state['schedule'].publication(),
-            elapsed_seconds=time.monotonic()-started,failure=failure),refresh=freshness)
+            elapsed_seconds=time.monotonic()-started,failure=failure,started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat()),refresh=freshness)
         raise
 
 
@@ -589,6 +595,7 @@ def supervise():
             return 0
         schedule = renewal.Schedule(_latest_publication())
         while True:
+            started,started_at = time.monotonic(),datetime.now(timezone.utc).isoformat()
             result = subprocess.run(["bash", "scripts/sentinel-backup-maintenance.sh"],
                 cwd=str(ROOT),check=False,pass_fds=(handle.fileno(),),capture_output=True,text=True)
             output, errors = getattr(result,'stdout',''),getattr(result,'stderr','')
@@ -604,7 +611,9 @@ def supervise():
                     and not any(line.startswith((renewal.PASS_PREFIX,'shared_integrity_failure:'))
                         for line in (output+'\n'+errors).splitlines()))
                 value = renewal.result(outcome='STANDBY' if standby else 'BLOCKED',phase='PREFLIGHT',
-                    code='TARGET_BUSY' if standby else 'INVALID_RESULT',publication_at=schedule.publication())
+                    code='TARGET_BUSY' if standby else 'INVALID_RESULT',publication_at=schedule.publication(),
+                    started_at=started_at,finished_at=datetime.now(timezone.utc).isoformat(),
+                    elapsed_seconds=time.monotonic()-started)
                 renewal.emit(value)
             schedule.consume(value)
             if result.returncode:

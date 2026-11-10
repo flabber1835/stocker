@@ -2,10 +2,11 @@
 import math
 import re
 import json
+from datetime import datetime, timezone, timedelta
 
 
 FAILURE_PREFIX = 'shared_integrity_failure:'
-FAILURE_SCHEMA = 'sentinel.maintenance-integrity-failure/1'
+FAILURE_SCHEMA = 'sentinel.maintenance-integrity-failure/2'
 FAILURE_CODES = frozenset(('BUSY PROOF_WINDOW_EXPIRED SELECTION_MOVED POLICY_REFUSED PHYSICAL_UNAVAILABLE '
     'INTEGRITY_REFUSED DATABASE_FAILURE DEADLINE_EXCEEDED TRANSPORT_FAILURE '
     'PROTOCOL_FAILURE INTERNAL_FAILURE').split())
@@ -16,6 +17,7 @@ FAILURE_CAUSES = frozenset(('BackupIntegrityBusy BackupIntegrityProofExpired Bac
     'TimeoutError Refused PROTOCOL UNCLASSIFIED').split())
 FAILURE_KEYS = frozenset(('schema origin code retryable stage cause_type elapsed_seconds '
     'owner_wait_seconds proof_seconds proof_completed_uptime proof_observed_uptime cleanup exception_chain').split())
+FAILURE_V2_KEYS = FAILURE_KEYS | {'timing', 'cleanup_exception_chain'}
 CHAIN_TYPES = FAILURE_CAUSES | frozenset(('PsycopgOperationalError PsycopgInterfaceError '
     'PsycopgProgrammingError PsycopgDataError PsycopgIntegrityError PsycopgInternalError '
     'PsycopgNotSupportedError PsycopgDatabaseError').split())
@@ -23,9 +25,11 @@ CHAIN_TYPES = FAILURE_CAUSES | frozenset(('PsycopgOperationalError PsycopgInterf
 
 def validate_failure(value):
     """Validate only closed facts; no exception message or arbitrary peer text."""
-    if (not isinstance(value, dict) or set(value) != FAILURE_KEYS
+    if (not isinstance(value, dict) or set(value) != (FAILURE_KEYS
+            if value.get('schema') == 'sentinel.maintenance-integrity-failure/1' else FAILURE_V2_KEYS)
             or any(type(value[k]) is not str for k in ('schema', 'origin', 'code', 'stage', 'cause_type'))
-            or value['schema'] != FAILURE_SCHEMA or value['origin'] not in {'WORKER', 'HOST'}
+            or value['schema'] not in {FAILURE_SCHEMA, 'sentinel.maintenance-integrity-failure/1'}
+            or value['origin'] not in {'WORKER', 'HOST'}
             or value['code'] not in FAILURE_CODES or value['stage'] not in FAILURE_STAGES
             or value['cause_type'] not in FAILURE_CAUSES or type(value['retryable']) is not bool):
         raise ValueError('common integrity failure fields are invalid')
@@ -54,14 +58,21 @@ def validate_failure(value):
     if value['code'] == 'SELECTION_MOVED' and value['cause_type'] != 'BackupIntegritySelectionMoved':
         raise ValueError('common integrity failure lacks proved selection movement')
     chain = value['exception_chain']
-    if (type(chain) is not list or not 1 <= len(chain) <= 4
-            or any(not isinstance(item, dict) or set(item) != {'type', 'sqlstate', 'errno'}
-                or type(item['type']) is not str or item['type'] not in CHAIN_TYPES
-                or item['sqlstate'] is not None and (type(item['sqlstate']) is not str
-                    or re.fullmatch(r'[0-9A-Z]{5}', item['sqlstate']) is None)
-                or item['errno'] is not None and (type(item['errno']) is not int
-                    or not -(2**31) <= item['errno'] < 2**31) for item in chain)):
-        raise ValueError('common integrity exception chain is invalid')
+    _validate_chain(chain, minimum=1)
+    if value['schema'] == FAILURE_SCHEMA:
+        _validate_chain(value['cleanup_exception_chain'], minimum=0)
+        timing = value['timing']
+        if (not isinstance(timing, dict) or set(timing) != {'alarm_budget_seconds', 'alarm_fired', 'started_at', 'failed_at'}
+                or type(timing['alarm_fired']) is not bool
+                or timing['alarm_budget_seconds'] is not None and (type(timing['alarm_budget_seconds']) is not int
+                    or not 1 <= timing['alarm_budget_seconds'] <= 540)
+                or timing['alarm_fired'] and timing['alarm_budget_seconds'] is None
+                or any(type(timing[k]) is not str for k in ('started_at', 'failed_at'))):
+            raise ValueError('common integrity owner timing is invalid')
+        clocks = [datetime.fromisoformat(timing[k].replace('Z', '+00:00')) for k in ('started_at', 'failed_at')]
+        if (any(c.utcoffset() is None or c.utcoffset().total_seconds() != 0 for c in clocks)
+                or clocks[1] < clocks[0]):
+            raise ValueError('common integrity owner clocks are invalid')
     stages = {'BUSY': {'OWNER_WAIT', 'PROOF'}, 'PROOF_WINDOW_EXPIRED': {'PROOF', 'RESULT'},
               'SELECTION_MOVED': {'RESULT'}}
     if (value['origin'] == 'WORKER' and value['stage'].startswith('HOST_')
@@ -75,14 +86,30 @@ def validate_failure(value):
     return value
 
 
+def _validate_chain(chain, *, minimum):
+    if (type(chain) is not list or not minimum <= len(chain) <= 4
+            or any(not isinstance(item, dict) or set(item) != {'type', 'sqlstate', 'errno'}
+                or type(item['type']) is not str or item['type'] not in CHAIN_TYPES
+                or item['sqlstate'] is not None and (type(item['sqlstate']) is not str
+                    or re.fullmatch(r'[0-9A-Z]{5}', item['sqlstate']) is None)
+                or item['errno'] is not None and (type(item['errno']) is not int
+                    or not -(2**31) <= item['errno'] < 2**31) for item in chain)):
+        raise ValueError('common integrity exception chain is invalid')
+
+
 def failure(*, origin, code, stage, cause_type, elapsed_seconds=0., owner_wait_seconds=0.,
             proof_seconds=0., proof_completed_uptime=None, proof_observed_uptime=None,
-            proof_lock='UNKNOWN', worker_container='NOT_STARTED', exception_chain=None):
+            proof_lock='UNKNOWN', worker_container='NOT_STARTED', exception_chain=None,
+            timing=None, cleanup_exception_chain=None):
+    now = datetime.now(timezone.utc)
     value = dict(schema=FAILURE_SCHEMA, origin=origin, code=code, stage=stage, cause_type=cause_type,
         elapsed_seconds=elapsed_seconds, owner_wait_seconds=owner_wait_seconds,
         proof_seconds=proof_seconds, proof_completed_uptime=proof_completed_uptime,
         proof_observed_uptime=proof_observed_uptime,
         exception_chain=exception_chain or [dict(type=cause_type, sqlstate=None, errno=None)],
+        cleanup_exception_chain=[] if cleanup_exception_chain is None else cleanup_exception_chain,
+        timing=timing or dict(alarm_budget_seconds=None,alarm_fired=False,
+            started_at=(now-timedelta(seconds=elapsed_seconds)).isoformat(),failed_at=now.isoformat()),
         cleanup=dict(proof_lock=proof_lock, worker_container=worker_container), retryable=False)
     value['retryable'] = (code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
         and proof_lock in {'NOT_ACQUIRED', 'RELEASED'}

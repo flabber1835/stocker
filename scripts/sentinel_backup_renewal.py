@@ -9,7 +9,7 @@ import time
 
 PASS_PREFIX = 'maintenance_pass_result:'
 REFRESH_PREFIX = 'maintenance_refresh_result:'
-SCHEMA = 'sentinel.maintenance-pass-result/1'
+SCHEMA = 'sentinel.maintenance-pass-result/2'
 TTL_SECONDS = 600
 INTERVAL_SECONDS = 300
 BACKOFF = (1, 2, 5, 10, 20, 30)
@@ -32,13 +32,15 @@ def timestamp(value):
 
 def validate_result(value):
     if (not isinstance(value,dict) or set(value) != {'schema','outcome','phase','code',
-            'cause_type','publication_at','elapsed_seconds','failure'}
+            'cause_type','publication_at','elapsed_seconds','failure','started_at','finished_at'}
             or value['schema'] != SCHEMA or value['outcome'] not in OUTCOMES
             or value['phase'] not in PHASES or value['code'] not in CODES
             or value['cause_type'] not in {'NONE','Refused','OSError','ValueError','KeyError',
                 'TypeError','UNKNOWN'} or type(value['elapsed_seconds']) not in {int,float}
             or not math.isfinite(value['elapsed_seconds']) or value['elapsed_seconds'] < 0):
         raise ValueError('invalid maintenance pass result')
+    if timestamp(value['finished_at']) < timestamp(value['started_at']):
+        raise ValueError('maintenance pass timing regressed')
     if value['publication_at'] is not None: timestamp(value['publication_at'])
     failure = value['failure']
     if failure is not None:
@@ -57,9 +59,14 @@ def validate_result(value):
 
 
 def result(*, outcome, phase, code, publication_at=None, elapsed_seconds=0,
-           cause_type='NONE', failure=None):
+           cause_type='NONE', failure=None,started_at=None,finished_at=None):
+    if started_at is None and finished_at is None and elapsed_seconds == 0:
+        started_at = finished_at = datetime.now(timezone.utc).isoformat()
+    if started_at is None or finished_at is None:
+        raise ValueError('maintenance owner timing is required')
     return validate_result(dict(schema=SCHEMA,outcome=outcome,phase=phase,code=code,
-        publication_at=publication_at,elapsed_seconds=elapsed_seconds,cause_type=cause_type,failure=failure))
+        publication_at=publication_at,elapsed_seconds=elapsed_seconds,cause_type=cause_type,failure=failure,
+        started_at=started_at,finished_at=finished_at))
 
 
 def emit(value, *, refresh=False):
