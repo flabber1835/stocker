@@ -48,6 +48,7 @@ HOST_TOOL_FIELDS = {'source','commit','executable_sha256','qualification','quali
 HOST_DELTA = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
     'tests/scripts/test_sentinel_maintenance_reader_handover.py','docs/operation-owned-integrity-work.md'})
 TOOL_PATH = 'scripts/sentinel_maintenance_reader_handover.py'
+TOOL_TEST = 'tests/scripts/test_sentinel_maintenance_reader_handover.py'
 
 
 def safe_path(value):
@@ -139,12 +140,18 @@ def qualified_host(executable, report_path, report_sha256, application_commit):
     require(report.get('schema') == qualification.OPERATIONAL_SCHEMA
         and report.get('source_scope') == qualification.OPERATIONAL_SCOPE,
         'READER_HOST_QUALIFICATION_SCOPE_REQUIRED')
-    qualification.validate_report(report_path,report_sha256,source,commit,application_commit)
-    changes = qualification.git(source,'diff','--name-status','--no-renames',application_commit,commit).splitlines()
-    require(len(changes) == len(HOST_DELTA) and all(row.startswith('M\t') for row in changes)
-        and {row[2:] for row in changes} == HOST_DELTA, 'READER_HOST_DELTA_REFUSED')
+    same = commit == application_commit
+    qualification.validate_report(report_path,report_sha256,source,commit,
+        report.get('predecessor_commit') if same else application_commit)
+    if not same:
+        changes = qualification.git(source,'diff','--name-status','--no-renames',application_commit,commit).splitlines()
+        require(len(changes) == len(HOST_DELTA) and all(row.startswith('M\t') for row in changes)
+            and {row[2:] for row in changes} == HOST_DELTA, 'READER_HOST_DELTA_REFUSED')
+    else:
+        require(any(TOOL_TEST in row['command'] for row in report['results']),
+            'READER_APPLICATION_TOOL_TEST_MISSING')
     executable_sha = qualification.sha256_file(executable)
-    require(HOST_DELTA <= report['source_files'].keys()
+    require((({TOOL_PATH,TOOL_TEST} if same else HOST_DELTA) <= report['source_files'].keys())
         and report['source_files'][TOOL_PATH] == executable_sha, 'READER_HOST_EXECUTABLE_UNQUALIFIED')
     return dict(source=str(source),commit=commit,executable_sha256=executable_sha,
         qualification=str(report_path),qualification_sha256=report_sha256)
@@ -390,6 +397,9 @@ class Native:
             'scripts/sentinel_backup_integrity_report.py', 'sentinel/backup_maintenance_integrity.py'}
         require(required <= report['source_files'].keys(), 'READER_QUALIFICATION_INPUTS_MISSING')
         host_tool = self.host_tool(commit,spec['host_tool']['qualification'],spec['host_tool']['qualification_sha256'])
+        if host_tool['commit'] == commit:
+            require(host_tool['qualification_sha256'] == spec['qualification_sha256']
+                == app_request['qualification']['report_sha256'], 'READER_APPLICATION_TOOL_REPORT_CHANGED')
         inspected = self.inspect_image(image)
         require(inspected['Id'] == image
             and inspected['Config']['Labels']['org.opencontainers.image.revision'] == commit,

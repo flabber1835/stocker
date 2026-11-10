@@ -496,6 +496,8 @@ def operational_inputs(inputs,monkeypatch):
         'sentinel/unchanged.py':'untouched = True\n',
         'scripts/sentinel_local_delivery/host.py':'host = True\n',
         'scripts/sentinel_backed_local_patch.py':'entry = True\n',
+        'scripts/sentinel_maintenance_reader_handover.py':'reader = True\n',
+        'tests/scripts/test_sentinel_maintenance_reader_handover.py':'def test_reader(): assert True\n',
         'services/bt-engine/protected.py':'private synthetic backtest marker\n',
     }
     for name,body in additions.items():
@@ -529,12 +531,14 @@ def test_operational_qualification_covers_runtime_host_and_changes_without_prote
     report=validate(value)
     assert {'sentinel/module.py','sentinel/unchanged.py',
         'scripts/sentinel_local_delivery/host.py','scripts/sentinel_backed_local_patch.py',
+        'scripts/sentinel_maintenance_reader_handover.py','tests/scripts/test_sentinel_maintenance_reader_handover.py',
         'docs/current.md','tests/test_example.py'} <= set(report['source_files'])
     assert not any(name.startswith('services/') for name in report['source_files'])
 
 
 @pytest.mark.parametrize('fault',['missing_runtime','missing_change','extra_protected',
-                                'runtime_changed','host_changed','unknown_scope'])
+                                'runtime_changed','host_changed','unknown_scope',
+                                'tool_changed','tool_test_changed','missing_tool'])
 def test_operational_qualification_refuses_incomplete_or_changed_inputs(operational_inputs,fault):
     value=operational_inputs;report=value.report
     if fault=='missing_runtime':report['source_files'].pop('sentinel/unchanged.py')
@@ -542,6 +546,9 @@ def test_operational_qualification_refuses_incomplete_or_changed_inputs(operatio
     elif fault=='extra_protected':report['source_files']['services/bt-engine/protected.py']='a'*64
     elif fault=='runtime_changed':(value.source/'sentinel/unchanged.py').write_text('changed = True\n')
     elif fault=='host_changed':(value.source/'scripts/sentinel_local_delivery/host.py').write_text('changed = True\n')
+    elif fault=='tool_changed':(value.source/'scripts/sentinel_maintenance_reader_handover.py').write_text('changed = True\n')
+    elif fault=='tool_test_changed':(value.source/'tests/scripts/test_sentinel_maintenance_reader_handover.py').write_text('changed = True\n')
+    elif fault=='missing_tool':report['source_files'].pop('scripts/sentinel_maintenance_reader_handover.py')
     else:report['source_scope']='UNKNOWN'
     value.report_path.write_text(json.dumps(report))
     value.report_sha=qualification.sha256_file(value.report_path)
@@ -573,3 +580,19 @@ def test_operational_changed_input_guard_removal_is_detected(operational_inputs)
                                  predecessor_commit=OLD)
     with pytest.raises(AssertionError):
         assert set(value.approved) <= set(broken)
+
+
+def test_operational_handover_scope_guard_removal_is_detected(operational_inputs,monkeypatch):
+    value=operational_inputs
+    assert not qualification.HANDOVER_INPUTS.intersection(value.approved)
+    actual=qualification.source_files(value.source,scope=qualification.OPERATIONAL_SCOPE,predecessor_commit=OLD)
+    required=set(qualification.HANDOVER_INPUTS)
+    assert required <= actual.keys()
+    monkeypatch.setattr(qualification,'HANDOVER_INPUTS',frozenset())
+    broken=qualification.source_files(value.source,scope=qualification.OPERATIONAL_SCOPE,predecessor_commit=OLD)
+    with pytest.raises(AssertionError): assert required <= broken.keys()
+
+
+def test_legacy_tracked_inventory_does_not_synthesize_absent_handover_inputs(inputs):
+    assert not qualification.HANDOVER_INPUTS.intersection(inputs.files)
+    assert not qualification.HANDOVER_INPUTS.intersection(qualification.source_files(inputs.source))

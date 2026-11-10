@@ -13,6 +13,8 @@ from .model import read_json, require
 SCHEMA = 'sentinel.local-paper-qualification/1'
 OPERATIONAL_SCHEMA = 'sentinel.local-paper-qualification/2'
 OPERATIONAL_SCOPE = 'SENTINEL_AND_CHANGED_TRACKED_V1'
+HANDOVER_INPUTS = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
+    'tests/scripts/test_sentinel_maintenance_reader_handover.py'})
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -69,7 +71,7 @@ def source_files(source, *, scope=None, predecessor_commit=None, commit=None, gi
                     for name in changed), 'QUALIFICATION_NONOPERATIONAL_DELTA')
         names = [name for name in names if name.startswith(
             ('sentinel/','scripts/sentinel_local_delivery/'))
-            or name == 'scripts/sentinel_backed_local_patch.py' or name in changed]
+            or name == 'scripts/sentinel_backed_local_patch.py' or name in HANDOVER_INPUTS or name in changed]
         require(any(name.startswith('sentinel/') for name in names)
                 and any(name.startswith('scripts/sentinel_local_delivery/') for name in names)
                 and 'scripts/sentinel_backed_local_patch.py' in names,

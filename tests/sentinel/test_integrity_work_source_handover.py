@@ -19,15 +19,15 @@ def test_integrity_work_is_one_exact_complete_successor_without_old_map_loss():
     assert basis.INTEGRITY_WORK_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==466 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.BACKUP_DEADLINE_PREDECESSOR_REVISION]['files']
     assert len(actual)==468 and set(actual)-set(before)=={
         'operation_read_source_basis.py','backup_maintenance_integrity.py'}
     assert not set(before)-set(actual)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
-    assert basis.predecessor_view(actual,previous=before)==before
-    assert len(profile['retained_predecessors'])==33 and profile['authority_effect']=='NONE'
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
+    assert len(profile['retained_predecessors'])==34 and profile['authority_effect']=='NONE'
     originals={revision:value for revision,value in profile['retained_predecessors'].items()
-               if revision!=REVISION}
+               if revision not in {REVISION,basis.BACKUP_DEADLINE_PREDECESSOR_REVISION}}
     canonical=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(canonical).hexdigest()=='452757473116229ab60a0211fc580da7b31ac9030866231d2cb878e59b42d814'
 

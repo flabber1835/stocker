@@ -286,18 +286,19 @@ class Boundary:
             return json.dumps(dict(authentic=True,proof=dict(schema='sentinel.verified-base/1',
                 physical_verified=True,metadata_sha256=item['metadata_sha256'],base_backup=item['name'],
                 marker=item['marker'],marker_lsn=item['target_lsn'],system_identifier=SYSTEM)))
-        if "json_build_object" in joined:
+        if "json_build_object" in joined and 'INSERT INTO sentinel_backup_evidence' not in joined:
             return json.dumps({"system_id": SYSTEM, "now": NOW, "timeline": "00000001",
                                "lsn": "0/D000000", "segment_size": SEGMENT})
         if "INSERT INTO sentinel_backup_evidence" in joined:
             value = json.loads(command[-1].split("WITH evidence AS (SELECT '", 1)[1]
                                .split("'::jsonb AS proof)", 1)[0])
             self.published.append(value)
-            return json.dumps(value)
+            return json.dumps({'proof':value,'observed_at':datetime.now(timezone.utc).isoformat()}) if (
+                "SELECT 'RUNTIME_CHAIN'" in joined) else json.dumps(value)
         if "SELECT proof::text" in joined:
             return json.dumps(receipt(self.selected())) if self.restored else ""
         if "sentinel.backup_retention" in command:
-            if "observe" in command:
+            if "observe" in command or 'observe-current' in command:
                 return json.dumps(self.selected())
             request = json.loads(kwargs["stdin"])
             retention.valid_receipt(request["receipt"], self.selected(), SYSTEM, request['image'])
@@ -549,8 +550,8 @@ def test_market_deferral_never_excuses_a_failed_chain_or_evidence(
 
 def test_removed_market_chain_publication_is_detected_by_executed_acceptance(
         boundary, monkeypatch):
-    monkeypatch.setattr(coordinator, 'publish_runtime_chain', lambda *args: None)
-    with pytest.raises(AssertionError):
+    monkeypatch.setattr(coordinator, 'publish_runtime_chain', lambda *args,**kwargs: None)
+    with pytest.raises(ValueError,match='success without publication'):
         test_market_deferral_publishes_current_chain_without_allocation_or_deletion(
             boundary, monkeypatch, True)
 
@@ -673,8 +674,8 @@ def test_missing_or_contradictory_chain_never_reports_healthy_or_retains(
 
 def test_removed_chain_publication_is_detected_by_actual_tick_acceptance(
         boundary, capsys, monkeypatch):
-    monkeypatch.setattr(coordinator, "publish_runtime_chain", lambda *args: None)
-    with pytest.raises(AssertionError):
+    monkeypatch.setattr(coordinator, "publish_runtime_chain", lambda *args,**kwargs: None)
+    with pytest.raises(ValueError,match='success without publication'):
         test_maintenance_publishes_verified_current_chain_before_ready_or_retention(
             boundary, False, capsys)
 
@@ -779,7 +780,7 @@ def test_promoted_backup_without_runtime_selection_cannot_be_healthy(
         with pytest.raises(FileNotFoundError):
             coordinator.tick(str(lab.media), runner)
         real_tick = coordinator.tick
-        monkeypatch.setattr(coordinator, 'tick', lambda root: real_tick(root, runner))
+        monkeypatch.setattr(coordinator, 'tick', lambda root,**kwargs: real_tick(root, runner,**kwargs))
         monkeypatch.setattr(coordinator, 'lock_is_held', lambda: True)
         monkeypatch.setenv('SENTINEL_BASE_BACKUP_LOCK_ROOT', str(lab.media))
         assert coordinator.main([]) == 4
@@ -900,6 +901,7 @@ def test_private_wal_alias_refuses_before_any_base_deletion(media):
 def test_loop_has_one_owner_retries_failed_tick_and_releases_lock(tmp_path, monkeypatch):
     import types
     monkeypatch.setenv("SENTINEL_BASE_BACKUP_LOCK_ROOT", str(tmp_path))
+    monkeypatch.setattr(coordinator,'_latest_publication',lambda:None)
     calls = []
     active = []
     def child(command, **kwargs):
@@ -913,7 +915,7 @@ def test_loop_has_one_owner_retries_failed_tick_and_releases_lock(tmp_path, monk
         calls.append(command)
         return types.SimpleNamespace(returncode=4)
     def stop(delay):
-        assert delay == 300
+        assert 299 <= delay <= 300
         raise KeyboardInterrupt()
     monkeypatch.setattr(coordinator.subprocess, "run", child)
     monkeypatch.setattr(coordinator.time, "sleep", stop)

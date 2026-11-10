@@ -7,15 +7,31 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 
-from sentinel_backup_maintenance import COMPOSE, Refused, run, runtime_image
-from sentinel_backup_integrity_report import validate
+from sentinel_backup_maintenance import COMPOSE, Refused, runtime_image
+from sentinel_backup_integrity_report import FAILURE_PREFIX, failure, parse_failure, validate
 from sentinel_maintenance_process import run_bounded
 
 PAPER_URL = 'https://paper-api.alpaca.markets'
 MODE = 'OWNER_AUTHORIZED_FUNCTION_FIRST_V1'
 PREFIX = 'shared_integrity_proof:'
+
+
+class IntegrityFailure(Refused):
+    def __init__(self, record):
+        self.record = record
+        super().__init__('common integrity '+record['code'])
+
+
+def _quiet_run(command, *, timeout=120):
+    result = run_bounded(command, timeout=timeout, private_group=False)
+    if result.returncode == 124:
+        raise TimeoutError('common integrity preflight deadline exceeded')
+    if result.returncode:
+        raise Refused('common integrity preflight command failed')
+    return result.stdout.strip()
 
 
 def environment(values):
@@ -40,31 +56,63 @@ def environment(values):
         SENTINEL_RUNTIME_BACKUP_AUTHORITY='REQUIRED_V1', ALPACA_BASE_URL=PAPER_URL)
 
 
-def observe(args, *, values=None, runner=run, bounded=run_bounded):
+def observe(args, *, values=None, runner=None, bounded=run_bounded):
     values = os.environ if values is None else values
-    child = environment(values)
-    image = runtime_image(runner)
-    container = runner(COMPOSE+['ps', '-q', 'sentinel-postgres'])
-    if re.fullmatch(r'[0-9a-f]{64}', container) is None:
-        raise Refused('common integrity requires one canonical PostgreSQL container')
-    state = runner(['docker', 'inspect', '--format', '{{.Id}} {{.State.Running}}', container])
-    if state != container+' true':
-        raise Refused('common integrity PostgreSQL process changed')
-    name = 'sentinel-maintenance-integrity-'+uuid.uuid4().hex
-    command = ['docker', 'run', '--rm', '--name', name, '--network', 'container:'+container,
-        '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-        '--memory', '512m', '--cpus', '1', '--pids-limit', '64']
-    for key in child:
-        command += ['--env', key]
-    command += ['--entrypoint', 'python', image, '-m', 'sentinel.backup_maintenance_integrity',
-        '--base-backup', args.base_backup, '--system-identifier', args.system_identifier,
-        '--wal-segment-bytes', str(args.wal_segment_bytes), '--observed-frontier', args.observed_frontier]
-    transport = {key: values[key] for key in ('PATH', 'HOME', 'LANG') if key in values}
-    transport.update(child)
+    started = time.monotonic()
+    budget = getattr(args, 'timeout_seconds', 580)
+    deadline = started+budget if type(budget) is int and 0 <= budget <= 600 else started
+    def remaining(maximum):
+        value = min(maximum, deadline-time.monotonic()-10)
+        if value <= 0:
+            raise TimeoutError('common integrity transport budget exhausted')
+        return value
+    runner = (lambda command: _quiet_run(command, timeout=remaining(120))) if runner is None else runner
+    stage, record, name, transport = 'HOST_POLICY', None, None, None
+    proof = None
     try:
-        result = bounded(command, env=transport, timeout=560)
-        if result.returncode or len(result.stdout) > 16384:
-            raise Refused('common integrity worker failed')
+        if type(budget) is not int or not 0 <= budget <= 600:
+            raise Refused('common integrity transport budget is invalid')
+        remaining(120)
+        child = environment(values)
+        stage = 'HOST_IMAGE'
+        image = runtime_image(runner)
+        stage = 'HOST_POSTGRES'
+        container = runner(COMPOSE+['ps', '-q', 'sentinel-postgres'])
+        if re.fullmatch(r'[0-9a-f]{64}', container) is None:
+            raise Refused('common integrity requires one canonical PostgreSQL container')
+        state = runner(['docker', 'inspect', '--format', '{{.Id}} {{.State.Running}}', container])
+        if state != container+' true':
+            raise Refused('common integrity PostgreSQL process changed')
+        stage = 'HOST_WORKER'
+        wait = remaining(560)
+        if wait <= 5:
+            raise TimeoutError('common integrity worker budget exhausted')
+        name = 'sentinel-maintenance-integrity-'+uuid.uuid4().hex
+        command = ['docker', 'run', '--rm', '--name', name, '--network', 'container:'+container,
+            '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+            '--memory', '512m', '--cpus', '1', '--pids-limit', '64']
+        for key in child:
+            command += ['--env', key]
+        command += ['--entrypoint', 'python', image, '-m', 'sentinel.backup_maintenance_integrity',
+            '--base-backup', args.base_backup, '--system-identifier', args.system_identifier,
+            '--wal-segment-bytes', str(args.wal_segment_bytes), '--observed-frontier', args.observed_frontier]
+        transport = {key: values[key] for key in ('PATH', 'HOME', 'LANG') if key in values}
+        transport.update(child)
+        stage = 'HOST_WORKER'
+        command += ['--timeout-seconds', str(min(540, max(1, int(wait)-5)))]
+        result = bounded(command, env=transport, timeout=wait)
+        if result.returncode:
+            try:
+                record = parse_failure(getattr(result, 'stderr', ''),
+                    returncode=result.returncode, origin='WORKER')
+            except (TypeError, ValueError, KeyError):
+                record = failure(origin='HOST', code='TRANSPORT_FAILURE', stage=stage,
+                    cause_type='TimeoutError' if result.returncode == 124 else 'PROTOCOL',
+                    elapsed_seconds=time.monotonic()-started, worker_container='FAILED')
+            raise IntegrityFailure(record)
+        stage = 'HOST_VALIDATE'
+        if len(result.stdout) > 16384:
+            raise ValueError('common integrity evidence exceeds output bound')
         try:
             proof = json.loads(result.stdout)
         except (TypeError, ValueError):
@@ -77,11 +125,45 @@ def observe(args, *, values=None, runner=run, bounded=run_bounded):
                 or proof['recoverable_through_wal'][:8] != args.observed_frontier[:8]
                 or proof['recoverable_through_wal'] < args.observed_frontier):
             raise Refused('common integrity worker selected another physical horizon')
-        return proof
+    except IntegrityFailure:
+        pass
+    except Exception as exc:
+        record = failure(origin='HOST', code='DEADLINE_EXCEEDED' if isinstance(exc, TimeoutError)
+            else 'POLICY_REFUSED' if isinstance(exc, Refused)
+            and stage in {'HOST_POLICY', 'HOST_IMAGE', 'HOST_POSTGRES'} else 'PROTOCOL_FAILURE',
+            stage=stage, cause_type='TimeoutError' if isinstance(exc, TimeoutError)
+                else 'Refused' if isinstance(exc, Refused) else 'ValueError'
+                if isinstance(exc, ValueError) else 'UNCLASSIFIED',
+            elapsed_seconds=time.monotonic()-started, worker_container='NOT_STARTED')
     finally:
         # This unique worker owns no broker or caller SQL work. A lost/expired
         # Docker client must not leave its proof process or session lock alive.
-        bounded(['docker', 'rm', '-f', name], env=transport, timeout=10)
+        if name is not None:
+            removed = False
+            try:
+                cleanup_wait = min(5, max(.001, deadline-time.monotonic()))
+                result = bounded(['docker', 'rm', '-f', name], env=transport, timeout=cleanup_wait)
+                removed = result.returncode == 0
+                if not removed:
+                    cleanup_wait = min(5, max(.001, deadline-time.monotonic()))
+                    result = bounded(['docker', 'ps', '-a', '--filter', 'name=^/'+name+'$',
+                        '--format', '{{.ID}}'], env=transport, timeout=cleanup_wait)
+                    removed = result.returncode == 0 and result.stdout.strip() == ''
+            except Exception:
+                pass
+            if record is not None:
+                record = failure(**{key: record[key] for key in ('code', 'stage', 'cause_type',
+                    'elapsed_seconds', 'owner_wait_seconds', 'proof_seconds',
+                    'proof_completed_uptime', 'proof_observed_uptime', 'exception_chain')}, origin='HOST',
+                    proof_lock=record['cleanup']['proof_lock'],
+                    worker_container='REMOVED' if removed else 'FAILED')
+            elif not removed:
+                record = failure(origin='HOST', code='TRANSPORT_FAILURE', stage='HOST_CLEANUP',
+                    cause_type='PROTOCOL', elapsed_seconds=time.monotonic()-started,
+                    proof_lock='RELEASED', worker_container='FAILED')
+    if record is not None:
+        raise IntegrityFailure(record)
+    return proof
 
 
 def main():
@@ -90,6 +172,7 @@ def main():
     parser.add_argument('--system-identifier', required=True)
     parser.add_argument('--wal-segment-bytes', type=int, required=True)
     parser.add_argument('--observed-frontier', required=True)
+    parser.add_argument('--timeout-seconds', type=int, default=580)
     args = parser.parse_args()
     try:
         proof = observe(args)
@@ -99,8 +182,12 @@ def main():
               +' end='+proof['recoverable_through_wal']+' segments='+str(proof['wal_segments'])
               +' marker='+proof['recovery_marker_wal']+' history='+(proof['timeline_history'] or 'none'))
         print(PREFIX+json.dumps(proof, sort_keys=True, separators=(',', ':'), allow_nan=False))
-    except Exception as exc:
-        print('REFUSED: common integrity worker unavailable: '+type(exc).__name__, file=sys.stderr)
+    except IntegrityFailure as exc:
+        print(FAILURE_PREFIX+json.dumps(exc.record, sort_keys=True, separators=(',', ':'), allow_nan=False), file=sys.stderr)
+        return 75 if exc.record['retryable'] else 4
+    except Exception:
+        record = failure(origin='HOST', code='INTERNAL_FAILURE', stage='HOST_VALIDATE', cause_type='UNCLASSIFIED')
+        print(FAILURE_PREFIX+json.dumps(record, sort_keys=True, separators=(',', ':')), file=sys.stderr)
         return 4
     return 0
 

@@ -1,0 +1,47 @@
+"""Backup retry changes retain the complete installed source and economic map."""
+import hashlib
+import json
+import pytest
+from sentinel import runtime_admission as admission, url_selected_source_basis as basis
+from tests.support.source_history import expanded_profile, encoded_profile
+
+REVISION='4dd0a32473caf25faac0a6e57491aaa5bed56ef2'
+CLOSURE='646f1551ab2cd51e61c69e9d528b1979cf5a1dc6f861e1a1d842514f757f9e61'
+CHANGED={'backup_runtime_authority.py','backup_integrity_reuse.py','backup_maintenance_integrity.py',
+    'backup_retention.py','panel/presentation.py','url_selected_source_basis.py'}
+
+
+def test_backup_deadline_successor_preserves_every_installed_map():
+    profile=basis._profile();assert basis.BACKUP_DEADLINE_PREDECESSOR_REVISION==REVISION
+    before=profile['retained_predecessors'][REVISION]['files']
+    assert len(before)==468 and admission.source_closure(before)==CLOSURE
+    actual=admission._source_files(basis.PROFILE.parent)
+    assert set(actual)==set(before)
+    assert {n for n in actual if actual[n]!=before[n]}==CHANGED
+    assert basis.predecessor_view(actual,previous=before)==before
+    assert len(profile['retained_predecessors'])==34 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
+    assert hashlib.sha256(raw).hexdigest()=='1a71e17201610a7a0d44e34d72860be6b30c9986f6944e35c7966307c0c012f6'
+
+
+@pytest.mark.parametrize('fault',['changed','missing','extra'])
+def test_unknown_or_partial_retry_runtime_cannot_translate(fault):
+    profile=basis._profile();previous=profile['retained_predecessors'][REVISION]['files']
+    actual=admission._source_files(basis.PROFILE.parent)
+    if fault=='changed':actual['backup_integrity_reuse.py']='0'*64
+    elif fault=='missing':actual.pop('backup_maintenance_integrity.py')
+    else:actual['unqualified.py']='0'*64
+    assert basis.predecessor_view(actual,previous=previous)==actual
+
+
+@pytest.mark.parametrize('fault',['changed','missing','extra'])
+def test_independent_predecessor_pin_cannot_be_replaced(tmp_path,monkeypatch,fault):
+    profile=expanded_profile();before=profile['retained_predecessors'][REVISION]
+    if fault=='changed':before['files']['backup_integrity_reuse.py']='0'*64
+    elif fault=='missing':before['files'].pop('backup_runtime_authority.py')
+    else:before['files']['unqualified.py']='0'*64
+    before['source_sha256']=basis._closure(before['files'])
+    raw=encoded_profile(profile);path=tmp_path/'forged.json';path.write_bytes(raw)
+    monkeypatch.setattr(basis,'PROFILE',path);monkeypatch.setattr(basis,'PROFILE_SHA256',hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError,match='RETAINED_PREDECESSOR_CHANGED'):basis._profile()

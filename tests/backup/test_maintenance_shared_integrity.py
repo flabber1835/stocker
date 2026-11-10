@@ -261,7 +261,7 @@ def test_competing_process_cannot_scrub_and_reentrant_counts_balance(media):
         owner.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
         for kind in ('maintenance', 'application'):
             result = media.child(kind)
-            assert result == {'ok': False, 'error': 'BackupRuntimeUnavailable', 'reads': 0}
+            assert result == {'ok': False, 'error': 'BackupIntegrityBusy', 'reads': 0}
         assert owner.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,)).fetchone() == (True,)
     media.prove()
     with psycopg.connect(media.server.sync_dsn, autocommit=True) as other:
@@ -371,9 +371,71 @@ def test_current_base_selection_is_not_a_pinned_maintenance_base(media):
     successor = 'base-20261110T235959Z'
     shutil.copytree(media.directory, media.base_root/successor)
     media.select(successor)
-    with pytest.raises(authority.BackupRuntimeRefused, match='selected media'):
+    with pytest.raises(authority.BackupIntegritySelectionMoved):
         media.prove()
     assert media.prove('application')['base_backup'] == successor
+
+
+def test_second_authenticated_owner_observation_exports_only_expired_clocks(media, monkeypatch):
+    original = authority.require
+    def expire_after_full_proof(*args, **kwargs):
+        result = original(*args, **kwargs)
+        media.rewrite_receipt(lambda p: p.update(completed_uptime=p['completed_uptime']-301))
+        return result
+    monkeypatch.setattr(authority, 'require', expire_after_full_proof)
+    trace = maintenance._Trace()
+    with pytest.raises(authority.BackupIntegrityProofExpired) as caught:
+        maintenance.prove(media.conn, base_backup=media.base, system_identifier=media.system,
+            wal_segment_bytes=SIZE, observed_frontier=media.end, wait_seconds=0, _trace=trace)
+    owner = reuse.Owner(media.conn, dict(system_id=media.system, base=media.base,
+        start=media.start, segment_size=SIZE))
+    assert owner.proof is None and owner.cached() is None
+    assert type(owner.expired_window) is tuple and len(owner.expired_window) == 2
+    assert owner.expired_window[1]-owner.expired_window[0] >= 300
+    failure = maintenance.failure_record(caught.value, trace)
+    assert failure.code == 'PROOF_WINDOW_EXPIRED' and failure.retryable
+    assert failure.stage == 'RESULT' and failure.cleanup.proof_lock == 'RELEASED'
+
+
+def test_new_base_is_retryable_only_after_same_physical_proof_and_reobservation(media):
+    successor = 'base-20261110T235956Z'
+    shutil.copytree(media.directory, media.base_root/successor)
+    media.select(successor)
+    trace = maintenance._Trace()
+    with pytest.raises(authority.BackupIntegritySelectionMoved) as caught:
+        maintenance.prove(media.conn, base_backup=media.base, system_identifier=media.system,
+            wal_segment_bytes=SIZE, observed_frontier=media.end, wait_seconds=0, _trace=trace)
+    failure = maintenance.failure_record(caught.value, trace)
+    assert failure.code == 'SELECTION_MOVED' and failure.retryable
+    assert media.prove(base_backup=successor)['base_backup'] == successor
+    with pytest.raises(authority.BackupRuntimeRefused):
+        media.prove(base_backup=media.base, wal_segment_bytes=SIZE*2)
+
+
+@pytest.mark.parametrize('bad', [None, '../foreign', 42])
+def test_malformed_returned_base_cannot_be_classified_as_selection_movement(media, monkeypatch, bad):
+    original = authority.require
+    def malformed(*args, **kwargs):
+        return dict(original(*args, **kwargs), base_backup=bad)
+    monkeypatch.setattr(authority, 'require', malformed)
+    trace = maintenance._Trace()
+    with pytest.raises(authority.BackupRuntimeRefused) as caught:
+        maintenance.prove(media.conn, base_backup=media.base, system_identifier=media.system,
+            wal_segment_bytes=SIZE, observed_frontier=media.end, wait_seconds=0, _trace=trace)
+    failure = maintenance.failure_record(caught.value, trace)
+    assert failure.code == 'INTEGRITY_REFUSED' and failure.retryable is False
+
+
+def test_removed_returned_base_shape_guard_has_an_executed_falsifier(media, monkeypatch):
+    source = inspect.getsource(maintenance.prove)
+    guard = ("if (type(current_base) is not str\n"
+             "                    or re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z', current_base) is None):")
+    assert source.count(guard) == 1
+    namespace = vars(maintenance).copy()
+    exec(compile(source.replace(guard, 'if False:'), '<removed base identity shape>', 'exec'), namespace)
+    monkeypatch.setattr(maintenance, 'prove', namespace['prove'])
+    with pytest.raises(authority.BackupIntegritySelectionMoved):
+        test_malformed_returned_base_cannot_be_classified_as_selection_movement(media, monkeypatch, None)
 
 
 def test_selection_movement_during_proof_refuses_and_invalidates(media, monkeypatch):
@@ -465,7 +527,7 @@ def test_removing_current_selection_argument_has_an_executed_falsifier(media):
     successor = 'base-20261110T235957Z'
     shutil.copytree(media.directory, media.base_root/successor)
     media.select(successor)
-    with pytest.raises(authority.BackupRuntimeRefused):
+    with pytest.raises(authority.BackupIntegritySelectionMoved):
         media.prove()
     # The exact omission incorrectly admits the obsolete requested base. The
     # real final-selection contract above would therefore fail under mutation.

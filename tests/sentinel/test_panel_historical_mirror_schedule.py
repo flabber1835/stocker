@@ -277,9 +277,11 @@ def test_present_current_restrictions_and_scope_faults_are_never_historical_audi
 
 def test_original_audit_and_current_proof_deadlines_bound_human_green_and_expire_at_execution():
     from sentinel.panel.render import render
+    from tests.sentinel.test_panel_dynamic_cadence import assert_initial_cadence
     page = healthy_history_panel()
     assert presentation.dashboard_health(page)['valid_until']==(page.now+timedelta(seconds=12)).isoformat()
-    assert 'data-max-age-seconds="12.0"' in render(page) and '}, 6000);' in render(page)
+    assert 'data-max-age-seconds="12.0"' in render(page)
+    assert_initial_cadence(render(page),6000)
     imminent = healthy_history_panel(now=LIVE_OPEN-timedelta(seconds=8))
     assert presentation.dashboard_health(imminent)['valid_until']==(LIVE_OPEN-timedelta(microseconds=1)).isoformat()
     assert 'data-max-age-seconds="7.999999"' in render(imminent)

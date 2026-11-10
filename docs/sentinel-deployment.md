@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Deadline-owned backup renewal](backup-renewal-deadline-recovery.md) records the
+local correction of failed-pass scheduling, lost diagnostic causes and unrelated
+waiting-row attribution. It preserves proof expiries and financial authority;
+qualified installation and safe reader handover establish operational delivery.
+
 [Dashboard dependency handoff](dashboard-dependency-handoff.md) separates routine
 account/receipt renewal from independent display facts, retaining strict financial
 subjects and coherent read-only consumption.

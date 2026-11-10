@@ -27,6 +27,7 @@ its primary-local checkpoint is never a new external-chain proof.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from pathlib import Path
 import re
@@ -61,6 +62,27 @@ _PROOF_CACHE: dict[tuple, dict] = {}
 
 class BackupRuntimeUnavailable(backup_guard.BackupUnavailable, ConnectionError):
     """The durable target/restore chain may heal without changing authority."""
+
+
+class BackupIntegrityBusy(BackupRuntimeUnavailable):
+    """The existing common proof owner has not relinquished its lock."""
+
+
+class BackupIntegritySelectionMoved(BackupRuntimeUnavailable):
+    """A newly proved current base differs from the caller's older selection."""
+
+
+class BackupIntegrityProofExpired(BackupRuntimeUnavailable):
+    """An authenticated original completion clock actually reached its limit."""
+
+    def __init__(self, *, completed_uptime: float, observed_uptime: float):
+        if (any(type(v) not in (int, float) or not math.isfinite(v) or v < 0
+                for v in (completed_uptime, observed_uptime))
+                or observed_uptime-completed_uptime < FULL_SCRUB_SECONDS):
+            raise ValueError('invalid original proof expiry clocks')
+        self.completed_uptime = float(completed_uptime)
+        self.observed_uptime = float(observed_uptime)
+        super().__init__('backup integrity complete proof expired during admission')
 
 
 class BackupRuntimeRefused(backup_guard.BackupConfigurationRefused):

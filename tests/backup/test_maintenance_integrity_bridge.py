@@ -177,7 +177,12 @@ def test_worker_transport_failure_refuses_and_still_reaps_its_unique_worker(monk
         wal_segment_bytes=SEGMENT, observed_frontier=proof()['recoverable_through_wal'])
     with pytest.raises((bridge.Refused, ValueError)):
         bridge.observe(args, values=values(), runner=runner, bounded=bounded)
-    assert len(calls)==2 and calls[-1][:3]==['docker','rm','-f']
+    assert calls[1][:3]==['docker','rm','-f']
+    if mode == 'failed':
+        assert len(calls)==3 and calls[2][:3]==['docker','ps','-a']
+        assert calls[2][calls[2].index('--filter')+1] == 'name=^/'+calls[1][-1]+'$'
+    else:
+        assert len(calls)==2
 
 
 def test_selected_maintenance_tick_publishes_actual_hit_without_legacy_fallback(tmp_path, monkeypatch):

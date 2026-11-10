@@ -700,6 +700,39 @@ def test_real_host_delta_guard_removal_is_an_executed_falsifier(real_host,monkey
     assert real_host.validate()['commit'] == real_host.git('rev-parse','HEAD')
 
 
+def test_same_candidate_host_uses_complete_app_report_without_host_only_delta(real_host):
+    report = module.read_json(real_host.report)
+    report['results'][0]['command'] = ['pytest',module.TOOL_TEST]
+    dump(real_host.report,report); real_host.sha = module.qualification.sha256_file(real_host.report)
+    commit = real_host.git('rev-parse','HEAD')
+    assert real_host.validate(base=commit)['commit'] == commit
+
+
+def test_same_candidate_host_still_requires_executed_direct_test_coverage(real_host):
+    with pytest.raises(DeliveryRefused,match='APPLICATION_TOOL_TEST_MISSING'):
+        real_host.validate(base=real_host.git('rev-parse','HEAD'))
+
+
+@pytest.mark.parametrize('wrong_app_report',(False,True))
+def test_native_assets_same_candidate_route_requires_exact_completed_app_report(lab,monkeypatch,wrong_app_report):
+    (lab.new/module.TOOL_PATH).write_bytes((lab.host_source/module.TOOL_PATH).read_bytes())
+    report = module.read_json(lab.qualification)
+    report['source_files'][module.TOOL_PATH] = module.file_sha(lab.host_source/module.TOOL_PATH)
+    dump(lab.qualification,report)
+    lab.host_qualification = lab.qualification
+    original = lab.host_tool
+    monkeypatch.setattr(lab,'host_tool',lambda *args:dict(original(*args),commit=NEW))
+    request = module.read_json(lab.receipt.parent/'request.json')
+    request['qualification'] = dict(report_sha256='0'*64 if wrong_app_report else module.file_sha(lab.qualification))
+    dump(lab.receipt.parent/'request.json',request)
+    if wrong_app_report:
+        with pytest.raises(DeliveryRefused,match='APPLICATION_TOOL_REPORT_CHANGED'): lab.prepare()
+        assert lab.calls == []
+    else:
+        assert lab.prepare()['request']['host_tool']['commit'] == NEW
+        assert lab.operation.resume()['phase'] == 'VERIFIED'
+
+
 @pytest.mark.parametrize('seconds',(-1,3661,True))
 def test_wait_is_bounded_before_lock(tmp_path,seconds):
     with pytest.raises(DeliveryRefused,match='WAIT_INVALID'):

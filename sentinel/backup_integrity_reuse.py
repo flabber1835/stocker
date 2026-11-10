@@ -106,6 +106,7 @@ class Owner:
         physical, self.boot, self.uptime, self.client_before = _clock(conn)
         self.context = dict(context, **physical, implementation=implementation())
         self.proof = None
+        self.expired_window = None  # Diagnostic clocks only; never reusable proof.
         row = conn.execute('SELECT pg_read_binary_file(%s,0,%s,true)', (NAME, MAX_BYTES+1)).fetchone()
         if row is not None and row[0] is not None:
             raw = bytes(row[0])
@@ -117,9 +118,11 @@ class Owner:
                     or not hmac.compare_digest(envelope['signature'], _signature(envelope['proof']))):
                 raise ValueError('backup integrity receipt authentication failed')
             proof = Proof.model_validate(envelope['proof'])
-            if (proof.outcome == 'VALID' and proof.context == self.context and proof.boot == self.boot
-                    and 0 <= self.uptime-proof.completed_uptime < MAX_AGE):
-                self.proof = proof
+            if proof.outcome == 'VALID' and proof.context == self.context and proof.boot == self.boot:
+                if 0 <= self.uptime-proof.completed_uptime < MAX_AGE:
+                    self.proof = proof
+                elif self.uptime-proof.completed_uptime >= MAX_AGE:
+                    self.expired_window = (proof.completed_uptime, self.uptime)
 
     def cached(self):
         if self.proof is None:
@@ -130,13 +133,16 @@ class Owner:
                 'end': self.proof.end}
 
     def publish(self, cached, *, full_scrub):
-        from sentinel.backup_runtime_authority import BackupRuntimeRefused, BackupRuntimeUnavailable
+        from sentinel.backup_runtime_authority import (
+            BackupRuntimeRefused, BackupRuntimeUnavailable, BackupIntegrityProofExpired)
         physical, boot, uptime, _ = _clock(self.conn)
         if (boot != self.boot or any(self.context[k] != v for k,v in physical.items())
                 or uptime < self.uptime):
             raise BackupRuntimeRefused('backup integrity physical clock changed during proof')
         stamp = uptime if full_scrub else self.proof.completed_uptime
         if not 0 <= uptime-stamp < MAX_AGE:
+            if uptime-stamp >= MAX_AGE:
+                raise BackupIntegrityProofExpired(completed_uptime=stamp, observed_uptime=uptime)
             raise BackupRuntimeUnavailable('backup integrity complete proof expired during admission')
         proof = Proof(schema_version=PURPOSE, context=self.context, boot=boot,
                       completed_uptime=stamp, end=cached['end'], metadata=cached['metadata'])
@@ -161,7 +167,7 @@ def owner(conn, *, system_id, base, start, segment_size):
     if not selected():
         yield None
         return
-    from sentinel.backup_runtime_authority import BackupRuntimeUnavailable, BackupRuntimeRefused
+    from sentinel.backup_runtime_authority import BackupIntegrityBusy, BackupRuntimeRefused
     from psycopg.pq import TransactionStatus
     if conn.info.transaction_status not in {TransactionStatus.INTRANS, TransactionStatus.IDLE}:
         raise BackupRuntimeRefused('backup integrity reuse requires a usable admission transaction')
@@ -173,7 +179,7 @@ def owner(conn, *, system_id, base, start, segment_size):
         with conn.transaction():
             acquired = conn.execute('SELECT pg_try_advisory_lock(%s)', (LOCK_KEY,)).fetchone() == (True,)
             if not acquired:
-                raise BackupRuntimeUnavailable('another backup integrity proof owner is active')
+                raise BackupIntegrityBusy('another backup integrity proof owner is active')
             try:
                 value = Owner(conn, {'system_id':system_id, 'base':base,
                                      'start':start, 'segment_size':segment_size})

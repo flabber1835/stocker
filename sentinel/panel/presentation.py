@@ -225,8 +225,8 @@ def _historical_schedule_evidence(panel, history: Row | None, saved: Row) -> boo
             and (history.freshness is None or panel.now < history.as_of+history.freshness))
 
 
-def _scheduled_work_normal(panel) -> bool:
-    """Share current scheduling proof for historical audit and bounded PAPER work."""
+def _scheduled_wait_proven(panel) -> bool:
+    """Prove the scheduled facts without borrowing an independent backup verdict."""
     if (not panel.local_paper_mode or panel.source_errors
             or len({row.key for row in panel.rows}) != len(panel.rows)):
         return False
@@ -241,7 +241,8 @@ def _scheduled_work_normal(panel) -> bool:
             or notifications.is_stale(panel.now) or notifications.is_future(panel.now)):
         return False
     if (any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
-            or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
+            or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS
+                       if key != 'backup_restore')
             or not _enabled_policy(panel.row('automation'))
             or not panel.row('alpaca_account').can_show_paper_account(panel.now)
             or not _current_input_session(panel, str(plan.decision_session))
@@ -260,6 +261,43 @@ def _scheduled_work_normal(panel) -> bool:
                 or not recovery.active(panel.now)):
             return False
     return True
+
+
+def _scheduled_work_normal(panel) -> bool:
+    """Complete original admission for green styling and its proof boundaries."""
+    return (_current_health_fact(panel, 'backup_restore')
+            and _scheduled_wait_proven(panel))
+
+
+def _backup_maintenance_normal(panel, row: Row) -> bool:
+    recovery = row.recovery
+    return (row.key == 'backup_restore' and row.value == 'BACKUP CHECK IN PROGRESS'
+            and row.effective_status(panel.now) == 'warn' and row.required_current
+            and not row.is_future(panel.now) and _aware(row.as_of)
+            and recovery is not None and recovery.phase == 'BACKUP_MAINTENANCE'
+            and recovery.automatic and not recovery.operator_required
+            and recovery.active(panel.now) and _aware(recovery.deadline)
+            and panel.now < recovery.deadline and row.valid_until == recovery.deadline)
+
+
+def _scheduled_wait_attributable(panel) -> bool:
+    """An observed backup incident cannot invent a second waiting incident.
+
+    This grants neither green admission nor a financial verdict. Every other
+    current capability and the complete dated waiting/history proof still bind.
+    Missing or unadmitted backup evidence supplies no attribution exception.
+    """
+    from sentinel.panel.delivery import row_current
+    backup = panel.row('backup_restore')
+    return (backup is not None and backup.required_current
+            and row_current(panel, backup)
+            and backup.effective_status(panel.now) in {'warn', 'fail', 'unknown'}
+            and _scheduled_wait_proven(panel))
+
+
+def _green_eligible(panel) -> bool:
+    """Attribution of an ordinary wait never substitutes for full admission."""
+    return not _scheduled_wait_attributable(panel) or _scheduled_work_normal(panel)
 
 
 def _completed_work_normal(panel) -> bool:
@@ -425,7 +463,7 @@ def _normal_warning(panel, row: Row) -> bool:
     if row.key == 'paper_reconciliation' and _completed_work_normal(panel):
         return True
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
-            and _scheduled_work_normal(panel)):
+            and (_scheduled_work_normal(panel) or _scheduled_wait_attributable(panel))):
         return True
     recovery = row.recovery
     if (row.effective_status(panel.now) != 'warn' or recovery is None
@@ -433,9 +471,7 @@ def _normal_warning(panel, row: Row) -> bool:
             or not recovery.active(panel.now) or not _aware(recovery.deadline)
             or not panel.now < recovery.deadline or row.is_future(panel.now)):
         return False
-    if (row.key == 'backup_restore' and row.value == 'BACKUP CHECK IN PROGRESS'
-            and recovery.phase == 'BACKUP_MAINTENANCE' and row.required_current
-            and _aware(row.as_of) and row.valid_until == recovery.deadline):
+    if _backup_maintenance_normal(panel, row):
         return True
     if (is_closing_data_preparation(row, 'warn') and _closing_source_proof(panel)):
         return True
@@ -560,7 +596,7 @@ def dashboard_health(panel) -> dict:
                 if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
     facts = health_facts(panel)
     negative = bool(facts['active'])
-    normal = (not negative and not facts['warnings'] and any(
+    normal = (not negative and not facts['warnings'] and _green_eligible(panel) and any(
         status == 'ok' or status == 'warn' and _normal_warning(panel, row)
         for row, status in statuses))
     review = panel.operator_review
