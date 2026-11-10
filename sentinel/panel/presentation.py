@@ -492,10 +492,11 @@ def _completed_work_normal(panel) -> bool:
             and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now))
 
 
-def _unadopted_preparation_fact(panel) -> bool:
+def _unadopted_preparation_fact(panel, *, phase='AUTOMATION_PREPARING', session=None) -> bool:
     """The controller decision precedes its saved plan; no adoption is claimed."""
-    from sentinel.feed import calendar
-    session = calendar.latest_closed_session(panel.now)
+    if session is None:
+        from sentinel.feed import calendar
+        session = calendar.latest_closed_session(panel.now)
     row, cycle, plan = (panel.row(key) for key in ('exposure', 'automation_cycle', 'paper_plan'))
     fact = row.operational_fact if row is not None else None
     return (row is not None and row.status == 'warn' and row.required_current
@@ -506,8 +507,54 @@ def _unadopted_preparation_fact(panel) -> bool:
             and fact is not None and fact.kind == 'CONTROLLER_DECISION'
             and fact.state == 'NOT_ADOPTED' and fact.session == date.fromisoformat(session)
             and cycle is not None and cycle.recovery is not None
-            and cycle.recovery.phase == 'AUTOMATION_PREPARING'
+            and cycle.recovery.phase == phase
             and plan is not None and plan.status == 'pending' and plan.paper_plan is None)
+
+
+def _deferred_adoption_boundary(panel, row: Row | None) -> datetime | None:
+    """Attribute one current exposure fact during its bounded planless handoff."""
+    from sentinel.panel.delivery import row_current
+    cycle, plan = panel.row('automation_cycle'), panel.row('paper_plan')
+    recovery = cycle.recovery if cycle is not None else None
+    if (row is None or row.status != 'warn' or recovery is None
+            or not panel.local_paper_mode or panel.source_errors or plan is None
+            or not row_current(panel, row) or not row_current(panel, plan)
+            or not row_current(panel, cycle) or not cycle.required_current
+            or cycle.status != cycle.effective_status(panel.now) or cycle.status != 'warn'
+            or not recovery.active(panel.now) or not _aware(recovery.deadline)
+            or not _aware(cycle.as_of) or cycle.is_future(panel.now) or cycle.is_stale(panel.now)):
+        return None
+    phase = recovery.phase
+    refreshing = phase == 'AUTOMATION_REFRESHING_DATA'
+    if refreshing:
+        if not _workflow(cycle, 'REFRESHING_DATA') or recovery.next_attempt_at is not None:
+            return None
+    elif (phase not in {'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
+            or not _workflow(cycle, 'RETRY_WAIT') or type(recovery.attempt) is not int
+            or recovery.attempt < 1 or not _aware(recovery.next_attempt_at)
+            or not cycle.as_of <= panel.now < recovery.next_attempt_at <= recovery.deadline):
+        return None
+    from sentinel.feed import calendar
+    session = calendar.latest_closed_session(panel.now)
+    closed = calendar.session_window(session)[1]
+    opened = calendar.session_window(calendar.next_session(session))[0]
+    deadline = opened if refreshing else opened-timedelta(microseconds=1)
+    if (not closed <= cycle.as_of <= panel.now < deadline or recovery.deadline != deadline
+            or not _unadopted_preparation_fact(panel, phase=phase, session=session)
+            or not _current_input_session(panel, session)):
+        return None
+    inputs = ('feed', 'shadow_verification', 'book', 'terminals')
+    if not all(_current_health_fact(panel, key) and row_current(panel, panel.row(key)) for key in inputs):
+        return None
+    book = panel.row('book')
+    if not book.can_show_shadow_book(panel.now) or book.shadow_book.session != session:
+        return None
+    owners = ('automation_leader', 'shadow_worker')
+    if not all(_fresh_worker(panel, key) and row_current(panel, panel.row(key)) for key in owners):
+        return None
+    bounds = [_row_boundary(panel.row(key)) for key in (*inputs, *owners, 'exposure', 'automation_cycle')]
+    bounds.append(deadline if refreshing else recovery.next_attempt_at)
+    return min(bound for bound in bounds if bound is not None)
 
 
 def _preparation_inputs_current(panel) -> bool:
@@ -746,7 +793,7 @@ def preparation_stage(panel) -> str | None:
     return None
 
 
-def health_facts(panel) -> dict:
+def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
     """Current facts only; old notification severity is not current failure."""
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
@@ -755,9 +802,14 @@ def health_facts(panel) -> dict:
         if not row_current(panel, row):
             continue
         status = row.effective_status(panel.now)
-        if (status == 'fail' and row.key == 'exposure' and row.status == 'warn'
-                and _normal_warning(panel, row)):
-            continue
+        if status == 'fail' and row.key == 'exposure' and row.status == 'warn':
+            if _normal_warning(panel, row):
+                continue
+            adoption_boundary = _deferred_adoption_boundary(panel, row)
+            if adoption_boundary is not None:
+                if boundaries is not None:
+                    boundaries.append(adoption_boundary)
+                continue
         if status in {'fail', 'unknown'}:
             active.append(row.key)
         elif (status == 'warn' and row.key != 'automation_alerts'
@@ -783,7 +835,8 @@ def dashboard_health(panel) -> dict:
     statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
     warnings = [row for row, status in statuses
                 if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
-    facts = health_facts(panel)
+    boundaries = []
+    facts = health_facts(panel, boundaries=boundaries)
     negative = bool(facts['active'])
     normal = (not negative and not facts['warnings'] and _green_eligible(panel) and any(
         status == 'ok' or status == 'warn' and _normal_warning(panel, row)
@@ -814,9 +867,9 @@ def dashboard_health(panel) -> dict:
         label = 'Reconciling fills'
     admitted = [row for row in warnings if _normal_warning(panel, row)]
     execution_normal = _execution_work_normal(panel)
-    boundaries = [(row.operational_fact.opening.deadline
+    boundaries.extend(row.operational_fact.opening.deadline
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
-        else _row_boundary(row)) for row in admitted]
+        else _row_boundary(row) for row in admitted)
     if execution_normal or _clean_skip_work_normal(panel) or _retired_check_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS
                           if key != 'broker' or not execution_normal or not panel.row(key).is_stale(panel.now))

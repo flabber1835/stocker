@@ -50,6 +50,7 @@ from sentinel.automation.model import (
     protected_day_wait,
     PrepareResult,
     ProspectiveReplacementRefused,
+    RefreshPublicationPinUnavailable,
     RefreshResult,
     SoftwareDefect,
     SourceDataPending,
@@ -123,6 +124,7 @@ _CHILD_EXCEPTION_TYPES = {
         HumanInterventionRequired,
         NonRetryableCallbackRefused,
         PermanentOperationalRefusal,
+        RefreshPublicationPinUnavailable,
         SoftwareDefect,
         SourceDataPending,
         StaleLeaderRefused,
@@ -130,6 +132,8 @@ _CHILD_EXCEPTION_TYPES = {
     )
 }
 _REVIEWED_FAILURE_DOMAINS = frozenset({"BACKUP"})
+_PUBLICATION_PIN_EXCEPTION = (
+    f"{RefreshPublicationPinUnavailable.__module__}.{RefreshPublicationPinUnavailable.__qualname__}")
 
 
 def _failure_domain(exc: BaseException) -> str | None:
@@ -148,7 +152,8 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if candidate is not ClosingDataPending and isinstance(exc, candidate))
+        if candidate not in (ClosingDataPending, RefreshPublicationPinUnavailable)
+        and isinstance(exc, candidate))
     if not matches:
         return None
     mro = actual.__mro__
@@ -398,15 +403,23 @@ class AutomationService:
         except Exception:                                     # scheduling hint only
             return None
 
-    def _source_completion_advanced(self, cycle: CycleRecord) -> bool:
-        if (cycle.diagnostic.get("retry_phase") != "REFRESH"
-                or cycle.diagnostic.get("callback_failure") != "SOURCE_DATA_PENDING"):
-            return False
-        previous = cycle.diagnostic.get("source_completion_hint")
+    def _advanced_source_completion(self, cycle: CycleRecord, *, now: datetime) -> SourceCompletionHint | None:
+        diagnostic = cycle.diagnostic
+        if diagnostic.get("retry_phase") != "REFRESH":
+            return None
+        if (diagnostic.get("callback_failure") != "SOURCE_DATA_PENDING"
+                and not (diagnostic.get("callback_failure") == "TRANSIENT_INFRASTRUCTURE"
+                         and diagnostic.get("exception_type") == _PUBLICATION_PIN_EXCEPTION
+                         and cycle.failure_code == RefreshPublicationPinUnavailable.__name__
+                         and cycle.plan_id is None
+                         and cycle.prepare_at <= now < cycle.execution_open_at)):
+            return None
+        previous = diagnostic.get("source_completion_hint")
         if previous is None:
-            return False
-        return progressed(previous, self._source_completion(cycle),
-                          decision_session=cycle.decision_session)
+            return None
+        current = self._source_completion(cycle)
+        return current if progressed(previous, current,
+                                     decision_session=cycle.decision_session) else None
 
     def _schedule(self, now: datetime):
         """Production XNYS obligation; an isolated rehearsal may override it."""
@@ -590,7 +603,13 @@ class AutomationService:
         # Source waiting has a market-time boundary, not a retry-count latch.
         # No intent exists in REFRESH; existing transport recovery precedes it.
         source_wait = isinstance(exc, SourceDataPending) and phase == "REFRESH"
-        exhausted = explicitly_transient and phase_attempt >= max_attempts and not source_wait
+        pin_attempt = None
+        if phase == "REFRESH" and type(exc) is RefreshPublicationPinUnavailable:
+            pin_attempt = 1
+            if prior_phase == phase and prior.get("exception_type") == _PUBLICATION_PIN_EXCEPTION:
+                pin_attempt += int(prior.get("publication_pin_attempt_count", 0))
+        budget_attempt = pin_attempt if pin_attempt is not None else phase_attempt
+        exhausted = explicitly_transient and budget_attempt >= max_attempts and not source_wait
         terminal = not explicitly_transient or exhausted
         if isinstance(exc, (ValidationError, DataIntegrityFailure)):
             category = "DATA_INTEGRITY"
@@ -626,6 +645,8 @@ class AutomationService:
         failure_domain = _failure_domain(exc)
         if failure_domain:
             diagnostic["failure_domain"] = failure_domain
+        if pin_attempt is not None:
+            diagnostic["publication_pin_attempt_count"] = pin_attempt
         return terminal, diagnostic
 
     def _handle_callback_failure(
@@ -652,7 +673,8 @@ class AutomationService:
         retry_at = (
             None if terminal
             else self._retry_at(
-                now, int(diagnostic["phase_attempt_count"])))
+                now, int(diagnostic.get("publication_pin_attempt_count",
+                                        diagnostic["phase_attempt_count"]))))
         if retry_at is not None:
             retry_at = max(retry_at, now + timedelta(
                 seconds=getattr(exc, "retry_after_seconds", 0)))
@@ -662,7 +684,9 @@ class AutomationService:
             "terminal_reason": (
                 str(diagnostic["callback_failure"]) if terminal else None),
         }
-        if (not terminal and phase == "REFRESH" and isinstance(exc, SourceDataPending)
+        if (not terminal and phase == "REFRESH"
+                and (isinstance(exc, SourceDataPending)
+                     or type(exc) is RefreshPublicationPinUnavailable)
                 and source_completion_hint is not None):
             diagnostic["source_completion_hint"] = source_completion_hint.model_dump(mode="json")
         if not terminal:
@@ -1288,12 +1312,14 @@ class AutomationService:
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
+        advancing_source = None
         if cycle.state is CycleState.RETRY_WAIT:
-            if (cycle.next_wake_at is not None and now < cycle.next_wake_at
-                    and not self._source_completion_advanced(cycle)):
-                return TickResult(
-                    action=TickAction.WAITING, cycle=cycle, permit=permit,
-                    reason="durable retry wake has not arrived")
+            if cycle.next_wake_at is not None and now < cycle.next_wake_at:
+                advancing_source = self._advanced_source_completion(cycle, now=now)
+                if advancing_source is None:
+                    return TickResult(
+                        action=TickAction.WAITING, cycle=cycle, permit=permit,
+                        reason="durable retry wake has not arrived")
             retry_phase = str(cycle.diagnostic.get("retry_phase", "PREPARE"))
             if retry_phase == "PREFLIGHT_RECOVER":
                 return await self._run_preflight_recover(
@@ -1340,7 +1366,8 @@ class AutomationService:
         if cycle.state is CycleState.REFRESHING_DATA:
             return await self._run_refresh(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock,
+                advancing_source=advancing_source)
 
         if cycle.state is CycleState.PREPARING:
             return await self._run_prepare(conn, now=now, cycle=cycle,
@@ -1411,8 +1438,9 @@ class AutomationService:
 
     async def _run_refresh(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
-        hint = self._source_completion(cycle)
+            permit, heartbeat_conn_factory=None, clock=None,
+            advancing_source: SourceCompletionHint | None = None) -> TickResult:
+        hint = advancing_source or self._source_completion(cycle)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(

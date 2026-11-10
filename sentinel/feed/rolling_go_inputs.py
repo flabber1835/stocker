@@ -24,14 +24,22 @@ class RollingGoRefused(RuntimeError):
 class RollingSourceFrontierPending(RollingGoRefused):
     """Authenticated inputs trail only the current source-final close."""
 
+    def __init__(self, detail, *, status_binding=None, available_session=None,
+                 target_session=None):
+        super().__init__(detail)
+        self.status_binding = status_binding
+        self.available_session = available_session
+        self.target_session = target_session
 
-def _require_ready(report, *, available_session, target):
+
+def _require_ready(report, *, available_session, target, status_binding=None):
     if report.ready:
         return
     detail = "ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures)
     if ([c.name for c in report.failures] == ['rolling source-final frontier']
             and str(available_session) < str(target)):
-        raise RollingSourceFrontierPending(detail)
+        raise RollingSourceFrontierPending(detail, status_binding=status_binding,
+            available_session=str(available_session), target_session=str(target))
     raise RollingGoRefused(detail)
 
 
@@ -75,7 +83,8 @@ def validate_status(conn, pub, *, now=None):
     instant = now or snapshots._now()
     target = snapshots.source_final_session(instant)
     binding, summary, report = _assess(conn, pub, target=target, summary_only=True)
-    _require_ready(report, available_session=summary.session, target=target)
+    _require_ready(report, available_session=summary.session, target=target,
+                   status_binding=binding)
     return binding, report
 
 

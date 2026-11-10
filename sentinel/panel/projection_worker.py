@@ -11,6 +11,29 @@ from sentinel import supervisor_io
 
 MAX_BYTES = 2048
 _UNREAPED = []
+_TIMEOUT_MESSAGES = {
+    'READY_WAIT': 'operational worker initialization exceeded its wall-clock budget',
+    'READY_RESULT': 'operational worker initialized after deadline',
+    'PRIOR_REAP': 'prior operational worker is not reaped',
+    'COLLECTION_WAIT': 'operational collection exceeded its wall-clock budget',
+    'COLLECTION_RESULT': 'operational collection result arrived after deadline',
+    'PUBLICATION_EXPIRY': 'operational publication has no remaining delivery budget',
+    'PUBLICATION_CLOCK_INVALID': 'operational publication elapsed clock is invalid',
+}
+
+
+class WorkerDeadline(TimeoutError):
+    """The parent's original deadline facts, independent of child output."""
+
+    def __init__(self, stage, *, started, timeout, checked_at=None, elapsed=None):
+        super().__init__(_TIMEOUT_MESSAGES[stage])
+        self.stage = stage
+        self.budget_seconds = timeout
+        self.deadline_monotonic = (started + timeout if checked_at is None
+                                   and stage != 'PRIOR_REAP' else None)
+        self.elapsed_seconds = time.monotonic() - started if elapsed is None else elapsed
+        self.checked_at = checked_at
+        self.reap_outcome = 'UNREAPED' if stage == 'PRIOR_REAP' else 'NO_CHILD'
 
 
 def _result(value):
@@ -87,22 +110,22 @@ class Worker:
             return
         started = time.monotonic()
         try:
-            self._start()
+            self._start(started=started, timeout=timeout)
             remaining = timeout-(time.monotonic()-started)
             if remaining <= 0 or not self.channel.poll(remaining):
-                raise TimeoutError('operational worker initialization exceeded its wall-clock budget')
+                raise WorkerDeadline('READY_WAIT', started=started, timeout=timeout)
             if self.channel.recv_bytes(maxlength=129) != b'R':
                 raise ValueError('operational worker initialization refused')
             if time.monotonic()-started >= timeout:
-                raise TimeoutError('operational worker initialized after deadline')
-        except BaseException:
-            self.close()
+                raise WorkerDeadline('READY_RESULT', started=started, timeout=timeout)
+        except BaseException as error:
+            self._close_on_error(error)
             raise
 
-    def _start(self):
+    def _start(self, *, started, timeout):
         for previous in list(_UNREAPED):
             if previous.is_alive():
-                raise TimeoutError('prior operational worker is not reaped')
+                raise WorkerDeadline('PRIOR_REAP', started=started, timeout=timeout)
             previous.join(timeout=0)
             previous.close()
             _UNREAPED.remove(previous)
@@ -127,36 +150,54 @@ class Worker:
             self.channel.send_bytes(b'1' if prior_failed else b'0')
             remaining = timeout-(time.monotonic()-started)
             if remaining <= 0 or not self.channel.poll(remaining):
-                raise TimeoutError('operational collection exceeded its wall-clock budget')
+                raise WorkerDeadline('COLLECTION_WAIT', started=started, timeout=timeout)
             raw = self.channel.recv_bytes(maxlength=MAX_BYTES)
             value = json.loads(raw)
             _result(value)
             if time.monotonic()-started >= timeout:
-                raise TimeoutError('operational collection result arrived after deadline')
+                raise WorkerDeadline('COLLECTION_RESULT', started=started, timeout=timeout)
             return value
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            self._close_on_error(error)
             raise
+
+    def _close_on_error(self, error):
+        if not isinstance(error, WorkerDeadline):
+            self.close()
+            return
+        try:
+            outcome = self.close()
+        except Exception:
+            outcome = 'CLEANUP_FAILED'
+        if error.stage != 'PRIOR_REAP':
+            error.reap_outcome = outcome
 
     def close(self):
         process, channel = self.process, self.channel
         self.process, self.channel = None, None
         if process is None:
-            return
+            return 'NO_CHILD'
         try:
+            outcome = 'ALREADY_EXITED'
             if process.is_alive():
                 try:
                     channel.send_bytes(b'S')
                 except (OSError, EOFError):
                     pass
                 process.join(timeout=.25)
+                outcome = 'GRACEFUL'
             if process.is_alive():
                 process.kill()
                 process.join(timeout=1)
+                outcome = 'KILLED'
             if process.is_alive():
                 _UNREAPED.append(process)
-            else:
-                process.join(timeout=0)
-                process.close()
+                return 'UNREAPED'
+            process.join(timeout=0)
+            process.close()
+            return outcome
+        except BaseException:
+            _UNREAPED.append(process)
+            raise
         finally:
             channel.close()

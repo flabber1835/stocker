@@ -202,7 +202,7 @@ def test_removing_row_version_invalidation_is_detected(conn, monkeypatch):
     import inspect
     import textwrap
     from sentinel.panel import read_projection
-    body = textwrap.dedent(inspect.getsource(read_projection._subject))
+    body = textwrap.dedent(inspect.getsource(read_projection._subject_for_revision))
     # Keep the installation's stable incarnation while removing the actual
     # revision and row-version inputs, which now own constant-size invalidation.
     guard = 'list(row),list(physical)'
@@ -210,6 +210,6 @@ def test_removing_row_version_invalidation_is_detected(conn, monkeypatch):
     broken = body.replace(guard, '[row[0]],list(physical)', 1)
     namespace = {}
     exec(compile(broken, 'missing-row-version-falsifier', 'exec'), read_projection.__dict__, namespace)
-    monkeypatch.setattr(read_projection, '_subject', namespace['_subject'])
+    monkeypatch.setattr(read_projection, '_subject_for_revision', namespace['_subject_for_revision'])
     with pytest.raises(AssertionError):
         test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn)

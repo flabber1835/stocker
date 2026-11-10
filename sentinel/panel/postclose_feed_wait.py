@@ -66,6 +66,29 @@ def project(row: model.Row, wait: ClosingDataWait | None, *, frontier: str | Non
                                         deadline=deadline))
 
 
+def _project_frontier(row, wait, ingest, *, now):
+    fact = row.operational_fact
+    if (row.key != 'feed' or not row.required_current or fact is None
+            or fact.kind != 'MARKET_DATA' or fact.state != 'READY'
+            or fact.sessions_behind != 1 or fact.session is None):
+        return row
+    frontier = fact.session.isoformat()
+    usable = (wait is not None and wait.frontier == frontier and ingest is not None
+              and ingest.effective_status(now) not in {model.FAIL, model.UNKNOWN})
+    if row.status == model.WARN and row.recovery is not None and row.recovery.phase == 'POST_CLOSE_SOURCE_WAIT':
+        if (usable and row.valid_until is not None
+                and row.valid_until == row.recovery.deadline <= wait.deadline
+                and now < row.valid_until and row.recovery.active(now) and not row.is_future(now)):
+            return row
+        return replace(row, status=model.FAIL, recovery=None,
+            value=f'{frontier} · 1 session behind',
+            detail='The recorded feed verdict does not cover the owed close. Current source-wait evidence is unavailable.')
+    if not usable:
+        return row
+    return project(row, wait, frontier=frontier, sessions_behind=fact.sessions_behind,
+                   ready=True, now=now)
+
+
 def publication_deadline(financial_rows, worker, *, now):
     """Only a scoped signed publication result and fresh publisher explain work."""
     values={row.key:row for row in financial_rows}
@@ -100,6 +123,9 @@ def attestation_deadline(financial_rows, worker, *, now):
 
 def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now):
     """Withdraw old PASS; preserve failures while confirmed publication runs."""
+    wait=from_rows(financial_rows,worker,now=now)
+    ingest=next((row for row in feed_rows if row.key=='ingest'),None)
+    feed_rows=[_project_frontier(row,wait,ingest,now=now) for row in feed_rows]
     publication=publication_deadline(financial_rows,worker,now=now)
     attestation=attestation_deadline(financial_rows,worker,now=now)
     if attestation is not None:
@@ -130,7 +156,6 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
             if row.key in {'feed','ingest'} and row.status==model.WARN
                 and row.recovery is not None and row.recovery.phase=='FEED_INGEST'
             else row for row in feed_rows]
-    wait=from_rows(financial_rows,worker,now=now)
     deadline=wait.deadline if wait is not None else publication if publication is not None else attestation
     values={row.key:row for row in automation_rows}
     control,cycle=values.get('automation'),values.get('automation_cycle')

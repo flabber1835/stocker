@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 
 from sentinel import backup_runtime_authority, committed_read, rolling_initialization as initial
 from sentinel import rolling_checkpoint as origin, rolling_daily as daily
@@ -22,6 +23,15 @@ class _StatusBinding:
     snapshot: dict
     state_sha256: str
     runtime_identity: dict
+
+
+@dataclass(frozen=True)
+class HistoricalSourceFrontier:
+    """The original dated shadow result from a frontier-only status refusal."""
+    result: shadow.ShadowObservationResult
+    session: str
+    decision_session: str
+    attested_at: datetime
 
 
 @dataclass(frozen=True)
@@ -173,6 +183,24 @@ def _result(result, value):
                    live_frontier=result.session, verification_scope=authority.SCOPE)
 
 
+def _historical_frontier(checkpoint, result, attested, pub, pending):
+    if (type(pending) is not inputs.RollingSourceFrontierPending
+            or type(attested) is not authority.Authority
+            or pending.status_binding is None
+            or pending.status_binding != checkpoint.snapshot
+            or checkpoint.publication != pub.to_dict()
+            or checkpoint.session != pub.window_end
+            or checkpoint.session != pending.available_session
+            or result.session != checkpoint.session
+            or pending.target_session != calendar.next_session(checkpoint.session)):
+        return None
+    attested_at = datetime.fromisoformat(attested.timing['observed_at'])
+    if attested_at.utcoffset() is None:
+        raise Refused('ROLLING_HISTORICAL_ATTESTATION_CLOCK_INVALID')
+    return HistoricalSourceFrontier(result, checkpoint.session,
+        pending.target_session, attested_at.astimezone(timezone.utc))
+
+
 def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
              unchanged_through=None):
     """Prove committed status without ending an active caller transaction."""
@@ -182,7 +210,7 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
 
 
 def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
-                    unchanged_through=None, cached_only=False):
+                    unchanged_through=None, cached_only=False, historical_frontier=False):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
@@ -218,19 +246,40 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                             "inventory_sha256": inventory,
                             "_readiness_snapshot": measured}
                 return {"status": status, "latest_session": checkpoint.session}
-            _current(conn, checkpoint, pub, now=clock() if clock else None)
+            try:
+                _current(conn, checkpoint, pub, now=clock() if clock else None)
+            except inputs.RollingSourceFrontierPending as exc:
+                history = (_historical_frontier(checkpoint, result, attested, pub, exc)
+                           if historical_frontier else None)
+                if history is None:
+                    raise
+                return {'status': 'HISTORICAL_SOURCE_FRONTIER', 'history': history}
             return {"status": "VERIFIED", "result": _result(result, attested)}
     finally:
         conn.rollback()
 
 
-def status(conn, *, observation_id, starting_cash):
-    classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash)
+def _verified_result(classified):
     if classified["status"] == "NOT_STARTED":
         return None
     if classified["status"] != "VERIFIED":
         raise Refused("ROLLING_RUNTIME_ATTESTATION_REQUIRED")
     return classified["result"]
+
+
+def status(conn, *, observation_id, starting_cash):
+    return _verified_result(classify(conn, observation_id=observation_id,
+                                     starting_cash=starting_cash))
+
+
+def observe_status(conn, *, observation_id, starting_cash):
+    """Display observation can retain the same proof's historical evidence."""
+    classified = _committed_status(conn, _classify_owned,
+        observation_id=observation_id, starting_cash=starting_cash,
+        historical_frontier=True)
+    if classified['status'] == 'HISTORICAL_SOURCE_FRONTIER':
+        return classified['history']
+    return _verified_result(classified)
 
 
 def advance(conn, *, through, observation_id, starting_cash):

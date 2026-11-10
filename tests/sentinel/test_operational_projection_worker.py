@@ -5,17 +5,20 @@ import multiprocessing
 import os
 from pathlib import Path
 import signal
+import sys
 from types import SimpleNamespace
 import time
 
 import pytest
 
 from sentinel import supervisor_io
+from sentinel.panel import projection_service as producer
 from sentinel.panel import projection_worker as worker
 
 pytestmark = pytest.mark.skipif(os.name != 'posix', reason='deployed collector uses Linux parent-death supervision')
 PRIVATE = 'postgresql://fixture:private-password@private-host/private-account'
 _LOADS = 0
+_PUBLICATION_CALLS = 0
 
 
 def published(value):
@@ -145,8 +148,13 @@ def test_hung_call_is_killed_and_reaped_then_next_call_gets_a_fresh_pid():
     try:
         first_pid = int(collection.call(False, timeout=20)['type'])
         started = time.monotonic()
-        with pytest.raises(TimeoutError, match='wall-clock'):
+        with pytest.raises(worker.WorkerDeadline, match='wall-clock') as error:
             collection.call(True, timeout=.15)
+        assert error.value.stage == 'COLLECTION_WAIT'
+        assert error.value.budget_seconds == .15
+        assert error.value.deadline_monotonic >= started + .15
+        assert .14 <= error.value.elapsed_seconds < 2
+        assert error.value.reap_outcome == 'KILLED'
         assert time.monotonic()-started < 3
         assert collection.process is None and not alive(first_pid)
         next_pid = int(collection.call(False, timeout=20)['type'])
@@ -154,6 +162,106 @@ def test_hung_call_is_killed_and_reaped_then_next_call_gets_a_fresh_pid():
     finally:
         collection.close()
     assert not alive(next_pid)
+
+
+def publish_once_then_hang(expiry, private_argument, _prior_failed):
+    assert private_argument == PRIVATE
+    global _PUBLICATION_CALLS
+    _PUBLICATION_CALLS += 1
+    if _PUBLICATION_CALLS > 1:
+        time.sleep(60)
+    return dict(outcome='PUBLISHED', valid_until=expiry)
+
+
+class FinitePublisherLoop:
+    def __init__(self, turns):
+        self.turns = turns
+
+    def is_set(self):
+        return self.turns == 0
+
+    def wait(self, _delay):
+        self.turns -= 1
+
+
+def assert_parent_deadline_record(monkeypatch, tmp_path, *, preserve=True, expired=False):
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=-30 if expired else 60)
+    expiry = expires_at.isoformat()
+    monkeypatch.setattr(producer, 'FAST_DEADLINE_SECONDS', .15)
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'heartbeat')
+    if not preserve:
+        report = producer._report_parent_deadline
+        monkeypatch.setattr(producer, '_report_parent_deadline',
+                            lambda publisher, error, _expiry: report(publisher, error, None))
+    publisher = producer.Publisher(PRIVATE, 'fixture-owner',
+                                   stopped=FinitePublisherLoop(1 if expired else 2))
+    publisher.worker = worker.Worker(publish_once_then_hang, expiry, PRIVATE)
+    publisher.component_attempted.set()
+    read_fd, write_fd = os.pipe()
+    try:
+        os.set_blocking(read_fd, False)
+        with os.fdopen(write_fd, 'w', encoding='ascii') as sink, monkeypatch.context() as streams:
+            streams.setattr(sys, 'stderr', sink)
+            publisher.run()
+        raw = os.read(read_fd, 4096).decode()
+        assert PRIVATE not in raw
+        prefix = 'SENTINEL_PROJECTION_DEADLINE='
+        records = [json.loads(line[len(prefix):]) for line in raw.splitlines()
+                   if line.startswith(prefix)]
+        assert len(records) == 1
+        record = records[0]
+        assert record['schema'] == 'sentinel.projection-deadline/1'
+        assert record['publisher'] == 'FAST'
+        assert record['original_valid_until'] == expiry, 'lost original publication expiry'
+        assert record['budget_seconds'] == .15
+        assert record['stage'] == ('PUBLICATION_EXPIRY' if expired else 'COLLECTION_WAIT')
+        assert record['reap_outcome'] == ('WORKER_RETAINED' if expired else 'KILLED')
+        if expired:
+            assert record['deadline_monotonic'] is None
+            assert datetime.fromisoformat(record['checked_at']) >= expires_at
+        else:
+            assert record['deadline_monotonic'] > 0
+            assert record['checked_at'] is None
+        assert (publisher.worker.process is not None) is expired
+        assert producer.HEARTBEAT.exists() is not expired
+    finally:
+        os.close(read_fd)
+        publisher.worker.close()
+
+
+@pytest.mark.parametrize('expired', [False, True])
+def test_parent_deadline_record_preserves_original_publication(monkeypatch, tmp_path, expired):
+    assert_parent_deadline_record(monkeypatch, tmp_path, expired=expired)
+
+
+def test_omitted_parent_expiry_fails_real_deadline_record_oracle(monkeypatch, tmp_path):
+    with pytest.raises(AssertionError, match='lost original publication expiry'):
+        assert_parent_deadline_record(monkeypatch, tmp_path, preserve=False)
+
+
+def test_failed_reap_keeps_parent_timeout_and_existing_restart_guard(monkeypatch):
+    monkeypatch.setattr(worker, '_UNREAPED', [])
+    joins = []
+
+    def kill():
+        raise OSError(PRIVATE)
+
+    child = SimpleNamespace(is_alive=lambda: True, join=lambda timeout: joins.append(timeout),
+                            kill=kill)
+    collection = worker.Worker(timeout_probe)
+    collection.process = child
+    collection.channel = SimpleNamespace(send_bytes=lambda _value: None,
+                                         poll=lambda _timeout: False, close=lambda: None)
+    with pytest.raises(worker.WorkerDeadline) as error:
+        collection.call(False, timeout=.15)
+    assert error.value.stage == 'COLLECTION_WAIT'
+    assert error.value.reap_outcome == 'CLEANUP_FAILED'
+    assert joins == [.25]
+    assert worker._UNREAPED == [child]
+    with pytest.raises(worker.WorkerDeadline) as blocked:
+        collection.start(timeout=20)
+    assert blocked.value.stage == 'PRIOR_REAP'
+    assert blocked.value.reap_outcome == 'UNREAPED'
 
 
 @pytest.mark.parametrize('mode', ['oversized', 'unknown', 'nonstring', 'outcome',

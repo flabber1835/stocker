@@ -88,6 +88,9 @@ def test_failed_degraded_guard_preserves_earlier_transaction(conn,monkeypatch):
         continuity.require_absent_media(connection)
     monkeypatch.setattr(runtime,'_require',absent)
     monkeypatch.setattr(continuity,'degraded',no_transport)
-    with pytest.raises(runtime.BackupRuntimeUnavailable,match='absence is not proven'):
+    with pytest.raises(runtime.BackupContinuityUnavailable,
+                       match='STRICT_PROOF_UNAVAILABLE.*MEDIA_ABSENCE_UNPROVEN') as error:
         runtime.require(conn,operation='private refusal fixture',allow_continuity=True)
+    assert type(error.value.__cause__) is runtime.BackupRuntimeUnavailable
+    assert isinstance(error.value.__context__, continuity.MediaAbsenceUnproven)
     assert conn.execute('SELECT count(*) FROM preserved_refusal_fixture').fetchone()==(1,)

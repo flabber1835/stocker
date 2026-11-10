@@ -27,6 +27,10 @@ MAX_PRIMARY_WAL_BYTES = 8 * 1024**3
 KEY_ENV = 'SENTINEL_PUBLICATION_RECEIPT_KEY'
 
 
+class MediaAbsenceUnproven(BackupUnavailable):
+    """The original absent-media requirement did not pass."""
+
+
 def selected(values=None):
     values = os.environ if values is None else values
     value = values.get(POLICY_ENV, '')
@@ -238,7 +242,7 @@ def require_absent_media(conn):
         with conn.cursor() as cur:
             cur.execute(f"COPY (SELECT 1) TO PROGRAM '{program}'")
     except Exception as exc:
-        raise BackupUnavailable('media absence is not proven; strict backup gate remains') from exc
+        raise MediaAbsenceUnproven('media absence is not proven; strict backup gate remains') from exc
 
 
 def degraded(conn, *, operation, base_backup=None):

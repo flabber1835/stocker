@@ -43,6 +43,10 @@ class SourceDataPending(TransientInfrastructureFailure):
     """A source join or coverage proof is waiting for a coherent observation."""
 
 
+class RefreshPublicationPinUnavailable(TransientInfrastructureFailure):
+    """An operational close refresh could not acquire its publication read pin."""
+
+
 class CorporateActionPending(TransientInfrastructureFailure):
     """A scoped reconciliation wait uses its bounded preflight policy."""
 

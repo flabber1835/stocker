@@ -85,6 +85,25 @@ class BackupIntegrityProofExpired(BackupRuntimeUnavailable):
         super().__init__('backup integrity complete proof expired during admission')
 
 
+class BackupContinuityUnavailable(BackupRuntimeUnavailable):
+    """Retain the strict refusal and the failed continuity admission."""
+
+    def __init__(self, strict: BackupRuntimeUnavailable, fallback: backup_guard.BackupUnavailable):
+        from sentinel.backup_continuity import MediaAbsenceUnproven
+
+        reasons = (
+            (BackupIntegrityBusy, 'PROOF_OWNER_BUSY'),
+            (BackupIntegrityProofExpired, 'PROOF_WINDOW_EXPIRED'),
+            (BackupIntegritySelectionMoved, 'SELECTION_MOVED'),
+        )
+        self.strict_reason = next((code for kind, code in reasons if isinstance(strict, kind)),
+            'MEDIA_READ_FAILED' if _is_media_error(strict.__cause__) else 'STRICT_PROOF_UNAVAILABLE')
+        self.continuity_outcome = ('MEDIA_ABSENCE_UNPROVEN' if isinstance(fallback, MediaAbsenceUnproven)
+                                   else 'CONTINUITY_UNAVAILABLE')
+        super().__init__(f'strict backup refusal {self.strict_reason}. '
+                         f'continuity refusal {self.continuity_outcome}')
+
+
 class BackupRuntimeRefused(backup_guard.BackupConfigurationRefused):
     """The retained backup evidence is contradictory or malformed."""
 
@@ -690,13 +709,20 @@ def require(conn, *, operation: str,
                 with conn.transaction():
                     try:
                         result = _require(conn, operation=operation)
+                    except BackupRuntimeUnavailable:
+                        # These typed refusals also inherit OSError through
+                        # ConnectionError. Only raw failures need conversion.
+                        raise
                     except Exception as exc:
                         if _is_media_error(exc):
                             raise BackupRuntimeUnavailable('external media read failed') from exc
                         raise
-            except BackupRuntimeUnavailable:
-                with conn.transaction():
-                    result = backup_continuity.degraded(conn, operation=operation)
+            except BackupRuntimeUnavailable as strict:
+                try:
+                    with conn.transaction():
+                        result = backup_continuity.degraded(conn, operation=operation)
+                except backup_guard.BackupUnavailable as fallback:
+                    raise BackupContinuityUnavailable(strict, fallback) from strict
             else:
                 backup_continuity.remember(conn, result)
             return result

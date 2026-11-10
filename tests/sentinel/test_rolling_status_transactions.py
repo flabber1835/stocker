@@ -221,8 +221,8 @@ def test_removing_pin_check_transaction_context_leaks_idle_input_and_is_detected
               '    pin = readiness_scope.capture(conn)\n'
               "    statement_timeout = conn.execute('SHOW statement_timeout').fetchone()[0]\n"
               "    lock_timeout = conn.execute('SHOW lock_timeout').fetchone()[0]") if removed=='capture' else
-             ('                with conn.transaction(force_rollback=True):\n                    readiness_scope.require_token(conn,pin)',
-              '                readiness_scope.require_token(conn,pin)'))
+             ('                    with conn.transaction(force_rollback=True):\n                        readiness_scope.require_token(conn,pin)',
+              '                    readiness_scope.require_token(conn,pin)'))
     _mutated(monkeypatch,old,new)
     with pytest.raises(AssertionError,match='pin checking left initially idle input'):
         test_pin_checks_leave_initially_idle_input_idle_and_preserve_original_owner(material,False,False)

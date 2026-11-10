@@ -14,12 +14,12 @@ def test_install_critical_path_successor_preserves_every_installed_map():
     profile=basis._profile();assert basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==469 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.CLOSE_ROOT_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==39 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    assert len(profile['retained_predecessors'])==40 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='0f8e6ea143307164086576678c587c7f9cf6ac73d1f95e85c678482d44d2a00d'
 

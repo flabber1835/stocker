@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Market close root corrections](market-close-root-corrections.md) records the
+November 10 retry, verification, exposure and diagnostic corrections and their
+qualified local PAPER handoff.
+
 [Installation critical-path reuse](installation-critical-path-reuse.md) removes
 repeated rolling dispatch reconstruction, stale queued verification work and
 avoidable result-publication delay while retaining every financial gate and

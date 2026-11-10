@@ -9,6 +9,7 @@ from dataclasses import replace
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 import os
+import json
 import math
 from pathlib import Path
 from threading import Event, Thread
@@ -41,6 +42,27 @@ def refresh_delay(expiry, *, now, elapsed):
         raise TimeoutError('operational publication has no remaining delivery budget')
     budget = max(FAST_DEADLINE_SECONDS, elapsed)
     return max(.25, min(MAX_REFRESH_SECONDS, remaining-budget-REFRESH_MARGIN_SECONDS))
+
+
+def _report_parent_deadline(publisher, error, expiry):
+    from sentinel.panel.projection_worker import WorkerDeadline
+    if not isinstance(error, WorkerDeadline):
+        return False
+    try:
+        value = dict(schema='sentinel.projection-deadline/1', publisher=publisher,
+                     stage=error.stage, budget_seconds=error.budget_seconds,
+                     deadline_monotonic=error.deadline_monotonic,
+                     elapsed_seconds=(error.elapsed_seconds if math.isfinite(error.elapsed_seconds)
+                                      and error.elapsed_seconds >= 0 else None),
+                     checked_at=(error.checked_at.isoformat() if error.checked_at is not None else None),
+                     original_valid_until=(expiry.isoformat() if expiry is not None else None),
+                     reap_outcome=error.reap_outcome)
+        message = 'SENTINEL_PROJECTION_DEADLINE=' + json.dumps(
+            value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        supervisor_io._pipe_report(message)
+    except Exception:
+        pass  # Diagnostic delivery has no effect on ownership or retry.
+    return True
 
 
 def _coordinates(database_url):
@@ -371,10 +393,13 @@ class Publisher:
         self.started = True
 
     def run(self):
+        from sentinel.panel.projection_worker import WorkerDeadline
         failed = False
+        published_expiry = None
         while not self.stopped.is_set():
             delay = POLL_SECONDS
             started = time.monotonic()
+            result_expiry = None
             try:
                 if self.worker is not None:
                     if not self.component_attempted.wait(.1):
@@ -390,9 +415,21 @@ class Publisher:
                         self.state_dir, self.instance, failed,
                         timeout=FAST_DEADLINE_SECONDS, start_method='spawn'))
                 if result.get('outcome') == 'PUBLISHED':
-                    expiry = datetime.fromisoformat(result['valid_until'])
-                    delay = refresh_delay(expiry, now=datetime.now(timezone.utc),
-                                          elapsed=time.monotonic()-started)
+                    result_expiry = datetime.fromisoformat(result['valid_until'])
+                    checked_at = datetime.now(timezone.utc)
+                    elapsed = time.monotonic()-started
+                    try:
+                        delay = refresh_delay(result_expiry, now=checked_at,
+                                              elapsed=elapsed)
+                    except TimeoutError as error:
+                        stage = ('PUBLICATION_EXPIRY' if result_expiry <= checked_at
+                                 else 'PUBLICATION_CLOCK_INVALID')
+                        deadline = WorkerDeadline(stage, started=started,
+                            timeout=FAST_DEADLINE_SECONDS, checked_at=checked_at, elapsed=elapsed)
+                        if self.worker is not None:
+                            deadline.reap_outcome = 'WORKER_RETAINED'
+                        raise deadline from error
+                    published_expiry = result_expiry
                     failed = False
                     HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
                 elif result.get('outcome') == 'SUPERSEDED':
@@ -403,11 +440,13 @@ class Publisher:
                     failed = True
             except Exception as exc:
                 failed = True
-                supervisor_io.report('operational projection unavailable: '+type(exc).__name__)
+                if not _report_parent_deadline('FAST', exc, result_expiry or published_expiry):
+                    supervisor_io.report('operational projection unavailable: '+type(exc).__name__)
             self.stopped.wait(delay)
 
     def run_composition(self):
         from sentinel.panel import composition
+        published_expiry = None
         while not self.stopped.is_set():
             self.composition_wake.clear()
             self.composition_busy.set()
@@ -418,13 +457,15 @@ class Publisher:
                     break
                 result=self.composition_worker.call(False,timeout=DEADLINE_SECONDS)
                 if result.get('outcome')=='PUBLISHED':
-                    remaining=(datetime.fromisoformat(result['valid_until'])-datetime.now(timezone.utc)).total_seconds()
+                    published_expiry = datetime.fromisoformat(result['valid_until'])
+                    remaining=(published_expiry-datetime.now(timezone.utc)).total_seconds()
                     delay=max(1,min(MAX_REFRESH_SECONDS,remaining-DEADLINE_SECONDS-REFRESH_MARGIN_SECONDS))
                 elif result.get('outcome')=='SUPERSEDED':
                     delay=1
                 if result.get('outcome') in {'PUBLISHED','FAILED'}:
                     self.component_attempted.set()
             except Exception as exc:
+                _report_parent_deadline('COMPOSITION', exc, published_expiry)
                 composition.failure(self.owner_id,self.instance,exc)
                 self.component_attempted.set()
             finally:

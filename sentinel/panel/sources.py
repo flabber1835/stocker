@@ -800,8 +800,7 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
         sleep(min(FEED_PIN_POLL_SECONDS, remaining))
 
 
-def _feed_rows(database_url: str, *, post_close_wait=None,
-               now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
+def _feed_rows(database_url: str, now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
     One connection for all three: three page-load connections to serve one
@@ -869,7 +868,8 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
         if frontier:
             from sentinel.feed import calendar as _cal
             try:
-                freshness = _cal.freshness(str(frontier))
+                freshness = (_cal.freshness(str(frontier)) if now is None
+                             else _cal.freshness(str(frontier), now))
                 behind = freshness.sessions_behind
                 ahead = freshness.ahead
             except Exception:                            # noqa: BLE001
@@ -914,13 +914,6 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                            frontier_ahead=ahead, publication_version=publication_version),
             ingest,
         ]
-        if (post_close_wait is not None and not run_err and not front_err
-                and ingest.status not in {model.FAIL, model.UNKNOWN}):
-            from sentinel.panel import postclose_feed_wait
-            rows[0] = postclose_feed_wait.project(rows[0], post_close_wait,
-                frontier=str(frontier) if frontier else None,
-                sessions_behind=behind, ready=ready,
-                now=now or datetime.now(timezone.utc))
         # `source_errors` is the banner across the top of the page and it means
         # "the panel could not read the world". A single slow query does not
         # qualify — the rows below say so themselves, in the right place. Only a
@@ -2912,7 +2905,8 @@ def _shadow_holdings(state, session, nav):
 
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
                                propagate_read_unavailability: bool = False,
-                               project_execution_context: bool = True):
+                               project_execution_context: bool = True,
+                               source_wait=None):
     """Project the actual canonical shadow; never create a catchup book."""
     if result is None or not verified:
         detail = "current canonical shadow verification is unavailable"
@@ -2933,6 +2927,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
         # contribute its unpriced counts to the canonical book projection.
         if plan is not None and plan["decision_session"] != view["session"]:
             plan = None
+        basis = None
         if project_execution_context:
             exposure = _exposure_row(
                 view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
@@ -2940,12 +2935,24 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
             decision = view['decision'] or {}
             if decision.get('session') != view['session']:
                 raise ValueError('canonical controller decision session changed')
-            basis = model.ShadowProjectionBasis(session=view['session'], observed_at=now,
-                target_core_exposure=str(decision['target_core_exposure']),
-                **{key: view[key] for key in ('slots_used','slots_total','blocked','unresolved','carried','pending')},
-                nav=str(view['nav']), cash=str(view['cash']))
-            exposure = model.exposure_row(exposure=float(basis.target_core_exposure),
-                controller_active=True, adopted=False, session=basis.session, as_of=now)
+            if source_wait is not None:
+                target = _finite_float(decision['target_core_exposure'], label='historical controller exposure')
+                if not 0 <= target <= 1:
+                    raise ValueError('historical controller exposure is outside [0, 1]')
+                boundary = source_wait.deadline-timedelta(microseconds=1)
+                exposure = model.Row('exposure', 'Exposure',
+                    f'LAST ATTESTED THROUGH {source_wait.session} · {target:.0%}', model.WARN,
+                    'Historical controller allocation. Current-session verification is pending.',
+                    as_of=source_wait.attested_at, required_current=True, valid_until=boundary,
+                    recovery=model.RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
+                                                    deadline=boundary))
+            else:
+                basis = model.ShadowProjectionBasis(session=view['session'], observed_at=now,
+                    target_core_exposure=str(decision['target_core_exposure']),
+                    **{key: view[key] for key in ('slots_used','slots_total','blocked','unresolved','carried','pending')},
+                    nav=str(view['nav']), cash=str(view['cash']))
+                exposure = model.exposure_row(exposure=float(basis.target_core_exposure),
+                    controller_active=True, adopted=False, session=basis.session, as_of=now)
         book = model.book_row(
             available=True, slots_used=view['slots_used'], slots_total=view['slots_total'],
             nav=view['nav'], cash=view['cash'], blocked=view['blocked'],
@@ -2953,7 +2960,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
             unpriced_securities=len(plan['unpriced_securities']) if plan else None,
             as_of=now)
         book = replace(book, shadow_book=_shadow_holdings(state, result.session, Decimal(str(view['nav']))))
-        if not project_execution_context:
+        if basis is not None:
             book = replace(book, shadow_projection=basis)
         terminals = model.terminals_row(
             current_unresolved=view['unresolved'], current_pending=view['carried'],
@@ -3016,19 +3023,26 @@ def _dual_authority_rows(
         result = None
         shadow_error = None
         source_wait = None
+        from sentinel.panel import shadow_source_wait
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
-                starting_cash=starting_cash)
+                starting_cash=starting_cash,
+                **({'historical_frontier':True} if not project_execution_context else {}))
+            if not project_execution_context:
+                from sentinel.rolling_runtime import HistoricalSourceFrontier
+                if isinstance(result, HistoricalSourceFrontier):
+                    source_wait = shadow_source_wait.from_history(result, now=now)
+                    result = source_wait.result
         except shadow_runtime.ShadowRuntimeRefused as exc:
             shadow_error = _short(exc)
-            from sentinel.panel import shadow_source_wait
-            source_wait = shadow_source_wait.read(
-                conn, exc, observation_id=observation_id,
-                starting_cash=starting_cash, now=now)
-            if source_wait is not None:
-                result = source_wait.result
-                shadow_error = None
+            if project_execution_context:
+                source_wait = shadow_source_wait.read(
+                    conn, exc, observation_id=observation_id,
+                    starting_cash=starting_cash, now=now)
+                if source_wait is not None:
+                    result = source_wait.result
+                    shadow_error = None
 
         current = source_wait is None and result is not None and result.sessions_lag == 0
         shadow = model.shadow_verification_row(
@@ -3073,7 +3087,7 @@ def _dual_authority_rows(
             conn, result, verified=(verified or source_wait is not None),
             now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)),
             propagate_read_unavailability=propagate_read_unavailability,
-            project_execution_context=project_execution_context)
+            project_execution_context=project_execution_context, source_wait=source_wait)
         if source_wait is not None:
             book_rows = [replace(row, status=model.WARN,
                 value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",
@@ -3757,10 +3771,7 @@ def build_panel(*, state_dir: Path, database_url: str,
                                 diagnostics=worker_diagnostics)
               if mode in {'dual', 'shadow'} else None)
     from sentinel.panel import postclose_feed_wait
-    feed_now = fixed_now or datetime.now(timezone.utc)
-    post_close_wait = postclose_feed_wait.from_rows(financial_rows, worker, now=feed_now)
-    feed_rows, feed_errs = (_feed_rows(database_url, post_close_wait=post_close_wait, now=feed_now)
-                           if post_close_wait is not None else _feed_rows(database_url))
+    feed_rows, feed_errs = _feed_rows(database_url, fixed_now)
     errors.extend(feed_errs)
     # Reviewed dual mode changes performance authority, not visibility into
     # the execution membrane. Durable runtime rows are always projected.
