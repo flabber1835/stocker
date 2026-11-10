@@ -1,0 +1,48 @@
+{
+  "Core_steps": 0,
+  "Sentinel_steps": 0,
+  "closes": 2156,
+  "end": "2026-07-31",
+  "first_funded_level": "1",
+  "generation": 1,
+  "legacy_commit": "0bc38753ac1f85b31eb95f560720e6b037e892c5",
+  "levels": [
+    "0",
+    "0.55",
+    "1"
+  ],
+  "max_ordinary_changes": 19,
+  "model_training": false,
+  "objectives": [
+    "MAX_WEALTH_NO_DD_DP",
+    "MAX_WEALTH_BASELINE_DD",
+    "MAX_WEALTH_HALF_BASELINE_DD",
+    "MIN_DD_ALWAYS_CORE_GROWTH"
+  ],
+  "phase": "HINDSIGHT_DIAGNOSTIC_ONLY",
+  "production_contacted": false,
+  "production_performance_claim": false,
+  "schema": "research.sentinel-oracle-request/1",
+  "solver_relative_gap": "0.0000001",
+  "solver_seconds_per_problem": 1800,
+  "sources": {
+    ".github/workflows/sentinel-oracle-diagnostic.yml": "6c2820d78336138e1b5e3ee41c248a24de09cc98b44c243ed6b51a9e4813b9f5",
+    "docs/sentinel-hindsight-oracle-20261110.md": "e5a4143687f17ace1816a9f561a28a0c29c4659498bbe346f78f98995ad53d17",
+    "research/sentinel_oracle/account.py": "51babe244bd966a3a0f2b6e2d541ec2272ded57a5b894c86d5694d3ec36e835d",
+    "research/sentinel_oracle/attribution.py": "2bc0bac08252a1d6bd31c427f37cfae1d9c15a5455efc9c28cc595c9c144bea3",
+    "research/sentinel_oracle/data.py": "1116814bc26d78afa00a0b4cdca45e4c1d31bd32d53e323a25fd7c6a71f8f435",
+    "research/sentinel_oracle/job.py": "6d6ce0a8c63a6517d1b8a868f49d80a0d5755a83441487255291dad82a7b8597",
+    "research/sentinel_oracle/optimizer.py": "4920685905e5e12691aab940edb17e05aa9fcfdf98be2bbcf44ed01bd839af8e",
+    "research/sentinel_oracle/review.py": "34295b0c1e620f89520b8cd4b6e0743e81187ac16f5e05f747e42ea187fc25a2",
+    "research/sentinel_oracle/review_synthetics.py": "28c311b569a277580ffbe28822c8d38957b335b54431d0f532803e10a68e0fa0",
+    "research/sentinel_oracle/solver-wheel.json": "00b925bacbc50cfa281256e2c9f9016fb96164e90ed6d7bc3b1918954c5e193d",
+    "research/sentinel_oracle/test_launch_guards.py": "36e03983888567f3bfb781e47534b14ccebaabb0f859e8211607941431f53fd8",
+    "research/sentinel_oracle/test_readonly_fences.py": "d30fd995749400152bba88e3b9f55fd0e4133ccfd05e57c2ddbc6d337fe452eb",
+    "research/sentinel_oracle/transport.py": "3959c83bc22c94f50e9c08af61362214731d54db672e8176d8f7a46cf11d64d2",
+    "research/sentinel_oracle/worker.py": "49595413af0b630a2adfe06c4fb6ee811bcd1f334869d312a7a7aec7e46898ff"
+  },
+  "start": "2018-01-02",
+  "stop_source_commit": "d482a44ace51114d22cc98c3a4ce251410f8d153",
+  "transport_commit": "553590ca197c55942aadeb690d5436abd49a35d1",
+  "verified_main": "1e7f4b181fbcb998b3086833ab813c21b1c2ca8e"
+}
