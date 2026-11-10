@@ -94,3 +94,24 @@ The source-authenticated historical-WARN startup extension passed the complete
 164-case readiness/partial-publication/clean-retirement cohort in 18.35 seconds,
 including its original-clock, identity, reason and deadline negative cases.
 Owned source/test hashes remained unchanged during that final run.
+
+## Recorded transport interruption before clean retirement
+
+Decision before implementation, after the actual final gate preserved an
+interrupted transport at 14:35:02.903317Z, complete clean observation 396 at
+14:37:30.254546Z and retirement at 14:38:03.128438Z. These are different events;
+requiring every workflow row's original clock to equal retirement is incorrect.
+
+The runtime projects that transport only after matching independent positive
+clean PAPER/history evidence. The installer retains its strict final validator.
+During finite PAPER CHECKING only, the pending classifier may also accept the
+exact interrupted transport row under the same immutable historical subject,
+with execution_at <= interrupted_at <= reconciled_at <= completed_at. Preserve
+the interruption's original as_of. Require the existing literal interrupted
+state, or its already-proved finite clean-retirement WARN projection; no other
+companion step gains an earlier-clock exception. Other cycle/reconciliation/
+completion rows retain their original completion clock. Missing history,
+mismatched IDs, unknown outcomes, future/unreconciled interruptions, unrelated
+negatives or expired evidence still refuse. This can only wait within the
+original installation cutoff, including an ordinary partial publication; it
+cannot satisfy final readiness or reset any event/evidence clock.

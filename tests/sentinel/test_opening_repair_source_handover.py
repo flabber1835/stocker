@@ -14,12 +14,12 @@ def test_opening_repair_successor_preserves_every_installed_map():
     profile=basis._profile();assert basis.OPENING_REPAIR_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==468 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)|{'checkpoint_read_source_basis.py'}
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==36 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    assert len(profile['retained_predecessors'])==37 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='055028672260eb415fe9d134c6c4dedf0bcc638552bb88166b564e901ed19862'
 

@@ -58,37 +58,51 @@ def clean_retired_projection_wait(rows,checking,instant):
          and 'paper_reconciliation' in checking):return set()
  paper=rows['paper_reconciliation']
  fact=OperationalFact.model_validate(paper['operational_fact']);fact.require_key('paper_reconciliation')
- assert fact.kind=='PAPER_VERIFICATION' and fact.state=='CHECKING'
- assert paper['current'] is True and paper['required_current'] is True
- assert paper['stale'] is False and paper['future'] is False
+ assert fact.kind=='PAPER_VERIFICATION' and fact.state=='CHECKING','READINESS_CLEAN_RETIRED_PAPER_CHECK'
+ assert paper['current'] is True and paper['required_current'] is True,'READINESS_CLEAN_RETIRED_PAPER_CURRENT'
+ assert paper['stale'] is False and paper['future'] is False,'READINESS_CLEAN_RETIRED_PAPER_CLOCK'
  bound=datetime.fromisoformat(paper['valid_until'])
- assert bound.utcoffset()==timedelta(0) and instant<bound
+ assert bound.utcoffset()==timedelta(0) and instant<bound,'READINESS_CLEAN_RETIRED_PAPER_DEADLINE'
  current=rows['trading_run'];run=TradingRun.model_validate(current['trading_run'])
  completed=datetime.fromisoformat(expected['completed_at'])
- assert completed.utcoffset()==timedelta(0) and completed<=instant
- assert run.state=='SUPERSEDED' and run.orders==[] and run.updated_at==completed
- assert run.intent.execute_at<=completed
- assert (run.intent.plan_id,run.intent.cycle_id)==(expected['plan'],expected['cycle_id'])
- assert str(run.intent.decision_session)==expected['decision'] and str(run.intent.effective_session)==expected['effective']
- assert current['current'] is True and current['stale'] is False and current['future'] is False
- assert current['status'] in {'fail','warn'} and datetime.fromisoformat(current['as_of'])==completed
- if current['status']=='warn' and current.get('recovery') is None:
+ assert completed.utcoffset()==timedelta(0) and completed<=instant,'READINESS_CLEAN_RETIRED_COMPLETION_CLOCK'
+ assert run.state=='SUPERSEDED' and run.orders==[] and run.updated_at==completed,'READINESS_CLEAN_RETIRED_RUN_STATE'
+ assert run.intent.execute_at<=completed,'READINESS_CLEAN_RETIRED_EXECUTION_CLOCK'
+ assert (run.intent.plan_id,run.intent.cycle_id)==(expected['plan'],expected['cycle_id']),'READINESS_CLEAN_RETIRED_RUN_SUBJECT'
+ assert str(run.intent.decision_session)==expected['decision'] and str(run.intent.effective_session)==expected['effective'],'READINESS_CLEAN_RETIRED_RUN_SESSION'
+ assert current['current'] is True and current['stale'] is False and current['future'] is False,'READINESS_CLEAN_RETIRED_RUN_CURRENT'
+ assert current['status'] in {'fail','warn'} and datetime.fromisoformat(current['as_of'])==completed,'READINESS_CLEAN_RETIRED_RUN_CLOCK'
+ history=None
+ if current.get('operational_fact') is not None:
   history=OperationalFact.model_validate(current['operational_fact']);history.require_key('trading_run')
   original_end=(datetime.fromisoformat(expected['effective'])+timedelta(days=1)).replace(
    tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc)-timedelta(microseconds=1)
-  assert history.kind=='EXECUTION_HISTORY' and history.state=='SUPERSEDED'
-  assert (history.opening.cycle_id,history.opening.plan_id)==(expected['cycle_id'],expected['plan'])
-  assert history.opening.observation_id==int(expected['reconciliation_id'])
-  assert history.opening.started_at==completed and history.opening.terminal_reason=='POST_PLAN_CASH_ACTIVITY_RECONCILED'
-  assert run.intent.execute_at<=history.opening.reconciled_at<=completed
-  assert history.opening.deadline==datetime.fromisoformat(current['valid_until'])==original_end
-  assert instant<original_end
+  assert history.kind=='EXECUTION_HISTORY' and history.state=='SUPERSEDED','READINESS_CLEAN_RETIRED_HISTORY_STATE'
+  assert (history.opening.cycle_id,history.opening.plan_id)==(expected['cycle_id'],expected['plan']),'READINESS_CLEAN_RETIRED_HISTORY_SUBJECT'
+  assert history.opening.observation_id==int(expected['reconciliation_id']),'READINESS_CLEAN_RETIRED_HISTORY_OBSERVATION'
+  assert history.opening.started_at==completed and history.opening.terminal_reason=='POST_PLAN_CASH_ACTIVITY_RECONCILED','READINESS_CLEAN_RETIRED_HISTORY_OUTCOME'
+  assert run.intent.execute_at<=history.opening.reconciled_at<=completed,'READINESS_CLEAN_RETIRED_HISTORY_ORDER'
+  assert history.opening.deadline==original_end,'READINESS_CLEAN_RETIRED_HISTORY_DEADLINE'
+  assert instant<original_end,'READINESS_CLEAN_RETIRED_HISTORY_EXPIRED'
+ if current['status']=='warn' and current.get('recovery') is None:
+  assert history is not None and datetime.fromisoformat(current['valid_until'])==history.opening.deadline,'READINESS_CLEAN_RETIRED_HISTORY_REQUIRED'
  keys={'trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
  for key in keys-{'trading_run'}:
   row=rows[key];workflow=OperationalFact.model_validate(row['operational_fact']);workflow.require_key(key)
-  assert workflow.kind=='AUTOMATION_CYCLE' and workflow.state=='SUPERSEDED'
-  assert row['current'] is True and row['stale'] is False and row['future'] is False
-  assert row['status'] in {'fail','warn'} and datetime.fromisoformat(row['as_of'])==completed
+  assert workflow.kind=='AUTOMATION_CYCLE' and workflow.state=='SUPERSEDED',f'READINESS_CLEAN_RETIRED_STEP_STATE:{key}'
+  assert row['current'] is True and row['stale'] is False and row['future'] is False,f'READINESS_CLEAN_RETIRED_STEP_CURRENT:{key}'
+  assert row['status'] in {'fail','warn'},f'READINESS_CLEAN_RETIRED_STEP_STATUS:{key}'
+  recorded=datetime.fromisoformat(row['as_of'])
+  if recorded!=completed:
+   assert key=='automation_step_transport' and history is not None,f'READINESS_CLEAN_RETIRED_STEP_CLOCK:{key}'
+   assert recorded.utcoffset()==timedelta(0) and run.intent.execute_at<=recorded<=history.opening.reconciled_at<=completed,'READINESS_CLEAN_RETIRED_TRANSPORT_ORDER:automation_step_transport'
+   if row['status']=='fail':
+    assert row['value']=='INTERRUPTED · OUTCOME UNVERIFIED' and row.get('recovery') is None,'READINESS_CLEAN_RETIRED_TRANSPORT_INTERRUPTION:automation_step_transport'
+   else:
+    progress=row['recovery']
+    assert row['value']=='INTERRUPTED · RECONCILED · PLAN SKIPPED','READINESS_CLEAN_RETIRED_TRANSPORT_RESOLUTION:automation_step_transport'
+    assert progress['phase']=='AWAITING_NEXT_DECISION' and progress['automatic'] is True and progress['operator_required'] is False,'READINESS_CLEAN_RETIRED_TRANSPORT_RECOVERY:automation_step_transport'
+    assert instant<datetime.fromisoformat(progress['deadline'])==datetime.fromisoformat(row['valid_until']),'READINESS_CLEAN_RETIRED_TRANSPORT_DEADLINE:automation_step_transport'
  return keys
 def partial_wait(page,rows,checking,workflows,retiring):
  # Validate the public protocol. Human display admission is not installation
@@ -139,7 +153,7 @@ def partial_wait(page,rows,checking,workflows,retiring):
  if observation['current'] is False: assert review is None
  else:
   assert review is None or isinstance(review,dict)
-  if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows
+  if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows|retiring
  health=page['dashboard_health'];assert isinstance(health,dict)
  conditions=set(health['active_conditions'])|set(health['review_conditions'])
  assert conditions<=startup|withdrawn|checking|workflows|retiring,'NONSTARTUP_READINESS_FAILURE'

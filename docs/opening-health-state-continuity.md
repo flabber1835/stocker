@@ -101,6 +101,28 @@ shape or null, returns only recognized scalar values, and bounds the native
 observation ID. Missing, wrong-type, nonempty or unknown fields remain refused.
 The existing separate latest-cycle diagnostic reader retains its recovery scope.
 
+## A later clean reconciliation resolves the original interruption
+
+The recorded opening transport interruption occurred at 14:35:02.903317 UTC;
+the positive clean observation396 was made at14:37:30.254546 and the terminal
+cycle completed at14:38:03.128438. Transport rows retain the interruption's
+original event time, unlike the terminal cycle and completion rows. Requiring
+all step timestamps to equal terminal completion leaves a resolved interruption
+permanently red. Do not restamp the interruption or alter its signed event.
+
+Resolve only the exact interrupted-transport row produced by the durable event
+projector, under matching current PAPER clean-skip and authenticated historical
+retirement facts for the same cycle, plan and clean observation. Require original
+execution start <= interruption <= positive reconciliation <= terminal completion.
+The historical reason remains POST_PLAN_CASH_ACTIVITY_RECONCILED; every original
+current proof/deadline and zero/known-terminal-command gate remains required.
+Preserve the interruption's original detail and timestamp, append its explicit
+resolution, and classify the resulting bounded WARN as ordinary. Missing or
+foreign history, an interruption after the clean observation, a generic terminal
+failure, UNKNOWN/current negative evidence or an expired proof cannot resolve it.
+Qualify the actual durable-event-to-step-to-public-payload path and execute
+omission falsifiers for the historical subject and temporal ordering guards.
+
 ## Rechecking a negative result does not make its source unreadable
 
 A completed negative financial result is a valid observation of a failed check.

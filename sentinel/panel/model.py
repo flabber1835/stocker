@@ -583,6 +583,32 @@ class Row:
                 if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
 
 
+def resolved_skip_transport(row: Row, current: Row, paper: Row) -> bool:
+    """An exact later clean retirement resolves, without restamping, this event."""
+    historical, positive = current.operational_fact, paper.operational_fact
+    run = current.trading_run
+    return bool(row.key == 'automation_step_transport' and row.required_current
+        and ((row.status == FAIL and row.value == 'INTERRUPTED · OUTCOME UNVERIFIED')
+             or (row.status == WARN and row.value == 'INTERRUPTED · RECONCILED · PLAN SKIPPED'))
+        and row.operational_fact is not None and row.operational_fact.kind == 'AUTOMATION_CYCLE'
+        and row.operational_fact.state == 'SUPERSEDED'
+        and historical is not None and historical.kind == 'EXECUTION_HISTORY'
+        and historical.state == 'SUPERSEDED' and historical.opening is not None
+        and historical.opening.terminal_reason == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+        and historical.opening.reconciled_at is not None
+        and positive is not None and positive.kind == 'PAPER_VERIFICATION'
+        and positive.state == 'AWAITING_NEXT_DECISION' and positive.opening is not None
+        and all(getattr(historical.opening, key) == getattr(positive.opening, key)
+                for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at'))
+        and run is not None and run.state == 'SUPERSEDED'
+        and (run.intent.cycle_id, run.intent.plan_id) ==
+            (historical.opening.cycle_id, historical.opening.plan_id)
+        and run.updated_at == historical.opening.started_at
+        and row.as_of is not None
+        and run.intent.execute_at <= row.as_of <= historical.opening.reconciled_at <= run.updated_at
+        and all(order.state in {'FILLED', 'CANCELLED'} for order in run.orders))
+
+
 def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
     """Join independently admitted clean retirement with exact runtime identity."""
     by_key = {row.key: row for row in rows}
@@ -635,8 +661,11 @@ def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
         row = by_key.get(key)
         if (row is not None and row.status in {FAIL, WARN} and row.operational_fact is not None
                 and row.operational_fact.kind == 'AUTOMATION_CYCLE'
-                and row.operational_fact.state == 'SUPERSEDED' and row.as_of == run.updated_at):
-            replacements[key] = replace(row, value='PLAN SKIPPED · CASH ACTIVITY RECONCILED',
+                and row.operational_fact.state == 'SUPERSEDED'
+                and (row.as_of == run.updated_at or resolved_skip_transport(row, current, paper))):
+            value = ('INTERRUPTED · RECONCILED · PLAN SKIPPED' if resolved_skip_transport(row, current, paper)
+                     else 'PLAN SKIPPED · CASH ACTIVITY RECONCILED')
+            replacements[key] = replace(row, value=value,
                 status=WARN, valid_until=deadline, recovery=recovery)
     return [replacements.get(row.key, row) for row in rows]
 

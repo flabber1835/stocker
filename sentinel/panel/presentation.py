@@ -544,6 +544,10 @@ def _normal_warning(panel, row: Row) -> bool:
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_transport',
                     'automation_step_reconcile', 'automation_step_complete', 'trading_run'}
             and _clean_skip_work_normal(panel)):
+        if row.key == 'automation_step_transport' and row.value == 'INTERRUPTED · RECONCILED · PLAN SKIPPED':
+            from sentinel.panel.model import resolved_skip_transport
+            if not resolved_skip_transport(row, panel.row('trading_run'), panel.row('paper_reconciliation')):
+                return False
         return (row.status == 'warn' and row.recovery is not None
             and row.recovery.phase == 'AWAITING_NEXT_DECISION'
             and row.recovery.deadline <= panel.row('paper_reconciliation').valid_until
