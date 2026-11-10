@@ -200,16 +200,8 @@ def _current_reconciliation_usable(panel) -> bool:
 
 
 def _paper_check_normal(panel, row: Row | None) -> bool:
-    recovery = row.recovery if row is not None else None
-    return (row is not None and row.key == 'paper_reconciliation'
-            and _paper_verification(row, 'CHECKING') and row.paper_alignment is None
-            and row.status == row.effective_status(panel.now) == 'warn'
-            and row.required_current is True and not row.is_future(panel.now)
-            and not row.is_stale(panel.now) and recovery is not None
-            and recovery.phase == 'FINANCIAL_VERIFICATION'
-            and recovery.automatic and not recovery.operator_required
-            and _aware(recovery.deadline) and panel.now < recovery.deadline
-            and row.valid_until == recovery.deadline and recovery.active(panel.now))
+    from sentinel.panel.model import checking_paper_row
+    return checking_paper_row(row,now=panel.now)
 
 
 def _historical_schedule_evidence(panel, history: Row | None, saved: Row) -> bool:
@@ -299,7 +291,7 @@ def _green_eligible(panel) -> bool:
     """Attribution of an ordinary wait never substitutes for full admission."""
     if _execution_work_normal(panel) and not _current_health_fact(panel, 'broker'):
         return False
-    if (_historical_skip_record(panel) and not _clean_skip_work_normal(panel)
+    if (_historical_skip_record(panel) and not _clean_skip_work_normal(panel) and not _retired_check_work_normal(panel)
             and not (_scheduled_work_normal(panel) or _preparing_work_normal(panel))):
         return False
     return not _scheduled_wait_attributable(panel) or _scheduled_work_normal(panel)
@@ -324,15 +316,77 @@ def _historical_skip_record(panel) -> bool:
         and row_current(panel, row))
 
 
-def _opening_capabilities(panel, *, broker=True) -> bool:
+def _opening_capabilities(panel, *, broker=True, maintenance=False) -> bool:
     from sentinel.panel.delivery import row_current
     keys = [key for key in _HISTORY_CURRENT_FACTS if broker or key != 'broker']
     return (panel.local_paper_mode and not panel.source_errors
         and len({row.key for row in panel.rows}) == len(panel.rows)
-        and all(_current_health_fact(panel, key) and row_current(panel, panel.row(key)) for key in keys)
+        and all((_current_health_fact(panel, key) or maintenance and key == 'backup_restore' and panel.row(key) is not None
+                 and _backup_maintenance_normal(panel,panel.row(key)))
+                and row_current(panel, panel.row(key)) for key in keys)
         and _enabled_policy(panel.row('automation'))
         and panel.row('book').can_show_shadow_book(panel.now)
         and panel.row('alpaca_account').can_show_paper_account(panel.now))
+
+
+def _retired_workflow_history(panel, row: Row) -> bool:
+    """Attribute only this immutable resolution, independently of a new check."""
+    from sentinel.panel import model
+    from sentinel.panel.delivery import row_current
+    current,cycle = panel.row('trading_run'),panel.row('automation_cycle')
+    if (row is None or row.key not in {'automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
+            or not _historical_skip_record(panel) or not model.historical_skip_subject(current,now=panel.now)
+            or cycle is None or not _workflow(cycle,'SUPERSEDED')
+            or cycle.as_of != current.trading_run.updated_at or not row_current(panel,cycle)
+            or not _workflow(row,'SUPERSEDED') or row.status != 'warn' or row.effective_status(panel.now) != 'warn'
+            or row.recovery is not None or row.required_current or not row_current(panel,row)
+            or row.valid_until != current.operational_fact.opening.deadline or row.is_future(panel.now)):
+        return False
+    return (row.as_of == current.trading_run.updated_at
+            or model.resolved_skip_transport(row,current))
+
+
+def _retired_current_capabilities(panel) -> bool:
+    """Independent current capabilities, without selecting a PAPER verdict."""
+    paper,current,broker,cycle = (panel.row(key) for key in (
+        'paper_reconciliation','trading_run','broker','automation_cycle'))
+    candidate = broker.operational_fact if broker is not None else None
+    history = current.operational_fact.opening if current is not None and current.operational_fact is not None else None
+    return (cycle is not None and _retired_workflow_history(panel,cycle)
+        and all(_retired_workflow_history(panel,panel.row(key)) for key in (
+            'automation_step_transport','automation_step_reconcile','automation_step_complete'))
+        and _opening_capabilities(panel,maintenance=True)
+        and candidate is not None and candidate.kind == 'EXECUTION_PROGRESS'
+        and candidate.state == 'AWAITING_NEXT_DECISION' and candidate.opening is not None
+        and all(getattr(candidate.opening,key) == getattr(history,key)
+                for key in ('cycle_id','plan_id','observation_id','started_at'))
+        and panel.now < candidate.opening.deadline <= history.deadline
+        and broker.valid_until == candidate.opening.deadline and broker.recovery is None
+        and history.reconciled_at <= broker.as_of <= history.started_at
+        and _current_input_session(panel,str(current.trading_run.intent.decision_session)))
+
+
+def _retired_check_work_normal(panel) -> bool:
+    """Current independent checking may accompany an already resolved outcome."""
+    from sentinel.panel.delivery import row_current
+    paper = panel.row('paper_reconciliation')
+    return (_retired_current_capabilities(panel) and _paper_check_normal(panel,paper)
+            and row_current(panel,paper))
+
+
+def _positive_retirement_paper(panel, row: Row) -> bool:
+    """Attribute this current positive check without borrowing another row's health."""
+    from sentinel.panel.delivery import row_current
+    fact = row.operational_fact if row is not None else None
+    current = panel.row('trading_run')
+    return (row is not None and row.key == 'paper_reconciliation' and _historical_skip_record(panel)
+        and fact is not None and fact.kind == 'PAPER_VERIFICATION' and fact.state == 'AWAITING_NEXT_DECISION'
+        and fact.opening is not None and all(getattr(fact.opening,key) == getattr(current.operational_fact.opening,key)
+            for key in ('cycle_id','plan_id','observation_id','started_at'))
+        and row_current(panel,row) and row.status == row.effective_status(panel.now) == 'warn'
+        and row.required_current and row.recovery is not None and row.recovery.phase == 'AWAITING_NEXT_DECISION'
+        and row.valid_until == row.recovery.deadline == fact.opening.deadline
+        and row.recovery.active(panel.now) and panel.now < row.valid_until and not row.is_future(panel.now))
 
 
 def _execution_work_normal(panel) -> bool:
@@ -372,6 +426,8 @@ def _clean_skip_work_normal(panel) -> bool:
     fact = paper.operational_fact if paper is not None else None
     run = current.trading_run if current is not None else None
     candidate = broker.operational_fact if broker is not None else None
+    if _positive_retirement_paper(panel,paper) and _retired_current_capabilities(panel):
+        return True
     if (not _opening_capabilities(panel) or fact is None or fact.kind != 'PAPER_VERIFICATION'
             or fact.state != 'AWAITING_NEXT_DECISION' or fact.opening is None
             or candidate is None or candidate.kind != 'EXECUTION_PROGRESS'
@@ -541,6 +597,10 @@ def _preparing_work_normal(panel) -> bool:
 def _normal_warning(panel, row: Row) -> bool:
     if row.key == 'trading_run' and _historical_skip_record(panel):
         return True
+    if _retired_workflow_history(panel,row):
+        return True
+    if row.key == 'paper_reconciliation' and _positive_retirement_paper(panel,row):
+        return True
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_transport',
                     'automation_step_reconcile', 'automation_step_complete', 'trading_run'}
             and _clean_skip_work_normal(panel)):
@@ -640,6 +700,8 @@ def visible_preparation(panel):
 
 
 def preparation_stage(panel) -> str | None:
+    if _retired_check_work_normal(panel):
+        return 'Checking paper account · recorded plan skipped'
     if _clean_skip_work_normal(panel):
         return 'Waiting for next decision · plan skipped'
     if _execution_work_normal(panel):
@@ -755,7 +817,7 @@ def dashboard_health(panel) -> dict:
     boundaries = [(row.operational_fact.opening.deadline
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
         else _row_boundary(row)) for row in admitted]
-    if execution_normal or _clean_skip_work_normal(panel):
+    if execution_normal or _clean_skip_work_normal(panel) or _retired_check_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS
                           if key != 'broker' or not execution_normal or not panel.row(key).is_stale(panel.now))
         boundaries.append(_row_boundary(panel.row('trading_run')))

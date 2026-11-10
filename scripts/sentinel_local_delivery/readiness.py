@@ -107,8 +107,12 @@ def clean_retired_projection_wait(rows,checking,instant,page):
    else:
     progress=row['recovery']
     assert row['value']=='INTERRUPTED · RECONCILED · PLAN SKIPPED','READINESS_CLEAN_RETIRED_TRANSPORT_RESOLUTION:automation_step_transport'
-    assert progress['phase']=='AWAITING_NEXT_DECISION' and progress['automatic'] is True and progress['operator_required'] is False,'READINESS_CLEAN_RETIRED_TRANSPORT_RECOVERY:automation_step_transport'
-    assert instant<datetime.fromisoformat(progress['deadline'])==datetime.fromisoformat(row['valid_until']),'READINESS_CLEAN_RETIRED_TRANSPORT_DEADLINE:automation_step_transport'
+    if progress is None:
+     assert (checking_paper or 'backup_restore' in checking) and paper['recovery']['active'] is True,'READINESS_CLEAN_RETIRED_TRANSPORT_CHECK_REQUIRED:automation_step_transport'
+     assert datetime.fromisoformat(row['valid_until'])==history.opening.deadline,'READINESS_CLEAN_RETIRED_TRANSPORT_HISTORY_BOUND:automation_step_transport'
+    else:
+     assert progress['phase']=='AWAITING_NEXT_DECISION' and progress['automatic'] is True and progress['operator_required'] is False,'READINESS_CLEAN_RETIRED_TRANSPORT_RECOVERY:automation_step_transport'
+     assert instant<datetime.fromisoformat(progress['deadline'])==datetime.fromisoformat(row['valid_until']),'READINESS_CLEAN_RETIRED_TRANSPORT_DEADLINE:automation_step_transport'
  if not checking_paper:keys.add('paper_reconciliation')
  broker=rows['broker']
  if broker['status']!='ok':

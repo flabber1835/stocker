@@ -116,7 +116,7 @@ def checking(page):
     keys=['shadow_verification','book','exposure','terminals']
     for key in keys:
         keyed(page,key).update(status='warn',color='amber',value='CHECK IN PROGRESS',valid_until=until,
-            recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,deadline=until))
+            recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,active=True,deadline=until))
     page['operator_review'].update(status='REVIEW',warnings=keys)
     page['dashboard_health'].update(status='warn',color='amber',review_conditions=keys)
     return page
@@ -174,7 +174,7 @@ def clean_retired_checking_page(monkeypatch):
     keyed(page,'paper_reconciliation').update(status='warn',original_status='warn',color='amber',
         value='CHECK IN PROGRESS',valid_until=bound,
         operational_fact=dict(kind='PAPER_VERIFICATION',state='CHECKING'),
-        recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,deadline=bound))
+        recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,active=True,deadline=bound))
     page['operator_review'].update(status='FAILED',active=sorted(keys),warnings=['paper_reconciliation'])
     page['dashboard_health'].update(status='fail',color='red',active_conditions=sorted(keys),review_conditions=['paper_reconciliation'])
     return page,complete,expected

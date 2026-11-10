@@ -118,7 +118,7 @@ def test_projected_earlier_transport_joins_a_different_financial_check(monkeypat
     until = (NOW+timedelta(seconds=60)).isoformat()
     paper.update(value='CHECK IN PROGRESS', operational_fact=dict(kind='PAPER_VERIFICATION', state='CHECKING'),
         valid_until=until, recovery=dict(phase='FINANCIAL_VERIFICATION', automatic=True,
-            operator_required=False, deadline=until))
+            operator_required=False, active=True, deadline=until))
     pending['operator_review']['warnings'] = ['paper_reconciliation']
     pending['dashboard_health'].update(color='amber', review_conditions=['paper_reconciliation'])
     result, calls, _, _ = unified.run_child(monkeypatch, [pending, complete], expected)

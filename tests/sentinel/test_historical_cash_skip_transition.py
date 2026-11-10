@@ -117,7 +117,7 @@ def test_original_market_day_boundary_remains_finite_and_selector_can_drop_the_o
 
 def test_removed_independent_current_workflow_guard_has_executed_falsifier(monkeypatch):
     source=inspect.getsource(presentation._green_eligible)
-    guard=("    if (_historical_skip_record(panel) and not _clean_skip_work_normal(panel)\n"
+    guard=("    if (_historical_skip_record(panel) and not _clean_skip_work_normal(panel) and not _retired_check_work_normal(panel)\n"
         "            and not (_scheduled_work_normal(panel) or _preparing_work_normal(panel))):\n        return False\n")
     assert source.count(guard)==1
     namespace=dict(vars(presentation));exec(compile(source.replace(guard,''),'<history-as-current-authority>','exec'),namespace)
@@ -141,11 +141,15 @@ def test_native_historical_provenance_is_reused_once_inside_current_paper_proof(
 
 def test_current_awaiting_interface_is_preserved_when_the_run_also_carries_history():
     page=clean_skip_panel()
-    rows=model.project_opening_rows([historical_row() if row.key=='trading_run' else row for row in page.rows],now=NOW)
+    recorded=historical_row()
+    rows=model.project_opening_rows([recorded if row.key=='trading_run' else
+        replace(row,as_of=recorded.operational_fact.opening.reconciled_at) if row.key=='broker' else row
+        for row in page.rows],now=NOW)
     page=replace(page,rows=rows)
     assert page.row('trading_run').status==model.WARN
     assert page.row('trading_run').trading_run.state=='SUPERSEDED'
-    assert page.row('trading_run').recovery.phase=='AWAITING_NEXT_DECISION'
+    assert page.row('trading_run').recovery is None
+    assert page.row('trading_run').valid_until==ROLL
     assert presentation._clean_skip_work_normal(page)
     assert presentation.dashboard_health(page)['color']=='green'
 

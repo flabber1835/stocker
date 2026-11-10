@@ -52,6 +52,8 @@ def recorded_interruption_panel(*, project=True):
         row=page.row(key);fact=row.operational_fact
         changed[key]=replace(row,operational_fact=fact.model_copy(update={
             'opening':fact.opening.model_copy(update={'started_at':COMPLETED})}))
+    broker_at=datetime.fromisoformat('2026-11-10T14:37:50.477990+00:00')
+    changed['broker']=replace(changed['broker'],as_of=broker_at,valid_until=broker_at+timedelta(minutes=10))
     changed['trading_run']=replace(page.row('trading_run'),as_of=COMPLETED,trading_run=run,
         operational_fact=historical,valid_until=DAY_END,recovery=None)
     changed['automation_cycle']=replace(page.row('automation_cycle'),as_of=COMPLETED,
@@ -117,6 +119,12 @@ def test_unresolved_or_foreign_interruption_keeps_its_negative(fault):
         changed[current.key]=replace(current,operational_fact=current.operational_fact.model_copy(update={
             'opening':current.operational_fact.opening.model_copy(update={field:value})}))
     page=replace(page,rows=model.project_opening_rows([changed.get(row.key,row) for row in page.rows],now=page.now))
+    if fault in {'negative_paper','expired_paper'}:
+        assert page.row(row.key).status==model.WARN
+        assert 'paper_reconciliation' in presentation.health_facts(page)['active']+presentation.health_facts(page)['warnings']
+        assert row.key not in presentation.health_facts(page)['active']+presentation.health_facts(page)['warnings']
+        assert serialization.public_payload(page)['dashboard_health']['color']!='green'
+        return
     assert page.row(row.key).status in {model.FAIL,model.UNKNOWN}
     assert row.key in presentation.health_facts(page)['active']
 
@@ -144,11 +152,11 @@ def test_presentation_rechecks_the_original_resolution_clock():
 
 
 def test_removed_presentation_clock_guard_is_detected(monkeypatch):
-    text=inspect.getsource(presentation._normal_warning)
-    guard="            if not resolved_skip_transport(row, panel.row('trading_run'), panel.row('paper_reconciliation')):\n                return False\n"
+    text=inspect.getsource(presentation._retired_workflow_history)
+    guard='or model.resolved_skip_transport(row,current)'
     assert text.count(guard)==1
-    namespace=dict(vars(presentation));exec(text.replace(guard,''),namespace)
-    monkeypatch.setattr(presentation,'_normal_warning',namespace['_normal_warning'])
+    namespace=dict(vars(presentation));exec(text.replace(guard,"or row.key == 'automation_step_transport'"),namespace)
+    monkeypatch.setattr(presentation,'_retired_workflow_history',namespace['_retired_workflow_history'])
     with pytest.raises(AssertionError):test_presentation_rechecks_the_original_resolution_clock()
 
 

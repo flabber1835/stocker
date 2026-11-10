@@ -583,11 +583,27 @@ class Row:
                 if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
 
 
-def resolved_skip_transport(row: Row, current: Row, paper: Row) -> bool:
+def historical_skip_subject(current: Row | None, *, now: datetime) -> bool:
+    """The signed immutable outcome owns its original historical lifetime."""
+    history = current.operational_fact if current is not None else None
+    run = current.trading_run if current is not None else None
+    return bool(history is not None and history.kind == 'EXECUTION_HISTORY'
+        and history.state == 'SUPERSEDED' and history.opening is not None
+        and history.opening.terminal_reason == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+        and history.opening.reconciled_at is not None and run is not None
+        and run.state == 'SUPERSEDED' and current.status == WARN and not current.required_current
+        and (run.intent.cycle_id, run.intent.plan_id) == (history.opening.cycle_id, history.opening.plan_id)
+        and run.updated_at == history.opening.started_at and current.as_of == run.updated_at
+        and run.intent.execute_at <= history.opening.reconciled_at <= run.updated_at <= now < history.opening.deadline
+        and all(order.state in {'FILLED', 'CANCELLED'} for order in run.orders))
+
+
+def resolved_skip_transport(row: Row, current: Row, paper: Row | None = None) -> bool:
     """An exact later clean retirement resolves, without restamping, this event."""
-    historical, positive = current.operational_fact, paper.operational_fact
+    historical, positive = current.operational_fact, paper.operational_fact if paper is not None else None
     run = current.trading_run
-    return bool(row.key == 'automation_step_transport' and row.required_current
+    return bool(row.key == 'automation_step_transport'
+        and (row.required_current or row.status == WARN and row.value == 'INTERRUPTED · RECONCILED · PLAN SKIPPED')
         and ((row.status == FAIL and row.value == 'INTERRUPTED · OUTCOME UNVERIFIED')
              or (row.status == WARN and row.value == 'INTERRUPTED · RECONCILED · PLAN SKIPPED'))
         and row.operational_fact is not None and row.operational_fact.kind == 'AUTOMATION_CYCLE'
@@ -596,10 +612,10 @@ def resolved_skip_transport(row: Row, current: Row, paper: Row) -> bool:
         and historical.state == 'SUPERSEDED' and historical.opening is not None
         and historical.opening.terminal_reason == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
         and historical.opening.reconciled_at is not None
-        and positive is not None and positive.kind == 'PAPER_VERIFICATION'
-        and positive.state == 'AWAITING_NEXT_DECISION' and positive.opening is not None
-        and all(getattr(historical.opening, key) == getattr(positive.opening, key)
-                for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at'))
+        and (paper is None or positive is not None and positive.kind == 'PAPER_VERIFICATION'
+            and positive.state == 'AWAITING_NEXT_DECISION' and positive.opening is not None
+            and all(getattr(historical.opening, key) == getattr(positive.opening, key)
+                    for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at')))
         and run is not None and run.state == 'SUPERSEDED'
         and (run.intent.cycle_id, run.intent.plan_id) ==
             (historical.opening.cycle_id, historical.opening.plan_id)
@@ -609,8 +625,63 @@ def resolved_skip_transport(row: Row, current: Row, paper: Row) -> bool:
         and all(order.state in {'FILLED', 'CANCELLED'} for order in run.orders))
 
 
+def checking_paper_row(row: Row | None, *, now: datetime) -> bool:
+    """Existing bounded check admission; it is no completed financial verdict."""
+    fact = row.operational_fact if row is not None else None
+    recovery = row.recovery if row is not None else None
+    return bool(row is not None and row.key == 'paper_reconciliation'
+        and fact is not None and fact.kind == 'PAPER_VERIFICATION' and fact.state == 'CHECKING'
+        and row.paper_alignment is None and row.required_current
+        and row.status == row.effective_status(now) == WARN and not row.is_future(now)
+        and recovery is not None and recovery.phase == 'FINANCIAL_VERIFICATION'
+        and recovery.automatic and not recovery.operator_required and recovery.active(now)
+        and row.valid_until == recovery.deadline and row.valid_until is not None and now < row.valid_until)
+
+
+def project_retirement_history(rows: list[Row], *, now: datetime) -> list[Row]:
+    """A current recheck cannot revoke a separately proved immutable resolution."""
+    by_key = {row.key:row for row in rows}
+    current, cycle = by_key.get('trading_run'), by_key.get('automation_cycle')
+    if len(by_key) != len(rows) or not historical_skip_subject(current, now=now):
+        return rows
+    history = current.operational_fact.opening
+    run = current.trading_run
+    broker, account, paper = (by_key.get(key) for key in ('broker','alpaca_account','paper_reconciliation'))
+    candidate = broker.operational_fact if broker is not None else None
+    idle_subject = (candidate is not None and candidate.kind == 'EXECUTION_PROGRESS'
+        and candidate.state == 'AWAITING_NEXT_DECISION' and candidate.opening is not None
+        and all(getattr(candidate.opening,key) == getattr(history,key)
+                for key in ('cycle_id','plan_id','observation_id','started_at')))
+    replacements = {current.key:replace(current,valid_until=history.deadline,recovery=None)}
+    if (cycle is None or cycle.operational_fact is None or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'
+            or cycle.operational_fact.state != 'SUPERSEDED' or cycle.as_of != run.updated_at
+            or cycle.status not in {FAIL,WARN} or candidate is not None and not idle_subject):
+        return [replacements.get(row.key,row) for row in rows]
+    for key in ('automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'):
+        row = by_key.get(key)
+        resolved = row is not None and resolved_skip_transport(row,current)
+        if (row is None or row.status not in {FAIL,WARN} or row.operational_fact is None
+                or row.operational_fact.kind != 'AUTOMATION_CYCLE' or row.operational_fact.state != 'SUPERSEDED'
+                or not (row.as_of == run.updated_at or resolved)):
+            continue
+        value = ('WAITING FOR NEXT DECISION · PLAN SKIPPED' if key == 'automation_cycle' else
+            'INTERRUPTED · RECONCILED · PLAN SKIPPED' if resolved
+            else 'PLAN SKIPPED · CASH ACTIVITY RECONCILED')
+        replacements[key] = replace(row,value=value,status=WARN,required_current=False,
+            valid_until=history.deadline,recovery=None)
+    if (checking_paper_row(paper,now=now) and idle_subject
+            and now < candidate.opening.deadline <= history.deadline
+            and broker.status == OK and broker.as_of is not None and not broker.is_future(now)
+            and history.reconciled_at <= broker.as_of <= history.started_at
+            and account is not None and account.can_show_paper_account(now) and not account.is_future(now)
+            and account.valid_until is not None and now < account.valid_until):
+        replacements['broker'] = replace(broker,valid_until=candidate.opening.deadline,recovery=None)
+    return [replacements.get(row.key,row) for row in rows]
+
+
 def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
     """Join independently admitted clean retirement with exact runtime identity."""
+    rows = project_retirement_history(rows,now=now)
     by_key = {row.key: row for row in rows}
     if len(by_key) != len(rows):
         return rows
@@ -647,26 +718,30 @@ def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
             and any(getattr(historical.opening, key) != getattr(fact.opening, key)
                     for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at'))):
         return rows
+    if historical_skip_subject(current,now=now):
+        return [replace(row,valid_until=candidate.opening.deadline,recovery=None)
+                if row.key == 'broker' else row for row in rows]
     deadline = min(fact.opening.deadline, current.valid_until) if current.valid_until else fact.opening.deadline
     recovery = RecoveryEvidence(phase='AWAITING_NEXT_DECISION', automatic=True, deadline=deadline)
     explanation = (' The plan was safely retired after reconciled cash activity; '
                    'awaiting the next ordinary decision. Original intent and terminal state are retained.')
     replacements = {'broker': replace(broker, valid_until=candidate.opening.deadline, recovery=None),
         'automation_cycle': replace(cycle, value='WAITING FOR NEXT DECISION · PLAN SKIPPED',
-            status=WARN, valid_until=deadline, recovery=recovery),
+            status=WARN, required_current=True,valid_until=deadline, recovery=recovery),
         'trading_run': replace(current, value='SKIPPED · CASH ACTIVITY RECONCILED',
             status=WARN, valid_until=min(current.valid_until, deadline) if current.valid_until else deadline,
             recovery=recovery, detail=current.detail if current.detail.endswith(explanation) else current.detail+explanation)}
     for key in ('automation_step_transport', 'automation_step_reconcile', 'automation_step_complete'):
         row = by_key.get(key)
+        resolved = row is not None and resolved_skip_transport(row, current, paper)
         if (row is not None and row.status in {FAIL, WARN} and row.operational_fact is not None
                 and row.operational_fact.kind == 'AUTOMATION_CYCLE'
                 and row.operational_fact.state == 'SUPERSEDED'
-                and (row.as_of == run.updated_at or resolved_skip_transport(row, current, paper))):
-            value = ('INTERRUPTED · RECONCILED · PLAN SKIPPED' if resolved_skip_transport(row, current, paper)
+                and (row.as_of == run.updated_at or resolved)):
+            value = ('INTERRUPTED · RECONCILED · PLAN SKIPPED' if resolved
                      else 'PLAN SKIPPED · CASH ACTIVITY RECONCILED')
             replacements[key] = replace(row, value=value,
-                status=WARN, valid_until=deadline, recovery=recovery)
+                status=WARN, required_current=True,valid_until=deadline, recovery=recovery)
     return [replacements.get(row.key, row) for row in rows]
 
 

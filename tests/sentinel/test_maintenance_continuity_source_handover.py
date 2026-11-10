@@ -18,8 +18,8 @@ def test_maintenance_continuity_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before[n]}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==37 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION}}
+    assert len(profile['retained_predecessors'])==38 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='86028d09487ffdf58edf7ae7ae6047b531d62a74319f40f5061f6fb076b47556'
 

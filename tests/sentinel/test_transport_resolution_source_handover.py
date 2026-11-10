@@ -14,12 +14,12 @@ def test_transport_resolution_successor_preserves_every_installed_map():
     profile=basis._profile();assert basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==469 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==37 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    assert len(profile['retained_predecessors'])==38 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='459299c28279470f6526654e1384315fcf787bbc84f57fed4bc1fb36d3d78c0a'
 
