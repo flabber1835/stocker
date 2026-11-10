@@ -399,14 +399,14 @@ def _archive_metadata(conn, *, root: str,
                       objects: tuple[str, ...]) -> dict[str, tuple]:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
-            " (pg_stat_file(%s || '/' || name,true)).modification,"
-            " (pg_stat_file(%s || '/' || name,true)).change,"
-            " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
-            " (pg_stat_file(%s || '/' || name || '.sha256',true)).modification,"
-            " (pg_stat_file(%s || '/' || name || '.sha256',true)).change"
-            " FROM unnest(%s::text[]) AS entries(name)",
-            (root, root, root, root, root, root, list(objects)))
+            "WITH objects AS MATERIALIZED ("
+            " SELECT name,pg_stat_file(%s || '/' || name,true) AS payload,"
+            " pg_stat_file(%s || '/' || name || '.sha256',true) AS sidecar,"
+            " pg_read_file(%s || '/' || name || '.sha256',0,80,true) AS checksum"
+            " FROM unnest(%s::text[]) AS entries(name))"
+            " SELECT name,(payload).size,(payload).modification,(payload).change,"
+            " checksum,(sidecar).modification,(sidecar).change FROM objects",
+            (root, root, root, list(objects)))
         rows = cur.fetchall()
     return {
         str(name): (

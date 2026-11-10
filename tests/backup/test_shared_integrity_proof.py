@@ -19,7 +19,8 @@ from lab import NOW, Cursor, Database, Media, wal_name
 class NativeMetadataCursor(Cursor):
     def execute(self, sql, params=()):
         super().execute(sql, params)
-        if sql.startswith('SELECT name,(pg_stat_file'):
+        if (sql.startswith('SELECT name,(pg_stat_file')
+                or sql.startswith('WITH objects AS MATERIALIZED (')):
             # The older adapter preserves filesystem nanoseconds. Real
             # pg_stat_file returns timestamptz, which the receipt must encode.
             epoch=datetime(1970,1,1,tzinfo=timezone.utc)

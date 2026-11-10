@@ -1,0 +1,16 @@
+{
+  "authority_effect": "NONE",
+  "base_revision": "277160861e2353d8ad93d15da8e2615ebdb11c18",
+  "compilers": {
+    "sentinel.execution.feed_actions": {
+      "after": "02fb6675efe5f1abce06a864b98d3cfa5423c8bda112762708626d516b17a1d5",
+      "before": "8ce0436b4d58161f40ffb52900022529b23f3b565bdc9003a58eaa5f207e9b47"
+    },
+    "sentinel.execution.reconcile": {
+      "after": "0a49d779f60888ff1d0e79d532f857e528789b7c17feeb8ac7816cba231693d9",
+      "before": "0061e79de130e6c29f78b552a23322d77a7c9a9ce2ada56fa56dc12953cb07e2"
+    }
+  },
+  "module_sha256": "b958e87738469293376b3f0382a8b5d09eccc53596c80c053ed871c6a317fbe4",
+  "schema": "sentinel.operation-read-source-transition/1"
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Read-only backup health checkpoint. No cleanup and no retention mutation.
+# Default read-only checkpoint; explicit shared mode may publish the existing
+# common byte-proof receipt. No cleanup and no retention mutation.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -32,10 +33,15 @@ esac
 MAX_AGE_HOURS="$((10#$MAX_AGE_HOURS))"
 
 EXPECTED=""
+SHARED_INTEGRITY=0
+if [ "${1:-}" = "--shared-integrity" ]; then
+  SHARED_INTEGRITY=1
+  shift
+fi
 if [ "$#" -gt 0 ]; then
   [ "$#" -eq 2 ] && [ "$1" = "--backup" ] ||
     refuse "USAGE_INVALID" 2 \
-      "usage: sentinel-backup-status.sh [--backup PATH]"
+      "usage: sentinel-backup-status.sh [--shared-integrity] [--backup PATH]"
   EXPECTED="$2"
 fi
 
@@ -183,7 +189,14 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
 # Prove the same restore-horizon invariants as runtime authority while remaining
 # inside the private-media boundary. PostgreSQL parses its own manifest; the
 # postgres OS identity verifies every WAL byte against its durable sidecar.
-if CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+if [ "$SHARED_INTEGRITY" -eq 1 ]; then
+  if ! CHAIN="$("$PYTHON" scripts/sentinel_backup_shared_integrity.py \
+      --base-backup "$NAME" --system-identifier "$SYSTEM_ID" \
+      --wal-segment-bytes "$WAL_BYTES" --observed-frontier "$LAST_WAL")"; then
+    refuse "BASE_BACKUP_SHARED_INTEGRITY_REFUSED" 4 \
+      "common two-pass WAL proof failed; legacy verification is not a fallback"
+  fi
+elif CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
     bash -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
     < scripts/sentinel-backup-verify-chain.sh)"; then
   :

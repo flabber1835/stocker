@@ -17,6 +17,7 @@ import uuid
 from sentinel_backup_lock import lock_is_held, _lock_path
 from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
 from sentinel_maintenance_process import run_bounded
+from sentinel_backup_integrity_report import validate as validate_shared_integrity
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -272,6 +273,22 @@ def runtime_chain_proof(output, selected, observation, root):
         wal_segments=count, timeline_history=None if history == "none" else history,
         wal_integrity="sha256-sidecar-v1", integrity_full_scrub=True,
         integrity_objects_hashed=count + (history != "none"), integrity_read_passes=1)
+    shared = [line[len('shared_integrity_proof:'):] for line in output.splitlines()
+              if line.startswith('shared_integrity_proof:')]
+    if shared:
+        try:
+            if len(shared) != 1:
+                raise ValueError('ambiguous common integrity reports')
+            actual = validate_shared_integrity(json.loads(shared[0]))
+            fields = ('enabled', 'system_identifier', 'base_backup', 'recoverable_from_wal',
+                'recovery_marker_wal', 'recoverable_through_wal', 'wal_segments',
+                'timeline_history', 'wal_integrity')
+            if (any(type(actual[k]) is not type(proof[k]) or actual[k] != proof[k] for k in fields)
+                    or actual['wal_segment_bytes'] != size):
+                raise ValueError('common integrity differs from observed chain')
+        except (ValueError, TypeError, KeyError):
+            raise Refused('common runtime chain proof is malformed or contradictory') from None
+        proof = actual
     return proof
 
 
@@ -369,6 +386,9 @@ def tick(root, runner=run):
 
 
 def _tick(root, runner, progress, started):
+    shared_mode = os.environ.get('SENTINEL_BACKUP_SHARED_INTEGRITY', '')
+    if shared_mode not in ('', 'REQUIRED_V1'):
+        raise Refused('unsupported maintenance shared integrity policy')
     image = runtime_image(runner)
     observation = observe_primary(runner)
     deferred = not heavy_work_allowed(observation)
@@ -386,7 +406,12 @@ def _tick(root, runner, progress, started):
         selected, observation = renew_base(root, image, runner)
         _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
     path = root + "/base/" + selected["name"]
-    status=runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+    status_command = ["bash", "scripts/sentinel-backup-status.sh"]
+    if shared_mode:
+        status_command.append('--shared-integrity')
+    status=runner(status_command+["--backup", path], timeout=600)
+    if shared_mode and not any(line.startswith('shared_integrity_proof:') for line in status.splitlines()):
+        raise Refused('selected common integrity returned no common proof')
     observation=observe_primary(runner)
     chain=runtime_chain_proof(status,selected,observation,root)
     receipt=verified_base_chain_receipt(selected,observation,chain,runner)

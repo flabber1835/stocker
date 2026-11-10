@@ -1472,6 +1472,10 @@ def reconcile_action_material(*, start, end, action_rows, published_equity_rows,
         symbol = str(ticker).upper()
         if verb in SUPPORTED_ACTIONS:
             supported_action_coordinates.add((symbol, effective))
+        elif _safe_non_book_action(verb):
+            # These rows remain source/cash evidence, but supply no scalar or
+            # material event here and do not need an equity mapping.
+            continue
         published_ratio = None
         derived_ratio = None
         publication_run_id = None

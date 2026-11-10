@@ -31,11 +31,12 @@ def test_operational_successor_preserves_all_twenty_four_source_maps():
                                    basis.DISPLAY_DEPENDENCY_PREDECESSOR_REVISION,
                                    basis.DISPLAY_SEQUENCE_PREDECESSOR_REVISION,
                                    basis.CLOSE_TRACE_PREDECESSOR_REVISION,
-                                   basis.ACCOUNT_CLOCK_PREDECESSOR_REVISION}}
+                                   basis.ACCOUNT_CLOCK_PREDECESSOR_REVISION,
+                                   basis.INTEGRITY_WORK_PREDECESSOR_REVISION}}
     assert len(originals)==24
     assert hashlib.sha256(json.dumps(originals,sort_keys=True,separators=(',',':')).encode()).hexdigest()==(
         'a5c06518948b779dbc47890fb6c30b27000aaa948c6bd9bbafbc8f8554e82a08')
-    assert profile['authority_effect']=='NONE' and profile['schema']=='sentinel.url-selected-trading-transition/33'
+    assert profile['authority_effect']=='NONE' and profile['schema']=='sentinel.url-selected-trading-transition/34'
 
 
 @pytest.mark.parametrize('fault',['changed','missing','extra'])
