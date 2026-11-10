@@ -32,7 +32,7 @@ from sentinel_local_delivery.model import DeliveryRefused, canonical, digest, re
 
 UNIT = 'sentinel-paper-backup-maintenance.service'
 DROPIN = 'zz-sentinel-qualified-reader.conf'
-SCHEMA = 'sentinel.maintenance-reader-handover/1'
+SCHEMA = 'sentinel.maintenance-reader-handover/2'
 PURPOSE = b'sentinel-maintenance-reader-handover-v1\0'
 PHASES = ('PREPARED', 'STOP_REQUESTED', 'STOPPED', 'DROPIN_INSTALLED',
           'HOST_SELECTED', 'DEPLOYMENT_SELECTED', 'START_REQUESTED', 'STARTED', 'VERIFIED',
@@ -43,7 +43,11 @@ REQUEST_FIELDS = {'operation_id','deployment','source','image','commit','old_sou
     'application_receipt','application_receipt_sha256','deployment_environment_sha256',
     'new_environment_sha256','new_script_sha256','pass_lock','postgres','system',
     'application_containers','old_runtime_pointer_sha256','new_runtime_pointer_sha256',
-    'old_unit','old_reader','dropin','new_dropin','selectors'}
+    'old_unit','old_reader','dropin','new_dropin','selectors','host_tool'}
+HOST_TOOL_FIELDS = {'source','commit','executable_sha256','qualification','qualification_sha256'}
+HOST_DELTA = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
+    'tests/scripts/test_sentinel_maintenance_reader_handover.py','docs/operation-owned-integrity-work.md'})
+TOOL_PATH = 'scripts/sentinel_maintenance_reader_handover.py'
 
 
 def safe_path(value):
@@ -124,13 +128,35 @@ def selection_raw(value, binding, key):
     return canonical(dict(value=value, signature=environment.reader_signature(value, key)))+b'\n'
 
 
+def qualified_host(executable, report_path, report_sha256, application_commit):
+    """Authenticate this host command separately from the unchanged reader image."""
+    executable = safe_path(Path(executable).absolute())
+    source = safe_path(executable.parents[1])
+    require(executable == source/TOOL_PATH, 'READER_HOST_EXECUTABLE_SUBSTITUTED')
+    commit = qualification.git(source,'rev-parse','HEAD')
+    report_path = safe_path(report_path)
+    report = read_json(report_path)
+    require(report.get('schema') == qualification.OPERATIONAL_SCHEMA
+        and report.get('source_scope') == qualification.OPERATIONAL_SCOPE,
+        'READER_HOST_QUALIFICATION_SCOPE_REQUIRED')
+    qualification.validate_report(report_path,report_sha256,source,commit,application_commit)
+    changes = qualification.git(source,'diff','--name-status','--no-renames',application_commit,commit).splitlines()
+    require(len(changes) == len(HOST_DELTA) and all(row.startswith('M\t') for row in changes)
+        and {row[2:] for row in changes} == HOST_DELTA, 'READER_HOST_DELTA_REFUSED')
+    executable_sha = qualification.sha256_file(executable)
+    require(HOST_DELTA <= report['source_files'].keys()
+        and report['source_files'][TOOL_PATH] == executable_sha, 'READER_HOST_EXECUTABLE_UNQUALIFIED')
+    return dict(source=str(source),commit=commit,executable_sha256=executable_sha,
+        qualification=str(report_path),qualification_sha256=report_sha256)
+
+
 def environment_transition(old, new, app, commit, image):
     """Preserve every non-provenance value, including secret and media policy."""
     require({k:v for k,v in old.items() if k not in ALLOWED_ENV}
         == {k:v for k,v in new.items() if k not in ALLOWED_ENV}, 'READER_ENV_POLICY_CHANGED')
     require(new.get('SENTINEL_BACKUP_SHARED_INTEGRITY') == 'REQUIRED_V1', 'READER_SHARED_PROOF_REQUIRED')
     for values in (old, new, app):
-        require(values.get('ALPACA_BASE_URL') == sentinel_env.PAPER_URL
+        require(values.get('ALPACA_BASE_URL', sentinel_env.PAPER_URL) == sentinel_env.PAPER_URL
             and values.get('SENTINEL_LOCAL_PAPER_MODE') == 'OWNER_AUTHORIZED_FUNCTION_FIRST_V1'
             and values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY') == 'REQUIRED_V1'
             and re.fullmatch(r'PA[A-Za-z0-9]+', values.get('SENTINEL_LOCAL_PAPER_ACCOUNT_ID', ''))
@@ -294,6 +320,9 @@ class Native:
         require(isinstance(values,list) and len(values) == 1, 'READER_IMAGE_INVALID')
         return values[0]
 
+    def host_tool(self, commit, report_path, report_sha256):
+        return qualified_host(__file__,report_path,report_sha256,commit)
+
     def runtime_facts(self, image, *, require_healthy=True):
         from sentinel_backed_local_patch import postgres_facts
         targets = ['sentinel-'+service+'-1' for service in SERVICES]
@@ -360,8 +389,7 @@ class Native:
             'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
             'scripts/sentinel_backup_integrity_report.py', 'sentinel/backup_maintenance_integrity.py'}
         require(required <= report['source_files'].keys(), 'READER_QUALIFICATION_INPUTS_MISSING')
-        require(qualification.sha256_file(Path(__file__).resolve()) == file_sha(source/'scripts/sentinel_maintenance_reader_handover.py'),
-            'READER_EXECUTING_TOOL_UNQUALIFIED')
+        host_tool = self.host_tool(commit,spec['host_tool']['qualification'],spec['host_tool']['qualification_sha256'])
         inspected = self.inspect_image(image)
         require(inspected['Id'] == image
             and inspected['Config']['Labels']['org.opencontainers.image.revision'] == commit,
@@ -381,7 +409,7 @@ class Native:
             new_environment_sha256=file_sha(source/'.env'), new_script_sha256=file_sha(
                 source/'scripts/sentinel_backup_maintenance.py'), pass_lock=str(lock),
             old_runtime_pointer_sha256=old_pointer,new_runtime_pointer_sha256=new_pointer,
-            **runtime)
+            host_tool=host_tool,**runtime)
 
 
 def render_dropin(root, argv):
@@ -415,6 +443,8 @@ class Handover:
         require(isinstance(value,dict) and set(value) == {'schema','request','phase','history','reader'}
             and value['schema'] == SCHEMA and value['phase'] in PHASES
             and isinstance(value['request'],dict) and set(value['request']) == REQUEST_FIELDS
+            and isinstance(value['request']['host_tool'],dict)
+            and set(value['request']['host_tool']) == HOST_TOOL_FIELDS
             and isinstance(envelope['signature'],str) and hmac.compare_digest(envelope['signature'],
                 signed(value,self.key(value['request']['deployment']))), 'READER_JOURNAL_SIGNATURE')
         history = value['history']
@@ -443,7 +473,7 @@ class Handover:
         self.write(value)
 
     def prepare(self, *, deployment, source, image, qualification_path, qualification_sha256,
-                application_receipt, operation_id):
+                application_receipt, operation_id, host_qualification_path, host_qualification_sha256):
         with self.exclusive():
             require(not self.path.exists(), 'READER_OPERATION_EXISTS')
             deployment, source = safe_path(deployment), safe_path(source)
@@ -463,7 +493,8 @@ class Handover:
                 old_commit=selected['commit'], old_environment_sha256=selected['environment_sha256'],
                 old_script_sha256=selected['script_sha256'], qualification=str(safe_path(qualification_path)),
                 qualification_sha256=qualification_sha256, application_receipt=str(safe_path(application_receipt)),
-                application_receipt_sha256=file_sha(application_receipt))
+                application_receipt_sha256=file_sha(application_receipt),host_tool=dict(
+                    qualification=str(safe_path(host_qualification_path)),qualification_sha256=host_qualification_sha256))
             spec.update(self.platform.assets(spec))
             unit = self.platform.unit(); reader = self.platform.reader(str(deployment),str(old),required=True)
             require(unit['pid'] == reader['pid'] and unit['root'] == str(old) and unit['active'] == 'active'
@@ -633,7 +664,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command',required=True)
     prepare = commands.add_parser('prepare')
-    for name in ('deployment','source','image','qualification','qualification-sha256','application-receipt','operation-id'):
+    for name in ('deployment','source','image','qualification','qualification-sha256','application-receipt',
+                 'operation-id','host-qualification','host-qualification-sha256'):
         prepare.add_argument('--'+name,required=True)
     for name in ('prepare','resume','rollback','status'):
         sub = prepare if name == 'prepare' else commands.add_parser(name)
@@ -645,7 +677,9 @@ def main(argv=None):
         if args.command == 'prepare':
             value = operation.prepare(deployment=args.deployment,source=args.source,image=args.image,
                 qualification_path=args.qualification,qualification_sha256=args.qualification_sha256,
-                application_receipt=args.application_receipt,operation_id=args.operation_id)
+                application_receipt=args.application_receipt,operation_id=args.operation_id,
+                host_qualification_path=args.host_qualification,
+                host_qualification_sha256=args.host_qualification_sha256)
         elif args.command == 'resume': value = operation.resume(args.pass_wait_seconds)
         elif args.command == 'rollback': value = operation.rollback(args.pass_wait_seconds)
         else: value = operation.read()

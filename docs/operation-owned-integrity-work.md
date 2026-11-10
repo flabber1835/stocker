@@ -169,3 +169,36 @@ On failed start, reacquire the pass fence before stopping any successor and
 restore the original selectors/unit and unchanged predecessor. An interrupted
 handover resumes from retained stage and exact identities; it must not stop a
 PID or overwrite a unit/selector that no longer matches its recorded owner.
+
+## Independent host-tool qualification
+
+The first maintenance prepare refused before mutation because its new host
+preflight required an explicit ALPACA_BASE_URL in an existing valid environment.
+The literal PAPER environment contract uses the canonical PAPER default when
+this key is absent. Restore that same interpretation in host preflight. Explicit
+empty, malformed or LIVE endpoints still refuse; retain all account, key, backup
+policy, image and physical authority checks.
+
+As with the already separate qualified application installer adapter, distinguish
+the host command's source from the application and maintained reader package.
+Qualify the corrected host command independently. Keep the application and
+maintenance package on their exact already VERIFIED 4dd0a324 source/image and
+qualification; changing a host preflight must not rebuild or restart them.
+
+Prepare must take an explicit host qualification report and SHA256, bind the
+executing host checkout/commit and report into the authenticated handover
+journal, and revalidate them on resume/rollback. Use the existing complete
+operational qualification schema and clean feature-checkout rules. The exact
+host delta from the maintained application commit is limited to the handover
+script, its direct tests and this design document. Every other tracked byte,
+including every runtime source, checker and imported host helper, stays identical.
+Unknown host files, dirty source, changed logs/report, missing self-source binding
+or a substituted executing script refuse before ownership or selection changes.
+Preserve installed/staged sources, original failure evidence and the old reader
+environment unchanged.
+
+The maintained package still requires its own complete qualification, immutable
+image/source parity with the VERIFIED application, unchanged physical database
+and policy, and the common checker implementation. Host qualification replaces
+only the erroneous requirement that a host tool's bytes equal an unexecuted copy
+inside the maintained runtime package. It lends no runtime or financial authority.

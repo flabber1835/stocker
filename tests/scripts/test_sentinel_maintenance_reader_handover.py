@@ -9,6 +9,7 @@ import multiprocessing
 import os
 from pathlib import Path
 import pwd
+import subprocess
 import sys
 
 import pytest
@@ -45,7 +46,12 @@ class FakeSystemd(module.Native):
         for source in (self.old,self.new,self.deployment):
             (source/'scripts').mkdir(parents=True)
             (source/'scripts/sentinel_backup_maintenance.py').write_text('# frozen '+source.name+'\n')
-        (self.new/'scripts/sentinel_maintenance_reader_handover.py').write_bytes(Path(module.__file__).read_bytes())
+        (self.new/'scripts/sentinel_maintenance_reader_handover.py').write_text('# unchanged installed tool\n')
+        self.host_source = root/'host'
+        (self.host_source/'scripts').mkdir(parents=True)
+        (self.host_source/module.TOOL_PATH).write_bytes(Path(module.__file__).read_bytes())
+        self.host_qualification = root/'host-qualification.json'
+        dump(self.host_qualification,dict(source_files={module.TOOL_PATH:module.file_sha(self.host_source/module.TOOL_PATH)}))
         self.dropin = root/'user-unit.d'/module.DROPIN
         self.home = root
         self.root, self.pid, self.ticks = str(self.old), 123, 555
@@ -117,6 +123,15 @@ class FakeSystemd(module.Native):
         return dict(Id=image,Config=dict(Labels={'org.opencontainers.image.revision':
             NEW if image == IMAGE else OLD}))
 
+    def host_tool(self,commit,path,sha):
+        assert commit == NEW
+        module.require(module.file_sha(path) == sha,'QUALIFICATION_REPORT_CHANGED')
+        executable_sha = module.file_sha(self.host_source/module.TOOL_PATH)
+        module.require(module.read_json(path)['source_files'][module.TOOL_PATH] == executable_sha,
+            'READER_HOST_EXECUTABLE_UNQUALIFIED')
+        return dict(source=str(self.host_source),commit='e'*40,executable_sha256=executable_sha,
+            qualification=str(path),qualification_sha256=sha)
+
     def runtime_facts(self,image,*,require_healthy=True):
         assert image == IMAGE
         return dict(postgres=deepcopy(self.pg),system='1234567',
@@ -160,7 +175,9 @@ class FakeSystemd(module.Native):
     def prepare(self):
         return self.operation.prepare(deployment=self.deployment,source=self.new,image=IMAGE,
             qualification_path=self.qualification,qualification_sha256=module.file_sha(self.qualification),
-            application_receipt=self.receipt,operation_id='qualified-test')
+            application_receipt=self.receipt,operation_id='qualified-test',
+            host_qualification_path=self.host_qualification,
+            host_qualification_sha256=module.file_sha(self.host_qualification))
 
 
 @pytest.fixture
@@ -172,6 +189,8 @@ def test_success_selects_source_then_starts_immediate_normal_loop(lab):
     old_bytes = (lab.old/'.env').read_bytes()
     initial = lab.prepare()
     assert not lab.calls and initial['phase'] == 'PREPARED'
+    assert initial['request']['host_tool']['source'] == str(lab.host_source)
+    assert (lab.new/module.TOOL_PATH).read_bytes() != (lab.host_source/module.TOOL_PATH).read_bytes()
     result = lab.operation.resume()
     assert result['phase'] == 'VERIFIED' and result['reader']['pid'] == 124
     assert lab.calls == ['stop','daemon-reload','start']
@@ -342,7 +361,8 @@ def test_failed_start_with_active_successor_pass_cannot_stop_it_for_rollback(lab
 @pytest.mark.parametrize('change,reason',[
     ('pid','CURRENT_PROCESS_CHANGED'),('ticks','CURRENT_PROCESS_CHANGED'),('root','UNIT_DRIFT'),
     ('unit','UNIT_DRIFT'),('env','ENV_POLICY_CHANGED'),('selector','SELECTOR_DRIFT'),
-    ('journal','JOURNAL_SIGNATURE'),('pointer','RUNTIME_POINTER_CHANGED'),('qualification','QUALIFICATION_REPORT_CHANGED')])
+    ('journal','JOURNAL_SIGNATURE'),('pointer','RUNTIME_POINTER_CHANGED'),('qualification','QUALIFICATION_REPORT_CHANGED'),
+    ('host_report','QUALIFICATION_REPORT_CHANGED'),('host_executable','HOST_EXECUTABLE_UNQUALIFIED')])
 def test_drift_refuses_before_stop(lab,change,reason):
     lab.prepare()
     if change == 'pid': lab.pid += 1
@@ -359,6 +379,10 @@ def test_drift_refuses_before_stop(lab,change,reason):
     elif change == 'pointer':
         path = lab.new/'artifacts/sentinel/deployment/validated-runtime.env'
         path.parent.mkdir(parents=True); path.write_text('SENTINEL_RUNTIME_IMAGE_REF='+OLD_IMAGE+'\n')
+    elif change == 'host_report': lab.host_qualification.write_text(lab.host_qualification.read_text()+' ')
+    elif change == 'host_executable':
+        path = lab.host_source/module.TOOL_PATH
+        path.write_text(path.read_text()+'# changed after prepare\n')
     else: lab.qualification.write_text(lab.qualification.read_text()+' ')
     with pytest.raises(DeliveryRefused,match=reason): lab.operation.resume()
     assert lab.calls == []
@@ -451,6 +475,14 @@ def test_terminal_success_cannot_have_resigned_rollback_history(lab):
     with pytest.raises(DeliveryRefused,match='JOURNAL_TRANSITION'): lab.operation.read()
 
 
+def test_unknown_resigned_host_provenance_member_refuses(lab):
+    value = lab.prepare()
+    value['request']['host_tool']['unchecked_authority'] = True
+    value['history'][0]['previous'] = module.digest(value['request'])
+    lab.operation.write(value)
+    with pytest.raises(DeliveryRefused,match='JOURNAL_SIGNATURE'): lab.operation.read()
+
+
 def test_unknown_successor_incarnation_cannot_be_stopped_for_rollback(lab,monkeypatch):
     lab.prepare()
     original = lab.operation.advance
@@ -525,6 +557,147 @@ def test_start_readiness_wait_is_bounded_with_no_probe_storm(monkeypatch):
     with pytest.raises(DeliveryRefused,match='START_NOT_READY'):
         native.ready(dict(deployment='/fictional',pass_lock='/fictional/pass.lock'),'/fictional')
     assert elapsed[0] == 15 and len(calls) <= 20
+
+
+def resign_old_environment(lab):
+    for path in (lab.host_selector,lab.deployment_selector):
+        record = module.read_json(path)
+        record['value']['environment_sha256'] = module.file_sha(lab.old/'.env')
+        record['signature'] = module.environment.reader_signature(record['value'],KEY)
+        dump(path,record)
+
+
+@pytest.mark.parametrize('omit',('maintenance','all','application'))
+def test_native_assets_uses_literal_paper_default_with_legacy_omitted_endpoint(lab,omit):
+    selected = (lab.old,lab.new) if omit == 'maintenance' else (
+        (lab.old,lab.new,lab.deployment) if omit == 'all' else (lab.deployment,))
+    for source in selected:
+        values = module.sentinel_env.load(source/'.env')
+        del values['ALPACA_BASE_URL']; write_env(source/'.env',values)
+    resign_old_environment(lab)
+    # prepare executes the real Native.assets method, not just the pure policy helper.
+    value = lab.prepare()
+    assert value['phase'] == 'PREPARED' and lab.calls == []
+    assert lab.operation.resume()['phase'] == 'VERIFIED'
+
+
+@pytest.mark.parametrize('endpoint',('', 'https://api.alpaca.markets',
+    'https://paper-api.alpaca.markets/', ' https://paper-api.alpaca.markets', 'https://foreign.invalid'))
+def test_explicit_noncanonical_endpoint_remains_forbidden(lab,endpoint):
+    values = module.sentinel_env.load(lab.deployment/'.env')
+    # Quote the leading whitespace case so literal ingestion retains it.
+    if endpoint.startswith(' '):
+        values['ALPACA_BASE_URL'] = '"'+endpoint+'"'
+    else: values['ALPACA_BASE_URL'] = endpoint
+    write_env(lab.deployment/'.env',values)
+    with pytest.raises(DeliveryRefused,match='PAPER_POLICY_CHANGED'): lab.prepare()
+    assert lab.calls == [] and not lab.operation.path.exists()
+
+
+class RealHostPackage:
+    """Private Git history and the production v2 qualification validator."""
+    def __init__(self,tmp_path):
+        self.source = tmp_path/'host-source'; self.source.mkdir()
+        self.report = tmp_path/'host-report.json'; self.log = tmp_path/'host-tests.log'
+        self.git('init','--initial-branch=codex/private-host-test')
+        self.git('config','user.name','Private fixture')
+        self.git('config','user.email','fixture@example.invalid')
+        contents = {name:'# baseline '+name+'\n' for name in module.HOST_DELTA}
+        contents.update({'sentinel/anchor.py':'# immutable runtime\n',
+            'sentinel/other.py':'# another immutable runtime input\n',
+            'scripts/sentinel_local_delivery/__init__.py':'# immutable imported helper\n',
+            'scripts/sentinel_backed_local_patch.py':'# immutable backed helper\n'})
+        for name,text in contents.items():
+            path = self.source/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_text(text)
+        self.commit('private application baseline')
+        self.base = self.git('rev-parse','HEAD')
+        for name in module.HOST_DELTA:
+            path = self.source/name; path.write_text(path.read_text()+'# reviewed host correction\n')
+        self.commit('private host correction')
+        self.log.write_text('1 passed in 0.01s\n')
+        self.seal()
+
+    def git(self,*args):
+        result = subprocess.run(['git','-c','commit.gpgsign=false','-c','core.autocrlf=false',*args],
+            cwd=self.source,check=True,capture_output=True,text=True,
+            env={k:v for k,v in os.environ.items() if k in {'PATH','HOME','LANG'}} | {'GIT_CONFIG_GLOBAL':'/dev/null'})
+        return result.stdout.strip()
+
+    def commit(self,message):
+        self.git('add','-A'); self.git('commit','-m',message)
+
+    def seal(self):
+        commit = self.git('rev-parse','HEAD')
+        dump(self.report,dict(schema=module.qualification.OPERATIONAL_SCHEMA,
+            source_scope=module.qualification.OPERATIONAL_SCOPE,commit=commit,predecessor_commit=self.base,
+            at='2031-01-01T00:00:00+00:00',source_files=module.qualification.source_files(self.source,
+                scope=module.qualification.OPERATIONAL_SCOPE,predecessor_commit=self.base),
+            source_files_unchanged=True,final=True,results=[dict(name='private-fixture-result',
+                exit_code=0,passed=1,skipped=0,deselected=0,log=str(self.log),
+                log_sha256=module.qualification.sha256_file(self.log),command=['pytest','private-fixture'])]))
+        self.sha = module.qualification.sha256_file(self.report)
+
+    def validate(self,**kwargs):
+        return module.qualified_host(kwargs.get('executable',self.source/module.TOOL_PATH),
+            self.report,kwargs.get('sha',self.sha),kwargs.get('base',self.base))
+
+
+@pytest.fixture
+def real_host(tmp_path):
+    return RealHostPackage(tmp_path)
+
+
+def test_real_host_git_and_complete_qualification_bind_independent_program(real_host):
+    result = real_host.validate()
+    assert result == dict(source=str(real_host.source),commit=real_host.git('rev-parse','HEAD'),
+        executable_sha256=module.qualification.sha256_file(real_host.source/module.TOOL_PATH),
+        qualification=str(real_host.report),qualification_sha256=real_host.sha)
+    assert result['commit'] != real_host.base
+
+
+@pytest.mark.parametrize('mutation,reason',[
+    ('dirty','QUALIFICATION_SOURCE_NOT_CLEAN'),('unknown_runtime','HOST_DELTA_REFUSED'),
+    ('unknown_helper','HOST_DELTA_REFUSED'),('added_file','HOST_DELTA_REFUSED'),
+    ('deleted_file','HOST_DELTA_REFUSED'),('report','QUALIFICATION_REPORT_CHANGED'),
+    ('log','QUALIFICATION_LOG_CHANGED'),('self_map','QUALIFIED_SOURCE_BYTES_CHANGED'),
+    ('substituted_executable','HOST_EXECUTABLE_SUBSTITUTED'),('foreign_base','QUALIFICATION_RUNTIME_CHANGED')])
+def test_real_host_unknown_dirty_tampered_or_substituted_package_refuses(real_host,mutation,reason):
+    package = real_host
+    kwargs = {}
+    if mutation == 'dirty':
+        path = package.source/module.TOOL_PATH; path.write_text(path.read_text()+'# dirty\n')
+    elif mutation in {'unknown_runtime','unknown_helper','added_file','deleted_file'}:
+        if mutation == 'unknown_runtime': path = package.source/'sentinel/anchor.py'
+        elif mutation == 'unknown_helper': path = package.source/'scripts/sentinel_local_delivery/__init__.py'
+        elif mutation == 'added_file': path = package.source/'scripts/unreviewed.py'
+        else: path = package.source/'sentinel/anchor.py'
+        if mutation == 'deleted_file': path.unlink()
+        else: path.write_text('# unreviewed host delta\n')
+        package.commit('private negative mutation'); package.seal()
+    elif mutation == 'report': package.report.write_text(package.report.read_text()+' ')
+    elif mutation == 'log': package.log.write_text('1 passed in 0.02s\n')
+    elif mutation == 'self_map':
+        report = module.read_json(package.report); report['source_files'][module.TOOL_PATH] = '0'*64
+        dump(package.report,report); package.sha = module.qualification.sha256_file(package.report)
+    elif mutation == 'substituted_executable':
+        path = package.source/'scripts/substituted.py'; path.write_text('# not the qualified executable\n')
+        kwargs['executable'] = path
+    else: kwargs['base'] = 'f'*40
+    with pytest.raises(DeliveryRefused,match=reason): package.validate(**kwargs)
+
+
+def test_real_host_delta_guard_removal_is_an_executed_falsifier(real_host,monkeypatch):
+    path = real_host.source/'sentinel/anchor.py'
+    path.write_text('# changed financial runtime must not borrow host authority\n')
+    real_host.commit('private runtime falsifier'); real_host.seal()
+    with pytest.raises(DeliveryRefused,match='HOST_DELTA_REFUSED'): real_host.validate()
+    real_git = module.qualification.git
+    def without_delta_guard(source,*args):
+        if args[:3] == ('diff','--name-status','--no-renames'):
+            return '\n'.join('M\t'+name for name in sorted(module.HOST_DELTA))
+        return real_git(source,*args)
+    monkeypatch.setattr(module.qualification,'git',without_delta_guard)
+    assert real_host.validate()['commit'] == real_host.git('rev-parse','HEAD')
 
 
 @pytest.mark.parametrize('seconds',(-1,3661,True))
