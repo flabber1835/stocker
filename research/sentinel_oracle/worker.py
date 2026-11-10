@@ -137,14 +137,22 @@ def main():
     print('ORACLE_DP_BOUND_COMPLETE',flush=True)
     primary=optimize_growth(source,table,cap,dp,references,'primary',args.out)
     half=optimize_growth(source,table,cap/2,dp,references,'half_drawdown',args.out)
-    floor=references['always_core']['metrics']['total_log_growth']
-    matched=optimizer.solve(table,source['ordinary_switches'],'min_drawdown',log_growth_floor=floor,
-        warm_codes=reference_codes['always_core'],proof_path=args.out/'optimization-matched_growth.json')
-    optimization=dict(daily_upper=dp,primary=primary,half_drawdown=half,matched_growth=matched)
     replayed=dict(references)
     replayed['daily_upper']=unconstrained
-    for name,result in (('primary',primary),('half_drawdown',half),('matched_growth',matched)):
+    for name,result in (('primary',primary),('half_drawdown',half)):
         replayed[name]=account.replay(source,table,result['codes'])
+    floor=references['always_core']['metrics']['total_log_growth']
+    warm_candidates=[(name,value) for name,value in replayed.items()
+                     if value['metrics']['total_log_growth'] >= floor-1e-8
+                     and value['metrics']['ordinary_switches'] <= source['ordinary_switches']]
+    warm_name,warm_value=min(warm_candidates,key=lambda item:(
+        float(item[1]['metrics']['maximum_drawdown_fraction']),
+        -item[1]['metrics']['total_log_growth'],item[0]))
+    matched=optimizer.solve(table,source['ordinary_switches'],'min_drawdown',log_growth_floor=floor,
+        warm_codes=warm_value['codes'],proof_path=args.out/'optimization-matched_growth.json')
+    optimization=dict(daily_upper=dp,primary=primary,half_drawdown=half,matched_growth=matched)
+    replayed['matched_growth']=account.replay(source,table,matched['codes'])
+    for name in optimization:
         need(replayed[name]['metrics']['ordinary_switches'] <= source['ordinary_switches'],
              'ALL_HINDSIGHT_PATHS_SHARE_CHANGE_BUDGET')
     for name,budget in (('primary',cap),('half_drawdown',cap/2)):
@@ -161,6 +169,7 @@ def main():
         calibration=table['proof'],budget=source['ordinary_switches'],
         factor_table_file='factor-table.json',factor_table_sha256=file_sha(args.out/'factor-table.json'),
         raw_core_reference=account.raw_core_reference(source),paths=paths,optimization=optimization,
+        warm_start_selection=dict(matched_growth=warm_name),
         attribution=attribution,proofs=dict(account=account_checks,optimizer=fixture_checks),
         worker_source_sha256=file_sha(Path(__file__)),new_Core_steps=0,new_Sentinel_steps=0,
         limitations=['FULL_HISTORY_FUTURE_INFORMATION','ORIGINAL_SCALAR_RESEARCH_ACCOUNT',

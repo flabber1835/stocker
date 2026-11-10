@@ -24,9 +24,11 @@ import highspy
 need(Path(highspy.__file__).resolve().is_relative_to(Path('/solver')),
      'EXACT_READ_ONLY_SOLVER_EXTENSION')
 
-SCHEMA = 'research.sentinel-hindsight-optimizer/1'
+SCHEMA = 'research.sentinel-hindsight-optimizer/2'
 INF = 1e30
 LOG_TOL = 1e-8
+ZERO_THRESHOLD = 1e-12
+_LOAD_SEQUENCE = 0
 
 
 def encoded(value):
@@ -130,11 +132,27 @@ class Rows:
         self.lower.append(float(lower)); self.upper.append(float(upper)); self.labels.append(label)
 
 
-def build_model(table, budget, mode, *, dd_cap=None, log_growth_floor=None):
+def build_model(table, budget, mode, *, dd_cap=None, log_growth_floor=None,
+                zero_threshold=ZERO_THRESHOLD):
     """Daily flow MILP with exact scalar edge log factors and closing high-water marks."""
     need(mode in ('max_growth', 'min_drawdown'), 'FROZEN_OPTIMIZATION_MODE')
     start, logs = log_factors(table)
     n = len(logs)
+    need(zero_threshold in (0.,ZERO_THRESHOLD), 'FROZEN_COEFFICIENT_ZEROING_THRESHOLD')
+    numerical_logs = logs.copy()
+    omissions, per_day_error = [], []
+    for t in range(n):
+        removed=[]
+        for a in range(3):
+            for b in range(3):
+                coefficient=float(logs[t,a,b])
+                if coefficient != 0 and abs(coefficient) <= zero_threshold:
+                    numerical_logs[t,a,b]=0.
+                    removed.append(abs(coefficient))
+                    omissions.append(dict(day=t,old=a,new=b,source_log_coefficient=coefficient))
+        per_day_error.append(max(removed,default=0.))
+    error_bound=math.fsum(per_day_error)
+    need(2*error_bound < LOG_TOL, 'COEFFICIENT_ZEROING_BELOW_FROZEN_LOG_TOLERANCE')
     need(n > 0 and type(budget) is int and 0 <= budget <= n, 'FINITE_MILP_BUDGET')
     edge_count = n * 9
     w0, h0 = edge_count, edge_count + n
@@ -174,7 +192,7 @@ def build_model(table, budget, mode, *, dd_cap=None, log_growth_floor=None):
             else:
                 fixed = int(state == 2)
                 rows.add(f'flow:{t}:{state}', terms, fixed, fixed)
-        terms = [(w0+t,1)] + [(edge(t,a,b),-float(logs[t,a,b])) for a in range(3) for b in range(3)]
+        terms = [(w0+t,1)] + [(edge(t,a,b),-float(numerical_logs[t,a,b])) for a in range(3) for b in range(3)]
         if t:
             terms.append((w0+t-1,-1))
         rows.add(f'wealth:{t}', terms, start if t == 0 else 0, start if t == 0 else 0)
@@ -199,7 +217,12 @@ def build_model(table, budget, mode, *, dd_cap=None, log_growth_floor=None):
         row_lower=rows.lower, row_upper=rows.upper, row_starts=rows.starts,
         row_indices=rows.indices, row_values=rows.values, row_labels=rows.labels,
         objective_sense='MAXIMIZE' if mode == 'max_growth' else 'MINIMIZE',
-        logs_sha256=digest(logs.tolist()))
+        logs_sha256=digest(logs.tolist()),
+        coefficient_zeroing=dict(threshold=zero_threshold,omissions=omissions,
+            per_day_maximum_removed=per_day_error,
+            source_path_log_wealth_error_bound=error_bound,
+            source_path_log_drawdown_error_bound=2*error_bound,
+            original_source_factors_and_dp_unchanged=True))
     model['definition_sha256'] = digest(model)
     return model
 
@@ -236,30 +259,147 @@ def finite_or_none(value):
     return value if math.isfinite(value) else None
 
 
+def _lp_for_model(model):
+    lp=highspy.HighsLp()
+    lp.num_col_=model['columns']; lp.num_row_=len(model['row_lower'])
+    lp.col_cost_=np.asarray(model['col_cost'],dtype=np.float64)
+    lp.col_lower_=np.asarray(model['col_lower'],dtype=np.float64)
+    lp.col_upper_=np.asarray(model['col_upper'],dtype=np.float64)
+    lp.row_lower_=np.asarray(model['row_lower'],dtype=np.float64)
+    lp.row_upper_=np.asarray(model['row_upper'],dtype=np.float64)
+    lp.integrality_=[highspy.HighsVarType.kInteger if flag else highspy.HighsVarType.kContinuous
+                     for flag in model['integrality']]
+    lp.a_matrix_.format_=highspy.MatrixFormat.kRowwise
+    lp.a_matrix_.start_=np.asarray(model['row_starts'],dtype=np.int32)
+    lp.a_matrix_.index_=np.asarray(model['row_indices'],dtype=np.int32)
+    lp.a_matrix_.value_=np.asarray(model['row_values'],dtype=np.float64)
+    lp.sense_=highspy.ObjSense.kMaximize if model['mode']=='max_growth' else highspy.ObjSense.kMinimize
+    return lp
+
+
+def _model_entries(model):
+    return [[row,model['row_indices'][j],model['row_values'][j]]
+        for row in range(len(model['row_lower']))
+        for j in range(model['row_starts'][row],model['row_starts'][row+1])]
+
+
+def _bound(value):
+    value=float(value)
+    return ('INF' if value>0 else '-INF') if abs(value)>=1e20 else value
+
+
+def _retained_lp(lp):
+    matrix=lp.a_matrix_
+    starts,indices,values=list(matrix.start_),list(matrix.index_),list(matrix.value_)
+    entries=[]
+    if matrix.format_==highspy.MatrixFormat.kRowwise:
+        major=lp.num_row_; rowwise=True
+    else:
+        need(matrix.format_==highspy.MatrixFormat.kColwise,'KNOWN_RETAINED_MATRIX_FORMAT')
+        major=lp.num_col_; rowwise=False
+    need(len(starts)==major+1 and starts[-1]==len(indices)==len(values),'COMPLETE_RETAINED_SPARSE_MATRIX')
+    for i in range(major):
+        for j in range(starts[i],starts[i+1]):
+            row,column=(i,int(indices[j])) if rowwise else (int(indices[j]),i)
+            entries.append([row,column,float(values[j])])
+    entries.sort()
+    return dict(columns=lp.num_col_,rows=lp.num_row_,entries=entries,
+        col_cost=[float(v) for v in lp.col_cost_],
+        col_lower=[_bound(v) for v in lp.col_lower_],col_upper=[_bound(v) for v in lp.col_upper_],
+        row_lower=[_bound(v) for v in lp.row_lower_],row_upper=[_bound(v) for v in lp.row_upper_],
+        integrality=[int(v==highspy.HighsVarType.kInteger) for v in lp.integrality_],
+        objective_sense='MAXIMIZE' if lp.sense_==highspy.ObjSense.kMaximize else 'MINIMIZE',
+        objective_offset=float(lp.offset_))
+
+
+def _verify_retained(model, retained, threshold):
+    intended=_model_entries(model)
+    expected=[entry for entry in intended if abs(entry[2])>threshold]
+    omitted=[entry for entry in intended if abs(entry[2])<=threshold]
+    need(retained['entries']==expected,'ONLY_DECLARED_SMALL_MATRIX_VALUES_MAY_BE_OMITTED')
+    need(retained['columns']==model['columns'] and retained['rows']==len(model['row_lower'])
+         and retained['col_cost']==model['col_cost']
+         and retained['integrality']==model['integrality']
+         and retained['objective_sense']==model['objective_sense'] and retained['objective_offset']==0,
+         'RETAINED_OBJECTIVE_VARIABLES_AND_INTEGRALITY')
+    for key in ('col_lower','col_upper','row_lower','row_upper'):
+        need(retained[key]==[_bound(v) for v in model[key]],'RETAINED_BOUNDS_UNCHANGED:'+key)
+    return omitted
+
+
+def _configure(options, log_path):
+    engine=highspy.Highs()
+    need(engine.version()=='1.15.1','PINNED_HIGHS_VERSION')
+    for key,value in {**options,'log_file':str(log_path)}.items():
+        need(engine.setOptionValue(key,value)==highspy.HighsStatus.kOk,'EXACT_SOLVER_OPTION:'+key)
+    return engine
+
+
+def _close_native_log(engine, path):
+    need(engine.setOptionValue('log_file','')==highspy.HighsStatus.kOk,'CLOSE_NATIVE_LOAD_LOG')
+    need(path.is_file(),'NATIVE_LOAD_LOG_PRESERVED')
+    raw=path.read_bytes()
+    return dict(file=path.name,sha256=hashlib.sha256(raw).hexdigest(),text=raw.decode(errors='replace'))
+
+
+def _load_audit(table,budget,mode,dd_cap,log_growth_floor,model,options,proof_path):
+    """Diagnose the original load without solving it, then require the repaired LP verbatim."""
+    global _LOAD_SEQUENCE
+    _LOAD_SEQUENCE+=1
+    folder=Path(proof_path).parent if proof_path is not None else Path('/tmp')
+    prefix=Path(proof_path).stem if proof_path is not None else 'oracle-fixture-'+str(_LOAD_SEQUENCE)
+    source_log=folder/(prefix+'-source-load.log')
+    numerical_log=folder/(prefix+'-numerical-load.log')
+    original=build_model(table,budget,mode,dd_cap=dd_cap,log_growth_floor=log_growth_floor,zero_threshold=0.)
+    diagnostic=_configure(options,source_log)
+    option_status,default_threshold=diagnostic.getOptionValue('small_matrix_value')
+    need(option_status==highspy.HighsStatus.kOk and math.isfinite(float(default_threshold))
+         and float(default_threshold)>0,'ACTUAL_NATIVE_SMALL_MATRIX_THRESHOLD')
+    raw_status=diagnostic.passModel(_lp_for_model(original))
+    native=_close_native_log(diagnostic,source_log)
+    need(raw_status in (highspy.HighsStatus.kOk,highspy.HighsStatus.kWarning),
+         'SOURCE_MODEL_LOAD_NOT_AN_ERROR:'+str(raw_status)+':native_log='+source_log.name)
+    retained=_retained_lp(diagnostic.getLp())
+    omissions=_verify_retained(original,retained,float(default_threshold))
+    warnings=[line for line in native['text'].splitlines() if 'WARNING' in line.upper()]
+    if raw_status==highspy.HighsStatus.kWarning:
+        need(bool(omissions) and bool(warnings) and all('matrix packed' in line.lower()
+             and 'less than or equal to' in line.lower() and 'ignored' in line.lower() for line in warnings),
+             'WARNING_IS_EXCLUSIVELY_NATIVE_SMALL_COEFFICIENT_OMISSION')
+    else:
+        need(not omissions and not warnings,'CLEAN_ORIGINAL_MODEL_LOAD_HAS_NO_SILENT_OMISSIONS')
+    source_audit=dict(status=str(raw_status),default_small_matrix_value=float(default_threshold),
+        native_log=native,retained_lp=retained,omissions=omissions,solved=False)
+    diagnostic.clear()
+    numerical_options={**options,'small_matrix_value':ZERO_THRESHOLD}
+    engine=_configure(numerical_options,numerical_log)
+    numerical_option_status,numerical_threshold=engine.getOptionValue('small_matrix_value')
+    need(numerical_option_status==highspy.HighsStatus.kOk
+         and float(numerical_threshold)==ZERO_THRESHOLD,'ACTUAL_NUMERICAL_SMALL_MATRIX_THRESHOLD')
+    numeric_status=engine.passModel(_lp_for_model(model))
+    numerical_native=_close_native_log(engine,numerical_log)
+    need(numeric_status==highspy.HighsStatus.kOk,
+         'PASS_EXACT_NUMERICAL_HINDSIGHT_MODEL:'+str(numeric_status)+':native_log='+numerical_log.name)
+    numerical_retained=_retained_lp(engine.getLp())
+    need(not _verify_retained(model,numerical_retained,0.),'NUMERICAL_MODEL_HAS_NO_FURTHER_OMISSIONS')
+    need('WARNING' not in numerical_native['text'].upper(),'NUMERICAL_LOAD_HAS_NO_WARNINGS')
+    audit=dict(schema='research.sentinel-oracle-model-loading/1',
+        original_model=original,source_load=source_audit,
+        numerical_load=dict(status=str(numeric_status),small_matrix_value=float(numerical_threshold),
+            native_log=numerical_native,retained_lp=numerical_retained),
+        numerical_model_only_optimized=True)
+    solve_log=folder/(prefix+'-solver.log')
+    need(engine.setOptionValue('log_file',str(solve_log))==highspy.HighsStatus.kOk,'PRESERVE_NATIVE_SOLVE_LOG')
+    return engine,audit,numerical_options,solve_log
+
+
 def solve(table, budget, mode, *, dd_cap=None, log_growth_floor=None, warm_codes=None,
           time_limit=1800., proof_path=None):
     model = build_model(table,budget,mode,dd_cap=dd_cap,log_growth_floor=log_growth_floor)
-    engine = highspy.Highs()
-    need(engine.version() == '1.15.1', 'PINNED_HIGHS_VERSION')
     options = dict(threads=2, random_seed=0, mip_rel_gap=1e-7, time_limit=float(time_limit),
-                   output_flag=False, log_to_console=False)
-    for key,value in options.items():
-        need(engine.setOptionValue(key,value) == highspy.HighsStatus.kOk, 'EXACT_SOLVER_OPTION:'+key)
-    lp = highspy.HighsLp()
-    lp.num_col_ = model['columns']; lp.num_row_ = len(model['row_lower'])
-    lp.col_cost_ = np.asarray(model['col_cost'],dtype=np.float64)
-    lp.col_lower_ = np.asarray(model['col_lower'],dtype=np.float64)
-    lp.col_upper_ = np.asarray(model['col_upper'],dtype=np.float64)
-    lp.row_lower_ = np.asarray(model['row_lower'],dtype=np.float64)
-    lp.row_upper_ = np.asarray(model['row_upper'],dtype=np.float64)
-    lp.integrality_ = [highspy.HighsVarType.kInteger if flag else highspy.HighsVarType.kContinuous
-                       for flag in model['integrality']]
-    lp.a_matrix_.format_ = highspy.MatrixFormat.kRowwise
-    lp.a_matrix_.start_ = np.asarray(model['row_starts'],dtype=np.int32)
-    lp.a_matrix_.index_ = np.asarray(model['row_indices'],dtype=np.int32)
-    lp.a_matrix_.value_ = np.asarray(model['row_values'],dtype=np.float64)
-    lp.sense_ = highspy.ObjSense.kMaximize if mode == 'max_growth' else highspy.ObjSense.kMinimize
-    need(engine.passModel(lp) == highspy.HighsStatus.kOk, 'PASS_EXACT_HINDSIGHT_MODEL')
+                   output_flag=True, log_to_console=False)
+    engine,load_audit,options,solve_log=_load_audit(table,budget,mode,dd_cap,log_growth_floor,
+                                                 model,options,proof_path)
     warm_status = None
     if warm_codes is not None:
         warm_values = vector_for_codes(table,model,warm_codes)
@@ -312,9 +452,12 @@ def solve(table, budget, mode, *, dd_cap=None, log_growth_floor=None, warm_codes
         model_nonzeros=len(model['row_values']), model_definition_sha256=model['definition_sha256'],
         max_constraint_residual=residual, warm_start_status=warm_status,
         numerical_log_tolerance=3e-6,
-        max_log_drawdown=path['max_log_drawdown'], log_terminal=path['log_terminal'])
+        max_log_drawdown=path['max_log_drawdown'], log_terminal=path['log_terminal'],
+        optimality_scope='DECLARED_NUMERICAL_MILP_NOT_AN_EXACT_SOURCE_COEFFICIENT_OPTIMUM',
+        coefficient_zeroing=model['coefficient_zeroing'],
+        solver_native_log=_close_native_log(engine,solve_log))
     if proof_path is not None:
-        proof = dict(model=model, solution=values, result=result)
+        proof = dict(model=model, solution=values, result=result,model_loading=load_audit)
         Path(proof_path).write_bytes(encoded(proof)+b'\n')
         result['proof_file'] = Path(proof_path).name
         result['proof_sha256'] = hashlib.sha256(Path(proof_path).read_bytes()).hexdigest()

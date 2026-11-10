@@ -19,6 +19,7 @@ from pathlib import Path
 import sys
 
 LEVELS = (D(0), D('.55'), D(1))
+COEFFICIENT_EPS = 1e-12
 FORBIDDEN = ('GH_TOKEN', 'GITHUB_TOKEN', 'CAPITAL_RISK_RESEARCH_KEY_20261027',
              'ALPACA_API_KEY', 'ALPACA_SECRET_KEY', 'APCA_API_KEY_ID',
              'APCA_API_SECRET_KEY', 'DATABASE_URL', 'PGPASSWORD',
@@ -307,7 +308,32 @@ def coefficient_row(actual, expected, label):
              'SEMANTIC_MATRIX_COEFFICIENT:' + label)
 
 
-def verify_model(model, table, budget, mode, dd_cap, growth_floor):
+def independent_coefficient_policy(table):
+    """Reconstruct explicit MILP-only omissions; source/DP factors stay intact."""
+    import numpy as np
+    need(np.__version__ == '2.4.6', 'PINNED_LOG_COEFFICIENT_NUMERICS')
+    raw = np.log(np.asarray([day['net'] for day in table['days']], dtype=np.float64))
+    numerical = raw.copy()
+    omitted, per_day = [], []
+    for t in range(len(raw)):
+        largest = 0.
+        for old, new in itertools.product(range(3), repeat=2):
+            value = float(raw[t, old, new])
+            if abs(value) <= COEFFICIENT_EPS:
+                numerical[t, old, new] = 0.
+                if value != 0:
+                    omitted.append(dict(day=t, old=old, new=new, value=value))
+                    largest = max(largest, abs(value))
+        per_day.append(largest)
+    error = math.fsum(per_day)
+    need(2*error < 1e-8, 'MILP_OMISSION_ERROR_WITHIN_FROZEN_LOG_TOLERANCE')
+    return dict(raw_logs=raw.tolist(), numerical_logs=numerical.tolist(), omitted=omitted,
+                per_day_maximum=per_day, log_wealth_error=error, log_drawdown_error=2*error,
+                raw_sha256=hashlib.sha256(encoded(raw.tolist())).hexdigest(),
+                numerical_sha256=hashlib.sha256(encoded(numerical.tolist())).hexdigest())
+
+
+def verify_model(model, table, budget, mode, dd_cap, growth_floor, *, zero_threshold=COEFFICIENT_EPS):
     """Reconstruct every semantic row and bound without importing the builder."""
     n = len(table['days'])
     edges, wealth, peak = n*9, n*9, n*10
@@ -315,8 +341,20 @@ def verify_model(model, table, budget, mode, dd_cap, growth_floor):
     columns = n*11+(mode == 'min_drawdown')
     start = math.log(float(num(table['startup']['net'])))
     initial_peak = max(0., start)
-    logs = [[[math.log(float(num(value))) for value in row] for row in day['net']]
-            for day in table['days']]
+    policy = independent_coefficient_policy(table)
+    need(zero_threshold in (0., COEFFICIENT_EPS), 'FROZEN_MODEL_COEFFICIENT_POLICY')
+    raw_logs = policy['raw_logs']
+    logs = raw_logs if zero_threshold == 0 else policy['numerical_logs']
+    omissions = [] if zero_threshold == 0 else [dict(day=item['day'], old=item['old'], new=item['new'],
+        source_log_coefficient=item['value']) for item in policy['omitted']]
+    expected_zeroing = dict(threshold=zero_threshold, omissions=omissions,
+        per_day_maximum_removed=[0.]*n if zero_threshold == 0 else policy['per_day_maximum'],
+        source_path_log_wealth_error_bound=0. if zero_threshold == 0 else policy['log_wealth_error'],
+        source_path_log_drawdown_error_bound=0. if zero_threshold == 0 else policy['log_drawdown_error'],
+        original_source_factors_and_dp_unchanged=True)
+    need(model['coefficient_zeroing'] == expected_zeroing
+         and model['logs_sha256'] == policy['raw_sha256'],
+         'EXACT_INDEPENDENT_COEFFICIENT_OMISSIONS_AND_ERROR_BOUNDS')
     need(model['mode'] == mode and model['days'] == n and model['budget'] == budget,
          'FROZEN_MILP_QUESTION')
     need(model['columns'] == columns and model['edge_columns'] == edges
@@ -340,7 +378,7 @@ def verify_model(model, table, budget, mode, dd_cap, growth_floor):
     need(model['col_lower'][:edges] == [0.]*edges and model['col_upper'][:edges] == [1.]*edges,
          'UNLEVERED_BINARY_FLOW_BOUNDS')
     low, high, highest = start, start, initial_peak
-    for t, day in enumerate(logs):
+    for t, day in enumerate(raw_logs):
         low += min(min(row) for row in day)
         high += max(max(row) for row in day)
         highest = max(highest, high)
@@ -404,6 +442,79 @@ def verify_model(model, table, budget, mode, dd_cap, growth_floor):
     return dict(days=n, rows=rows, columns=columns, nonzeros=len(model['row_values']))
 
 
+def verify_native_log(record, evidence):
+    filename = record['file']
+    need(type(filename) is str and Path(filename).name == filename, 'NATIVE_LOG_BASENAME_ONLY')
+    path = evidence/filename
+    need(path.resolve().parent == evidence.resolve() and path.is_file(), 'NATIVE_LOG_INSIDE_EVIDENCE')
+    raw = path.read_bytes()
+    need(hashlib.sha256(raw).hexdigest() == record['sha256']
+         and raw.decode(errors='replace') == record['text'], 'EXACT_PRESERVED_NATIVE_SOLVER_LOG')
+    return record['text']
+
+
+def expected_model_entries(model):
+    return [[row, column, value] for row in range(len(model['row_labels']))
+            for column, value in matrix_terms(model, row).items()]
+
+
+def verify_retained_lp(model, retained, threshold):
+    entries = expected_model_entries(model)
+    expected = [entry for entry in entries if abs(entry[2]) > threshold]
+    omitted = [entry for entry in entries if abs(entry[2]) <= threshold]
+    need(retained['entries'] == expected, 'NATIVE_RETAINED_MATRIX_EQUALS_DECLARED_COEFFICIENTS')
+    need(retained['columns'] == model['columns'] and retained['rows'] == len(model['row_labels'])
+         and retained['col_cost'] == model['col_cost']
+         and retained['integrality'] == model['integrality']
+         and retained['objective_sense'] == model['objective_sense']
+         and retained['objective_offset'] == 0, 'NATIVE_RETAINED_OBJECTIVE_AND_INTEGRALITY')
+    def native_bound(value):
+        value = float(value)
+        return ('INF' if value > 0 else '-INF') if abs(value) >= 1e20 else value
+    for name in ('col_lower', 'col_upper', 'row_lower', 'row_upper'):
+        need(retained[name] == [native_bound(value) for value in model[name]],
+             'NATIVE_RETAINED_BOUND_NORMALIZATION:' + name)
+    return omitted
+
+
+def verify_loading(proof, table, budget, mode, dd_cap, growth_floor, evidence):
+    audit = proof['model_loading']
+    need(audit['schema'] == 'research.sentinel-oracle-model-loading/1'
+         and audit['numerical_model_only_optimized'] is True,
+         'ORIGINAL_WARNING_MODEL_IS_DIAGNOSTIC_ONLY')
+    original = audit['original_model']
+    verify_model(original, table, budget, mode, dd_cap, growth_floor, zero_threshold=0.)
+    source = audit['source_load']
+    need(source['status'] in ('HighsStatus.kOk', 'HighsStatus.kWarning') and source['solved'] is False,
+         'SOURCE_MODEL_NOT_SOLVED_AFTER_WARNING')
+    threshold = source['default_small_matrix_value']
+    need(type(threshold) is float and math.isfinite(threshold) and 0 < threshold < 1,
+         'ACTUAL_NATIVE_DEFAULT_SMALL_MATRIX_THRESHOLD')
+    omissions = verify_retained_lp(original, source['retained_lp'], threshold)
+    need(source['omissions'] == omissions, 'NATIVE_ORIGINAL_COEFFICIENT_OMISSION_INVENTORY')
+    source_text = verify_native_log(source['native_log'], evidence)
+    warnings = [line for line in source_text.splitlines() if 'WARNING' in line.upper()]
+    if source['status'] == 'HighsStatus.kWarning':
+        need(omissions and warnings and all('matrix packed' in line.lower()
+             and 'less than or equal to' in line.lower() and 'ignored' in line.lower() for line in warnings),
+             'ONLY_NATIVE_TINY_MATRIX_OMISSION_WARNING_ALLOWED_AS_DIAGNOSIS')
+    else:
+        need(not omissions and not warnings, 'CLEAN_SOURCE_LOAD_HAS_NO_SILENT_TRANSFORMATION')
+    final = audit['numerical_load']
+    need(final['status'] == 'HighsStatus.kOk' and final['small_matrix_value'] == COEFFICIENT_EPS,
+         'REPAIRED_NUMERICAL_LOAD_MUST_SUCCEED_WITHOUT_WARNING')
+    need(not verify_retained_lp(proof['model'], final['retained_lp'], 0.),
+         'FINAL_RETAINED_MODEL_HAS_NO_UNDECLARED_OMISSIONS')
+    final_text = verify_native_log(final['native_log'], evidence)
+    need('WARNING' not in final_text.upper(), 'NO_NUMERICAL_MODEL_LOADING_WARNINGS')
+    return dict(original_status=source['status'], original_omission_count=len(omissions),
+                numerical_status=final['status'], original_warning_model_solved=False,
+                source_path_log_wealth_error_bound=proof['model']['coefficient_zeroing'][
+                    'source_path_log_wealth_error_bound'],
+                source_path_log_drawdown_error_bound=proof['model']['coefficient_zeroing'][
+                    'source_path_log_drawdown_error_bound'])
+
+
 def verify_solution(model, solution):
     need(len(solution) == model['columns'] and all(math.isfinite(value) for value in solution),
          'FINITE_PRIMAL_SOLUTION')
@@ -424,17 +535,22 @@ def verify_solution(model, solution):
     return codes, residual
 
 
-def verify_milp(proof, result, table, budget, mode, dd_cap, growth_floor, codes):
+def verify_milp(proof, result, table, budget, mode, dd_cap, growth_floor, codes, evidence):
     model, solution, archived = proof['model'], proof['solution'], proof['result']
     definition = verify_model(model, table, budget, mode, dd_cap, growth_floor)
+    loading = verify_loading(proof, table, budget, mode, dd_cap, growth_floor, evidence)
     need(all(result.get(key) == value for key, value in archived.items()), 'EXACT_ARCHIVED_SOLVER_RESULT')
     selected, residual = verify_solution(model, solution)
     need(selected == codes == result['codes'], 'SOLVER_PATH_AND_ACCOUNT_PATH_AGREE')
     need(result['solver_version'] == '1.15.1'
          and result['method'] == 'DAILY_THREE_STATE_MIXED_INTEGER_LOG_WEALTH'
          and result['options'] == dict(threads=2, random_seed=0, mip_rel_gap=1e-7,
-                                     time_limit=1800., output_flag=False, log_to_console=False),
+                                     time_limit=1800., output_flag=True, log_to_console=False,
+                                     small_matrix_value=COEFFICIENT_EPS)
+         and result['optimality_scope'] == 'DECLARED_NUMERICAL_MILP_NOT_AN_EXACT_SOURCE_COEFFICIENT_OPTIMUM'
+         and result['coefficient_zeroing'] == model['coefficient_zeroing'],
          'PINNED_SOLVER_AND_FROZEN_OPTIONS')
+    verify_native_log(result['solver_native_log'], evidence)
     need(result['status'] in ('HighsModelStatus.kOptimal', 'HighsModelStatus.kTimeLimit')
          and result['optimal'] == (result['status'] == 'HighsModelStatus.kOptimal')
          and result['hindsight_only'] is True, 'HONEST_SOLVER_STOP_AND_OPTIMALITY_STATUS')
@@ -471,6 +587,7 @@ def verify_milp(proof, result, table, budget, mode, dd_cap, growth_floor, codes)
         need(worst <= -math.log1p(-dd_cap)+2e-6, 'INDEPENDENT_DRAWDOWN_CAP')
     return dict(**definition, primal_objective=objective, dual_bound=bound,
                 relative_gap=gap, primal_constraint_residual=residual,
+                model_loading=loading,
                 full_problem_resolved_independently=False,
                 bound_scope='SOURCE_ATTESTED_PINNED_SOLVER_BOUND')
 
@@ -609,7 +726,7 @@ def failure_required(callback, name):
     raise ValueError('UNDETECTED_FALSIFIER:' + name)
 
 
-def numerical_checks(source, table, report, expected, proofs):
+def numerical_checks(source, table, report, expected, proofs, evidence):
     checks = []
     def refuses(name, callback):
         failure_required(callback, name);checks.append(name)
@@ -671,6 +788,31 @@ def numerical_checks(source, table, report, expected, proofs):
         {key: value for key, value in relaxed.items() if key != 'definition_sha256'})).hexdigest()
     refuses('RELAXED_MODEL_CHANGE_BUDGET', lambda: verify_model(
         relaxed, table, 19, 'min_drawdown', None, floor))
+    zeroing = model['coefficient_zeroing']
+    need(zeroing['omissions'] and zeroing['source_path_log_wealth_error_bound'] > 0,
+         'ACTUAL_SOURCE_TINY_COEFFICIENT_CANARY_IS_NONVACUOUS')
+    wrong_policy = {**model, 'coefficient_zeroing': {**zeroing, 'threshold': 1e-9}}
+    refuses('UNDECLARED_COEFFICIENT_ZEROING_THRESHOLD', lambda: verify_model(
+        wrong_policy, table, 19, 'min_drawdown', None, floor))
+    understated = {**model, 'coefficient_zeroing': {**zeroing,
+        'source_path_log_wealth_error_bound': 0., 'source_path_log_drawdown_error_bound': 0.}}
+    refuses('UNDERSTATED_SOURCE_COEFFICIENT_ERROR', lambda: verify_model(
+        understated, table, 19, 'min_drawdown', None, floor))
+    loading = proof['model_loading']
+    warned = {**proof, 'model_loading': {**loading, 'numerical_load': {
+        **loading['numerical_load'], 'status': 'HighsStatus.kWarning'}}}
+    refuses('WARNING_ACCEPTED_AS_NUMERICAL_LOAD_SUCCESS', lambda: verify_loading(
+        warned, table, 19, 'min_drawdown', None, floor, evidence))
+    solved_source = {**proof, 'model_loading': {**loading, 'source_load': {
+        **loading['source_load'], 'solved': True}}}
+    refuses('ORIGINAL_WARNING_MODEL_SOLVED', lambda: verify_loading(
+        solved_source, table, 19, 'min_drawdown', None, floor, evidence))
+    retained = loading['numerical_load']['retained_lp']
+    wrong_entries = list(retained['entries'])
+    wrong_entries[0] = list(wrong_entries[0])
+    wrong_entries[0][2] += .001
+    refuses('UNDECLARED_NATIVE_RETAINED_MATRIX_TRANSFORMATION', lambda: verify_retained_lp(
+        model, {**retained, 'entries': wrong_entries}, 0.))
     from review_synthetics import run_checks
     tiny = run_checks(independent_dp)
     return dict(status='PASSED', negative_checks=checks, independent_tiny_optimization=tiny)
@@ -767,7 +909,7 @@ def review(args):
             proof = json.loads((args.evidence/filename).read_bytes())
             proofs[name] = proof
             solver_checks[name] = verify_milp(proof, result, independent, 19, mode,
-                                               question_cap, question_floor, codes)
+                                               question_cap, question_floor, codes, args.evidence)
     need(set(report['attribution']) == set(optimization), 'ALL_ORACLE_ATTRIBUTIONS_VISIBLE')
     expected_windows = [('2018-12-21','2019-02-04',29), ('2020-02-28','2020-04-28',42),
                         ('2022-06-17','2022-08-10',37), ('2024-08-08','2024-10-08',43),
@@ -803,7 +945,7 @@ def review(args):
          relative='1e-9', absolute='1e-9')
     need(report['proofs']['account']['status'] == report['proofs']['optimizer']['status'] == 'PASSED',
          'WORKER_NUMERICAL_FALSIFIERS_PASSED')
-    checks = numerical_checks(source, independent, report, expected, proofs)
+    checks = numerical_checks(source, independent, report, expected, proofs, args.evidence)
     need(not args.out.exists(), 'NEW_REVIEW_OUTPUT')
     args.out.mkdir(parents=True)
     verdict = dict(status='SENTINEL_ORACLE_DIAGNOSTIC_REVIEW_PASSED', source_identity=source['identity'],
@@ -814,6 +956,7 @@ def review(args):
         dp_global_bound_independently_recomputed=dp_review['best_log_terminal'],
         solver_verification=solver_checks, numerical_checks=checks,
         limitations=['FULL_MILP_BOUNDS_SOURCE_ATTESTED_NOT_INDEPENDENTLY_RESOLVED',
+                     'DECLARED_NUMERICAL_MILP_OPTIMALITY_WITH_SEPARATE_SOURCE_REPLAY',
                      'NO_PREDICTABILITY_OR_TRAINING_CLAIM','NOT_PERSISTENT_WHOLE_SHARE_EXECUTION'],
         report_sha256=file_sha(report_path), review_source_sha256=file_sha(Path(__file__)),
         new_Core_steps=0, new_Sentinel_steps=0, production_contacted=False,

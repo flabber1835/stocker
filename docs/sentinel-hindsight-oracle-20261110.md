@@ -111,6 +111,38 @@ constraints; and 3e-6 for solver-objective/replay agreement. Report actual
 decimal-replayed metrics and these tolerances. Optimality is within the stated
 numerical model/tolerances, not an exact real-arithmetic financial certificate.
 
+### Solver-loading qualification after the first refused attempt
+
+Run 42772229461 stopped unadmitted at passModel for the full matched-growth
+model, after complete account calibration, edge checks, tiny optimization
+fixtures and the full daily DP. Its financial results are not admitted.
+The source factor inventory contains near-unit factors whose binary64 log
+coefficients can be smaller than the solver's default matrix threshold.
+
+The next source generation must first load the original unpruned full model
+with a private native solver log and archive the pass status and retained
+matrix. A warning is accepted only as diagnosis: require the only matrix
+difference to be omission of coefficients under the reported small-matrix
+threshold, corroborated by the native log. An error or other transformation
+refuses. This original model is not solved or silently admitted after warning.
+
+Then construct the declared numerical MILP with only edge-log coefficients of
+absolute magnitude <=1e-12 explicitly set to zero. Set small_matrix_value to
+1e-12, require passModel success without warning, and verify the retained
+matrix equals the declared numerical model before solving. Preserve original
+canonical factors, the DP and all decimal account replays without pruning.
+Archive each omitted coefficient and E, the sum of each day's largest omitted
+magnitude. E bounds any selected path's log-wealth error and 2E bounds its
+log-drawdown error; require 2E<1e-8. This is a numerical-repair contract, not a
+new exposure rule, cap or switching budget. MIP optimality refers to this
+declared numerical model; source replay must separately meet the original
+constraints within the already frozen tolerances. A per-path error bound is
+not a proof of exact constrained optimality in unpruned real arithmetic.
+
+For matched-growth warm starts, choose the lowest-drawdown known feasible
+reference or already-replayed oracle path meeting the unchanged growth floor.
+This affects search efficiency only, not the objective or feasible class.
+
 ## Outputs, attribution and future learning boundary
 
 Return every session's decision and effective exposure, account NAV, high-water

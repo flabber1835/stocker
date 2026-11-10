@@ -49,7 +49,9 @@ def save(path, value):
 
 def expected_request():
     files = list(HERE.glob('*.py')) + [ROOT/DOC, ROOT/WORKFLOW, HERE/'solver-wheel.json']
-    return dict(schema='research.sentinel-oracle-request/1', generation=1,
+    return dict(schema='research.sentinel-oracle-request/1', generation=2,
+        prior_stopped_unadmitted_runs=[42772229461],
+        harness_correction='ATTEST_NATIVE_MODEL_LOADING_AND_EXPLICIT_NUMERICAL_COEFFICIENT_POLICY',
         verified_main=BASE, legacy_commit=LEGACY, transport_commit=TRANSPORT,
         stop_source_commit=STOP_SOURCE,
         start='2018-01-02', end='2026-07-31', closes=2156,
@@ -57,6 +59,7 @@ def expected_request():
         objectives=['MAX_WEALTH_NO_DD_DP','MAX_WEALTH_BASELINE_DD',
                     'MAX_WEALTH_HALF_BASELINE_DD','MIN_DD_ALWAYS_CORE_GROWTH'],
         solver_seconds_per_problem=1800, solver_relative_gap='0.0000001',
+        solver_edge_log_zero_threshold='0.000000000001',
         phase='HINDSIGHT_DIAGNOSTIC_ONLY', Core_steps=0, Sentinel_steps=0,
         production_performance_claim=False, model_training=False, production_contacted=False,
         sources={p.relative_to(ROOT).as_posix():sha(p) for p in sorted(files)})
