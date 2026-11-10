@@ -8,23 +8,27 @@
   "closes": 275,
   "core_recomputed": false,
   "end": "2019-02-05",
-  "generation": 2,
-  "harness_correction": "CATCH_EXACT_CANONICAL_REFUSAL_IN_SYNTHETIC_TEST",
+  "generation": 3,
+  "harness_correction": "SEPARATE_RESEARCH_SIZING_METADATA_AND_CANONICALIZE_UNFUNDED_BIL_ANCHOR",
   "legacy_commit": "0bc38753ac1f85b31eb95f560720e6b037e892c5",
+  "prior_stopped_unadmitted_runs": [
+    42727061316,
+    42727738185
+  ],
   "production_contacted": false,
   "schema": "research.fixed-account-reconciliation-request/1",
   "source_files": {
     ".github/workflows/core-sentinel-reconciliation.yml": "dd7606a1f20a8658534ecccc97a96a12aae688d2dc5eae2d8b0b2afcdff1c2cb",
     "docs/core-sentinel-reconciliation-20261109.md": "4c59edd982ee4f86f1db996a353300c0b86a74fff05205eff8297dd9589b4fbc",
     "research/persistent_share_reconciliation/input-transfer.json": "2e033741a3d16048c00ee7afa492f08d25861ce4a53797732b0f7b46c87a96e8",
-    "research/persistent_share_reconciliation/job.py": "04311b945af9f11e4495b093413d41f889964d1206a3e7b5a468437035ff110b",
-    "research/persistent_share_reconciliation/review.py": "837742de8083c58d63d5e9fae267b4ff5887ef3f5e613e4dc3d7a67f3bc4f053",
+    "research/persistent_share_reconciliation/job.py": "5ebdc18278242f105f1dbcdd41d0504ac766577a97cb3f1b0d4ce54f67d9b944",
+    "research/persistent_share_reconciliation/review.py": "35ee23321451b3e6ed7d9425dd0ac4f6dc24a0c0270dfbb52888d685fd32833f",
     "research/persistent_share_reconciliation/test_archive_guards.py": "9e83ee5809e124eab3b3495bcca7ae9955ead6bbfea276ab629f5565fba89f78",
     "research/persistent_share_reconciliation/test_review_guards.py": "85b6db8a40c3a07ae62f195b6f141d5c63152f4cdc72e00b8f89cd7c7542d7ca",
     "research/persistent_share_reconciliation/test_transport_guards.py": "55904d5a991a5138a89de4bf318495c7edf50a5c533c8573ccdbe5ad688b1e5b",
     "research/persistent_share_reconciliation/test_worker_guard_exceptions.py": "03e8b6c5f32020837cb2c1e3f3c54b12ea3732c36dab99e567dedd5d082740eb",
     "research/persistent_share_reconciliation/transport.py": "4e742329c9c902d24b574b6198d3075d05c285f1222f85f4a24165522444d09d",
-    "research/persistent_share_reconciliation/worker.py": "278c3b7f20b7593d6f5cc2388e4ca474f63aa60a298fd6a3dedce1c968ba9133",
+    "research/persistent_share_reconciliation/worker.py": "012af33d099e9405d51ccea52a3d05d4b5f4072ac777b9ab503b62922c223036",
     "sentinel/__init__.py": "94a4acb0177af19ec0a02856b3cdfd159abfe981b7f5780ac9b1ee2cff861d3a",
     "sentinel/__main__.py": "ec203aa60bb8882895d2b7f27476a4917973f3174f5488e50a0623dabccc1e36",
     "sentinel/administrative_authority.py": "7096b1671eebb9a7787a5aeefc03b9b237a6d974431d5cd550e22cc60da3ba19",
@@ -528,6 +532,5 @@
     "shared/stock_strategy_shared/wealth_core/window_signals.py": "ff4f9ee94508feed4dd3662a3369bf956b674fb8db89be9cf7e9102d38b76391"
   },
   "start": "2018-01-02",
-  "supersedes_failed_run": 42727061316,
   "verified_main": "1e7f4b181fbcb998b3086833ab813c21b1c2ca8e"
 }

@@ -50,9 +50,9 @@ def expected_request():
              for p in directory.rglob("*.py") if "__pycache__" not in p.parts]
     files += [ROOT / DOC, ROOT / WORKFLOW, HERE / "input-transfer.json"]
     return dict(schema="research.fixed-account-reconciliation-request/1",
-                verified_main=BASE, legacy_commit=LEGACY, generation=2,
-                supersedes_failed_run=42727061316,
-                harness_correction="CATCH_EXACT_CANONICAL_REFUSAL_IN_SYNTHETIC_TEST",
+                verified_main=BASE, legacy_commit=LEGACY, generation=3,
+                prior_stopped_unadmitted_runs=[42727061316, 42727738185],
+                harness_correction="SEPARATE_RESEARCH_SIZING_METADATA_AND_CANONICALIZE_UNFUNDED_BIL_ANCHOR",
                 start="2018-01-02", end="2019-02-05", closes=275,
                 arms=["S", "A", "Q", "P"], core_recomputed=False,
                 production_contacted=False, source_files={

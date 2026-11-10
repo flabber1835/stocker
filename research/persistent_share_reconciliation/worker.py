@@ -213,10 +213,18 @@ def scalar(args):
                 if i == 0:
                     value = deepcopy(original['economics'])
                     if arm == 'A':
-                        # Anchor has no accrued return or trade; it still names
-                        # the source bridge which will supply the next factors.
-                        value['strategy_prices'] = row['economics']['strategy_prices']
-                        value['strategy_prices_sha256'] = digest(value['strategy_prices'])
+                        # Canonicalize the bridge's price/return metadata via
+                        # the unchanged scalar operation with no predecessor.
+                        # The measurement anchor remains flat and unfunded;
+                        # original Core and all non-BIL metadata stay intact.
+                        no_predecessor=dict(starting_cash=value['starting_cash'],strategy_nav=value['strategy_nav'],
+                                            last_session=None,held_allocation=None,pending_allocation=None)
+                        anchor=actual_account(no_predecessor,row,row['decision']['target_core_exposure'],events)
+                        need(D(anchor['strategy_nav'])==D(50000) and anchor['held_allocation'] is None
+                             and D(anchor['gross_factor'])==D(1) and D(anchor['net_factor'])==D(1)
+                             and D(anchor['turnover'])==D(0),'FLAT_CANONICAL_A_ANCHOR')
+                        value.update({k:v for k,v in anchor.items() if k.startswith('bil_')
+                                      or k in ('strategy_prices','strategy_prices_sha256')})
                 else:
                     value = actual_account(priors[arm], row, row['decision']['target_core_exposure'], events)
                     independently_check(priors[arm], row, value, events)
@@ -427,10 +435,10 @@ class ShareArm:
         entry_audit=[]
         for intent in plan['opening_intents']:
             sid=intent['security_id'];buys=[e for e in source_events if e['event_type']=='BUY' and e['security_id']==sid]
-            need(len(buys)<=1,'UNIQUE_SOURCE_ENTRY_FILL')
-            if not buys:
-                desired[sid]='0';entry_audit.append(dict(intent=intent,status='SOURCE_NOT_FILLED',account_shares='0'))
-                continue
+            # This bounded pilot has complete original opening fills. Missing
+            # source execution would require separate unavailable-entry
+            # semantics; it cannot silently establish a durable zero intent.
+            need(len(buys)==1,'UNSUPPORTED_SOURCE_OPENING_REFUSED')
             buy=buys[0];price=str(buy['price'])
             need(F(price)==F(opens[sid]),'SOURCE_BUY_RAW_OPEN_MATCH')
             core_qty=opening_quantity(intended=float(intent['intended_dollars']),cash=float(buy['cash_before']),price=float(price),cost_bps=10)
@@ -514,7 +522,8 @@ class ShareArm:
                 self.apply(commit(self.account,event=dict(event_id=day+'/RETIRE/'+key,session=day,operation='CORE_EXIT_RETIRED',episode=key),
                                   retired=self.account.retired+(key,)),dict(source_state_sha256=plan['source_state_sha256']))
         self.previous_projection=dict(target_basket=desired,through_session=day,action_multipliers={},action_evidence=[],
-                                      opening_sizing={'mode':'TRACE_DTO_IDEALIZED_RAW_OPEN','entries':entry_audit})
+                                      opening_sizing=None,
+                                      research_opening_sizing={'mode':'TRACE_DTO_IDEALIZED_RAW_OPEN','entries':entry_audit})
         return dict(signal_session=plan['signal_session'],held_target=plan['target_exposure'],desired_basket=desired,
                     intended_entry_sizing=entry_audit,headroom_audit=headroom_audit,fills=fills,actual_shares={p.security_id:str(p.shares) for p in self.account.positions.values()},
                     remaining={s:str(F(q)-sum((p.shares for p in self.account.positions.values() if p.security_id==s),F(0))) for s,q in desired.items()})
@@ -575,6 +584,11 @@ def synthetic_tests():
     prior=NS(target_basket=previous.target_basket,through_session=date(2018,1,3),opening_sizing=None,action_multipliers={},action_evidence=())
     carried=held_targets.carry_quantities(previous=previous,previous_state=before,projection=prior,state=after,exposure=D('.55'))
     test('CONTINUING_INTENT_AND_BIL_CARRY',carried==previous.target_basket)
+    zero_bil_prior=ns_projection(dict(target_basket={'A':'72',BIL:'0'},through_session='2018-01-03',
+        action_multipliers={},action_evidence=[],opening_sizing=None,
+        research_opening_sizing=dict(mode='TRACE_DTO_IDEALIZED_RAW_OPEN',entries=[])))
+    zero_carried=held_targets.carry_quantities(previous=previous,previous_state=before,projection=zero_bil_prior,state=after,exposure=D('.55'))
+    test('BOUND_ZERO_BIL_WITHOUT_FAKE_PROTECTED_EVIDENCE',zero_carried=={'A':D(72),BIL:D(0)} and zero_bil_prior.opening_sizing is None)
     raw=project(shadow_weights={'A':D(1)},exposure=D('.55'),nav=D(13000),marks={'A':D(100)},defensive_security=BIL,defensive_weight=D('.45'))
     canonical=ShadowTarget(shares={'A':D(132)},tickers={'A':'A'})
     final=held_targets.apply(raw,targets={'A':D(72)},canonical_target=canonical,marks={'A':D(100)})

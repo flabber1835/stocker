@@ -561,8 +561,9 @@ def verify_projection(row: dict, arm: str, record: dict, prior: dict | None,
         predecessor = audit["predecessor_projection"]
         expected_predecessor = {"target_basket": record["execution"]["desired_basket"],
             "through_session": row["session"], "action_multipliers": {}, "action_evidence": [],
-            "opening_sizing": {"mode": "TRACE_DTO_IDEALIZED_RAW_OPEN",
-                               "entries": record["execution"]["intended_entry_sizing"]}}
+            "opening_sizing": None,
+            "research_opening_sizing": {"mode": "TRACE_DTO_IDEALIZED_RAW_OPEN",
+                                        "entries": record["execution"]["intended_entry_sizing"]}}
         need(predecessor == expected_predecessor,
              "CURRENT_OPEN_INTENT_NOT_ACTUAL_FILL_PREDECESSOR")
         if arm == "P":
@@ -591,6 +592,61 @@ def verify_projection(row: dict, arm: str, record: dict, prior: dict | None,
          "SOURCE_CLOSE_NEXT_OPEN_COMMITMENT")
     for key in ("state_sha256", "input_sha256", "chain_sha256"):
         need(pending["source_" + key] == row[key], "PENDING_SOURCE_IDENTITY")
+
+
+def verify_a_metadata(economics: dict, bars: dict, day: str, previous_bar_day: str,
+                      index: int, original: dict) -> None:
+    prices = economics["strategy_prices"]
+    with localcontext() as context:
+        context.prec = 28
+        adjusted_open = (Decimal(bars[day]["all_open"]) * Decimal(bars[day]["all_close"])
+                         / Decimal(bars[day]["all_close"]))
+    source_prices = {
+        "bil_open_signal": bars[day]["all_open"],
+        "bil_close_signal": bars[day]["all_close"],
+        "bil_close_adjusted": bars[day]["all_close"],
+        "bil_close_unadjusted": bars[day]["raw_close"],
+        "bil_previous_close_adjusted": bars[previous_bar_day]["all_close"],
+        "bil_open_adjusted": str(adjusted_open),
+    }
+    need(set(prices) == set(source_prices) | {"bil_previous_session"},
+         "A_CANONICAL_SEVEN_FIELD_PRICE_SHAPE")
+    for key, value in source_prices.items():
+        equal_number(prices[key], value, "A_ONLY_QUALIFIED_BIL_BRIDGE")
+        need(prices[key] == format(Decimal(value).normalize(), "f"),
+             "A_CANONICAL_PRICE_TEXT")
+    need(prices["bil_previous_session"] == previous_bar_day and
+         economics["strategy_prices_sha256"] == digest(prices), "A_DATED_SOURCE_PRICE_HASH")
+    for key, value in original["economics"].items():
+        if key.startswith("parent_core_") or key in ("starting_cash", "last_session", "research_entry_mode",
+                                                      "measurement_anchor_session", "formed_startup_marks"):
+            need(economics[key] == value, "A_UNCHANGED_CORE_OR_ORIGIN_FIELD:" + key)
+    for key, value in (("bil_open_adjusted", adjusted_open),
+        ("bil_close_adjusted", bars[day]["all_close"]),
+        ("bil_previous_close_adjusted_current_publication", bars[previous_bar_day]["all_close"])):
+        equal_number(economics[key], value, "A_ALL_CLOSES_ADJUSTED_BIL_SOURCE")
+    need(economics["bil_previous_session"] == previous_bar_day,
+         "A_ALL_CLOSES_TOP_LEVEL_PREVIOUS_SESSION")
+    with localcontext() as context:
+        context.prec = 28
+        intraday = Decimal(bars[day]["all_close"]) / adjusted_open - 1
+        overnight = (None if index < 2 else
+            adjusted_open / Decimal(bars[previous_bar_day]["all_close"]) - 1)
+    equal_number(economics["bil_intraday_return"], intraday,
+                 "A_DESCRIPTIVE_INTRADAY_SOURCE_NOT_EARNED_ANCHOR_RETURN")
+    if overnight is None:
+        need(economics["bil_overnight_return"] is None,
+             "A_NO_UNFUNDED_PRE_EXECUTION_OVERNIGHT")
+    else:
+        equal_number(economics["bil_overnight_return"], overnight,
+                     "A_DESCRIPTIVE_OVERNIGHT_SOURCE")
+    if index == 0:
+        need(economics["held_allocation"] is None and
+             economics["initial_deployment"] is False, "A_ANCHOR_REMAINS_UNFUNDED")
+        for key, value in (("previous_strategy_nav", 50000), ("strategy_nav", 50000),
+            ("strategy_cumulative_return", 0), ("turnover", 0),
+            ("transaction_cost_factor", 1), ("gross_factor", 1), ("net_factor", 1)):
+            equal_number(economics[key], value, "A_ANCHOR_NO_EARNED_PNL_OR_TRADE")
 
 
 def scalar_factor(prior: dict, row: dict, economics: dict, events: list[dict]) -> dict:
@@ -659,11 +715,7 @@ def verify_open(row: dict, record: dict, prior: dict, events: list[dict],
     for intent in plan["opening_intents"]:
         sid = intent["security_id"]
         buys = [e for e in events if e["event_type"] == "BUY" and e["security_id"] == sid]
-        need(len(buys) <= 1, "UNIQUE_ORIGINAL_CORE_OPEN")
-        if not buys:
-            desired[sid] = Fraction(0)
-            entry_audit.append({"intent": intent, "status": "SOURCE_NOT_FILLED", "account_shares": "0"})
-            continue
+        need(len(buys) == 1, "FIXED_PILOT_ORIGINAL_OPENING_FILL_COVERAGE")
         source = buys[0]
         equal_number(str(source["price"]), opens[sid], "ENTRY_ACTUAL_RAW_OPEN")
         quantity = api.opening_quantity(intended=float(intent["intended_dollars"]),
@@ -1008,22 +1060,7 @@ def review(args: argparse.Namespace) -> None:
             if arm == "S":
                 need(economics == original["economics"], "EXACT_S_EVERY_ECONOMICS_FIELD")
             if arm == "A":
-                prices = economics["strategy_prices"]
-                for key, value in (("bil_open_signal", bars[day]["all_open"]),
-                    ("bil_close_signal", bars[day]["all_close"]), ("bil_close_adjusted", bars[day]["all_close"]),
-                    ("bil_close_unadjusted", bars[day]["raw_close"]), ("bil_previous_close_adjusted", bars[previous_bar_day]["all_close"])):
-                    equal_number(prices[key], value, "A_ONLY_QUALIFIED_BIL_BRIDGE")
-                need(prices["bil_previous_session"] == previous_bar_day and
-                     economics["strategy_prices_sha256"] == digest(prices), "A_DATED_SOURCE_PRICE_HASH")
-                for key, value in original["economics"].items():
-                    if key.startswith("parent_core_") or key in ("starting_cash", "last_session", "research_entry_mode",
-                                                                  "measurement_anchor_session", "formed_startup_marks"):
-                        need(economics[key] == value, "A_UNCHANGED_CORE_OR_ORIGIN_FIELD:" + key)
-                if index:
-                    for key, value in (("bil_open_adjusted", bars[day]["all_open"]),
-                        ("bil_close_adjusted", bars[day]["all_close"]),
-                        ("bil_previous_close_adjusted_current_publication", bars[previous_bar_day]["all_close"])):
-                        equal_number(economics[key], value, "A_ADJUSTED_BIL_FACTOR_SOURCE")
+                verify_a_metadata(economics, bars, day, previous_bar_day, index, original)
             if index:
                 prior = daily[index - 1]["arms"][arm]["economics"]
                 expected = scalar_factor(prior, original, economics, source_events)
@@ -1183,6 +1220,18 @@ def review(args: argparse.Namespace) -> None:
     # These corruptions are evaluated only here, inside the admitted offline
     # hosted reviewer. They never execute financial logic on the local host.
     falsifiers = []
+    mixed_anchor = deepcopy(daily[0]["arms"]["A"]["economics"])
+    mixed_anchor["bil_open_adjusted"] = originals[0]["economics"]["bil_open_adjusted"]
+    failure_required(lambda: verify_a_metadata(mixed_anchor, bars, START, "2017-12-29", 0, originals[0]),
+                     "mixed_A_anchor_price_metadata")
+    falsifiers.append("mixed_A_anchor_price_metadata")
+    custom_protected_dto = deepcopy(daily[-1]["arms"]["P"])
+    custom_protected_dto["projection_audit"]["predecessor_projection"]["opening_sizing"] = {
+        "mode": "TRACE_DTO_IDEALIZED_RAW_OPEN", "entries": []}
+    failure_required(lambda: verify_projection(originals[-1], "P", custom_protected_dto,
+        daily[-2]["arms"]["P"], custom_protected_dto["marks"], None, api),
+                     "research_metadata_in_protected_projection_field")
+    falsifiers.append("research_metadata_in_protected_projection_field")
     for operation, label in (("BUY", "overspend_or_altered_fill"),
                              ("DIVIDEND_ACCRUED", "duplicate_entitlement"),
                              ("DIVIDEND_PAID", "early_payment")):
