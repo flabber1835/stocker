@@ -22,15 +22,17 @@ def signing_key(monkeypatch):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-close-clocks-' + 'x' * 40)
 
 
-def records(db, monkeypatch, *, cycle, age=timedelta(seconds=17), power='40', flags='{}'):
+def records(db, monkeypatch, *, cycle, age=timedelta(seconds=17), power='40', flags='{}',
+            broker_age=None, orders='[]', completeness='COMPLETE', runtime='RUNNING'):
     """Use actual durable account/observation readers, with unrelated guards isolated."""
     observed = NOW - age
     db.execute("INSERT INTO sentinel_broker_account_evidence "
         "(broker,broker_account_id,status,flags,equity,cash,buying_power,multiplier,observed_at) "
         "VALUES ('alpaca','paper-clock','ACTIVE',%s::jsonb,100,40,%s,1,%s)",
         (flags, power, observed))
-    db.execute("INSERT INTO sentinel_observations(observed_at,completeness,runtime_state) "
-        "VALUES (%s,'COMPLETE','RUNNING')", (observed,))
+    db.execute("INSERT INTO sentinel_observations(observed_at,completeness,runtime_state,orders) "
+        "VALUES (%s,%s,%s,%s::jsonb)",
+        (NOW-broker_age if broker_age is not None else observed, completeness, runtime, orders))
     db.commit()
     monkeypatch.setattr(sources, '_latest_automation_cycle', lambda *a, **kw: cycle)
     monkeypatch.setattr(sources, '_bound_account_id', lambda _c: 'paper-clock')
@@ -41,9 +43,9 @@ def records(db, monkeypatch, *, cycle, age=timedelta(seconds=17), power='40', fl
     return observed
 
 
-def read_facts(db):
-    account_rows, _ = sources._operator_evidence_rows(db.info.dsn, now=NOW)
-    runtime_rows, _ = sources._runtime_projection(db.info.dsn, include_book=False, now=NOW)
+def read_facts(db, *, now=NOW):
+    account_rows, _ = sources._operator_evidence_rows(db.info.dsn, now=now)
+    runtime_rows, _ = sources._runtime_projection(db.info.dsn, include_book=False, now=now)
     return (next(r for r in account_rows if r.key == 'alpaca_account'),
             next(r for r in runtime_rows if r.key == 'broker'))
 
@@ -54,29 +56,113 @@ def read_facts(db):
     {'state': 'REFRESHING_DATA', 'next_wake_at': None, 'decision_session': '2026-11-09'},
     {'state': 'WAITING_OPEN', 'next_wake_at': NOW+timedelta(hours=17)},
 ])
-def test_fresh_account_and_broker_do_not_borrow_trading_wake(db, monkeypatch, cycle):
+def test_fresh_account_does_not_borrow_trading_wake(db, monkeypatch, cycle):
     observed = records(db, monkeypatch, cycle=cycle)
-    for row in read_facts(db):
-        assert row.effective_status(NOW) == model.OK, row.detail
-        assert row.as_of == observed
-        assert row.valid_until == observed+timedelta(minutes=10)
-        assert row.effective_status(row.valid_until+timedelta(microseconds=1)) == model.FAIL
+    row = read_facts(db)[0]
+    assert row.effective_status(NOW) == model.OK, row.detail
+    assert row.as_of == observed
+    assert row.valid_until == observed+timedelta(minutes=10)
+    assert row.effective_status(row.valid_until+timedelta(microseconds=1)) == model.FAIL
 
 
-def test_future_wake_cannot_keep_stopped_broker_producers_current(db, monkeypatch):
+def test_future_wake_cannot_keep_stopped_account_producer_current(db, monkeypatch):
     records(db, monkeypatch, age=timedelta(minutes=11),
         cycle={'state': 'WAITING_OPEN', 'next_wake_at': NOW+timedelta(hours=17)})
-    assert all(row.effective_status(NOW) == model.FAIL for row in read_facts(db))
+    account, broker = read_facts(db)
+    assert account.effective_status(NOW) == model.FAIL
+    assert broker.effective_status(NOW) == model.OK
+    assert broker.valid_until == NOW+timedelta(hours=17)
+    assert broker.as_of == NOW-timedelta(minutes=11)
 
 
-def test_phase_change_cannot_renew_same_recorded_observation(db, monkeypatch):
+def test_phase_change_cannot_renew_account_or_reanchor_saved_broker_observation(db, monkeypatch):
     cycle = {'state': 'RETRY_WAIT', 'retry_phase': 'REFRESH',
              'next_wake_at': NOW-timedelta(seconds=1)}
     records(db, monkeypatch, cycle=cycle)
     before = read_facts(db)
     cycle.update(state='REFRESHING_DATA', next_wake_at=None, decision_session='2026-11-09')
     after = read_facts(db)
-    assert [(r.as_of, r.valid_until) for r in before] == [(r.as_of, r.valid_until) for r in after]
+    assert (before[0].as_of, before[0].valid_until) == (after[0].as_of, after[0].valid_until)
+    assert before[1].as_of == after[1].as_of == NOW-timedelta(seconds=17)
+    assert before[1].valid_until == NOW-timedelta(seconds=1)
+    assert after[1].valid_until > NOW  # Its owner advanced to a new required observation.
+
+
+@pytest.mark.parametrize('cycle', [
+    {'state': 'EXECUTING', 'next_wake_at': NOW+timedelta(hours=17)},
+    {'state': 'RECONCILING', 'next_wake_at': NOW+timedelta(hours=17)},
+    *[{'state': 'RETRY_WAIT', 'retry_phase': phase, 'next_wake_at': NOW+timedelta(hours=17)}
+      for phase in ('EXECUTE', 'RECOVER', 'PREFLIGHT_RECOVER')],
+    None, {}, {'state': 'UNKNOWN', 'next_wake_at': NOW+timedelta(hours=17)},
+    {'state': 'RETRY_WAIT', 'retry_phase': 'UNKNOWN', 'next_wake_at': NOW+timedelta(hours=17)},
+])
+def test_active_or_unidentified_broker_owner_keeps_ten_minute_bound(db, monkeypatch, cycle):
+    records(db, monkeypatch, cycle=cycle, broker_age=timedelta(minutes=11))
+    account, broker = read_facts(db)
+    assert account.effective_status(NOW) == model.OK
+    assert broker.valid_until == NOW-timedelta(minutes=1)
+    assert broker.effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize('hazard', ['native_working', 'PLANNED', 'ACKNOWLEDGED',
+                                  'SEND_PENDING', 'UNKNOWN', 'CANCEL_PENDING', 'PARTIALLY_FILLED'])
+def test_outstanding_broker_work_cannot_borrow_idle_wake(db, monkeypatch, hazard):
+    records(db, monkeypatch, cycle={'state': 'WAITING_OPEN', 'next_wake_at': NOW+timedelta(hours=17)},
+        broker_age=timedelta(minutes=11),
+        orders='[{"state":"ACKNOWLEDGED"}]' if hazard == 'native_working' else '[]')
+    if hazard != 'native_working':
+        db.execute("INSERT INTO sentinel_commands(client_key,plan_id,security_id,deployment_id,"
+            "broker,broker_account_id,takeover_epoch,symbol,side,quantity,state) "
+            "VALUES ('clock-command','clock-plan','clock-security','clock-deployment',"
+            "'alpaca','paper-clock',1,'CLOCK','BUY',1,%s)", (hazard,))
+        db.commit()
+    broker = read_facts(db)[1]
+    assert broker.valid_until == NOW-timedelta(minutes=1)
+    assert broker.effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize('complete,runtime', [('PARTIAL', 'RUNNING'), ('INCONSISTENT', 'RUNNING'),
+                                            ('COMPLETE', 'BROKER_DEGRADED'), ('COMPLETE', '')])
+def test_recorded_broker_negatives_are_not_waived_by_idle_schedule(db, monkeypatch, complete, runtime):
+    records(db, monkeypatch, cycle={'state': 'WAITING_OPEN', 'next_wake_at': NOW+timedelta(hours=17)},
+        broker_age=timedelta(hours=1), completeness=complete, runtime=runtime)
+    assert read_facts(db)[1].effective_status(NOW) in {model.FAIL, model.UNKNOWN}
+
+
+def test_real_account_collector_does_not_refresh_saved_execution_observation(db, monkeypatch):
+    from tests.sentinel.test_paper_account_status import fixture, collect
+    f = fixture(db, monkeypatch)
+    f.account['buying_power'] = f.account['cash']
+    before = db.execute('SELECT clock_timestamp()').fetchone()[0]
+    observed = before-timedelta(hours=1)
+    db.execute("INSERT INTO sentinel_observations(observed_at,completeness,runtime_state) "
+        "VALUES (%s,'COMPLETE','RUNNING')", (observed,))
+    db.commit()
+    assert collect(db, f) is True
+    now = db.execute('SELECT clock_timestamp()').fetchone()[0]
+    saved = db.execute('SELECT seq,observed_at FROM sentinel_observations').fetchall()
+    db.rollback()
+    cycle = {'state': 'WAITING_OPEN', 'next_wake_at': now+timedelta(hours=17)}
+    monkeypatch.setattr(sources, '_latest_automation_cycle', lambda *a, **kw: cycle)
+    monkeypatch.setattr(local_paper, 'backups_suspended_for_account', lambda _c: True)
+    monkeypatch.setattr(local_paper, 'require_runtime', lambda *a, **kw: None)
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', 'a'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'b'*64)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
+    first_account, first_broker = read_facts(db, now=now)
+    assert first_account.effective_status(now) == model.OK
+    assert first_account.valid_until == first_account.as_of+timedelta(minutes=10)
+    assert first_broker.as_of == observed and first_broker.valid_until == cycle['next_wake_at']
+    assert 'saved observation COMPLETE' in first_broker.detail
+    assert collect(db, f) is True
+    later = db.execute('SELECT clock_timestamp()').fetchone()[0]
+    assert db.execute('SELECT seq,observed_at FROM sentinel_observations').fetchall() == saved
+    db.rollback()
+    second_account, second_broker = read_facts(db, now=later)
+    assert second_account.as_of > first_account.as_of
+    assert second_broker.as_of == first_broker.as_of == observed
+    assert second_broker.valid_until == first_broker.valid_until
+    assert all(path == '/v2/account' for _, path in f.calls)
 
 
 def test_account_blocking_negative_is_not_changed_by_independent_clock(db, monkeypatch):
@@ -250,17 +336,45 @@ def test_removed_calendar_producer_conversion_reproduces_exact_close_failure(mon
     assert failure.fingerprint == '43d023f0f3cb71bd54fc32508458d01f2ecce0a3374d3f33fe6a109e1137d80e'
 
 
-def test_removed_broker_clock_independence_is_detected(db, monkeypatch):
-    body = textwrap.dedent(inspect.getsource(sources._runtime_valid_until))
-    assert body.count('if broker_fact:') == 1
+def test_restored_account_to_broker_clock_coupling_is_detected(db, monkeypatch):
+    body = textwrap.dedent(inspect.getsource(sources._operator_evidence_rows))
+    guard = '_account_valid_until((account or {}).get("observed_at"))'
+    assert body.count(guard) == 1
     namespace = {}
-    exec(compile(body.replace('if broker_fact:', 'if False:'), '<restored-trading-wake>', 'exec'),
+    exec(compile(body.replace(guard,
+        '_runtime_valid_until(cycle, (account or {}).get("observed_at"), broker_fact=True)'),
+        '<restored-account-trading-wake>', 'exec'),
+         vars(sources), namespace)
+    monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
+    with pytest.raises(AssertionError):
+        test_fresh_account_does_not_borrow_trading_wake(db, monkeypatch,
+            {'state': 'RETRY_WAIT', 'retry_phase': 'REFRESH',
+             'next_wake_at': NOW-timedelta(seconds=1)})
+
+
+def test_removed_outstanding_broker_work_cap_is_detected(db, monkeypatch):
+    body = textwrap.dedent(inspect.getsource(sources._runtime_projection))
+    guard = 'if working_orders or active or uncertain:'
+    assert body.count(guard) == 1
+    namespace = {}
+    exec(compile(body.replace(guard, 'if False:'), '<removed-outstanding-observation-cap>', 'exec'),
+         vars(sources), namespace)
+    monkeypatch.setattr(sources, '_runtime_projection', namespace['_runtime_projection'])
+    with pytest.raises(AssertionError):
+        test_outstanding_broker_work_cannot_borrow_idle_wake(db, monkeypatch, 'PLANNED')
+
+
+def test_removed_active_broker_owner_cap_is_detected(db, monkeypatch):
+    body = textwrap.dedent(inspect.getsource(sources._runtime_valid_until))
+    guard = 'if broker_fact and (active or not known_idle):'
+    assert body.count(guard) == 1
+    namespace = {}
+    exec(compile(body.replace(guard, 'if False:'), '<removed-active-observation-cap>', 'exec'),
          vars(sources), namespace)
     monkeypatch.setattr(sources, '_runtime_valid_until', namespace['_runtime_valid_until'])
     with pytest.raises(AssertionError):
-        test_fresh_account_and_broker_do_not_borrow_trading_wake(db, monkeypatch,
-            {'state': 'RETRY_WAIT', 'retry_phase': 'REFRESH',
-             'next_wake_at': NOW-timedelta(seconds=1)})
+        test_active_or_unidentified_broker_owner_keeps_ten_minute_bound(db, monkeypatch,
+            {'state': 'EXECUTING', 'next_wake_at': NOW+timedelta(hours=17)})
 
 
 def test_removed_source_offset_normalization_is_detected(db, monkeypatch):

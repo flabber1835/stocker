@@ -1219,13 +1219,25 @@ def _cycle_recovery(
         cycle, phases=phases, failure_domains=failure_domains).evidence
 
 
+def _account_valid_until(fact_at: datetime | None) -> datetime | None:
+    """The independent account collector never borrows a trading wake."""
+    return fact_at + timedelta(minutes=10) if fact_at is not None else None
+
+
 def _runtime_valid_until(
         cycle: Mapping | None, fact_at: datetime | None, *,
         broker_fact: bool = False) -> datetime | None:
-    """Broker evidence has its own producer clock; other facts follow the cycle."""
+    """Saved execution facts follow their owner's next required observation."""
     if fact_at is None:
         return None
-    if broker_fact:
+    state = str((cycle or {}).get('state') or '').upper()
+    phase = str((cycle or {}).get('retry_phase') or '').upper()
+    active = (state in {'EXECUTING', 'RECONCILING'}
+        or state == 'RETRY_WAIT' and phase in {'PREFLIGHT_RECOVER', 'EXECUTE', 'RECOVER'})
+    known_idle = (state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING',
+                           'PLAN_READY', 'WAITING_OPEN', 'SUCCEEDED'}
+        or state == 'RETRY_WAIT' and phase in {'REFRESH', 'PREPARE'})
+    if broker_fact and (active or not known_idle):
         return fact_at + timedelta(minutes=10)
     wake = (cycle or {}).get("next_wake_at")
     if isinstance(wake, datetime) and wake > fact_at:
@@ -1641,8 +1653,7 @@ def _operator_evidence_rows(
 
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
-        account_valid_until = _runtime_valid_until(
-            cycle, (account or {}).get("observed_at"), broker_fact=True)
+        account_valid_until = _account_valid_until((account or {}).get("observed_at"))
         if operator_reservation is not None:
             expiry = _utc(operator_reservation["valid_until"])
             account_valid_until = min(account_valid_until, expiry) if account_valid_until else expiry
@@ -3327,6 +3338,14 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 uncertain = sum(
                     count for state, count in counts.items()
                     if state in _UNCERTAIN_COMMAND_STATES)
+                observed_at = observation['observed_at']
+                if observed_at is None:
+                    raise ValueError('broker observation clock is missing')
+                broker_valid_until = _runtime_valid_until(
+                    recovery_cycle, observed_at, broker_fact=True)
+                if working_orders or active or uncertain:
+                    broker_valid_until = min(broker_valid_until,
+                        observed_at+timedelta(minutes=10))
                 broker = model.broker_row(
                     available=True, positions=position_count,
                     completeness=observation["completeness"],
@@ -3337,9 +3356,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                     command_as_of=commands["updated_at"],
                     as_of=observation["observed_at"],
                     recovery=broker_recovery,
-                    valid_until=_runtime_valid_until(
-                        recovery_cycle, observation["observed_at"],
-                        broker_fact=True))
+                    valid_until=broker_valid_until)
                 if (trading_row is not None and observation['completeness']=='INCONSISTENT'
                         and recovery_cycle and recovery_cycle.get('observation_callback')
                         and recovery_cycle.get('cycle_id') == trading_row.trading_run.intent.cycle_id

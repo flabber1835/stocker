@@ -45,12 +45,18 @@ Do not use looser proof expiry or suppressed grey styling to hide this bug.
 The independent account/execution collector refreshes durable observations on
 its own cadence. A market-data retry wake must neither expire a 17-second-old
 account snapshot nor renew the same snapshot until tomorrow after a phase change.
-For account and broker facts, retain the existing ten-minute bound from the
-original observation regardless of REFRESH, PREPARE or WAITING_OPEN phase.
+For independently collected account facts, retain the existing ten-minute bound
+from the original observation regardless of REFRESH, PREPARE or WAITING_OPEN phase.
 Never refresh that anchor from page time or an unrelated scheduler update.
 Preserve all stricter reservation, protected-order and callback guards and the
 existing execution authority checks. Book/plan and backup clocks keep their
 distinct owners. Update the older operator-monitoring policy to match.
+
+The first installed candidate applied this account rule too broadly to the
+event-driven broker execution observation. The readiness gate correctly refused
+it. [The distinct-producer correction](account-and-execution-observation-clocks.md)
+restores that row's existing scheduled execution-obligation clock, with original
+saved timestamps, active/journal-hazard caps and no new broker authority.
 
 ## Row-clock producer contract
 

@@ -116,9 +116,13 @@ Freshness follows producer cadence rather than a four-calendar-day tolerance:
   sessions behind is not green;
 - automation leader and authority verdict budgets remain derived from their
   heartbeat/check cadences;
-- an account or broker observation is current for ten minutes from its original
-  independent collector observation, regardless of the trading cycle's phase
-  or next wake; stricter reservation and protected-order boundaries still apply;
+- an account observation is current for ten minutes from its original independent
+  collector observation, regardless of the trading cycle's phase or next wake;
+  stricter reservation and protected-order boundaries still apply;
+- the explicitly saved broker execution snapshot keeps its original timestamp
+  and is due at its execution owner's next required check. Active execution,
+  reconciliation or outstanding journal/order hazards retain the ten-minute
+  bound. A fresh account append supplies no new position/order completeness;
 - canonical book, exposure, and terminal evidence are current through the next
   required exchange-session decision. Session identity disagreement is red;
   elapsed holiday/weekend calendar time alone is not an outage;
