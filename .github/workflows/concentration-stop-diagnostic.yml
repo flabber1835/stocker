@@ -1,0 +1,59 @@
+name: Concentration stop episode diagnostic
+on:
+  push:
+    branches: [codex/concentration-stop-diagnostic]
+    paths: ['research/concentration_stop/request.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  screen:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/concentration-stop-diagnostic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    concurrency:
+      group: concentration-stop-diagnostic-20261109
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: flabber1835/stocker
+          ref: 0bc38753ac1f85b31eb95f560720e6b037e892c5
+          path: legacy
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: flabber1835/stocker
+          ref: 553590ca197c55942aadeb690d5436abd49a35d1
+          path: reconciliation
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install locked transport dependencies
+        timeout-minutes: 4
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r legacy/research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r legacy/research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify source-bound DATA imports
+        timeout-minutes: 2
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/concentration_stop/job.py --mode probe --legacy "$GITHUB_WORKSPACE/legacy" --transport "$GITHUB_WORKSPACE/reconciliation"'
+      - name: Authenticate and run offline episode screen
+        timeout-minutes: 16
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/concentration_stop/job.py --mode run --legacy "$GITHUB_WORKSPACE/legacy" --transport "$GITHUB_WORKSPACE/reconciliation" --output artifacts/capital-risk/concentration-stop-receipt.json'
+      - name: Preserve stopped encrypted diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: concentration-stop-${{ github.sha }}
+          path: artifacts/capital-risk/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
