@@ -49,6 +49,10 @@ HOST_DELTA = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
     'tests/scripts/test_sentinel_maintenance_reader_handover.py','docs/operation-owned-integrity-work.md'})
 TOOL_PATH = 'scripts/sentinel_maintenance_reader_handover.py'
 TOOL_TEST = 'tests/scripts/test_sentinel_maintenance_reader_handover.py'
+LINEAGE_HOST_TESTS = frozenset({TOOL_TEST,'tests/scripts/test_sentinel_backed_predecessor.py',
+    'tests/scripts/test_sentinel_backed_local_patch.py'})
+LINEAGE_HOST_DELTA = LINEAGE_HOST_TESTS | {
+    TOOL_PATH,'scripts/sentinel_backed_local_patch.py','docs/local-paper-delivery.md'}
 
 
 def safe_path(value):
@@ -141,17 +145,22 @@ def qualified_host(executable, report_path, report_sha256, application_commit):
         and report.get('source_scope') == qualification.OPERATIONAL_SCOPE,
         'READER_HOST_QUALIFICATION_SCOPE_REQUIRED')
     same = commit == application_commit
-    qualification.validate_report(report_path,report_sha256,source,commit,
+    report = qualification.validate_report(report_path,report_sha256,source,commit,
         report.get('predecessor_commit') if same else application_commit)
-    if not same:
-        changes = qualification.git(source,'diff','--name-status','--no-renames',application_commit,commit).splitlines()
-        require(len(changes) == len(HOST_DELTA) and all(row.startswith('M\t') for row in changes)
-            and {row[2:] for row in changes} == HOST_DELTA, 'READER_HOST_DELTA_REFUSED')
-    else:
+    if same:
+        qualified_paths = {TOOL_PATH,TOOL_TEST}
         require(any(TOOL_TEST in row['command'] for row in report['results']),
             'READER_APPLICATION_TOOL_TEST_MISSING')
+    else:
+        changes = qualification.git(source,'diff','--name-status','--no-renames',application_commit,commit).splitlines()
+        qualified_paths = {row[2:] for row in changes}
+        require(len(changes) == len(qualified_paths) and all(row.startswith('M\t') for row in changes)
+            and qualified_paths in (HOST_DELTA,LINEAGE_HOST_DELTA), 'READER_HOST_DELTA_REFUSED')
+        if qualified_paths == LINEAGE_HOST_DELTA:
+            covered_tests = {arg for row in report['results'] for arg in row['command']}
+            require(LINEAGE_HOST_TESTS <= covered_tests, 'READER_HOST_LINEAGE_TESTS_MISSING')
     executable_sha = qualification.sha256_file(executable)
-    require((({TOOL_PATH,TOOL_TEST} if same else HOST_DELTA) <= report['source_files'].keys())
+    require(qualified_paths <= report['source_files'].keys()
         and report['source_files'][TOOL_PATH] == executable_sha, 'READER_HOST_EXECUTABLE_UNQUALIFIED')
     return dict(source=str(source),commit=commit,executable_sha256=executable_sha,
         qualification=str(report_path),qualification_sha256=report_sha256)

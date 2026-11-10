@@ -113,6 +113,38 @@ tools do not understand referenced operations. An installed build whose original
 foundation is no longer the running predecessor cannot authorize another roll;
 artifact reuse never substitutes for current predecessor admission.
 
+### Receipt lineage after repeated local releases
+
+The November 10 pre-open application handoff verified its sixteenth local
+receipt. The reader handoff then refused its original activation anchor at
+depth 16. All 17 receipt paths were distinct and all retained link digests
+matched. The depth ceiling also prevents the next application installer from
+using the newly verified release as its predecessor.
+
+Walk the exact receipt path iteratively to its activation receipt. Refuse
+revisited canonical paths, unsafe paths, missing bytes, changed link digests
+and any existing journal, build or qualification mismatch. The hash read for
+each link also serves the successor's incoming digest check. Fold the loaded
+records back from the activation root, applying the existing foundation,
+Postgres, archive, started-receipt and repair checks in lineage order. Retain
+unique source roots in first-encounter order from the activation anchor.
+Receipt depth supplies no authority and has no fixed ceiling. Existing
+receipts and their signed evidence keep their original meaning.
+
+This is an independent host tool correction for the already verified runtime.
+The reader admission allows a distinct exact six-file host delta containing
+the backed adapter, reader handoff executable, their direct test files, the
+backed delivery test whose storage fixture used recursive traversal, and this
+document. The host qualification must use the exact installed runtime
+commit as its predecessor, attest the full operational source inventory and
+show execution of all three affected test files. The earlier exact reader-only host
+delta and the identical application-report route retain their existing checks.
+Use the new qualified host executable with the unchanged application receipt
+and runtime qualification for the reader handoff. Once qualified, the local
+installer selector may atomically select that host source for future backed
+installs. Preserve the runtime image, database, saved plan and existing
+receipt chain throughout the host update.
+
 The following are templates, not literal paths or identities. Replace every
 angle-bracket placeholder with the independently verified value. These shell
 examples run in Linux/WSL; never shell-source the installed `.env`.

@@ -351,41 +351,54 @@ def test_completed_baseline_storage_guard_has_falsifier(monkeypatch):
 
 
 @pytest.mark.parametrize('fault',[None,'container','image','volume','source','command','system','backwards'])
-def test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,fault):
-    from types import SimpleNamespace
+def test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,fault):
+    from tests.scripts.test_sentinel_backed_predecessor import complete
+
     root=tmp_path/'source';(root/'.git').mkdir(parents=True)
-    prior=tmp_path/'prior.json';prior.write_text('{}')
+    activation=root/'artifacts/sentinel/authority/deployments/initial/activation-receipt.json'
+    activation.parent.mkdir(parents=True)
+    seed=dict(commit='0'*40,image='sha256:'+'0'*64)
+    activation.write_text(json.dumps(dict(schema='sentinel.activation-receipt/1',
+        operational_ready=True,activation_mode='dual',completed_at='2026-01-01T00:00:00Z',
+        git_commit=seed['commit'],runtime_image=seed['image'],control_generation=7,
+        certificate_sha256='c'*64)))
     before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
     if fault in {'container','image','volume','source','command'}:after[fault]='foreign'
     if fault=='backwards':after['started']='2025-01-01T00:00:00Z'
-    anchor=dict(git_commit='1'*40,runtime_image='sha256:'+'a'*64,postgres=before,system='123',
-        control_generation=7,certificate_sha256='certificate',roots=(root,))
-    foundation=dict(commit=anchor['git_commit'],image=anchor['runtime_image'],postgres=after,system='123')
-    candidate=dict(commit='2'*40,image='sha256:'+'b'*64,source_identity='identity')
-    report=dict(commit=candidate['commit'],final=True,source_files_unchanged=True,source_files={'one':'hash'})
-    qualified=tmp_path/'qualification.json';qualified.write_text(json.dumps(report))
-    qualification=dict(report_path=str(qualified),report_sha256=patch.sha256_file(qualified),source_files=report['source_files'])
-    request=dict(candidate=candidate,source=str(root),deployment=str(root),predecessor=foundation,qualification=qualification)
-    record=dict(stage='VERIFIED',artifacts=dict(postgres=after,
-        preserved={'system':'foreign' if fault=='system' else '123'},native_positions={},notification_history={}))
-    receipt=tmp_path/'receipt.json';receipt.write_text(json.dumps(record))
-    built=dict(schema=patch.builder.BUILD_SCHEMA,**candidate,source=str(root),deployment=str(root),
-        foundation=foundation,qualification=qualification,
-        predecessor_receipt=dict(path=str(prior),sha256=patch.sha256_file(prior)))
-    monkeypatch.setattr(patch,'Journal',lambda _:SimpleNamespace(request=request,read=lambda:record))
-    monkeypatch.setattr(patch.builder,'operation_build',lambda _:built)
-    original=patch.predecessor_witness
-    monkeypatch.setattr(patch,'predecessor_witness',lambda path,**kw:anchor if Path(path)==prior else original(path,**kw))
+
+    def completed_link(name,prior,foundation,selected,pg,system):
+        operation=tmp_path/name;operation.mkdir()
+        candidate=dict(selected,source_identity={k:'e'*64 for k in ('source','wealth','shadow_config')})
+        report=dict(commit=candidate['commit'],final=True,source_files_unchanged=True,
+                    source_files={'sentinel/module.py':'f'*64})
+        qualified=operation/'qualification.json';qualified.write_text(json.dumps(report))
+        qualification=dict(report_path=str(qualified),report_sha256=patch.sha256_file(qualified),
+            commit=candidate['commit'],passed=True,source_files=report['source_files'])
+        request=dict(schema='sentinel.local-paper-delivery/3',operation_id=name,handoff_mode='PRE_OPEN',
+            source=str(root),deployment=str(root),predecessor=foundation,candidate=candidate,
+            qualification=qualification,allowed_delta=['sentinel/module.py'],created_at='2026-01-02T00:00:00Z')
+        built=dict(schema=patch.builder.BUILD_SCHEMA,**candidate,source=str(root),deployment=str(root),
+            foundation=foundation,qualification={k:qualification[k] for k in ('report_path','report_sha256')},
+            predecessor_receipt=dict(path=str(prior),sha256=patch.sha256_file(prior)))
+        return complete(dict(operation=operation,request=request,built=built,pg=pg),
+                        artifacts=dict(preserved={'system':system}))
+
+    previous=dict(commit='1'*40,image='sha256:'+'a'*64)
+    prior=completed_link('before-restart',activation,dict(seed,postgres=before,system='123'),
+                         previous,before,'123')
+    successor=dict(commit='2'*40,image='sha256:'+'b'*64)
+    receipt=completed_link('after-restart',prior,dict(previous,postgres=after,system='123'),
+                           successor,after,'foreign' if fault=='system' else '123')
     if fault:
-        with pytest.raises(patch.DeliveryRefused):original(receipt)
-    else:assert original(receipt)['postgres']==after
+        with pytest.raises(patch.DeliveryRefused):patch.predecessor_witness(receipt)
+    else:assert patch.predecessor_witness(receipt)['postgres']==after
     assert before['started']=='2026-01-01T00:00:00Z'
 
 
 def test_completed_ancestry_storage_guard_has_falsifier(tmp_path,monkeypatch):
     monkeypatch.setattr(patch,'require_same_postgres_storage',lambda *a:None)
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
-        test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,'volume')
+        test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,'volume')
 
 
 @pytest.mark.parametrize('fault', [None,'not_selected','not_started','financial','native',

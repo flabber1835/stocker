@@ -1,7 +1,9 @@
 """A completed local patch is a predecessor, not another activation grant."""
+from collections import Counter
 from copy import deepcopy
 import inspect
 import json
+from pathlib import Path
 import textwrap
 
 import pytest
@@ -105,11 +107,107 @@ def test_incomplete_or_changed_lineage_cannot_become_a_predecessor(chain,fault):
     with pytest.raises(patch.DeliveryRefused):patch.predecessor_witness(path)
 
 
-def test_repeated_or_excessive_chain_is_refused(chain):
+def test_a_previously_visited_path_is_refused(chain):
     path=complete(chain)
-    for trail in ((path.resolve(),),tuple(chain['operation']/str(i) for i in range(16))):
-        with pytest.raises(patch.DeliveryRefused,match='CHAIN_INVALID'):
-            patch.predecessor_witness(path,trail=trail)
+    with pytest.raises(patch.DeliveryRefused,match='CHAIN_INVALID'):
+        patch.predecessor_witness(path,trail=(path.resolve(),))
+
+
+def linked_receipts(chain, *, allow_started=True):
+    """Persist the genuine journal, build and qualification for each edge."""
+    predecessor=chain['anchor']
+    foundation=deepcopy(chain['request']['predecessor'])
+    receipts=[]
+    roots=[chain['anchor_root']]
+    for number in range(1,21):
+        operation=chain['operation'].parent/f'operation-{number}'
+        operation.mkdir()
+        source=chain['source'] if number%4==0 else operation/'source'
+        (source/'.git').mkdir(parents=True,exist_ok=True)
+        roots.append(source)
+        request=deepcopy(chain['request'])
+        commit=f'{number:040x}'
+        image=f'sha256:{number:064x}'
+        request.update(operation_id=f'private-linked-patch-{number}',source=str(source),
+                       predecessor=foundation)
+        request['candidate'].update(commit=commit,image=image)
+        report=operation/'qualification.json'
+        qualification=request['qualification']
+        report.write_text(json.dumps(dict(commit=commit,final=True,source_files_unchanged=True,
+                                         source_files=qualification['source_files'])))
+        qualification.update(commit=commit,report_path=str(report),
+                             report_sha256=patch.sha256_file(report))
+        prior=dict(path=str(predecessor),sha256=patch.sha256_file(predecessor))
+        if number==4 and allow_started:
+            prior['allow_started']=True
+        built=deepcopy(chain['built'])
+        built.update(commit=commit,image=image,source=str(source),foundation=foundation,
+                     predecessor_receipt=prior,
+                     qualification={key:qualification[key] for key in ('report_path','report_sha256')})
+        proof={'retained_canonical_proof':True}
+        artifacts=(dict(canonical_proof=proof,successor_proof_sha256=patch.digest(proof))
+                   if number==3 else None)
+        predecessor=complete(dict(chain,operation=operation,source=source,request=request,built=built),
+                             final_stage='APPLICATIONS_STARTED' if number==3 else 'VERIFIED',
+                             artifacts=artifacts)
+        receipts.append(predecessor)
+        foundation=dict(foundation,commit=commit,image=image)
+    return receipts,tuple(dict.fromkeys(roots)),foundation
+
+
+def test_long_receipt_chain_retains_all_unique_ordered_roots_and_started_edge(chain,monkeypatch):
+    receipts,roots,head=linked_receipts(chain)
+    seen=[]
+    receipt_hashes=Counter()
+    hashed_paths={chain['anchor'],*receipts}
+    original_hash=patch.sha256_file
+
+    def hash_file(path):
+        if Path(path) in hashed_paths:
+            receipt_hashes[Path(path)]+=1
+        return original_hash(path)
+
+    monkeypatch.setattr(patch,'sha256_file',hash_file)
+
+    def inspect_image(ref):
+        seen.append(ref)
+        return dict(Id=OLD_IMAGE,Config={'Labels':{'org.opencontainers.image.revision':OLD}})
+
+    witness=patch.predecessor_witness(receipts[-1],inspect_image=inspect_image)
+    assert witness['git_commit']==head['commit'] and witness['runtime_image']==head['image']
+    assert witness['roots']==roots and seen==[OLD_IMAGE]
+    assert receipt_hashes==Counter({path:1 for path in hashed_paths})
+    assert witness['postgres']==chain['pg'] and witness['system']=='1234'
+    assert witness['certificate_sha256']=='c'*64 and witness['control_generation']==50
+    assert witness['unfinished'] is False
+
+
+@pytest.mark.parametrize('fault,code', [
+    ('cycle','CHAIN_INVALID'),('receipt_bytes','ANCHOR_CHANGED'),
+    ('started_edge','VERIFIED_PREDECESSOR_REQUIRED'),
+])
+def test_long_receipt_chain_preserves_deep_edge_refusals(chain,fault,code):
+    receipts,_,_=linked_receipts(chain,allow_started=fault!='started_edge')
+    if fault=='cycle':
+        build=receipts[0].parent/'build.json'
+        value=json.loads(build.read_text())
+        value['predecessor_receipt']=dict(path=str(receipts[-1]),sha256=patch.sha256_file(receipts[-1]))
+        build.write_text(json.dumps(value))
+    elif fault=='receipt_bytes':
+        receipts[0].write_text(receipts[0].read_text()+'\n')
+    with pytest.raises(patch.DeliveryRefused,match=code):
+        patch.predecessor_witness(receipts[-1])
+
+
+def test_removing_path_visit_guard_is_detected(chain,monkeypatch):
+    raw=textwrap.dedent(inspect.getsource(patch.predecessor_witness))
+    guard='selected not in seen'
+    assert raw.count(guard)==1
+    namespace={}
+    exec(compile(raw.replace(guard,'True'),'<backed-chain-cycle-falsifier>','exec'),patch.__dict__,namespace)
+    monkeypatch.setattr(patch,'predecessor_witness',namespace['predecessor_witness'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_a_previously_visited_path_is_refused(chain)
 
 
 def test_signed_anchor_resolves_to_exact_actual_local_image(chain):

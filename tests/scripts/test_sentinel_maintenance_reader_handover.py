@@ -24,6 +24,10 @@ NEW = 'b'*40
 IMAGE = 'sha256:'+'c'*64
 OLD_IMAGE = 'sha256:'+'d'*64
 KEY = 'private-test-key-only-'*3
+LINEAGE_TESTS = ('tests/scripts/test_sentinel_backed_local_patch.py','tests/scripts/test_sentinel_backed_predecessor.py',
+    'tests/scripts/test_sentinel_maintenance_reader_handover.py')
+LINEAGE_DELTA = frozenset({*LINEAGE_TESTS,'docs/local-paper-delivery.md',
+    'scripts/sentinel_backed_local_patch.py','scripts/sentinel_maintenance_reader_handover.py'})
 
 
 class PowerLoss(BaseException):
@@ -596,13 +600,13 @@ def test_explicit_noncanonical_endpoint_remains_forbidden(lab,endpoint):
 
 class RealHostPackage:
     """Private Git history and the production v2 qualification validator."""
-    def __init__(self,tmp_path):
+    def __init__(self,tmp_path,*,delta=module.HOST_DELTA,command=('pytest','private-fixture')):
         self.source = tmp_path/'host-source'; self.source.mkdir()
         self.report = tmp_path/'host-report.json'; self.log = tmp_path/'host-tests.log'
         self.git('init','--initial-branch=codex/private-host-test')
         self.git('config','user.name','Private fixture')
         self.git('config','user.email','fixture@example.invalid')
-        contents = {name:'# baseline '+name+'\n' for name in module.HOST_DELTA}
+        contents = {name:'# baseline '+name+'\n' for name in delta}
         contents.update({'sentinel/anchor.py':'# immutable runtime\n',
             'sentinel/other.py':'# another immutable runtime input\n',
             'scripts/sentinel_local_delivery/__init__.py':'# immutable imported helper\n',
@@ -611,11 +615,11 @@ class RealHostPackage:
             path = self.source/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_text(text)
         self.commit('private application baseline')
         self.base = self.git('rev-parse','HEAD')
-        for name in module.HOST_DELTA:
+        for name in delta:
             path = self.source/name; path.write_text(path.read_text()+'# reviewed host correction\n')
         self.commit('private host correction')
         self.log.write_text('1 passed in 0.01s\n')
-        self.seal()
+        self.seal(command)
 
     def git(self,*args):
         result = subprocess.run(['git','-c','commit.gpgsign=false','-c','core.autocrlf=false',*args],
@@ -626,7 +630,7 @@ class RealHostPackage:
     def commit(self,message):
         self.git('add','-A'); self.git('commit','-m',message)
 
-    def seal(self):
+    def seal(self,command=('pytest','private-fixture')):
         commit = self.git('rev-parse','HEAD')
         dump(self.report,dict(schema=module.qualification.OPERATIONAL_SCHEMA,
             source_scope=module.qualification.OPERATIONAL_SCOPE,commit=commit,predecessor_commit=self.base,
@@ -634,7 +638,7 @@ class RealHostPackage:
                 scope=module.qualification.OPERATIONAL_SCOPE,predecessor_commit=self.base),
             source_files_unchanged=True,final=True,results=[dict(name='private-fixture-result',
                 exit_code=0,passed=1,skipped=0,deselected=0,log=str(self.log),
-                log_sha256=module.qualification.sha256_file(self.log),command=['pytest','private-fixture'])]))
+                log_sha256=module.qualification.sha256_file(self.log),command=list(command))]))
         self.sha = module.qualification.sha256_file(self.report)
 
     def validate(self,**kwargs):
@@ -653,6 +657,43 @@ def test_real_host_git_and_complete_qualification_bind_independent_program(real_
         executable_sha256=module.qualification.sha256_file(real_host.source/module.TOOL_PATH),
         qualification=str(real_host.report),qualification_sha256=real_host.sha)
     assert result['commit'] != real_host.base
+
+
+def test_lineage_host_qualifies_exact_six_file_delta_with_all_affected_tests(tmp_path):
+    package = RealHostPackage(tmp_path,delta=LINEAGE_DELTA,command=('pytest',*LINEAGE_TESTS))
+    result = package.validate()
+    assert result['commit'] == package.git('rev-parse','HEAD')
+    assert result['qualification_sha256'] == package.sha
+    assert result['executable_sha256'] == module.file_sha(package.source/module.TOOL_PATH)
+    assert module.read_json(package.report)['predecessor_commit'] == package.base
+
+
+@pytest.mark.parametrize('missing_test',LINEAGE_TESTS)
+def test_lineage_host_requires_all_complete_test_modules(tmp_path,monkeypatch,missing_test):
+    covered_tests = tuple(path for path in LINEAGE_TESTS if path != missing_test)
+    package = RealHostPackage(tmp_path,delta=LINEAGE_DELTA,
+        command=('pytest',*covered_tests,missing_test+'::one_case'))
+    with pytest.raises(DeliveryRefused,match='HOST_LINEAGE_TESTS_MISSING'):
+        package.validate()
+    require = module.require
+
+    def without_test_coverage_guard(condition,reason):
+        if reason != 'READER_HOST_LINEAGE_TESTS_MISSING':
+            require(condition,reason)
+
+    monkeypatch.setattr(module,'require',without_test_coverage_guard)
+    assert package.validate()['commit'] == package.git('rev-parse','HEAD')
+
+
+@pytest.mark.parametrize('delta',[
+    LINEAGE_DELTA | {'sentinel/anchor.py'},
+    LINEAGE_DELTA | {'docs/operation-owned-integrity-work.md'},
+    LINEAGE_DELTA - {'tests/scripts/test_sentinel_backed_local_patch.py'},
+],ids=['extra-runtime','extra-legacy','missing-backed-test'])
+def test_lineage_host_refuses_inexact_delta(tmp_path,delta):
+    package = RealHostPackage(tmp_path,delta=delta,command=('pytest',*LINEAGE_TESTS))
+    with pytest.raises(DeliveryRefused,match='HOST_DELTA_REFUSED'):
+        package.validate()
 
 
 @pytest.mark.parametrize('mutation,reason',[
