@@ -48,7 +48,7 @@ def test_withdrawal_cannot_hide_an_original_negative(monkeypatch,key,status):
 
 
 def test_original_negative_guard_has_executed_falsifier(monkeypatch):
-    guard=" assert negatives<=startup|retiring,'NONSTARTUP_READINESS_FAILURE'\n"
+    guard=" assert negatives<=startup|retiring|unavailable,'NONSTARTUP_READINESS_FAILURE'\n"
     assert readiness.PANEL_WAIT.count(guard)==1
     monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(guard,''))
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):

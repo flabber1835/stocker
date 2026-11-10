@@ -40,7 +40,7 @@ def recorded_pages(monkeypatch, *, partial=False):
         if row.key == 'paper_reconciliation' else row for row in raw.rows])
     if partial:
         pending = replace(pending, observation_current=False, observation_changed_scopes=('PAPER',),
-            observation_display_current=True, observation_display_keys=tuple(row.key for row in pending.rows))
+            observation_revalidated_keys=('paper_reconciliation',), observation_display_current=False)
     run = raw.row('trading_run').trading_run
     expected = dict(handoff_mode='POST_TRADE', clean_retired=True, plan=run.intent.plan_id,
         cycle_id=run.intent.cycle_id, decision=str(run.intent.decision_session),

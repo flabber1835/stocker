@@ -179,3 +179,32 @@ refuse even when all candidate IDs still match.
 
 Diagnostic formatting is best effort and cannot replace the original refusal,
 including malformed Unicode or a failed private stderr sink.
+
+## Partial publication withdraws authority before it can be checked
+
+Decision before implementation after the H4 recovery's first HTTP observation:
+PAPER was a current bounded CHECKING fact while changed PAPER scope withdrew
+broker/run/workflow authority models. Public withdrawal correctly means
+current=false, status=pending, neutral styling, no typed payload/fact/outcomes;
+original_status and clocks preserve last-view evidence. It must not be fed to a
+current TradingRun validator or treated as proof of safe retirement.
+
+Handle and validate the existing partial protocol before the full-current H4
+join. In clean-retired POST_TRADE mode only, genuinely current required typed
+PAPER FINANCIAL_VERIFICATION/CHECKING under its unchanged finite deadline may
+wait for these closed withdrawn last-view keys: broker, trading_run,
+automation_cycle, automation_step_transport, automation_step_reconcile and
+automation_step_complete. Their original fail/unknown remains unavailable
+evidence, unchanged; it earns neither a current classification nor readiness.
+Every current negative remains a refusal, as do original authority/financial
+negatives outside that closed withdrawn set. Require the ordinary closed
+SHADOW/PAPER changed-scope or retained grammar, neutral pending presentation and
+fully scrubbed fields. No new SQL reader, authentication pass, invented model,
+or proof reconstruction belongs in this path.
+
+Once a full-current publication exists, all existing H4 exact history/candidate/
+expiry/source guards and the unchanged strict final validator run. A perpetual
+partial view ends at the original host/check deadlines. First-observation
+producer-serialization regressions cover the actual model withdrawal, preserved
+UNKNOWN, forged current/checking metadata, unsanitized payloads, unrelated and
+current negatives, and final refusal after a partial wait.

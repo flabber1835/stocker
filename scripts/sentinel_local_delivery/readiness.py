@@ -195,13 +195,25 @@ def partial_wait(page,rows,checking,workflows,retiring):
    assert row.get('order_outcomes')==[]
   else:
    assert row.get('color')=={'ok':'green','warn':'amber','pending':'amber','fail':'red','unknown':'red'}[original]
- assert negatives<=startup|retiring,'NONSTARTUP_READINESS_FAILURE'
+ unavailable=set()
+ if (expected.get('handoff_mode')=='POST_TRADE' and expected.get('clean_retired') is True
+     and 'paper_reconciliation' in checking):
+  paper=rows['paper_reconciliation'];fact=OperationalFact.model_validate(paper['operational_fact']);fact.require_key('paper_reconciliation')
+  assert fact.kind=='PAPER_VERIFICATION' and fact.state=='CHECKING','READINESS_WITHDRAWN_PAPER_CHECK'
+  assert paper['current'] is True and paper['required_current'] is True and paper['stale'] is False and paper['future'] is False,'READINESS_WITHDRAWN_PAPER_CURRENT'
+  bound=datetime.fromisoformat(paper['valid_until']);instant=datetime.now(timezone.utc);progress=paper['recovery']
+  assert bound.utcoffset()==timedelta(0) and instant<bound<=instant+timedelta(seconds=600),'READINESS_WITHDRAWN_PAPER_DEADLINE'
+  assert progress['active'] is True and progress['phase']=='FINANCIAL_VERIFICATION' and progress['automatic'] is True and progress['operator_required'] is False and datetime.fromisoformat(progress['deadline'])==bound,'READINESS_WITHDRAWN_PAPER_RECOVERY'
+  unavailable={key for key in ('broker','trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete')
+   if rows[key]['current'] is False}
+ assert negatives<=startup|retiring|unavailable,'NONSTARTUP_READINESS_FAILURE'
  assert not any(row.get('original_status')=='fail' and key in startup
   for key,row in rows.items()),'NONSTARTUP_READINESS_FAILURE'
  if expected.get('handoff_mode')=='POST_TRADE':
   run=rows['trading_run']
-  assert (run.get('original_status') in {'fail','warn'} if 'trading_run' in retiring
-    else run.get('original_status')==('warn' if expected.get('clean_retired') else 'ok'))
+  if 'trading_run' not in unavailable:
+   assert (run.get('original_status') in {'fail','warn'} if 'trading_run' in retiring
+     else run.get('original_status')==('warn' if expected.get('clean_retired') else 'ok'))
   assert run.get('stale') is False and run.get('future') is False
   if run.get('current'):
    assert run['trading_run']['state']==('SUPERSEDED' if expected.get('clean_retired') else 'SUCCEEDED')
@@ -217,7 +229,7 @@ def partial_wait(page,rows,checking,workflows,retiring):
  if observation['current'] is False: assert review is None
  else:
   assert review is None or isinstance(review,dict)
-  if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows|retiring
+  if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows|retiring|unavailable
  health=page['dashboard_health'];assert isinstance(health,dict)
  conditions=set(health['active_conditions'])|set(health['review_conditions'])
  assert conditions<=startup|withdrawn|checking|workflows|retiring,'NONSTARTUP_READINESS_FAILURE'
@@ -265,11 +277,12 @@ def pending(page,header):
     bound=datetime.fromisoformat(recovery['deadline'])
     assert bound.utcoffset() is not None and instant<bound
     workflows.add(key)
- retiring=clean_retired_projection_wait(rows,checking,instant,page)
+ retiring=set()
  if header=='PARTIAL':
   return partial_wait(page,rows,checking,workflows,retiring)
  if strict is False:
   return partial_wait(page,rows,checking,workflows,retiring)
+ retiring=clean_retired_projection_wait(rows,checking,instant,page)
  post_trade=expected.get('handoff_mode')=='POST_TRADE'
  plan=((rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade
        else rows.get('paper_plan',{}).get('paper_plan'))

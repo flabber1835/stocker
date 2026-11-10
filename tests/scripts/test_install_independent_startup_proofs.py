@@ -29,7 +29,7 @@ def wire(panel):
         observation_valid_until=operational_snapshot.original_boundary(panel)))
 
 
-def startup_case(monkeypatch, *, native_status=model.OK, commands=None):
+def startup_case(monkeypatch, *, native_status=model.OK, commands=None, partial=False):
     # Load native date extensions before replacing only the test clock class.
     # The runtime uses the normal datetime class and needs no such preloading.
     from sentinel.feed import calendar
@@ -66,7 +66,12 @@ def startup_case(monkeypatch, *, native_status=model.OK, commands=None):
                     if row.key == 'paper_reconciliation' else None,
                 recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION', automatic=True, deadline=CHECK_DEADLINE))
         rows.append(row)
-    pending = wire(replace(raw, rows=rows))
+    pending_panel = replace(raw, rows=rows)
+    if partial:
+        pending_panel = replace(pending_panel, observation_current=False,
+            observation_changed_scopes=('PAPER',), observation_revalidated_keys=('paper_reconciliation',),
+            observation_display_current=False, observation_generated_at=NOW)
+    pending = wire(pending_panel)
     positive = recorded.recorded_interruption_panel(project=False)
     positive = replace(positive, rows=model.project_opening_rows([
         replace(row, status=model.OK, operational_fact=candidate) if row.key == 'broker' else row
