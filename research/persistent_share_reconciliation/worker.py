@@ -557,6 +557,7 @@ def synthetic_tests():
     import inspect
     from sentinel.execution import held_targets
     from sentinel.execution.projection import project
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
     from sentinel.execution.numeric import exact_decimal
     from sentinel.core.decision import ShadowTarget
     from holding_account import Account,Intent,RawOpen,trade,accrue,pay,snapshot,restore
@@ -565,7 +566,7 @@ def synthetic_tests():
         need(condition,'SYNTHETIC_'+name);checks.append(name)
     def refuses(name,call):
         try:call()
-        except (ValueError,TypeError,AssertionError):checks.append(name);return
+        except (ValueError,TypeError,AssertionError,TargetProjectionRefused):checks.append(name);return
         raise ValueError('SYNTHETIC_DID_NOT_REFUSE_'+name)
     ep=dict(slot_id=1,current_shares=132,security_id='A',signal_date='2017-01-03')
     before=NS(wealth_core={'episodes':{'1':ep}},pending=[],last_processed_session='2018-01-02')
