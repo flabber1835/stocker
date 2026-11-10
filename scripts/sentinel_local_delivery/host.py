@@ -516,7 +516,7 @@ print(json.dumps(result,sort_keys=True))
         require(actual==self.request['predecessor']['postgres'], 'POSTGRES_PHYSICAL_IDENTITY_CHANGED')
         return actual
 
-    def probe(self, commit, image, values=None):
+    def _probe_inputs(self, commit, image, values=None):
         require(re.fullmatch('[0-9a-f]{40}',commit or '') is not None
             and re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
             'IMAGE_IDENTITY_PROBE_SUBJECT_INVALID')
@@ -527,13 +527,28 @@ print(json.dumps(result,sort_keys=True))
             'SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH',
             'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY')}
         canonical=json.dumps(config,sort_keys=True,separators=(',',':'),ensure_ascii=True)
-        key=(image,commit,canonical)
+        return config,(image,commit,canonical)
+
+    def _economic_probe_fact(self, commit, image):
+        facts=getattr(self,'_image_economic_facts',{})
+        if not facts:
+            return None
+        _config,key=self._probe_inputs(commit,image)
+        value=facts.get(key)
+        require(value is None or isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value) is not None,
+                'ECONOMIC_PROBE_FACT_MALFORMED')
+        return value
+
+    def probe(self, commit, image, values=None):
+        config,key=self._probe_inputs(commit,image,values)
         probes=getattr(self,'_image_identity_probes',{})
         if key in probes:
             return deepcopy(probes[key])
         code = '''import hashlib,json,re,sys
 from decimal import Decimal
 from sentinel import identity,shadow_runtime
+from sentinel.authority import canonical_sha256
+from sentinel.strategy import production_strategy
 config=json.loads(sys.argv[1])
 name=config['SENTINEL_SHADOW_OBSERVATION_ID'].strip()
 cash=Decimal(config['SENTINEL_SHADOW_STARTING_CASH'].strip())
@@ -543,17 +558,22 @@ assert config['SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY']==shadow_runtime.SHADO
 r=identity.rehearsal_identity()
 assert r['environment']['compatible'] is True
 c=dict(schema='sentinel.shadow-reviewed-config/1',observation_id=name,starting_cash=format(cash.normalize(),'f'),execution_model=shadow_runtime.SHADOW_EXECUTION_MODEL,cutoff_policy=shadow_runtime.SHADOW_CUTOFF_POLICY,publication_timing_policy=shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY,validated_source_identity_sha256=r['identity_hash'])
-print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(json.dumps(c,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest(),wealth=r['environment']['wealth_core_source']['hash'])))
+print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(json.dumps(c,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest(),wealth=r['environment']['wealth_core_source']['hash'],strategy=canonical_sha256(production_strategy()[1]))))
 '''
         result=json.loads(self.run(['docker','run','--rm','--pull=never','--network','none',
             '--cpus','0.5','--memory','384m','-e','SENTINEL_GIT_COMMIT='+commit,
             '-e','SENTINEL_RUNTIME_IMAGE_DIGEST='+image,'-e','SENTINEL_TEST_IMAGE_DIGEST='+image,
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
-        require(isinstance(result,dict) and set(result)=={'source','shadow_config','wealth'}
+        identity_keys={'source','shadow_config','wealth'}
+        require(isinstance(result,dict) and set(result) in (identity_keys,identity_keys|{'strategy'})
             and all(isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value) is not None
                     for value in result.values()),'IMAGE_IDENTITY_PROBE_MALFORMED')
-        self._image_identity_probes={**probes,key:deepcopy(result)}
-        return deepcopy(result)
+        public={name:result[name] for name in identity_keys}
+        if 'strategy' in result:
+            facts=getattr(self,'_image_economic_facts',{})
+            self._image_economic_facts={**facts,key:result['strategy']}
+        self._image_identity_probes={**probes,key:deepcopy(public)}
+        return deepcopy(public)
 
     def verify_candidate(self):
         require(handoff_mode(self.request)!='POST_TRADE_SUCCESSOR'

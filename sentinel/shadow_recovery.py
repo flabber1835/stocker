@@ -180,6 +180,10 @@ def advance_once(config: base.ShadowServiceConfig, *,
                  now: Optional[datetime] = None) -> dict:
     """Advance normally, or roll to a fresh prospective segment after a gap."""
     instant = _utc(now)
+    if config.operational_source_only:
+        # This explicit mode cannot enter legacy segment rollover. The rolling
+        # service owns its canonical lineage proof and all current guards.
+        return base.advance_once(config, now=instant)
     retained = base.preflight(
         config, now=instant, allow_stale_frontier=True)
     status = str(retained.get("status") or "")

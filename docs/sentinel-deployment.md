@@ -1,5 +1,12 @@
 # Sentinel current operating contract
 
+[Installation critical-path reuse](installation-critical-path-reuse.md) removes
+repeated rolling dispatch reconstruction, stale queued verification work and
+avoidable result-publication delay while retaining every financial gate and
+original deadline. It also consolidates independent immutable image facts in
+their existing isolated bootstrap. Qualification and local delivery are required
+before this becomes the installed operating release.
+
 [Opening proof ownership](opening-proof-work-ownership.md) removes duplicate
 authenticated checkpoint loads inside one committed proof.
 [Opening health continuity](opening-health-state-continuity.md) preserves known

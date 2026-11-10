@@ -206,8 +206,8 @@ class Delivery:
             self.host.verify_candidate()
         elif access_path and stage=='SCHEMA_INSTALLED':
             self.host.verify_candidate()
-        values = self.host.load_values()
         if stage=='NEW':
+            values = self.host.load_values()
             preflight = getattr(self.host, 'preflight_environment', None)
             if preflight is not None:
                 preflight(values)
