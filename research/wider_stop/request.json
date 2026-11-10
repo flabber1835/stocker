@@ -1,0 +1,37 @@
+{
+  "Core_steps": 0,
+  "Sentinel_steps": 0,
+  "activation": "0.10",
+  "closes": 2156,
+  "cohort_episodes": 17,
+  "completed_episodes": 16,
+  "end": "2026-07-31",
+  "forward_sessions": 60,
+  "full_followup": 13,
+  "generation": 1,
+  "legacy_commit": "0bc38753ac1f85b31eb95f560720e6b037e892c5",
+  "original_stop": "0.30",
+  "portfolio_performance_claim": false,
+  "production_contacted": false,
+  "schema": "research.wider-stop-request/1",
+  "sources": {
+    ".github/workflows/wider-stop-diagnostic.yml": "d425e6b1bab9c8bb0551bd3f9950049bd90483b0b92e7fe2372aca3fbfd205b1",
+    "docs/wider-stop-diagnostic-20261109.md": "56fddc2b182bf8a250559894eaceb6eec0d4ab8e24a7e929916a11f6f1dbb2bb",
+    "research/wider_stop/data.py": "0fabf4f675cd1a8e8bf7147e4432399ad61c64b390379bc69cb0b1bd7f258567",
+    "research/wider_stop/job.py": "fb20158b98d55e90be18211ab5b31093daa5f31adb60e42863b043764f8a7fbe",
+    "research/wider_stop/review.py": "b732ed2b9ed21569479449bf4adf4a6bfe69cefeefb90c8726ae92ab5933968e",
+    "research/wider_stop/test_launch_guards.py": "750678051330071f4bf3d49f8ae51d0a8ae46bdf49bf9953e78613283a801d83",
+    "research/wider_stop/test_review_guards.py": "0e8babf0dd8f00dfe7756ef717d6c33c31a8132f030fd07159a02352695579d1",
+    "research/wider_stop/transport.py": "f78ea4ecec9a035ba7e9a9af526938f0595a552ee82aa0a351bf699bac3f1939",
+    "research/wider_stop/worker.py": "a9a717eab11c63559159accae5d6e5d793e9b3cdd8a59cd824ce72fb10062156"
+  },
+  "start": "2018-01-02",
+  "stop_source_commit": "d482a44ace51114d22cc98c3a4ce251410f8d153",
+  "stops": [
+    "0.30",
+    "0.35",
+    "0.40"
+  ],
+  "transport_commit": "553590ca197c55942aadeb690d5436abd49a35d1",
+  "verified_main": "1e7f4b181fbcb998b3086833ab813c21b1c2ca8e"
+}
