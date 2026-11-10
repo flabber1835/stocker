@@ -1,6 +1,6 @@
 """Fresh proof recovers bookkeeping without replaying financial installation."""
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 import importlib
 
 import pytest
@@ -116,3 +116,129 @@ def test_canonical_equality_guard_has_an_executed_falsifier(operation, monkeypat
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_recovery_refuses_current_negative_without_journal_changes(
             operation, monkeypatch, 'canonical', 'CANONICAL_ECONOMIC')
+
+
+def clean_retired_state():
+    return dict(control=dict(generation=77), plan=dict(plan_id='immutable-plan'),
+        reconciliation=dict(seq=247), retired_plan_commands=0,
+        cycle=dict(state='SUPERSEDED', cycle_id='original-cycle', plan_id='immutable-plan',
+            historical_state_only=False, control_generation=77,
+            failure_code=recovery.checks.CASH_RETIRED_REASON,
+            failure_detail=recovery.checks.CASH_RETIRED_DETAIL,
+            last_clean_reconciliation_id='247', completed_at=(model.utcnow()-timedelta(minutes=1)).isoformat(),
+            diagnostic=dict(clean=True, runtime_state='RUNNING', cash_plan_superseded=True,
+                restricted_securities={}, observation_id=247, unresolved=[], foreign_orders=[], foreign_positions=[])))
+
+
+def retired_operation(operation, monkeypatch):
+    host, journal, _ = operation
+    assert journal.read()['stage'] == 'NEW'
+    selected = deepcopy(journal.request);selected['handoff_mode'] = 'POST_TRADE'
+    model.atomic_json(journal.folder/'request.json', selected)
+    journal = model.Journal(journal.folder);host.request = selected
+    host.supports_post_trade = host.supports_post_trade_verification_recovery = True
+    host.state.update(clean_retired_state())
+    original = recovery.evidence.canonical_check
+    def canonical(h, *args):
+        return dict(original(h, *args), settled_native_positions=deepcopy(h.native))
+    monkeypatch.setattr(recovery.evidence, 'canonical_check', canonical)
+    delivery = coordinator.Delivery(host, journal, monotonic=lambda: host.clock, sleep=host.sleep)
+    return expired((host, journal, delivery), monkeypatch)
+
+
+def test_exact_clean_retired_recovery_preserves_original_attempt_and_never_restarts(operation, monkeypatch):
+    host, journal, delivery = retired_operation(operation, monkeypatch)
+    before = journal.read();calls = len(host.calls)
+    result = recovery.recover(delivery, 'clean-retired')
+    assert result['stage'] == 'VERIFIED'
+    assert result['history'][:-1] == before['history']
+    assert all(result['artifacts'][key] == value for key, value in before['artifacts'].items())
+    assert result['artifacts']['preserved']['cycle']['state'] == 'SUPERSEDED'
+    assert result['artifacts']['preserved']['retired_plan_commands'] == 0
+    assert not any(isinstance(call, (tuple, list)) for call in host.calls[calls:])
+    intent = model.read_json(journal.folder/'verification-recovery-clean-retired.json')
+    assert intent['original_receipt'] == before and intent['authority_effect'] == 'NONE'
+    assert intent['original_receipt_sha256'] == model.digest(before)
+    assert (datetime.fromisoformat(intent['expires_at'])-
+            datetime.fromisoformat(intent['started_at'])).total_seconds() == recovery.SECONDS
+
+
+@pytest.mark.parametrize('fault', ['reason', 'detail', 'state', 'clean', 'unknown', 'foreign',
+    'runtime', 'observation', 'generation', 'plan', 'completed', 'future', 'historical'])
+def test_retired_recovery_requires_the_exact_preserved_positive_proof(fault):
+    state = clean_retired_state();cycle = state['cycle']
+    if fault == 'reason':cycle['failure_code'] = 'OTHER_RETIREMENT'
+    elif fault == 'detail':cycle['failure_detail'] = 'other'
+    elif fault == 'state':cycle['state'] = 'RECONCILING'
+    elif fault == 'clean':cycle['diagnostic']['clean'] = 'true'
+    elif fault == 'unknown':cycle['diagnostic']['unresolved'] = ['UNKNOWN']
+    elif fault == 'foreign':cycle['diagnostic']['foreign_positions'] = ['foreign']
+    elif fault == 'runtime':cycle['diagnostic']['runtime_state'] = 'RECONCILING'
+    elif fault == 'observation':state['reconciliation']['seq'] = 248
+    elif fault == 'generation':cycle['control_generation'] = 76
+    elif fault == 'plan':state['plan']['plan_id'] = 'foreign'
+    elif fault == 'completed':cycle['completed_at'] = None
+    elif fault == 'future':cycle['completed_at'] = (model.utcnow()+timedelta(minutes=1)).isoformat()
+    else:cycle['historical_state_only'] = True
+    with pytest.raises(model.DeliveryRefused):
+        recovery._completed_post_trade(dict(preserved=state), now=model.utcnow())
+
+
+@pytest.mark.parametrize('commands', [1, None, False, '0'])
+def test_retired_recovery_refuses_even_known_terminal_commands(commands):
+    state = clean_retired_state();state['retired_plan_commands'] = commands
+    with pytest.raises(model.DeliveryRefused, match='RECOVERY_RETIRED_PLAN_COMMANDS_EXIST'):
+        recovery._completed_post_trade(dict(preserved=state), now=model.utcnow())
+
+
+def test_removed_retired_zero_command_guard_is_detected(monkeypatch):
+    original = recovery.require
+    monkeypatch.setattr(recovery, 'require', lambda condition, reason:
+        None if reason == 'RECOVERY_RETIRED_PLAN_COMMANDS_EXIST' else original(condition, reason))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_retired_recovery_refuses_even_known_terminal_commands(1)
+
+
+@pytest.mark.parametrize('fault', ['canonical', 'native', 'preservation', 'process', 'expired_panel', 'deadline'])
+def test_retired_recovery_still_refuses_fresh_failures_without_advancing(operation, monkeypatch, fault):
+    host, journal, delivery = retired_operation(operation, monkeypatch)
+    before = journal.read()
+    if fault == 'canonical':monkeypatch.setattr(recovery.evidence, 'canonical_check', lambda *a: {'wrong': True})
+    elif fault == 'native':host.native['native-id'] = '18'
+    elif fault == 'preservation':host.state['commands'] = 'changed'
+    elif fault == 'process':host.items['sentinel-panel']['RestartCount'] += 1
+    elif fault == 'deadline':
+        def late(*a):
+            host.clock += recovery.SECONDS+1
+            return before['artifacts']['canonical_proof']
+        monkeypatch.setattr(recovery.evidence, 'canonical_check', late)
+    else:
+        original = recovery.evidence.panel
+        def stale(*a, **kwargs):
+            return dict(original(*a, **kwargs), installation_panel_valid_until=model.utcnow().isoformat())
+        monkeypatch.setattr(recovery.evidence, 'panel', stale)
+    with pytest.raises(model.DeliveryRefused):
+        recovery.recover(delivery, 'failed-retired')
+    assert journal.read() == before
+    assert model.read_json(journal.folder/'verification-recovery-failed-retired.result.json')['outcome'] == 'REFUSED'
+
+
+@pytest.mark.parametrize('wrong_scope', [False, True])
+def test_retired_review_only_recovery_preserves_its_exact_restricted_scope(operation, monkeypatch, wrong_scope):
+    host, journal, delivery = retired_operation(operation, monkeypatch)
+    before = journal.read()
+    original = recovery.evidence.panel
+    scope = 'CLEAN_RETIRED_PLAN_COMPATIBLE_APPLICATION_REPAIR'
+    def amber(*a, **kwargs):
+        return dict(original(*a, **kwargs), installation_review_pending=True, operational_ready=False,
+                    installation_scope='POST_TRADE_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW' if wrong_scope else scope)
+    monkeypatch.setattr(recovery.evidence, 'panel', amber)
+    if wrong_scope:
+        with pytest.raises(model.DeliveryRefused, match='RECOVERY_REVIEW_SCOPE_INVALID'):
+            recovery.recover(delivery, 'review-retired')
+        assert journal.read() == before
+    else:
+        result = recovery.recover(delivery, 'review-retired')
+        assert result['artifacts']['operational_ready'] is False
+        assert result['artifacts']['installation_scope'] == scope
+        assert result['artifacts']['preserved']['cycle']['state'] == 'SUPERSEDED'

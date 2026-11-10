@@ -19,6 +19,7 @@ Both explain broker cash; only the first class is external capital.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -134,6 +135,10 @@ class PlanCashBaseline:
     # and cannot certify close cash.
     last_activity_id: Optional[str] = None
     activity_identity_scheme: Optional[str] = None
+    # v4 is captured once with the plan, never reconstructed for a legacy row.
+    # Native reference IDs have no sortable append order; exact membership is
+    # needed to distinguish a fee-only suffix from offsetting or revised cash.
+    activity_membership: Optional[tuple[tuple[str, str], ...]] = None
 
     @property
     def activity_identity_authoritative(self) -> bool:
@@ -193,6 +198,116 @@ def _detail(activity: BrokerCashActivity) -> str:
     return (
         f"{DETAIL_PREFIX}class={activity.classification};"
         f"type={activity.activity_type};id={activity.activity_id}")
+
+
+def _native_cash_ledger(conn, *, broker: str, account_id: str):
+    """Return exact account-native rows; dates and insert clocks are not order."""
+    prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT flow_id,session,amount,detail FROM sentinel_cash_flows"
+            " WHERE LEFT(flow_id,LENGTH(%s))=%s ORDER BY flow_id",
+            (prefix, prefix))
+        rows = cur.fetchall()
+    result = {}
+    for flow_id, session, amount, detail in rows:
+        native_id = str(flow_id)[len(prefix):]
+        parts = str(detail).split(";", 3)
+        activity_type = (parts[2][5:] if len(parts) == 4
+                         and parts[2].startswith("type=") else None)
+        value = _finite_decimal(amount, where="native cash ledger amount")
+        if (not native_id.strip() or activity_type not in RECOGNIZED_ACTIVITY_TYPES
+                or value == 0):
+            raise BrokerCashAuthorityRefused("native cash ledger row is malformed")
+        activity = BrokerCashActivity(native_id, activity_type, session, value, {})
+        if str(detail) != _detail(activity):
+            raise BrokerCashAuthorityRefused("native cash ledger classification changed")
+        exact = Fraction(value)
+        encoded = json.dumps(
+            [str(flow_id), str(session), exact.numerator, exact.denominator, str(detail)],
+            separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        result[str(flow_id)] = (hashlib.sha256(encoded).hexdigest(), exact, str(detail))
+    return result
+
+
+def _current_cash_ledger(conn, *, activity_state: CashActivityState):
+    if (activity_state.broker != "alpaca"
+            or activity_state.activity_identity_scheme != ACTIVITY_IDENTITY_SCHEME
+            or load_activity_state(conn, broker=activity_state.broker,
+                                   account_id=activity_state.account_id) != activity_state):
+        raise BrokerCashAuthorityRefused(
+            "native cash membership requires the actual current Activity-SSE cursor")
+    rows = _native_cash_ledger(conn, broker=activity_state.broker,
+                               account_id=activity_state.account_id)
+    last = (None if activity_state.last_activity_id is None else broker_flow_id(
+        broker=activity_state.broker, account_id=activity_state.account_id,
+        activity_id=activity_state.last_activity_id))
+    if (sum((row[1] for row in rows.values()), Fraction(0))
+            != Fraction(activity_state.balance_total)
+            or bool(rows) != (last is not None)
+            or (last is not None and last not in rows)):
+        raise BrokerCashAuthorityRefused(
+            "native cash membership disagrees with its durable cursor")
+    return rows
+
+
+def _debit_fee_membership(*, baseline, activity_state, rows) -> bool:
+    """Evaluate an original boundary against the owner's private current rows."""
+    if baseline.activity_membership is None:
+        return False  # No retroactive membership or legacy baseline promotion.
+    if (not baseline.activity_identity_authoritative
+            or baseline.broker != activity_state.broker
+            or baseline.account_id != activity_state.account_id
+            or activity_state.processed_through < baseline.processed_through):
+        raise BrokerCashAuthorityRefused("native cash membership boundary changed")
+    original = dict(baseline.activity_membership)
+    if any(key not in rows or rows[key][0] != commitment
+           for key, commitment in original.items()):
+        raise BrokerCashAuthorityRefused("immutable plan native cash membership changed")
+    if sum((rows[key][1] for key in original), Fraction(0)) != Fraction(baseline.balance_total):
+        raise BrokerCashAuthorityRefused("immutable plan native cash total changed")
+    added = {key: row for key, row in rows.items() if key not in original}
+    prefix = f"{FLOW_PREFIX}{activity_state.broker}:{activity_state.account_id}:"
+    if not added:
+        if (activity_state.last_activity_id != baseline.last_activity_id
+                or activity_state.balance_total != baseline.balance_total):
+            raise BrokerCashAuthorityRefused("native cash cursor changed without new members")
+        return False
+    last = broker_flow_id(broker=activity_state.broker,
+        account_id=activity_state.account_id, activity_id=activity_state.last_activity_id)
+    if (last not in added
+            or sum((row[1] for row in added.values()), Fraction(0))
+            != Fraction(activity_state.balance_total) - Fraction(baseline.balance_total)):
+        raise BrokerCashAuthorityRefused("new native fee membership is inconsistent")
+    if any(row[1] >= 0 or row[2] != (
+            f"{DETAIL_PREFIX}class=INTERNAL;type=FEE;id={key[len(prefix):]}")
+           for key, row in added.items()):
+        return False
+    return True
+
+
+def activity_boundaries_are_debit_fees_only(
+        conn, *, baselines: tuple[PlanCashBaseline, ...],
+        activity_state: CashActivityState) -> tuple[bool, ...]:
+    """One fresh native read for multiple immutable boundaries in one admission."""
+    rows = _current_cash_ledger(conn, activity_state=activity_state)
+    return tuple(_debit_fee_membership(baseline=baseline, activity_state=activity_state,
+        rows=rows) for baseline in baselines)
+
+
+def plan_activity_is_debit_fees_only(
+        conn, *, baseline: PlanCashBaseline, activity_state: CashActivityState) -> bool:
+    """Earn only the named FEE exception, without changing an immutable plan."""
+    if baseline.activity_membership is None:
+        return False  # A legacy caller cannot acquire membership retrospectively.
+    return activity_boundaries_are_debit_fees_only(
+        conn, baselines=(baseline,), activity_state=activity_state)[0]
+
+
+def capture_activity_membership(conn, *, activity_state: CashActivityState):
+    """Capture a new immutable native boundary in the caller's writer scope."""
+    return tuple((key, row[0]) for key, row in _current_cash_ledger(
+        conn, activity_state=activity_state).items())
 
 
 def _read_json_state(raw, *, where: str) -> dict:
@@ -565,14 +680,17 @@ def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
           "processed_through", "balance_total"}
     v2 = v1 | {"last_activity_id"}
     v3 = v2 | {"activity_identity_scheme"}
+    v4 = v3 | {"activity_membership"}
     if ((state.get("kind") == "broker-cash-plan/v1" and set(state) != v1)
             or (state.get("kind") == "broker-cash-plan/v2"
                 and set(state) != v2)
             or (state.get("kind") == "broker-cash-plan/v3"
                 and set(state) != v3)
+            or (state.get("kind") == "broker-cash-plan/v4"
+                 and set(state) != v4)
             or state.get("kind") not in {
                 "broker-cash-plan/v1", "broker-cash-plan/v2",
-                "broker-cash-plan/v3"}):
+                "broker-cash-plan/v3", "broker-cash-plan/v4"}):
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} has an unknown state shape")
     if state["plan_id"] != plan_id:
@@ -593,6 +711,23 @@ def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} applies the Alpaca Activity-SSE "
             "identity scheme to another broker")
+    membership = None
+    if state["kind"] == "broker-cash-plan/v4":
+        raw_membership = state["activity_membership"]
+        prefix = f"{FLOW_PREFIX}{state['broker']}:{state['account_id']}:"
+        if (identity_scheme != ACTIVITY_IDENTITY_SCHEME
+                or not isinstance(raw_membership, dict)
+                or any(not isinstance(key, str) or not key.startswith(prefix)
+                       or not key[len(prefix):].strip()
+                       or not isinstance(value, str) or len(value) != 64
+                       or any(char not in "0123456789abcdef" for char in value)
+                       for key, value in raw_membership.items())):
+            raise BrokerCashAuthorityRefused("plan cash membership has an invalid shape")
+        last_flow = (None if last_activity_id is None else prefix + last_activity_id)
+        if (bool(raw_membership) != (last_flow is not None)
+                or (last_flow is not None and last_flow not in raw_membership)):
+            raise BrokerCashAuthorityRefused("plan cash membership has no original last identity")
+        membership = tuple(sorted(raw_membership.items()))
     return PlanCashBaseline(
         plan_id=plan_id, broker=str(state["broker"]),
         account_id=str(state["account_id"]), decision_session=session,
@@ -601,7 +736,8 @@ def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
         balance_total=_finite_decimal(
             state["balance_total"], where=f"plan cash baseline {plan_id} total"),
         last_activity_id=last_activity_id,
-        activity_identity_scheme=identity_scheme)
+        activity_identity_scheme=identity_scheme,
+        activity_membership=membership)
 
 
 def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
@@ -622,7 +758,9 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         processed_through=activity_state.processed_through,
         balance_total=activity_state.balance_total,
         last_activity_id=activity_state.last_activity_id,
-        activity_identity_scheme=activity_state.activity_identity_scheme)
+        activity_identity_scheme=activity_state.activity_identity_scheme,
+        activity_membership=(existing.activity_membership if existing is not None else
+            capture_activity_membership(conn, activity_state=activity_state)))
     if existing is not None:
         if existing != candidate:
             raise BrokerCashAuthorityRefused(
@@ -630,7 +768,7 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
                 f"stored={existing}, attempted={candidate}")
         return existing
     payload = {
-        "kind": "broker-cash-plan/v3",
+        "kind": "broker-cash-plan/v4",
         "plan_id": plan_id,
         "broker": activity_state.broker,
         "account_id": activity_state.account_id,
@@ -638,6 +776,7 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         "balance_total": str(activity_state.balance_total),
         "last_activity_id": activity_state.last_activity_id,
         "activity_identity_scheme": activity_state.activity_identity_scheme,
+        "activity_membership": dict(candidate.activity_membership),
     }
     with conn.cursor() as cur:
         cur.execute(

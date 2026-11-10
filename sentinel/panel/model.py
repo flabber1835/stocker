@@ -54,20 +54,43 @@ def _bounded_display_decimal(value):
     return value
 
 
+class OpeningEvidence(BaseModel):
+    """Dated execution metadata; it never certifies holdings or an order."""
+    model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
+    cycle_id: str = Field(min_length=1, max_length=100)
+    plan_id: str = Field(min_length=1, max_length=100)
+    started_at: datetime
+    deadline: datetime
+    observation_id: int | None = Field(default=None, ge=1, strict=True)
+    terminal_reason: Literal['POST_PLAN_CASH_ACTIVITY_RECONCILED'] | None = None
+    reconciled_at: datetime | None = None
+
+    @model_validator(mode='after')
+    def original_clocks(self):
+        if (any(value.utcoffset() != timedelta(0) for value in (self.started_at, self.deadline))
+                or not self.started_at < self.deadline):
+            raise ValueError('opening evidence lacks original UTC bounds')
+        if (self.reconciled_at is not None and (self.reconciled_at.utcoffset() != timedelta(0)
+                or self.reconciled_at > self.started_at)):
+            raise ValueError('retirement observation does not precede its outcome')
+        return self
+
+
 class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
     kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
-                  'MARKET_DATA', 'SHADOW_VERIFICATION', 'PAPER_VERIFICATION']
+                  'MARKET_DATA', 'SHADOW_VERIFICATION', 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY']
     state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
                    'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                    'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
                    'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED',
                    'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'READY', 'NOT_READY',
-                   'AWAITING_VERDICT', 'VERIFIED', 'PENDING', 'CHECKING']
+                   'AWAITING_VERDICT', 'VERIFIED', 'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION']
     session: date | None = None
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    opening: OpeningEvidence | None = None
 
     @model_validator(mode='after')
     def coherent_fact(self):
@@ -79,15 +102,28 @@ class OperationalFact(BaseModel):
             'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED'},
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
-            'PAPER_VERIFICATION': {'PENDING', 'CHECKING'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION'},
+            'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
+            'EXECUTION_HISTORY': {'SUPERSEDED'},
         }
         if self.state not in states[self.kind]:
             raise ValueError('operational state belongs to another producer')
+        if ((self.kind in {'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'} or self.state == 'AWAITING_NEXT_DECISION')
+                != (self.opening is not None)
+                or self.opening is not None and (
+                    (self.state == 'AWAITING_NEXT_DECISION' or self.kind == 'EXECUTION_HISTORY')
+                        != (self.opening.observation_id is not None))):
+            raise ValueError('opening fact lacks its exact producer evidence')
+        if (self.opening is not None and ((self.kind == 'EXECUTION_HISTORY')
+                != (self.opening.terminal_reason is not None and self.opening.reconciled_at is not None)
+                or self.kind != 'EXECUTION_HISTORY' and (self.opening.terminal_reason is not None
+                    or self.opening.reconciled_at is not None))):
+            raise ValueError('historical retirement belongs to its original producer')
         if ((self.kind == 'MARKET_DATA') != (self.sessions_behind is not None)
                 or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
                 or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
                     and self.session is None)
-                or (self.kind in {'AUTOMATION_POLICY', 'PAPER_VERIFICATION'}
+                or (self.kind in {'AUTOMATION_POLICY', 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'}
                     and self.session is not None)):
             raise ValueError('operational fact fields do not match their producer')
         if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
@@ -103,6 +139,8 @@ class OperationalFact(BaseModel):
             'CONTROLLER_DECISION': {'exposure'}, 'MARKET_DATA': {'feed'},
             'SHADOW_VERIFICATION': {'shadow_verification'},
             'PAPER_VERIFICATION': {'paper_reconciliation'},
+            'EXECUTION_PROGRESS': {'broker'},
+            'EXECUTION_HISTORY': {'trading_run'},
         }
         if key not in owned[self.kind]:
             raise ValueError('operational fact belongs to another row')
@@ -543,6 +581,64 @@ class Row:
             return []
         return [item for item in self.order_outcomes
                 if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
+
+
+def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
+    """Join independently admitted clean retirement with exact runtime identity."""
+    by_key = {row.key: row for row in rows}
+    if len(by_key) != len(rows):
+        return rows
+    paper, broker, cycle, current = (by_key.get(key) for key in (
+        'paper_reconciliation', 'broker', 'automation_cycle', 'trading_run'))
+    fact = paper.operational_fact if paper is not None else None
+    candidate = broker.operational_fact if broker is not None else None
+    run = current.trading_run if current is not None else None
+    if (fact is None or fact.kind != 'PAPER_VERIFICATION' or fact.state != 'AWAITING_NEXT_DECISION'
+            or candidate is None or candidate.kind != 'EXECUTION_PROGRESS'
+            or candidate.state != 'AWAITING_NEXT_DECISION'
+            or fact.opening is None or candidate.opening is None
+            or any(getattr(fact.opening, key) != getattr(candidate.opening, key)
+                   for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at'))
+            or paper.status != WARN or paper.effective_status(now) != WARN
+            or paper.valid_until != fact.opening.deadline or not now < paper.valid_until
+            or paper.recovery is None or paper.recovery.phase != 'AWAITING_NEXT_DECISION'
+            or paper.recovery.deadline != paper.valid_until
+            or broker.status != OK or broker.is_future(now) or broker.as_of is None
+            or not now < candidate.opening.deadline
+            or run is None or run.state != 'SUPERSEDED'
+            or (run.intent.cycle_id, run.intent.plan_id) != (fact.opening.cycle_id, fact.opening.plan_id)
+            or run.updated_at != fact.opening.started_at or current.status not in {FAIL, WARN}
+            or current.status == WARN and not (current.recovery is not None
+                and current.recovery.phase == 'AWAITING_NEXT_DECISION'
+                or current.operational_fact is not None and current.operational_fact.kind == 'EXECUTION_HISTORY')
+            or any(order.state not in {'FILLED', 'CANCELLED'} for order in run.orders)
+            or cycle is None or cycle.operational_fact is None
+            or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'
+            or cycle.operational_fact.state != 'SUPERSEDED' or cycle.as_of != run.updated_at):
+        return rows
+    historical = current.operational_fact
+    if (historical is not None and historical.kind == 'EXECUTION_HISTORY'
+            and any(getattr(historical.opening, key) != getattr(fact.opening, key)
+                    for key in ('cycle_id', 'plan_id', 'observation_id', 'started_at'))):
+        return rows
+    deadline = min(fact.opening.deadline, current.valid_until) if current.valid_until else fact.opening.deadline
+    recovery = RecoveryEvidence(phase='AWAITING_NEXT_DECISION', automatic=True, deadline=deadline)
+    explanation = (' The plan was safely retired after reconciled cash activity; '
+                   'awaiting the next ordinary decision. Original intent and terminal state are retained.')
+    replacements = {'broker': replace(broker, valid_until=candidate.opening.deadline, recovery=None),
+        'automation_cycle': replace(cycle, value='WAITING FOR NEXT DECISION · PLAN SKIPPED',
+            status=WARN, valid_until=deadline, recovery=recovery),
+        'trading_run': replace(current, value='SKIPPED · CASH ACTIVITY RECONCILED',
+            status=WARN, valid_until=min(current.valid_until, deadline) if current.valid_until else deadline,
+            recovery=recovery, detail=current.detail if current.detail.endswith(explanation) else current.detail+explanation)}
+    for key in ('automation_step_transport', 'automation_step_reconcile', 'automation_step_complete'):
+        row = by_key.get(key)
+        if (row is not None and row.status in {FAIL, WARN} and row.operational_fact is not None
+                and row.operational_fact.kind == 'AUTOMATION_CYCLE'
+                and row.operational_fact.state == 'SUPERSEDED' and row.as_of == run.updated_at):
+            replacements[key] = replace(row, value='PLAN SKIPPED · CASH ACTIVITY RECONCILED',
+                status=WARN, valid_until=deadline, recovery=recovery)
+    return [replacements.get(row.key, row) for row in rows]
 
 
 @dataclass(frozen=True)

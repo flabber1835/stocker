@@ -170,11 +170,16 @@ def snapshot(host):
                 and cycle['control_generation'] == control['generation'],
                 'Saved plan is not ready with sufficient future execution margin')
     if mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
-        require(cycle.get('state')=='SUCCEEDED' and cycle.get('completed_at') is not None
-            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
+        skipped = mode=='POST_TRADE' and checks.clean_cash_retirement(cycle)
+        successful = (cycle.get('state')=='SUCCEEDED'
+            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None)
+        require((successful or skipped) and cycle.get('completed_at') is not None
             and isinstance(current.get('reconciliation'),dict)
             and str(current['reconciliation']['seq'])==str(cycle.get('last_clean_reconciliation_id')),
             'POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED')
+        if skipped:
+            require(type(current.get('retired_plan_commands')) is int
+                and current['retired_plan_commands']==0, 'RETIRED_PLAN_COMMANDS_EXIST')
     cycle_keys = _BINDING_KEYS if successor else (*_BINDING_KEYS, 'certificate_sha256',
         'rollout_mode', 'rollout_version', 'config_sha256')
     for key in cycle_keys:
@@ -537,6 +542,10 @@ def panel(host, state, *, wait_until=None):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if handoff_mode(host.request)=='POST_TRADE':
         expected['handoff_mode']='POST_TRADE'
+        if checks.clean_cash_retirement(state['cycle']):
+            expected.update(clean_retired=True, cycle_id=state['cycle']['cycle_id'],
+                completed_at=state['cycle']['completed_at'],
+                reconciliation_id=state['reconciliation']['seq'])
     if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
         expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
             cycle_id=state['cycle']['cycle_id'],original_plan=state['cycle']['plan_id'],
@@ -544,7 +553,7 @@ def panel(host, state, *, wait_until=None):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
-    program=(checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
+    program=(checks.SKIPPED_PANEL if expected.get('clean_retired') else checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
             if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL)
     arguments=[json.dumps(expected, sort_keys=True)]
     timeout=35

@@ -46,12 +46,51 @@ transitions=[]
 # Load validator dependencies before acquiring a short-lived published fact.
 from sentinel.panel.review_model import OperatorReview
 from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
+from sentinel.panel.model import OperationalFact,TradingRun
+from zoneinfo import ZoneInfo
 compiled_validator=compile(validator,'strict installation dashboard validator','exec')
 def budget():
  left=min(deadline-time.monotonic(),(cutoff-datetime.now(timezone.utc)).total_seconds())
  assert left>0,'APPLICATION_READINESS_DEADLINE'
  return left
-def partial_wait(page,rows,checking,workflows):
+def clean_retired_projection_wait(rows,checking,instant):
+ if not (expected.get('handoff_mode')=='POST_TRADE' and expected.get('clean_retired') is True
+         and 'paper_reconciliation' in checking):return set()
+ paper=rows['paper_reconciliation']
+ fact=OperationalFact.model_validate(paper['operational_fact']);fact.require_key('paper_reconciliation')
+ assert fact.kind=='PAPER_VERIFICATION' and fact.state=='CHECKING'
+ assert paper['current'] is True and paper['required_current'] is True
+ assert paper['stale'] is False and paper['future'] is False
+ bound=datetime.fromisoformat(paper['valid_until'])
+ assert bound.utcoffset()==timedelta(0) and instant<bound
+ current=rows['trading_run'];run=TradingRun.model_validate(current['trading_run'])
+ completed=datetime.fromisoformat(expected['completed_at'])
+ assert completed.utcoffset()==timedelta(0) and completed<=instant
+ assert run.state=='SUPERSEDED' and run.orders==[] and run.updated_at==completed
+ assert run.intent.execute_at<=completed
+ assert (run.intent.plan_id,run.intent.cycle_id)==(expected['plan'],expected['cycle_id'])
+ assert str(run.intent.decision_session)==expected['decision'] and str(run.intent.effective_session)==expected['effective']
+ assert current['current'] is True and current['stale'] is False and current['future'] is False
+ assert current['status'] in {'fail','warn'} and datetime.fromisoformat(current['as_of'])==completed
+ if current['status']=='warn' and current.get('recovery') is None:
+  history=OperationalFact.model_validate(current['operational_fact']);history.require_key('trading_run')
+  original_end=(datetime.fromisoformat(expected['effective'])+timedelta(days=1)).replace(
+   tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc)-timedelta(microseconds=1)
+  assert history.kind=='EXECUTION_HISTORY' and history.state=='SUPERSEDED'
+  assert (history.opening.cycle_id,history.opening.plan_id)==(expected['cycle_id'],expected['plan'])
+  assert history.opening.observation_id==int(expected['reconciliation_id'])
+  assert history.opening.started_at==completed and history.opening.terminal_reason=='POST_PLAN_CASH_ACTIVITY_RECONCILED'
+  assert run.intent.execute_at<=history.opening.reconciled_at<=completed
+  assert history.opening.deadline==datetime.fromisoformat(current['valid_until'])==original_end
+  assert instant<original_end
+ keys={'trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
+ for key in keys-{'trading_run'}:
+  row=rows[key];workflow=OperationalFact.model_validate(row['operational_fact']);workflow.require_key(key)
+  assert workflow.kind=='AUTOMATION_CYCLE' and workflow.state=='SUPERSEDED'
+  assert row['current'] is True and row['stale'] is False and row['future'] is False
+  assert row['status'] in {'fail','warn'} and datetime.fromisoformat(row['as_of'])==completed
+ return keys
+def partial_wait(page,rows,checking,workflows,retiring):
  # Validate the public protocol. Human display admission is not installation
  # authority and private runtime model predicates are not a host-tool API.
  observation=page['observation']
@@ -78,14 +117,16 @@ def partial_wait(page,rows,checking,workflows):
    assert row.get('order_outcomes')==[]
   else:
    assert row.get('color')=={'ok':'green','warn':'amber','pending':'amber','fail':'red','unknown':'red'}[original]
- assert negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ assert negatives<=startup|retiring,'NONSTARTUP_READINESS_FAILURE'
  assert not any(row.get('original_status')=='fail' and key in startup
   for key,row in rows.items()),'NONSTARTUP_READINESS_FAILURE'
  if expected.get('handoff_mode')=='POST_TRADE':
   run=rows['trading_run']
-  assert run.get('original_status')=='ok' and run.get('stale') is False and run.get('future') is False
+  assert (run.get('original_status') in {'fail','warn'} if 'trading_run' in retiring
+    else run.get('original_status')==('warn' if expected.get('clean_retired') else 'ok'))
+  assert run.get('stale') is False and run.get('future') is False
   if run.get('current'):
-   assert run['trading_run']['state']=='SUCCEEDED'
+   assert run['trading_run']['state']==('SUPERSEDED' if expected.get('clean_retired') else 'SUCCEEDED')
    assert run['trading_run']['intent']['plan_id']==expected['plan']
  else:
   plan=rows.get('paper_plan',{})
@@ -101,7 +142,7 @@ def partial_wait(page,rows,checking,workflows):
   if review is not None: assert set(review['active'])|set(review['warnings'])<=startup|checking|workflows
  health=page['dashboard_health'];assert isinstance(health,dict)
  conditions=set(health['active_conditions'])|set(health['review_conditions'])
- assert conditions<=startup|withdrawn|checking|workflows,'NONSTARTUP_READINESS_FAILURE'
+ assert conditions<=startup|withdrawn|checking|workflows|retiring,'NONSTARTUP_READINESS_FAILURE'
  observed=datetime.fromisoformat(page['as_of'])
  expiry=datetime.fromisoformat(observation['valid_until'])
  assert observed.utcoffset()==expiry.utcoffset()==timedelta(0)
@@ -145,10 +186,11 @@ def pending(page,header):
     bound=datetime.fromisoformat(recovery['deadline'])
     assert bound.utcoffset() is not None and instant<bound
     workflows.add(key)
+ retiring=clean_retired_projection_wait(rows,checking,instant)
  if header=='PARTIAL':
-  return partial_wait(page,rows,checking,workflows)
+  return partial_wait(page,rows,checking,workflows,retiring)
  if strict is False:
-  return partial_wait(page,rows,checking,workflows)
+  return partial_wait(page,rows,checking,workflows,retiring)
  post_trade=expected.get('handoff_mode')=='POST_TRADE'
  plan=((rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade
        else rows.get('paper_plan',{}).get('paper_plan'))
@@ -156,17 +198,21 @@ def pending(page,header):
  assert str(plan.get('decision_session'))==expected['decision']
  assert str(plan.get('effective_session'))==expected['effective']
  if post_trade:
-  assert rows['trading_run']['trading_run']['state']=='SUCCEEDED'
-  assert rows['automation_cycle']['value']=='SUCCEEDED' and rows['automation_cycle']['status']=='ok'
+  assert rows['trading_run']['trading_run']['state']==('SUPERSEDED' if expected.get('clean_retired') else 'SUCCEEDED')
+  if not expected.get('clean_retired'):
+   assert rows['automation_cycle']['value']=='SUCCEEDED' and rows['automation_cycle']['status']=='ok'
  for key in ('authority','broker','runtime_identity','feed','ownership','book','exposure',
              'trading_run' if post_trade else 'paper_plan','backup_restore'):
-  if key in rows and key not in checking:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
+  if key in rows and key not in checking:
+   if key=='trading_run' and expected.get('clean_retired'):
+    assert rows[key]['status'] in ({'fail','warn'} if key in retiring else {'warn'}),'NONSTARTUP_READINESS_FAILURE'
+   else:assert rows[key]['status']=='ok','NONSTARTUP_READINESS_FAILURE'
  review=page['operator_review'];health=page['dashboard_health']
  assert isinstance(review,dict) and isinstance(health,dict)
  conditions=set(review['active'])|set(review['warnings'])|set(health['active_conditions'])|set(health['review_conditions'])
  negatives={row['key'] for row in page['rows'] if row.get('color')=='red'
   or row.get('status') in {'fail','unknown'}}
- assert conditions<=startup|checking|workflows and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'
+ assert conditions<=startup|checking|workflows|retiring and negatives<=startup|retiring,'NONSTARTUP_READINESS_FAILURE'
  assert not any(row.get('status')=='fail' and row['key'] in startup
   for row in page['rows']),'NONSTARTUP_READINESS_FAILURE'
  if conditions or negatives or checking:

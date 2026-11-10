@@ -21,7 +21,8 @@ def cycle(conn):
         clock_timestamp()-interval '5 minutes' AS execute_at,
         clock_timestamp()-interval '1 minute' AS completed_at,
         clock_timestamp()+interval '1 hour' AS execution_close_at,
-        false AS historical_state_only""")
+        false AS historical_state_only,'{}'::jsonb AS diagnostic,
+        '247'::text AS last_clean_reconciliation_id""")
 
 
 def admitted(conn):

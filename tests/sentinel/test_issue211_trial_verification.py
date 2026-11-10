@@ -303,6 +303,15 @@ def test_plan_cash_baseline_v3_retains_certified_native_activity_identity():
         balance_total=Decimal("12.50"),
         activity_identity_scheme=broker_cash.ACTIVITY_IDENTITY_SCHEME)
 
+    # Preserve the retained v3 representation; newly created baselines now
+    # require real native membership and are qualified by the PostgreSQL tests.
+    conn.rows[broker_cash.PLAN_BASELINE_PREFIX + 'plan-cash-v3'] = (date(2026, 8, 19), {
+        'kind': 'broker-cash-plan/v3', 'plan_id': 'plan-cash-v3',
+        'broker': activity.broker, 'account_id': activity.account_id,
+        'processed_through': activity.processed_through.isoformat(),
+        'balance_total': str(activity.balance_total),
+        'last_activity_id': activity.last_activity_id,
+        'activity_identity_scheme': activity.activity_identity_scheme})
     baseline = broker_cash.record_plan_baseline(
         conn, plan_id="plan-cash-v3", decision_session=date(2026, 8, 19),
         activity_state=activity)

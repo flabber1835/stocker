@@ -165,6 +165,7 @@ class Reader:
         self.completed = None
         self.failure = None
         self.retained = None
+        self.negative_result = None
         self.configuration = None
         self.last_attempt = float('-inf')
         self.pending_key = None
@@ -394,7 +395,12 @@ class Reader:
                                 'the last completed financial check failed'
                                 if (value['errors'] or negative)
                                     and not independent_paper_failure else None)
+                            if (self.expected_keys == frozenset({'paper_reconciliation'})
+                                    and not value['errors'] and len(rows) == 1
+                                    and rows[0].key == 'paper_reconciliation' and rows[0].status == model.FAIL):
+                                self.negative_result = (rows[0], key)
                             if self.failure is None:
+                                self.negative_result = None
                                 self.supersession_at = self.supersession_clock = None
                                 self.supersession_last_at = self.supersession_last_clock = None
                                 self.supersession_failed = False
@@ -519,4 +525,14 @@ class Reader:
                     and awaiting_since <= self.wall_clock() < awaiting_until):
                 return self.unknown(include_paper, self.scope_label+' awaits the next monitor check',
                                     self.retained, checking_until=awaiting_until)
+            if (self.expected_keys == frozenset({'paper_reconciliation'})
+                    and self.negative_result is not None and self.failure_diagnostic is not None
+                    and self.failure_diagnostic.code == 'NEGATIVE_RESULT'):
+                negative, original_subject = self.negative_result
+                # A valid negative verdict is not a source/transport failure.
+                # It remains dated and negative while its replacement is pending.
+                prefix = 'LAST KNOWN · ' if original_subject != key else ''
+                suffix = '; recheck pending; no current positive verification is claimed'
+                detail = prefix+negative.detail[:1000-len(prefix)-len(suffix)]+suffix
+                return [replace(negative, detail=detail)], {}, [], []
             return self.unknown(include_paper, self.failure or detail, self.retained)

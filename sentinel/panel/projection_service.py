@@ -80,7 +80,7 @@ def lock_inputs(conn):
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
                  *, shadow_observer=None, use_composition=False):
     from sentinel.feed import store
-    from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources
+    from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources, model
     from sentinel.panel import display_dependencies, read_projection, delivery
 
     _COLLECTION_STAGE.set('COORDINATES')
@@ -145,6 +145,8 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                 panel = display_dependencies.overlay(panel, {negative.key:negative})
         subjects = current_subjects
         panel = replace(panel, display_basis=current_basis)
+        panel = replace(panel, rows=model.project_opening_rows(
+            panel.rows, now=review.store.database_now(conn)))
         # Full automation composition can outlive a 12-second leader lease.
         # Sample its bounded native liveness facts after fencing, without
         # repeating authority, alert and cycle-history composition.
@@ -455,7 +457,7 @@ class Publisher:
 def read(database_url, *, display=False):
     """SELECT-only current snapshot; requests never discover or record incidents."""
     from sentinel.feed import store
-    from sentinel.panel import operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
+    from sentinel.panel import operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery, model
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -518,6 +520,7 @@ def read(database_url, *, display=False):
                 negative_keys = (negative.key,)
                 panel = replace(panel, observation_display_keys=negative_keys)
         owner_expiry = None
+        panel = replace(panel, rows=model.project_opening_rows(panel.rows, now=now))
         reusable = False
         if display and changed and value.panel.display_basis and not retained and not head_changed:
             owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()

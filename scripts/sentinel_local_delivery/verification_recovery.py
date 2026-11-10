@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 import re
 
-from . import evidence, readiness
+from . import checks, evidence, readiness
 from .host import SERVICES
 from .model import (canonical_proof_phase, digest, handoff_mode, require,
                     utcnow, write_new)
@@ -16,11 +16,13 @@ def _completed_post_trade(artifacts, *, now):
     require(isinstance(state, dict), 'RECOVERY_POST_TRADE_COMPLETION_REQUIRED')
     cycle, plan = state.get('cycle'), state.get('plan')
     reconciliation, control = state.get('reconciliation'), state.get('control')
+    skipped = isinstance(cycle, dict) and checks.clean_cash_retirement(cycle)
+    succeeded = (isinstance(cycle, dict) and cycle.get('state') == 'SUCCEEDED'
+        and cycle.get('failure_code') is None and cycle.get('failure_detail') is None)
     require(isinstance(cycle, dict) and isinstance(plan, dict)
         and isinstance(reconciliation, dict) and isinstance(control, dict)
-        and cycle.get('state') == 'SUCCEEDED' and cycle.get('historical_state_only') is False
+        and (succeeded or skipped) and cycle.get('historical_state_only') is False
         and cycle.get('completed_at') is not None
-        and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
         and isinstance(cycle.get('cycle_id'), str) and bool(cycle['cycle_id'])
         and isinstance(plan.get('plan_id'), str) and bool(plan['plan_id'])
         and cycle.get('plan_id') == plan['plan_id']
@@ -30,6 +32,9 @@ def _completed_post_trade(artifacts, *, now):
         and str(reconciliation['seq']).isdigit() and int(reconciliation['seq']) > 0
         and str(reconciliation['seq']) == str(cycle.get('last_clean_reconciliation_id')),
         'RECOVERY_POST_TRADE_COMPLETION_REQUIRED')
+    if skipped:
+        require(type(state.get('retired_plan_commands')) is int
+            and state['retired_plan_commands'] == 0, 'RECOVERY_RETIRED_PLAN_COMMANDS_EXIST')
     try:
         completed = datetime.fromisoformat(cycle['completed_at'])
     except (TypeError, ValueError):
@@ -118,7 +123,9 @@ def recover(delivery, recovery_id):
                 authority_effect='NONE', handoff_mode=mode)
             restricted = {}
             if panel.get('installation_review_pending') is True:
-                scope = mode+'_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW'
+                skipped = checks.clean_cash_retirement(artifacts['preserved'].get('cycle') or {})
+                scope = ('CLEAN_RETIRED_PLAN_COMPATIBLE_APPLICATION_REPAIR' if skipped
+                         else mode+'_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW')
                 require(panel.get('operational_ready') is False and panel.get('installation_scope') == scope,
                     'RECOVERY_REVIEW_SCOPE_INVALID')
                 restricted = dict(operational_ready=False, installation_scope=scope)

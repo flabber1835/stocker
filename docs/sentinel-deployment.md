@@ -1,5 +1,14 @@
 # Sentinel current operating contract
 
+[Opening proof ownership](opening-proof-work-ownership.md) removes duplicate
+authenticated checkpoint loads inside one committed proof.
+[Opening health continuity](opening-health-state-continuity.md) preserves known
+negative evidence and distinguishes bounded execution and positively reconciled
+plan retirement. [Native fee continuation](native-fee-plan-continuation.md)
+defines the explicit forward-only debit-fee policy with exact membership and
+fresh cash guards. [Clean retired-plan installation](clean-retired-plan-installation.md)
+admits a backed software roll without reviving or relabeling that retired plan.
+
 [Backup maintenance transition continuity](backup-maintenance-transition-continuity.md)
 keeps already-proved bounded maintenance visible across ordinary proof expiry
 and preserves initiating worker failures before transaction cleanup.

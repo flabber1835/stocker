@@ -500,6 +500,8 @@ def operational_inputs(inputs,monkeypatch):
         'tests/scripts/test_sentinel_maintenance_reader_handover.py':'def test_reader(): assert True\n',
         'services/bt-engine/protected.py':'private synthetic backtest marker\n',
     }
+    for name in qualification.HANDOVER_INPUTS:
+        additions.setdefault(name, 'qualified_host_helper = True\n')
     for name,body in additions.items():
         path=value.source/name;path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(body);value.files[name]=body

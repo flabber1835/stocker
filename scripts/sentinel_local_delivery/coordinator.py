@@ -392,7 +392,7 @@ class Delivery:
         leader=self._readiness_unchanged(applications,leader)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-        if handoff_mode(self.host.request)=='PRE_OPEN':
+        if handoff_mode(self.host.request) in {'PRE_OPEN','POST_TRADE'}:
             boundary=datetime.fromisoformat(panel['installation_panel_valid_until'])
             require(boundary.utcoffset() is not None and utcnow()<boundary,
                     'INSTALLATION_PANEL_EXPIRED')

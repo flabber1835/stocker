@@ -1,5 +1,6 @@
 """Audit-only SQL/crash and Decimal spelling witnesses for account-lag authority."""
 import asyncio
+import json
 import os
 import signal
 from dataclasses import replace
@@ -56,6 +57,17 @@ def count(conn):
         cur.execute("SELECT COUNT(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'broker-account-lag:v1:%'")
         return cur.fetchone()[0]
 
+def legacy_baseline(conn, plan, state):
+    # These arithmetic/identity fixtures retain a pre-membership v3 plan.
+    # New v4 capture requires a real durable SSE cursor and its exact ledger.
+    payload = dict(kind='broker-cash-plan/v3', plan_id=plan.plan_id,
+        broker=state.broker, account_id=state.account_id,
+        processed_through=state.processed_through.isoformat(),
+        balance_total=str(state.balance_total), last_activity_id=state.last_activity_id,
+        activity_identity_scheme=state.activity_identity_scheme)
+    conn.execute('INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)',
+        (broker_cash.PLAN_BASELINE_PREFIX + plan.plan_id, plan.decision_session, json.dumps(payload)))
+
 def test_changed_cash_does_not_renew_durable_grace(conn,pg):
     p=setup_plan(conn)
     for seconds,value in [(0,'1000'),(119,'999')]:
@@ -109,7 +121,7 @@ def test_offsetting_new_activity_set_is_not_execution_permission(conn):
     p=setup_plan(conn)
     state=broker_cash.CashActivityState('alpaca','audit-paper',T0,'first',D(20),
         last_event_id='001',activity_identity_scheme=broker_cash.ACTIVITY_IDENTITY_SCHEME)
-    broker_cash.record_plan_baseline(conn,plan_id=p.plan_id,decision_session=p.decision_session,activity_state=state)
+    legacy_baseline(conn, p, state)
     conn.commit()
     later=replace(state,last_activity_id='offsetting-second',last_event_id='003',processed_through=T0+timedelta(seconds=1))
     with pytest.raises(PaperActivationRefused,match='event set is durably explained'):
@@ -167,8 +179,7 @@ def test_activity_delta_cannot_round_cash_into_tolerance(conn, pg):
     p = setup_plan(conn)
     state = broker_cash.CashActivityState('alpaca', 'audit-paper', T0, 'first', D(0),
         last_event_id='001', activity_identity_scheme=broker_cash.ACTIVITY_IDENTITY_SCHEME)
-    broker_cash.record_plan_baseline(conn, plan_id=p.plan_id,
-                                    decision_session=p.decision_session, activity_state=state)
+    legacy_baseline(conn, p, state)
     conn.commit()
     later = replace(state, balance_total=D('0.00000000000000000000000001'),
                     last_activity_id='second', last_event_id='002')

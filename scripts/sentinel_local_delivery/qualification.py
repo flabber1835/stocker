@@ -14,7 +14,12 @@ SCHEMA = 'sentinel.local-paper-qualification/1'
 OPERATIONAL_SCHEMA = 'sentinel.local-paper-qualification/2'
 OPERATIONAL_SCOPE = 'SENTINEL_AND_CHANGED_TRACKED_V1'
 HANDOVER_INPUTS = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
-    'tests/scripts/test_sentinel_maintenance_reader_handover.py'})
+    'tests/scripts/test_sentinel_maintenance_reader_handover.py',
+    'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
+    'scripts/sentinel_backup_integrity_report.py', 'scripts/sentinel_backup_renewal.py',
+    'scripts/sentinel_backup_deadlines.py', 'scripts/sentinel_maintenance_process.py',
+    'scripts/sentinel_backup_lock.py', 'scripts/sentinel_lock_ownership.py',
+    'scripts/sentinel_env.py'})
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
