@@ -1,0 +1,58 @@
+name: Fixed Core Sentinel account reconciliation
+on:
+  push:
+    branches: [codex/core-sentinel-reconciliation]
+    paths: ['research/persistent_share_reconciliation/request.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  pilot:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/core-sentinel-reconciliation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: fixed-account-reconciliation-20261109-1
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: flabber1835/stocker
+          ref: 0bc38753ac1f85b31eb95f560720e6b037e892c5
+          path: legacy
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install locked transport dependencies
+        timeout-minutes: 4
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r legacy/research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r legacy/research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify exact source and DATA imports
+        timeout-minutes: 2
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/persistent_share_reconciliation/job.py --legacy "$GITHUB_WORKSPACE/legacy" --mode probe'
+      - name: Authenticate inputs and immutable offline image
+        timeout-minutes: 12
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/persistent_share_reconciliation/job.py --legacy "$GITHUB_WORKSPACE/legacy" --mode stage --output artifacts/capital-risk/reconciliation-staging.json'
+      - name: Run fixed pilot and independent review
+        timeout-minutes: 25
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/persistent_share_reconciliation/job.py --legacy "$GITHUB_WORKSPACE/legacy" --mode run --staging artifacts/capital-risk/reconciliation-staging.json --output artifacts/capital-risk/reconciliation-receipt.json'
+      - name: Preserve stopped encrypted evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: persistent-reconciliation-${{ github.sha }}
+          path: artifacts/capital-risk/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
