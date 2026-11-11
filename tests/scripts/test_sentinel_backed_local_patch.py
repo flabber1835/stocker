@@ -35,6 +35,61 @@ def test_backed_cli_dispatches_terminal_abandonment_with_existing_witness(tmp_pa
     assert events==['host','abandon']
 
 
+@pytest.fixture
+def verifier_grace_host(tmp_path):
+    name = 'docker-compose.sentinel-automation.yml'
+    candidate = (ROOT / name).read_text(encoding='utf-8').encode()
+    candidate_probe = patch._VERIFIER_PROBE + b'      start_period: 120s\n'
+    assert candidate.count(candidate_probe) == 1
+    previous_probe = patch._VERIFIER_PROBE + b'      start_period: 20s\n'
+    originals = {file: (ROOT / file).read_text(encoding='utf-8').encode() for file in patch.COMPOSE}
+    originals[name] = candidate.replace(candidate_probe, previous_probe, 1)
+    host = object.__new__(patch.BackedHost)
+    host.source = tmp_path / 'source'
+    host.deployment = tmp_path / 'installed'
+    host.source.mkdir()
+    host.deployment.mkdir()
+    for file, original in originals.items():
+        (host.source / file).write_bytes(candidate if file == name else original)
+        (host.deployment / file).write_bytes(original)
+    revision = '1' * 40
+    host.git_bytes = lambda _operation, reference: originals[reference.removeprefix(revision + ':')]
+    host.request = {'predecessor': {'commit': revision}, 'allowed_delta': [name],
+        'qualification': {'source_files': {name: patch.sha256_file(host.source / name)}}}
+    return host, name, originals[name], candidate
+
+
+def test_backed_installer_accepts_and_resumes_the_exact_verifier_grace_change(verifier_grace_host):
+    host, name, _, candidate = verifier_grace_host
+    host.verify_compose('predecessor')
+    host.install_compose()
+    host.install_compose()
+    host.verify_compose('candidate')
+    assert (host.deployment / name).read_bytes() == candidate
+
+
+@pytest.mark.parametrize('fault', ['other_change', 'unqualified', 'unapproved'])
+def test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, fault):
+    host, name, original, candidate = verifier_grace_host
+    if fault == 'other_change':
+        (host.source / name).write_bytes(candidate + b'\n# unrelated change\n')
+        host.request['qualification']['source_files'][name] = patch.sha256_file(host.source / name)
+    elif fault == 'unqualified':
+        host.request['qualification']['source_files'][name] = '0' * 64
+    else:
+        host.request['allowed_delta'] = []
+    for action in (lambda: host.verify_compose('predecessor'), host.install_compose):
+        with pytest.raises(patch.DeliveryRefused, match='BACKED_COMPOSITION_CHANGE_REFUSED'):
+            action()
+    assert (host.deployment / name).read_bytes() == original
+
+
+def test_exact_compose_guard_has_executed_falsifier(verifier_grace_host, monkeypatch):
+    monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, 'other_change')
+
+
 def immutable_values_host(tmp_path,monkeypatch):
     host=object.__new__(patch.BackedHost)
     host.deployment=tmp_path;host.literal=importlib.import_module('sentinel_env')

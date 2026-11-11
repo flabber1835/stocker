@@ -28,6 +28,13 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
 _AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
 _WORKER_READ_MOUNT = b'    volumes:\n      - sentinel_state:/var/lib/sentinel:ro\n'
+_VERIFIER_PROBE = (
+    b'    healthcheck:\n'
+    b'      test: ["CMD", "python", "-m", "sentinel.panel.verification_service", "--health"]\n'
+    b'      interval: 10s\n'
+    b'      timeout: 5s\n'
+    b'      retries: 2\n'
+)
 _CANONICAL_PROGRAM_FILES = ('scripts/sentinel_local_delivery/checks.py',
     'scripts/sentinel_local_delivery/evidence.py')
 _REVIEWED_CANONICAL_PROGRAMS = (
@@ -50,10 +57,16 @@ def _without_issuer_evidence(state):
     return {key:value for key,value in state.items() if key!='issuer_evidence'}
 
 
-def _allowed_worker_mount(name, previous, candidate):
-    """Only the documented literal read-only state observation addition."""
-    return (name=='docker-compose.sentinel-automation.yml'
-        and previous.count(_AUTOMATION_ENTRY)==candidate.count(_AUTOMATION_ENTRY)==1
+def _allowed_compose_change(name, previous, candidate):
+    """Admit the documented byte-for-byte automation Compose changes."""
+    if name != 'docker-compose.sentinel-automation.yml':
+        return False
+    previous_probe = _VERIFIER_PROBE + b'      start_period: 20s\n'
+    next_probe = _VERIFIER_PROBE + b'      start_period: 120s\n'
+    if (previous.count(_VERIFIER_PROBE) == 1 and previous_probe in previous
+            and previous.replace(previous_probe, next_probe, 1) == candidate):
+        return True
+    return (previous.count(_AUTOMATION_ENTRY)==candidate.count(_AUTOMATION_ENTRY)==1
         and candidate.count(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT)==1
         and candidate.replace(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT,_AUTOMATION_ENTRY,1)==previous)
 
@@ -333,7 +346,7 @@ class BackedHost(Host):
             original=self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
             candidate=(self.source/name).read_bytes()
             if candidate!=original:
-                require(_allowed_worker_mount(name,original,candidate)
+                require(_allowed_compose_change(name,original,candidate)
                     and name in self.request['allowed_delta']
                     and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
                     'BACKED_COMPOSITION_CHANGE_REFUSED')
@@ -353,7 +366,7 @@ class BackedHost(Host):
                 'BACKED_COMPOSITION_CHANGE_REFUSED')
             if candidate==original:
                 continue
-            require(_allowed_worker_mount(name,original,candidate)
+            require(_allowed_compose_change(name,original,candidate)
                 and name in self.request['allowed_delta']
                 and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
                 'BACKED_COMPOSITION_CHANGE_REFUSED')

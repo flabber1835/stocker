@@ -39,13 +39,16 @@ owner still invalidates a failed proof through the existing immediate path.
 ## Refresh before the original clock expires
 
 Only the ordinary maintenance producer can proactively perform a full scrub.
-When the authenticated byte receipt is within 120 seconds of its original
+When the authenticated byte receipt is within 150 seconds of its original
 expiry, maintenance performs both existing full byte and metadata passes even
-when the old receipt is still eligible for a reader. The lead allows for the
-observed 83-second pass and dispatch variation. It does not guarantee a full
-scrub finishes within the remaining time. An expired receipt remains ineligible
-and a failed scrub invalidates as before. Ordinary hits and incremental work
-preserve the original full completion clock.
+when the old receipt is still eligible for a reader. The November 10 scheduled
+renewal took 119.93 seconds from its due time to proof publication, leaving
+0.074 seconds under the original 120-second lead. A later pass published
+12.44 seconds after the preceding proof expired. Use the 150-second lead in both
+the host schedule and the maintenance worker's full-refresh decision.
+The proof remains eligible only within its original 300-second lifetime.
+Failed scrubs invalidate the proof. Ordinary hits and incremental work preserve
+the original full completion clock.
 
 Drive the next pass from the earliest of the existing publication schedule and
 the validated maintenance-produced byte renewal instant. Derive that instant
@@ -65,3 +68,9 @@ early refresh, unchanged hit clocks, and earlier scheduling based on the actual
 byte proof. Prove the previous bounds and failure paths still refuse. Do not
 modify LIVE or legacy policy, broker transport, journal, book, restore evidence,
 or the semantics of the original 300-second integrity interval.
+
+For the backed local handoff, retain the complete installed `047b3910cbb1`
+runtime inventory as an exact predecessor of the reviewed renewal change.
+Preserve the existing history and economic mappings. Install the same qualified
+source for the application and the native maintenance reader. Observe a
+scheduled renewal that publishes before the previous byte proof expires.

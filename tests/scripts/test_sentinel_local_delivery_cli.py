@@ -498,6 +498,7 @@ def operational_inputs(inputs,monkeypatch):
         'scripts/sentinel_backed_local_patch.py':'entry = True\n',
         'scripts/sentinel_maintenance_reader_handover.py':'reader = True\n',
         'tests/scripts/test_sentinel_maintenance_reader_handover.py':'def test_reader(): assert True\n',
+        'docker-compose.sentinel-automation.yml':'services: {}\n',
         'services/bt-engine/protected.py':'private synthetic backtest marker\n',
     }
     for name in qualification.HANDOVER_INPUTS:
@@ -505,7 +506,7 @@ def operational_inputs(inputs,monkeypatch):
     for name,body in additions.items():
         path=value.source/name;path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(body);value.files[name]=body
-    value.approved.extend(['docs/current.md','tests/test_example.py'])
+    value.approved.extend(['docs/current.md','tests/test_example.py','docker-compose.sentinel-automation.yml'])
     original=value.git
     def git(root,*args):
         if args==('diff','--name-only','-z',OLD,'HEAD'):
@@ -534,7 +535,7 @@ def test_operational_qualification_covers_runtime_host_and_changes_without_prote
     assert {'sentinel/module.py','sentinel/unchanged.py',
         'scripts/sentinel_local_delivery/host.py','scripts/sentinel_backed_local_patch.py',
         'scripts/sentinel_maintenance_reader_handover.py','tests/scripts/test_sentinel_maintenance_reader_handover.py',
-        'docs/current.md','tests/test_example.py'} <= set(report['source_files'])
+        'docs/current.md','tests/test_example.py','docker-compose.sentinel-automation.yml'} <= set(report['source_files'])
     assert not any(name.startswith('services/') for name in report['source_files'])
 
 

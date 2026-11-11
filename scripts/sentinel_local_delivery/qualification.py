@@ -73,7 +73,8 @@ def source_files(source, *, scope=None, predecessor_commit=None, commit=None, gi
         changed = set(filter(None,read('diff','--name-only','-z',
             predecessor_commit,commit if git_reader is not None else 'HEAD').split('\0')))
         require(all(name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
-                    for name in changed), 'QUALIFICATION_NONOPERATIONAL_DELTA')
+                    or name == 'docker-compose.sentinel-automation.yml' for name in changed),
+                'QUALIFICATION_NONOPERATIONAL_DELTA')
         names = [name for name in names if name.startswith(
             ('sentinel/','scripts/sentinel_local_delivery/'))
             or name == 'scripts/sentinel_backed_local_patch.py' or name in HANDOVER_INPUTS or name in changed]

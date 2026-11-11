@@ -177,6 +177,24 @@ immediately. The later current process, leader and dashboard gates keep their
 existing requirements. Qualify same-incarnation recovery, persistent negative
 health, malformed health, and terminal process changes without adding probes.
 
+### Verifier startup grace (November 10, 2026)
+
+The November 10 local PAPER rollout reached the verifier health refusal at
+31.94 seconds. Its first operational projection heartbeat appeared at 32.94
+seconds, after the initial full composition and the fast worker's startup.
+Use a 120-second Docker startup grace for `sentinel-verifier`, matching the
+installer's all-role health wait budget. Both fresh heartbeats are required
+for the first successful probe, which begins ordinary Docker failure counting.
+Installation also requires the same healthy processes and a current dashboard
+receipt under the existing deadlines.
+
+The backed local installer admits the exact verifier grace change in
+`docker-compose.sentinel-automation.yml` against the installed predecessor.
+The changed Compose file belongs in the qualified source inventory and
+approved delta. Verify the old and new effective graphs, a delayed cold-start
+heartbeat at the deployed half-CPU limit, and refusal for a permanently
+missing heartbeat or a replaced process.
+
 ## Required private falsifiers before delivery
 
 Qualify a real read-only mounted volume and existing shared/exclusive lock;

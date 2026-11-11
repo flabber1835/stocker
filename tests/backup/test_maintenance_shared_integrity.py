@@ -337,7 +337,7 @@ def test_removed_receipt_fence_has_executed_falsifier(media, monkeypatch):
 
 def assert_maintenance_renews_before_expiry(media, monkeypatch):
     media.prove()
-    expire_proof_clock(monkeypatch, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS+1)
+    expire_proof_clock(monkeypatch, offset=151)
     previous = media.receipt()['proof']['completed_uptime']
     assert media.prove('application')['integrity_objects_hashed'] == 0
     assert media.receipt()['proof']['completed_uptime'] == previous

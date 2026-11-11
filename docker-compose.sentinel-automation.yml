@@ -235,7 +235,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 2
-      start_period: 20s
+      start_period: 120s
     depends_on:
       sentinel-postgres:
         condition: service_healthy

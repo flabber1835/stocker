@@ -26,7 +26,7 @@ PURPOSE = 'sentinel.backup-integrity-reuse/1'
 LOCK_KEY = 0x534E54424B503031
 MAX_BYTES = 512 * 1024
 MAX_AGE = 300
-REFRESH_LEAD_SECONDS = 120
+REFRESH_LEAD_SECONDS = 150
 
 
 class Proof(BaseModel):
