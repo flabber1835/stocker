@@ -276,6 +276,90 @@ def test_current_receipts_preserve_their_full_nonempty_issuer_snapshot(tmp_path,
     assert host.predecessor_canonical_proof(state)==(None if changed else {'book':'verified'})
 
 
+@pytest.mark.parametrize('mode,fault', [
+    ('PRE_OPEN',None), ('POST_TRADE',None), ('PRE_OPEN','routed-program'), ('PRE_OPEN','other-field'),
+    ('POST_TRADE','other-mode'), ('PRE_OPEN','reader'), ('PRE_OPEN','started'),
+    ('POST_TRADE','proof-shape'), ('POST_TRADE','proof-digest'),
+    ('POST_TRADE','old-malformed'), ('POST_TRADE','current-malformed'),
+    ('PRE_OPEN','overlap'), ('PRE_OPEN','moved'), ('PRE_OPEN','missing-witness'),
+])
+def test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,mode,fault):
+    from tests.scripts.test_sentinel_local_delivery_coordinator import request
+
+    prior=tmp_path/'prior';prior.mkdir()
+    selected=request(prior)
+    selected['handoff_mode']=mode
+    files=selected['qualification']['source_files']
+    files['sentinel/execution/authority_gate.py']='c'*64
+    monkeypatch.setattr(patch,'_REVIEWED_CANONICAL_RUNTIME_MAPS',{patch.digest(files)})
+    files['scripts/sentinel_local_delivery/coordinator.py']=patch._REVIEWED_CANONICAL_COORDINATOR
+    if fault=='routed-program':
+        files.update({name:patch.sha256_file(ROOT/name) for name in patch._CANONICAL_PROGRAM_FILES})
+    else:
+        files.update(zip(patch._CANONICAL_PROGRAM_FILES,(
+            '8186821a440ab620b7da37ba43196174a69aeff9594a13d0026b641df548847e',
+            'b1b600232d364a3b7072419834d85cc7519db2e154512c60e19e98d4ff49285d')))
+    if fault=='reader':files['sentinel/execution/authority_gate.py']='f'*64
+    patch.cli.write_new(prior/'request.json',selected)
+    journal=patch.Journal(prior)
+    state=dict(book='same',plan={'plan_id':'bound-plan'},issuer_evidence={'count':14,'md5':'a'*32})
+    preserved=dict(state,issuer_evidence={'count':13,'md5':'b'*32})
+    if fault=='old-malformed':preserved['issuer_evidence']['count']=True
+    if fault=='current-malformed':state['issuer_evidence']['count']=True
+    if fault=='other-field':state['book']='changed'
+    proof=dict(plan='bound-plan',transaction_read_only=True)
+    if mode=='POST_TRADE' and fault!='proof-shape':proof['settled_native_positions']={}
+    journal.advance('NEW','PREFLIGHT_PASS',preserved=preserved,canonical_proof=proof,
+        successor_proof_sha256='f'*64 if fault=='proof-digest' else patch.digest(proof))
+    for before,after in zip(journal.stages[1:],journal.stages[2:]):
+        if after=='VERIFIED' and fault=='started':break
+        journal.advance(before,after)
+    path=prior/'receipt.json'
+    (tmp_path/'build.json').write_text(json.dumps(dict(predecessor_receipt=dict(
+        path=str(path),sha256=patch.sha256_file(path)))))
+    host=object.__new__(patch.BackedHost)
+    host.operation_dir=tmp_path;host.predecessor_receipt=path
+    host.request=dict(schema=patch.SCHEMA,predecessor=selected['candidate'],
+        handoff_mode='PRE_OPEN' if fault=='other-mode' else mode)
+    calls=[]
+    def read(statement):
+        calls.append(statement)
+        if fault=='missing-witness':return None
+        observed=dict(state['issuer_evidence'],lineage_overlap=fault=='overlap')
+        if fault=='moved':observed['md5']='c'*32
+        return observed
+    host.sql=read
+    if fault=='proof-digest':
+        with pytest.raises(patch.DeliveryRefused,match='CANONICAL_PROOF_CHANGED'):
+            host.predecessor_canonical_proof(state)
+    else:
+        assert host.predecessor_canonical_proof(state)==(proof if fault in {None,'routed-program'} else None)
+    assert calls==([patch.checks.ISSUER_LINEAGE_SQL]
+        if fault in {None,'routed-program','overlap','moved','missing-witness','proof-digest'} else [])
+
+
+def test_issuer_lineage_guard_removal_is_detected(tmp_path,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost._issuer_only_change))
+    source=source.replace("observed.get('lineage_overlap') is False",'True').replace(
+        'dict(issuer,lineage_overlap=False)',"dict(issuer,lineage_overlap=observed['lineage_overlap'])")
+    namespace={}
+    exec(compile(source,'missing-current-issuer-lineage-guard','exec'),vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'_issuer_only_change',namespace['_issuer_only_change'])
+    with pytest.raises(AssertionError):
+        test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,'PRE_OPEN','overlap')
+
+
+def test_issuer_prior_reader_guard_removal_is_detected(tmp_path,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost._issuer_only_change))
+    needle='digest(runtime_files) not in _REVIEWED_CANONICAL_RUNTIME_MAPS'
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,'False'),'missing-prior-runtime-guard','exec'),vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'_issuer_only_change',namespace['_issuer_only_change'])
+    with pytest.raises(AssertionError):
+        test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,'PRE_OPEN','reader')
+
+
 def test_postgres_archive_off_cannot_become_a_backed_baseline():
     data={'Mounts':[{'Destination':'/var/lib/postgresql/data','Type':'volume',
         'Name':'sentinel_sentinel_pgdata','Source':'/private/owned'}],

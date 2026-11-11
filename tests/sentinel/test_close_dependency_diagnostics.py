@@ -10,7 +10,7 @@ from tests.sentinel.test_automation_service import (
 )
 
 
-async def assert_durable_backup_refusal(conn, monkeypatch, *, preserve=True):
+async def assert_durable_backup_refusal(conn, monkeypatch, *, enter_absence_probe=False):
     cfg = config()
     enable(conn, cfg)
     monkeypatch.setattr(local_paper, 'backups_suspended_for_account', lambda _conn: False)
@@ -20,16 +20,22 @@ async def assert_durable_backup_refusal(conn, monkeypatch, *, preserve=True):
 
     def strict_proof(backup_conn, *, operation):
         backup_connections.append(backup_conn)
-        with backup_integrity_reuse.owner(
-                backup_conn, system_id='1', base='base-20261110T000000Z',
-                start='000000010000000000000001', segment_size=16 * 1024**2):
-            pytest.fail('the second session acquired the common owner')
+        try:
+            with backup_integrity_reuse.owner(
+                    backup_conn, system_id='1', base='base-20261110T000000Z',
+                    start='000000010000000000000001', segment_size=16 * 1024**2):
+                pytest.fail('the second session acquired the common owner')
+        except backup_runtime_authority.BackupIntegrityBusy as exc:
+            if enter_absence_probe:
+                raise backup_runtime_authority.BackupRuntimeUnavailable(str(exc)) from exc
+            raise
 
     monkeypatch.setattr(backup_runtime_authority, '_require', strict_proof)
-    if not preserve:
-        # Execute the old behavior where only the failed fallback escaped.
-        monkeypatch.setattr(backup_runtime_authority, 'BackupContinuityUnavailable',
-                            lambda strict, fallback: fallback)
+    fallback_calls = []
+    def unexpected_fallback(*args, **kwargs):
+        fallback_calls.append(True)
+        raise backup_continuity.MediaAbsenceUnproven('private mounted media')
+    monkeypatch.setattr(backup_continuity, 'degraded', unexpected_fallback)
     runtime = object.__new__(ProductionAutomation)
     runtime.connect = lambda: psycopg.connect(conn.info.dsn)
 
@@ -51,6 +57,7 @@ async def assert_durable_backup_refusal(conn, monkeypatch, *, preserve=True):
     assert result.cycle.diagnostic['failure_domain'] == 'BACKUP'
     assert result.cycle.diagnostic['retry_phase'] == 'PREPARE'
     assert result.cycle.plan_id is None
+    assert not fallback_calls, 'owner contention ran the media absence probe'
     assert len(backup_connections) == 1 and backup_connections[0].closed
     state, detail = conn.execute(
         'SELECT to_state,detail FROM sentinel_automation_cycle_events '
@@ -59,15 +66,15 @@ async def assert_durable_backup_refusal(conn, monkeypatch, *, preserve=True):
     assert state == 'RETRY_WAIT'
     assert detail['failure_detail'] == result.cycle.failure_detail
     assert 'PROOF_OWNER_BUSY' in detail['failure_detail'], 'lost strict proof owner reason'
-    assert 'MEDIA_ABSENCE_UNPROVEN' in detail['failure_detail'], 'lost fallback outcome'
+    assert 'MEDIA_ABSENCE_UNPROVEN' not in detail['failure_detail']
 
 
 @pytest.mark.asyncio
-async def test_prepare_persists_strict_backup_reason_and_failed_fallback(conn, monkeypatch):
+async def test_prepare_persists_strict_backup_reason_without_absence_probe(conn, monkeypatch):
     await assert_durable_backup_refusal(conn, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_removed_backup_reason_preservation_fails_durable_oracle(conn, monkeypatch):
-    with pytest.raises(AssertionError, match='lost strict proof owner reason'):
-        await assert_durable_backup_refusal(conn, monkeypatch, preserve=False)
+async def test_ordinary_absence_fallback_fails_busy_oracle(conn, monkeypatch):
+    with pytest.raises(AssertionError, match='owner contention ran the media absence probe'):
+        await assert_durable_backup_refusal(conn, monkeypatch, enter_absence_probe=True)

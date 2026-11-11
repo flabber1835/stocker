@@ -1,8 +1,10 @@
 """Real rolling runtime approval, interrupted commit recovery and service routing."""
+import ast
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import psycopg
 import pytest
 
 from sentinel import rolling_runtime as runtime, rolling_authority as authority
@@ -28,6 +30,64 @@ def status(conn):
 
 def classify(conn, **kwargs):
     return runtime.classify(conn, observation_id=OBS, starting_cash=100_000, **kwargs)
+
+
+def installer_route(program):
+    tree=ast.parse(program)
+    definitions=[node for node in tree.body if isinstance(node,ast.FunctionDef)
+                 and node.name in {'_classify_routed','_rolling_status'}]
+    scope=dict(rolling_checkpoint=origin,rolling_runtime=runtime,Decimal=Decimal)
+    exec(compile(ast.Module(body=definitions,type_ignores=[]),'installer-origin-route','exec'),scope)
+    return scope['_rolling_status']
+
+
+def test_installer_routing_removes_one_complete_origin_authentication(conn,published,monkeypatch):
+    from scripts.sentinel_local_delivery.checks import CANONICAL
+    advance(conn)
+    authenticate=origin._signature
+    calls=[]
+    def measured(payload):
+        calls.append(payload['observation_id'])
+        return authenticate(payload)
+    monkeypatch.setattr(origin,'_signature',measured)
+
+    origin.read(conn)
+    conn.rollback()
+    expected=status(conn).to_dict()
+    original=len(calls)
+
+    def exact_work_count(route):
+        calls.clear()
+        assert route(conn).to_dict()==expected
+        assert len(calls)==original-1, 'complete origin authentication repeated'
+
+    exact_work_count(installer_route(CANONICAL))
+    duplicate=CANONICAL.replace('def _rolling_status(conn):',
+        'def _rolling_status(conn):\n    rolling_checkpoint.read(conn)')
+    with pytest.raises(AssertionError,match='complete origin authentication repeated'):
+        exact_work_count(installer_route(duplicate))
+
+
+def test_installer_routing_and_authentication_share_one_read_only_snapshot(conn,published,monkeypatch):
+    from scripts.sentinel_local_delivery.checks import CANONICAL
+    advance(conn)
+    expected=status(conn).to_dict()
+    classify_owned=runtime._classify_owned
+
+    def change_after_route(proof, **options):
+        assert proof.execute('SHOW transaction_isolation').fetchone()[0]=='repeatable read'
+        assert proof.execute('SHOW transaction_read_only').fetchone()[0]=='on'
+        with psycopg.connect(conn.info.dsn) as writer:
+            writer.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{hmac_sha256}',"
+                'to_jsonb(%s::text)) WHERE cursor_name=%s',('f'*64,origin.CURSOR))
+        return classify_owned(proof,**options)
+
+    route=installer_route(CANONICAL)
+    with monkeypatch.context() as during:
+        during.setattr(runtime,'_classify_owned',change_after_route)
+        assert route(conn).to_dict()==expected
+    with pytest.raises(origin.RollingColdStartRefused,match='CHECKPOINT_AUTHENTICATION_FAILED'):
+        route(conn)
 
 
 def test_first_runtime_approval_is_signed_bound_and_idempotent(conn, published):

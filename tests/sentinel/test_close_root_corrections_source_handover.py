@@ -14,12 +14,12 @@ def test_close_root_corrections_successor_preserves_every_installed_map():
     profile=basis._profile();assert basis.CLOSE_ROOT_PREDECESSOR_REVISION==REVISION
     before=profile['retained_predecessors'][REVISION]['files']
     assert len(before)==469 and admission.source_closure(before)==CLOSURE
-    actual=admission._source_files(basis.PROFILE.parent)
+    actual=profile['retained_predecessors'][basis.BACKUP_REFRESH_PREDECESSOR_REVISION]['files']
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==40 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev!=REVISION}
+    assert len(profile['retained_predecessors'])==41 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='112941159785c415c2889d50ffb48e1f2d0a0656fb580f29ce22b79ec52d78e3'
 

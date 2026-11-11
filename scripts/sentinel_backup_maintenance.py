@@ -80,7 +80,14 @@ def runtime_image(runner=run):
     return value
 
 
-def observe_primary(runner=run):
+def observe_primary(runner=run, *, with_byte_timing=False):
+    byte_timing = """,'maintenance_byte_timing',(SELECT json_build_object(
+        'proof',proof,'sample_at',clock_timestamp(),
+        'primary_uptime',split_part(pg_read_file('/proc/uptime',0,128,true),' ',1))
+        FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN'
+        AND proof->>'schema'='sentinel.maintenance-integrity/1'
+        AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')
+        ORDER BY observed_at DESC,seq DESC LIMIT 1)""" if with_byte_timing else ''
     value = json.loads(sql("""SELECT json_build_object(
         'system_id',system_identifier::text,
         'now',floor(extract(epoch FROM clock_timestamp()))::bigint,
@@ -89,8 +96,7 @@ def observe_primary(runner=run):
         'segment_size',pg_size_bytes(current_setting('wal_segment_size')),
         'publication_at',(SELECT observed_at FROM sentinel_backup_evidence
             WHERE kind='RUNTIME_CHAIN' AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')
-            ORDER BY observed_at DESC,seq DESC LIMIT 1))
-        FROM pg_control_system()""", runner))
+            ORDER BY observed_at DESC,seq DESC LIMIT 1)""" + byte_timing + ") FROM pg_control_system()", runner))
     if (not re.fullmatch(r"[1-9][0-9]{0,19}", str(value.get("system_id", "")))
             or not re.fullmatch(r"[0-9A-F]{8}", str(value.get("timeline", "")))
             or not re.fullmatch(r"[0-9A-F]+/[0-9A-F]{1,8}", str(value.get("lsn", "")))
@@ -339,18 +345,22 @@ def publish_runtime_chain(output, selected, observation, root, runner=run, *, sc
     # Every variable field above is a validated machine identity; no operator
     # text or credentials enter SQL. The database supplies the observation time.
     payload = json.dumps(proof, sort_keys=True, separators=(",", ":"))
+    clock = (",'primary_uptime',split_part(pg_read_file('/proc/uptime',0,128,true),' ',1)"
+             if schedule is not None and proof.get('schema') == 'sentinel.maintenance-integrity/1' else '')
     # An outer SELECT avoids psql's INSERT command tag in the JSON protocol.
     query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
         "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
         "SELECT 'RUNTIME_CHAIN',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
         "FROM evidence RETURNING proof,observed_at) SELECT json_build_object('proof',proof,"
-        "'observed_at',observed_at)::text FROM recorded")
+        "'observed_at',observed_at" + clock + ")::text FROM recorded")
     observed = json.loads(sql(query, runner))
-    if (not isinstance(observed,dict) or set(observed) != {'proof','observed_at'}
+    if (not isinstance(observed,dict) or set(observed)-{'primary_uptime'} != {'proof','observed_at'}
             or observed['proof'] != proof):
         raise Refused("runtime chain evidence was not persisted exactly")
     renewal.timestamp(observed['observed_at'])
-    if schedule is not None: schedule.accept(observed['observed_at'])
+    if schedule is not None:
+        byte_due_at = renewal.byte_renewal_at(observed['observed_at'], proof, observed.get('primary_uptime'))
+        schedule.accept(observed['observed_at'], byte_due_at=byte_due_at, own_publication=True)
     return proof
 
 
@@ -471,8 +481,8 @@ def tick(root, runner=run, *, freshness=False, budget=None):
     try:
         value = (_fresh_tick(root,runner,state) if freshness else _tick(root, runner, progress, started,state))
         renewal.emit(renewal.result(outcome='SUCCESS',phase='COMPLETE',code='OK',
-            publication_at=state['schedule'].publication(),elapsed_seconds=time.monotonic()-started,
-            started_at=started_at,finished_at=datetime.now(timezone.utc).isoformat()),refresh=freshness)
+            elapsed_seconds=time.monotonic()-started, started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
         return value
     except Exception as primary:
         if progress:
@@ -486,9 +496,8 @@ def tick(root, runner=run, *, freshness=False, budget=None):
             phase=state['phase'],code=failure['code'] if failure else 'COORDINATOR_REFUSED'
                 if isinstance(primary,Refused) else 'UNCLASSIFIED',
             cause_type=type(primary).__name__ if type(primary).__name__ in {'Refused','OSError','ValueError','KeyError','TypeError'}
-                else 'UNKNOWN',publication_at=state['schedule'].publication(),
-            elapsed_seconds=time.monotonic()-started,failure=failure,started_at=started_at,
-            finished_at=datetime.now(timezone.utc).isoformat()),refresh=freshness)
+                else 'UNKNOWN', elapsed_seconds=time.monotonic()-started,failure=failure,started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
         raise
 
 
@@ -529,7 +538,7 @@ def _tick(root, runner, progress, started,state):
         raise Refused('unsupported maintenance shared integrity policy')
     image = runtime_image(runner)
     state['phase'] = 'OBSERVE'
-    observation = observe_primary(runner)
+    observation = observe_primary(runner, with_byte_timing=True) if shared_mode else observe_primary(runner)
     if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
     on_wait = FreshnessReader(state['schedule']) if shared_mode else None
     deferred = not heavy_work_allowed(observation)
@@ -538,6 +547,8 @@ def _tick(root, runner, progress, started,state):
     selected = worker("observe", image, root, observation, runner)
     renewed = renewal_due(selected, observation)
     if renewed and not deferred:
+        if shared_mode:
+            _prime_bulk_byte_renewal(state['schedule'], observation, selected)
         state['phase'] = 'BASE_BACKUP'
         first_second = observation['now'] - math.ceil(time.monotonic()-started)
         _progress(progress, runner, schema='sentinel.backup-maintenance-progress/1',
@@ -569,6 +580,23 @@ def _tick(root, runner, progress, started,state):
                       "base": selected["name"], **result,
                       **({'continuity_ready': continuity_ready} if continuity_ready is not None else {})}, sort_keys=True))
     return result
+
+
+def _prime_bulk_byte_renewal(schedule, observation, selected):
+    """Seed the existing bulk freshness reader from its exact prior proof."""
+    timing = observation.get('maintenance_byte_timing')
+    if not isinstance(timing, dict):
+        return
+    try:
+        proof = validate_shared_integrity(timing['proof'])
+        if (proof['system_identifier'] != observation['system_id'] or proof['base_backup'] != selected['name']
+                or proof['wal_segment_bytes'] != observation['segment_size']):
+            return
+        due = renewal.byte_renewal_at(timing['sample_at'], proof, timing.get('primary_uptime'))
+        if due is not None:
+            schedule.prime_due(due)
+    except (KeyError, TypeError, ValueError):
+        return  # A missing scheduling hint does not supply or withdraw authority.
 
 
 def _latest_publication():

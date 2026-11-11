@@ -26,6 +26,7 @@ PURPOSE = 'sentinel.backup-integrity-reuse/1'
 LOCK_KEY = 0x534E54424B503031
 MAX_BYTES = 512 * 1024
 MAX_AGE = 300
+REFRESH_LEAD_SECONDS = 120
 
 
 class Proof(BaseModel):
@@ -101,18 +102,16 @@ sync .'''
 
 
 class Owner:
-    def __init__(self, conn, context):
+    def __init__(self, conn, context, *, read_only=False):
         self.conn = conn
         physical, self.boot, self.uptime, self.client_before = _clock(conn)
         self.context = dict(context, **physical, implementation=implementation())
+        self.read_only = read_only
         self.proof = None
         self.expired_window = None  # Diagnostic clocks only; never reusable proof.
-        row = conn.execute('SELECT pg_read_binary_file(%s,0,%s,true)', (NAME, MAX_BYTES+1)).fetchone()
-        if row is not None and row[0] is not None:
-            raw = bytes(row[0])
-            if not 0 < len(raw) <= MAX_BYTES:
-                raise ValueError('backup integrity receipt exceeds bound')
-            envelope = json.loads(raw)
+        self.raw = self._read()
+        if self.raw is not None:
+            envelope = json.loads(self.raw)
             if (not isinstance(envelope, dict) or set(envelope) != {'proof','signature'}
                     or not isinstance(envelope['signature'], str)
                     or not hmac.compare_digest(envelope['signature'], _signature(envelope['proof']))):
@@ -123,6 +122,38 @@ class Owner:
                     self.proof = proof
                 elif self.uptime-proof.completed_uptime >= MAX_AGE:
                     self.expired_window = (proof.completed_uptime, self.uptime)
+
+    def _read(self):
+        row = self.conn.execute('SELECT pg_read_binary_file(%s,0,%s,true)', (NAME, MAX_BYTES+1)).fetchone()
+        if row is None or row[0] is None:
+            return None
+        raw = bytes(row[0])
+        if not 0 < len(raw) <= MAX_BYTES:
+            raise ValueError('backup integrity receipt exceeds bound')
+        return raw
+
+    def require_unchanged(self):
+        from sentinel.backup_runtime_authority import (
+            BackupIntegrityBusy, BackupIntegrityProofExpired, BackupRuntimeRefused)
+
+        # This volatile filesystem read sees the result of the last atomic
+        # rename, even when the caller uses a repeatable-read SQL snapshot.
+        try:
+            raw = self._read()
+            physical, boot, uptime, _ = _clock(self.conn)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise BackupRuntimeRefused('backup integrity reuse record or clock is invalid') from exc
+        if boot != self.boot or uptime < self.uptime or any(self.context[k] != v for k,v in physical.items()):
+            raise BackupRuntimeRefused('backup integrity physical clock changed during proof')
+        if self.proof is None or raw != self.raw:
+            raise BackupIntegrityBusy('completed backup integrity proof changed during admission')
+        stamp = self.proof.completed_uptime
+        if uptime-stamp >= MAX_AGE:
+            raise BackupIntegrityProofExpired(completed_uptime=stamp, observed_uptime=uptime)
+
+    def refresh_due(self):
+        return (self.proof is not None and
+                self.uptime-self.proof.completed_uptime >= MAX_AGE-REFRESH_LEAD_SECONDS)
 
     def cached(self):
         if self.proof is None:
@@ -163,7 +194,7 @@ class Owner:
 
 
 @contextmanager
-def owner(conn, *, system_id, base, start, segment_size):
+def owner(conn, *, system_id, base, start, segment_size, allow_completed=False):
     if not selected():
         yield None
         return
@@ -178,13 +209,15 @@ def owner(conn, *, system_id, base, start, segment_size):
         # only this proof transaction; no borrowed financial work is committed.
         with conn.transaction():
             acquired = conn.execute('SELECT pg_try_advisory_lock(%s)', (LOCK_KEY,)).fetchone() == (True,)
-            if not acquired:
+            if not acquired and not allow_completed:
                 raise BackupIntegrityBusy('another backup integrity proof owner is active')
             try:
                 value = Owner(conn, {'system_id':system_id, 'base':base,
-                                     'start':start, 'segment_size':segment_size})
+                                     'start':start, 'segment_size':segment_size}, read_only=not acquired)
             except (ValueError, KeyError, TypeError) as exc:
                 raise BackupRuntimeRefused('backup integrity reuse record or clock is invalid') from exc
+            if not acquired and value.proof is None:
+                raise BackupIntegrityBusy('another backup integrity proof owner is active')
             yield value
     except BaseException:
         # The proof savepoint has rolled back first, so an aborted media read

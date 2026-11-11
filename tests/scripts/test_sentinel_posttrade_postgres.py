@@ -90,6 +90,36 @@ def test_removing_mvcc_fields_has_a_real_postgres_falsifier(conn):
         assert_checkpoint_update_detected(conn,query)
 
 
+@pytest.mark.parametrize('state,overlap', [
+    ('{"body":{"strategy_identity":"nested"}}',False),
+    ('{"wealth_core":null}',True), ('{"strategy_identity":false}',True),
+    ('["wealth_core"]',True),
+])
+def test_issuer_witness_matches_preservation_and_both_canonical_lineage_queries(conn,state,overlap):
+    from sentinel import checkpoint_lineage_access as access, rolling_checkpoint
+
+    conn.execute('CREATE TEMP TABLE sentinel_processed_sessions('
+        'cursor_name text PRIMARY KEY,session date NOT NULL,state jsonb NOT NULL)')
+    names=[prefix+'private' for prefix in checks.ISSUER_EVIDENCE_PREFIXES]
+    for name in names:
+        conn.execute("INSERT INTO sentinel_processed_sessions VALUES (%s,'2026-11-09',%s::jsonb)",
+            (name,state))
+    query=re.search(r"'issuer_evidence',\((SELECT.*?)\),\s*'push_subscriptions'",
+        checks.SNAPSHOT_SQL,re.S).group(1)
+    preserved=conn.execute(query).fetchone()[0]
+    witness=conn.execute(checks.ISSUER_LINEAGE_SQL).fetchone()[0]
+    assert witness==dict(preserved,lineage_overlap=overlap) and witness['count']==len(names)
+    assert bool(rolling_checkpoint.lineage_names(conn)) is overlap
+    excluded=([], 'shadow-observation:v1:primary:session:%',
+              'rolling-daily-input:v1:primary:%', 'rolling-runtime-authority:v1:primary:%')
+    assert bool(conn.execute(access.ORIGINAL_QUERY,excluded).fetchone()) is overlap
+    assert bool(conn.execute(access.QUERY,dict(zip(
+        ('allowed_names','session_pattern','input_pattern','authority_pattern'),excluded))).fetchone()) is overlap
+    conn.execute('DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s',(names[0],))
+    moved=conn.execute(checks.ISSUER_LINEAGE_SQL).fetchone()[0]
+    assert moved['count']==witness['count']-1 and moved['md5']!=witness['md5']
+
+
 def successor_tables(conn):
     """Minimal real tables for the exact native candidate/join/clock predicate."""
     conn.execute("""CREATE TEMP TABLE sentinel_automation_control AS SELECT 1::int AS id,

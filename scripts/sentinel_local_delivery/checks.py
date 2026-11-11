@@ -127,6 +127,11 @@ _CLEAN_CASH_RETIRED_SQL = ("s.state='SUPERSEDED' "
 _ISSUER_EVIDENCE_FILTER = ' OR '.join(
     "x.cursor_name LIKE '"+prefix+"%'"
     for prefix in ISSUER_EVIDENCE_PREFIXES)
+_ISSUER_EVIDENCE_FIELDS = ("'count',count(*),"
+    "'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),''))")
+ISSUER_LINEAGE_SQL = (f'SELECT json_build_object({_ISSUER_EVIDENCE_FIELDS},'
+    "'lineage_overlap',coalesce(bool_or(x.state ?| ARRAY['wealth_core','strategy_identity']),false)) "
+    'FROM sentinel_processed_sessions x WHERE '+_ISSUER_EVIDENCE_FILTER)
 
 _SNAPSHOT_SQL = r'''WITH candidates AS (
  SELECT s.* FROM sentinel_automation_cycles s
@@ -185,8 +190,7 @@ SELECT json_build_object(
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
      OR x.cursor_name LIKE 'shadow-observation:v1:%'),
- 'issuer_evidence',(SELECT json_build_object('count',count(*),
-   'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),'')))
+ 'issuer_evidence',(SELECT json_build_object(__ISSUER_EVIDENCE_FIELDS__)
    FROM sentinel_processed_sessions x WHERE __ISSUER_EVIDENCE_FILTER__),
  'push_subscriptions',(SELECT json_build_object(
    'active',count(*) FILTER (WHERE x.retired_at IS NULL),
@@ -252,6 +256,7 @@ def snapshot_sql(mode='PRE_OPEN'):
             WHERE x.plan_id=s.plan_id),"""
     statement = (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
         .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled)
+        .replace('__ISSUER_EVIDENCE_FIELDS__',_ISSUER_EVIDENCE_FIELDS)
         .replace('__ISSUER_EVIDENCE_FILTER__',_ISSUER_EVIDENCE_FILTER))
     if mode=='BLOCKED_UNSENT':
         statement = (statement.replace('s.control_generation=c.generation AND',
@@ -374,6 +379,28 @@ from sentinel.feed.publication import CorpusLockUnavailable
 from sentinel.panel.pwa import SERVICE_WORKER
 from sentinel.panel.render import PUSH_SCRIPT
 expected=json.loads(sys.argv[1])
+def _classify_routed(proof, **options):
+    row=proof.execute("SELECT state #>> '{checkpoint,observation_id}',"
+        "state #>> '{checkpoint,starting_cash}' FROM sentinel_processed_sessions WHERE cursor_name=%s",
+        (rolling_checkpoint.CURSOR,)).fetchone()
+    assert row is not None and all(value is not None for value in row), 'canonical origin routing missing'
+    observation_id,starting_cash=row
+    # These scalars only route the existing fully authenticated status proof.
+    return rolling_runtime._classify_owned(proof,observation_id=observation_id,
+        starting_cash=Decimal(starting_cash),**options)
+
+def _rolling_status(conn):
+    if all(callable(getattr(rolling_runtime,name,None)) for name in (
+            '_committed_status','_classify_owned','_verified_result')):
+        conn.rollback()
+        return rolling_runtime._verified_result(rolling_runtime._committed_status(conn,_classify_routed))
+    # Older qualified images can still use their public rolling status owner.
+    origin=rolling_checkpoint.read(conn)
+    assert origin is not None
+    observation_id,starting_cash=origin.observation_id,Decimal(origin.starting_cash)
+    conn.rollback()
+    return rolling_runtime.status(conn,observation_id=observation_id,starting_cash=starting_cash)
+
 def verify_once():
     dsn=make_conninfo(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=5,
         options='-c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=1000')
@@ -385,12 +412,7 @@ def verify_once():
         assert bound.to_dict()==expected['binding']
         assert config_from_env().fingerprint==expected['config']
         runtime,strategy=_current_system_identities()
-        origin=rolling_checkpoint.read(conn)
-        assert origin is not None
-        observation_id,starting_cash=origin.observation_id,Decimal(origin.starting_cash)
-        # The canonical status reader owns a fresh repeatable-read transaction.
-        conn.rollback()
-        result=rolling_runtime.status(conn,observation_id=observation_id,starting_cash=starting_cash)
+        result=_rolling_status(conn)
         assert result is not None and result.session==expected['decision']
         assert result.shadow_verdict=='SHADOW_GO' and result.verification=='VERIFIED'
         plan=journal.load_plan(conn,expected['plan'])

@@ -15,10 +15,11 @@ import sys
 import tempfile
 from types import SimpleNamespace
 
-from sentinel_local_delivery import builder, checks, cli, environment
+from sentinel_local_delivery import builder, checks, cli, environment, evidence
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
-from sentinel_local_delivery.model import ACCESS_PATH_SCHEMA, DeliveryRefused, Journal, read_json, require, digest
+from sentinel_local_delivery.model import (ACCESS_PATH_SCHEMA, SCHEMA, DeliveryRefused,
+    Journal, read_json, require, digest)
 from sentinel_local_delivery.qualification import sha256_file
 from sentinel_lock_ownership import owns_exclusive_flock
 
@@ -27,6 +28,26 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
 _AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
 _WORKER_READ_MOUNT = b'    volumes:\n      - sentinel_state:/var/lib/sentinel:ro\n'
+_CANONICAL_PROGRAM_FILES = ('scripts/sentinel_local_delivery/checks.py',
+    'scripts/sentinel_local_delivery/evidence.py')
+_REVIEWED_CANONICAL_PROGRAMS = (
+    ('8186821a440ab620b7da37ba43196174a69aeff9594a13d0026b641df548847e',
+     'b1b600232d364a3b7072419834d85cc7519db2e154512c60e19e98d4ff49285d'),
+    ('4c74570ef82d1c5022d9d947ae9f4179139cfa857c16abc6ab260cdfdf4c38d5',
+     'c56aefa4c013c0bdd81bd7cfafc97d694a894616581962c34e1abd498533c840'),
+)
+_REVIEWED_CANONICAL_COORDINATOR = '435a4e5e65d38a0920fbbfd2d58316494b76a1f6340ae0545a22672d253940e6'
+# Complete qualified Sentinel file maps bind transitive runtime readers as
+# well as the origin and daily foreign-lineage checks.
+_REVIEWED_CANONICAL_RUNTIME_MAPS = {
+    '3b57b1fc09f7404a1a0cdc94cc429ada8c0aff641437ffb4de3798939178c5a0',  # 42d775b
+    'd1c279f5a1d7b0edb7592541ba10499039b4b236aaf9c2e3be35fc3b832883a8',  # 3f7a8eb
+    '3d06bd4ba2e833e90299774cc08442c07d14da37f33df93d23e9e877b017563e',  # Routed successor
+}
+
+
+def _without_issuer_evidence(state):
+    return {key:value for key,value in state.items() if key!='issuer_evidence'}
 
 
 def _allowed_worker_mount(name, previous, candidate):
@@ -428,14 +449,44 @@ class BackedHost(Host):
                 return None
             # A predecessor cannot attest rows which its snapshot did not name.
             # Only their proven absence adds no old-image canonical fact.
-            comparison={key:value for key,value in state.items() if key!='issuer_evidence'}
-        if preserved!=comparison:
+            comparison=_without_issuer_evidence(state)
+        elif not evidence.valid_issuer_evidence(preserved['issuer_evidence']):
+            return None
+        if preserved!=comparison and not self._issuer_only_change(prior.request,record,state):
             return None
         proof=artifacts['canonical_proof']
         require(isinstance(proof,dict) and proof and
             artifacts.get('successor_proof_sha256')==digest(proof),
             'BACKED_PREDECESSOR_CANONICAL_PROOF_CHANGED')
         return proof
+
+    def _issuer_only_change(self, prior_request, record, current):
+        mode=self.request.get('handoff_mode')
+        if (record['stage']!='VERIFIED' or mode not in {'PRE_OPEN','POST_TRADE'}
+                or prior_request.get('handoff_mode')!=mode
+                or prior_request.get('schema')!=SCHEMA or self.request.get('schema')!=SCHEMA):
+            return False
+        files=prior_request['qualification']['source_files']
+        runtime_files={name:sha for name,sha in files.items() if name.startswith('sentinel/')}
+        if (digest(runtime_files) not in _REVIEWED_CANONICAL_RUNTIME_MAPS
+                or tuple(files.get(name) for name in _CANONICAL_PROGRAM_FILES) not in _REVIEWED_CANONICAL_PROGRAMS
+                or files.get('scripts/sentinel_local_delivery/coordinator.py')!=_REVIEWED_CANONICAL_COORDINATOR):
+            return False
+        artifacts=record['artifacts']
+        proof=artifacts.get('canonical_proof')
+        preserved=artifacts['preserved']
+        issuer=current.get('issuer_evidence')
+        if not (isinstance(proof,dict) and proof.get('transaction_read_only') is True
+                and proof.get('plan')==current['plan']['plan_id']
+                and (isinstance(proof.get('settled_native_positions'),dict) if mode=='POST_TRADE'
+                    else 'settled_native_positions' not in proof)
+                and evidence.valid_issuer_evidence(preserved.get('issuer_evidence'))
+                and evidence.valid_issuer_evidence(issuer)
+                and _without_issuer_evidence(preserved)==_without_issuer_evidence(current)):
+            return False
+        observed=self.sql(checks.ISSUER_LINEAGE_SQL)
+        return (isinstance(observed,dict) and observed.get('lineage_overlap') is False
+            and type(observed.get('count')) is int and observed==dict(issuer,lineage_overlap=False))
 
     def access_path_canonical_bootstrap(self, state, retained):
         from sentinel_local_delivery.access_path_bootstrap import preflight

@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[WAL proof refresh overlap](backup-proof-refresh-overlap.md) defines how backed
+PAPER can use a current completed receipt during an exclusive maintenance scrub,
+with renewal scheduled from the original byte-proof clock.
+
 [Market close root corrections](market-close-root-corrections.md) records the
 November 10 retry, verification, exposure and diagnostic corrections and their
 qualified local PAPER handoff.

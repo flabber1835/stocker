@@ -315,7 +315,7 @@ def prove(conn, *, base_backup: str, system_identifier: str,
             # The inner owner reacquires this session lock and releases exactly
             # its own count. The outer count serializes the entire admission.
             result = authority.require(conn, operation='maintenance common WAL integrity',
-                                       allow_continuity=False, base_backup=None)
+                                       allow_continuity=False, maintenance_refresh=True)
             trace.mark('RESULT')
             size = conn.execute("SELECT pg_size_bytes(current_setting('wal_segment_size'))").fetchone()[0]
             if (result.get('enabled') is not True or result.get('system_identifier') != system_identifier

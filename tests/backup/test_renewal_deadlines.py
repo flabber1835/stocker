@@ -62,6 +62,56 @@ def test_success_tail_does_not_add_another_five_minute_sleep():
     assert schedule.delay() == 180 and schedule.deadline == 600
 
 
+def test_byte_refresh_is_early_and_owned_by_original_maintenance_proof():
+    clock = Clock()
+    schedule = clock.schedule()
+    clock.now = 100
+    published = clock.publication()
+    byte_due = renewal.byte_renewal_at(published,
+        dict(proof(), integrity_observed_uptime=1010), '1020.0')
+    assert byte_due == clock.publication(260)
+    value = renewal.result(outcome='SUCCESS', phase='COMPLETE', code='OK',
+        publication_at=published, byte_due_at=byte_due)
+    schedule.consume(renewal.parse(renewal.PASS_PREFIX+json.dumps(value)))
+    assert schedule.next_at() == 260
+    assert schedule.deadline == 700
+    clock.now = 105
+    schedule.accept(clock.publication())
+    assert schedule.next_at() == 260
+    assert schedule.deadline == 705
+    assert schedule.timing()['byte_due_at'] is None
+    clock.now = 110
+    schedule.consume(renewal.result(outcome='SUCCESS', phase='COMPLETE', code='OK',
+        publication_at=clock.publication()))
+    assert schedule.next_at() == 410
+
+
+def test_invalid_byte_timing_neither_advances_nor_invents_a_renewal():
+    clock = Clock()
+    publication = clock.publication()
+    assert renewal.byte_renewal_at(publication, proof(), 1199) is None
+    assert renewal.byte_renewal_at(publication, proof(), 'missing') is None
+    assert renewal.byte_renewal_at(publication, {}, 1200) is None
+    with pytest.raises(ValueError, match='bounded publication clock'):
+        renewal.result(outcome='SUCCESS', phase='COMPLETE', code='OK',
+            publication_at=publication, byte_due_at=clock.publication(301))
+
+
+def test_due_base_seeds_existing_freshness_schedule_from_qualified_current_clock():
+    clock = Clock()
+    schedule = clock.schedule()
+    selected = Boundary().selected()
+    actual = dict(proof(), integrity_observed_uptime=1010)
+    observation = dict(system_id=SYSTEM, segment_size=actual['wal_segment_bytes'],
+        maintenance_byte_timing=dict(proof=actual, sample_at=clock.publication(), primary_uptime='1020.0'))
+    coordinator._prime_bulk_byte_renewal(schedule, observation, dict(selected, name='foreign'))
+    assert schedule.next_at() == 300
+    coordinator._prime_bulk_byte_renewal(schedule, observation, selected)
+    assert schedule.next_at() == 160
+    assert schedule.deadline == 600
+    assert schedule.timing()['byte_due_at'] is None
+
+
 @pytest.mark.parametrize('outcome',('RETRYABLE','STANDBY'))
 def test_failed_or_standby_tick_recovers_before_actual_row_expiry(outcome):
     clock = Clock(); schedule = clock.schedule(); original = schedule.deadline
@@ -173,6 +223,26 @@ def test_read_only_freshness_uses_same_chain_guards_and_no_writer(monkeypatch,tm
     assert name.startswith('sentinel-maintenance-observe-')
     assert ['docker','rm','-f',name] in boundary.calls
     assert '/media/base:/backup/base:ro' in created and '/media/wal:/backup/wal:ro' in created
+
+
+def test_actual_publication_carries_native_byte_clock_through_pass_result(monkeypatch,tmp_path,capsys):
+    prepare_tick(monkeypatch,tmp_path)
+    boundary = FreshBoundary()
+    actual = dict(proof(), integrity_observed_uptime=1010)
+
+    def runner(command, **options):
+        value = boundary(command, **options)
+        if command[:2] == ['bash', 'scripts/sentinel-backup-status.sh']:
+            return status(actual)
+        if "SELECT 'RUNTIME_CHAIN'" in command[-1]:
+            assert "'primary_uptime',split_part(pg_read_file('/proc/uptime'" in command[-1]
+            return json.dumps(dict(json.loads(value), primary_uptime='1020.0'))
+        return value
+
+    coordinator.tick('/media', runner, freshness=True, budget=120)
+    result = renewal.parse(capsys.readouterr().out, refresh=True)
+    assert (renewal.timestamp(result['byte_renewal_at']) -
+            renewal.timestamp(result['publication_at'])).total_seconds() == 160
 
 
 @pytest.mark.parametrize('bad_metadata',(False,True))

@@ -34,6 +34,71 @@ Two isolated economic-fingerprint workers in build consumed 7.7 seconds. Their
 proof differs from image identity, but both functions can execute in the same
 existing isolated bootstrap for each exact image/configuration.
 
+## Retained predecessor canonical evidence
+
+The subsequent installed trace at `42d775b6952138191f89deb5054f97c079624bc2`
+spent 71.544 seconds re-running the predecessor's canonical comparison and
+105.908 seconds deriving the candidate. The issuer evidence count and digest
+were the sole differences between the prior and current preserved snapshots.
+The completed canonical results were equal. The available evidence does not
+establish which issuer rows changed or whether the change was append-only.
+
+For a schema `/3` PRE_OPEN or POST_TRADE handoff from a VERIFIED `/3`
+predecessor in the same mode, allow an issuer-only difference at the retained
+predecessor lookup when the prior qualification binds the exact reviewed host
+canonical program and complete `sentinel/` source map, including non-Python
+runtime inputs. This binds transitive readers as well as the lineage entry
+points. Keep exact receipt anchoring, validated journal,
+commit/image, proof digest and complete equality of every other preservation
+field. Require both issuer fingerprints to be well formed, the retained result
+to prove read-only execution and name the same plan, and a settled native
+positions map for POST_TRADE only. The prior complete canonical check accepted
+its unchanged preserved subject only after rolling status passed. Its reviewed
+origin and daily checks reject any issuer row with either top-level JSONB lineage
+marker `wealth_core` or `strategy_identity`, regardless of its prefix. That
+establishes absence of overlap for the old preserved inventory. The reviewed
+42d775b and 3f7a8eb runtime readers retain that strict behavior. The latter's
+historical source-frontier result is available only to a separate display call.
+The existing canonical program/evidence pair and the routed successor pair
+are both closed source subjects, so installing the routed program itself keeps
+the exception available to the next otherwise identical handoff.
+
+A fresh read-only statement re-observes the exact current issuer count and
+full-row digest using the same five prefixes and digest as the preservation
+query. It must match the preflight snapshot and positively establish absence of
+the same lineage markers, using PostgreSQL key-existence semantics including
+JSON arrays of strings. A mismatch, overlap, unknown reader or incomplete witness
+uses the ordinary full predecessor check.
+
+The canonical program verifies bound account, runtime, signed
+automation and publication authority, authenticates the rolling origin and
+current checkpoint/attestation, reloads the exact plan and its retained sizing,
+held-target and projection records, and reads the exact clean post-trade observation. Its
+published reference inputs and signing claims are independently bound facts.
+Those paths have no issuer enrollment, refresh, plan-admission or claim reads.
+Keep the fresh candidate canonical comparison and exact equality with the
+retained result. Issuer evidence remains in the complete preflight snapshot and
+every subsequent preservation check, alongside PostgreSQL, native, notification
+and readiness checks. The exception has no broker or trading authority.
+
+The installer also authenticates the entire rolling origin once to select the
+observation ID and starting cash, then authenticates it in the canonical
+rolling status proof. Read just those routing scalars from the exact origin
+cursor inside the existing committed status transaction. The canonical status
+owner fully authenticates the same snapshot's origin, context and lineage
+before accepting any result. Preserve the original full proof, exact output,
+resource admission and deadlines. Older images without the committed status
+entry points retain the earlier two-read path. The routing projection removes
+one complete application-level origin authentication per canonical attempt
+without changing runtime checkpoint readers or their memory limits.
+
+Qualification must exercise issuer-only reuse and strict fallback with real
+JSONB lineage markers and moved inventory, exact prior stage/mode/readers, a
+changed non-issuer fact, full issuer preservation after preflight and one fresh
+candidate proof. Count the removed origin authentication against a signed
+private origin and prove the canonical reader still rejects a bad signature.
+Report this as reduced work until a comparable installation measurement exists.
+
 ## One operational rolling dispatch
 
 For the explicit operational-source-only service, delegate past legacy segment

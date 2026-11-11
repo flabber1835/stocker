@@ -489,14 +489,17 @@ def _validate_archive_objects(
         wal_root: str, wal_objects: tuple[str, ...],
         history_object: str | None, segment_size: int,
         start: str, end: str,
-        require_current_selection: bool = False) -> tuple[dict[str, tuple], int, bool]:
+        require_current_selection: bool = False,
+        maintenance_refresh: bool = False) -> tuple[dict[str, tuple], int, bool]:
     from sentinel import backup_integrity_reuse
     with backup_integrity_reuse.owner(conn, system_id=system_id, base=base,
-                                     start=start, segment_size=segment_size) as shared:
+                                     start=start, segment_size=segment_size,
+                                     allow_completed=require_current_selection and not maintenance_refresh) as shared:
         return _validate_archive_objects_owned(conn, operation=operation,
             system_id=system_id, base=base, wal_root=wal_root, wal_objects=wal_objects,
             history_object=history_object, segment_size=segment_size, start=start,
-            end=end, require_current_selection=require_current_selection, shared=shared)
+            end=end, require_current_selection=require_current_selection, shared=shared,
+            maintenance_refresh=maintenance_refresh)
 
 
 def _validate_archive_objects_owned(
@@ -504,7 +507,8 @@ def _validate_archive_objects_owned(
         wal_root: str, wal_objects: tuple[str, ...],
         history_object: str | None, segment_size: int,
         start: str, end: str,
-        require_current_selection: bool = False, shared=None) -> tuple[dict[str, tuple], int, bool]:
+        require_current_selection: bool = False, shared=None,
+        maintenance_refresh: bool = False) -> tuple[dict[str, tuple], int, bool]:
     objects = wal_objects + ((history_object,) if history_object else ())
     if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
         raise BackupHorizonExceeded(
@@ -558,6 +562,9 @@ def _validate_archive_objects_owned(
     cache_key = (scope, system_id, base, start, segment_size)
     now = time.monotonic()
     cached = shared.cached() if shared is not None else _PROOF_CACHE.get(cache_key)
+    read_only = shared is not None and shared.read_only
+    if read_only and (cached is None or cached['end'] != end or cached['metadata'] != actual):
+        raise BackupIntegrityBusy('completed backup integrity proof does not cover current media')
     if cached is not None:
         previous_names = tuple(cached["objects"])
         if any(name not in objects for name in previous_names):
@@ -565,11 +572,14 @@ def _validate_archive_objects_owned(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
     full_scrub = (cached is None or now < cached['full_scrub_at'] or
                   now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
+                  (maintenance_refresh and shared is not None and shared.refresh_due()) or
                   any(name in cached['metadata'] and cached['metadata'][name] != actual[name]
                       for name in objects))
+    if read_only and full_scrub:
+        raise BackupIntegrityBusy('completed backup integrity proof requires a fresh scrub')
     hash_names = objects if full_scrub else tuple(name for name in objects if name not in cached['metadata'])
 
-    digests = _hash_objects(conn, root=wal_root, objects=hash_names,
+    digests = {} if read_only else _hash_objects(conn, root=wal_root, objects=hash_names,
                             sizes={name: int(actual[name][0]) for name in hash_names})
     if hash_names:
         repeated = _hash_objects(conn, root=wal_root, objects=hash_names,
@@ -595,6 +605,12 @@ def _validate_archive_objects_owned(
     if require_current_selection and _published_base(conn, system_id=system_id) != base:
         raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
 
+    if read_only:
+        if _archive_frontier(conn, operation=operation) != (end, segment_size):
+            raise BackupIntegrityBusy('completed backup integrity proof does not cover the advanced frontier')
+        shared.require_unchanged()
+        return actual, 0, False
+
     _PROOF_CACHE[cache_key] = {
         # A complete proof may itself take longer than the reuse interval.
         # Start that interval only after both passes and stability checks;
@@ -613,23 +629,7 @@ def _validate_archive_objects_owned(
     return actual, 2 * len(hash_names), full_scrub
 
 
-def _require(conn, *, operation: str,
-             base_backup: str | None = None) -> dict:
-    if not enabled():
-        return {"enabled": False}
-    try:
-        backup_guard.require_writes_permitted(conn, operation=operation)
-    except backup_guard.BackupConfigurationRefused as exc:
-        raise BackupRuntimeRefused(str(exc)) from exc
-    except backup_guard.BackupUnavailable as exc:
-        raise BackupRuntimeUnavailable(str(exc)) from exc
-    _require_marker(conn, WAL_ROOT)
-    _require_marker(conn, BASE_ROOT)
-    system_id = current_system_id(conn)
-    wal_root = f"{WAL_ROOT}/cluster-{system_id}"
-    base = _selected_base(
-        conn, system_id=system_id, base_backup=base_backup)
-    marker_wal = _recovery_wal(conn, base, system_id=system_id)
+def _archive_frontier(conn, *, operation: str) -> tuple[str, int]:
     backup_guard.clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(
@@ -648,6 +648,27 @@ def _require(conn, *, operation: str,
         raise BackupRuntimeUnavailable(
             f"{operation}: PostgreSQL WAL archiver has an unresolved failure")
     _require_segment_frontier(end, segment_size=segment_size, operation=operation)
+    return end, segment_size
+
+
+def _require(conn, *, operation: str, base_backup: str | None = None,
+             maintenance_refresh: bool = False) -> dict:
+    if not enabled():
+        return {"enabled": False}
+    try:
+        backup_guard.require_writes_permitted(conn, operation=operation)
+    except backup_guard.BackupConfigurationRefused as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    except backup_guard.BackupUnavailable as exc:
+        raise BackupRuntimeUnavailable(str(exc)) from exc
+    _require_marker(conn, WAL_ROOT)
+    _require_marker(conn, BASE_ROOT)
+    system_id = current_system_id(conn)
+    wal_root = f"{WAL_ROOT}/cluster-{system_id}"
+    base = _selected_base(
+        conn, system_id=system_id, base_backup=base_backup)
+    marker_wal = _recovery_wal(conn, base, system_id=system_id)
+    end, segment_size = _archive_frontier(conn, operation=operation)
     start = _manifest_end_wal(conn, base, segment_size=segment_size)
     expected = _expected_wals(start, end, segment_size=segment_size)
     if marker_wal not in set(expected):
@@ -661,7 +682,7 @@ def _require(conn, *, operation: str,
         conn, operation=operation, system_id=system_id, base=base,
         wal_root=wal_root, wal_objects=expected, history_object=history,
         segment_size=segment_size, start=start, end=end,
-        require_current_selection=base_backup is None)
+        require_current_selection=base_backup is None, maintenance_refresh=maintenance_refresh)
 
     return {
         "enabled": True,
@@ -681,10 +702,15 @@ def _require(conn, *, operation: str,
 
 
 def require(conn, *, operation: str,
-            base_backup: str | None = None, allow_continuity: bool = False) -> dict:
+            base_backup: str | None = None, allow_continuity: bool = False,
+            maintenance_refresh: bool = False) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
     from sentinel import local_paper
     live = _live_origin_selected()
+    if maintenance_refresh:
+        from sentinel import backup_integrity_reuse
+        if live or allow_continuity or base_backup is not None or not backup_integrity_reuse.selected():
+            raise BackupRuntimeRefused('proactive refresh requires the ordinary PAPER maintenance owner')
     if not live and local_paper.backups_suspended_for_account(conn):
         return {"enabled": False}
     from sentinel import backup_continuity
@@ -717,6 +743,8 @@ def require(conn, *, operation: str,
                         if _is_media_error(exc):
                             raise BackupRuntimeUnavailable('external media read failed') from exc
                         raise
+            except BackupIntegrityBusy as strict:
+                raise BackupIntegrityBusy('strict backup refusal PROOF_OWNER_BUSY') from strict
             except BackupRuntimeUnavailable as strict:
                 try:
                     with conn.transaction():
@@ -726,7 +754,8 @@ def require(conn, *, operation: str,
             else:
                 backup_continuity.remember(conn, result)
             return result
-        result = _require(conn, operation=operation, base_backup=base_backup)
+        result = (_require(conn, operation=operation, maintenance_refresh=True) if maintenance_refresh
+                  else _require(conn, operation=operation, base_backup=base_backup))
         if live and (result.get("enabled") is not True
                 or result.get("backup_state") == "DEGRADED"
                 or result.get("independent_archive_current", True) is not True):

@@ -1,7 +1,7 @@
 """Publication-owned scheduling and closed, non-authoritative pass diagnostics."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import math
 import threading
@@ -12,6 +12,7 @@ REFRESH_PREFIX = 'maintenance_refresh_result:'
 SCHEMA = 'sentinel.maintenance-pass-result/2'
 TTL_SECONDS = 600
 INTERVAL_SECONDS = 300
+PROOF_REFRESH_LEAD_SECONDS = 120
 BACKOFF = (1, 2, 5, 10, 20, 30)
 PHASES = {'PREFLIGHT','OBSERVE','BASE_BACKUP','VERIFY_CHAIN','PUBLISH_CHAIN',
           'CHECKPOINT','RETENTION','COMPLETE'}
@@ -30,8 +31,31 @@ def timestamp(value):
     return result
 
 
+def byte_renewal_at(publication_at, proof, primary_uptime):
+    """Map qualified original byte-proof uptime to a scheduling instant."""
+    if proof.get('schema') != 'sentinel.maintenance-integrity/1':
+        return None
+    completed = proof.get('integrity_completed_uptime')
+    observed = proof.get('integrity_observed_uptime')
+    limit = proof.get('integrity_max_reuse_seconds')
+    if (limit != INTERVAL_SECONDS or any(type(stamp) not in {int, float} or not math.isfinite(stamp)
+            for stamp in (completed, observed)) or not 0 <= completed <= observed < completed+limit):
+        return None
+    if isinstance(primary_uptime, str):
+        try:
+            primary_uptime = float(primary_uptime)
+        except ValueError:
+            return None
+    if (type(primary_uptime) not in {int, float} or not math.isfinite(primary_uptime)
+            or primary_uptime < observed):
+        return None
+    age = primary_uptime - completed
+    due_in = max(0, limit - PROOF_REFRESH_LEAD_SECONDS - age)
+    return (timestamp(publication_at) + timedelta(seconds=due_in)).isoformat()
+
+
 def validate_result(value):
-    if (not isinstance(value,dict) or set(value) != {'schema','outcome','phase','code',
+    if (not isinstance(value,dict) or set(value)-{'byte_renewal_at'} != {'schema','outcome','phase','code',
             'cause_type','publication_at','elapsed_seconds','failure','started_at','finished_at'}
             or value['schema'] != SCHEMA or value['outcome'] not in OUTCOMES
             or value['phase'] not in PHASES or value['code'] not in CODES
@@ -42,6 +66,11 @@ def validate_result(value):
     if timestamp(value['finished_at']) < timestamp(value['started_at']):
         raise ValueError('maintenance pass timing regressed')
     if value['publication_at'] is not None: timestamp(value['publication_at'])
+    if 'byte_renewal_at' in value:
+        byte_due = timestamp(value['byte_renewal_at'])
+        if value['publication_at'] is None or not 0 <= (
+                byte_due-timestamp(value['publication_at'])).total_seconds() <= INTERVAL_SECONDS:
+            raise ValueError('byte renewal lacks its bounded publication clock')
     failure = value['failure']
     if failure is not None:
         from sentinel_backup_integrity_report import validate_failure
@@ -59,14 +88,17 @@ def validate_result(value):
 
 
 def result(*, outcome, phase, code, publication_at=None, elapsed_seconds=0,
-           cause_type='NONE', failure=None,started_at=None,finished_at=None):
+           cause_type='NONE', failure=None,started_at=None,finished_at=None,byte_due_at=None):
     if started_at is None and finished_at is None and elapsed_seconds == 0:
         started_at = finished_at = datetime.now(timezone.utc).isoformat()
     if started_at is None or finished_at is None:
         raise ValueError('maintenance owner timing is required')
-    return validate_result(dict(schema=SCHEMA,outcome=outcome,phase=phase,code=code,
+    value = dict(schema=SCHEMA,outcome=outcome,phase=phase,code=code,
         publication_at=publication_at,elapsed_seconds=elapsed_seconds,cause_type=cause_type,failure=failure,
-        started_at=started_at,finished_at=finished_at))
+        started_at=started_at,finished_at=finished_at)
+    if byte_due_at is not None:
+        value['byte_renewal_at'] = byte_due_at
+    return validate_result(value)
 
 
 def emit(value, *, refresh=False):
@@ -94,12 +126,14 @@ class Schedule:
         self.clock, self.wallclock = clock, wallclock
         self.lock = threading.RLock()
         self.publication_at = None
+        self.byte_due_at = None
+        self.byte_publication_at = None
         self.deadline = None
         self.due = clock()
         self.retries = 0
         if publication_at is not None: self.accept(publication_at)
 
-    def accept(self, publication_at):
+    def accept(self, publication_at, *, byte_due_at=None, own_publication=False):
         stamp = timestamp(publication_at)
         with self.lock:
             now, wall = self.clock(), self.wallclock()
@@ -107,24 +141,44 @@ class Schedule:
             if self.publication_at is not None:
                 previous = timestamp(self.publication_at)
                 if stamp < previous: raise ValueError('maintenance publication clock regressed')
-                if stamp == previous: return
+                if stamp == previous and (byte_due_at is None or self.byte_publication_at == publication_at):
+                    return
             age = (wall-stamp).total_seconds()
             self.publication_at = publication_at
+            if byte_due_at is not None or own_publication:
+                self.byte_due_at = byte_due_at
+                self.byte_publication_at = publication_at if byte_due_at is not None else None
+            byte_due = timestamp(self.byte_due_at) if self.byte_due_at is not None else None
             self.deadline = now+TTL_SECONDS-age
-            self.due = now+INTERVAL_SECONDS-age
+            due = stamp+timedelta(seconds=INTERVAL_SECONDS)
+            if byte_due is not None:
+                due = min(due, byte_due)
+            self.due = now + (due-wall).total_seconds()
             self.retries = 0
 
     def publication(self):
         with self.lock: return self.publication_at
 
+    def timing(self):
+        with self.lock:
+            return {'publication_at': self.publication_at, 'byte_due_at': (
+                self.byte_due_at if self.byte_publication_at == self.publication_at else None)}
+
     def next_at(self):
         with self.lock: return self.due
+
+    def prime_due(self, byte_due_at):
+        """Bring forward the first owned freshness check during bulk work."""
+        with self.lock:
+            self.due = min(self.due, self.clock() + (timestamp(byte_due_at)-self.wallclock()).total_seconds())
 
     def consume(self, value):
         validate_result(value)
         with self.lock:
             previous = self.publication_at
-            if value['publication_at'] is not None: self.accept(value['publication_at'])
+            if value['publication_at'] is not None:
+                self.accept(value['publication_at'], byte_due_at=value.get('byte_renewal_at'),
+                            own_publication=value['outcome'] == 'SUCCESS')
             now = self.clock()
             if value['outcome'] == 'SUCCESS' or self.publication_at != previous: return
             if (value['outcome'] in {'RETRYABLE','STANDBY'} and self.deadline is not None

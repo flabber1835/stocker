@@ -270,6 +270,94 @@ def test_competing_process_cannot_scrub_and_reentrant_counts_balance(media):
     assert media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,)).fetchone() == (False,)
 
 
+def test_competing_application_admits_only_complete_current_receipt(media):
+    initial = media.prove()
+    original = media.receipt()
+    media.conn.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
+    try:
+        accepted = media.child('application')
+        assert accepted['ok'] and accepted['reads'] == 0
+        assert accepted['result']['recoverable_through_wal'] == initial['recoverable_through_wal']
+        assert media.receipt() == original
+        media.advance()
+        assert media.child('application') == {'ok': False, 'error': 'BackupIntegrityBusy', 'reads': 0}
+        assert media.receipt() == original
+    finally:
+        media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,))
+
+
+def assert_refresh_change_fences_repeatable_read(media, monkeypatch, *, change='invalidate'):
+    media.prove()
+    producer = reuse.Owner(media.conn, dict(system_id=media.system, base=media.base,
+        start=media.start, segment_size=SIZE))
+    original = authority._require_no_aliases
+    observations = 0
+
+    def invalidate_before_receipt_recheck(*args, **kwargs):
+        nonlocal observations
+        original(*args, **kwargs)
+        observations += 1
+        if observations == 2:
+            if change == 'invalidate':
+                producer.invalidate()
+            elif change == 'advance':
+                media.advance()
+            else:
+                expire_proof_clock(monkeypatch)
+
+    monkeypatch.setattr(authority, '_require_no_aliases', invalidate_before_receipt_recheck)
+    media.conn.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
+    try:
+        with psycopg.connect(media.server.sync_dsn) as reader:
+            reader.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+            assert reader.execute('SELECT 1').fetchone() == (1,)
+            error, detail = {
+                'invalidate': (authority.BackupIntegrityBusy, 'proof changed'),
+                'advance': (authority.BackupIntegrityBusy, 'advanced frontier'),
+                'expire': (authority.BackupIntegrityProofExpired, 'expired during admission'),
+            }[change]
+            with pytest.raises(error, match=detail):
+                authority.require(reader, operation='private competing proof')
+        assert observations == 2
+        assert media.receipt()['proof']['outcome'] == ('INVALID' if change == 'invalidate' else 'VALID')
+    finally:
+        media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,))
+
+
+@pytest.mark.parametrize('change', ['invalidate', 'advance', 'expire'])
+def test_refresh_change_fences_repeatable_read(media, monkeypatch, change):
+    assert_refresh_change_fences_repeatable_read(media, monkeypatch, change=change)
+
+
+def test_removed_receipt_fence_has_executed_falsifier(media, monkeypatch):
+    monkeypatch.setattr(reuse.Owner, 'require_unchanged', lambda self: None)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        assert_refresh_change_fences_repeatable_read(media, monkeypatch)
+
+
+def assert_maintenance_renews_before_expiry(media, monkeypatch):
+    media.prove()
+    expire_proof_clock(monkeypatch, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS+1)
+    previous = media.receipt()['proof']['completed_uptime']
+    assert media.prove('application')['integrity_objects_hashed'] == 0
+    assert media.receipt()['proof']['completed_uptime'] == previous
+    with count_reads(monkeypatch) as reads:
+        refreshed = media.prove()
+    assert reads == list(media.names) * 2, 'early refresh omitted the two byte passes'
+    assert refreshed['integrity_full_scrub'] is True
+    assert refreshed['integrity_completed_uptime'] > previous
+
+
+def test_maintenance_renews_before_expiry_with_both_byte_passes(media, monkeypatch):
+    assert_maintenance_renews_before_expiry(media, monkeypatch)
+
+
+def test_removed_early_refresh_has_executed_falsifier(media, monkeypatch):
+    monkeypatch.setattr(reuse.Owner, 'refresh_due', lambda self: False)
+    with pytest.raises(AssertionError, match='omitted the two byte passes'):
+        assert_maintenance_renews_before_expiry(media, monkeypatch)
+
+
 def test_terminated_private_worker_releases_both_lock_counts(media):
     media.prove()
     boundary = "reads.extend(kwargs['objects']);return original(*args,**kwargs)"
@@ -312,13 +400,13 @@ def test_bridge_refuses_borrowed_transaction_without_committing_it(media):
         assert borrowed.execute('SELECT count(*) FROM caller_work').fetchone() == (0,)
 
 
-def expire_proof_clock(monkeypatch):
+def expire_proof_clock(monkeypatch, *, offset=301):
     """Advance past the 300-second window without forging a pre-boot completion."""
     original = reuse._clock
 
     def advanced(conn):
         physical, boot, uptime, before = original(conn)
-        return physical, boot, uptime + 301, before
+        return physical, boot, uptime + offset, before
 
     monkeypatch.setattr(reuse, '_clock', advanced)
 
@@ -533,7 +621,7 @@ def test_unselected_policy_cannot_use_maintenance_bridge(media, monkeypatch):
 
 def test_removing_current_selection_argument_has_an_executed_falsifier(media):
     source = inspect.getsource(maintenance.prove)
-    old = 'allow_continuity=False, base_backup=None'
+    old = 'allow_continuity=False, maintenance_refresh=True'
     assert source.count(old) == 1
     namespace = vars(maintenance).copy()
     exec(compile(source.replace(old, 'allow_continuity=False, base_backup=base_backup'),
@@ -543,8 +631,9 @@ def test_removing_current_selection_argument_has_an_executed_falsifier(media):
     media.select(successor)
     with pytest.raises(authority.BackupIntegritySelectionMoved):
         media.prove()
-    # The exact omission incorrectly admits the obsolete requested base. The
-    # real final-selection contract above would therefore fail under mutation.
+    # Substituting ordinary explicit-target admission incorrectly admits the
+    # obsolete requested base. The real current-selection contract above
+    # would therefore fail under mutation.
     mutant = namespace['prove'](media.conn, base_backup=media.base,
         system_identifier=media.system, wal_segment_bytes=SIZE,
         observed_frontier=media.end, wait_seconds=0)
