@@ -161,6 +161,22 @@ event reader has no new daemon API surface or financial permission. It changes
 how a wait wakes, not which final current facts admit the next stage. Verifier
 liveness/readiness separation is a different design and is not changed here.
 
+## All-role startup health
+
+The November 11 pre-open installation refused in the all-role Engine wait.
+The original journal then completed verification with the same application
+incarnations. Docker health records probe outcomes for a running process, and
+a failed startup probe can recover without a process replacement.
+
+While the exact startup group is pending, an inspected `unhealthy` role is a
+negative readiness observation, like `starting`. Keep the existing subscription,
+canonical inspections, absolute startup deadline, and final fresh observation.
+All roles must report `healthy` before this gate can finish. A stopped process,
+OOM, restart, changed identity or image, or malformed health still refuses
+immediately. The later current process, leader and dashboard gates keep their
+existing requirements. Qualify same-incarnation recovery, persistent negative
+health, malformed health, and terminal process changes without adding probes.
+
 ## Required private falsifiers before delivery
 
 Qualify a real read-only mounted volume and existing shared/exclusive lock;

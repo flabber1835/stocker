@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from email.message import Message
 import importlib
+import inspect
 import io
 import json
 import sys
@@ -392,8 +393,8 @@ class GroupEngine:
         finally:self.closed=True
 
 
-def wait_group(engine):
-    return health.wait_many(engine,NAMES,IMAGE,180,clock=lambda:engine.clock)
+def wait_group(engine, *, deadline=180):
+    return health.wait_many(engine,NAMES,IMAGE,deadline,clock=lambda:engine.clock)
 
 
 def test_all_roles_share_one_subscription_and_post_subscription_fresh_observation():
@@ -409,18 +410,61 @@ def test_ready_roles_do_not_subscribe_or_sleep():
     assert len(engine.reads)==2 and engine.subscriptions==[]
 
 
-@pytest.mark.parametrize('fault',['id','image','start','restart_count','running','oom','restarting','unhealthy'])
+@pytest.mark.parametrize('fault',['id','image','start','restart_count','running','oom','restarting',
+                                  'bad_health','bad_health_shape','bad_health_type'])
 def test_events_cannot_admit_replaced_restarted_or_failed_roles(fault):
     after=group('healthy');item=after[NAMES[1]]
     if fault=='id':item['Id']='f'*64
     elif fault=='image':item['Image']='sha256:'+'f'*64
     elif fault=='start':item['State']['StartedAt']='changed'
     elif fault=='restart_count':item['RestartCount']=1
-    elif fault=='unhealthy':item['State']['Health']['Status']='unhealthy'
+    elif fault=='bad_health':item['State']['Health']['Status']='unrecognized'
+    elif fault=='bad_health_shape':item['State']['Health']=None
+    elif fault=='bad_health_type':item['State']['Health']['Status']=[]
     else:item['State'][{'running':'Running','oom':'OOMKilled','restarting':'Restarting'}[fault]]=fault!='running'
     engine=GroupEngine([group(),after],race=True)
     with pytest.raises(model.DeliveryRefused):wait_group(engine)
     assert engine.closed
+
+
+def test_same_process_unhealthy_can_recover_on_existing_subscription():
+    failed = group('healthy')
+    failed[NAMES[1]]['State']['Health']['Status'] = 'unhealthy'
+    engine = GroupEngine([group(), failed, group('healthy')], race=True)
+    assert wait_group(engine) == group('healthy')
+    assert len(engine.subscriptions) == 1 and len(engine.reads) == 3 * len(NAMES)
+    assert engine.closed
+
+
+def test_persistent_unhealthy_refuses_at_original_startup_deadline():
+    failed = group('unhealthy')
+    engine = GroupEngine([failed])
+    deadline = 5
+    with pytest.raises(model.DeliveryRefused, match='APPLICATION_READINESS_DEADLINE'):
+        wait_group(engine, deadline=deadline)
+    assert engine.clock == deadline-health.IO_SECONDS
+    assert len(engine.subscriptions) == 1 and engine.closed
+
+
+def test_unhealthy_role_cannot_be_admitted_after_a_restart():
+    restarted = group('healthy')
+    restarted[NAMES[1]]['RestartCount'] = 1
+    engine = GroupEngine([group('unhealthy'), restarted], race=True)
+    with pytest.raises(model.DeliveryRefused, match='APPLICATION_STARTUP_PROCESS_CHANGED'):
+        wait_group(engine)
+    assert len(engine.subscriptions) == 1 and engine.closed
+
+
+def test_healthy_only_startup_completion_has_executed_falsifier(monkeypatch):
+    source = inspect.getsource(health.wait_many)
+    guard = "value['State']['Health']['Status']=='healthy'"
+    assert source.count(guard) == 1
+    namespace = vars(health).copy()
+    exec(compile(source.replace(guard, "value['State']['Health']['Status'] in {'healthy','unhealthy'}"),
+                 '<admit-unhealthy-group>', 'exec'), namespace)
+    monkeypatch.setattr(health, 'wait_many', namespace['wait_many'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_persistent_unhealthy_refuses_at_original_startup_deadline()
 
 
 def test_group_incarnation_guard_has_an_executed_falsifier(monkeypatch):
