@@ -84,3 +84,12 @@ PAPER release and separate financial activation.
 Seal the exact reviewed executable inventory for the new source transition.
 Retain the opening-stability predecessor and all earlier historical source
 closures. Source recognition supplies no financial authority.
+
+## Lifecycle equivalence
+
+Record the reviewed preparation, target projection, instrument mapping, broker
+composition, and execution changes in the paper lifecycle delta registry. The
+new pending-command validator belongs to paper validation. Keep the historical
+extraction manifest and the prior approved function fingerprints. Validate each
+new fingerprint after the existing backup and recovery checks and exercise the
+registry's fingerprint falsifiers.

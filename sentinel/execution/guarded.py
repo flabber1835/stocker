@@ -811,9 +811,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise ValueError(detail)
                 if quote is not None:
                     quote_age = now - quote.quoted_at[instrument.security_id]
-                    if quote_age > timedelta(seconds=60) or (market is not None and quote_age < timedelta(0)):
+                    if quote_age > timedelta(seconds=60):
                         raise OpeningPriceNotReady(
-                            "executable quote is outside the final submission freshness window")
+                            "executable quote expired during submission authority checks")
+                    if market is not None and quote_age < timedelta(0):
+                        raise OpeningPriceNotReady(
+                            "executable quote is future dated at final submission boundary")
             except OpeningPriceNotReady as exc:
                 raise OrderEvidenceNotReady(
                     f'{instrument.symbol}: {type(exc).__name__}: {exc}') from exc

@@ -521,17 +521,18 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 # Restart validation may return this plan unchanged. Prove its
                 # economics still derive its id before contacting the broker.
                 _assert_deterministic_plan_id(existing_plan)
-                if dual_mode:
-                    try:
-                        dual_plan_authority.require_current_buy_policy(conn, plan=existing_plan)
-                    except dual_plan_authority.DualPlanAuthorityRefused as exc:
-                        raise PaperActivationRefused(str(exc)) from exc
 
             renewal_rollout = None
             if (dual_mode and existing_plan is not None
                     and existing_plan.decision_session == through_date):
                 renewal_rollout = _dual_renewal_rollout(
                     conn, existing_plan, rollout)
+                try:
+                    dual_plan_authority.require_current_buy_policy(conn, plan=existing_plan)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    operation = "renewal" if renewal_rollout is not None else "restart"
+                    raise PaperActivationRefused(
+                        f"dual sizing authority refused {operation}: {exc}") from exc
                 if renewal_rollout is not None:
                     # Authenticate the old intent without making it executable.
                     # A new runtime attestation is expected after an upgrade;

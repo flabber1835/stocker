@@ -88,10 +88,11 @@ def test_debug_window_default_fingerprint_and_full_config_roundtrip():
     import hashlib, json
     from sentinel.automation_runtime import config_from_env
     normal = AutomationConfig()
-    previous = normal.model_dump(mode="json")
-    previous.pop("paper_debug_window")
+    previous = normal.model_dump(
+        mode="json", exclude={"paper_debug_window", "market_buy_policy_sha256"})
     assert normal.fingerprint == hashlib.sha256(json.dumps(previous,
         sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")).hexdigest()
+    assert AutomationConfig.model_validate(previous).fingerprint == normal.fingerprint
     selected = AutomationConfig(paper_debug_window=debug_window())
     assert selected.fingerprint != normal.fingerprint
     assert AutomationConfig.model_validate(selected.model_dump(mode="json")) == selected
