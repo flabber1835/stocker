@@ -71,6 +71,16 @@ requires neither a concurrent cold scan nor a new verifier worker. Retain all
 fresh proof stages and expiry checks. Measure opening performance at the next
 eligible open and distinguish CPU and SQL time from wall time.
 
+## Backed installer admission
+
+The backed installer may apply the reviewed automation quota change from
+1.0 to 2.0 CPUs. Require the exact scoped change within the named
+`sentinel-automation` service with its existing 2 GiB cap and supervisor
+entrypoint. Verify every other Compose byte, the qualified candidate digest
+and the allowed source delta. Retain the refusal for another service, altered
+limits or additional Compose edits. A refused preflight remains a historical
+operation and a newly qualified candidate receives a fresh request.
+
 ## Qualification and release
 
 Replay the retained negative across a subject change, the exact open and

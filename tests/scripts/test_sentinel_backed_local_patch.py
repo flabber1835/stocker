@@ -35,15 +35,9 @@ def test_backed_cli_dispatches_terminal_abandonment_with_existing_witness(tmp_pa
     assert events==['host','abandon']
 
 
-@pytest.fixture
-def verifier_grace_host(tmp_path):
-    name = 'docker-compose.sentinel-automation.yml'
-    candidate = (ROOT / name).read_text(encoding='utf-8').encode()
-    candidate_probe = patch._VERIFIER_PROBE + b'      start_period: 120s\n'
-    assert candidate.count(candidate_probe) == 1
-    previous_probe = patch._VERIFIER_PROBE + b'      start_period: 20s\n'
+def _backed_compose_host(tmp_path, name, original, candidate):
     originals = {file: (ROOT / file).read_text(encoding='utf-8').encode() for file in patch.COMPOSE}
-    originals[name] = candidate.replace(candidate_probe, previous_probe, 1)
+    originals[name] = original
     host = object.__new__(patch.BackedHost)
     host.source = tmp_path / 'source'
     host.deployment = tmp_path / 'installed'
@@ -57,6 +51,17 @@ def verifier_grace_host(tmp_path):
     host.request = {'predecessor': {'commit': revision}, 'allowed_delta': [name],
         'qualification': {'source_files': {name: patch.sha256_file(host.source / name)}}}
     return host, name, originals[name], candidate
+
+
+@pytest.fixture
+def verifier_grace_host(tmp_path):
+    name = 'docker-compose.sentinel-automation.yml'
+    candidate = (ROOT / name).read_text(encoding='utf-8').encode()
+    candidate_probe = patch._VERIFIER_PROBE + b'      start_period: 120s\n'
+    assert candidate.count(candidate_probe) == 1
+    previous_probe = patch._VERIFIER_PROBE + b'      start_period: 20s\n'
+    original = candidate.replace(candidate_probe, previous_probe, 1)
+    return _backed_compose_host(tmp_path, name, original, candidate)
 
 
 def test_backed_installer_accepts_and_resumes_the_exact_verifier_grace_change(verifier_grace_host):
@@ -88,6 +93,63 @@ def test_exact_compose_guard_has_executed_falsifier(verifier_grace_host, monkeyp
     monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, 'other_change')
+
+
+def _automation_cpu_pair():
+    name = 'docker-compose.sentinel-automation.yml'
+    candidate = (ROOT / name).read_text(encoding='utf-8').encode()
+    context = (b'    mem_limit: 2g\n'
+               b'    cpus: 2.0\n'
+               b'    cap_drop: ["ALL"]\n'
+               b'    security_opt: ["no-new-privileges:true"]\n'
+               b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n')
+    assert candidate.count(context) == 1
+    original = candidate.replace(context, context.replace(b'cpus: 2.0', b'cpus: 1.0'), 1)
+    return name, original, candidate
+
+
+def test_backed_installer_accepts_and_resumes_exact_automation_cpu_change(tmp_path):
+    host, name, original, candidate = _backed_compose_host(tmp_path, *_automation_cpu_pair())
+    host.verify_compose('predecessor')
+    assert (host.deployment / name).read_bytes() == original
+    host.install_compose()
+    host.install_compose()
+    host.verify_compose('candidate')
+    assert (host.deployment / name).read_bytes() == candidate
+
+
+@pytest.mark.parametrize('fault', [
+    'wrong_service', 'wrong_memory', 'wrong_entrypoint', 'other_change', 'unqualified', 'unapproved',
+])
+def test_backed_installer_refuses_unqualified_automation_cpu_changes(tmp_path, fault):
+    name, original, candidate = _automation_cpu_pair()
+    changes = {
+        'wrong_service': (b'  sentinel-automation:\n', b'  other-automation:\n'),
+        'wrong_memory': (b'    mem_limit: 2g\n', b'    mem_limit: 3g\n'),
+        'wrong_entrypoint': (b'"sentinel.automation_supervisor"', b'"sentinel.other_supervisor"'),
+    }
+    if fault in changes:
+        old, new = changes[fault]
+        assert old in original and old in candidate
+        original = original.replace(old, new)
+        candidate = candidate.replace(old, new)
+    if fault == 'other_change':
+        candidate += b'\n# unrelated change\n'
+    host, name, original, _ = _backed_compose_host(tmp_path, name, original, candidate)
+    if fault == 'unqualified':
+        host.request['qualification']['source_files'][name] = '0' * 64
+    if fault == 'unapproved':
+        host.request['allowed_delta'] = []
+    for action in (lambda: host.verify_compose('predecessor'), host.install_compose):
+        with pytest.raises(patch.DeliveryRefused, match='BACKED_COMPOSITION_CHANGE_REFUSED'):
+            action()
+    assert (host.deployment / name).read_bytes() == original
+
+
+def test_exact_automation_cpu_guard_has_executed_falsifier(tmp_path, monkeypatch):
+    monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backed_installer_refuses_unqualified_automation_cpu_changes(tmp_path, 'wrong_service')
 
 
 def immutable_values_host(tmp_path,monkeypatch):

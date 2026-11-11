@@ -27,6 +27,13 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
            'docker-compose.sentinel-automation.yml')
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
 _AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
+_AUTOMATION_SERVICE = re.compile(rb'(?m)^  sentinel-automation:\n(?:^(?:    [^\n]*|)\n)*')
+_AUTOMATION_CPU_CONTEXT = (
+    b'    mem_limit: 2g\n'
+    b'    cpus: 1.0\n'
+    b'    cap_drop: ["ALL"]\n'
+    b'    security_opt: ["no-new-privileges:true"]\n' + _AUTOMATION_ENTRY
+)
 _WORKER_READ_MOUNT = b'    volumes:\n      - sentinel_state:/var/lib/sentinel:ro\n'
 _VERIFIER_PROBE = (
     b'    healthcheck:\n'
@@ -61,6 +68,15 @@ def _allowed_compose_change(name, previous, candidate):
     """Admit the documented byte-for-byte automation Compose changes."""
     if name != 'docker-compose.sentinel-automation.yml':
         return False
+    services = list(_AUTOMATION_SERVICE.finditer(previous))
+    if len(services) == 1:
+        worker = services[0]
+        worker_bytes = worker.group()
+        if worker_bytes.count(_AUTOMATION_CPU_CONTEXT) == 1:
+            approved = _AUTOMATION_CPU_CONTEXT.replace(b'cpus: 1.0', b'cpus: 2.0', 1)
+            updated_worker = worker_bytes.replace(_AUTOMATION_CPU_CONTEXT, approved, 1)
+            if previous[:worker.start()] + updated_worker + previous[worker.end():] == candidate:
+                return True
     previous_probe = _VERIFIER_PROBE + b'      start_period: 20s\n'
     next_probe = _VERIFIER_PROBE + b'      start_period: 120s\n'
     if (previous.count(_VERIFIER_PROBE) == 1 and previous_probe in previous

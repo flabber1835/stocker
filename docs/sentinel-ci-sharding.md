@@ -3,13 +3,13 @@
 ## Decision
 
 Build one runtime image and its disposable test lens for each exact source
-commit. After that shared build, run twenty-two independent Sentinel-safety workers:
-eight ordinary Sentinel shards, four rolling Sentinel shards, two current-profile
+commit. After that shared build, run twenty-three independent Sentinel-safety workers:
+eight ordinary Sentinel shards, five rolling Sentinel shards, two current-profile
 composition workers, one contention
 worker, one status/memory worker, the existing warmup, automation, champion,
 operator, Wealth Core, and mutation workers. Source-specific research replay
 workers have been retired under [CI hardening](ci-suite-hardening.md).
-The account-wide GitHub runner limit can queue workers; twenty-two is a useful
+The account-wide GitHub runner limit can queue workers; twenty-three is a useful
 maximum, not a requirement to keep every runner busy. The protected `main`
 run remains the only source for image publication. A protected main run can
 reuse completed PR qualification under the exact-tree promotion contract in
@@ -24,11 +24,19 @@ land in one worker. Future modules enter the plan automatically. Automation,
 warmup, contention, status/memory, and rolling modules remain outside the
 ordinary plan. The planner must refuse an empty shard, duplicate or missing
 module, unexpected module path, or changed family shard counts (eight ordinary,
-four rolling). The reviewed duration
+five rolling). The reviewed duration
 manifest binds its exact JUnit SHA-256 and producer source commit. Each family
 uses longest estimated work first, stable path ties and least-loaded-lane ties.
 Unmeasured future modules receive a positive 60-second estimate and enter the
 plan automatically. A weight changes scheduling, never test inclusion.
+
+Decision: 2026-11-11. PR581's rolling-2 worker reached the 60-minute job
+limit. The corresponding PR582 worker finished in 59 minutes and 30 seconds.
+Use five rolling workers with the same 60-minute deadline. The unchanged
+duration manifest projects a decrease in the largest rolling group from
+27.07 to 22.02 minutes of testcase time and assigns rolling initialization
+and runtime to separate workers. Every rolling module still runs once. The
+assembler requires the fifth worker's exact-attempt evidence for certification.
 
 Decision: 2026-10-28. Keep large test payloads out of pytest node IDs.
 PR540 general-4 reached the issuer-reference oversized-response case at
@@ -83,7 +91,7 @@ running these tests elsewhere does not contribute to that worker's coverage.
 Every worker runs the production code from the single built test lens without
 rebuilding it. Its receipt binds the same source commit, tree, workflow run and
 attempt, runtime image ID, test-lens image ID, and exact JUnit bytes. The
-assembler requires all twenty-two lane receipts, merges all Sentinel JUnits with
+assembler requires all twenty-three lane receipts, merges all Sentinel JUnits with
 duplicate and non-pass refusal, and re-collects the protected test-owner union
 against the exact image. A missing new test, skipped test, or omitted worker
 cannot produce certification evidence. A PR failure remains a refusal, and
