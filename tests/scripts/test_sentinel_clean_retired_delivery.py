@@ -1,7 +1,8 @@
 """A clean skip can admit software without admitting a retired order."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime, timezone
+import datetime as datetime_module
+from datetime import datetime
 
 import pytest
 
@@ -98,10 +99,20 @@ def test_successor_mode_does_not_gain_clean_skip_exception(conn):
 
 
 def skipped_page(monkeypatch):
+    from tests.scripts import test_install_unified_readiness as unified
     from tests.sentinel import test_opening_health_continuity as opening
     from sentinel.panel import operational_snapshot
     from sentinel.panel.serialization import public_payload
-    monkeypatch.setattr(opening, 'NOW', datetime.now(timezone.utc))
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return opening.NOW.replace(tzinfo=None) if tz is None else opening.NOW.astimezone(tz)
+
+    # The embedded validators import datetime when they run. Keep their
+    # freshness checks and the readiness harness on the fixture's dated clock.
+    monkeypatch.setattr(datetime_module, 'datetime', Clock)
+    monkeypatch.setattr(unified, 'datetime', Clock)
     panel = opening.clean_skip_panel()
     panel = replace(panel, rows=[replace(row, value='2026-11-09 · 0 sessions behind')
         if row.key=='feed' else replace(row, value='SHADOW VERIFIED THROUGH 2026-11-09')
