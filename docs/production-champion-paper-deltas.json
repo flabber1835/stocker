@@ -100,7 +100,14 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "98b69c684f8669e26952935d3f9c23d18beebf14a8696c8027d68cd800fcb85f",
+      "generated_ast_sha256": "a56bbc10396548feadae0e5e5a4f96f31bef212482b752a5f64a4a64506ba25c",
+      "market_buy_acceptance": [
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle",
+        "tests/sentinel/test_market_day_execution.py"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "market_buy_predecessor_ast_sha256": "98b69c684f8669e26952935d3f9c23d18beebf14a8696c8027d68cd800fcb85f",
+      "market_buy_reason": "Require the saved buy policy for the current plan and feed exact settled reconciliation into each guarded market BUY.",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "issuer_admission_acceptance": [
         "tests/sentinel/test_issuer_runtime.py",
@@ -161,7 +168,15 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "b4270f75df1fa02fa6524e2341c9502f0ed5f8f2d0f82dff9ed8a813105e33c5",
+      "generated_ast_sha256": "002c8beb2c8f6bdc2e2eff5c7a7e2f7a29fc592ad8436baeb52f11ba9b8c01ed",
+      "market_buy_acceptance": [
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle",
+        "tests/sentinel/test_market_day_execution.py",
+        "tests/sentinel/test_paper_composition_gateway.py"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "market_buy_predecessor_ast_sha256": "b4270f75df1fa02fa6524e2341c9502f0ed5f8f2d0f82dff9ed8a813105e33c5",
+      "market_buy_reason": "Pass the market BUY funding callback through the existing certified broker composition.",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
       "issuer_admission_acceptance": [
         "tests/sentinel/test_issuer_runtime.py",
@@ -200,7 +215,14 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "6869263be0bca3b80446fac48c382070a3b6621cd56e5be1a04ea469fa610d8f",
+      "generated_ast_sha256": "086cc53fddd05a37189503ba31d2ad0d544525a49a0a96547e53b420ee2dad11",
+      "market_buy_acceptance": [
+        "tests/sentinel/test_market_day_sizing.py",
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "market_buy_predecessor_ast_sha256": "6869263be0bca3b80446fac48c382070a3b6621cd56e5be1a04ea469fa610d8f",
+      "market_buy_reason": "Validate the immutable market target and original quote identities before resolving native instruments.",
       "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
       "module": "targets",
       "production_path_acceptance": [
@@ -237,6 +259,17 @@
       "local_window_design": "docs/paper-debug-window.md",
       "module": "preparation",
       "reason": "Owner-PAPER same-decision recovered window renewal; explicit PREPARE/debug policy and terminal-command checks remain mandatory."
+    },
+    "_market_buy_candidate_or_refuse": {
+      "generated_ast_sha256": "64d16e03d49952510f9c4e612288b4de5355a72696504818570b4a29338b2d06",
+      "historical_ast_sha256": null,
+      "market_buy_acceptance": [
+        "tests/sentinel/test_market_day_execution.py",
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "module": "validation",
+      "reason": "Verify the exact SEND_PENDING command, account-wide unresolved set, target share delta and saved allocation."
     },
     "_observation_economics": {
       "generated_ast_sha256": "704d528815498d84fff694dab9f84bf3d09888c3db9b5effe6e89cf08ab9c96e",
@@ -385,7 +418,14 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "80aa07b647edfc997d0299cd41e2066f6fc9710cf98a203111f1bb88a0b7f88f",
+      "generated_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "market_buy_acceptance": [
+        "tests/sentinel/test_market_day_sizing.py",
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "market_buy_predecessor_ast_sha256": "80aa07b647edfc997d0299cd41e2066f6fc9710cf98a203111f1bb88a0b7f88f",
+      "market_buy_reason": "Resolve whole-share market targets from the original policy, allocation, held-share basis and IEX quote evidence.",
       "historical_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
       "module": "targets",
       "persistent_share_acceptance": [
@@ -502,7 +542,14 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "b2cbbc13961402bcf5641795b5764cf505b533dc645d3084da2e9e86dc3dca7e",
+      "generated_ast_sha256": "5f048d3781335cb83498b046fefb8b2f525d0b9feb0e1411886fec63f1fde551",
+      "market_buy_acceptance": [
+        "tests/sentinel/test_dual_plan_scalar_proof.py",
+        "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
+      ],
+      "market_buy_design": "docs/paper-market-buys.md",
+      "market_buy_predecessor_ast_sha256": "b2cbbc13961402bcf5641795b5764cf505b533dc645d3084da2e9e86dc3dca7e",
+      "market_buy_reason": "Bind new market plans to their original policy after clean reconciliation and refuse a changed policy on same-session reuse.",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "initial_paper_recovery_acceptance": [
         "tests/sentinel/test_initial_paper_recovery.py",

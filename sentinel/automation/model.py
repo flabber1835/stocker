@@ -185,6 +185,7 @@ class AutomationConfig(_FrozenModel):
     publication_delay_seconds: int = Field(default=900, ge=0)
     execution_delay_seconds: int = Field(default=60, ge=0)
     paper_debug_window: PaperDebugWindow | None = None
+    market_buy_policy_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     maximum_execution_lateness_seconds: int = Field(default=540, ge=0)
     lease_seconds: int = Field(default=45, ge=3)
     heartbeat_seconds: int = Field(default=10, ge=1)
@@ -203,6 +204,8 @@ class AutomationConfig(_FrozenModel):
 
     @model_validator(mode="after")
     def _coherent_intervals(self) -> "AutomationConfig":
+        if self.paper_debug_window is not None and self.market_buy_policy_sha256 is not None:
+            raise ValueError("market BUY policy requires the regular opening window")
         if self.heartbeat_seconds >= self.lease_seconds:
             raise ValueError("heartbeat_seconds must be less than lease_seconds")
         if self.retry_base_seconds > self.retry_max_seconds:

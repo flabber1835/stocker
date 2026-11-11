@@ -101,11 +101,10 @@ def validate_execution_policy(configuration_sha256: str) -> None:
     """Pure policy comparison; this does not verify an account or issue a grant."""
     from sentinel.authority import canonical_sha256, execution_config_identity
     from sentinel.config import DEFAULT_BASE_URL
-    from sentinel.execution.protected_limits import ProtectedLimitPolicy
-    policy = ProtectedLimitPolicy.from_env()
-    if policy is None or policy.cap_bps != 100:
-        raise RuntimeError('local PAPER iteration requires the selected 100-basis-point protected DAY policy')
     actual = execution_config_identity(paper_base_url=DEFAULT_BASE_URL)
+    if ("market_buy_policy" not in actual
+            and actual.get("protected_buy_policy", {}).get("cap_bps") != 100):
+        raise RuntimeError('local PAPER iteration requires the selected protected 100-basis-point or market DAY policy')
     if canonical_sha256(actual) != configuration_sha256:
         raise RuntimeError('local PAPER execution configuration differs from actual policy')
 

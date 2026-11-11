@@ -23,19 +23,25 @@ def conn(pg):
         yield connection
 
 
-def canonical_authority(conn, equity):
+def canonical_authority(conn, equity, *, market_policy_sha256=None):
     state, original = case(entries=1, exposure="0.55")
     state.last_evidence["wealth_core"]["estimated_equity"] = equity
     binding, publication, account, observation = _binding(), _publication(), _account(), _observation()
     rollout = RolloutState(RolloutMode.CONTROLLER, 4, certificate_sha256="a" * 64)
     marks, tickers = {"SEC-AAA": D(100), "SENTINEL:BIL": D(100)}, {"SEC-AAA": "AAA", "SENTINEL:BIL": "BIL"}
+    from sentinel.execution import held_targets
+
+    share_basis = (None if market_policy_sha256 is None else held_targets.build_basis(
+        conn, previous=None, state=state, binding=binding, rollout=rollout))
     plan = decision.build_execution_plan(state=state, binding=binding, publication=publication,
         account_snapshot=account, observation=observation, marks=marks, tickers=tickers,
         decision_session=original.decision_session, effective_session=original.effective_session,
-        rollout_state=rollout).plan
+        rollout_state=rollout,
+        retained_targets=None if share_basis is None else {}).plan
     shadow = SimpleNamespace(state=state, record_sha256="b" * 64, runtime_authority_sha256="c" * 64)
     authority = sizing.build_authority(plan=plan, shadow_result=shadow, publication=publication,
-        account_snapshot=account, observation=observation, marks=marks, tickers=tickers)
+        account_snapshot=account, observation=observation, marks=marks, tickers=tickers,
+        held_share_targets=share_basis, market_buy_policy_sha256=market_policy_sha256)
     stored = sizing.record_authority(conn, authority)
     assert stored == authority and sizing.load_authority(conn, plan_id=plan.plan_id) == authority
     return plan, binding, rollout, shadow, authority
@@ -80,3 +86,30 @@ def test_missing_numeric_import_falsifier_reaches_real_return_statement(conn):
         traceback = traceback.tb_next
     assert traceback.tb_frame.f_code.co_name == "_rederive_plan"
     assert traceback.tb_frame.f_locals["derived"].plan.to_dict() == fixture[0].to_dict()
+
+
+def test_new_transport_refuses_cross_policy_plan_reuse_but_preserves_historical_replay(conn, monkeypatch):
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from tests.sentinel.test_market_buy_policy import MARKET_ENV
+
+    prior = canonical_authority(conn, "100000")
+    for key, value in MARKET_ENV.items():
+        monkeypatch.setenv(key, value)
+    policy_hash = MarketBuyPolicy().fingerprint()
+    with pytest.raises(sizing.DualPlanAuthorityRefused, match="prepare a new decision"):
+        sizing.require_current_buy_policy(conn, plan=prior[0])
+    assert_scalar_proof(conn, prior, equity="100000", expected="100000", derive=sizing._rederive_plan)
+
+    current = canonical_authority(conn, "100001", market_policy_sha256=policy_hash)
+    plan, _, _, _, authority = current
+    assert authority["schema"] == sizing.MARKET_SCHEMA
+    assert authority["market_buy_policy_sha256"] == policy_hash
+    with psycopg.connect(conn.info.dsn) as reopened:
+        sizing.require_current_buy_policy(reopened, plan=plan)
+        monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "PROTECTED_LIMIT_DAY_V1")
+        monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
+        with pytest.raises(sizing.DualPlanAuthorityRefused, match="prepare a new decision"):
+            sizing.require_current_buy_policy(reopened, plan=plan)
+        sizing.require_current_buy_policy(reopened, plan=prior[0])
+        assert_scalar_proof(
+            reopened, current, equity="100001", expected="100001", derive=sizing._rederive_plan)

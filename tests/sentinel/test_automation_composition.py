@@ -179,3 +179,133 @@ def test_real_callbacks_prepare_submit_restart_and_reconcile_once(assembly, faul
         commands = journal.load_commands(conn, fixture.binding.require(conn).identity)
         assert len(commands) == 1 and commands[0].state is CommandState.FILLED
         assert commands[0].filled_quantity == plan.target_basket[fixture.AAA.security_id]
+
+
+def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(assembly, monkeypatch):
+    """Real scheduler, PAPER gateway, guard, journal and recovery over private PG."""
+    from dataclasses import replace
+    from datetime import timedelta
+    from decimal import Decimal as D
+    from zoneinfo import ZoneInfo
+
+    from sentinel import binding, dual_plan_authority, local_paper
+    from sentinel.authority import load_rollout_state
+    from sentinel.automation import store
+    from sentinel.automation.model import CycleState, TickAction
+    from sentinel.execution import feed_inputs, held_targets, target_reprojection
+    from sentinel.execution.market_buy_policy import MARKET_MODE, MarketBuyPolicy
+    from sentinel.execution.opening_prices import QUOTE_SOURCE
+    from sentinel.execution.simulator import SimulatedBroker
+    from sentinel.execution.states import CommandState as S
+    from sentinel.feed import calendar
+    from test_market_day_execution import MarketBroker
+    from test_opening_submit_freshness_boundary import ClockedBroker
+
+    # The legacy assembly supplies synthetic external authority and source.
+    # Prepare its canonical plan, then stamp the matching simulated authority
+    # through the actual durable contract before selecting market execution.
+    monkeypatch.delenv(local_paper.MODE_ENV, raising=False)
+    monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY", raising=False)
+    enabled = [False]
+    monkeypatch.setattr(MarketBuyPolicy, "from_env",
+                        classmethod(lambda cls, values=None: cls() if enabled[0] else None))
+    profile = MarketBuyPolicy()
+    fixture_worker = assembly.create()
+    config = fixture_worker.automation_config.model_copy(
+        update={"market_buy_policy_sha256": profile.fingerprint()})
+    control = assembly.control.model_copy(update={"config_sha256": config.fingerprint})
+    monkeypatch.setattr(runtime, "config_from_env", lambda *args, **kwargs: config)
+
+    def worker():
+        return runtime.ProductionAutomation(
+            sentinel_config=fixture_worker.sentinel_config, automation_config=config,
+            holder_id="assembly-worker")
+
+    def advance(*args, **kwargs):
+        state = fixture._advance_stub(*args, **kwargs)
+        state["last_decision"]["target_core_exposure"] = "0.5"
+        return state
+
+    monkeypatch.setattr(fixture.paper_preparation, "advance_and_persist", advance)
+    monkeypatch.setattr(SimulatedBroker, "market_clock", ClockedBroker.market_clock)
+    monkeypatch.setattr(SimulatedBroker, "_now", ClockedBroker._now, raising=False)
+    monkeypatch.setattr(SimulatedBroker, "opening_prices", MarketBroker.opening_prices)
+    inner = SimulatedBroker(account=assembly.broker.account, cash=D(1000), equity=D(1000),
+        capabilities=replace(assembly.broker.capabilities, regular_session_quote_prices=True,
+                             regular_session_open_prices=True, pre_submit_instrument_revalidation=True))
+    inner.ask = D(95)
+    inner.missing_quote = False
+    inner.quote_source = QUOTE_SOURCE
+    monkeypatch.setattr(runtime, "build_execution_broker", lambda *args, **kwargs: inner)
+
+    def run_tick(*, advance_seconds=0):
+        assembly.clock[0] += timedelta(seconds=advance_seconds)
+        inner.now = assembly.clock[0].astimezone(ZoneInfo(calendar.EXCHANGE_TZ))
+        return tick(assembly, worker())
+
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        store.activate(conn, binding=control, actor="fixture", reason="market assembly")
+        store.release_kill(conn, expected_binding=control, actor="fixture", reason="market assembly")
+    for action in (TickAction.RECOVERED, TickAction.REFRESHED, TickAction.PREPARED):
+        result = run_tick()
+        assert result.action is action, result
+    assert result.cycle.state is CycleState.PLAN_READY
+    cycle_id = result.cycle.cycle_id
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        state, plan, _ = fixture.paper_validation._state_and_plan_or_refuse(conn)
+        assert plan.plan_id == result.cycle.plan_id
+        assert sum(quantity > 0 for quantity in plan.target_basket.values()) == 2
+        bound = binding.require(conn)
+        with feed_inputs.pinned(conn, commit=False) as pinned:
+            authority = dual_plan_authority.build_authority(
+                plan=plan, shadow_result=SimpleNamespace(
+                    state=state, record_sha256="a" * 64, runtime_authority_sha256="b" * 64),
+                publication=pinned, account_snapshot=asyncio.run(inner.account_snapshot()),
+                observation=asyncio.run(inner.observe()), marks={}, tickers={},
+                held_share_targets=held_targets.build_basis(
+                    conn, previous=None, state=state, binding=bound, rollout=load_rollout_state(conn)),
+                market_buy_policy_sha256=profile.fingerprint())
+            dual_plan_authority.record_authority(conn, authority)
+
+    enabled[0] = True
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", MARKET_MODE)
+    assembly.clock[0] = assembly.clock[0].replace(hour=13, minute=29)
+    assert run_tick().action is TickAction.WAITING
+    sent = run_tick(advance_seconds=120)
+    assert sent.cycle.state is CycleState.RECONCILING, sent
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        commands = journal.load_commands(conn, bound.identity)
+        assert len(commands) == 1, sent
+        first = commands[0]
+        assert first.state is S.ACKNOWLEDGED
+        original = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+
+    inner.fill(first.client_key, "1")
+    pending = run_tick(advance_seconds=3)
+    assert pending.cycle.state is not CycleState.SUCCEEDED, pending
+    assert fixture._mutations(inner) == [f"submit:{first.client_key}"]
+
+    old_cash = inner.cash
+    inner.fill(first.client_key)
+    actual_cash, inner.cash = inner.cash, old_cash  # Delayed cash endpoint after terminal fill.
+    lagging = run_tick(advance_seconds=3)
+    assert lagging.cycle.state is not CycleState.SUCCEEDED, lagging
+    assert fixture._mutations(inner) == [f"submit:{first.client_key}"]
+    inner.cash = actual_cash
+
+    ready = run_tick(advance_seconds=3)
+    assert ready.action is TickAction.RECOVERED, ready
+    assert ready.cycle.cycle_id == cycle_id
+    assert ready.cycle.diagnostic["retry_phase"] == "EXECUTE"
+    second_send = run_tick(advance_seconds=3)
+    assert second_send.cycle.state is CycleState.RECONCILING, second_send
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        commands = journal.load_commands(conn, bound.identity)
+        second, = [command for command in commands if command.client_key != first.client_key]
+        assert second.state is S.ACKNOWLEDGED
+        assert target_reprojection.load_projection(conn, plan_id=plan.plan_id) == original
+    assert fixture._mutations(inner) == [f"submit:{first.client_key}", f"submit:{second.client_key}"]
+
+    inner.fill(second.client_key)
+    done = run_tick(advance_seconds=3)
+    assert done.cycle.state is CycleState.SUCCEEDED and done.cycle.cycle_id == cycle_id, done

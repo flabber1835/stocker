@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from decimal import Decimal
 from typing import Tuple
 
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerExactOrderLookup, BrokerObservation, BrokerOrder, CommandOutcome,
-    ExecutionBroker, OrderTerms)
+    ExecutionBroker, OrderTerms, Side)
 from sentinel.execution.guarded import (
     BrokerAuthorityRefused, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, CommandState as S
@@ -239,6 +240,12 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
         raise ValueError(
             f"dispatch requires SEND_PENDING (persisted BEFORE the network "
             f"call), got {command.state.value}")
+    from sentinel.execution.market_buy_policy import MARKET_MODE
+
+    # Snapshot the selection before POST. The guarded adapter validates the
+    # signed policy and the exact command before allowing actual transport.
+    market_buy = (command.side is Side.BUY and command.order_terms == OrderTerms()
+                  and os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == MARKET_MODE)
     try:
         outcome: CommandOutcome = await broker.submit(
             client_key=command.client_key, instrument=command.instrument,
@@ -254,6 +261,9 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
             detail=f"{type(exc).__name__}: {exc} — outcome undetermined")
 
     if getattr(outcome, "retry_after_seconds", None) is not None:
+        if market_buy:
+            return command.transition(
+                S.UNKNOWN, detail="rate-limited market BUY requires exact-key recovery")
         return await _retry_rate_limited_submit(broker, command, outcome)
     return _command_from_submit_outcome(command, outcome)
 

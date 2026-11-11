@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Whole-share PAPER market buys](paper-market-buys.md) defines an opt-in
+policy for regular-session buys with serial cash reconciliation. Selection
+requires a separate qualified PAPER activation on a fresh plan.
+
 [PAPER opening stability](paper-opening-stability-20261111.md) records the
 November 11 receipt, dashboard, account evidence and opening work corrections.
 

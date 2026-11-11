@@ -573,7 +573,12 @@ class Row:
                                       self.paper_plan.observation_at)))
 
     def can_show_paper_account(self, now: datetime) -> bool:
-        return (self.paper_account is not None and self.effective_status(now) == OK
+        status = self.effective_status(now)
+        market_wait = (self.key == 'alpaca_account' and status == WARN
+                       and self.recovery is not None
+                       and self.recovery.phase == MARKET_BUY_OBSERVATION
+                       and self.recovery.active(now))
+        return (self.paper_account is not None and (status == OK or market_wait)
                 and self.paper_account.observed_at <= now + MAXIMUM_FUTURE_SKEW)
 
     def visible_order_outcomes(self, now: datetime) -> list[PaperOrderOutcome]:
@@ -2010,6 +2015,9 @@ def alert_dispatcher_row(*, installed: Optional[bool],
                          and not unknown_push else None))
 
 
+MARKET_BUY_OBSERVATION = "MARKET_BUY_OBSERVATION"
+
+
 def alpaca_account_row(
         *, available: Optional[bool], broker: Optional[str] = None,
         account_id: Optional[str] = None,
@@ -2021,6 +2029,7 @@ def alpaca_account_row(
         recovery: Optional[RecoveryEvidence] = None,
         matched_protected_reservation: Optional[dict] = None,
         matched_operator_reservation: Optional[str] = None,
+        market_working: Optional[RecoveryEvidence] = None,
         error: Optional[str] = None) -> Row:
     """Latest account result already admitted through the execution membrane."""
     if error or available is None:
@@ -2074,6 +2083,7 @@ def alpaca_account_row(
     reservation = None
     matched_hold = False
     operator_hold = None
+    market_wait = False
     if not all(value.is_finite() for value in (
             equity_value, cash_value, buying_power_value, multiplier_value)):
         economics_failures.append("non-finite economics")
@@ -2101,8 +2111,15 @@ def alpaca_account_row(
                     operator_hold = amount
             except (InvalidOperation, TypeError, ValueError):
                 pass
+        market_wait = (market_working is not None
+            and market_working.phase == MARKET_BUY_OBSERVATION
+            and market_working.automatic and not market_working.operator_required
+            and observed_at is not None and market_working.deadline is not None
+            and market_working.deadline > observed_at
+            and 0 <= buying_power_value <= cash_value
+            and not matched_hold and operator_hold is None)
         if (abs(buying_power_value - cash_value) > Decimal("1.00")
-                and not matched_hold and operator_hold is None):
+                and not matched_hold and operator_hold is None and not market_wait):
             economics_failures.append(
                 "buying power differs from cash by more than $1")
         if matched_hold:
@@ -2111,23 +2128,28 @@ def alpaca_account_row(
     state_ok = (
         normalized_status == "ACTIVE" and not blocking
         and not economics_failures)
+    market_wait = state_ok and market_wait
+    if market_wait:
+        deadline = market_working.deadline
+        valid_until = min(valid_until, deadline) if valid_until else deadline
     value = f"{normalized_status or 'UNKNOWN'} · {account_id}"
     detail = (
         f"equity ${equity_value:,.2f} · cash ${cash_value:,.2f} · "
         f"buying power ${buying_power_value:,.2f} · multiplier {multiplier_value}"
         + (f" · FLAGS {', '.join(blocking)}" if blocking else
            " · no blocking flags")
-        + (f" · CONTRACT {', '.join(economics_failures)}"
-           if economics_failures else " · cash-only contract valid")
+        + (f" · CONTRACT {', '.join(economics_failures)}" if economics_failures
+           else " · broker buying power recorded with a working MARKET/DAY buy"
+           if market_wait else " · cash-only contract valid")
         + (f" · ${reservation.reserved_cash:,.2f} reserved by {len(reservation.commands)} positively matched protected DAY orders"
            if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else "")
         + (f" · ${operator_hold:,.2f} reserved by freshly matched native LIMIT/DAY buys (operator evidence only)"
            if operator_hold is not None else ""))
     return Row(
         "alpaca_account", "Alpaca Account", value,
-        OK if state_ok else FAIL, detail, observed_at,
+        WARN if market_wait else OK if state_ok else FAIL, detail, observed_at,
         freshness=timedelta(minutes=10), required_current=True,
-        recovery=recovery, valid_until=valid_until)
+        recovery=market_working if market_wait else recovery, valid_until=valid_until)
 
 
 def backup_restore_row(

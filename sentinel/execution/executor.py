@@ -398,6 +398,14 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
                                   ) -> SessionResult:
+    from sentinel.execution import market_buy_sizing
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
+    market = MarketBuyPolicy.from_env() is not None
+    if market or (target_projection is not None
+                  and market_buy_sizing.is_market_projection(target_projection)):
+        market_buy_sizing.validate_projection(
+            target_projection, require_current_policy=True, plan=plan)
     desired = (target_projection.target_basket
                if target_projection is not None else plan.target_basket)
 
@@ -588,10 +596,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 # return an unsent command. Preserve its exact key/economics.
                 deferred.append(delta.security_id)
                 deferral_reasons[delta.security_id] = sent.detail
-                if delta.is_increase and order_terms.order_type == "limit":
-                    # A positive no-transport funding deferral needs a fresh
-                    # canonical recovery, not more reads of the same journal
-                    # against cash which may already reflect earlier fills.
+                if delta.is_increase and (order_terms.order_type == "limit" or market):
+                    # Refresh evidence before advancing a serial BUY or an
+                    # exact protected funding deferral to another candidate.
                     deferred.extend(item.security_id for item in authorized_candidates[index + 1:])
                     break
                 continue
@@ -607,6 +614,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 deferred.extend(
                     item.security_id
                     for item in authorized_candidates[index + 1:])
+                break
+            if market and delta.is_increase:
+                # Even a synchronous fill must pass the normal complete
+                # recovery and cash reconciliation before the next market BUY.
+                deferred.extend(item.security_id for item in authorized_candidates[index + 1:])
                 break
         return commands
 
@@ -732,6 +744,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # The strict paper gateway supplies its account-cash authority here, at the
     # last read-only boundary before any increase. It runs for pure buys too;
     # cash can change after preflight even when there was no sale to settle.
+    if market and increases and (open_commands or any(order.is_working for order in observation.orders)):
+        deferred.extend(delta.security_id for delta in increases)
+        increases = []
+        settle_note = "market BUY awaits complete account-wide order reconciliation"
+
     if increases and (increase_authority is not None
                       or increase_reconciliation_authority is not None):
         try:

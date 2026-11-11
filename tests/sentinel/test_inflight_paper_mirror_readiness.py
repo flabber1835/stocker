@@ -6,11 +6,17 @@ from decimal import Decimal
 import inspect,textwrap
 import pytest
 from sentinel.panel import sources,model,observer_codec,observer_failure
+from sentinel import dual_plan_authority, local_paper
 from sentinel import informational_paper_mirror as mirror
 from sentinel.paper_plan_preview import PlannedLeg
+from sentinel.execution import account_status
 from sentinel.execution.contract import OrderTerms
+from sentinel.execution.market_buy_policy import MARKET_MODE, MarketBuyPolicy
 from tests.sentinel.test_postopen_paper_mirror_readiness import completed,NOW
 from tests.sentinel.test_panel_command_progress import cycle,NOW as PROGRESS_NOW
+
+
+_ALPACA_ACCOUNT_ROW = model.alpaca_account_row
 
 
 @pytest.fixture
@@ -182,3 +188,78 @@ def test_missing_protected_proof_guard_falsifier(ongoing, monkeypatch):
     monkeypatch.setattr(sources, '_in_progress_paper_mirror', scope['_in_progress_paper_mirror'])
     with pytest.raises(AssertionError):
         test_protected_day_recovery_uses_exact_original_proof(ongoing, monkeypatch, 'no_match')
+
+
+@pytest.mark.parametrize("fault", [None, "expired_wake", "missing_proof", "different_key",
+                                    "different_fill", "unknown_outcome", "negative_cash", "old_policy"])
+def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(ongoing, monkeypatch, fault):
+    v = ongoing
+    c = v["cycle"]
+    c.update(state="RETRY_WAIT", retry_phase="RECOVER", failure_code="COMMANDS_IN_FLIGHT",
+             failure_detail="positively observed orders can still fill",
+             next_wake_at=NOW + timedelta(seconds=25),
+             diagnostic=dict(clean=True, runtime_state="RUNNING", unresolved=[],
+                             foreign_orders=[], foreign_positions=[],
+                             in_flight_commands=["synthetic-key"]))
+    v["health"].latest_cycle_state = "RETRY_WAIT"
+    run = v["row"].trading_run
+    order = run.orders[0].model_copy(update={"side": "BUY", "state": "PARTIALLY_FILLED",
+        "filled_quantity": Decimal(1), "filled_average_price": Decimal("55.21")})
+    leg = PlannedLeg(security_id=order.security_id, ticker=order.ticker, current_quantity=Decimal(0),
+        target_quantity=order.quantity, change_quantity=order.quantity, action="BUY")
+    v["row"] = replace(v["row"], trading_run=run.model_copy(update={"state": "RETRY_WAIT",
+        "orders": [order], "intent": run.intent.model_copy(update={"legs": [leg]})}))
+    account = dict(broker="alpaca", account_id="paper-account", status="ACTIVE",
+        equity=Decimal("10000"), cash=Decimal("2000"), buying_power=Decimal("1850"),
+        multiplier=Decimal(1), flags={}, observed_at=NOW-timedelta(seconds=5))
+    proof = dict(order=dict(client_key="synthetic-key", broker_order_id="native-id",
+        state=order.state, terms=order.order_terms, side="BUY", quantity="71",
+        filled_quantity="1", filled_average_price="55.21"), valid_until=c["execution_close_at"])
+    if fault == "expired_wake":
+        c["next_wake_at"] = NOW
+    elif fault == "missing_proof":
+        proof = None
+    elif fault == "different_key":
+        proof["order"]["client_key"] = "another"
+    elif fault == "different_fill":
+        proof["order"]["filled_average_price"] = "55.20"
+    elif fault == "unknown_outcome":
+        c["diagnostic"]["unresolved"] = ["UNKNOWN"]
+    elif fault == "negative_cash":
+        account["cash"] = Decimal(-1)
+    monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
+    monkeypatch.setenv(local_paper.ACCOUNT_ENV, "PAfixture")
+    monkeypatch.setenv(local_paper.BACKUP_POLICY_ENV, local_paper.BACKUP_POLICY)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", MARKET_MODE)
+    monkeypatch.delenv("SENTINEL_PAPER_BUY_CAP_BPS", raising=False)
+    monkeypatch.delenv("SENTINEL_PAPER_DEBUG_WINDOW", raising=False)
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    v["plan"].plan_id = c["plan_id"]
+    authority = {"plan_fingerprint": v["plan"].fingerprint()}
+    if fault != "old_policy":
+        authority["market_buy_policy_sha256"] = MarketBuyPolicy().fingerprint()
+    monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *args, **kw: authority)
+    monkeypatch.setattr(account_status, "recorded_market_working", lambda *args, **kw: proof)
+    monkeypatch.setattr(sources, "_latest_account_evidence", lambda _: account)
+    monkeypatch.setattr(model, "alpaca_account_row", _ALPACA_ACCOUNT_ROW)
+
+    row = observe(v)
+    if fault is None:
+        assert row.status == model.WARN
+        assert row.value == "PAPER NOT VERIFIED · PENDING"
+        assert row.valid_until == c["next_wake_at"]
+        assert row.effective_status(row.valid_until + timedelta(microseconds=1)) == model.FAIL
+    else:
+        assert row is None
+
+
+def test_market_buy_pending_policy_guard_falsifier(ongoing, monkeypatch):
+    code = textwrap.dedent(inspect.getsource(sources._matched_market_order_wait))
+    guard = "dual_plan_authority.require_current_buy_policy(conn, plan=plan)"
+    assert code.count(guard) == 1
+    scope = dict(vars(sources))
+    exec(code.replace(guard, "pass"), scope)
+    monkeypatch.setattr(sources, "_matched_market_order_wait", scope["_matched_market_order_wait"])
+    with pytest.raises(AssertionError):
+        test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
+            ongoing, monkeypatch, "old_policy")

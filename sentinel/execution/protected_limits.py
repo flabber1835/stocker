@@ -61,6 +61,10 @@ class ProtectedLimitPolicy:
     @classmethod
     def from_env(cls):
         from sentinel.automation.model import PaperDebugWindow
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
+        if MarketBuyPolicy.from_env() is not None:
+            return None
         try:
             window = PaperDebugWindow.from_env()
         except (ValueError, TypeError, RecursionError) as exc:
@@ -587,6 +591,9 @@ def unavailable_opening_intents(projection):
     evidence = None if projection is None else projection.opening_sizing
     if evidence is None:
         return {}
+    from sentinel.execution import market_buy_sizing
+    if market_buy_sizing.is_market_projection(projection):
+        return market_buy_sizing.unavailable_opening_intents(projection)
     from sentinel.execution.opening_sizing import FINAL_MODE, UNAVAILABLE_MODE, ZERO_MODE
     if isinstance(evidence, dict) and evidence.get("mode") in {FINAL_MODE, UNAVAILABLE_MODE, ZERO_MODE}:
         return {}

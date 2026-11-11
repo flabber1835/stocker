@@ -353,6 +353,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             "dual PAPER preparation requires both reviewed shadow identity "
             "and starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+
+    try:
+        market_policy = MarketBuyPolicy.from_env()
+    except TargetProjectionRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+    if market_policy is not None and not dual_mode:
+        raise PaperActivationRefused("market BUY policy requires backed dual PAPER preparation")
     retirement_request = None
     if legacy_cash_retirement is not None:
         if not dual_mode or automation_grant is not None:
@@ -518,6 +527,12 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     and existing_plan.decision_session == through_date):
                 renewal_rollout = _dual_renewal_rollout(
                     conn, existing_plan, rollout)
+                try:
+                    dual_plan_authority.require_current_buy_policy(conn, plan=existing_plan)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    operation = "renewal" if renewal_rollout is not None else "restart"
+                    raise PaperActivationRefused(
+                        f"dual sizing authority refused {operation}: {exc}") from exc
                 if renewal_rollout is not None:
                     # Authenticate the old intent without making it executable.
                     # A new runtime attestation is expected after an upgrade;
@@ -777,6 +792,9 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 if journal.in_flight_commands(conn, binding.identity):
                     raise PaperRetryableRefused(
                         "authority renewal waits for unresolved durable commands")
+            elif market_policy is not None and journal.in_flight_commands(conn, binding.identity):
+                raise PaperRetryableRefused(
+                    "market plan preparation waits for unresolved durable commands")
 
             if dual_mode:
                 # The shadow record has already advanced the only strategy
@@ -805,7 +823,9 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     plan=decision.plan, shadow_result=dual_result,
                     publication=pinned, account_snapshot=account,
                     observation=observation, marks=marks, tickers=tickers,
-                    held_share_targets=share_basis)
+                    held_share_targets=share_basis,
+                    market_buy_policy_sha256=(market_policy.fingerprint()
+                                              if market_policy is not None else None))
                 superseded = int(
                     existing_plan is not None
                     and existing_plan.plan_id != decision.plan.plan_id)

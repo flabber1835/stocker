@@ -65,7 +65,18 @@ def execution_config_identity(*, paper_base_url: str,
         "adapter": "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker",
         "trust_roots_sha256": roots_sha,
     }
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
+
+    market_policy = MarketBuyPolicy.from_env()
+    if market_policy is not None:
+        if paper_base_url != PAPER_BASE_URL:
+            raise AuthorityRefused("market BUY execution configuration requires the Alpaca PAPER endpoint")
+        identity["schema"] = "sentinel.paper-execution-config/3"
+        identity["market_buy_policy"] = market_policy.to_dict()
+        identity["market_buy_policy_sha256"] = market_policy.fingerprint()
+        return identity
+
     policy = ProtectedLimitPolicy.from_env()
     if policy is not None:
         identity["schema"] = "sentinel.paper-execution-config/2"

@@ -49,7 +49,12 @@ def requires_initial_projection(conn, *, plan, deployment):
             or projection.opening_sizing is None):
         raise TargetProjectionRefused(
             "stored opening projection differs from plan authority")
-    mode = projection.opening_sizing.get("mode")
+    from sentinel.execution import market_buy_sizing
+    if market_buy_sizing.is_market_projection(projection):
+        market_buy_sizing.validate_projection(projection, plan=plan)
+        mode = projection.opening_sizing["opening"]["mode"]
+    else:
+        mode = projection.opening_sizing.get("mode")
     if mode in {ZERO_MODE, UNAVAILABLE_MODE}:
         return False
     from sentinel.execution.protected_limits import PROTECTED_MODE, validate_projection
@@ -97,6 +102,11 @@ async def prices_for_plan(conn, *, state, plan, broker):
     if stored is not None:
         if stored.plan_fingerprint != plan.fingerprint() or stored.opening_sizing is None:
             raise TargetProjectionRefused("stored opening projection differs from plan authority")
+        from sentinel.execution import market_buy_sizing
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        if MarketBuyPolicy.from_env() is not None:
+            market_buy_sizing.validate_projection(stored, require_current_policy=True, plan=plan)
+            return market_buy_sizing.original_prices(stored)
         return OpeningPrices.from_dict(stored.opening_sizing.get("prices"))
     from sentinel.core.decision import shadow_target
     target = shadow_target(state)
