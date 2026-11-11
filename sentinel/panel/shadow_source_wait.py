@@ -163,6 +163,22 @@ def read(conn, refusal, *, observation_id, starting_cash, now):
         return _read_committed(proof,observation_id=observation_id,starting_cash=starting_cash,now=now)
 
 
+def _dated_wait(result, session, decision, attested_at, *, now):
+    if (attested_at.utcoffset() is None or now.utcoffset() is None
+            or attested_at > now):
+        raise ValueError('historical attestation clock is invalid')
+    if now < calendar.session_window(decision)[1]:
+        raise ValueError('source frontier is not yet owed')
+    deadline = calendar.session_window(calendar.next_session(decision))[0].astimezone(timezone.utc)
+    return SourceWait(result, session, decision, attested_at.astimezone(timezone.utc), deadline)
+
+
+def from_history(value, *, now):
+    """Project the existing rolling status proof's dated evidence."""
+    return _dated_wait(value.result, value.session, value.decision_session,
+                       value.attested_at, now=now)
+
+
 def _read_committed(conn, *, observation_id, starting_cash, now):
     from sentinel import rolling_runtime as runtime
     runtime.inputs.require_schemas(conn)
@@ -184,13 +200,5 @@ def _read_committed(conn, *, observation_id, starting_cash, now):
         if binding != checkpoint.snapshot:
             raise ValueError('historical snapshot identity changed')
         attested_at = datetime.fromisoformat(attested.timing['observed_at'])
-        if (attested_at.utcoffset() is None or now.utcoffset() is None
-                or attested_at > now):
-            raise ValueError('historical attestation clock is invalid')
         decision = calendar.next_session(checkpoint.session)
-        if now < calendar.session_window(decision)[1]:
-            raise ValueError('source frontier is not yet owed')
-        deadline = calendar.session_window(calendar.next_session(decision))[0]
-        return SourceWait(result, checkpoint.session, decision,
-                          attested_at.astimezone(timezone.utc),
-                          deadline.astimezone(timezone.utc))
+        return _dated_wait(result, checkpoint.session, decision, attested_at, now=now)

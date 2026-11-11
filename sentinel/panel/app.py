@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
 from sentinel.operational_status import color
-from sentinel.panel import last_known, model, singleflight
+from sentinel.panel import delivery, last_known, model, singleflight
 from sentinel.panel import operational_snapshot, projection_service
 from sentinel.panel.review import recorder
 from sentinel.panel.review_store import ReviewRefused
@@ -112,7 +112,7 @@ def _read_panel():
                 installed=None, error=detail)], source_errors=[detail])
     def build():
         try:
-            return projection_service.read(dsn)
+            return projection_service.read(dsn, display=True)
         except operational_snapshot.SnapshotUnavailable as exc:
             raise singleflight.BuildUnavailable('current operational snapshot unavailable') from exc
     result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)
@@ -203,7 +203,7 @@ def panel(request: Request = None) -> HTMLResponse:
     last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
                                               refresh_pending=True))
     return HTMLResponse(html, headers={"Cache-Control": "no-store",
-                                       'X-Sentinel-Panel-Status': 'CURRENT' if p.observation_current else 'PARTIAL'})
+                                       'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'})
 
 
 @app.get("/panel.json")
@@ -213,7 +213,7 @@ def panel_json() -> JSONResponse:
     return JSONResponse(
         public_payload(p),
         headers={"Cache-Control": "no-store",
-                 'X-Sentinel-Panel-Status': 'CURRENT' if p.observation_current else 'PARTIAL'},
+                 'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'},
     )
 
 
@@ -319,9 +319,11 @@ def health() -> dict:
 def operational_health() -> JSONResponse:
     """The same required-fact verdict shown on the operator panel."""
     p = _read_panel()
+    machine_color = (color(p.operational) if p.observation_current else
+                     'red' if dashboard_health(p)['color'] == 'red' else 'neutral')
     body = {
         "status": p.operational if p.observation_current else model.UNKNOWN,
-        "color": color(p.operational) if p.observation_current else dashboard_health(p)['color'],
+        "color": machine_color,
         "current": p.observation_current,
         "as_of": p.now.isoformat(),
         "red_rows": [

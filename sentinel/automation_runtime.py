@@ -32,12 +32,14 @@ from sentinel.automation.model import (
     AutomationRefused,
     CycleContext,
     CycleSpec,
+    CycleState,
     DataIntegrityFailure,
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
     PrepareResult,
     ProtectedDayWait,
+    RefreshPublicationPinUnavailable,
     RefreshResult,
     SoftwareDefect,
     SourceDataPending,
@@ -46,6 +48,7 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
     StaleLeaderRefused,
+    SupervisorIntegrityFailure,
     TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
@@ -228,17 +231,22 @@ def _dedicated_publisher_wait(frontier, decision_session):
                 'publisher to publish the exact decision close')
 
 
-def _publication_closing_wait(exc, *, database_url, cycle):
-    """An expected pin refusal needs its matching fresh live-writer proof."""
+def _native_publication_pin(exc):
     from sentinel.feed.publication import CorpusLockUnavailable
 
-    native = exc
+    if type(exc) is CorpusLockUnavailable:
+        return exc
     if (type(exc) is TransientInfrastructureFailure
             and type(exc.__cause__) is CorpusLockUnavailable):
         expected = classify_dependency_failure(exc.__cause__)
         if type(expected) is type(exc) and expected.args == exc.args:
-            native = exc.__cause__
-    if type(native) is not CorpusLockUnavailable or cycle is None:
+            return exc.__cause__
+    return None
+
+
+def _publication_closing_wait(exc, *, database_url, cycle):
+    """An expected pin refusal needs its matching fresh live-writer proof."""
+    if cycle is None or _native_publication_pin(exc) is None:
         return None
     try:
         from sentinel.source_publication_wait import observe
@@ -250,6 +258,24 @@ def _publication_closing_wait(exc, *, database_url, cycle):
     except Exception:
         # An unverifiable publisher cannot silence the original lock warning.
         return None
+
+
+def _current_close_refresh(cycle, config, now):
+    if cycle is None or cycle.state is not CycleState.REFRESHING_DATA or cycle.plan_id is not None:
+        return False
+    if not cycle.prepare_at <= now < cycle.execution_open_at:
+        return False
+    try:
+        expected = schedule.for_clock(now, config)
+    except (calendar.CalendarUnavailable, calendar.NonSessionDate):
+        return False
+    return (cycle.decision_session == expected.decision_session
+            and cycle.effective_session == expected.effective_session
+            and cycle.decision_close_at == expected.decision_close_at
+            and cycle.prepare_at == expected.prepare_at
+            and cycle.execution_open_at == expected.execution_open_at
+            and cycle.execute_at == expected.execute_at
+            and cycle.execution_close_at == expected.execution_close_at)
 
 
 def require_observation_integrity(conn) -> None:
@@ -604,6 +630,22 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _observe_callback_authority(sentinel_config, automation_config, holder_id, permit):
+    """Spawn-owned complete control check; never constructs a broker."""
+    runtime = ProductionAutomation(sentinel_config=sentinel_config,
+        automation_config=automation_config, holder_id=holder_id)
+    conn = runtime.connect()
+    try:
+        runtime._assert_control_authority(conn, permit, require_publication=True)
+        return 'PASS'
+    except NonRetryableCallbackRefused:
+        return 'REFUSED'
+    except TransientInfrastructureFailure:
+        return 'TRANSIENT'
+    finally:
+        conn.close()
+
+
 class ProductionAutomation:
     """Inject canonical production actions into the durable automation core."""
 
@@ -649,7 +691,27 @@ class ProductionAutomation:
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
             notify=self.notify, terminal=self.certify_terminal_cycle,
-            source_completion_hint=self.source_completion_hint)
+            source_completion_hint=self.source_completion_hint,
+            callback_authority=self.callback_authority)
+
+    def callback_authority(self, context, stopped):
+        from sentinel import supervisor_io
+        try:
+            result = supervisor_io.run(_observe_callback_authority,
+                self.sentinel_config, self.automation_config, self.holder_id, context.permit,
+                timeout=30, start_method='spawn', cancelled=stopped.is_set)
+        except TimeoutError as exc:
+            raise TransientInfrastructureFailure('callback authority observer exceeded its budget') from exc
+        except supervisor_io.DependencyError as exc:
+            if exc.diagnostic['exception_type'] == 'StaleLeaderRefused':
+                raise StaleLeaderRefused('callback authority observer lost its fence') from exc
+            raise SoftwareDefect('callback authority observer failed unexpectedly') from exc
+        if result == 'REFUSED':
+            raise NonRetryableCallbackRefused('current callback control authority was refused')
+        if result == 'TRANSIENT':
+            raise TransientInfrastructureFailure('callback authority validation temporarily unavailable')
+        if result != 'PASS':
+            raise SupervisorIntegrityFailure('callback authority observer returned an invalid result')
 
     def source_completion_hint(self, cycle):
         """A producer-change hint wakes verification; it grants no authority."""
@@ -687,11 +749,13 @@ class ProductionAutomation:
                 fence_token=permit.fence_token,
                 control_generation=permit.control_generation,
                 instance_id=self.holder_id)
+            return True
         except Exception:                                    # noqa: BLE001
             # A revocation, kill, or takeover commonly invalidates the same
             # fence needed to update the global display row. A stale worker may
             # not replace current truth merely to explain its own refusal.
             conn.rollback()
+            return False
 
     def _raise_authority_refusal(self, exc):
         if isinstance(exc, StaleLeaderRefused):
@@ -713,7 +777,7 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _assert_control_authority(self, conn, permit):
+    def _assert_control_authority(self, conn, permit, *, require_publication=False):
         """Verify current signed authority without requiring any cycle row."""
         try:
             store.require_leader(conn, permit)
@@ -757,10 +821,12 @@ class ProductionAutomation:
                     conn, permit, verdict="FAIL",
                     detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
-        self._record_authority_verdict(
+        published = self._record_authority_verdict(
             conn, permit, verdict="PASS",
             detail=(f"signed certificate {certificate.certificate_sha256} "
                     "verified for active automation control"))
+        if require_publication and not published:
+            raise TransientInfrastructureFailure('callback authority verdict could not be persisted')
         return control, certificate
 
     def _assert_cycle_authority(
@@ -1002,6 +1068,9 @@ class ProductionAutomation:
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
         cycle = getattr(context, 'cycle', None)
+        closing_paper = (getattr(self, "_operational_source_only", False)
+                         and getattr(self, "_dual_run_enabled", False)
+                         and not getattr(self, "_live_run_enabled", False))
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -1022,7 +1091,15 @@ class ProductionAutomation:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
             if feed_inputs.is_rolling(current):
                 feed_inputs.require_shadow_mode(current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
-                if (getattr(current, 'window_end', None) == str(cycle.decision_session)
+                frontier = getattr(current, 'window_end', None)
+                if closing_paper and isinstance(frontier, str) and frontier < str(cycle.decision_session):
+                    now = _now_utc()
+                    if _current_close_refresh(cycle, self.automation_config, now):
+                        before_close = cycle.decision_close_at - timedelta(microseconds=1)
+                        if frontier == calendar.latest_closed_session(before_close):
+                            raise ClosingDataPending(
+                                'the dedicated shadow publisher is awaiting the exact decision close')
+                if (frontier == str(cycle.decision_session)
                         and getattr(self, 'sentinel_config', None) is not None):
                     from sentinel import prepare_shadow_wait
                     preparation = prepare_shadow_wait.observe(conn,
@@ -1053,7 +1130,7 @@ class ProductionAutomation:
                             starting_cash=self._shadow_starting_cash)
                 except dual_reconciliation.DualReconciliationPending as exc:
                     raise _closing_frontier_wait(exc,
-                        frontier=getattr(current, 'window_end', None),
+                        frontier=frontier,
                         decision_session=cycle.decision_session) from exc
                 except dual_reconciliation.DualReconciliationRefused as exc:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
@@ -1114,14 +1191,15 @@ class ProductionAutomation:
                     if hasattr(progress, "to_dict") else str(progress),
                 })
         except BaseException as exc:                          # noqa: BLE001
-            publication_wait = None
-            if (type(exc) is publication.CorpusLockUnavailable
-                    or (type(exc) is TransientInfrastructureFailure
-                        and type(exc.__cause__) is publication.CorpusLockUnavailable)):
+            native_pin = _native_publication_pin(exc)
+            if native_pin is not None:
                 publication_wait = _publication_closing_wait(exc,
                     database_url=self.sentinel_config.database_url, cycle=cycle)
-            if publication_wait is not None:
-                raise publication_wait from exc
+                if publication_wait is not None:
+                    raise publication_wait from exc
+                if closing_paper and _current_close_refresh(cycle, self.automation_config, _now_utc()):
+                    mapped_pin = classify_dependency_failure(native_pin)
+                    raise RefreshPublicationPinUnavailable(str(mapped_pin)) from exc
             mapped = classify_dependency_failure(exc)
             if mapped is None or mapped is exc:
                 raise

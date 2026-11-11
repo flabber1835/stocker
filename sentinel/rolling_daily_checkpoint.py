@@ -54,6 +54,11 @@ def require_input(conn, checkpoint):
 
 
 def read(conn):
+    from sentinel import committed_read
+    return committed_read.checkpoint(conn, cursor=CURSOR, read=_read)
+
+
+def _read(conn):
     row = conn.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s", (CURSOR,)).fetchone()
     if row is None:
         return None

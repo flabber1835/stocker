@@ -1,5 +1,6 @@
 """Actual checkpoint coordinator against strict external command responses."""
 from copy import deepcopy
+from datetime import datetime, timezone
 import inspect
 import json
 from pathlib import Path
@@ -84,7 +85,8 @@ class Commands:
             if 'INSERT INTO sentinel_backup_evidence' in sql:
                 value = json.loads(re.search(r"SELECT '([^']+)'::jsonb", sql)[1])
                 self.recorded.append(value)
-                return json.dumps(value)
+                return json.dumps({'proof': value,
+                    'observed_at': datetime.fromtimestamp(self.observation['now'], timezone.utc).isoformat()})
         pytest.fail('unexpected external operation: ' + repr(argv))
 
 

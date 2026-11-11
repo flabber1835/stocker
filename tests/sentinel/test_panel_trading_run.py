@@ -493,7 +493,8 @@ def historical_run_db(monkeypatch,historical_run_dsn):
             decision_session date,effective_session date,control_generation bigint,
             deployment_id text,broker text,broker_account_id text,takeover_epoch bigint,
             certificate_sha256 text,config_sha256 text,historical_state_only boolean,
-            failure_code text,last_clean_reconciliation_id text)''')
+            failure_code text,last_clean_reconciliation_id text,
+            diagnostic jsonb NOT NULL DEFAULT '{}'::jsonb)''')
         conn.execute("INSERT INTO sentinel_automation_control VALUES(1,86,'deployment','alpaca','paper',1,'new-cert','new-config',true,false)")
         conn.execute("INSERT INTO sentinel_account_binding VALUES(1,'SENTINEL_OWNED','deployment','alpaca','paper',1)")
         conn.execute('''INSERT INTO sentinel_execution_plans VALUES('old-plan',

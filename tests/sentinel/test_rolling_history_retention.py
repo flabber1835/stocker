@@ -218,8 +218,17 @@ def aged(conn, operational_source, monkeypatch):
     return result
 
 
-def test_old_command_and_bil_actions_survive_real_retirement_and_restart(conn, aged):
+def test_old_command_and_bil_actions_survive_real_retirement_and_restart(conn, aged, monkeypatch):
     import psycopg
+    # A publication may defer physical cleanup to later idle passes. Observe
+    # the layout this test needs without waiting for unrelated cleanup classes.
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _now: False)
+    for _ in range(10):
+        rows = conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0]
+        conn.rollback()
+        if rows <= 600:
+            break
+        retention.idle_pass(conn.info.dsn)
     begin, end = date(2024, 12, 13), date(2026, 9, 14)
     lookup = feed_actions.action_lookup(conn, start=begin, end=end)
     assert lookup('1') == lookup('SENTINEL:BIL') == Decimal(6)

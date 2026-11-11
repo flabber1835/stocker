@@ -209,23 +209,14 @@ async def _broker_cash_state_or_refuse(
             "broker cash activity evidence is temporarily unavailable: "
             f"{type(exc).__name__}: {exc}") from exc
 
-def _cash_authority_or_refuse(
-        conn, *, plan: ExecutionPlan, deployment,
-        account: BrokerAccountSnapshot, observation: BrokerObservation,
-        activity_state: broker_cash.CashActivityState | None = None,
-        permit_new_activity: bool = False,
-        endpoint_lag_observed_at: datetime | None = None) -> bool:
-    """Reconcile immutable plan cash to fills plus durable broker activities.
-
-    The account balance is never its own explanation.  Native Account Activity
-    rows explain cash movement; the immutable plan records which cumulative
-    activity total already existed when it was sized.  A later recognized cash
-    event may authorize the *next* decision to use the fresh balance, but never
-    rewrites a same-session plan or an execution already in flight.
-    """
+def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> Fraction:
+    """The one immutable-plan plus durable-fill cash equation."""
     expected_without_activity = Fraction(plan.account_cash)
-    for command in journal.load_commands(
-            conn, deployment, plan_id=plan.plan_id):
+    if commands is None:
+        commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
+    for command in commands:
+        if command.identity.plan_id != plan.plan_id:
+            continue
         if command.filled_quantity == 0:
             continue
         if command.filled_average_price is None:
@@ -236,6 +227,85 @@ def _cash_authority_or_refuse(
         notional = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
         expected_without_activity += (
             notional if command.side.value == "SELL" else -notional)
+    return expected_without_activity
+
+
+def _require_exact_fee_cash(*, account, exact_expected) -> None:
+    if Fraction(account.cash) != exact_expected:
+        raise PaperActivationRefused(
+            "native fee continuation requires the exact fresh cash equation")
+
+
+def _fee_cash_continuation(conn, *, baseline, account, activity_state,
+                           exact_expected) -> bool:
+    try:
+        debit_fees_only = broker_cash.plan_activity_is_debit_fees_only(
+            conn, baseline=baseline, activity_state=activity_state)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(
+            f"native fee continuation evidence is inconsistent: {exc}") from exc
+    if debit_fees_only:
+        _require_exact_fee_cash(account=account, exact_expected=exact_expected)
+    return debit_fees_only
+
+
+def load_native_fee_plan_baseline(conn, *, plan, deployment, account, activity_state):
+    """Load the actual original plan boundary; this alone grants no permission."""
+    try:
+        baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused("immutable fee-plan cash baseline is inconsistent") from exc
+    if baseline is None or baseline.activity_membership is None:
+        return None
+    if (baseline.broker != plan.broker or baseline.account_id != plan.broker_account_id
+            or baseline.decision_session != plan.decision_session
+            or not deployment.matches_account(account.identity)
+            or activity_state.broker != plan.broker
+            or activity_state.account_id != plan.broker_account_id):
+        raise PaperActivationRefused("native fee-plan cash subject changed")
+    return baseline
+
+
+def require_exact_native_fee_cash(conn, *, plan, deployment, account,
+                                   activity_state, baseline, commands=None) -> None:
+    """The canonical exact cash equation, after the owner proves memberships."""
+    exact_expected = _plan_fill_cash(conn, plan=plan, deployment=deployment, commands=commands)
+    exact_expected += Fraction(activity_state.balance_total) - Fraction(baseline.balance_total)
+    _require_exact_fee_cash(account=account, exact_expected=exact_expected)
+
+
+def native_fee_plan_continuation(conn, *, plan, deployment, account,
+                                  activity_state) -> bool:
+    """Canonical plan-only proof, with no supplied exception or observation."""
+    baseline = load_native_fee_plan_baseline(conn, plan=plan, deployment=deployment,
+        account=account, activity_state=activity_state)
+    if baseline is None:
+        return False
+    try:
+        fees = broker_cash.plan_activity_is_debit_fees_only(
+            conn, baseline=baseline, activity_state=activity_state)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused("native fee-plan membership is inconsistent") from exc
+    if fees:
+        require_exact_native_fee_cash(conn, plan=plan, deployment=deployment,
+            account=account, activity_state=activity_state, baseline=baseline)
+    return fees
+
+
+def _cash_authority_or_refuse(
+        conn, *, plan: ExecutionPlan, deployment,
+        account: BrokerAccountSnapshot, observation: BrokerObservation,
+        activity_state: broker_cash.CashActivityState | None = None,
+        permit_new_activity: bool = False,
+        endpoint_lag_observed_at: datetime | None = None) -> bool:
+    """Reconcile immutable plan cash to fills plus durable broker activities.
+
+    The account balance is never its own explanation. Native activities explain
+    movement; the immutable plan binds the prior set. Only exact membership-
+    proved debit fees may continue its intent under fresh funding guards. The
+    return value says whether changed activity still requires plan retirement.
+    """
+    expected_without_activity = _plan_fill_cash(conn, plan=plan, deployment=deployment)
 
     activity_delta = Fraction(0)
     activity_identity_changed = False
@@ -244,8 +314,12 @@ def _cash_authority_or_refuse(
                 or activity_state.account_id != plan.broker_account_id):
             raise PaperActivationRefused(
                 "broker cash activity state belongs to another account")
-        baseline = broker_cash.load_plan_baseline(
-            conn, plan_id=plan.plan_id)
+        try:
+            baseline = broker_cash.load_plan_baseline(
+                conn, plan_id=plan.plan_id)
+        except broker_cash.BrokerCashAuthorityRefused as exc:
+            raise PaperActivationRefused(
+                f"immutable plan cash baseline is inconsistent: {exc}") from exc
         if baseline is None:
             # Never stamp current activity history retroactively onto an old
             # immutable plan. Offsetting post-plan events can leave cash
@@ -255,6 +329,11 @@ def _cash_authority_or_refuse(
                 f"plan {plan.plan_id} has no immutable broker cash baseline. "
                 "It cannot be backfilled from current cash or activity state; "
                 "resolve the legacy plan explicitly and prepare a fresh plan")
+        if (baseline.broker != activity_state.broker
+                or baseline.account_id != activity_state.account_id
+                or baseline.decision_session != plan.decision_session):
+            raise PaperActivationRefused(
+                "immutable plan cash baseline belongs to another account or session")
         if (baseline.activity_identity_authoritative
                 and activity_state.activity_identity_scheme
                 != baseline.activity_identity_scheme):
@@ -303,8 +382,14 @@ def _cash_authority_or_refuse(
             f"baseline {plan.account_cash}, durable fills and broker-native "
             f"cash activities (expected {expected}). Cash movement is never "
             "inferred")
-    if (activity_delta != 0 or activity_identity_changed) \
-            and not permit_new_activity:
+    activity_changed = activity_delta != 0 or activity_identity_changed
+    if activity_state is not None and baseline.activity_membership is not None:
+        if _fee_cash_continuation(conn, baseline=baseline, account=account,
+                activity_state=activity_state, exact_expected=exact_expected):
+            # A fee grants no new money and never changes a target or baseline.
+            # Every BUY still earns fresh actual-cash/reservation admission.
+            return False
+    if activity_changed and not permit_new_activity:
         raise PaperActivationRefused(
             "broker-native cash activity changed after plan "
             f"{plan.plan_id} was prepared (net={_cash_decimal(activity_delta)}, "
@@ -312,4 +397,4 @@ def _cash_authority_or_refuse(
             "event set is durably explained, but this immutable plan will not "
             "be re-sized or netted in place; prepare the next closed decision "
             "session")
-    return activity_delta != 0 or activity_identity_changed
+    return activity_changed

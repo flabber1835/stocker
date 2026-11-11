@@ -57,6 +57,11 @@ def _signature(payload):
 
 
 def read(conn):
+    from sentinel import committed_read
+    return committed_read.checkpoint(conn, cursor=CURSOR, read=_read)
+
+
+def _read(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s", (CURSOR,))
         row = cur.fetchone()

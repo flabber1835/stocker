@@ -21,7 +21,8 @@ function reconcileDocument(next) {
       return;
     }
     // These are device-owned controls/images, initialized once for this page.
-    if (target.id === 'push-card' || target.id === 'review-result' || target.classList.contains('brand')) { return; }
+    if (target.id === 'push-card' || target.id === 'review-result' ||
+        target.id === 'dashboard-heartbeat' || target.classList.contains('brand')) { return; }
     var ignore = function(name) {
       return (target.tagName === 'DETAILS' && name === 'open') || name === 'data-review-submitting' ||
         (name === 'disabled' && target.dataset.reviewSubmitting === 'true');

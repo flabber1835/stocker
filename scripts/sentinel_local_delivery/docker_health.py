@@ -431,7 +431,9 @@ def wait_many(engine, names, image, deadline, *, clock=time.monotonic, expected=
             else:
                 expected[name]=value
             health=state.get('Health')
-            require(isinstance(health,dict) and health.get('Status') in {'starting','healthy'},
+            status=health.get('Status') if isinstance(health,dict) else None
+            # A failed probe can recover without changing this startup process.
+            require(isinstance(status,str) and status in {'starting','unhealthy','healthy'},
                     'APPLICATION_STARTUP_FAILED')
             result[name]=value
         return result

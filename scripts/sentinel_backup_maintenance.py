@@ -17,6 +17,9 @@ import uuid
 from sentinel_backup_lock import lock_is_held, _lock_path
 from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
 from sentinel_maintenance_process import run_bounded
+from sentinel_backup_integrity_report import validate as validate_shared_integrity
+from sentinel_backup_integrity_report import parse_failure, failure as failure_record
+import sentinel_backup_renewal as renewal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,16 +34,23 @@ MAINTENANCE_INTERVAL_SECONDS = 300
 
 
 class Refused(RuntimeError):
-    pass
+    def __init__(self,message,*,failure=None):
+        super().__init__(message)
+        self.failure = failure
 
 
-def run(command, *, timeout=120, stdin=None):
-    result = run_bounded(command, timeout=timeout, stdin=stdin, private_group=False)
+def run(command, *, timeout=120, stdin=None, on_wait=None):
+    options = dict(timeout=timeout,stdin=stdin,private_group=False)
+    if on_wait is not None: options['on_wait'] = on_wait
+    result = run_bounded(command, **options)
     if result.returncode:
         # Child output is retained by the scheduler; no environment/credentials.
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)
-        raise Refused("maintenance command failed: " + command[0])
+        failure = None
+        try: failure = parse_failure(result.stdout+'\n'+result.stderr,returncode=result.returncode)
+        except (ValueError,TypeError,KeyError): pass
+        raise Refused("maintenance command failed: " + command[0],failure=failure)
     return result.stdout.strip()
 
 
@@ -70,14 +80,23 @@ def runtime_image(runner=run):
     return value
 
 
-def observe_primary(runner=run):
+def observe_primary(runner=run, *, with_byte_timing=False):
+    byte_timing = """,'maintenance_byte_timing',(SELECT json_build_object(
+        'proof',proof,'sample_at',clock_timestamp(),
+        'primary_uptime',split_part(pg_read_file('/proc/uptime',0,128,true),' ',1))
+        FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN'
+        AND proof->>'schema'='sentinel.maintenance-integrity/1'
+        AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')
+        ORDER BY observed_at DESC,seq DESC LIMIT 1)""" if with_byte_timing else ''
     value = json.loads(sql("""SELECT json_build_object(
         'system_id',system_identifier::text,
         'now',floor(extract(epoch FROM clock_timestamp()))::bigint,
         'lsn',pg_current_wal_lsn()::text,
         'timeline',substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8),
-        'segment_size',pg_size_bytes(current_setting('wal_segment_size')))
-        FROM pg_control_system()""", runner))
+        'segment_size',pg_size_bytes(current_setting('wal_segment_size')),
+        'publication_at',(SELECT observed_at FROM sentinel_backup_evidence
+            WHERE kind='RUNTIME_CHAIN' AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')
+            ORDER BY observed_at DESC,seq DESC LIMIT 1)""" + byte_timing + ") FROM pg_control_system()", runner))
     if (not re.fullmatch(r"[1-9][0-9]{0,19}", str(value.get("system_id", "")))
             or not re.fullmatch(r"[0-9A-F]{8}", str(value.get("timeline", "")))
             or not re.fullmatch(r"[0-9A-F]+/[0-9A-F]{1,8}", str(value.get("lsn", "")))
@@ -113,9 +132,11 @@ def renewal_due(selected, observation):
     return daily or age >= RENEW_SECONDS or footprint >= RENEW_BYTES
 
 
-def renew_base(root, image, runner=run):
+def renew_base(root, image, runner=run, *, on_wait=None):
     """Produce and select one exact successor; callers retain their lock/budget."""
-    output = runner(['bash', 'scripts/sentinel-base-backup.sh'], timeout=BASE_COMMAND_SECONDS)
+    options = dict(timeout=BASE_COMMAND_SECONDS)
+    if on_wait is not None: options['on_wait'] = on_wait
+    output = runner(['bash', 'scripts/sentinel-base-backup.sh'], **options)
     paths = [line[len('verified_base_backup:'):].strip() for line in output.splitlines()
              if line.startswith('verified_base_backup:')]
     if len(paths) != 1:
@@ -135,16 +156,42 @@ def heavy_work_allowed(observation):
     return not 12*60+30 <= minutes < 21*60
 
 
-def worker(action, image, root, observation, runner=run, request=None):
+def worker(action, image, root, observation, runner=run, request=None, *, on_wait=None):
+    mount_mode = ':ro' if action == 'observe-current' else ''
     command = ["docker", "run", "--rm", "-i", "--network", "none", "--read-only",
                "--user", "0:0", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
                "--security-opt", "no-new-privileges",
                "--memory", "256m", "--pids-limit", "64",
-               "-v", root + "/base:/backup/base", "-v", root + "/wal:/backup/wal",
+               "-v", root + "/base:/backup/base"+mount_mode, "-v", root + "/wal:/backup/wal"+mount_mode,
                "--entrypoint", "python", image, "-m", "sentinel.backup_retention", action,
                "--system-id", observation["system_id"]]
-    return json.loads(runner(command, timeout=600,
-                             stdin=json.dumps(request) if request is not None else None))
+    options = dict(timeout=600,stdin=json.dumps(request) if request is not None else None)
+    if on_wait is not None: options['on_wait'] = on_wait
+    if action != 'observe-current': return json.loads(runner(command,**options))
+    name = 'sentinel-maintenance-observe-'+uuid.uuid4().hex
+    command[2:2] = ['--name',name]
+    primary,reader_started = None,time.monotonic()
+    try:
+        return json.loads(runner(command,**options))
+    except Exception as exc:
+        primary = exc
+        raise
+    finally:
+        removed = False
+        try:
+            runner(['docker','rm','-f',name],timeout=5); removed = True
+        except Exception:
+            try:
+                removed = not runner(['docker','ps','-a','--filter','name=^/'+name+'$',
+                    '--format','{{.ID}}'],timeout=5).strip()
+            except Exception: pass
+        if not removed:
+            cause = ('Refused' if isinstance(primary,Refused) else 'ValueError' if isinstance(primary,ValueError)
+                else 'OSError' if isinstance(primary,OSError) else 'UNCLASSIFIED' if primary else 'PROTOCOL')
+            detail = failure_record(origin='HOST',code='TRANSPORT_FAILURE',stage='HOST_POSTGRES' if primary else 'HOST_CLEANUP',
+                cause_type=cause,elapsed_seconds=time.monotonic()-reader_started,
+                proof_lock='NOT_ACQUIRED',worker_container='FAILED')
+            raise Refused('read-only metadata worker cleanup failed',failure=detail) from primary
 
 
 def _selected_full_restore_receipt(selected, observation, runner=run):
@@ -272,24 +319,48 @@ def runtime_chain_proof(output, selected, observation, root):
         wal_segments=count, timeline_history=None if history == "none" else history,
         wal_integrity="sha256-sidecar-v1", integrity_full_scrub=True,
         integrity_objects_hashed=count + (history != "none"), integrity_read_passes=1)
+    shared = [line[len('shared_integrity_proof:'):] for line in output.splitlines()
+              if line.startswith('shared_integrity_proof:')]
+    if shared:
+        try:
+            if len(shared) != 1:
+                raise ValueError('ambiguous common integrity reports')
+            actual = validate_shared_integrity(json.loads(shared[0]))
+            fields = ('enabled', 'system_identifier', 'base_backup', 'recoverable_from_wal',
+                'recovery_marker_wal', 'recoverable_through_wal', 'wal_segments',
+                'timeline_history', 'wal_integrity')
+            if (any(type(actual[k]) is not type(proof[k]) or actual[k] != proof[k] for k in fields)
+                    or actual['wal_segment_bytes'] != size):
+                raise ValueError('common integrity differs from observed chain')
+        except (ValueError, TypeError, KeyError):
+            raise Refused('common runtime chain proof is malformed or contradictory') from None
+        proof = actual
     return proof
 
 
-def publish_runtime_chain(output, selected, observation, root, runner=run):
+def publish_runtime_chain(output, selected, observation, root, runner=run, *, schedule=None):
     """Publish only the exact successful private-media status observation."""
     proof = runtime_chain_proof(output, selected, observation, root)
     # The existing host producers publish operational evidence through psql.
     # Every variable field above is a validated machine identity; no operator
     # text or credentials enter SQL. The database supplies the observation time.
     payload = json.dumps(proof, sort_keys=True, separators=(",", ":"))
+    clock = (",'primary_uptime',split_part(pg_read_file('/proc/uptime',0,128,true),' ',1)"
+             if schedule is not None and proof.get('schema') == 'sentinel.maintenance-integrity/1' else '')
     # An outer SELECT avoids psql's INSERT command tag in the JSON protocol.
     query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
         "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
         "SELECT 'RUNTIME_CHAIN',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
-        "FROM evidence RETURNING proof) SELECT proof::text FROM recorded")
+        "FROM evidence RETURNING proof,observed_at) SELECT json_build_object('proof',proof,"
+        "'observed_at',observed_at" + clock + ")::text FROM recorded")
     observed = json.loads(sql(query, runner))
-    if observed != proof:
+    if (not isinstance(observed,dict) or set(observed)-{'primary_uptime'} != {'proof','observed_at'}
+            or observed['proof'] != proof):
         raise Refused("runtime chain evidence was not persisted exactly")
+    renewal.timestamp(observed['observed_at'])
+    if schedule is not None:
+        byte_due_at = renewal.byte_renewal_at(observed['observed_at'], proof, observed.get('primary_uptime'))
+        schedule.accept(observed['observed_at'], byte_due_at=byte_due_at, own_publication=True)
     return proof
 
 
@@ -353,48 +424,142 @@ def _progress(progress, runner, **changes):
     progress.update(successor)
 
 
-def tick(root, runner=run):
+class FreshnessReader:
+    minimum_seconds = 40
+    def __init__(self,schedule):
+        self.schedule = schedule
+
+    def next_at(self): return self.schedule.next_at()
+
+    def __call__(self,remaining):
+        started,started_at = time.monotonic(),datetime.now(timezone.utc).isoformat()
+        limits = [remaining,600]
+        with self.schedule.lock:
+            if self.schedule.deadline is not None and self.schedule.deadline > self.schedule.clock():
+                limits.append(self.schedule.deadline-self.schedule.clock())
+        budget = math.floor(min(limits)-20)
+        if budget < 15:
+            value = renewal.result(outcome='BLOCKED',phase='PREFLIGHT',code='DEADLINE_EXCEEDED',
+                publication_at=self.schedule.publication(),started_at=started_at,
+                finished_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started)
+        else:
+            try:
+                child = run_bounded([sys.executable,'-B','scripts/sentinel_backup_maintenance.py',
+                    '--freshness-only','--timeout-seconds',str(budget)],timeout=budget+5,private_group=False)
+                value = renewal.parse(child.stdout,refresh=True)
+                expected = 0 if value['outcome']=='SUCCESS' else 75 if value['outcome']=='RETRYABLE' else 4
+                if child.returncode != expected: raise ValueError('freshness child result mismatch')
+            except Exception:
+                value = renewal.result(outcome='BLOCKED',phase='VERIFY_CHAIN',code='INVALID_RESULT',
+                    publication_at=self.schedule.publication(),cause_type='UNKNOWN',started_at=started_at,
+                    finished_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started)
+        self.schedule.consume(value)
+        renewal.emit(value,refresh=True)
+
+
+def tick(root, runner=run, *, freshness=False, budget=None):
     progress = {}
     started = time.monotonic()
+    started_at = datetime.now(timezone.utc).isoformat()
+    state = dict(phase='PREFLIGHT',schedule=renewal.Schedule())
+    if budget is not None:
+        deadline = started+budget
+        underlying = runner
+        def bounded(command,**options):
+            command = list(command)
+            cleanup = command[:2] in (['docker','rm'],['docker','ps'])
+            remaining = deadline-time.monotonic()-(0 if cleanup else 10)
+            if remaining <= 0: raise Refused('freshness read budget exhausted')
+            options['timeout'] = min(options.get('timeout',120),remaining)
+            if command[:2] == ['bash','scripts/sentinel-backup-status.sh']:
+                position = command.index('--backup') if '--backup' in command else len(command)
+                command[position:position] = ['--timeout-seconds',str(max(1,math.floor(remaining)))]
+            if 'observe-current' in command and 'sentinel.backup_retention' in command:
+                command += ['--timeout-seconds',str(max(1,min(540,math.floor(remaining-1))))]
+            return underlying(command,**options)
+        runner = bounded
     try:
-        return _tick(root, runner, progress, started)
-    except Exception:
+        value = (_fresh_tick(root,runner,state) if freshness else _tick(root, runner, progress, started,state))
+        renewal.emit(renewal.result(outcome='SUCCESS',phase='COMPLETE',code='OK',
+            elapsed_seconds=time.monotonic()-started, started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
+        return value
+    except Exception as primary:
         if progress:
             progress['phase'] = 'FAILED'
             try:
                 publish_progress(progress, runner)
-            except Exception as exc:
-                print('maintenance failure progress unreadable: ' + type(exc).__name__, file=sys.stderr)
+            except Exception as progress_error:
+                print('maintenance failure progress unreadable: ' + type(progress_error).__name__, file=sys.stderr)
+        failure = primary.failure if isinstance(primary,Refused) else None
+        renewal.emit(renewal.result(outcome='RETRYABLE' if failure and failure['retryable'] else 'BLOCKED',
+            phase=state['phase'],code=failure['code'] if failure else 'COORDINATOR_REFUSED'
+                if isinstance(primary,Refused) else 'UNCLASSIFIED',
+            cause_type=type(primary).__name__ if type(primary).__name__ in {'Refused','OSError','ValueError','KeyError','TypeError'}
+                else 'UNKNOWN', elapsed_seconds=time.monotonic()-started,failure=failure,started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
         raise
 
 
-def _tick(root, runner, progress, started):
-    image = runtime_image(runner)
+def _chain(root,image,selected,observation,runner,state,*,shared_mode):
+    state['phase'] = 'VERIFY_CHAIN'
+    path = root+'/base/'+selected['name']
+    command = ['bash','scripts/sentinel-backup-status.sh']
+    if shared_mode: command.append('--shared-integrity')
+    status = runner(command+['--backup',path],timeout=600)
+    if shared_mode and not any(line.startswith('shared_integrity_proof:') for line in status.splitlines()):
+        raise Refused('selected common integrity returned no common proof')
     observation = observe_primary(runner)
+    chain = runtime_chain_proof(status,selected,observation,root)
+    receipt = verified_base_chain_receipt(selected,observation,chain,runner)
+    if receipt is None:
+        receipt = _selected_full_restore_receipt(selected,observation,runner)
+        if receipt is None: raise Refused('selected base has neither verified producer nor genuine restore evidence')
+    state['phase'] = 'PUBLISH_CHAIN'
+    publish_runtime_chain(status,selected,observation,root,runner,schedule=state['schedule'])
+    return chain,receipt,observation
+
+
+def _fresh_tick(root,runner,state):
+    if os.environ.get('SENTINEL_BACKUP_SHARED_INTEGRITY') != 'REQUIRED_V1':
+        raise Refused('freshness requires selected shared integrity')
+    image = runtime_image(runner)
+    state['phase'] = 'OBSERVE'
+    observation = observe_primary(runner)
+    if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
+    selected = worker('observe-current',image,root,observation,runner)
+    _chain(root,image,selected,observation,runner,state,shared_mode=True)
+    return dict(runtime_chain_current=True,base=selected['name'])
+
+
+def _tick(root, runner, progress, started,state):
+    shared_mode = os.environ.get('SENTINEL_BACKUP_SHARED_INTEGRITY', '')
+    if shared_mode not in ('', 'REQUIRED_V1'):
+        raise Refused('unsupported maintenance shared integrity policy')
+    image = runtime_image(runner)
+    state['phase'] = 'OBSERVE'
+    observation = observe_primary(runner, with_byte_timing=True) if shared_mode else observe_primary(runner)
+    if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
+    on_wait = FreshnessReader(state['schedule']) if shared_mode else None
     deferred = not heavy_work_allowed(observation)
     if not deferred:
         reap_restore_resources(observation["now"], runner)
     selected = worker("observe", image, root, observation, runner)
     renewed = renewal_due(selected, observation)
     if renewed and not deferred:
+        if shared_mode:
+            _prime_bulk_byte_renewal(state['schedule'], observation, selected)
+        state['phase'] = 'BASE_BACKUP'
         first_second = observation['now'] - math.ceil(time.monotonic()-started)
         _progress(progress, runner, schema='sentinel.backup-maintenance-progress/1',
             attempt=uuid.uuid4().hex, started_at=first_second,
             deadline=first_second + INVOCATION_SECONDS,
             system_identifier=observation['system_id'], image=image,
             predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
-        selected, observation = renew_base(root, image, runner)
+        selected, observation = renew_base(root, image, runner,on_wait=on_wait)
         _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
-    path = root + "/base/" + selected["name"]
-    status=runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
-    observation=observe_primary(runner)
-    chain=runtime_chain_proof(status,selected,observation,root)
-    receipt=verified_base_chain_receipt(selected,observation,chain,runner)
-    if receipt is None:
-        receipt=_selected_full_restore_receipt(selected,observation,runner)
-        if receipt is None:
-            raise Refused('selected base has neither verified producer nor genuine restore evidence')
-    publish_runtime_chain(status, selected, observation, root, runner)
+    chain,receipt,observation = _chain(root,image,selected,observation,runner,state,shared_mode=bool(shared_mode))
+    state['phase'] = 'CHECKPOINT'
     from sentinel_backup_capacity import checkpoint
     continuity_ready = checkpoint(chain, runner)
     if deferred:
@@ -404,16 +569,43 @@ def _tick(root, runner, progress, started):
             result['continuity_ready'] = continuity_ready
         print(json.dumps(result, sort_keys=True))
         return result
+    state['phase'] = 'RETENTION'
     result = worker("retain", image, root, observation, runner, {
         "receipt": receipt, "image": receipt.get('runtime_image',image), "now": observation["now"],
         "segment_size": observation["segment_size"],
-    })
+    },on_wait=on_wait)
     if progress:
         _progress(progress, runner, phase='COMPLETE')
     print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"], "renewed": renewed,
                       "base": selected["name"], **result,
                       **({'continuity_ready': continuity_ready} if continuity_ready is not None else {})}, sort_keys=True))
     return result
+
+
+def _prime_bulk_byte_renewal(schedule, observation, selected):
+    """Seed the existing bulk freshness reader from its exact prior proof."""
+    timing = observation.get('maintenance_byte_timing')
+    if not isinstance(timing, dict):
+        return
+    try:
+        proof = validate_shared_integrity(timing['proof'])
+        if (proof['system_identifier'] != observation['system_id'] or proof['base_backup'] != selected['name']
+                or proof['wal_segment_bytes'] != observation['segment_size']):
+            return
+        due = renewal.byte_renewal_at(timing['sample_at'], proof, timing.get('primary_uptime'))
+        if due is not None:
+            schedule.prime_due(due)
+    except (KeyError, TypeError, ValueError):
+        return  # A missing scheduling hint does not supply or withdraw authority.
+
+
+def _latest_publication():
+    try:
+        value = sql("SELECT observed_at::text FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN' "
+            "AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') "
+            "ORDER BY observed_at DESC,seq DESC LIMIT 1")
+        return value or None
+    except Exception: return None
 
 
 def supervise():
@@ -429,19 +621,48 @@ def supervise():
         except BlockingIOError:
             print("SENTINEL_BACKUP_MAINTENANCE=SUPERVISOR_ALREADY_RUNNING", flush=True)
             return 0
+        schedule = renewal.Schedule(_latest_publication())
         while True:
+            started,started_at = time.monotonic(),datetime.now(timezone.utc).isoformat()
             result = subprocess.run(["bash", "scripts/sentinel-backup-maintenance.sh"],
-                                    cwd=str(ROOT), check=False, pass_fds=(handle.fileno(),))
+                cwd=str(ROOT),check=False,pass_fds=(handle.fileno(),),capture_output=True,text=True)
+            output, errors = getattr(result,'stdout',''),getattr(result,'stderr','')
+            if output: print(output,end='',flush=True)
+            if errors: print(errors,end='',file=sys.stderr,flush=True)
+            try:
+                value = renewal.parse(output)
+                expected = 0 if value['outcome']=='SUCCESS' else 75 if value['outcome']=='RETRYABLE' else 4
+                if result.returncode != expected: raise ValueError('pass result exit mismatch')
+            except (ValueError,TypeError,KeyError):
+                standby = (result.returncode == 0 and output.splitlines().count(
+                    'SENTINEL_BACKUP_MAINTENANCE=STANDBY_TARGET_OWNED') == 1
+                    and not any(line.startswith((renewal.PASS_PREFIX,'shared_integrity_failure:'))
+                        for line in (output+'\n'+errors).splitlines()))
+                value = renewal.result(outcome='STANDBY' if standby else 'BLOCKED',phase='PREFLIGHT',
+                    code='TARGET_BUSY' if standby else 'INVALID_RESULT',publication_at=schedule.publication(),
+                    started_at=started_at,finished_at=datetime.now(timezone.utc).isoformat(),
+                    elapsed_seconds=time.monotonic()-started)
+                renewal.emit(value)
+            schedule.consume(value)
             if result.returncode:
                 print("SENTINEL_BACKUP_MAINTENANCE=FAILED_RETRY_PENDING", file=sys.stderr, flush=True)
-            time.sleep(MAINTENANCE_INTERVAL_SECONDS)
+            time.sleep(schedule.delay())
 
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if args == ["--loop"]:
         return supervise()
-    if args:
+    freshness, budget = False,None
+    if args and args[0] == '--freshness-only':
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--freshness-only',action='store_true')
+        parser.add_argument('--timeout-seconds',type=int,required=True)
+        parsed = parser.parse_args(args)
+        if not 15 <= parsed.timeout_seconds <= 600: parser.error('freshness budget must be15..600 seconds')
+        freshness,budget = True,parsed.timeout_seconds
+    elif args:
         print("usage: sentinel-backup-maintenance.sh [--loop]", file=sys.stderr)
         return 2
     if not lock_is_held():
@@ -449,11 +670,11 @@ def main(argv=None):
         return 4
     root = os.environ["SENTINEL_BASE_BACKUP_LOCK_ROOT"]
     try:
-        tick(root)
+        tick(root,freshness=freshness,budget=budget)
         return 0
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:
         print("REFUSED: backup maintenance: " + str(exc), file=sys.stderr, flush=True)
-        return 4
+        return 75 if isinstance(exc,Refused) and exc.failure and exc.failure['retryable'] else 4
 
 
 if __name__ == "__main__":

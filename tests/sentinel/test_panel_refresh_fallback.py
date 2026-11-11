@@ -127,7 +127,7 @@ def test_actual_busy_http_response_retains_facts_without_inventing_failures(monk
             entered.set()
             assert release.wait(10)
         return panel
-    monkeypatch.setattr(app.projection_service, 'read', lambda _dsn: build())
+    monkeypatch.setattr(app.projection_service, 'read', lambda _dsn, **_options: build())
     monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda value, _dsn: value)
     app.last_known.clear()
     try:

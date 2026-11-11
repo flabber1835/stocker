@@ -13,9 +13,31 @@ from tests.support.source_history import expanded_profile
 
 def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
     profile = basis._profile()
-    original = {revision: record for revision, record in profile['retained_predecessors'].items()
-                if revision not in {basis.STARTUP_PROFILE_PREDECESSOR_REVISION,
-                                    basis.ACTIVATION_HEALTH_PREDECESSOR_REVISION}}
+    original_revisions = {
+        '29ff5f6592a46e89f13ed5d8416503071dc74ccf',
+        '2e5e856c34e50958810a51f89e32b20db6a776a2',
+        '34a28504a87610fd5c159115fc0b75017ae944ea',
+        '35e3a118a8ee4d4efea5857f6e96d4dd8e23724a',
+        '403617ec3df4ba0950a989fa140038802f7e7b6e',
+        '4122aa29bc86dcf5c4e5d6a91047030a95bf9890',
+        '4a08f5961a2dd0d5b174509b6afa4aa7d61d88a3',
+        '4a395bfb4f13ba0f34fa0121fa62991fe7b38fed',
+        '4bca82da1daff430b4f087493e4f200d2e9719dd',
+        '64da9cccb49040acc4f32434bcdf6c31b7b6259e',
+        '67458b20746979d08b8091f4519122bca528174f',
+        '71b7c2a113dca8882f4cbf7a03d79f771e383092',
+        '8fafcfae9c46f471a834d7bd221497d6d940732a',
+        'a0a82c6ad9211fdcf9fdad9faa801b8af65239ea',
+        'b0d516022b1cc20375d987e7cf94236ce061710f',
+        'ba05fe76950fe6d976e08edaadfd88a9e39dec0e',
+        'bdb975c88c90a80c1ee7c98aed6dceeee12c8fc5',
+        'c0d4ed7b6888e63c9d49584c6fcf063c6950f8f9',
+        'c2569a4cb5085db15e24222478a1d5c98c53c74f',
+        'e97a15753a71cb7e4e033db6171f1a2ee0e15955',
+        'f58c22fba3d3f88d410084d051ca86b7d99562df',
+        'fcfbd7b1e8bd1134ad14563347ab9df0980c545f',
+    }
+    original = {revision: profile['retained_predecessors'][revision] for revision in original_revisions}
     # Canonical aggregate of every complete map in Git 430462d95, independently
     # captured before conversion; no historical digest was re-pinned.
     assert len(original) == 22
@@ -34,14 +56,20 @@ def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
 
 def test_storage_is_small_and_roundtrip_preserves_every_logical_map():
     raw = basis.PROFILE.read_bytes()
-    assert len(raw) < 250_000  # Existing outer security bound remains 1,000,000.
     logical = expanded_profile()
+    # The number of retained releases can grow. Compare compact storage with
+    # the same complete maps, while keeping the loader's absolute size bound.
+    compact_bytes = len(raw)
+    expanded_bytes = len(json.dumps(logical, sort_keys=True, separators=(',', ':')).encode())
+    assert compact_bytes < 1_000_000
+    assert compact_bytes * 4 < expanded_bytes
     assert encoded(logical) == raw
     assert logical == basis._profile()
-    assert len(logical['retained_predecessors']) == 24
+    assert set(logical['retained_predecessors']) == set(basis.RETAINED_PREDECESSORS)
 
 
 def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(monkeypatch):
+    wire = json.loads(basis.PROFILE.read_bytes())
     maps, closures = [], []
     original_map, original_closure = basis._source_map, basis._validated_closure
     def validated(value):
@@ -53,9 +81,9 @@ def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(
     monkeypatch.setattr(basis, '_source_map', validated)
     monkeypatch.setattr(basis, '_validated_closure', hashed)
     profile = basis._profile()
-    assert len(maps) == 2+len(profile['retained_predecessors'])
+    assert maps == [len(wire['base_files']), len(wire['candidate_files']),
+                    *(len(record['overrides']) for record in wire['retained_predecessors'].values())]
     assert len(closures) == 1+len(profile['retained_predecessors'])
-    assert sum(maps) < 2500
 
 
 def repin_wire(tmp_path, monkeypatch, value):

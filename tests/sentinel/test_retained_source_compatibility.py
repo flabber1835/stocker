@@ -17,18 +17,26 @@ from tests.support import historical_transition_fixture as historical
 @pytest.mark.parametrize('module', list(basis.HOOKS) + ['sentinel.core.decision'])
 def test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutation(module):
     import importlib
+    from sentinel import checkpoint_read_source_basis as checkpoint_source
     path = Path(importlib.import_module(module).__file__)
     raw = path.read_bytes()
     expected = basis.basis()['seams'][module]['source_sha256']
-    assert basis.canonical_contribution(module, raw) == hashlib.sha256(raw).hexdigest()
-    assert basis.canonical_contribution(module, raw) != expected
+    contribution = basis.canonical_contribution(module, raw)
+    raw_hash = hashlib.sha256(raw).hexdigest()
+    if module in checkpoint_source.CANDIDATES:
+        assert raw_hash == checkpoint_source.CANDIDATES[module]
+        assert contribution == checkpoint_source.BASELINES[module]
+    else:
+        assert contribution == raw_hash
+    assert contribution != expected
     # Change a real neighboring guard/algorithm, not the hook being masked.
     needle = {'sentinel.core.decision': b'if negative:',
               'sentinel.rolling_checkpoint': b'if payload != checkpoint.model_dump',
               'sentinel.rolling_daily_checkpoint': b'if alien:'}[module]
     assert needle in raw
     broken = raw.replace(needle, b'if False:' if needle.endswith(b':') else b'if False and payload != checkpoint.model_dump', 1)
-    assert basis.canonical_contribution(module, broken) != basis.canonical_contribution(module, raw)
+    assert basis.canonical_contribution(module, broken) == hashlib.sha256(broken).hexdigest()
+    assert basis.canonical_contribution(module, broken) != contribution
 
 
 @pytest.mark.parametrize('module', list(basis.HOOKS))

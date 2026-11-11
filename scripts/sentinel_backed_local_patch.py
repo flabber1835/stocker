@@ -15,10 +15,11 @@ import sys
 import tempfile
 from types import SimpleNamespace
 
-from sentinel_local_delivery import builder, checks, cli, environment
+from sentinel_local_delivery import builder, checks, cli, environment, evidence
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
-from sentinel_local_delivery.model import ACCESS_PATH_SCHEMA, DeliveryRefused, Journal, read_json, require, digest
+from sentinel_local_delivery.model import (ACCESS_PATH_SCHEMA, SCHEMA, DeliveryRefused,
+    Journal, read_json, require, digest)
 from sentinel_local_delivery.qualification import sha256_file
 from sentinel_lock_ownership import owns_exclusive_flock
 
@@ -27,12 +28,45 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
 _AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
 _WORKER_READ_MOUNT = b'    volumes:\n      - sentinel_state:/var/lib/sentinel:ro\n'
+_VERIFIER_PROBE = (
+    b'    healthcheck:\n'
+    b'      test: ["CMD", "python", "-m", "sentinel.panel.verification_service", "--health"]\n'
+    b'      interval: 10s\n'
+    b'      timeout: 5s\n'
+    b'      retries: 2\n'
+)
+_CANONICAL_PROGRAM_FILES = ('scripts/sentinel_local_delivery/checks.py',
+    'scripts/sentinel_local_delivery/evidence.py')
+_REVIEWED_CANONICAL_PROGRAMS = (
+    ('8186821a440ab620b7da37ba43196174a69aeff9594a13d0026b641df548847e',
+     'b1b600232d364a3b7072419834d85cc7519db2e154512c60e19e98d4ff49285d'),
+    ('4c74570ef82d1c5022d9d947ae9f4179139cfa857c16abc6ab260cdfdf4c38d5',
+     'c56aefa4c013c0bdd81bd7cfafc97d694a894616581962c34e1abd498533c840'),
+)
+_REVIEWED_CANONICAL_COORDINATOR = '435a4e5e65d38a0920fbbfd2d58316494b76a1f6340ae0545a22672d253940e6'
+# Complete qualified Sentinel file maps bind transitive runtime readers as
+# well as the origin and daily foreign-lineage checks.
+_REVIEWED_CANONICAL_RUNTIME_MAPS = {
+    '3b57b1fc09f7404a1a0cdc94cc429ada8c0aff641437ffb4de3798939178c5a0',  # 42d775b
+    'd1c279f5a1d7b0edb7592541ba10499039b4b236aaf9c2e3be35fc3b832883a8',  # 3f7a8eb
+    '3d06bd4ba2e833e90299774cc08442c07d14da37f33df93d23e9e877b017563e',  # Routed successor
+}
 
 
-def _allowed_worker_mount(name, previous, candidate):
-    """Only the documented literal read-only state observation addition."""
-    return (name=='docker-compose.sentinel-automation.yml'
-        and previous.count(_AUTOMATION_ENTRY)==candidate.count(_AUTOMATION_ENTRY)==1
+def _without_issuer_evidence(state):
+    return {key:value for key,value in state.items() if key!='issuer_evidence'}
+
+
+def _allowed_compose_change(name, previous, candidate):
+    """Admit the documented byte-for-byte automation Compose changes."""
+    if name != 'docker-compose.sentinel-automation.yml':
+        return False
+    previous_probe = _VERIFIER_PROBE + b'      start_period: 20s\n'
+    next_probe = _VERIFIER_PROBE + b'      start_period: 120s\n'
+    if (previous.count(_VERIFIER_PROBE) == 1 and previous_probe in previous
+            and previous.replace(previous_probe, next_probe, 1) == candidate):
+        return True
+    return (previous.count(_AUTOMATION_ENTRY)==candidate.count(_AUTOMATION_ENTRY)==1
         and candidate.count(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT)==1
         and candidate.replace(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT,_AUTOMATION_ENTRY,1)==previous)
 
@@ -84,66 +118,86 @@ def _require_access_path_completion(journal, record):
 
 def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=False):
     """Consume completed receipts without asserting another activation."""
-    path = Path(path)
-    require(path.is_absolute() and '..' not in path.parts
-        and not any(item.is_symlink() for item in (path,*path.parents)),
-        'BACKED_PREDECESSOR_PATH_UNSAFE')
-    sha256_file(path)  # Refuse symlinks and missing receipt files before resolve.
-    selected = path.resolve()
-    require(len(trail)<16 and selected not in trail, 'BACKED_PREDECESSOR_CHAIN_INVALID')
-    record = read_json(selected)
-    if record.get('schema')=='sentinel.activation-receipt/1':
-        require(selected.name=='activation-receipt.json'
-            and record.get('operational_ready') is True
-            and record.get('activation_mode')=='dual' and record.get('completed_at'),
-            'BACKED_ACTIVE_PREDECESSOR_REQUIRED')
-        root = selected.parents[5]
-        require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
-        image=record['runtime_image']
-        if inspect_image is not None:
-            inspected=inspect_image(image)
-            require(inspected['Config']['Labels']['org.opencontainers.image.revision']==record['git_commit'],
-                'BACKED_PREDECESSOR_RUNTIME_CHANGED')
-            image=inspected['Id']
-        return dict(git_commit=record['git_commit'],runtime_image=image,
-            control_generation=record['control_generation'],certificate_sha256=record['certificate_sha256'],
-            roots=(root,),postgres=None,system=None,foundation_reference=record['runtime_image'])
-    unfinished=record.get('stage')=='APPLICATIONS_STARTED'
-    require(selected.name=='receipt.json' and (record.get('stage')=='VERIFIED'
-        or (allow_started and unfinished)),
-        'BACKED_VERIFIED_PREDECESSOR_REQUIRED')
-    journal = Journal(selected.parent)
-    require(journal.read()==record, 'BACKED_PREDECESSOR_JOURNAL_CHANGED')
-    _require_access_path_completion(journal,record)
-    request = journal.request
-    if unfinished:
-        require(record['artifacts'].get('successor_proof_sha256')
-            ==digest(record['artifacts']['canonical_proof']), 'BACKED_STARTED_CANONICAL_PROOF_CHANGED')
-    built = builder.operation_build(selected.parent)
-    candidate = request['candidate']
-    require(built.get('schema')==builder.BUILD_SCHEMA
-        and built.get('commit')==candidate['commit'] and built.get('image')==candidate['image']
-        and built.get('source_identity')==candidate['source_identity']
-        and built.get('source')==request['source'] and built.get('deployment')==request['deployment']
-        and built.get('foundation')==request['predecessor'], 'BACKED_PREDECESSOR_BUILD_CHANGED')
-    qualification = built['qualification']
-    require(qualification['report_path']==request['qualification']['report_path']
-        and qualification['report_sha256']==request['qualification']['report_sha256']
-        and sha256_file(qualification['report_path'])==qualification['report_sha256'],
-        'BACKED_PREDECESSOR_QUALIFICATION_CHANGED')
-    report = read_json(qualification['report_path'])
-    require(report.get('commit')==candidate['commit'] and report.get('final') is True
-        and report.get('source_files_unchanged') is True
-        and report.get('source_files')==request['qualification']['source_files'],
-        'BACKED_PREDECESSOR_QUALIFICATION_SUBJECT_CHANGED')
-    prior = built['predecessor_receipt']
-    require(sha256_file(prior['path'])==prior['sha256'], 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
-    anchor = predecessor_witness(prior['path'],inspect_image=inspect_image,trail=(*trail,selected),
-        allow_started=prior.get('allow_started') is True)
+    seen = set(trail)
+    links = []
+    expected_sha256 = None
+    while True:
+        path = Path(path)
+        require(path.is_absolute() and '..' not in path.parts
+            and not any(item.is_symlink() for item in (path,*path.parents)),
+            'BACKED_PREDECESSOR_PATH_UNSAFE')
+        selected = path.resolve()
+        require(selected not in seen, 'BACKED_PREDECESSOR_CHAIN_INVALID')
+        seen.add(selected)
+        actual_sha256 = sha256_file(path)
+        if links:
+            require(actual_sha256==expected_sha256, 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
+        record = read_json(selected)
+        if record.get('schema')=='sentinel.activation-receipt/1':
+            anchor = _activation_witness(selected, record, inspect_image)
+            break
+        unfinished=record.get('stage')=='APPLICATIONS_STARTED'
+        require(selected.name=='receipt.json' and (record.get('stage')=='VERIFIED'
+            or (allow_started and unfinished)), 'BACKED_VERIFIED_PREDECESSOR_REQUIRED')
+        journal = Journal(selected.parent)
+        require(journal.read()==record, 'BACKED_PREDECESSOR_JOURNAL_CHANGED')
+        _require_access_path_completion(journal,record)
+        request = journal.request
+        if unfinished:
+            require(record['artifacts'].get('successor_proof_sha256')
+                ==digest(record['artifacts']['canonical_proof']), 'BACKED_STARTED_CANONICAL_PROOF_CHANGED')
+        built = builder.operation_build(selected.parent)
+        candidate = request['candidate']
+        require(built.get('schema')==builder.BUILD_SCHEMA
+            and built.get('commit')==candidate['commit'] and built.get('image')==candidate['image']
+            and built.get('source_identity')==candidate['source_identity']
+            and built.get('source')==request['source'] and built.get('deployment')==request['deployment']
+            and built.get('foundation')==request['predecessor'], 'BACKED_PREDECESSOR_BUILD_CHANGED')
+        qualification = built['qualification']
+        require(qualification['report_path']==request['qualification']['report_path']
+            and qualification['report_sha256']==request['qualification']['report_sha256']
+            and sha256_file(qualification['report_path'])==qualification['report_sha256'],
+            'BACKED_PREDECESSOR_QUALIFICATION_CHANGED')
+        report = read_json(qualification['report_path'])
+        require(report.get('commit')==candidate['commit'] and report.get('final') is True
+            and report.get('source_files_unchanged') is True
+            and report.get('source_files')==request['qualification']['source_files'],
+            'BACKED_PREDECESSOR_QUALIFICATION_SUBJECT_CHANGED')
+        links.append((request, record['artifacts'], unfinished))
+        prior = built['predecessor_receipt']
+        path, expected_sha256 = prior['path'], prior['sha256']
+        allow_started = prior.get('allow_started') is True
+
+    roots = dict.fromkeys(anchor['roots'])
+    for request, artifacts, unfinished in reversed(links):
+        anchor = _extend_predecessor(anchor, roots, request, artifacts, unfinished)
+    anchor['roots'] = tuple(roots)
+    return anchor
+
+
+def _activation_witness(selected, record, inspect_image):
+    require(selected.name=='activation-receipt.json'
+        and record.get('operational_ready') is True
+        and record.get('activation_mode')=='dual' and record.get('completed_at'),
+        'BACKED_ACTIVE_PREDECESSOR_REQUIRED')
+    root = selected.parents[5]
+    require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
+    image=record['runtime_image']
+    if inspect_image is not None:
+        inspected=inspect_image(image)
+        require(inspected['Config']['Labels']['org.opencontainers.image.revision']==record['git_commit'],
+            'BACKED_PREDECESSOR_RUNTIME_CHANGED')
+        image=inspected['Id']
+    return dict(git_commit=record['git_commit'],runtime_image=image,
+        control_generation=record['control_generation'],certificate_sha256=record['certificate_sha256'],
+        roots=(root,),postgres=None,system=None,foundation_reference=record['runtime_image'])
+
+
+def _extend_predecessor(anchor, roots, request, artifacts, unfinished):
     foundation = request['predecessor']
     require(foundation['commit']==anchor['git_commit']
         and foundation['image']==anchor['runtime_image'], 'BACKED_PREDECESSOR_FOUNDATION_CHANGED')
-    pg, preserved = record['artifacts']['postgres'],record['artifacts']['preserved']
+    pg, preserved = artifacts['postgres'],artifacts['preserved']
     require(pg==foundation['postgres'] and preserved['system']==foundation['system']
         and 'archive_mode=on' in pg['command']
         and (anchor['postgres'] is None or preserved['system']==anchor['system']),
@@ -152,15 +206,15 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
         require_same_postgres_storage(anchor['postgres'],pg)
     root=Path(request['source']).resolve()
     require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
-    observed=record['artifacts'].get('verified_postgres',pg)
+    roots[root] = None
+    observed=artifacts.get('verified_postgres',pg)
     if observed!=pg:
         require_same_postgres_storage(pg,observed)
-    repair=request.get('handoff_mode')=='BLOCKED_UNSENT'
     lineage={}
-    if repair:
-        proof=record['artifacts']['canonical_proof']
-        require(record['artifacts'].get('operational_ready') is False
-            and record['artifacts'].get('successor_proof_sha256')==digest(proof)
+    if request.get('handoff_mode')=='BLOCKED_UNSENT':
+        proof=artifacts['canonical_proof']
+        require(artifacts.get('operational_ready') is False
+            and artifacts.get('successor_proof_sha256')==digest(proof)
             and proof.get('operational_ready') is False and proof.get('plan') is None
             and isinstance(proof.get('recovery_predecessors'),dict)
             and proof.get('cycle_id')==preserved['cycle']['cycle_id'],
@@ -171,20 +225,27 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
                 'deployment_id','broker','broker_account_id','takeover_epoch','certificate_sha256',
                 'rollout_mode','rollout_version','config_sha256')},
             decision=preserved['cycle']['decision_session'],effective=preserved['cycle']['effective_session']))
+    candidate = request['candidate']
     return dict(anchor,git_commit=candidate['commit'],runtime_image=candidate['image'],
         control_generation=preserved.get('control',{}).get('generation',anchor['control_generation']),
-        roots=tuple(dict.fromkeys((*anchor['roots'],root))),postgres=observed,system=preserved['system'],
+        postgres=observed,system=preserved['system'],
         foundation_reference='sentinel-local-paper:'+candidate['commit'][:8],unfinished=unfinished,
-        preserved=preserved,native_positions=record['artifacts']['native_positions'],
-        notification_history=record['artifacts']['notification_history'],**lineage)
+        preserved=preserved,native_positions=artifacts['native_positions'],
+        notification_history=artifacts['notification_history'],**lineage)
 
 
 class BackedHost(Host):
     supports_verification_recovery = True
+    supports_post_trade_verification_recovery = True
+    supports_dashboard_ack_progress = True
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True
     supports_post_schema_access_path = True
+
+    def preflight_environment(self, values):
+        environment.install(self, values)
+
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         present = any((self.operation_dir/name).exists() or (self.operation_dir/name).is_symlink()
@@ -285,7 +346,7 @@ class BackedHost(Host):
             original=self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
             candidate=(self.source/name).read_bytes()
             if candidate!=original:
-                require(_allowed_worker_mount(name,original,candidate)
+                require(_allowed_compose_change(name,original,candidate)
                     and name in self.request['allowed_delta']
                     and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
                     'BACKED_COMPOSITION_CHANGE_REFUSED')
@@ -305,7 +366,7 @@ class BackedHost(Host):
                 'BACKED_COMPOSITION_CHANGE_REFUSED')
             if candidate==original:
                 continue
-            require(_allowed_worker_mount(name,original,candidate)
+            require(_allowed_compose_change(name,original,candidate)
                 and name in self.request['allowed_delta']
                 and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
                 'BACKED_COMPOSITION_CHANGE_REFUSED')
@@ -401,14 +462,44 @@ class BackedHost(Host):
                 return None
             # A predecessor cannot attest rows which its snapshot did not name.
             # Only their proven absence adds no old-image canonical fact.
-            comparison={key:value for key,value in state.items() if key!='issuer_evidence'}
-        if preserved!=comparison:
+            comparison=_without_issuer_evidence(state)
+        elif not evidence.valid_issuer_evidence(preserved['issuer_evidence']):
+            return None
+        if preserved!=comparison and not self._issuer_only_change(prior.request,record,state):
             return None
         proof=artifacts['canonical_proof']
         require(isinstance(proof,dict) and proof and
             artifacts.get('successor_proof_sha256')==digest(proof),
             'BACKED_PREDECESSOR_CANONICAL_PROOF_CHANGED')
         return proof
+
+    def _issuer_only_change(self, prior_request, record, current):
+        mode=self.request.get('handoff_mode')
+        if (record['stage']!='VERIFIED' or mode not in {'PRE_OPEN','POST_TRADE'}
+                or prior_request.get('handoff_mode')!=mode
+                or prior_request.get('schema')!=SCHEMA or self.request.get('schema')!=SCHEMA):
+            return False
+        files=prior_request['qualification']['source_files']
+        runtime_files={name:sha for name,sha in files.items() if name.startswith('sentinel/')}
+        if (digest(runtime_files) not in _REVIEWED_CANONICAL_RUNTIME_MAPS
+                or tuple(files.get(name) for name in _CANONICAL_PROGRAM_FILES) not in _REVIEWED_CANONICAL_PROGRAMS
+                or files.get('scripts/sentinel_local_delivery/coordinator.py')!=_REVIEWED_CANONICAL_COORDINATOR):
+            return False
+        artifacts=record['artifacts']
+        proof=artifacts.get('canonical_proof')
+        preserved=artifacts['preserved']
+        issuer=current.get('issuer_evidence')
+        if not (isinstance(proof,dict) and proof.get('transaction_read_only') is True
+                and proof.get('plan')==current['plan']['plan_id']
+                and (isinstance(proof.get('settled_native_positions'),dict) if mode=='POST_TRADE'
+                    else 'settled_native_positions' not in proof)
+                and evidence.valid_issuer_evidence(preserved.get('issuer_evidence'))
+                and evidence.valid_issuer_evidence(issuer)
+                and _without_issuer_evidence(preserved)==_without_issuer_evidence(current)):
+            return False
+        observed=self.sql(checks.ISSUER_LINEAGE_SQL)
+        return (isinstance(observed,dict) and observed.get('lineage_overlap') is False
+            and type(observed.get('count')) is int and observed==dict(issuer,lineage_overlap=False))
 
     def access_path_canonical_bootstrap(self, state, retained):
         from sentinel_local_delivery.access_path_bootstrap import preflight
@@ -532,7 +623,7 @@ def main(argv=None):
             folder=builder.safe_directory(folder,create=True)
             def factory(request,op):return BackedHost(request,op,predecessor_receipt=args.predecessor_receipt,
                 allow_started=args.allow_started_predecessor)
-            draft=factory(dict(source=args.source,deployment=args.deployment),folder)
+            draft=factory(dict(source=args.source,deployment=args.deployment,handoff_mode=args.handoff_mode),folder)
             witness=predecessor_witness(args.predecessor_receipt,
                 inspect_image=lambda ref:builder._inspect(draft,ref),allow_started=args.allow_started_predecessor)
             # The draft graph needs only the two already bound source revisions.
@@ -552,7 +643,7 @@ def main(argv=None):
             folder=builder.safe_directory(args.operation_dir,create=True)
             built=builder.pinned_build(args.build_record,args.build_sha256)
             host=BackedHost(dict(source=built['source'],deployment=built['deployment'],
-                predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder,
+                predecessor=built['foundation'],candidate=dict(commit=built['commit']),handoff_mode=args.handoff_mode),folder,
                 predecessor_receipt=built['predecessor_receipt']['path'],
                 allow_started=built['predecessor_receipt'].get('allow_started') is True)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
@@ -570,6 +661,9 @@ def main(argv=None):
             delivery=Delivery(host,journal)
             if args.command=='abandon-drain':
                 delivery.abandon_drain()
+            elif args.command=='recover-fenced-preflight':
+                from sentinel_local_delivery.fenced_recovery import recover
+                recover(delivery, args.recovery_id)
             elif args.command=='recover-verification':
                 from sentinel_local_delivery.verification_recovery import recover
                 recover(delivery, args.recovery_id)

@@ -329,11 +329,11 @@ def test_same_url_cannot_reuse_proof_after_physical_database_replacement(conn):
 
 
 def test_removing_physical_subject_binding_has_a_falsifier(conn,monkeypatch):
-    source=inspect.getsource(projection._subject)
+    source=inspect.getsource(projection._subject_for_revision)
     assert source.count('list(physical)')==2
     namespace=dict(projection.__dict__)
     exec(compile(source.replace('list(physical)',"'removed-physical-scope'"),'unguarded physical subject','exec'),namespace)
-    monkeypatch.setattr(projection,'_subject',namespace['_subject'])
+    monkeypatch.setattr(projection,'_subject_for_revision',namespace['_subject_for_revision'])
     with pytest.raises(AssertionError,match='physical database replacement'):
         assert_physical_subject_bound(conn)
 
@@ -648,13 +648,13 @@ def test_common_subject_fact_failure_stays_unavailable_without_escaping_or_reusi
 
 
 def test_removing_snapshot_reuse_reintroduces_catalog_work_and_fails_its_falsifier(monkeypatch):
-    body=inspect.getsource(projection.read)
+    body=inspect.getsource(projection.read_owned)
     needle='_subject(conn, database_url, scope, facts=facts)'
     assert body.count(needle)==1
     namespace=dict(projection.__dict__)
     exec(compile(body.replace(needle,'_subject(conn, database_url, scope)'),
                  'removed snapshot reuse','exec'),namespace)
-    monkeypatch.setattr(projection,'read',namespace['read'])
+    monkeypatch.setattr(projection,'read_owned',namespace['read_owned'])
     with pytest.raises(AssertionError):
         test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch)
 

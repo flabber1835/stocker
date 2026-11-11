@@ -33,6 +33,22 @@ def _identity_key(_database_url, _include_paper, evidence):
     return evidence
 
 
+def _queued_subject(database_url, include_paper, owner_id):
+    """Fresh exact subject and owner after resource grant; no proof or renewal."""
+    from sentinel.feed import store
+    conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
+    try:
+        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute("SET LOCAL lock_timeout='300ms'")
+        row = conn.execute(f'SELECT owner_id::text,expires_at>clock_timestamp() '
+            f'FROM {schema.OWNER} WHERE id=1').fetchone()
+        if row != (owner_id, True):
+            raise ValueError('financial verifier owner unavailable at resource grant')
+        return read_projection.subject(conn, database_url, 'PAPER' if include_paper else 'SHADOW')
+    finally:
+        conn.rollback(); conn.close()
+
+
 def _observe_once(database_url, include_paper, expected_key):
     if read_projection.subject_for(database_url, include_paper) != expected_key:
         raise observer_failure.ObservationSuperseded(
@@ -50,7 +66,7 @@ def _observe_once(database_url, include_paper, expected_key):
         from sentinel.feed import readers, store
         conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
         try:
-            conn.execute('BEGIN TRANSACTION READ ONLY')
+            conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             rows = [sources._dual_paper_row(conn, informational_paper_mirror=informational_paper_mirror,
                                             publication=readers, feed_store=store)]
             errors = []
@@ -237,14 +253,20 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
 
 
 def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
-                    on_first_refresh=None):
+                    on_first_refresh=None, wakeup=None, on_owner_deadline=None):
     retry_until = None
     projection_started = False
     while not stopped.is_set():
+        # Clear before observing answers. A completion before clear is consumed
+        # by this refresh; one during/after refresh remains set for the wait.
+        if wakeup is not None:
+            wakeup.clear()
         started = time.monotonic()
         _require_iteration_time(min(deadline, retry_until) if retry_until is not None else deadline)
         try:
             deadline = _renew_owner(conn, owner_id, deadline)
+            if on_owner_deadline is not None:
+                on_owner_deadline(deadline)
             iteration_deadline = min(deadline, retry_until) if retry_until is not None else deadline
             _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)
             _require_iteration_time(iteration_deadline)
@@ -267,7 +289,7 @@ def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, de
         retry_until = None
         if not stopped.is_set():
             HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
-            stopped.wait(15)
+            (stopped if wakeup is None else wakeup).wait(15)
 
 
 def run(*, stopped=None):
@@ -276,12 +298,17 @@ def run(*, stopped=None):
     if not database_url or os.environ.get('ALPACA_API_KEY') or os.environ.get('ALPACA_SECRET_KEY'):
         raise ValueError('verifier requires database and no broker credentials')
     stopped = stopped or Event()
+    wakeup = Event()
+    def stop(_signum, _frame):
+        stopped.set()
+        wakeup.set()
     for signum in (signal.SIGTERM,signal.SIGINT):
-        signal.signal(signum,lambda *_:stopped.set())
+        signal.signal(signum,stop)
     conn = store.connect(database_url,connect_timeout=3,statement_timeout_ms=3000)
     owner_id = str(uuid.uuid4())
     readers = {}
     publisher = None
+    owner = {'active':False, 'deadline':0.0}
     try:
         schema.require_schema(conn)
         if not conn.execute('SELECT pg_try_advisory_lock(%s,%s)',OWNER_LOCK).fetchone()[0]:
@@ -292,11 +319,17 @@ def run(*, stopped=None):
             'RETURNING expires_at,clock_timestamp()', (owner_id,)).fetchone()
         conn.commit()
         deadline = _owner_deadline(started, claimed)
+        owner.update(active=True, deadline=deadline)
+        def work_allowed():
+            return (owner['active'] and not stopped.is_set() and not conn.closed and not conn.broken
+                    and time.monotonic() < owner['deadline'])
         slot = BoundedSemaphore(1)
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
             key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             retain_failed_attempt=True,
+            completion=wakeup, work_allowed=work_allowed,
+            queued_evidence_reader=lambda url,paper: _queued_subject(url,paper,owner_id),
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
             for scope in ('SHADOW','PAPER')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
@@ -305,8 +338,12 @@ def run(*, stopped=None):
         # Establish actual queued/running/completed financial receipts before an
         # operational collector can classify a cold verifier's initial state.
         _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
-                        on_first_refresh=publisher.start)
+                        on_first_refresh=publisher.start, wakeup=wakeup,
+                        on_owner_deadline=lambda value: owner.update(deadline=value))
     finally:
+        owner['active'] = False
+        stopped.set()
+        wakeup.set()
         try:
             if publisher is not None:
                 publisher.close()

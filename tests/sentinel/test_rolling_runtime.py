@@ -1,8 +1,10 @@
 """Real rolling runtime approval, interrupted commit recovery and service routing."""
+import ast
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import psycopg
 import pytest
 
 from sentinel import rolling_runtime as runtime, rolling_authority as authority
@@ -15,6 +17,7 @@ from tests.sentinel.test_operational_snapshot import operational_source  # noqa:
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 from tests.sentinel.test_rolling_initialization import OBS, NOW
 from tests.sentinel.test_rolling_daily import refresh
+from tests.sentinel.test_alpaca_operational_snapshot import alpaca_path  # noqa: F401
 
 
 def advance(conn, session="2026-09-14"):
@@ -27,6 +30,64 @@ def status(conn):
 
 def classify(conn, **kwargs):
     return runtime.classify(conn, observation_id=OBS, starting_cash=100_000, **kwargs)
+
+
+def installer_route(program):
+    tree=ast.parse(program)
+    definitions=[node for node in tree.body if isinstance(node,ast.FunctionDef)
+                 and node.name in {'_classify_routed','_rolling_status'}]
+    scope=dict(rolling_checkpoint=origin,rolling_runtime=runtime,Decimal=Decimal)
+    exec(compile(ast.Module(body=definitions,type_ignores=[]),'installer-origin-route','exec'),scope)
+    return scope['_rolling_status']
+
+
+def test_installer_routing_removes_one_complete_origin_authentication(conn,published,monkeypatch):
+    from scripts.sentinel_local_delivery.checks import CANONICAL
+    advance(conn)
+    authenticate=origin._signature
+    calls=[]
+    def measured(payload):
+        calls.append(payload['observation_id'])
+        return authenticate(payload)
+    monkeypatch.setattr(origin,'_signature',measured)
+
+    origin.read(conn)
+    conn.rollback()
+    expected=status(conn).to_dict()
+    original=len(calls)
+
+    def exact_work_count(route):
+        calls.clear()
+        assert route(conn).to_dict()==expected
+        assert len(calls)==original-1, 'complete origin authentication repeated'
+
+    exact_work_count(installer_route(CANONICAL))
+    duplicate=CANONICAL.replace('def _rolling_status(conn):',
+        'def _rolling_status(conn):\n    rolling_checkpoint.read(conn)')
+    with pytest.raises(AssertionError,match='complete origin authentication repeated'):
+        exact_work_count(installer_route(duplicate))
+
+
+def test_installer_routing_and_authentication_share_one_read_only_snapshot(conn,published,monkeypatch):
+    from scripts.sentinel_local_delivery.checks import CANONICAL
+    advance(conn)
+    expected=status(conn).to_dict()
+    classify_owned=runtime._classify_owned
+
+    def change_after_route(proof, **options):
+        assert proof.execute('SHOW transaction_isolation').fetchone()[0]=='repeatable read'
+        assert proof.execute('SHOW transaction_read_only').fetchone()[0]=='on'
+        with psycopg.connect(conn.info.dsn) as writer:
+            writer.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{hmac_sha256}',"
+                'to_jsonb(%s::text)) WHERE cursor_name=%s',('f'*64,origin.CURSOR))
+        return classify_owned(proof,**options)
+
+    route=installer_route(CANONICAL)
+    with monkeypatch.context() as during:
+        during.setattr(runtime,'_classify_owned',change_after_route)
+        assert route(conn).to_dict()==expected
+    with pytest.raises(origin.RollingColdStartRefused,match='CHECKPOINT_AUTHENTICATION_FAILED'):
+        route(conn)
 
 
 def test_first_runtime_approval_is_signed_bound_and_idempotent(conn, published):
@@ -459,3 +520,351 @@ def test_production_worker_gap_waits_without_legacy_catchup(conn, published, mon
     assert attempts == []
     assert daily_cp.read(conn) is None
     assert shadow_recovery.service_health(config, now=NOW + timedelta(days=2))["service_health"] == "RECONSTRUCTION_PENDING"
+
+
+@pytest.fixture
+def operational_dispatch(conn, alpaca_path, monkeypatch):
+    """Real signed Alpaca publication/checkpoints; only external certification is supplied."""
+    from sentinel import schema
+    from sentinel.feed import publication
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
+    schema.ensure_schema(conn)
+    # The current production formation window is wider than the older Alpaca
+    # fixture's 300-session default. Supply complete native bars, not a bypass.
+    alpaca_path.window = CurrentFormationWindow.through('2026-09-14')
+    insert = publication._insert_receipted_publication
+    def publish_at_fixture_time(connection, **kwargs):
+        return insert(connection, **dict(kwargs, published_at=NOW))
+    monkeypatch.setattr(publication, '_insert_receipted_publication', publish_at_fixture_time)
+    _, strategy = shadow_runtime._strategy()
+    job = op.enqueue(conn, strategy_sha256=digest(strategy),
+                     dependencies_sha256=digest('operational-dispatch-private-fixture'))
+    conn.commit()
+    binding = op.prepare(conn, job)
+    with op.pinned(conn) as (pub, _):
+        subject = shadow_runtime._data_publication_subject_sha256(pub, pub.window_end)
+    monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kwargs: {
+        'schema': 'test-reviewed-runtime/1', 'validated_data_publication_sha256': subject})
+    monkeypatch.setattr(initial, '_now', lambda _: NOW)
+    conn.rollback()
+    class Borrowed:
+        def __getattr__(self, name): return getattr(conn, name)
+        def close(self): pass
+    monkeypatch.setattr(store, 'connect', lambda _: Borrowed())
+    config = shadow_service.ShadowServiceConfig('private-existing-connection', OBS,
+        Decimal('100000'), shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY, 300,
+        operational_source_only=True)
+    return config, binding
+
+
+def _dispatch_predecessors():
+    import hashlib, json
+    from pathlib import Path
+    from types import ModuleType
+    fixture = Path(__file__).resolve().parents[1]/'support/operational-shadow-dispatch-21df-sources.json'
+    raw = fixture.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '61388165f25b9fea7e852eda75504e72d07e78f5315088892baec39526a5f761'
+    value = json.loads(raw)
+    assert value['schema'] == 'sentinel.operational-shadow-dispatch-baseline/1'
+    assert value['revision'] == '21dfb0e8508d8d924a8b29a121977b1502997a0c'
+    pins = {'sentinel/shadow_recovery.py': '20aa7b13a872092b270235c31c09b836b7e840e694dc1d57e6b73da0ab753e0f',
+            'sentinel/shadow_service.py': 'caf4ad5aceb1df3b8b3bf2694f69f27eda42dfb7cec10320555c84bc6a79d572'}
+    assert set(value['modules']) == set(pins)
+    modules = {}
+    for name, expected in pins.items():
+        source = value['modules'][name]
+        assert hashlib.sha256(source.encode()).hexdigest() == expected
+        module = ModuleType('private_' + name.rsplit('/', 1)[1].removesuffix('.py'))
+        exec(compile(source, '<authenticated-21df-' + name + '>', 'exec'), vars(module))
+        modules[name] = module
+    recovery = modules['sentinel/shadow_recovery.py']
+    recovery.base = modules['sentinel/shadow_service.py']
+    return recovery
+
+
+def _dispatch_counts(monkeypatch):
+    from collections import Counter
+    counts = Counter()
+    for label, module, name in [('closure', runtime, '_closure'), ('origin', origin, '_read'),
+                                ('daily', daily_cp, '_read')]:
+        original = getattr(module, name)
+        def counted(*args, _label=label, _read=original, **kwargs):
+            counts[_label] += 1
+            return _read(*args, **kwargs)
+        monkeypatch.setattr(module, name, counted)
+    return counts
+
+
+def _dispatch_financial_rows(conn):
+    tables = ('sentinel_processed_sessions', 'sentinel_execution_plans', 'sentinel_commands', 'sentinel_fills')
+    value = [conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables]
+    conn.rollback()
+    return value
+
+
+def test_operational_worker_owns_one_signed_unchanged_closure_instead_of_three(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    expected = advance(conn)
+    conn.rollback()
+    before = _dispatch_financial_rows(conn)
+    counts = _dispatch_counts(monkeypatch)
+    old = _dispatch_predecessors().advance_once(config, now=NOW)
+    assert counts == dict(closure=3, origin=3, daily=3)
+    counts.clear()
+    actual = shadow_recovery.advance_once(config, now=NOW)
+    assert counts == dict(closure=1, origin=1, daily=1), 'operational route repeated a complete proof'
+    assert actual == old and actual['record_sha256'] == expected.record_sha256
+    assert actual['verification'] == 'VERIFIED' and actual['appended'] is False
+    assert _dispatch_financial_rows(conn) == before
+
+
+@pytest.mark.parametrize('removed', ['recovery', 'service'])
+def test_operational_dispatch_work_count_detects_either_reintroduced_route_proof(
+        conn, operational_dispatch, monkeypatch, removed):
+    config, _ = operational_dispatch
+    advance(conn); conn.rollback()
+    counts = _dispatch_counts(monkeypatch)
+    predecessor = _dispatch_predecessors()
+    if removed == 'recovery':
+        predecessor.base = shadow_service
+        callback = predecessor.advance_once
+    else:
+        monkeypatch.setattr(shadow_recovery.base, 'advance_once', predecessor.base.advance_once)
+        callback = shadow_recovery.advance_once
+    callback(config, now=NOW)
+    with pytest.raises(AssertionError, match='repeated'):
+        assert counts['closure'] == 1, 'operational route repeated a complete proof'
+    assert counts['closure'] == 2
+
+
+@pytest.mark.parametrize('defect', ['signature', 'content', 'source-session', 'publication', 'origin'])
+def test_operational_dispatch_retains_fresh_signed_lineage_source_and_publication_refusals(
+        conn, operational_dispatch, monkeypatch, defect):
+    config, binding = operational_dispatch
+    advance(conn); conn.rollback()
+    if defect == 'signature':
+        assert conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{hmac_sha256}',to_jsonb(%s::text)) "
+                     "WHERE cursor_name=%s", ('0'*64, authority.name(OBS, '2026-09-14'))).rowcount == 1
+    elif defect == 'content':
+        conn.execute('SET LOCAL session_replication_role=replica')
+        # Current candidates store shared blocks; the legacy payload table is
+        # legitimately empty and changing it would not inject any defect.
+        assert conn.execute("DELETE FROM sentinel_candidate_blocks WHERE candidate_id=%s AND kind='BARS' "
+            "AND session=(SELECT min(session) FROM sentinel_candidate_blocks WHERE candidate_id=%s AND kind='BARS')",
+            (binding['candidate_id'], binding['candidate_id'])).rowcount == 1
+    elif defect == 'source-session':
+        monkeypatch.setattr(inputs.snapshots, 'source_final_session', lambda *_: '2026-09-15')
+    elif defect == 'publication':
+        conn.execute('SET LOCAL session_replication_role=replica')
+        assert conn.execute("UPDATE sentinel_corpus_publications SET evidence=evidence||'{\"foreign\":true}'::jsonb").rowcount == 1
+    else:
+        assert conn.execute('DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s', (origin.CURSOR,)).rowcount == 1
+    conn.commit()
+    before = _dispatch_financial_rows(conn)
+    monkeypatch.setattr(inputs, '_prepare', lambda *_a, **_k: pytest.fail('invalid lineage reached acquisition'))
+    with pytest.raises((shadow_service.ShadowServiceRefused, shadow_service.ShadowServiceWaiting)):
+        shadow_recovery.advance_once(config, now=NOW)
+    assert _dispatch_financial_rows(conn) == before
+
+
+def test_operational_dispatch_rechecks_source_movement_after_cheap_guard(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    advance(conn); conn.rollback()
+    original = shadow_service._require_operational_source
+    def moved(connection):
+        original(connection)
+        connection.rollback()
+        connection.execute('SET LOCAL session_replication_role=replica')
+        assert connection.execute("UPDATE sentinel_corpus_publications SET evidence=evidence||'{\"foreign\":true}'::jsonb").rowcount == 1
+        connection.commit()
+    monkeypatch.setattr(shadow_service, '_require_operational_source', moved)
+    monkeypatch.setattr(inputs, '_prepare', lambda *_a, **_k: pytest.fail('moved source reached acquisition'))
+    with pytest.raises(shadow_service.ShadowServiceRefused):
+        shadow_recovery.advance_once(config, now=NOW)
+
+
+def test_operational_source_guard_falsifier_preserves_legacy_provider_refusal(
+        conn, published, monkeypatch):
+    advance(conn); conn.rollback()
+    config = shadow_service.ShadowServiceConfig('fixture', OBS, Decimal('100000'),
+        shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY, 300, operational_source_only=True)
+    class Borrowed:
+        def __getattr__(self, name): return getattr(conn, name)
+        def close(self): pass
+    monkeypatch.setattr(store, 'connect', lambda _: Borrowed())
+    def refusal():
+        with pytest.raises(shadow_service.ShadowServiceRefused, match='ALPACA_OPENFIGI_SOURCE_REQUIRED'):
+            shadow_recovery.advance_once(config, now=NOW)
+    refusal()
+    with monkeypatch.context() as missing:
+        missing.setattr(shadow_service, '_require_operational_source', lambda _: None)
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            refusal()
+
+
+def test_operational_dispatch_recovers_signed_candidate_without_reforming(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    initial.initialize(conn, observation_id=OBS, starting_cash=100_000)
+    before = origin.read(conn).model_dump(by_alias=True); conn.rollback()
+    assert authority.latest(conn, OBS) == []; conn.rollback()
+    monkeypatch.setattr(initial, 'initialize', lambda *_a, **_k: pytest.fail('candidate was reformed'))
+    actual = shadow_recovery.advance_once(config, now=NOW)
+    assert actual['verification'] == 'VERIFIED' and actual['state_sha256'] == before['state_sha256']
+    assert origin.read(conn).model_dump(by_alias=True) == before
+
+
+def test_operational_dispatch_keeps_attestation_backup_fence_after_signed_candidate(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    initial.initialize(conn, observation_id=OBS, starting_cash=100_000)
+    conn.rollback()
+    original = runtime.backup_runtime_authority.require
+    def refuse(connection, *, operation, **kwargs):
+        if operation == 'rolling runtime attestation':
+            from sentinel import backup_guard
+            raise backup_guard.BackupWriteFenced('private backup refused')
+        return original(connection, operation=operation, **kwargs)
+    monkeypatch.setattr(runtime.backup_runtime_authority, 'require', refuse)
+    with pytest.raises(shadow_service.ShadowServiceRetry, match='source/backup unavailable'):
+        shadow_recovery.advance_once(config, now=NOW)
+    assert origin.read(conn) is not None and authority.latest(conn, OBS) == []
+
+
+def test_operational_dispatch_not_before_and_guard_omission_falsifier(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    advance(conn); conn.rollback()
+    not_before = shadow_runtime.publication_not_before('2026-09-14')
+    early = not_before - timedelta(microseconds=1)
+    def refusal():
+        with pytest.raises(shadow_service.ShadowServiceWaiting, match='publication not-before'):
+            shadow_recovery.advance_once(config, now=early)
+    refusal()
+    with monkeypatch.context() as missing:
+        missing.setattr(shadow_service, '_causal_target', lambda **_k: '2026-09-14')
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            refusal()
+
+
+def test_operational_dispatch_original_budget_includes_source_guard(
+        conn, operational_dispatch, monkeypatch):
+    from sentinel import shadow_budget
+    config, _ = operational_dispatch
+    clock = [NOW]
+    monkeypatch.setattr(shadow_budget, 'now', lambda: clock[0])
+    monkeypatch.delenv(shadow_budget.DEADLINE_ENV, raising=False)
+    monkeypatch.setenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', '7200')
+    source_guard = shadow_service._require_operational_source
+    def slow(connection):
+        source_guard(connection); clock[0] += timedelta(seconds=1000)
+    monkeypatch.setattr(shadow_service, '_require_operational_source', slow)
+    def final(connection, **kwargs):
+        assert kwargs['acquisition_deadline'] == NOW + timedelta(seconds=7200)
+        assert (kwargs['acquisition_deadline'] - clock[0]).total_seconds() == 6200
+        from types import SimpleNamespace
+        return SimpleNamespace(to_dict=lambda: {'bounded': True})
+    monkeypatch.setattr(runtime, 'service_advance', final)
+    assert shadow_recovery.advance_once(config, now=NOW) == {'bounded': True}
+
+
+def test_operational_dispatch_forms_fresh_genesis_without_route_proofs(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    assert origin.read(conn) is None; conn.rollback()
+    monkeypatch.setattr(shadow_service, 'preflight', lambda *_a, **_k:
+                        pytest.fail('operational genesis repeated a route proof'))
+    actual = shadow_recovery.advance_once(config, now=NOW)
+    assert actual['verification'] == 'VERIFIED' and actual['appended'] is True
+    authority.require_binding(authority.latest(conn, OBS)[0], origin.read(conn))
+    assert _dispatch_financial_rows(conn)[1:] == [0, 0, 0]
+
+
+def test_operational_dispatch_expired_candidate_is_reconstruction_never_prospective_go(
+        conn, operational_dispatch, monkeypatch):
+    config, _ = operational_dispatch
+    candidate = initial.initialize(conn, observation_id=OBS, starting_cash=100_000)
+    conn.rollback()
+    later = NOW + timedelta(days=2)
+    monkeypatch.setattr(calendar, 'latest_closed_session', lambda now=None: '2026-09-16')
+    monkeypatch.setattr(op, '_now', lambda: later)
+    monkeypatch.setattr(initial, '_now', lambda _: later)
+    monkeypatch.setattr(initial, 'initialize', lambda *_a, **_k: pytest.fail('expired candidate reformed'))
+    actual = shadow_recovery.advance_once(config, now=later)
+    assert actual['state_sha256'] == candidate.state.state_hash
+    assert actual['verification'] == shadow.CANDIDATE
+    assert actual['shadow_verdict'] == shadow.NOT_DEPLOYABLE
+    assert actual['verification_scope'] == 'ROLLING_RECONSTRUCTION_ONLY'
+    assert isinstance(authority.latest(conn, OBS)[0], authority.ReconstructionReceipt)
+
+
+def test_operational_dispatch_gap_keeps_exact_data_only_recovery_and_provider_refusal(
+        conn, operational_dispatch, monkeypatch):
+    from sentinel import shadow_budget
+    config, _ = operational_dispatch
+    first = advance(conn); conn.rollback()
+    financial_before = _dispatch_financial_rows(conn)
+    publication_before = op._current(conn).to_dict(); conn.rollback()
+    later = NOW + timedelta(days=2)
+    monkeypatch.setattr(calendar, 'latest_closed_session', lambda now=None: '2026-09-16')
+    monkeypatch.setattr(op, '_now', lambda: later)
+    monkeypatch.setattr(initial, '_now', lambda _: later)
+    monkeypatch.setattr(inputs, '_prepare', lambda *_a, **_k: pytest.fail('missing history backdated'))
+    monkeypatch.setattr(shadow_recovery, '_roll_and_advance', lambda *_a, **_k:
+                        pytest.fail('operational publication entered legacy rollover'))
+    original_deadline = shadow_budget.now() + timedelta(hours=1)
+    monkeypatch.setenv(shadow_budget.DEADLINE_ENV, original_deadline.isoformat())
+    requests = []
+    enqueue = op.enqueue_reconstruction
+    def record_recovery(connection, **kwargs):
+        requests.append(kwargs)
+        return enqueue(connection, **kwargs)
+    monkeypatch.setattr(op, 'enqueue_reconstruction', record_recovery)
+    # Current-window recovery may acquire the exact missing dated data; this
+    # provider fixture deliberately has no Sep15 coverage. Its hard native
+    # refusal must not become a backdated publication or prospective authority.
+    with pytest.raises(shadow_service.ShadowServiceRefused, match='BIL split-only/raw prices lack corroborated coverage'):
+        shadow_recovery.advance_once(config, now=later)
+    assert len(requests) == 1
+    assert requests[0]['session'] == '2026-09-15' and requests[0]['cursor'] == '2026-09-14'
+    assert requests[0]['absolute_deadline'] == original_deadline
+    assert daily_cp.read(conn) is None
+    assert origin.read(conn).state_sha256 == first.state.state_hash
+    assert len(authority.latest(conn, OBS)) == 1
+    assert _dispatch_financial_rows(conn) == financial_before
+    assert op._current(conn).to_dict() == publication_before
+
+
+def test_operational_fresh_genesis_rejects_valid_publication_moving_after_source_guard(
+        conn, operational_dispatch, monkeypatch):
+    from sentinel.feed import readers, rolling_store
+    config, old_binding = operational_dispatch
+    # Build another publication through its real signed publisher. Only private
+    # provider responses are fixtures; no publication/receipt guard is replaced.
+    original = shadow_service._require_operational_source
+    observed = []
+    def move_after_guard(connection):
+        original(connection)
+        connection.rollback()
+        _, strategy = shadow_runtime._strategy()
+        job = op.enqueue(connection, strategy_sha256=digest(strategy),
+                         dependencies_sha256=digest('valid-native-publication-movement'))
+        connection.commit()
+        new_binding = op.prepare(connection, job)
+        assert new_binding['data_version'] != old_binding['data_version']
+        current = readers.current(connection)
+        bound = op._bound(connection, current)
+        assert rolling_store.manifest(connection, bound['candidate_id']).provider == 'ALPACA_OPENFIGI'
+        with inputs.pinned(connection) as held:
+            _binding, report = inputs.validate_status(connection, held)
+            assert report.ready, 'publication-movement counterexample must have complete valid inputs'
+        observed.append(bound)
+        connection.rollback()
+    monkeypatch.setattr(shadow_service, '_require_operational_source', move_after_guard)
+    with pytest.raises(shadow_service.ShadowServiceRefused, match='UNREVIEWED_GENESIS_PUBLICATION'):
+        shadow_recovery.advance_once(config, now=NOW)
+    assert len(observed) == 1 and origin.read(conn) is None
+    assert authority.latest(conn, OBS) == []
+    assert _dispatch_financial_rows(conn)[1:] == [0, 0, 0]

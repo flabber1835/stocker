@@ -88,8 +88,12 @@ Historical parity uses the identity and input of the record being replayed.
 A recognized native cash event is separate from modeled shadow entitlement.
 First reconcile all outstanding commands and prove the fresh account cash from
 the immutable plan baseline, durable fills and native activities. A changed
-activity set supersedes the stale plan after clean reconciliation, including
-offsetting events with zero net cash. Automation then waits for the next ordinary
+activity set normally supersedes the stale plan after clean reconciliation,
+including offsetting events with zero net cash. The independently documented
+[native debit-fee policy](native-fee-plan-continuation.md) permits only exact,
+membership-proved new `INTERNAL/FEE` debits to continue the original immutable
+intent under fresh actual-cash and reservation guards. Legacy baselines cannot
+earn that exception or be backfilled. Otherwise automation waits for the next ordinary
 decision; it does not repeatedly execute the same stale plan, resize its intents
 or backfill a missing/legacy baseline. Unknown broker outcomes retain priority.
 

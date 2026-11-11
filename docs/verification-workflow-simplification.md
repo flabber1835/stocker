@@ -115,6 +115,10 @@ book has no new old-image financial fact to derive. If the current snapshot no
 longer matches, use the ordinary fresh predecessor scan. Unknown receipts/proofs
 refuse.
 
+[Retained predecessor canonical evidence](installation-critical-path-reuse.md#retained-predecessor-canonical-evidence)
+defines the later same-mode issuer-only exception, including the old
+and current lineage exclusion and unchanged full installation preservation.
+
 The owner then identified the second candidate scan after startup as another
 duplicate. The immutable application image and configuration were already bound
 to the fresh candidate preflight; startup checks that same image and the complete

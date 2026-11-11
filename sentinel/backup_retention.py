@@ -336,21 +336,30 @@ def retain(media, receipt, image, now, segment_size):
 def main():
     signal.alarm(540)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("observe", "retain"))
+    parser.add_argument("action", choices=("observe", "observe-current", "retain"))
     parser.add_argument("--root", default="/backup")
     parser.add_argument("--system-id", required=True)
+    parser.add_argument('--timeout-seconds',type=int,default=540)
     args = parser.parse_args()
+    if not 1 <= args.timeout_seconds <= 540 or (args.action != 'observe-current' and args.timeout_seconds != 540):
+        parser.error('only read-only observation accepts a shorter budget')
+    if args.timeout_seconds != 540: signal.alarm(args.timeout_seconds)
     try:
         media = Media(Path(args.root), args.system_id)
-        with media_lock(media.base):
-            if args.action == "observe":
-                result = media.selected()
-            else:
-                raw = sys.stdin.buffer.read(32769)
-                require(len(raw) <= 32768, "oversized retention request")
-                request = decode(raw)
-                result = retain(media, request["receipt"], request["image"],
-                                request["now"], request["segment_size"])
+        if args.action == 'observe-current':
+            # Read-only observation, equivalent to concurrent runtime readers.
+            # The later common proof rechecks current selection and media.
+            result = media.selected()
+        else:
+            with media_lock(media.base):
+                if args.action == "observe":
+                    result = media.selected()
+                else:
+                    raw = sys.stdin.buffer.read(32769)
+                    require(len(raw) <= 32768, "oversized retention request")
+                    request = decode(raw)
+                    result = retain(media, request["receipt"], request["image"],
+                                    request["now"], request["segment_size"])
         print(json.dumps(result, sort_keys=True))
         return 0
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:

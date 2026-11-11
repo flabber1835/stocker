@@ -842,9 +842,11 @@ def test_insert_command_tag_is_detected_by_actual_psql_acceptance(
     maintenance = host_maintenance
     original = maintenance.sql
     def broken(query, runner):
-        query = query.replace("), recorded AS (", ") ", 1).replace(
-            "FROM evidence RETURNING proof) SELECT proof::text FROM recorded",
-            "FROM evidence RETURNING proof::text", 1)
+        recorded = "), recorded AS ("
+        payload = "json_build_object('proof',proof,'observed_at',observed_at)::text"
+        result = f"RETURNING proof,observed_at) SELECT {payload} FROM recorded"
+        assert query.count(recorded) == query.count(result) == 1
+        query = query.replace(recorded, ") ", 1).replace(result, f"RETURNING {payload}", 1)
         return original(query, runner)
     monkeypatch.setattr(maintenance, "sql", broken)
     with pytest.raises(json.JSONDecodeError):
@@ -1450,7 +1452,10 @@ class TestProtectedDayOrderMonitoring:
         if result:
             assert result["observation_id"] == (13 if newer else raw["observation_id"])
             assert datetime.fromisoformat(result["observed_at"]) == DAY_WAIT_NOW + timedelta(seconds=63 if newer else 0)
-            assert result["deadline"] == datetime.fromisoformat(raw["deadline"]).isoformat().replace('+00:00', 'Z')
+            expected_deadline = datetime.fromisoformat(raw["deadline"])
+            if ready:
+                expected_deadline = expected_deadline.astimezone(timezone.utc)
+            assert result["deadline"] == expected_deadline.isoformat().replace('+00:00', 'Z')
             assert result["reserved_cash"] == ("100" if fault == "newer_reconciled_fill" else "200")
         assert sources._matched_resting_reservation(conn,
             account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW + timedelta(seconds=601)},

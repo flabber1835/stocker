@@ -164,8 +164,13 @@ class Cursor:
                 data = json.loads(payload)
                 record = data.get("WAL-Ranges", [{}])[-1]
                 self.rows = [(len(payload), record.get("Timeline"), record.get("End-LSN"))]
-        elif query.startswith("SELECT name,(pg_stat_file"):
+        elif (query.startswith("SELECT name,(pg_stat_file")
+              or query.startswith("WITH objects AS MATERIALIZED (")):
             assert "FROM unnest(%s::text[])" in query, query
+            if query.startswith("WITH objects AS MATERIALIZED ("):
+                assert query.count("pg_stat_file(") == 2, query
+                assert params[:3] == (params[0],) * 3, params
+                assert "checksum,(sidecar).modification,(sidecar).change FROM objects" in query
             root = db.media.path(params[0])
             rows = []
             for name in params[-1]:

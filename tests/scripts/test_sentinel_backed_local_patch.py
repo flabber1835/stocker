@@ -35,6 +35,61 @@ def test_backed_cli_dispatches_terminal_abandonment_with_existing_witness(tmp_pa
     assert events==['host','abandon']
 
 
+@pytest.fixture
+def verifier_grace_host(tmp_path):
+    name = 'docker-compose.sentinel-automation.yml'
+    candidate = (ROOT / name).read_text(encoding='utf-8').encode()
+    candidate_probe = patch._VERIFIER_PROBE + b'      start_period: 120s\n'
+    assert candidate.count(candidate_probe) == 1
+    previous_probe = patch._VERIFIER_PROBE + b'      start_period: 20s\n'
+    originals = {file: (ROOT / file).read_text(encoding='utf-8').encode() for file in patch.COMPOSE}
+    originals[name] = candidate.replace(candidate_probe, previous_probe, 1)
+    host = object.__new__(patch.BackedHost)
+    host.source = tmp_path / 'source'
+    host.deployment = tmp_path / 'installed'
+    host.source.mkdir()
+    host.deployment.mkdir()
+    for file, original in originals.items():
+        (host.source / file).write_bytes(candidate if file == name else original)
+        (host.deployment / file).write_bytes(original)
+    revision = '1' * 40
+    host.git_bytes = lambda _operation, reference: originals[reference.removeprefix(revision + ':')]
+    host.request = {'predecessor': {'commit': revision}, 'allowed_delta': [name],
+        'qualification': {'source_files': {name: patch.sha256_file(host.source / name)}}}
+    return host, name, originals[name], candidate
+
+
+def test_backed_installer_accepts_and_resumes_the_exact_verifier_grace_change(verifier_grace_host):
+    host, name, _, candidate = verifier_grace_host
+    host.verify_compose('predecessor')
+    host.install_compose()
+    host.install_compose()
+    host.verify_compose('candidate')
+    assert (host.deployment / name).read_bytes() == candidate
+
+
+@pytest.mark.parametrize('fault', ['other_change', 'unqualified', 'unapproved'])
+def test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, fault):
+    host, name, original, candidate = verifier_grace_host
+    if fault == 'other_change':
+        (host.source / name).write_bytes(candidate + b'\n# unrelated change\n')
+        host.request['qualification']['source_files'][name] = patch.sha256_file(host.source / name)
+    elif fault == 'unqualified':
+        host.request['qualification']['source_files'][name] = '0' * 64
+    else:
+        host.request['allowed_delta'] = []
+    for action in (lambda: host.verify_compose('predecessor'), host.install_compose):
+        with pytest.raises(patch.DeliveryRefused, match='BACKED_COMPOSITION_CHANGE_REFUSED'):
+            action()
+    assert (host.deployment / name).read_bytes() == original
+
+
+def test_exact_compose_guard_has_executed_falsifier(verifier_grace_host, monkeypatch):
+    monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, 'other_change')
+
+
 def immutable_values_host(tmp_path,monkeypatch):
     host=object.__new__(patch.BackedHost)
     host.deployment=tmp_path;host.literal=importlib.import_module('sentinel_env')
@@ -276,6 +331,90 @@ def test_current_receipts_preserve_their_full_nonempty_issuer_snapshot(tmp_path,
     assert host.predecessor_canonical_proof(state)==(None if changed else {'book':'verified'})
 
 
+@pytest.mark.parametrize('mode,fault', [
+    ('PRE_OPEN',None), ('POST_TRADE',None), ('PRE_OPEN','routed-program'), ('PRE_OPEN','other-field'),
+    ('POST_TRADE','other-mode'), ('PRE_OPEN','reader'), ('PRE_OPEN','started'),
+    ('POST_TRADE','proof-shape'), ('POST_TRADE','proof-digest'),
+    ('POST_TRADE','old-malformed'), ('POST_TRADE','current-malformed'),
+    ('PRE_OPEN','overlap'), ('PRE_OPEN','moved'), ('PRE_OPEN','missing-witness'),
+])
+def test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,mode,fault):
+    from tests.scripts.test_sentinel_local_delivery_coordinator import request
+
+    prior=tmp_path/'prior';prior.mkdir()
+    selected=request(prior)
+    selected['handoff_mode']=mode
+    files=selected['qualification']['source_files']
+    files['sentinel/execution/authority_gate.py']='c'*64
+    monkeypatch.setattr(patch,'_REVIEWED_CANONICAL_RUNTIME_MAPS',{patch.digest(files)})
+    files['scripts/sentinel_local_delivery/coordinator.py']=patch._REVIEWED_CANONICAL_COORDINATOR
+    if fault=='routed-program':
+        files.update({name:patch.sha256_file(ROOT/name) for name in patch._CANONICAL_PROGRAM_FILES})
+    else:
+        files.update(zip(patch._CANONICAL_PROGRAM_FILES,(
+            '8186821a440ab620b7da37ba43196174a69aeff9594a13d0026b641df548847e',
+            'b1b600232d364a3b7072419834d85cc7519db2e154512c60e19e98d4ff49285d')))
+    if fault=='reader':files['sentinel/execution/authority_gate.py']='f'*64
+    patch.cli.write_new(prior/'request.json',selected)
+    journal=patch.Journal(prior)
+    state=dict(book='same',plan={'plan_id':'bound-plan'},issuer_evidence={'count':14,'md5':'a'*32})
+    preserved=dict(state,issuer_evidence={'count':13,'md5':'b'*32})
+    if fault=='old-malformed':preserved['issuer_evidence']['count']=True
+    if fault=='current-malformed':state['issuer_evidence']['count']=True
+    if fault=='other-field':state['book']='changed'
+    proof=dict(plan='bound-plan',transaction_read_only=True)
+    if mode=='POST_TRADE' and fault!='proof-shape':proof['settled_native_positions']={}
+    journal.advance('NEW','PREFLIGHT_PASS',preserved=preserved,canonical_proof=proof,
+        successor_proof_sha256='f'*64 if fault=='proof-digest' else patch.digest(proof))
+    for before,after in zip(journal.stages[1:],journal.stages[2:]):
+        if after=='VERIFIED' and fault=='started':break
+        journal.advance(before,after)
+    path=prior/'receipt.json'
+    (tmp_path/'build.json').write_text(json.dumps(dict(predecessor_receipt=dict(
+        path=str(path),sha256=patch.sha256_file(path)))))
+    host=object.__new__(patch.BackedHost)
+    host.operation_dir=tmp_path;host.predecessor_receipt=path
+    host.request=dict(schema=patch.SCHEMA,predecessor=selected['candidate'],
+        handoff_mode='PRE_OPEN' if fault=='other-mode' else mode)
+    calls=[]
+    def read(statement):
+        calls.append(statement)
+        if fault=='missing-witness':return None
+        observed=dict(state['issuer_evidence'],lineage_overlap=fault=='overlap')
+        if fault=='moved':observed['md5']='c'*32
+        return observed
+    host.sql=read
+    if fault=='proof-digest':
+        with pytest.raises(patch.DeliveryRefused,match='CANONICAL_PROOF_CHANGED'):
+            host.predecessor_canonical_proof(state)
+    else:
+        assert host.predecessor_canonical_proof(state)==(proof if fault in {None,'routed-program'} else None)
+    assert calls==([patch.checks.ISSUER_LINEAGE_SQL]
+        if fault in {None,'routed-program','overlap','moved','missing-witness','proof-digest'} else [])
+
+
+def test_issuer_lineage_guard_removal_is_detected(tmp_path,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost._issuer_only_change))
+    source=source.replace("observed.get('lineage_overlap') is False",'True').replace(
+        'dict(issuer,lineage_overlap=False)',"dict(issuer,lineage_overlap=observed['lineage_overlap'])")
+    namespace={}
+    exec(compile(source,'missing-current-issuer-lineage-guard','exec'),vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'_issuer_only_change',namespace['_issuer_only_change'])
+    with pytest.raises(AssertionError):
+        test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,'PRE_OPEN','overlap')
+
+
+def test_issuer_prior_reader_guard_removal_is_detected(tmp_path,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost._issuer_only_change))
+    needle='digest(runtime_files) not in _REVIEWED_CANONICAL_RUNTIME_MAPS'
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,'False'),'missing-prior-runtime-guard','exec'),vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'_issuer_only_change',namespace['_issuer_only_change'])
+    with pytest.raises(AssertionError):
+        test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_path,monkeypatch,'PRE_OPEN','reader')
+
+
 def test_postgres_archive_off_cannot_become_a_backed_baseline():
     data={'Mounts':[{'Destination':'/var/lib/postgresql/data','Type':'volume',
         'Name':'sentinel_sentinel_pgdata','Source':'/private/owned'}],
@@ -351,41 +490,54 @@ def test_completed_baseline_storage_guard_has_falsifier(monkeypatch):
 
 
 @pytest.mark.parametrize('fault',[None,'container','image','volume','source','command','system','backwards'])
-def test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,fault):
-    from types import SimpleNamespace
+def test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,fault):
+    from tests.scripts.test_sentinel_backed_predecessor import complete
+
     root=tmp_path/'source';(root/'.git').mkdir(parents=True)
-    prior=tmp_path/'prior.json';prior.write_text('{}')
+    activation=root/'artifacts/sentinel/authority/deployments/initial/activation-receipt.json'
+    activation.parent.mkdir(parents=True)
+    seed=dict(commit='0'*40,image='sha256:'+'0'*64)
+    activation.write_text(json.dumps(dict(schema='sentinel.activation-receipt/1',
+        operational_ready=True,activation_mode='dual',completed_at='2026-01-01T00:00:00Z',
+        git_commit=seed['commit'],runtime_image=seed['image'],control_generation=7,
+        certificate_sha256='c'*64)))
     before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
     if fault in {'container','image','volume','source','command'}:after[fault]='foreign'
     if fault=='backwards':after['started']='2025-01-01T00:00:00Z'
-    anchor=dict(git_commit='1'*40,runtime_image='sha256:'+'a'*64,postgres=before,system='123',
-        control_generation=7,certificate_sha256='certificate',roots=(root,))
-    foundation=dict(commit=anchor['git_commit'],image=anchor['runtime_image'],postgres=after,system='123')
-    candidate=dict(commit='2'*40,image='sha256:'+'b'*64,source_identity='identity')
-    report=dict(commit=candidate['commit'],final=True,source_files_unchanged=True,source_files={'one':'hash'})
-    qualified=tmp_path/'qualification.json';qualified.write_text(json.dumps(report))
-    qualification=dict(report_path=str(qualified),report_sha256=patch.sha256_file(qualified),source_files=report['source_files'])
-    request=dict(candidate=candidate,source=str(root),deployment=str(root),predecessor=foundation,qualification=qualification)
-    record=dict(stage='VERIFIED',artifacts=dict(postgres=after,
-        preserved={'system':'foreign' if fault=='system' else '123'},native_positions={},notification_history={}))
-    receipt=tmp_path/'receipt.json';receipt.write_text(json.dumps(record))
-    built=dict(schema=patch.builder.BUILD_SCHEMA,**candidate,source=str(root),deployment=str(root),
-        foundation=foundation,qualification=qualification,
-        predecessor_receipt=dict(path=str(prior),sha256=patch.sha256_file(prior)))
-    monkeypatch.setattr(patch,'Journal',lambda _:SimpleNamespace(request=request,read=lambda:record))
-    monkeypatch.setattr(patch.builder,'operation_build',lambda _:built)
-    original=patch.predecessor_witness
-    monkeypatch.setattr(patch,'predecessor_witness',lambda path,**kw:anchor if Path(path)==prior else original(path,**kw))
+
+    def completed_link(name,prior,foundation,selected,pg,system):
+        operation=tmp_path/name;operation.mkdir()
+        candidate=dict(selected,source_identity={k:'e'*64 for k in ('source','wealth','shadow_config')})
+        report=dict(commit=candidate['commit'],final=True,source_files_unchanged=True,
+                    source_files={'sentinel/module.py':'f'*64})
+        qualified=operation/'qualification.json';qualified.write_text(json.dumps(report))
+        qualification=dict(report_path=str(qualified),report_sha256=patch.sha256_file(qualified),
+            commit=candidate['commit'],passed=True,source_files=report['source_files'])
+        request=dict(schema='sentinel.local-paper-delivery/3',operation_id=name,handoff_mode='PRE_OPEN',
+            source=str(root),deployment=str(root),predecessor=foundation,candidate=candidate,
+            qualification=qualification,allowed_delta=['sentinel/module.py'],created_at='2026-01-02T00:00:00Z')
+        built=dict(schema=patch.builder.BUILD_SCHEMA,**candidate,source=str(root),deployment=str(root),
+            foundation=foundation,qualification={k:qualification[k] for k in ('report_path','report_sha256')},
+            predecessor_receipt=dict(path=str(prior),sha256=patch.sha256_file(prior)))
+        return complete(dict(operation=operation,request=request,built=built,pg=pg),
+                        artifacts=dict(preserved={'system':system}))
+
+    previous=dict(commit='1'*40,image='sha256:'+'a'*64)
+    prior=completed_link('before-restart',activation,dict(seed,postgres=before,system='123'),
+                         previous,before,'123')
+    successor=dict(commit='2'*40,image='sha256:'+'b'*64)
+    receipt=completed_link('after-restart',prior,dict(previous,postgres=after,system='123'),
+                           successor,after,'foreign' if fault=='system' else '123')
     if fault:
-        with pytest.raises(patch.DeliveryRefused):original(receipt)
-    else:assert original(receipt)['postgres']==after
+        with pytest.raises(patch.DeliveryRefused):patch.predecessor_witness(receipt)
+    else:assert patch.predecessor_witness(receipt)['postgres']==after
     assert before['started']=='2026-01-01T00:00:00Z'
 
 
 def test_completed_ancestry_storage_guard_has_falsifier(tmp_path,monkeypatch):
     monkeypatch.setattr(patch,'require_same_postgres_storage',lambda *a:None)
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
-        test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,monkeypatch,'volume')
+        test_completed_receipt_ancestry_retains_forward_restart_without_storage_replacement(tmp_path,'volume')
 
 
 @pytest.mark.parametrize('fault', [None,'not_selected','not_started','financial','native',

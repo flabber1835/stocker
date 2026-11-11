@@ -49,8 +49,13 @@
     "_cash_authority_or_refuse": {
       "acceptance": "audit/economic_399/cash_precision/README.md",
       "design": "docs/sentinel-execution-contract.md",
+      "fee_continuation_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
+      "fee_continuation_design": "docs/native-fee-plan-continuation.md",
+      "fee_continuation_predecessor_ast_sha256": "b6fb62419b6d8133eb562b040cc37dd5a4647d381db6d9a2a68a2704bc4b9883",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "b6fb62419b6d8133eb562b040cc37dd5a4647d381db6d9a2a68a2704bc4b9883",
+      "generated_ast_sha256": "ccfdcc697f8c13370e66a91eab0005d6f7a82aa38ee62a6a458f2a4f84903a07",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
       "native_cash_wait_acceptance": [
@@ -134,6 +139,14 @@
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
       "retained_design": "docs/retained-state-activation.md"
+    },
+    "_fee_cash_continuation": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "c3eb303bbd18e1f8bd760b9f529a4d85493b4f4f476e033989ad34b126a749d3",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Require membership-proved native debit fees and exact actual cash before continuing a plan."
     },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
@@ -257,6 +270,14 @@
       "module": "execution",
       "reason": "PR #480 uses the reviewed ten-minute regular-session quote window and refuses new sizing at its exact endpoint; an already retained projection remains recoverable. PR #537: For an explicitly selected protected 100-basis-point DAY paper window, require the plan effective session to match and use its exclusive cutoff for unresolved first sizing; preserve immutable retained projections and the ordinary ten-minute cutoff when no debug window is selected."
     },
+    "_plan_fill_cash": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "274ef1500044d54caa5a358029c72f73a47ed4dab5514ca64ba894530cd988eb",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Own one exact immutable plan and fill cash equation and filter the account journal to the current plan."
+    },
     "_preopen_active_security_ids": {
       "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
       "historical_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
@@ -303,6 +324,14 @@
       "historical_ast_sha256": "80264b0b9b5f8b93f78aa943e746db36adab3512b6c599d308b1037667d3dac3",
       "module": "inspection",
       "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
+    },
+    "_require_exact_fee_cash": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "905c50715585d0d462a46a0e1241ba1c34644efab591fbca37cfdf61f4288a04",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Enforce exact equality for fee continuation without applying the generic cash discrepancy tolerance."
     },
     "_require_state_strategy": {
       "generated_ast_sha256": "ef3a616fd7081aa33a76d624293f43684910f36e9723e2331945be8c1a85c7e4",
@@ -439,6 +468,22 @@
       ],
       "url_design": "docs/url-selected-trading.md"
     },
+    "load_native_fee_plan_baseline": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "e56ea934c8c4effa9f6aea340adcd1504075556d02c502ea68432d9ddbce97b0",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Load the original immutable account-qualified plan boundary with native ledger membership."
+    },
+    "native_fee_plan_continuation": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "0025e286eced38d3e302ad6bf73ba80d033e64be8dc888574ad5db612e31d85f",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Derive fee-only continuity from the plan membership and the exact cash equation."
+    },
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
@@ -519,6 +564,14 @@
       "protected_cohort_design": "docs/protected-cohort-continuation.md",
       "protected_cohort_reason": "For an existing protected basis and current projection, derive routing evidence from fresh account/activity and the same canonical continuation predicate used by execution. This grants no broker mutation or settlement: execution repeats the proof at its own writer boundary, and contradictory or missing proof retains ordinary unresolved-command handling.",
       "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks."
+    },
+    "require_exact_native_fee_cash": {
+      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "design": "docs/native-fee-plan-continuation.md",
+      "generated_ast_sha256": "26b0b9894961a155785e91caaadf1171f9c100aff917f22e8b2445c2bfd2520a",
+      "historical_ast_sha256": null,
+      "module": "cash",
+      "reason": "Check fresh actual cash against the immutable plan, current-plan fills and the native activity delta."
     }
   },
   "design": "docs/production-compact-champion.md",

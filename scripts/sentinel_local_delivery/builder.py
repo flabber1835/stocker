@@ -131,6 +131,15 @@ def _inspect(host, reference):
 
 
 def _economic(host, commit, image):
+    require(re.fullmatch('[0-9a-f]{40}',commit or '') is not None
+        and re.fullmatch('sha256:[0-9a-f]{64}',image or '') is not None,
+        'ECONOMIC_PROBE_SUBJECT_INVALID')
+    cached=getattr(host,'_economic_probe_fact',None)
+    strategy=cached(commit,image) if callable(cached) else None
+    if strategy is not None:
+        require(isinstance(strategy,str) and re.fullmatch('[0-9a-f]{64}',strategy) is not None,
+                'ECONOMIC_PROBE_FACT_MALFORMED')
+        return strategy
     code = ('import json\nfrom sentinel.authority import canonical_sha256\n'
         'from sentinel.strategy import production_strategy\n'
         'print(json.dumps(dict(strategy=canonical_sha256(production_strategy()[1]))))\n')
@@ -138,7 +147,11 @@ def _economic(host, commit, image):
         '--cpus','0.5','--memory','384m','-e','SENTINEL_GIT_COMMIT='+commit,
         '-e','SENTINEL_RUNTIME_IMAGE_DIGEST='+image,'-e','SENTINEL_TEST_IMAGE_DIGEST='+image,
         '--entrypoint','python',image,'-B','-c',code],timeout=90)
-    return json.loads(output.stdout)['strategy']
+    result=json.loads(output.stdout)
+    require(isinstance(result,dict) and set(result)=={'strategy'}
+        and isinstance(result['strategy'],str) and re.fullmatch('[0-9a-f]{64}',result['strategy']) is not None,
+        'ECONOMIC_PROBE_MALFORMED')
+    return result['strategy']
 
 
 def _foundation_preserved(before, after, commit):

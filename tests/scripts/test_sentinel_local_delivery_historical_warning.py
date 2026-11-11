@@ -1,5 +1,7 @@
 """Execute the final software reader; historical warnings remain amber facts."""
 from copy import deepcopy
+from dataclasses import replace
+import datetime as datetime_module
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -10,8 +12,11 @@ import pytest
 
 from sentinel.operational_status import color
 from sentinel.panel import model
+from sentinel.panel import operational_snapshot
+from sentinel.panel.serialization import public_payload
 from sentinel.paper_plan_preview import PlanPreview
 from tests.scripts.test_sentinel_local_delivery_evidence import checks
+from tests.sentinel.test_panel_historical_mirror_schedule import healthy_history_panel
 
 
 def scheduled_page():
@@ -143,12 +148,47 @@ def test_removing_the_typed_history_flag_is_detected_by_the_executed_reader(monk
 
 
 def test_original_post_trade_amber_behavior_is_unchanged(monkeypatch):
-    page, expected = scheduled_page()
-    expected['handoff_mode'] = 'POST_TRADE'
-    keyed(page, 'automation_cycle')['value'] = 'SUCCEEDED'
-    intent = keyed(page, 'paper_plan')['paper_plan']
-    page['rows'].append(dict(key='trading_run', trading_run={'intent':intent}))
-    keyed(page, 'paper_reconciliation')['paper_alignment'] = None
+    now = datetime(2026, 11, 10, 14, 39, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.replace(tzinfo=None) if tz is None else now.astimezone(tz)
+
+    monkeypatch.setattr(datetime_module, 'datetime', Clock)
+    execute, completed = now-timedelta(minutes=10), now-timedelta(minutes=5)
+    decision, effective = now.date()-timedelta(days=1), now.date()
+    panel = healthy_history_panel(now=now, execute_at=execute)
+    intent = PlanPreview(cycle_id='completed-cycle', plan_id='completed-plan',
+        decision_session=decision, effective_session=effective, execute_at=execute,
+        created_at=now-timedelta(days=1), observation_at=now-timedelta(days=1,seconds=5), legs=[])
+    run = model.TradingRun(intent=intent, state='SUCCEEDED', updated_at=completed, completed_at=completed)
+    rows = []
+    for row in panel.rows:
+        if row.key in {'paper_plan','paper_reconciliation','automation_cycle','automation_step_open','automation_step_transport'}:
+            continue
+        if row.key in {'feed','shadow_verification'}:
+            row = replace(row, value=(str(decision)+' · 0 sessions behind' if row.key=='feed'
+                else 'SHADOW VERIFIED THROUGH '+str(decision)),
+                operational_fact=row.operational_fact.model_copy(update={'session':decision}))
+        rows.append(row)
+    rows += [model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING),
+        model.Row('paper_reconciliation','Paper reconciliation','PAPER NOT VERIFIED · PENDING',model.WARN,
+            'Earlier-plan discrepancy remains recorded; current execution completed; post-close proof is pending.',
+            as_of=now, required_current=True, valid_until=now+timedelta(minutes=10),
+            paper_alignment='COMPLETED_WITH_HISTORY',
+            operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='PENDING')),
+        model.Row('trading_run','Today’s plan','SUCCEEDED',model.OK,as_of=completed,
+            valid_until=now+timedelta(hours=1),trading_run=run)]
+    rows += [model.Row(key,key,'SUCCEEDED',model.OK,as_of=completed,required_current=True,
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='SUCCEEDED'))
+        for key in ('automation_cycle','automation_step_complete')]
+    panel = replace(panel, rows=rows)
+    panel = replace(panel, observation_valid_until=operational_snapshot.original_boundary(panel))
+    page = public_payload(panel)
+    expected = dict(handoff_mode='POST_TRADE',plan=intent.plan_id,decision=str(decision),effective=str(effective))
+    before = deepcopy(page)
     result = execute_reader(monkeypatch, page, expected)
     assert result['color'] == 'amber'
     assert 'retained_history_warning' not in result and 'operational_ready' not in result
+    assert page == before

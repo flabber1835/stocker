@@ -103,6 +103,9 @@ def masked_ast(module, raw, *, baseline=False):
 
 
 def canonical_contribution(module, raw):
+    if module in HOOKS:
+        from sentinel.checkpoint_read_source_basis import predecessor
+        raw = predecessor(module, raw)
     actual = _sha(raw)
     known = basis()['seams'].get(module)
     if known and masked_ast(module, raw) == known['remaining_ast_sha256']:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import math
@@ -28,12 +29,13 @@ class Result:
     stderr: str = ''
 
 
-def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None):
+def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None, on_wait=None):
     """Bound process exit, pipe reads and output; reap private descendants."""
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("maintenance timeout must be positive and finite")
     deadline = time.monotonic() + timeout
     output, errors = bytearray(), bytearray()
+    executor, future, callback_error = None, None, None
     values = os.environ if env is None else env
     fds = ()
     if backup_lock.lock_is_held(values):
@@ -55,13 +57,28 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
             for stream, buffer in ((process.stdout, output), (process.stderr, errors)):
                 os.set_blocking(stream.fileno(), False)
                 selector.register(stream, selectors.EVENT_READ, buffer)
-            while selector.get_map():
+            while selector.get_map() or process.poll() is None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return Result(124, output.decode("utf-8", errors="replace") +
                                   "\nMAINTENANCE_DEADLINE_EXCEEDED\n",
                                   errors.decode("utf-8", errors="replace"))
-                for key, _ in selector.select(min(remaining, 0.2)):
+                if future is not None and future.done():
+                    try: future.result()
+                    except Exception as exc: callback_error = exc
+                    future = None
+                try:
+                    if (on_wait is not None and callback_error is None and future is None
+                            and remaining >= on_wait.minimum_seconds
+                            and time.monotonic() >= on_wait.next_at()):
+                        if executor is None: executor = ThreadPoolExecutor(max_workers=1)
+                        future = executor.submit(on_wait,remaining)
+                except Exception as exc:
+                    # Even failure to create a thread cannot cancel a writer.
+                    callback_error = exc
+                events = selector.select(min(remaining,0.2)) if selector.get_map() else ()
+                if not selector.get_map(): time.sleep(min(remaining,0.05))
+                for key, _ in events:
                     chunk = os.read(key.fileobj.fileno(), 8192)
                     if not chunk:
                         selector.unregister(key.fileobj)
@@ -75,6 +92,11 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
                 return Result(124, output.decode("utf-8", errors="replace") +
                               "\nMAINTENANCE_DEADLINE_EXCEEDED\n",
                               errors.decode("utf-8", errors="replace"))
+        if future is not None:
+            try: future.result()
+            except Exception as exc: callback_error = exc
+        # A callback fault is reported only after the mutation process exits.
+        if callback_error is not None: raise callback_error
         return Result(code, output.decode("utf-8", errors="replace"),
                       errors.decode("utf-8", errors="replace"))
     finally:
@@ -93,6 +115,7 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
             pass  # Outer group supervisor still enforces the invocation limit.
         process.stdout.close()
         process.stderr.close()
+        if executor is not None: executor.shutdown(wait=True,cancel_futures=True)
 
 
 def emit_result(result):

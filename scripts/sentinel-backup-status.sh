@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Read-only backup health checkpoint. No cleanup and no retention mutation.
+# Default read-only checkpoint; explicit shared mode may publish the existing
+# common byte-proof receipt. No cleanup and no retention mutation.
 set -euo pipefail
+STATUS_STARTED=$SECONDS
+STATUS_TIMEOUT=600
 
 cd "$(dirname "$0")/.."
 PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
@@ -32,10 +35,23 @@ esac
 MAX_AGE_HOURS="$((10#$MAX_AGE_HOURS))"
 
 EXPECTED=""
+SHARED_INTEGRITY=0
+if [ "${1:-}" = "--shared-integrity" ]; then
+  SHARED_INTEGRITY=1
+  shift
+fi
+if [ "$SHARED_INTEGRITY" -eq 1 ] && [ "${1:-}" = "--timeout-seconds" ]; then
+  [ "$#" -ge 2 ] || refuse "USAGE_INVALID" 2 "shared integrity timeout is missing"
+  case "$2" in *[!0-9]*|'') refuse "CONFIGURATION_INVALID" 2 "shared integrity timeout must be integer seconds" ;; esac
+  [ "${#2}" -le 3 ] && [ "$((10#$2))" -ge 1 ] && [ "$((10#$2))" -le 600 ] ||
+    refuse "CONFIGURATION_INVALID" 2 "shared integrity timeout exceeds the existing status budget"
+  STATUS_TIMEOUT="$((10#$2))"
+  shift 2
+fi
 if [ "$#" -gt 0 ]; then
   [ "$#" -eq 2 ] && [ "$1" = "--backup" ] ||
     refuse "USAGE_INVALID" 2 \
-      "usage: sentinel-backup-status.sh [--backup PATH]"
+      "usage: sentinel-backup-status.sh [--shared-integrity [--timeout-seconds N]] [--backup PATH]"
   EXPECTED="$2"
 fi
 
@@ -183,7 +199,23 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
 # Prove the same restore-horizon invariants as runtime authority while remaining
 # inside the private-media boundary. PostgreSQL parses its own manifest; the
 # postgres OS identity verifies every WAL byte against its durable sidecar.
-if CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+if [ "$SHARED_INTEGRITY" -eq 1 ]; then
+  SHARED_REMAINING="$((STATUS_TIMEOUT - (SECONDS - STATUS_STARTED) - 1))"
+  if [ "$SHARED_REMAINING" -lt 0 ]; then SHARED_REMAINING=0; fi
+  if CHAIN="$("$PYTHON" scripts/sentinel_backup_shared_integrity.py \
+      --base-backup "$NAME" --system-identifier "$SYSTEM_ID" \
+      --wal-segment-bytes "$WAL_BYTES" --observed-frontier "$LAST_WAL" \
+      --timeout-seconds "$SHARED_REMAINING")"; then
+    :
+  else
+    shared_rc=$?
+    # Only the typed host record admits a transient. Preserve its actual exit
+    # for the coordinator, which independently validates that closed record.
+    if [ "$shared_rc" -ne 75 ]; then shared_rc=4; fi
+    refuse "BASE_BACKUP_SHARED_INTEGRITY_REFUSED" "$shared_rc" \
+      "common two-pass WAL proof failed; legacy verification is not a fallback"
+  fi
+elif CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
     bash -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
     < scripts/sentinel-backup-verify-chain.sh)"; then
   :

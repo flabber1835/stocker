@@ -18,7 +18,10 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sentinel.rolling_runtime import HistoricalSourceFrontier
 
 from sentinel import identity as system_identity
 from sentinel.controller import ldrc as ldrc_module
@@ -634,13 +637,15 @@ def advance_ready_shadow(
 
 def verified_shadow_status(
         conn, *, observation_id: str,
-        starting_cash: Decimal | str | int | float
-        ) -> ShadowObservationResult | None:
-    """Public fail-closed wrapper for durable attested performance status."""
+        starting_cash: Decimal | str | int | float,
+        historical_frontier: bool = False,
+        ) -> ShadowObservationResult | HistoricalSourceFrontier | None:
+    """Attested performance status, with opt-in dated display evidence."""
     try:
         from sentinel import rolling_runtime
         if rolling_runtime.selected(conn):
-            return rolling_runtime.status(conn, observation_id=observation_id, starting_cash=starting_cash)
+            reader = rolling_runtime.observe_status if historical_frontier else rolling_runtime.status
+            return reader(conn, observation_id=observation_id, starting_cash=starting_cash)
         return _verified_shadow_status(
             conn, observation_id=observation_id,
             starting_cash=starting_cash)

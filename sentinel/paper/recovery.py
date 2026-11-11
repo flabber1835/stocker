@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, nullcontext
+
 from sentinel.execution import feed_inputs
 
 from datetime import date, datetime, timedelta
@@ -139,13 +141,18 @@ async def recover_automated_paper_cycle(
         journal.require_observation_integrity(conn)
     except journal.ObservationEvidenceUncertifiable as exc:
         raise PaperActivationRefused(str(exc)) from exc
-    with journal.writer_lock(conn, recovery_only=True):
+    with journal.writer_lock(conn, recovery_only=True), ExitStack() as proof_scope:
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
         _controller_config, strategy = _default_paper_strategy()
         current = feed_inputs.require_current(conn)
         feed_inputs.require_shadow_mode(current, dual_mode)
+        recovery_pin = None
+        if dual_mode and feed_inputs.is_rolling(current):
+            from sentinel import structural_verification
+            recovery_pin = proof_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+            proof_scope.enter_context(structural_verification.callback(conn))
         # Recovery reads the command/expected book and corporate-action units.
         # Historical-only price evidence may be routed around, but an
         # operational candidate must stop before the first broker observation.
@@ -241,7 +248,8 @@ async def recover_automated_paper_cycle(
                 # transport fence is consulted; otherwise require_transport
                 # reports PENDING forever and successor preparation (the other
                 # caller of revalidate_all) is unreachable.
-                with feed_inputs.pinned(conn, commit=False) as mirror_pin:
+                with (nullcontext(recovery_pin) if recovery_pin is not None
+                      else feed_inputs.pinned(conn, commit=False)) as mirror_pin:
                     if mirror_pin.version != current.version:
                         raise PaperRetryableRefused(
                             "corpus publication advanced while dual recovery "

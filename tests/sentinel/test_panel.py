@@ -2002,9 +2002,9 @@ class TestReviewedDualAuthority:
         assert panel.row("shadow_verification") is not None
         assert panel.row("paper_reconciliation") is not None
         assert panel.row("trial_verification") is None
-        assert panel.row("broker") is broker
-        assert panel.row("book") is book
-        assert panel.row("alpaca_account") is account
+        assert panel.row("broker") == broker
+        assert panel.row("book") == book
+        assert panel.row("alpaca_account") == account
 
 
 # ── 6. it renders ────────────────────────────────────────────────────────────

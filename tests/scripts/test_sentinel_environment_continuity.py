@@ -55,6 +55,46 @@ def test_authenticated_separate_native_owner_preserves_real_reader_continuity(pr
         assert owner.process.poll() is None
 
 
+def test_host_fallback_policy_signature_is_required(private):
+    with separate_owner(private) as owner:
+        new=private.root.parent/'next-release';new.mkdir()
+        (new/'.env').write_bytes(payload(private.old))
+        env.handover_reader(private.root,new,private.old,private.old)
+        (new/env.READER_SELECTION).unlink()
+        path=new.parent/env.HOST_READER_SELECTION
+        value=json.loads(path.read_bytes());value['signature']='0'*64
+        path.write_text(json.dumps(value))
+        with pytest.raises(env.DeliveryRefused):env.selected_reader(new,private.old)
+
+
+def test_selected_policy_survives_release_staging_without_restarting_reader(private):
+    with separate_owner(private) as owner:
+        new=private.root.parent/'next-release';new.mkdir()
+        (new/'.env').write_bytes(payload(private.old))
+        env.handover_reader(private.root,new,private.old,private.old)
+        assert env.selected_reader(new,private.old)[0]==owner.root
+        (new/env.READER_SELECTION).unlink()
+        assert env.selected_reader(new,private.old)[0]==owner.root
+        assert env.readers(new,required=True,selected_root=owner.root)[0].pid==owner.process.pid
+        assert owner.process.poll() is None
+
+
+@pytest.mark.parametrize('fault',['key','source','signature','scope','existing'])
+def test_handover_never_reselects_or_accepts_altered_policy(private,fault):
+    with separate_owner(private) as owner:
+        new=private.root.parent/'next-release';new.mkdir()
+        (new/'.env').write_bytes(payload(private.old))
+        values=dict(private.old)
+        if fault=='key':
+            private.old['SENTINEL_PUBLICATION_RECEIPT_KEY']='wrong-'+'z'*40
+        elif fault=='source':(owner.root/'.env').write_text('changed')
+        elif fault=='signature':owner.path.write_text('{}')
+        elif fault=='scope':new=new/'foreign';new.mkdir();(new/'.env').write_text('')
+        else:(new.parent/env.HOST_READER_SELECTION).write_text('{}')
+        with pytest.raises(env.DeliveryRefused):env.handover_reader(private.root,new,private.old,values)
+        assert not (new/env.READER_SELECTION).exists()
+
+
 @pytest.mark.parametrize('fault',['signature','deployment','commit','script','environment','missing_process','fifo','hardlink'])
 def test_separate_owner_selection_refuses_tampering_and_lost_owner(private,fault):
     with separate_owner(private) as owner:

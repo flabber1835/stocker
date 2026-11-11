@@ -251,7 +251,7 @@ def test_automation_backup_fence_blocks_new_work_but_not_recovery(monkeypatch):
 )
 def test_shadow_recovery_distinguishes_one_session_from_causal_gap(
         monkeypatch, latest, target, expected):
-    cfg = SimpleNamespace(database_url="db", observation_id="primary")
+    cfg = SimpleNamespace(database_url="db", observation_id="primary", operational_source_only=False)
     monkeypatch.setattr(
         shadow_recovery.base, "preflight",
         lambda *_args, **_kwargs: {
@@ -292,7 +292,7 @@ def test_shadow_recovery_distinguishes_one_session_from_causal_gap(
 
 
 def test_expired_partial_shadow_waits_then_rolls_instead_of_promoting(monkeypatch):
-    cfg = SimpleNamespace(database_url="db", observation_id="primary")
+    cfg = SimpleNamespace(database_url="db", observation_id="primary", operational_source_only=False)
     monkeypatch.setattr(
         shadow_recovery.base, "preflight",
         lambda *_args, **_kwargs: {

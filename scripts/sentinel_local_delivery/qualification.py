@@ -13,6 +13,13 @@ from .model import read_json, require
 SCHEMA = 'sentinel.local-paper-qualification/1'
 OPERATIONAL_SCHEMA = 'sentinel.local-paper-qualification/2'
 OPERATIONAL_SCOPE = 'SENTINEL_AND_CHANGED_TRACKED_V1'
+HANDOVER_INPUTS = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
+    'tests/scripts/test_sentinel_maintenance_reader_handover.py',
+    'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
+    'scripts/sentinel_backup_integrity_report.py', 'scripts/sentinel_backup_renewal.py',
+    'scripts/sentinel_backup_deadlines.py', 'scripts/sentinel_maintenance_process.py',
+    'scripts/sentinel_backup_lock.py', 'scripts/sentinel_lock_ownership.py',
+    'scripts/sentinel_env.py'})
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -66,10 +73,11 @@ def source_files(source, *, scope=None, predecessor_commit=None, commit=None, gi
         changed = set(filter(None,read('diff','--name-only','-z',
             predecessor_commit,commit if git_reader is not None else 'HEAD').split('\0')))
         require(all(name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
-                    for name in changed), 'QUALIFICATION_NONOPERATIONAL_DELTA')
+                    or name == 'docker-compose.sentinel-automation.yml' for name in changed),
+                'QUALIFICATION_NONOPERATIONAL_DELTA')
         names = [name for name in names if name.startswith(
             ('sentinel/','scripts/sentinel_local_delivery/'))
-            or name == 'scripts/sentinel_backed_local_patch.py' or name in changed]
+            or name == 'scripts/sentinel_backed_local_patch.py' or name in HANDOVER_INPUTS or name in changed]
         require(any(name.startswith('sentinel/') for name in names)
                 and any(name.startswith('scripts/sentinel_local_delivery/') for name in names)
                 and 'scripts/sentinel_backed_local_patch.py' in names,

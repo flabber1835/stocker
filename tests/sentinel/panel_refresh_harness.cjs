@@ -60,10 +60,11 @@ function assertFreshness(phase, message) {
   assert.equal(classes.has('not-current'), phase === 'expired', message);
   if (phase === 'refreshing') assert(classes.has('refreshing-status'), message);
 }
-function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay, due: now + delay}); return id; }
+function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay, due: now + delay, age:fn.name==='heartbeatTick'}); return id; }
 function interval(fn, delay) { const id = schedule(fn, delay); timers.get(id).interval = true; return id; }
 const context = {
   document, Date: Clock, DOMParser: Parser, AbortController,
+  performance: {now: () => Math.max(0, now-stamp)},
   navigator: { onLine: input.wake !== 'initial-offline' }, location: { href: 'http://fixture.invalid/' },
   window: { scrollY: 42, scrollTo() {}, addEventListener: (name, fn) => {listeners[name] = fn;} },
   setInterval: interval, setTimeout: schedule,
@@ -79,8 +80,8 @@ const context = {
 };
 function fireDelay(delay) {
   const entries = [...timers.entries()];
-  const entry = (delay === 15000 ? entries.reverse() : entries)
-    .find(([, timer]) => timer.delay === delay);
+  const entry = (delay===1000 ? entries.find(([,timer])=>timer.age) : null) ||
+    (delay === 15000 ? entries.reverse() : entries).find(([, timer]) => timer.delay === delay);
   assert(entry, 'expected bounded timer');
   if (!entry[1].interval) { timers.delete(entry[0]); }
   entry[1].fn();
@@ -113,7 +114,7 @@ function failRead(read) {
   if (input.wake.startsWith('transport-')) {
     const config = input.case || {};
     const budget = Number(input.budget) * 1000;
-    const poll = Number(input.script.match(/refreshTimer = setTimeout[^\n]+, (\d+)\);/)[1]);
+    const poll = Number(input.budget)<45 ? Math.min(30000,Math.max(5000,Math.floor(Number(input.budget)/2)*1000)) : 30000;
     const original = document.body.dataset.generatedAt;
     const observations = [];
     let planned = 0;
@@ -221,7 +222,7 @@ function failRead(read) {
           listeners.focus();listeners.pageshow({persisted:false});
           lastKnown();
         } else {
-          for (const [id,timer] of timers) if (timer.interval) timers.delete(id);
+          for (const [id,timer] of timers) if (timer.interval || timer.age) timers.delete(id);
         }
         await advanceTo(start+14999);lastKnown();
         await advanceTo(start+15001);
@@ -336,7 +337,7 @@ function failRead(read) {
   if (input.wake === 'proof-expiry') {
     assert.equal(badge.className,'state ok');
     const original=document.body.dataset.generatedAt;
-    const poll=Number(input.script.match(/refreshTimer = setTimeout[^\n]+, (\d+)\);/)[1]);
+    const poll=Number(input.budget)<45 ? Math.min(30000,Math.max(5000,Math.floor(Number(input.budget)/2)*1000)) : 30000;
     now=stamp+(Math.floor(Number(input.budget))+1)*1000;
     fireDelay(1000);
     assertFreshness('expired','original proof expiry withdraws green');

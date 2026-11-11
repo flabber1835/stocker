@@ -93,6 +93,14 @@ def compare_configuration(host, previous, candidate, state):
                 'Image automation fingerprint does not match current control')
 
 
+def valid_issuer_evidence(value):
+    return (isinstance(value, dict) and set(value) == {'count', 'md5'}
+            and type(value['count']) is int and value['count'] >= 0
+            and isinstance(value['md5'], str)
+            and re.fullmatch('[0-9a-f]{32}', value['md5']) is not None
+            and (value['count'] != 0 or value['md5'] == checks.EMPTY_ISSUER_EVIDENCE_MD5))
+
+
 def snapshot(host):
     """Select exactly one current, prepared future cycle and its source closure."""
     mode = handoff_mode(host.request)
@@ -113,12 +121,7 @@ def snapshot(host):
     current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
             'Exactly one current-generation plan matching the handoff mode is required')
-    issuer = current.get('issuer_evidence')
-    require(isinstance(issuer, dict) and set(issuer) == {'count', 'md5'}
-            and type(issuer['count']) is int and issuer['count'] >= 0
-            and isinstance(issuer['md5'], str)
-            and re.fullmatch('[0-9a-f]{32}', issuer['md5']) is not None
-            and (issuer['count'] != 0 or issuer['md5'] == checks.EMPTY_ISSUER_EVIDENCE_MD5),
+    require(valid_issuer_evidence(current.get('issuer_evidence')),
             'ISSUER_EVIDENCE_PRESERVATION_MALFORMED')
     control, cycle, plan = current['control'], current['cycle'], current['plan']
     bound = current.get('binding')
@@ -170,11 +173,16 @@ def snapshot(host):
                 and cycle['control_generation'] == control['generation'],
                 'Saved plan is not ready with sufficient future execution margin')
     if mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
-        require(cycle.get('state')=='SUCCEEDED' and cycle.get('completed_at') is not None
-            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
+        skipped = mode=='POST_TRADE' and checks.clean_cash_retirement(cycle)
+        successful = (cycle.get('state')=='SUCCEEDED'
+            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None)
+        require((successful or skipped) and cycle.get('completed_at') is not None
             and isinstance(current.get('reconciliation'),dict)
             and str(current['reconciliation']['seq'])==str(cycle.get('last_clean_reconciliation_id')),
             'POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED')
+        if skipped:
+            require(type(current.get('retired_plan_commands')) is int
+                and current['retired_plan_commands']==0, 'RETIRED_PLAN_COMMANDS_EXIST')
     cycle_keys = _BINDING_KEYS if successor else (*_BINDING_KEYS, 'certificate_sha256',
         'rollout_mode', 'rollout_version', 'config_sha256')
     for key in cycle_keys:
@@ -328,14 +336,20 @@ def notification_history(host):
 
 
 def check_notification_history(host, previous):
-    """Allow append/progress while retaining payloads, acks and delivered receipts."""
+    """Retain history; prove supported ACK progress separately from payloads."""
     require(isinstance(previous, dict) and set(previous) == _NOTIFICATION_GROUPS
             and all(isinstance(records, dict) for records in previous.values()),
             'Predecessor notification history is incomplete')
     current = notification_history(host)
     for group, records in previous.items():
-        require(all(current[group].get(key) == value for key, value in records.items()),
-                'Existing notification history changed: '+group)
+        if group != 'alerts':
+            require(all(current[group].get(key) == value for key, value in records.items()),
+                    'Existing notification history changed: '+group)
+    # Refuse altered delivery history before the rare authenticated ACK proof.
+    records = previous['alerts']
+    if not all(current['alerts'].get(key) == value for key, value in records.items()):
+        from .notification_ack_progress import prove
+        prove(host, records, current['alerts'])
     return {group: len(set(current[group])-set(previous[group])) for group in previous}
 
 
@@ -531,6 +545,10 @@ def panel(host, state, *, wait_until=None):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if handoff_mode(host.request)=='POST_TRADE':
         expected['handoff_mode']='POST_TRADE'
+        if checks.clean_cash_retirement(state['cycle']):
+            expected.update(clean_retired=True, cycle_id=state['cycle']['cycle_id'],
+                completed_at=state['cycle']['completed_at'],
+                reconciliation_id=state['reconciliation']['seq'])
     if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
         expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
             cycle_id=state['cycle']['cycle_id'],original_plan=state['cycle']['plan_id'],
@@ -538,7 +556,7 @@ def panel(host, state, *, wait_until=None):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
-    program=(checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
+    program=(checks.SKIPPED_PANEL if expected.get('clean_retired') else checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
             if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL)
     arguments=[json.dumps(expected, sort_keys=True)]
     timeout=35

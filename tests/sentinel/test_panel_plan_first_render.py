@@ -12,6 +12,7 @@ from sentinel.operational_status import RecoveryEvidence
 from tests.support.dashboard_review import reviewed_panel
 from sentinel.panel import model, overview
 from sentinel.paper_plan_preview import PlanPreview, PlannedLeg
+from tests.sentinel.test_panel_dynamic_cadence import assert_initial_cadence
 
 
 NOW = datetime(2026, 10, 23, 4, 13, tzinfo=timezone.utc)
@@ -291,7 +292,8 @@ def test_completed_publication_expires_at_its_own_effective_open_not_a_new_metad
     assert valid_until == opened.astimezone(timezone.utc).isoformat()
     assert datetime.fromisoformat(valid_until) == opened
     html = render(before)
-    assert 'data-max-age-seconds="15.0"' in html and '}, 7000)' in html
+    assert 'data-max-age-seconds="15.0"' in html
+    assert_initial_cadence(html, 7000)
     # A fresh metadata read of the same old PUBLISHED job buys no new next-plan clock.
     for now in (opened,opened+timedelta(minutes=20),opened+timedelta(days=1)):
         after = _published_panel(now)
@@ -487,8 +489,7 @@ def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claim
     panel = preparing_panel(lease_until=NOW+timedelta(seconds=12))
     html = render(panel)
     assert 'data-max-age-seconds="12.0"' in html
-    assert '}, 6000)' in html
-    assert '}, 6000)' in html
+    assert_initial_cadence(html, 6000)
     retained = render(panel,refresh_pending=True)
     assert 'class="state ok"' not in retained.split('</header>',1)[0]
     assert 'Last known · Downloading closing data' in retained
@@ -516,14 +517,14 @@ def test_acquisition_health_does_not_poll_on_an_unrelated_routine_leader_lease()
     assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
     assert dashboard_health(panel)['valid_until'] == (NOW+timedelta(seconds=35)).isoformat()
     html = render(panel)
-    assert 'data-max-age-seconds="35.0"' in html and '}, 17000)' in html
-    assert '}, 1000)' not in html
+    assert 'data-max-age-seconds="35.0"' in html
+    assert_initial_cadence(html, 17000)
     # An actual publication/worker proof still expires at that proof's own clock.
     worker_short = replace(panel,rows=[replace(row,valid_until=NOW+timedelta(seconds=9))
         if row.key == 'shadow_worker' else row for row in panel.rows])
     assert dashboard_health(worker_short)['valid_until'] == (NOW+timedelta(seconds=9)).isoformat()
     assert 'data-max-age-seconds="9.0"' in render(worker_short)
-    assert '}, 5000)' in render(worker_short)
+    assert_initial_cadence(render(worker_short), 5000)
 
 
 def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal():
@@ -542,15 +543,15 @@ def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal()
     assert dashboard_health(idle)['label'] == 'Healthy · Waiting for next decision'
     assert dashboard_health(idle)['valid_until'] == (NOW+timedelta(seconds=8)).isoformat()
     assert 'data-max-age-seconds="8.0"' in render(idle)
-    assert '}, 5000)' in render(idle)
+    assert_initial_cadence(render(idle), 5000)
     # Once no warning depends on that lease, the established general page budget applies.
     healthy = replace(idle,rows=rows[:-1])
     assert dashboard_health(healthy)['valid_until'] is None
     assert 'data-max-age-seconds="45"' in render(healthy)
-    assert '}, 30000)' in render(healthy)
+    assert_initial_cadence(render(healthy), 30000)
     near_expiry = preparing_panel(lease_until=NOW+timedelta(seconds=4))
     assert 'data-max-age-seconds="4.0"' in render(near_expiry)
-    assert '}, 5000)' in render(near_expiry)  # The age timer withdraws first.
+    assert_initial_cadence(render(near_expiry), 5000)  # The age timer withdraws first.
 
 
 def test_live_owner_admission_has_an_executed_health_removal_falsifier(monkeypatch):

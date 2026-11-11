@@ -1,5 +1,10 @@
 # Keep cold archive proof outside account ownership
 
+The 2026-11-08 [plan-preparation correction](plan-preparation-work-and-view.md)
+supersedes the PID-only reuse choice for backed owner PAPER with an authenticated
+physical-incarnation/boot-bound receipt. The fresh media checks, five-minute
+double scrub and independent account-lock boundary below remain mandatory.
+
 Decision, 2026-10-30. A cold or expired runtime archive proof can read several
 GiB twice. The account writer currently acquires its advisory lock before that
 work. An otherwise idle shadow/retention writer can therefore hold execution

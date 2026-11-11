@@ -4,12 +4,14 @@ from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from email.message import Message
 import importlib
+import inspect
 import io
 import json
 import sys
 import time
 import urllib.error
 import urllib.request
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -39,7 +41,8 @@ def run_child(monkeypatch,pages,expected,*,seconds=20,audit=None):
     monkeypatch.setattr(urllib.request,'urlopen',get)
     monkeypatch.setattr(time,'monotonic',lambda:clock[0])
     monkeypatch.setattr(time,'sleep',lambda duration:clock.__setitem__(0,clock[0]+duration))
-    monkeypatch.setattr(sys,'argv',['reader',json.dumps(expected),readiness.panel_validator(checks.PANEL),
+    validator=checks.SKIPPED_PANEL if expected.get('clean_retired') is True else checks.PANEL
+    monkeypatch.setattr(sys,'argv',['reader',json.dumps(expected),readiness.panel_validator(validator),
         (datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat()])
     with redirect_stdout(out),redirect_stderr(err):
         exec(compile(readiness.PANEL_WAIT,'actual readiness child','exec'),{})
@@ -114,7 +117,7 @@ def checking(page):
     keys=['shadow_verification','book','exposure','terminals']
     for key in keys:
         keyed(page,key).update(status='warn',color='amber',value='CHECK IN PROGRESS',valid_until=until,
-            recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,deadline=until))
+            recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,active=True,deadline=until))
     page['operator_review'].update(status='REVIEW',warnings=keys)
     page['dashboard_health'].update(status='warn',color='amber',review_conditions=keys)
     return page
@@ -158,6 +161,112 @@ def test_financial_wait_cannot_waive_failure_or_extend_authority(monkeypatch,fau
     audit={}
     with pytest.raises(AssertionError):run_child(monkeypatch,[page],expected,audit=audit)
     assert len(audit['calls'])==1
+
+
+def clean_retired_checking_page(monkeypatch):
+    from tests.scripts.test_sentinel_clean_retired_delivery import skipped_page
+    complete,expected=skipped_page(monkeypatch)
+    page=deepcopy(complete)
+    keys={'trading_run','automation_cycle','automation_step_transport','automation_step_reconcile','automation_step_complete'}
+    for key in keys:
+        row=keyed(page,key)
+        row.update(status='fail',original_status='fail',color='red',value='SUPERSEDED',recovery=None)
+    bound=(datetime.now(timezone.utc)+timedelta(seconds=60)).isoformat()
+    keyed(page,'paper_reconciliation').update(status='warn',original_status='warn',color='amber',
+        value='CHECK IN PROGRESS',valid_until=bound,
+        operational_fact=dict(kind='PAPER_VERIFICATION',state='CHECKING'),
+        recovery=dict(phase='FINANCIAL_VERIFICATION',automatic=True,operator_required=False,active=True,deadline=bound))
+    page['operator_review'].update(status='FAILED',active=sorted(keys),warnings=['paper_reconciliation'])
+    page['dashboard_health'].update(status='fail',color='red',active_conditions=sorted(keys),review_conditions=['paper_reconciliation'])
+    return page,complete,expected
+
+
+def test_exact_retired_projection_waits_for_positive_paper_proof_without_rewriting_rows(monkeypatch):
+    pending,complete,expected=clean_retired_checking_page(monkeypatch)
+    original=deepcopy(pending)
+    result,calls,diagnostic,elapsed=run_child(monkeypatch,[pending,complete],expected)
+    assert len(calls)==2 and elapsed==5 and result['terminal_state']=='SUPERSEDED'
+    assert result['readiness_observations']==2 and 'paper_reconciliation' in diagnostic
+    assert pending==original and result['reconciliation_id']==expected['reconciliation_id']
+
+
+def historical_retired_checking_page(monkeypatch):
+    pending,complete,expected=clean_retired_checking_page(monkeypatch)
+    end=(datetime.fromisoformat(expected['effective'])+timedelta(days=1)).replace(
+        tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc)-timedelta(microseconds=1)
+    row=keyed(pending,'trading_run');completed=expected['completed_at']
+    row.update(status='warn',original_status='warn',color='amber',valid_until=end.isoformat(),
+        operational_fact=dict(kind='EXECUTION_HISTORY',state='SUPERSEDED',opening=dict(
+            cycle_id=expected['cycle_id'],plan_id=expected['plan'],started_at=completed,deadline=end.isoformat(),
+            observation_id=expected['reconciliation_id'],terminal_reason='POST_PLAN_CASH_ACTIVITY_RECONCILED',
+            reconciled_at=completed)))
+    return pending,complete,expected
+
+
+def test_dated_retirement_history_warn_waits_only_for_current_paper_proof(monkeypatch):
+    pending,complete,expected=historical_retired_checking_page(monkeypatch)
+    result,calls,_,_=run_child(monkeypatch,[pending,complete],expected)
+    assert len(calls)==2 and result['terminal_state']=='SUPERSEDED'
+
+
+@pytest.mark.parametrize('fault',['plan','cycle','observation','reason','completion','reconciliation','deadline','missing'])
+def test_historical_retirement_pending_requires_exact_original_evidence(monkeypatch,fault):
+    pending,_,expected=historical_retired_checking_page(monkeypatch)
+    row=keyed(pending,'trading_run');opening=row['operational_fact']['opening']
+    if fault=='plan':opening['plan_id']='foreign'
+    elif fault=='cycle':opening['cycle_id']='foreign'
+    elif fault=='observation':opening['observation_id']+=1
+    elif fault=='reason':opening['terminal_reason']='OTHER'
+    elif fault=='completion':opening['started_at']=datetime.now(timezone.utc).isoformat()
+    elif fault=='reconciliation':opening['reconciled_at']=datetime.now(timezone.utc).isoformat()
+    elif fault=='deadline':opening['deadline']=row['valid_until']=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()
+    else:row['operational_fact']=None
+    audit={}
+    with pytest.raises((AssertionError,ValueError)):
+        run_child(monkeypatch,[pending],expected,audit=audit)
+    assert len(audit['calls'])==1
+
+
+@pytest.mark.parametrize('fault',['wrong_plan','wrong_cycle','new_clock','order','untyped_check','wrong_check',
+    'expired','extended','wrong_phase','other_negative','unknown_step','wrong_step','step_clock'])
+def test_retired_projection_pending_exception_is_closed(monkeypatch,fault):
+    page,_,expected=clean_retired_checking_page(monkeypatch)
+    run=keyed(page,'trading_run')['trading_run'];paper=keyed(page,'paper_reconciliation')
+    if fault=='wrong_plan':run['intent']['plan_id']='foreign'
+    elif fault=='wrong_cycle':run['intent']['cycle_id']='foreign'
+    elif fault=='new_clock':run['updated_at']=datetime.now(timezone.utc).isoformat()
+    elif fault=='order':run['orders']=[{'state':'UNKNOWN'}]
+    elif fault=='untyped_check':paper['operational_fact']=None
+    elif fault=='wrong_check':paper['operational_fact']=dict(kind='SHADOW_VERIFICATION',state='VERIFIED',session='2026-11-09')
+    elif fault in {'expired','extended'}:
+        bound=(datetime.now(timezone.utc)+timedelta(seconds=-1 if fault=='expired' else 601)).isoformat()
+        paper['valid_until']=paper['recovery']['deadline']=bound
+    elif fault=='wrong_phase':paper['recovery']['phase']='AWAITING_NEXT_DECISION'
+    elif fault=='other_negative':keyed(page,'broker').update(status='fail',color='red')
+    elif fault=='unknown_step':keyed(page,'automation_step_transport').update(status='unknown',color='red')
+    elif fault=='wrong_step':keyed(page,'automation_step_reconcile')['operational_fact']['state']='BLOCKED'
+    else:keyed(page,'automation_step_complete')['as_of']=datetime.now(timezone.utc).isoformat()
+    audit={}
+    with pytest.raises((AssertionError,ValueError)):
+        run_child(monkeypatch,[page],expected,audit=audit)
+    assert len(audit['calls'])==1
+
+
+def test_retired_pending_check_cannot_complete_or_reset_original_installer_budget(monkeypatch):
+    pending,_,expected=clean_retired_checking_page(monkeypatch)
+    original=deepcopy(pending);audit={}
+    with pytest.raises(AssertionError,match='APPLICATION_READINESS_DEADLINE'):
+        run_child(monkeypatch,[pending],expected,seconds=1,audit=audit)
+    assert pending==original and audit['calls'] and audit['out'].getvalue()==''
+
+
+def test_removed_retired_cycle_binding_guard_is_detected(monkeypatch):
+    guard="assert (run.intent.plan_id,run.intent.cycle_id)==(expected['plan'],expected['cycle_id'])"
+    assert readiness.PANEL_WAIT.count(guard)==1
+    monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(guard,
+        "assert run.intent.plan_id==expected['plan']"))
+    with pytest.raises(AssertionError):
+        test_retired_projection_pending_exception_is_closed(monkeypatch,'wrong_cycle')
 
 
 @pytest.mark.parametrize('fault',['plan','source','authority','broker','shadow_verification','review',
@@ -218,7 +327,7 @@ def test_repeated_pending_page_reaches_original_deadline_without_success_or_log_
 
 
 def test_nonstartup_classifier_has_an_executed_removed_guard_falsifier(monkeypatch):
-    guard=" assert conditions<=startup|checking|workflows and negatives<=startup,'NONSTARTUP_READINESS_FAILURE'\n"
+    guard=" assert conditions<=startup|checking|workflows|retiring and negatives<=startup|retiring,'NONSTARTUP_READINESS_FAILURE'\n"
     assert readiness.PANEL_WAIT.count(guard)==1
     monkeypatch.setattr(readiness,'PANEL_WAIT',readiness.PANEL_WAIT.replace(guard,''))
     with pytest.raises(AssertionError):
@@ -284,8 +393,8 @@ class GroupEngine:
         finally:self.closed=True
 
 
-def wait_group(engine):
-    return health.wait_many(engine,NAMES,IMAGE,180,clock=lambda:engine.clock)
+def wait_group(engine, *, deadline=180):
+    return health.wait_many(engine,NAMES,IMAGE,deadline,clock=lambda:engine.clock)
 
 
 def test_all_roles_share_one_subscription_and_post_subscription_fresh_observation():
@@ -301,18 +410,61 @@ def test_ready_roles_do_not_subscribe_or_sleep():
     assert len(engine.reads)==2 and engine.subscriptions==[]
 
 
-@pytest.mark.parametrize('fault',['id','image','start','restart_count','running','oom','restarting','unhealthy'])
+@pytest.mark.parametrize('fault',['id','image','start','restart_count','running','oom','restarting',
+                                  'bad_health','bad_health_shape','bad_health_type'])
 def test_events_cannot_admit_replaced_restarted_or_failed_roles(fault):
     after=group('healthy');item=after[NAMES[1]]
     if fault=='id':item['Id']='f'*64
     elif fault=='image':item['Image']='sha256:'+'f'*64
     elif fault=='start':item['State']['StartedAt']='changed'
     elif fault=='restart_count':item['RestartCount']=1
-    elif fault=='unhealthy':item['State']['Health']['Status']='unhealthy'
+    elif fault=='bad_health':item['State']['Health']['Status']='unrecognized'
+    elif fault=='bad_health_shape':item['State']['Health']=None
+    elif fault=='bad_health_type':item['State']['Health']['Status']=[]
     else:item['State'][{'running':'Running','oom':'OOMKilled','restarting':'Restarting'}[fault]]=fault!='running'
     engine=GroupEngine([group(),after],race=True)
     with pytest.raises(model.DeliveryRefused):wait_group(engine)
     assert engine.closed
+
+
+def test_same_process_unhealthy_can_recover_on_existing_subscription():
+    failed = group('healthy')
+    failed[NAMES[1]]['State']['Health']['Status'] = 'unhealthy'
+    engine = GroupEngine([group(), failed, group('healthy')], race=True)
+    assert wait_group(engine) == group('healthy')
+    assert len(engine.subscriptions) == 1 and len(engine.reads) == 3 * len(NAMES)
+    assert engine.closed
+
+
+def test_persistent_unhealthy_refuses_at_original_startup_deadline():
+    failed = group('unhealthy')
+    engine = GroupEngine([failed])
+    deadline = 5
+    with pytest.raises(model.DeliveryRefused, match='APPLICATION_READINESS_DEADLINE'):
+        wait_group(engine, deadline=deadline)
+    assert engine.clock == deadline-health.IO_SECONDS
+    assert len(engine.subscriptions) == 1 and engine.closed
+
+
+def test_unhealthy_role_cannot_be_admitted_after_a_restart():
+    restarted = group('healthy')
+    restarted[NAMES[1]]['RestartCount'] = 1
+    engine = GroupEngine([group('unhealthy'), restarted], race=True)
+    with pytest.raises(model.DeliveryRefused, match='APPLICATION_STARTUP_PROCESS_CHANGED'):
+        wait_group(engine)
+    assert len(engine.subscriptions) == 1 and engine.closed
+
+
+def test_healthy_only_startup_completion_has_executed_falsifier(monkeypatch):
+    source = inspect.getsource(health.wait_many)
+    guard = "value['State']['Health']['Status']=='healthy'"
+    assert source.count(guard) == 1
+    namespace = vars(health).copy()
+    exec(compile(source.replace(guard, "value['State']['Health']['Status'] in {'healthy','unhealthy'}"),
+                 '<admit-unhealthy-group>', 'exec'), namespace)
+    monkeypatch.setattr(health, 'wait_many', namespace['wait_many'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_persistent_unhealthy_refuses_at_original_startup_deadline()
 
 
 def test_group_incarnation_guard_has_an_executed_falsifier(monkeypatch):

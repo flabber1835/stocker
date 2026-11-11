@@ -15,21 +15,54 @@ _INDEPENDENT = frozenset({'backup_restore', 'shadow_worker', 'automation_alerts'
 _KNOWN = _SHADOW | _PAPER | _INDEPENDENT
 
 
+def display_current(panel):
+    """Human delivery can be proved independently of strict financial subjects."""
+    return (panel.observation_current if panel.observation_display_current is None
+            else panel.observation_display_current)
+
+
+def display_keys(panel):
+    return tuple(row.key for row in panel.rows
+                 if row.key in _KNOWN or row.key.startswith('automation_step_'))
+
+
 def row_current(panel, row):
     if panel.observation_current:
         return True
+    if row.key in panel.observation_display_keys and (
+            row.key in _KNOWN or row.key.startswith('automation_step_')):
+        if row.status in {model.FAIL, model.UNKNOWN}:
+            return True
+        if row.is_future(panel.now) or row.is_stale(panel.now):
+            return False
+        from sentinel.panel.presentation import _row_boundary
+        boundary = _row_boundary(row)
+        return ((boundary is None or panel.now < boundary)
+                and (row.paper_plan is None or panel.now < row.paper_plan.execute_at))
     changed = set(panel.observation_changed_scopes)
-    if not changed or changed - {'SHADOW', 'PAPER'}:
+    if (not changed and not panel.observation_retained) or changed - {'SHADOW', 'PAPER'}:
         return False
-    if row.key not in _KNOWN and not row.key.startswith('automation_step_'):
+    negative = row.status in {model.FAIL, model.UNKNOWN}
+    if row.key not in _KNOWN and not row.key.startswith('automation_step_') and not (
+            panel.observation_retained and negative):
         return False
-    if row.key in panel.observation_revalidated_keys and (
+    revalidated = row.key in panel.observation_revalidated_keys and (
             'SHADOW' in changed and row.key in _FINANCIAL_SHADOW
-            or 'PAPER' in changed and row.key == 'paper_reconciliation'):
-        return True
-    return not (('SHADOW' in changed and (row.key in _SHADOW or row.key.startswith('automation_step_')))
+            or 'PAPER' in changed and row.key == 'paper_reconciliation')
+    current = revalidated or not (('SHADOW' in changed and (row.key in _SHADOW or row.key.startswith('automation_step_')))
                 or ('PAPER' in changed and (row.key in _PAPER
                     or row.key.startswith('automation_step_'))))
+    if not current or not panel.observation_retained:
+        return current
+    if negative:
+        return True
+    if row.is_future(panel.now):
+        return False
+    from sentinel.panel.presentation import _row_boundary
+    boundary = _row_boundary(row)
+    if row.paper_plan is not None:
+        boundary = min(boundary, row.paper_plan.execute_at) if boundary else row.paper_plan.execute_at
+    return boundary is not None and panel.now < boundary
 
 
 def row_status(panel, row):

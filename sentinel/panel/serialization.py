@@ -8,12 +8,19 @@ from sentinel.panel.presentation import dashboard_health
 
 def public_payload(panel):
     """Use exactly the same evidence eligibility and clocks on every surface."""
+    health = dashboard_health(panel)
+    display_current = delivery.display_current(panel)
     return {
         'overall': panel.overall,
         'operational': panel.operational if panel.observation_current else model.UNKNOWN,
-        'color': color(panel.operational) if panel.observation_current else dashboard_health(panel)['color'],
-        'dashboard_health': dashboard_health(panel),
-        'observation': {'current': panel.observation_current,
+        'color': color(panel.operational) if panel.observation_current else health['color'],
+        'dashboard_health': health,
+        'observation': {'current': display_current,
+            'strict_current': panel.observation_current,
+            'display_current': display_current,
+            'display_keys': list(panel.observation_display_keys),
+            'retained': panel.observation_retained,
+            'generated_at': panel.observation_generated_at.isoformat() if panel.observation_generated_at else None,
             'changed_scopes': list(panel.observation_changed_scopes),
             'revalidated_keys': list(panel.observation_revalidated_keys),
             'valid_until': panel.observation_valid_until.isoformat() if panel.observation_valid_until else None},

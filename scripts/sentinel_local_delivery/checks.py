@@ -91,11 +91,47 @@ ISSUER_EVIDENCE_PREFIXES = (
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
 PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
+CASH_RETIRED_REASON = 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+CASH_RETIRED_DETAIL = 'native cash activity changed; await the next ordinary decision'
+
+
+def clean_cash_retirement(cycle):
+    """Exact terminal outcome, never an execution or generic failure exception."""
+    diagnostic = cycle.get('diagnostic') or {}
+    return (cycle.get('state') == 'SUPERSEDED'
+        and cycle.get('failure_code') == CASH_RETIRED_REASON
+        and cycle.get('failure_detail') == CASH_RETIRED_DETAIL
+        and diagnostic.get('clean') is True
+        and diagnostic.get('runtime_state') == 'RUNNING'
+        and diagnostic.get('cash_plan_superseded') is True
+        and diagnostic.get('restricted_securities') == {}
+        and diagnostic.get('observation_id') is not None
+        and str(diagnostic['observation_id']) == str(cycle.get('last_clean_reconciliation_id'))
+        and all(type(diagnostic.get(key)) is list and diagnostic[key] == []
+            for key in ('unresolved', 'foreign_orders', 'foreign_positions')))
+
+
+_CLEAN_CASH_RETIRED_SQL = ("s.state='SUPERSEDED' "
+    "AND s.failure_code='"+CASH_RETIRED_REASON+"' "
+    "AND s.failure_detail='"+CASH_RETIRED_DETAIL+"' "
+    "AND s.diagnostic->'clean'='true'::jsonb "
+    "AND s.diagnostic->>'runtime_state'='RUNNING' "
+    "AND s.diagnostic->'cash_plan_superseded'='true'::jsonb "
+    "AND s.diagnostic->'restricted_securities'='{}'::jsonb "
+    "AND s.diagnostic->>'observation_id'=s.last_clean_reconciliation_id "
+    "AND s.diagnostic->'unresolved'='[]'::jsonb "
+    "AND s.diagnostic->'foreign_orders'='[]'::jsonb "
+    "AND s.diagnostic->'foreign_positions'='[]'::jsonb")
 # Exact operational prefixes preserve their complete rows in the existing
 # bounded snapshot. LIKE keeps prefix meaning independent of database collation.
 _ISSUER_EVIDENCE_FILTER = ' OR '.join(
     "x.cursor_name LIKE '"+prefix+"%'"
     for prefix in ISSUER_EVIDENCE_PREFIXES)
+_ISSUER_EVIDENCE_FIELDS = ("'count',count(*),"
+    "'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),''))")
+ISSUER_LINEAGE_SQL = (f'SELECT json_build_object({_ISSUER_EVIDENCE_FIELDS},'
+    "'lineage_overlap',coalesce(bool_or(x.state ?| ARRAY['wealth_core','strategy_identity']),false)) "
+    'FROM sentinel_processed_sessions x WHERE '+_ISSUER_EVIDENCE_FILTER)
 
 _SNAPSHOT_SQL = r'''WITH candidates AS (
  SELECT s.* FROM sentinel_automation_cycles s
@@ -154,8 +190,7 @@ SELECT json_build_object(
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
      OR x.cursor_name LIKE 'shadow-observation:v1:%'),
- 'issuer_evidence',(SELECT json_build_object('count',count(*),
-   'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),'')))
+ 'issuer_evidence',(SELECT json_build_object(__ISSUER_EVIDENCE_FIELDS__)
    FROM sentinel_processed_sessions x WHERE __ISSUER_EVIDENCE_FILTER__),
  'push_subscriptions',(SELECT json_build_object(
    'active',count(*) FILTER (WHERE x.retired_at IS NULL),
@@ -180,15 +215,16 @@ def handoff_filters(mode):
         candidate = "s.state='WAITING_OPEN'"
         ready = ("s.state='WAITING_OPEN' AND s.failure_code IS NULL AND s.failure_detail IS NULL "
             "AND s.completed_at IS NULL AND s.execute_at>clock_timestamp()+interval '15 minutes'")
-    elif mode=='POST_TRADE':
-        candidate = ("s.state='SUCCEEDED' AND s.effective_session="
+    elif mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
+        terminal = "s.state='SUCCEEDED' AND s.failure_code IS NULL AND s.failure_detail IS NULL"
+        if mode=='POST_TRADE':
+            terminal = '('+terminal+') OR ('+_CLEAN_CASH_RETIRED_SQL+')'
+        candidate = ("("+terminal+") AND s.effective_session="
             "(clock_timestamp() AT TIME ZONE 'America/New_York')::date")
-        ready = ("s.state='SUCCEEDED' AND s.failure_code IS NULL AND s.failure_detail IS NULL "
+        ready = ("("+terminal+") "
             "AND s.completed_at IS NOT NULL AND s.execute_at<=s.completed_at "
             "AND s.completed_at<=clock_timestamp() "
             "AND s.execution_close_at>clock_timestamp()+interval '15 minutes'")
-    elif mode=='POST_TRADE_SUCCESSOR':
-        return handoff_filters('POST_TRADE')
     elif mode=='BLOCKED_UNSENT':
         candidate = "s.state='BLOCKED' AND s.plan_id IS NULL"
         ready = ("s.state='BLOCKED' AND s.plan_id IS NULL AND s.completed_at IS NOT NULL "
@@ -216,8 +252,11 @@ def snapshot_sql(mode='PRE_OPEN'):
             WHERE o.seq::text=s.last_clean_reconciliation_id AND o.runtime_state='RUNNING'
               AND o.completeness='COMPLETE' AND r.broker=c.broker
               AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),"""
+        settled += """'retired_plan_commands',(SELECT count(*) FROM sentinel_commands x
+            WHERE x.plan_id=s.plan_id),"""
     statement = (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
         .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled)
+        .replace('__ISSUER_EVIDENCE_FIELDS__',_ISSUER_EVIDENCE_FIELDS)
         .replace('__ISSUER_EVIDENCE_FILTER__',_ISSUER_EVIDENCE_FILTER))
     if mode=='BLOCKED_UNSENT':
         statement = (statement.replace('s.control_generation=c.generation AND',
@@ -252,6 +291,9 @@ def snapshot_sql(mode='PRE_OPEN'):
 def successor_snapshot_sql():
     """Keep completed history distinct from the sole current successor plan."""
     statement=snapshot_sql('POST_TRADE')
+    ordinary_candidate,ordinary_ready=handoff_filters('POST_TRADE')
+    successor_candidate,successor_ready=handoff_filters('POST_TRADE_SUCCESSOR')
+    statement=statement.replace(ordinary_candidate,successor_candidate).replace(ordinary_ready,successor_ready)
     statement=statement.replace(
         's.control_generation=c.generation AND s.config_sha256=c.config_sha256',
         's.control_generation<c.generation')
@@ -337,6 +379,28 @@ from sentinel.feed.publication import CorpusLockUnavailable
 from sentinel.panel.pwa import SERVICE_WORKER
 from sentinel.panel.render import PUSH_SCRIPT
 expected=json.loads(sys.argv[1])
+def _classify_routed(proof, **options):
+    row=proof.execute("SELECT state #>> '{checkpoint,observation_id}',"
+        "state #>> '{checkpoint,starting_cash}' FROM sentinel_processed_sessions WHERE cursor_name=%s",
+        (rolling_checkpoint.CURSOR,)).fetchone()
+    assert row is not None and all(value is not None for value in row), 'canonical origin routing missing'
+    observation_id,starting_cash=row
+    # These scalars only route the existing fully authenticated status proof.
+    return rolling_runtime._classify_owned(proof,observation_id=observation_id,
+        starting_cash=Decimal(starting_cash),**options)
+
+def _rolling_status(conn):
+    if all(callable(getattr(rolling_runtime,name,None)) for name in (
+            '_committed_status','_classify_owned','_verified_result')):
+        conn.rollback()
+        return rolling_runtime._verified_result(rolling_runtime._committed_status(conn,_classify_routed))
+    # Older qualified images can still use their public rolling status owner.
+    origin=rolling_checkpoint.read(conn)
+    assert origin is not None
+    observation_id,starting_cash=origin.observation_id,Decimal(origin.starting_cash)
+    conn.rollback()
+    return rolling_runtime.status(conn,observation_id=observation_id,starting_cash=starting_cash)
+
 def verify_once():
     dsn=make_conninfo(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=5,
         options='-c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=1000')
@@ -348,12 +412,7 @@ def verify_once():
         assert bound.to_dict()==expected['binding']
         assert config_from_env().fingerprint==expected['config']
         runtime,strategy=_current_system_identities()
-        origin=rolling_checkpoint.read(conn)
-        assert origin is not None
-        observation_id,starting_cash=origin.observation_id,Decimal(origin.starting_cash)
-        # The canonical status reader owns a fresh repeatable-read transaction.
-        conn.rollback()
-        result=rolling_runtime.status(conn,observation_id=observation_id,starting_cash=starting_cash)
+        result=_rolling_status(conn)
         assert result is not None and result.session==expected['decision']
         assert result.shadow_verdict=='SHADOW_GO' and result.verification=='VERIFIED'
         plan=journal.load_plan(conn,expected['plan'])
@@ -663,7 +722,7 @@ assert all(Decimal(row['qty']).is_finite() and Decimal(row['qty'])>0 for row in 
 print(json.dumps({row['asset_id']:row['qty'] for row in positions},sort_keys=True))
 '''
 
-PANEL = r'''import json,sys,urllib.request
+PANEL = r'''import json,re,sys,urllib.request
 from datetime import datetime,timedelta,timezone
 expected=json.loads(sys.argv[1])
 with urllib.request.urlopen('http://127.0.0.1:8000/panel.json',timeout=25) as response:
@@ -681,12 +740,13 @@ def utc_clock(value):
 def current_boundaries(at):
  assert at<health_until<=observation_until<=observed+timedelta(seconds=30)
 review_amber=None
-if not post_trade:
+if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
  from sentinel.panel.review_model import OperatorReview
  assert observed.utcoffset()==timedelta(0)
  assert response.headers.get('X-Sentinel-Panel-Status')=='CURRENT'
  observation=page['observation']
  assert observation['current'] is True and observation['changed_scopes']==[]
+ if 'strict_current' in observation: assert observation['strict_current'] is True
  assert observation['revalidated_keys']==[]
  observation_until=utc_clock(observation['valid_until'])
  review=OperatorReview.model_validate(page['operator_review'])
@@ -699,18 +759,21 @@ if not post_trade:
  health_until=utc_clock(health['valid_until'])
  current_boundaries(now)
  assert len(rows)==len(page['rows']) and not page['source_errors']
- if review.status=='REVIEW':
+ if post_trade or review.status=='REVIEW':
   from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
-  assert review.head>review.reviewed_head
-  assert health['status']=='warn' and health['color']=='amber'
-  assert page['color'] in {'green','amber'}
-  for key in (*_HISTORY_CURRENT_FACTS,'paper_plan'):
+  for key in (*_HISTORY_CURRENT_FACTS,'trading_run' if post_trade else 'paper_plan'):
    fact=rows[key]
    assert fact['status']=='ok' and fact['color']=='green' and fact['current'] is True
    assert fact['stale'] is False and fact['future'] is False
    assert utc_clock(fact['as_of'])<=now+timedelta(seconds=5)
    if fact.get('valid_until') is not None: assert now<utc_clock(fact['valid_until'])
-  assert all(rows[key]['status']=='warn' for key in ('automation_cycle','automation_step_open'))
+ if review.status=='REVIEW':
+  assert review.head>review.reviewed_head
+  assert health['status']=='warn' and health['color']=='amber'
+  assert page['color'] in {'green','amber'}
+  if not post_trade:
+   assert all(rows[key]['status']=='warn' for key in ('automation_cycle','automation_step_open'))
+ if post_trade or review.status=='REVIEW':
   for fact in page['rows']:
    assert fact['current'] is True
    assert fact['status'] in {'ok','warn','pending'}
@@ -721,15 +784,23 @@ if not post_trade:
     if fact['as_of'] is not None:
      assert utc_clock(fact['as_of'])<=now+timedelta(seconds=5)
     elif fact['key']=='paper_reconciliation':
-     assert fact['paper_alignment'] in {'SCHEDULED','SCHEDULED_WITH_HISTORY'}
-     assert utc_clock(fact['valid_until'])==utc_clock(rows['paper_plan']['paper_plan']['execute_at'])-timedelta(microseconds=1)
+     if post_trade:
+      assert fact['recovery'] is None and fact['operational_fact']['kind']=='PAPER_VERIFICATION'
+      assert fact['operational_fact']['state']=='PENDING' and now<utc_clock(fact['valid_until'])
+     else:
+      assert fact['paper_alignment'] in {'SCHEDULED','SCHEDULED_WITH_HISTORY'}
+      assert utc_clock(fact['valid_until'])==utc_clock(rows['paper_plan']['paper_plan']['execute_at'])-timedelta(microseconds=1)
     else:
      assert fact['key'] in {'automation_cycle','automation_step_open'}
     if fact.get('valid_until') is not None: assert now<utc_clock(fact['valid_until'])
    if fact['status']=='warn':
-    assert fact['key'] in {'paper_reconciliation','automation_cycle','automation_step_open','automation_alerts'}
+    assert fact['key'] in ({'paper_reconciliation','automation_alerts'} if post_trade else
+     {'paper_reconciliation','automation_cycle','automation_step_open','automation_alerts'})
     if fact['key']=='automation_alerts':
      assert fact['required_current'] is False and fact['stale'] is False and fact['future'] is False
+     if post_trade:
+      assert re.fullmatch(r'0 pending · 0 DLQ · [1-9][0-9]* unacked',fact['value'])
+      assert fact.get('recovery') is None
     elif fact['key']!='paper_reconciliation':
      assert fact['value']=='WAITING_OPEN' and fact['required_current'] is True
      workflow=fact['operational_fact']
@@ -744,10 +815,15 @@ if not post_trade:
   assert now-timedelta(seconds=30)<=utc_clock(leader['as_of'])<=now+timedelta(seconds=5)
   assert now<utc_clock(leader['valid_until'])
   assert rows['shadow_verification']['value']=='SHADOW VERIFIED THROUGH '+expected['decision']
+ if review.status=='REVIEW':
   review_amber=dict(dashboard_health=health,observation={key:observation[key] for key in ('current','valid_until')},
    operator_review={key:page['operator_review'][key] for key in
     ('scope','head','reviewed_head','status','observed_at','reviewed_at')},
-   operational_ready=False,installation_scope='PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW')
+   operational_ready=False,installation_scope=('POST_TRADE_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW'
+    if post_trade else 'PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_OPERATOR_REVIEW'))
+  if post_trade:
+   review_amber['installation_review_pending']=True
+   review_amber['observation']['strict_current']=observation.get('strict_current',observation['current'])
  else:
   assert health['status']=='ok' and health['color']=='green'
 plan=(rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade else rows.get('paper_plan',{}).get('paper_plan')
@@ -755,6 +831,8 @@ assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
 assert str(plan.get('decision_session'))==expected['decision']
 assert str(plan.get('effective_session'))==expected['effective']
 assert rows['automation_cycle']['value']==('SUCCEEDED' if post_trade else 'WAITING_OPEN')
+if post_trade:
+ assert rows['automation_cycle']['status']=='ok' and rows['trading_run']['trading_run']['state']=='SUCCEEDED'
 history_warning=None
 if not post_trade and (rows['paper_reconciliation']['status']=='warn'
  or rows['paper_reconciliation'].get('paper_alignment')=='SCHEDULED_WITH_HISTORY'
@@ -817,10 +895,87 @@ if history_warning is not None:
   installation_scope='PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_HISTORY_WARNING')
 output.update(review_amber or {})
 if not post_trade: current_boundaries(datetime.now(timezone.utc))
+if post_trade: current_boundaries(datetime.now(timezone.utc))
 print(json.dumps(output,sort_keys=True))
 '''
 
 BLOCKED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _BLOCKED_PANEL_BODY
+
+_SKIPPED_PANEL_BODY = r'''from sentinel.panel.review_model import OperatorReview
+from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
+from sentinel.panel.model import OperationalFact
+assert expected.get('clean_retired') is True and expected['handoff_mode']=='POST_TRADE'
+assert len(rows)==len(page['rows']) and not page['source_errors']
+assert response.headers.get('X-Sentinel-Panel-Status')=='CURRENT'
+observation=page['observation']
+assert observation['current'] is True and observation.get('strict_current',True) is True
+assert observation['changed_scopes']==[] and observation['revalidated_keys']==[]
+def clock(value):
+ at=datetime.fromisoformat(value.replace('Z','+00:00'))
+ assert at.utcoffset()==timedelta(0)
+ return at
+assert observed.utcoffset()==timedelta(0)
+health=page['dashboard_health'];review=OperatorReview.model_validate(page['operator_review'])
+assert review.status in {'CLEAN','REVIEW'} and not review.active and not review.warnings
+assert health['active_conditions']==[] and health['review_conditions']==[]
+assert health['color']==('green' if review.status=='CLEAN' else 'amber')
+assert health['status']==('ok' if review.status=='CLEAN' else 'warn')
+assert now<clock(health['valid_until'])<=clock(observation['valid_until'])<=observed+timedelta(seconds=30)
+for key in _HISTORY_CURRENT_FACTS:
+ row=rows[key]
+ assert row['status']=='ok' and row['current'] is True and row['color']=='green'
+ assert row['stale'] is False and row['future'] is False
+ assert clock(row['as_of'])<=now+timedelta(seconds=5)
+ if row.get('valid_until') is not None:assert now<clock(row['valid_until'])
+for row in page['rows']:
+ assert row['status'] not in {'fail','unknown'} and row['color']!='red'
+ if row['required_current']:
+  assert row['current'] is True and row['status'] in {'ok','warn'}
+  assert row['stale'] is False and row['future'] is False
+  if row.get('valid_until') is not None:assert now<clock(row['valid_until'])
+run=rows['trading_run']['trading_run'];intent=run['intent']
+assert run['state']=='SUPERSEDED' and intent['plan_id']==expected['plan']
+assert intent['cycle_id']==expected['cycle_id']
+assert intent['decision_session']==expected['decision'] and intent['effective_session']==expected['effective']
+assert clock(run['updated_at'])==clock(expected['completed_at'])
+assert run['orders']==[]
+assert rows['trading_run']['status']=='warn'
+assert rows['automation_cycle']['value']=='WAITING FOR NEXT DECISION · PLAN SKIPPED'
+assert rows['automation_cycle']['status']=='warn'
+assert rows.get('paper_plan',{}).get('paper_plan') is None
+paper=rows['paper_reconciliation']
+assert paper['status']=='warn' and paper['required_current'] is True
+fact=OperationalFact.model_validate(paper['operational_fact']);fact.require_key('paper_reconciliation')
+assert fact.kind=='PAPER_VERIFICATION' and fact.state=='AWAITING_NEXT_DECISION'
+assert fact.opening.cycle_id==expected['cycle_id'] and fact.opening.plan_id==expected['plan']
+assert fact.opening.observation_id==int(expected['reconciliation_id'])
+assert fact.opening.started_at==clock(expected['completed_at'])
+assert fact.opening.started_at<=now<fact.opening.deadline==clock(paper['valid_until'])
+recovery=paper['recovery']
+assert recovery['phase']=='AWAITING_NEXT_DECISION' and recovery['automatic'] is True
+assert recovery['operator_required'] is False and recovery['active'] is True
+assert clock(recovery['deadline'])==fact.opening.deadline
+assert rows['automation']['value']=='ENABLED · KILL RELEASED'
+assert rows['feed']['value']==expected['decision']+' · 0 sessions behind'
+assert rows['shadow_verification']['value']=='SHADOW VERIFIED THROUGH '+expected['decision']
+assert rows['automation_alerts']['status'] in {'ok','warn'}
+output=dict(as_of=page['as_of'],color=page['color'],source_errors=[],
+ plan=dict(plan_id=intent['plan_id'],decision=intent['decision_session'],effective=intent['effective_session']),
+ cycle=rows['automation_cycle']['value'],terminal_state='SUPERSEDED',
+ terminal_reason='POST_PLAN_CASH_ACTIVITY_RECONCILED',reconciliation_id=fact.opening.observation_id,
+ installation_panel_valid_until=min(clock(health['valid_until']),clock(observation['valid_until'])).isoformat(),
+ operational_ready=review.status=='CLEAN',
+ installation_scope='CLEAN_RETIRED_PLAN_COMPATIBLE_APPLICATION_REPAIR',
+ dashboard_health=health,observation=observation)
+if review.status=='REVIEW':
+ assert review.head>review.reviewed_head
+ output.update(installation_review_pending=True,operator_review={key:page['operator_review'][key]
+  for key in ('scope','head','reviewed_head','status','observed_at','reviewed_at')})
+assert datetime.now(timezone.utc)<clock(output['installation_panel_valid_until'])
+print(json.dumps(output,sort_keys=True))
+'''
+
+SKIPPED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _SKIPPED_PANEL_BODY
 
 _SUCCESSOR_PANEL_BODY = r'''assert not page['source_errors']
 recorded=rows.get('completed_trading_run',{}).get('trading_run')

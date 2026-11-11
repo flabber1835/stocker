@@ -24,6 +24,7 @@ from pathlib import Path
 from time import monotonic as diagnostic_clock
 
 from sentinel.feed import calendar
+from sentinel.feed import observation_timing
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
 from sentinel import shadow_restart_recovery as restart_recovery
 from sentinel.shadow_service_config import ShadowServiceConfig, ShadowServiceWaiting
@@ -40,6 +41,25 @@ def service_health(config: ShadowServiceConfig, *, now: datetime | None = None) 
     """Keep the public fallback seam without bootstrapping financial runtime."""
     from sentinel.shadow_recovery import service_health as original
     return original(config, now=now)
+
+
+def _next_acquisition_close(started_at):
+    try:
+        previous = observation_timing.latest_acquirable_session(started_at)
+        return observation_timing.acquisition_not_before(calendar.next_session(previous))
+    except (calendar.CalendarUnavailable, calendar.NonSessionDate):
+        return None
+
+
+def _poll_after_worker(*, deadline, close_at, stopping, heartbeat):
+    while not stopping():
+        remaining = deadline - time.monotonic()
+        if close_at is not None:
+            remaining = min(remaining, (close_at - shadow_budget.now()).total_seconds())
+        if remaining <= 0:
+            return
+        heartbeat()
+        time.sleep(min(1.0, remaining))
 
 
 def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,
@@ -490,6 +510,7 @@ def _run_owned(owner_fd) -> int:
     active: subprocess.Popen | None = None
     terminated = False
     consecutive_failures = 0
+    close_at = None
 
     def stop(_signum=None, _frame=None):
         nonlocal stopping, terminated
@@ -534,9 +555,10 @@ def _run_owned(owner_fd) -> int:
                 continue
             _diagnostic('ARM', 'ACCEPTED', started=arm_started, attempt=attempt)
             started = time.monotonic()
+            worker_started_at = shadow_budget.now()
             worker_env = dict(os.environ)
             worker_env[shadow_budget.DEADLINE_ENV] = (
-                shadow_budget.now() + timedelta(seconds=deadline_seconds)).isoformat()
+                worker_started_at + timedelta(seconds=deadline_seconds)).isoformat()
             spawn_started = diagnostic_clock()
             try:
                 active = subprocess.Popen(
@@ -625,9 +647,11 @@ def _run_owned(owner_fd) -> int:
 
             heartbeat()
             deadline = time.monotonic() + config.poll_seconds
-            while not stopping and time.monotonic() < deadline:
-                heartbeat()
-                time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+            if getattr(config, 'operational_source_only', False) and (
+                    close_at is None or worker_started_at >= close_at):
+                close_at = _next_acquisition_close(worker_started_at)
+            _poll_after_worker(deadline=deadline, close_at=close_at,
+                               stopping=lambda: stopping, heartbeat=heartbeat)
     finally:
         # Dispose of the active worker before any best-effort filesystem cleanup.
         if active is not None:

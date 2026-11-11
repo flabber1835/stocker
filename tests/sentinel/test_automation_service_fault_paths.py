@@ -1719,6 +1719,65 @@ def supervised_reader_double(monkeypatch, process, parent, child_channel, *, gro
     return lambda: SimpleNamespace(close=lambda: None)
 
 
+@pytest.mark.parametrize('mode', ['revoked_before_check', 'refusal_after_stop', 'stuck'])
+def test_authority_observer_shutdown_preserves_callback_ownership(monkeypatch, mode):
+    process = Process(alive=False)
+    parent, child_channel = Channel(), Channel()
+    parent.poll = lambda: True
+    parent.recv_bytes = lambda: b'{"kind":"result","value":"completed callback"}'
+    connect = supervised_reader_double(monkeypatch, process, parent, child_channel)
+    context = Context()
+    joins, checks = [], []
+
+    class Worker:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.authority = name.startswith('sentinel-callback-authority-')
+
+        def start(self):
+            if not self.authority or mode == 'stuck':
+                return
+            if mode == 'revoked_before_check':
+                context.cancellation.cancel('revoked before authority observation')
+            self.target()
+
+        def join(self, *, timeout):
+            joins.append((self.authority, timeout))
+
+        def is_alive(self):
+            return self.authority and mode == 'stuck'
+
+    def authority(checked_context, stopped):
+        assert checked_context is context and mode == 'refusal_after_stop'
+        checks.append('observed')
+        stopped.set()
+        raise module.NonRetryableCallbackRefused('authority refusal after owner stopped')
+
+    async def callback(_context):
+        pytest.fail('parent executed the supervised child callback')
+
+    monkeypatch.setattr(module.threading, 'Thread', Worker)
+    monkeypatch.setattr(module, 'CALLBACK_AUTHORITY_SECONDS', 0)
+    service = module.AutomationService(config=AutomationConfig(), holder_id='authority-shutdown-lab',
+        refresh=callback, prepare=callback, recover=callback, execute=callback)
+    service.callback_authority = authority
+    invocation = service._invoke(callback, context, permit=None,
+        phase='PREPARE', heartbeat_conn_factory=connect)
+    if mode == 'refusal_after_stop':
+        assert asyncio.run(invocation) == 'completed callback'
+        assert checks == ['observed'] and not context.cancellation.cancelled
+    elif mode == 'revoked_before_check':
+        with pytest.raises(module.StaleLeaderRefused, match='revoked before authority observation'):
+            asyncio.run(invocation)
+        assert checks == [] and context.cancellation.cancelled
+    else:
+        with pytest.raises(module.SupervisorIntegrityFailure, match='authority observer did not stop'):
+            asyncio.run(invocation)
+        assert checks == [] and context.cancellation.cancelled
+    assert joins == [(True, 3), (False, 1)]
+    assert parent.closed and child_channel.closed and not process.is_alive()
+
+
 def test_startup_without_owned_connection_refuses_before_child_or_registration(monkeypatch):
     process = Process(alive=False)
     parent, child_channel = Channel(), Channel()

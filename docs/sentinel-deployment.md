@@ -1,5 +1,57 @@
 # Sentinel current operating contract
 
+[WAL proof refresh overlap](backup-proof-refresh-overlap.md) defines how backed
+PAPER can use a current completed receipt during an exclusive maintenance scrub,
+with renewal scheduled from the original byte-proof clock.
+
+[Market close root corrections](market-close-root-corrections.md) records the
+November 10 retry, verification, exposure and diagnostic corrections and their
+qualified local PAPER handoff.
+
+[Installation critical-path reuse](installation-critical-path-reuse.md) removes
+repeated rolling dispatch reconstruction, stale queued verification work and
+avoidable result-publication delay while retaining every financial gate and
+original deadline. It also consolidates independent immutable image facts in
+their existing isolated bootstrap. Qualification and local delivery are required
+before this becomes the installed operating release.
+
+[Opening proof ownership](opening-proof-work-ownership.md) removes duplicate
+authenticated checkpoint loads inside one committed proof.
+[Opening health continuity](opening-health-state-continuity.md) preserves known
+negative evidence and distinguishes bounded execution and positively reconciled
+plan retirement. [Native fee continuation](native-fee-plan-continuation.md)
+defines the explicit forward-only debit-fee policy with exact membership and
+fresh cash guards. [Clean retired-plan installation](clean-retired-plan-installation.md)
+admits a backed software roll without reviving or relabeling that retired plan.
+
+[Backup maintenance transition continuity](backup-maintenance-transition-continuity.md)
+keeps already-proved bounded maintenance visible across ordinary proof expiry
+and preserves initiating worker failures before transaction cleanup.
+
+[Deadline-owned backup renewal](backup-renewal-deadline-recovery.md) records the
+local correction of failed-pass scheduling, lost diagnostic causes and unrelated
+waiting-row attribution. It preserves proof expiries and financial authority;
+qualified installation and safe reader handover establish operational delivery.
+
+[Dashboard dependency handoff](dashboard-dependency-handoff.md) separates routine
+account/receipt renewal from independent display facts, retaining strict financial
+subjects and coherent read-only consumption.
+
+[Dashboard boundary delivery](dashboard-boundary-delivery.md) separates bounded
+human display continuity from strict current evidence at workflow transitions.
+
+[Opening observation isolation](opening-observation-isolation.md) separates
+private warm proof reuse and coherent operational reads from financial writes.
+
+[Independent backup renewal projection](backup-renewal-projection.md) binds
+bounded maintenance progress to its physical database and exact base lineage,
+independently of the application image. It preserves financial backup gates.
+
+[Plan preparation work and view continuity](plan-preparation-work-and-view.md)
+records the owner-authorized local correction of repeated archive/structural
+verification, callback authority renewal and duplicate or regressing plan cards.
+Its design is not an installation or financial readiness claim.
+
 [Activation producer health handoff](activation-shadow-health-handoff.md) joins
 the canonical publisher's configuration-bound health renewal before financial
 attestation can advance activation. An obsolete authenticated hint remains

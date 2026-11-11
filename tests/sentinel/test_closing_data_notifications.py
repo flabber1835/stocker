@@ -447,9 +447,9 @@ def test_reviewed_wrapper_consistency_guard_has_an_executed_mutant(monkeypatch):
     wrapped=TransientInfrastructureFailure('an unrelated infrastructure problem')
     wrapped.__cause__=CorpusLockUnavailable('publisher busy')
     assert runtime._publication_closing_wait(wrapped,database_url='private-test-db',cycle=cycle) is None
-    source=inspect.getsource(runtime._publication_closing_wait)
+    source=inspect.getsource(runtime._native_publication_pin)
     assert source.count('expected.args == exc.args')==1
     namespace=dict(vars(runtime))
     exec(source.replace('expected.args == exc.args','True'),namespace)
     with pytest.raises(AssertionError):
-        assert namespace['_publication_closing_wait'](wrapped,database_url='private-test-db',cycle=cycle) is None
+        assert namespace['_native_publication_pin'](wrapped) is None

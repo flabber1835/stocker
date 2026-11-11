@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from decimal import Decimal
+import functools
 import json
 import os
 from pathlib import Path
@@ -28,13 +29,29 @@ from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 from sentinel.execution import journal, protected_funding
 from sentinel.execution.states import CommandState
 from sentinel.core.formation_inputs import FormationInputs
-from sentinel.feed import normalized_layout, operational_snapshot as snapshots, rolling_store
+from sentinel.feed import issuer_reference, normalized_layout, operational_snapshot as snapshots, rolling_store
 from sentinel.strategy import production_strategy
 from tests.sentinel.test_current_operational_workflow import OBSERVATION, cluster, conn, current  # noqa: F401
 from tests.support.current_workflow_authority import issue_current_paper_authority
+from tests.support.current_workflow_clock import BusinessClock
 from tests.support.current_workflow_faults import (ProxyTransport, fenced_private_control,
     independent_provider, kill_owned_callback)
 from tests.support.current_workflow_run import _assets, live_lease
+
+
+def _observe_private_callback_authority(roots, reference, reference_sha256, now,
+                                        sentinel_config, automation_config, holder_id, permit):
+    """Supply the private issuer inputs to the real spawned observer."""
+    from sentinel.authority import validation
+
+    load_trust_roots = validation.load_trust_roots
+    with pytest.MonkeyPatch.context() as inputs:
+        BusinessClock(now).install(inputs)
+        inputs.setattr(validation, 'load_trust_roots', lambda _path=None: load_trust_roots(roots))
+        inputs.setattr(issuer_reference, 'BUNDLED_PATH', reference)
+        inputs.setattr(issuer_reference, 'BUNDLED_SNAPSHOT_SHA256', reference_sha256)
+        return automation_runtime._observe_callback_authority(
+            sentinel_config, automation_config, holder_id, permit)
 
 
 @pytest.mark.skipif(sys.platform != 'linux', reason='actual fork/SIGKILL and durable directory fsync')
@@ -114,8 +131,14 @@ def test_current_protected_day_survives_two_callback_deaths_without_duplicate_ec
             # heartbeat; never direct in-process callback execution.
             conn.rollback()
             assert conn.info.transaction_status is TransactionStatus.IDLE
-            raw = asyncio.run(campaign.service._invoke(callback, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase=phase, heartbeat_conn_factory=campaign.connect))
+            with monkeypatch.context() as inputs:
+                # Forked callbacks inherit fixture inputs. The authority observer
+                # starts fresh, so give it the same dated files and market clock.
+                inputs.setattr(automation_runtime, '_observe_callback_authority', functools.partial(
+                    _observe_private_callback_authority, tmp_path/'current-workflow-public-roots.json',
+                    issuer_reference.BUNDLED_PATH, issuer_reference.BUNDLED_SNAPSHOT_SHA256, clock.now()))
+                raw = asyncio.run(campaign.service._invoke(callback, CycleContext(cycle=cycle, permit=permit),
+                    permit=permit, phase=phase, heartbeat_conn_factory=campaign.connect))
             return result_type.model_validate(raw)
 
         with live_lease(dsn, permit, config):

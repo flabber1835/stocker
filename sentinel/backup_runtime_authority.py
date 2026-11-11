@@ -9,7 +9,9 @@ manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
 performs two bounded byte scrubs on first use and at least every five minutes.
-Within that interval unchanged objects reuse the proof; new or changed objects
+Within that interval unchanged objects reuse the proof; backed owner PAPER can
+authenticate a PostgreSQL-host-scoped receipt across disposable processes.
+Other callers retain their private process scope. New or changed objects
 are hashed immediately. Coarse timestamps cannot prove immutability, so expiry
 forces a full scrub even if metadata is unchanged. Reuse never extends expiry.
 The PostgreSQL OS identity also lstat-checks every required object so a symlink or
@@ -25,6 +27,7 @@ its primary-local checkpoint is never a new external-chain proof.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from pathlib import Path
 import re
@@ -52,12 +55,53 @@ _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
-# Process-local proofs are never transferred to another process or database.
+# This fallback cache is never transferred. PAPER shared reuse independently
+# authenticates its separate physical-incarnation/boot-bound receipt.
 _PROOF_CACHE: dict[tuple, dict] = {}
 
 
 class BackupRuntimeUnavailable(backup_guard.BackupUnavailable, ConnectionError):
     """The durable target/restore chain may heal without changing authority."""
+
+
+class BackupIntegrityBusy(BackupRuntimeUnavailable):
+    """The existing common proof owner has not relinquished its lock."""
+
+
+class BackupIntegritySelectionMoved(BackupRuntimeUnavailable):
+    """A newly proved current base differs from the caller's older selection."""
+
+
+class BackupIntegrityProofExpired(BackupRuntimeUnavailable):
+    """An authenticated original completion clock actually reached its limit."""
+
+    def __init__(self, *, completed_uptime: float, observed_uptime: float):
+        if (any(type(v) not in (int, float) or not math.isfinite(v) or v < 0
+                for v in (completed_uptime, observed_uptime))
+                or observed_uptime-completed_uptime < FULL_SCRUB_SECONDS):
+            raise ValueError('invalid original proof expiry clocks')
+        self.completed_uptime = float(completed_uptime)
+        self.observed_uptime = float(observed_uptime)
+        super().__init__('backup integrity complete proof expired during admission')
+
+
+class BackupContinuityUnavailable(BackupRuntimeUnavailable):
+    """Retain the strict refusal and the failed continuity admission."""
+
+    def __init__(self, strict: BackupRuntimeUnavailable, fallback: backup_guard.BackupUnavailable):
+        from sentinel.backup_continuity import MediaAbsenceUnproven
+
+        reasons = (
+            (BackupIntegrityBusy, 'PROOF_OWNER_BUSY'),
+            (BackupIntegrityProofExpired, 'PROOF_WINDOW_EXPIRED'),
+            (BackupIntegritySelectionMoved, 'SELECTION_MOVED'),
+        )
+        self.strict_reason = next((code for kind, code in reasons if isinstance(strict, kind)),
+            'MEDIA_READ_FAILED' if _is_media_error(strict.__cause__) else 'STRICT_PROOF_UNAVAILABLE')
+        self.continuity_outcome = ('MEDIA_ABSENCE_UNPROVEN' if isinstance(fallback, MediaAbsenceUnproven)
+                                   else 'CONTINUITY_UNAVAILABLE')
+        super().__init__(f'strict backup refusal {self.strict_reason}. '
+                         f'continuity refusal {self.continuity_outcome}')
 
 
 class BackupRuntimeRefused(backup_guard.BackupConfigurationRefused):
@@ -396,14 +440,14 @@ def _archive_metadata(conn, *, root: str,
                       objects: tuple[str, ...]) -> dict[str, tuple]:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
-            " (pg_stat_file(%s || '/' || name,true)).modification,"
-            " (pg_stat_file(%s || '/' || name,true)).change,"
-            " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
-            " (pg_stat_file(%s || '/' || name || '.sha256',true)).modification,"
-            " (pg_stat_file(%s || '/' || name || '.sha256',true)).change"
-            " FROM unnest(%s::text[]) AS entries(name)",
-            (root, root, root, root, root, root, list(objects)))
+            "WITH objects AS MATERIALIZED ("
+            " SELECT name,pg_stat_file(%s || '/' || name,true) AS payload,"
+            " pg_stat_file(%s || '/' || name || '.sha256',true) AS sidecar,"
+            " pg_read_file(%s || '/' || name || '.sha256',0,80,true) AS checksum"
+            " FROM unnest(%s::text[]) AS entries(name))"
+            " SELECT name,(payload).size,(payload).modification,(payload).change,"
+            " checksum,(sidecar).modification,(sidecar).change FROM objects",
+            (root, root, root, list(objects)))
         rows = cur.fetchall()
     return {
         str(name): (
@@ -445,7 +489,26 @@ def _validate_archive_objects(
         wal_root: str, wal_objects: tuple[str, ...],
         history_object: str | None, segment_size: int,
         start: str, end: str,
-        require_current_selection: bool = False) -> tuple[dict[str, tuple], int, bool]:
+        require_current_selection: bool = False,
+        maintenance_refresh: bool = False) -> tuple[dict[str, tuple], int, bool]:
+    from sentinel import backup_integrity_reuse
+    with backup_integrity_reuse.owner(conn, system_id=system_id, base=base,
+                                     start=start, segment_size=segment_size,
+                                     allow_completed=require_current_selection and not maintenance_refresh) as shared:
+        return _validate_archive_objects_owned(conn, operation=operation,
+            system_id=system_id, base=base, wal_root=wal_root, wal_objects=wal_objects,
+            history_object=history_object, segment_size=segment_size, start=start,
+            end=end, require_current_selection=require_current_selection, shared=shared,
+            maintenance_refresh=maintenance_refresh)
+
+
+def _validate_archive_objects_owned(
+        conn, *, operation: str, system_id: str, base: str,
+        wal_root: str, wal_objects: tuple[str, ...],
+        history_object: str | None, segment_size: int,
+        start: str, end: str,
+        require_current_selection: bool = False, shared=None,
+        maintenance_refresh: bool = False) -> tuple[dict[str, tuple], int, bool]:
     objects = wal_objects + ((history_object,) if history_object else ())
     if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
         raise BackupHorizonExceeded(
@@ -498,7 +561,10 @@ def _validate_archive_objects(
     scope = _connection_scope(conn)
     cache_key = (scope, system_id, base, start, segment_size)
     now = time.monotonic()
-    cached = _PROOF_CACHE.get(cache_key)
+    cached = shared.cached() if shared is not None else _PROOF_CACHE.get(cache_key)
+    read_only = shared is not None and shared.read_only
+    if read_only and (cached is None or cached['end'] != end or cached['metadata'] != actual):
+        raise BackupIntegrityBusy('completed backup integrity proof does not cover current media')
     if cached is not None:
         previous_names = tuple(cached["objects"])
         if any(name not in objects for name in previous_names):
@@ -506,11 +572,14 @@ def _validate_archive_objects(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
     full_scrub = (cached is None or now < cached['full_scrub_at'] or
                   now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
+                  (maintenance_refresh and shared is not None and shared.refresh_due()) or
                   any(name in cached['metadata'] and cached['metadata'][name] != actual[name]
                       for name in objects))
+    if read_only and full_scrub:
+        raise BackupIntegrityBusy('completed backup integrity proof requires a fresh scrub')
     hash_names = objects if full_scrub else tuple(name for name in objects if name not in cached['metadata'])
 
-    digests = _hash_objects(conn, root=wal_root, objects=hash_names,
+    digests = {} if read_only else _hash_objects(conn, root=wal_root, objects=hash_names,
                             sizes={name: int(actual[name][0]) for name in hash_names})
     if hash_names:
         repeated = _hash_objects(conn, root=wal_root, objects=hash_names,
@@ -536,6 +605,12 @@ def _validate_archive_objects(
     if require_current_selection and _published_base(conn, system_id=system_id) != base:
         raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
 
+    if read_only:
+        if _archive_frontier(conn, operation=operation) != (end, segment_size):
+            raise BackupIntegrityBusy('completed backup integrity proof does not cover the advanced frontier')
+        shared.require_unchanged()
+        return actual, 0, False
+
     _PROOF_CACHE[cache_key] = {
         # A complete proof may itself take longer than the reuse interval.
         # Start that interval only after both passes and stability checks;
@@ -545,6 +620,8 @@ def _validate_archive_objects(
         "metadata": actual,
         "end": end,
     }
+    if shared is not None:
+        shared.publish(_PROOF_CACHE[cache_key], full_scrub=full_scrub)
     if len(_PROOF_CACHE) > 16:
         oldest = min(_PROOF_CACHE, key=lambda key: _PROOF_CACHE[key]["full_scrub_at"])
         if oldest != cache_key:
@@ -552,23 +629,7 @@ def _validate_archive_objects(
     return actual, 2 * len(hash_names), full_scrub
 
 
-def _require(conn, *, operation: str,
-             base_backup: str | None = None) -> dict:
-    if not enabled():
-        return {"enabled": False}
-    try:
-        backup_guard.require_writes_permitted(conn, operation=operation)
-    except backup_guard.BackupConfigurationRefused as exc:
-        raise BackupRuntimeRefused(str(exc)) from exc
-    except backup_guard.BackupUnavailable as exc:
-        raise BackupRuntimeUnavailable(str(exc)) from exc
-    _require_marker(conn, WAL_ROOT)
-    _require_marker(conn, BASE_ROOT)
-    system_id = current_system_id(conn)
-    wal_root = f"{WAL_ROOT}/cluster-{system_id}"
-    base = _selected_base(
-        conn, system_id=system_id, base_backup=base_backup)
-    marker_wal = _recovery_wal(conn, base, system_id=system_id)
+def _archive_frontier(conn, *, operation: str) -> tuple[str, int]:
     backup_guard.clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(
@@ -587,6 +648,27 @@ def _require(conn, *, operation: str,
         raise BackupRuntimeUnavailable(
             f"{operation}: PostgreSQL WAL archiver has an unresolved failure")
     _require_segment_frontier(end, segment_size=segment_size, operation=operation)
+    return end, segment_size
+
+
+def _require(conn, *, operation: str, base_backup: str | None = None,
+             maintenance_refresh: bool = False) -> dict:
+    if not enabled():
+        return {"enabled": False}
+    try:
+        backup_guard.require_writes_permitted(conn, operation=operation)
+    except backup_guard.BackupConfigurationRefused as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    except backup_guard.BackupUnavailable as exc:
+        raise BackupRuntimeUnavailable(str(exc)) from exc
+    _require_marker(conn, WAL_ROOT)
+    _require_marker(conn, BASE_ROOT)
+    system_id = current_system_id(conn)
+    wal_root = f"{WAL_ROOT}/cluster-{system_id}"
+    base = _selected_base(
+        conn, system_id=system_id, base_backup=base_backup)
+    marker_wal = _recovery_wal(conn, base, system_id=system_id)
+    end, segment_size = _archive_frontier(conn, operation=operation)
     start = _manifest_end_wal(conn, base, segment_size=segment_size)
     expected = _expected_wals(start, end, segment_size=segment_size)
     if marker_wal not in set(expected):
@@ -600,7 +682,7 @@ def _require(conn, *, operation: str,
         conn, operation=operation, system_id=system_id, base=base,
         wal_root=wal_root, wal_objects=expected, history_object=history,
         segment_size=segment_size, start=start, end=end,
-        require_current_selection=base_backup is None)
+        require_current_selection=base_backup is None, maintenance_refresh=maintenance_refresh)
 
     return {
         "enabled": True,
@@ -620,10 +702,15 @@ def _require(conn, *, operation: str,
 
 
 def require(conn, *, operation: str,
-            base_backup: str | None = None, allow_continuity: bool = False) -> dict:
+            base_backup: str | None = None, allow_continuity: bool = False,
+            maintenance_refresh: bool = False) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
     from sentinel import local_paper
     live = _live_origin_selected()
+    if maintenance_refresh:
+        from sentinel import backup_integrity_reuse
+        if live or allow_continuity or base_backup is not None or not backup_integrity_reuse.selected():
+            raise BackupRuntimeRefused('proactive refresh requires the ordinary PAPER maintenance owner')
     if not live and local_paper.backups_suspended_for_account(conn):
         return {"enabled": False}
     from sentinel import backup_continuity
@@ -648,17 +735,27 @@ def require(conn, *, operation: str,
                 with conn.transaction():
                     try:
                         result = _require(conn, operation=operation)
+                    except BackupRuntimeUnavailable:
+                        # These typed refusals also inherit OSError through
+                        # ConnectionError. Only raw failures need conversion.
+                        raise
                     except Exception as exc:
                         if _is_media_error(exc):
                             raise BackupRuntimeUnavailable('external media read failed') from exc
                         raise
-            except BackupRuntimeUnavailable:
-                with conn.transaction():
-                    result = backup_continuity.degraded(conn, operation=operation)
+            except BackupIntegrityBusy as strict:
+                raise BackupIntegrityBusy('strict backup refusal PROOF_OWNER_BUSY') from strict
+            except BackupRuntimeUnavailable as strict:
+                try:
+                    with conn.transaction():
+                        result = backup_continuity.degraded(conn, operation=operation)
+                except backup_guard.BackupUnavailable as fallback:
+                    raise BackupContinuityUnavailable(strict, fallback) from strict
             else:
                 backup_continuity.remember(conn, result)
             return result
-        result = _require(conn, operation=operation, base_backup=base_backup)
+        result = (_require(conn, operation=operation, maintenance_refresh=True) if maintenance_refresh
+                  else _require(conn, operation=operation, base_backup=base_backup))
         if live and (result.get("enabled") is not True
                 or result.get("backup_state") == "DEGRADED"
                 or result.get("independent_archive_current", True) is not True):

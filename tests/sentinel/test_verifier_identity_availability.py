@@ -22,7 +22,10 @@ def controlled(*,negative=False,queued=False):
         calls.append(1);entered.set();assert release.wait(3)
         if negative:return observer_failure.classify(QueryCanceled(PRIVATE)).model_dump(mode='json',by_alias=True)
         return positive(NOW+timedelta(seconds=tick[0]))
-    value=reader.Reader(runner=run,evidence_reader=evidence,key_factory=lambda db,paper,key:key,
+    # An outage in the parent's identity read leaves the worker's independent
+    # post-slot identity check available to confirm the originally queued subject.
+    value=reader.Reader(runner=run,evidence_reader=evidence,
+        queued_evidence_reader=lambda *args: 'a'*64,key_factory=lambda db,paper,key:key,
         clock=lambda:tick[0],wall_clock=lambda:NOW+timedelta(seconds=tick[0]),
         retain_failed_attempt=True,execution_slot=slot)
     return value,tick,unavailable,entered,release,calls,slot

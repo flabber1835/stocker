@@ -159,11 +159,15 @@ class Parts:
         if inserted and prices is not None:
             from sentinel.feed import rolling_store
             rolling_store._pin_reader(self.conn)
-            shared = self.conn.execute("SELECT a.part_id FROM sentinel_acquisition_parts a "
+            # Keep the small metadata shortlist ahead of price existence. A
+            # pulled-up EXISTS can otherwise enumerate every retained price.
+            shared = self.conn.execute("WITH candidate_parts AS MATERIALIZED ("
+                "SELECT a.part_id,a.created_at,a.manifest FROM sentinel_acquisition_parts a "
                 "WHERE a.manifest->>'component'=%s AND a.manifest->>'content_sha256'=%s "
                 "AND a.manifest->>'rows'=%s AND a.part_id<>%s "
-                "AND NOT EXISTS(SELECT 1 FROM sentinel_acquisition_price_links l WHERE l.part_id=a.part_id) "
-                "AND EXISTS(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) "
+                "AND NOT EXISTS(SELECT 1 FROM sentinel_acquisition_price_links l WHERE l.part_id=a.part_id)) "
+                "SELECT a.part_id FROM candidate_parts a "
+                "WHERE (SELECT true FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id LIMIT 1) IS TRUE "
                 "AND (sentinel_acquisition_part_pinned(a.part_id) OR "
                 "(SELECT count(*) FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id)="
                 "(a.manifest->>'rows')::bigint) "

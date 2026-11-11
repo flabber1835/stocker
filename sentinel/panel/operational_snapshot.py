@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 
@@ -87,7 +88,7 @@ def context(conn, database_url):
     return hashlib.sha256(review_store.canonical(material)).hexdigest()
 
 
-def subjects(conn, database_url):
+def subjects(conn, database_url, *, facts=None):
     """Bind native subjects and exact financial receipt versions independently.
 
     A newly negative receipt can replace a positive one for an unchanged native
@@ -95,7 +96,7 @@ def subjects(conn, database_url):
     display too; these tokens are invalidation hints, never financial authority.
     """
     schema.require_schema(conn)
-    facts = read_projection._subject_facts(conn)
+    facts = read_projection._subject_facts(conn) if facts is None else facts
     result = {}
     for scope in ('SHADOW', 'PAPER'):
         native = read_projection._subject(conn, database_url, scope, facts=facts)
@@ -136,7 +137,11 @@ def _validate_panel(raw):
     _require(raw.get('observation_current') is True
              and raw.get('observation_changed_scopes') == []
              and raw.get('observation_revalidated_keys') == []
-             and raw.get('observation_valid_until') is None,
+             and raw.get('observation_valid_until') is None
+             and raw.get('observation_retained') is False
+             and raw.get('observation_generated_at') is None
+             and raw.get('observation_display_current') is None
+             and raw.get('observation_display_keys') == [],
              'SNAPSHOT_CONSUMER_STATE_REFUSED')
     expected = {item.name for item in fields(model.Row)}
     _require(all(isinstance(row, dict) and set(row) == expected for row in rows),
@@ -160,10 +165,24 @@ def _validate_panel(raw):
                      'SNAPSHOT_RECOVERY_INVALID')
     try:
         panel = _PANEL.validate_json(json.dumps(raw, allow_nan=False))
+        from sentinel.panel.display_dependencies import validate_basis
+        validate_basis(panel.display_basis)
     except (ValueError, TypeError, OverflowError):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     _require(_utc(panel.now), 'SNAPSHOT_PANEL_CLOCK_INVALID')
     for row in panel.rows:
+        for field in ('as_of', 'valid_until'):
+            clock = getattr(row, field)
+            if clock is not None and not _utc(clock):
+                # Closed identifiers only; neither row payloads nor clock values
+                # (nor arbitrary producer text) enter this diagnostic.
+                known = {'feed', 'ingest', 'shadow_verification', 'paper_reconciliation',
+                    'book', 'exposure', 'terminals', 'shadow_nav', 'shadow_return',
+                    'broker', 'alpaca_account', 'paper_plan', 'trading_run',
+                    'completed_trading_run', 'shadow_worker', 'backup_restore'}
+                logging.getLogger(__name__).warning('snapshot row clock refused key=%s field=%s kind=%s',
+                    row.key if row.key in known else 'OTHER', field,
+                    'NAIVE' if clock.utcoffset() is None else 'NON_UTC')
         _require(all(value is None or _utc(value) for value in (row.as_of, row.valid_until)),
                  'SNAPSHOT_ROW_CLOCK_INVALID')
         _require(row.freshness is None or row.freshness >= timedelta(0),
@@ -190,6 +209,10 @@ def encode(panel, *, context_sha256, subjects, valid_until=None):
     except (ValueError, TypeError, OverflowError):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     panel = _validate_panel(raw)
+    if panel.display_basis:
+        from sentinel.panel import display_dependencies
+        _require(display_dependencies.combined_subjects(panel.display_basis) == subjects,
+                 'SNAPSHOT_DISPLAY_BASIS_CHANGED')
     boundary = original_boundary(panel)
     expiry = valid_until if valid_until is not None else boundary
     _require(_utc(expiry) and panel.now < expiry <= boundary, 'SNAPSHOT_EXPIRY_INVALID')
@@ -218,12 +241,29 @@ def decode(value, signature, *, context_sha256, now):
              and timedelta(0) < expiry-generated <= timedelta(seconds=MAX_SECONDS),
              'SNAPSHOT_EXPIRED_OR_CLOCK_INVALID')
     panel = _validate_panel(value['panel'])
+    if panel.display_basis:
+        from sentinel.panel import display_dependencies
+        _require(display_dependencies.combined_subjects(panel.display_basis) == value['subjects'],
+                 'SNAPSHOT_DISPLAY_BASIS_CHANGED')
     _require(panel.now == generated and expiry <= original_boundary(panel),
              'SNAPSHOT_ORIGINAL_BOUNDARY_CHANGED')
     return Snapshot(panel, dict(value['subjects']), context_sha256, generated, expiry)
 
 
-def read_owned(conn, *, context_sha256, now, lock=False):
+def decode_display(value, signature, *, context_sha256, now):
+    """Authenticate once; retain display facts only inside their original window."""
+    try:
+        generated = datetime.fromisoformat(value['generated_at'])
+    except (KeyError, TypeError, ValueError):
+        raise SnapshotUnavailable('SNAPSHOT_CLOCK_INVALID') from None
+    snapshot = decode(value, signature, context_sha256=context_sha256, now=generated)
+    _require(_utc(now) and snapshot.generated_at <= now
+             < snapshot.generated_at + timedelta(seconds=MAX_SECONDS),
+             'SNAPSHOT_DISPLAY_WINDOW_EXHAUSTED')
+    return snapshot
+
+
+def read_owned(conn, *, context_sha256, now, lock=False, display=False):
     """Read only, without changing the caller's transaction or any evidence."""
     row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature '
         f'FROM {schema.RECEIPTS} WHERE scope=%s'+(' FOR SHARE' if lock else ''), (SCOPE,)).fetchone()
@@ -233,7 +273,8 @@ def read_owned(conn, *, context_sha256, now, lock=False):
              and _utc(row[1]) and _utc(row[2])
              and row[1].isoformat() == value.get('generated_at')
              and row[2].isoformat() == value.get('valid_until'), 'SNAPSHOT_METADATA_CHANGED')
-    return decode(value, signed, context_sha256=context_sha256, now=now)
+    decoder = decode_display if display else decode
+    return decoder(value, signed, context_sha256=context_sha256, now=now)
 
 
 def publish_owned(conn, *, owner_id, value, signature, context_sha256, subjects, now):

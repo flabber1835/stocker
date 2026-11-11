@@ -101,13 +101,17 @@ def test_deployed_shadow_requires_alpaca_and_refuses_sharadar():
 
 
 def test_deployed_shadow_refuses_legacy_preflight_before_source_call(monkeypatch):
+    from sentinel.feed import readers
     config = shadow_service.ShadowServiceConfig.from_env(_env(
         SENTINEL_FEED_SERVICE_MODE="SHADOW", ALPACA_API_KEY="data-key",
         ALPACA_SECRET_KEY="data-secret"))
-    monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k: {
-        "status": "ATTESTED_STRUCTURAL", "latest_session": "2026-09-30"})
-    monkeypatch.setattr(shadow_service.feed_store, "connect", lambda *_a: pytest.fail(
-        "legacy source must not be opened"))
+    monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k:
+                        pytest.fail("operational dispatch repeated route preflight"))
+    monkeypatch.setattr(shadow_service.schema, "require_runtime_schema", lambda _: None)
+    monkeypatch.setattr(readers, "current", lambda _: object())
+    monkeypatch.setattr(readers, "is_rolling", lambda _: False)
+    monkeypatch.setattr(shadow_service.feed_store, "connect", lambda *_a: SimpleNamespace(
+        cursor=lambda: _Cursor(), rollback=lambda: None, close=lambda: None))
     with pytest.raises(shadow_service.ShadowServiceRefused,
                        match="rolling Alpaca inputs"):
         shadow_service.advance_once(config)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 
 from sentinel import backup_runtime_authority, committed_read, rolling_initialization as initial
 from sentinel import rolling_checkpoint as origin, rolling_daily as daily
@@ -22,6 +23,15 @@ class _StatusBinding:
     snapshot: dict
     state_sha256: str
     runtime_identity: dict
+
+
+@dataclass(frozen=True)
+class HistoricalSourceFrontier:
+    """The original dated shadow result from a frontier-only status refusal."""
+    result: shadow.ShadowObservationResult
+    session: str
+    decision_session: str
+    attested_at: datetime
 
 
 @dataclass(frozen=True)
@@ -49,13 +59,13 @@ def selected(conn):
     return rolling
 
 
-def _closure(conn, context, *, status_only=False):
+def _closure(conn, context, *, status_only=False, cached_only=False):
     if status_only:
         from sentinel import runtime_admission, structural_verification
         process_context = dict(context)
         result = structural_verification.material(conn, slot='rolling-checkpoint',
             key={**context, 'controller': context['controller'].to_dict()},
-            load=lambda: _status_closure(conn, context))
+            load=lambda: _status_closure(conn, context), cached_only=cached_only)
         runtime_admission._require_backed_owner_scope(
             conn, result[0].runtime_identity, process_context)
         return result
@@ -85,11 +95,23 @@ def _guard_projection(value):
 
 def _guard_status(conn, *, observation_id, starting_cash):
     """Fresh status from private structural inputs; no full state escapes."""
+    return _committed_status(conn, _guard_status_owned,
+        observation_id=observation_id, starting_cash=starting_cash)
+
+
+def _committed_status(conn, operation, **kwargs):
+    from sentinel import structural_verification
+    if structural_verification.has_material('rolling-checkpoint'):
+        try:
+            with committed_read.proof_connection(conn) as proof:
+                return operation(proof, cached_only=True, **kwargs)
+        except structural_verification.MaterialNotCached:
+            pass
     with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
-        return _guard_status_owned(proof,observation_id=observation_id,starting_cash=starting_cash)
+        return operation(proof, **kwargs)
 
 
-def _guard_status_owned(conn, *, observation_id, starting_cash):
+def _guard_status_owned(conn, *, observation_id, starting_cash, cached_only=False):
     from sentinel import runtime_admission, structural_verification
     if not structural_verification.active():
         raise Refused('ROLLING_GUARD_SCOPE_REQUIRED')
@@ -108,7 +130,7 @@ def _guard_status_owned(conn, *, observation_id, starting_cash):
                 conn, slot='rolling-checkpoint',
                 key={**context, 'controller': context['controller'].to_dict()},
                 load=lambda: _status_closure(conn, context),
-                projection_slot='rolling-guard-inputs', project=_guard_projection)
+                projection_slot='rolling-guard-inputs', project=_guard_projection, cached_only=cached_only)
             runtime_admission._require_backed_owner_scope(
                 conn, checkpoint.runtime_identity, process_context)
             if attested is None:
@@ -161,16 +183,34 @@ def _result(result, value):
                    live_frontier=result.session, verification_scope=authority.SCOPE)
 
 
+def _historical_frontier(checkpoint, result, attested, pub, pending):
+    if (type(pending) is not inputs.RollingSourceFrontierPending
+            or type(attested) is not authority.Authority
+            or pending.status_binding is None
+            or pending.status_binding != checkpoint.snapshot
+            or checkpoint.publication != pub.to_dict()
+            or checkpoint.session != pub.window_end
+            or checkpoint.session != pending.available_session
+            or result.session != checkpoint.session
+            or pending.target_session != calendar.next_session(checkpoint.session)):
+        return None
+    attested_at = datetime.fromisoformat(attested.timing['observed_at'])
+    if attested_at.utcoffset() is None:
+        raise Refused('ROLLING_HISTORICAL_ATTESTATION_CLOCK_INVALID')
+    return HistoricalSourceFrontier(result, checkpoint.session,
+        pending.target_session, attested_at.astimezone(timezone.utc))
+
+
 def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
              unchanged_through=None):
     """Prove committed status without ending an active caller transaction."""
-    with committed_read.proof_connection(conn, serialize_snapshot=True) as proof:
-        return _classify_owned(proof,observation_id=observation_id,starting_cash=starting_cash,
-            structural_only=structural_only,clock=clock,unchanged_through=unchanged_through)
+    return _committed_status(conn, _classify_owned, observation_id=observation_id,
+        starting_cash=starting_cash, structural_only=structural_only,
+        clock=clock, unchanged_through=unchanged_through)
 
 
 def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
-                    unchanged_through=None):
+                    unchanged_through=None, cached_only=False, historical_frontier=False):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
@@ -183,7 +223,7 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                                 "WHERE cursor_name=%s)", (origin.CURSOR,)).fetchone()[0]:
                 origin.require_fresh(conn)
                 return {"status": "NOT_STARTED"}
-            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True)
+            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True, cached_only=cached_only)
             if attested is None:
                 if structural_only:
                     return {"status": "RECONSTRUCTION_REQUIRED", "latest_session": checkpoint.session}
@@ -206,19 +246,40 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                             "inventory_sha256": inventory,
                             "_readiness_snapshot": measured}
                 return {"status": status, "latest_session": checkpoint.session}
-            _current(conn, checkpoint, pub, now=clock() if clock else None)
+            try:
+                _current(conn, checkpoint, pub, now=clock() if clock else None)
+            except inputs.RollingSourceFrontierPending as exc:
+                history = (_historical_frontier(checkpoint, result, attested, pub, exc)
+                           if historical_frontier else None)
+                if history is None:
+                    raise
+                return {'status': 'HISTORICAL_SOURCE_FRONTIER', 'history': history}
             return {"status": "VERIFIED", "result": _result(result, attested)}
     finally:
         conn.rollback()
 
 
-def status(conn, *, observation_id, starting_cash):
-    classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash)
+def _verified_result(classified):
     if classified["status"] == "NOT_STARTED":
         return None
     if classified["status"] != "VERIFIED":
         raise Refused("ROLLING_RUNTIME_ATTESTATION_REQUIRED")
     return classified["result"]
+
+
+def status(conn, *, observation_id, starting_cash):
+    return _verified_result(classify(conn, observation_id=observation_id,
+                                     starting_cash=starting_cash))
+
+
+def observe_status(conn, *, observation_id, starting_cash):
+    """Display observation can retain the same proof's historical evidence."""
+    classified = _committed_status(conn, _classify_owned,
+        observation_id=observation_id, starting_cash=starting_cash,
+        historical_frontier=True)
+    if classified['status'] == 'HISTORICAL_SOURCE_FRONTIER':
+        return classified['history']
+    return _verified_result(classified)
 
 
 def advance(conn, *, through, observation_id, starting_cash):

@@ -13,9 +13,9 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
-from sentinel.execution import journal, target_reprojection
+from sentinel.execution import broker_cash, journal, target_reprojection
 from sentinel.execution.contract import BrokerAccountSnapshot, OrderTerms, Side
 from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
@@ -93,6 +93,61 @@ class FundingBasis(_FundingBasis):
     cash_activity_sha256: str
 
     _activity_digest = field_validator("cash_activity_sha256")(_FundingBasis.digest.__func__)
+
+
+class NativeFeeBoundary(BaseModel):
+    """Original native constituents, retained when one funding basis is earned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    broker: Literal["alpaca"]
+    account_id: str
+    processed_through: AwareDatetime
+    last_activity_id: str | None
+    balance_total: Decimal
+    activity_identity_scheme: Literal["alpaca-activity-sse-cash-ref/v1"]
+    activity_membership: tuple[tuple[str, str], ...]
+
+    @field_validator("balance_total", mode="before")
+    @classmethod
+    def exact_amount(cls, value):
+        if not isinstance(value, (str, Decimal)) or not Decimal(value).is_finite():
+            raise ValueError("native funding total must be an exact finite decimal")
+        return Decimal(value)
+
+    @model_validator(mode="after")
+    def exact_members(self):
+        prefix = f"{broker_cash.FLOW_PREFIX}{self.broker}:{self.account_id}:"
+        members = dict(self.activity_membership)
+        if (not self.account_id.strip()
+                or tuple(sorted(members.items())) != self.activity_membership
+                or any(not key.startswith(prefix) or not key[len(prefix):].strip()
+                       or len(value) != 64
+                       or any(char not in "0123456789abcdef" for char in value)
+                       for key, value in members.items())
+                or bool(members) != (self.last_activity_id is not None)
+                or (self.last_activity_id is not None
+                    and prefix + self.last_activity_id not in members)):
+            raise ValueError("native funding membership is malformed")
+        return self
+
+    def baseline(self, plan):
+        return broker_cash.PlanCashBaseline(plan.plan_id, self.broker, self.account_id,
+            plan.decision_session, self.processed_through, self.balance_total,
+            self.last_activity_id, self.activity_identity_scheme, self.activity_membership)
+
+
+class NativeFeeFundingBasis(FundingBasis):
+    schema: Literal["sentinel.protected-buy-funding/3"] = "sentinel.protected-buy-funding/3"
+    cash_activity_boundary: NativeFeeBoundary
+
+    @model_validator(mode="after")
+    def bound_native_cash(self):
+        boundary = self.cash_activity_boundary
+        if (self.deployment[1:3] != (boundary.broker, boundary.account_id)
+                or boundary.processed_through < self.observed_at
+                or _sha(_activity_identity(boundary)) != self.cash_activity_sha256):
+            raise ValueError("native funding boundary differs from its original evidence")
+        return self
 
 
 class PlanCashFundingBasis(_FundingBasis):
@@ -224,6 +279,8 @@ def load_basis(conn, *, plan_id: str) -> FundingBasis | PlanCashFundingBasis | N
         kind = unsigned.get("schema")
         if kind == "sentinel.protected-buy-funding/1":
             basis = FundingBasis.model_validate(unsigned)
+        elif kind == "sentinel.protected-buy-funding/3":
+            basis = NativeFeeFundingBasis.model_validate(unsigned)
         elif kind == "sentinel.protected-buy-funding/2":
             basis = PlanCashFundingBasis.model_validate(unsigned)
             if basis.plan_cash_ceiling > basis.cash:
@@ -249,13 +306,15 @@ def _assert_basis(basis, *, plan, projection, deployment, policy) -> None:
         raise ProtectedFundingRefused("funding basis differs from current immutable authority")
 
 
-def _assert_funding_account(*, basis, account, deployment, activity_state, broker) -> None:
+def _assert_funding_account(*, basis, account, deployment, activity_state, broker,
+                            conn=None, plan=None, commands=None) -> None:
     """Reuse a basis without crediting a deposit, saving or native BP deficit."""
     _assert_available_account(account, deployment, require_equity=True)
     _assert_current_evidence(basis=basis, account=account,
         activity_state=activity_state, composition=_plan_cash_composition(broker),
         activity_error=ProtectedFundingNotReady,
-        activity_message="native cash-activity evidence changed or is incomplete")
+        activity_message="native cash-activity evidence changed or is incomplete",
+        conn=conn, plan=plan, deployment=deployment, commands=commands)
 
 
 def _assert_available_account(account, deployment, *, require_equity=False) -> None:
@@ -275,7 +334,8 @@ def _assert_available_account(account, deployment, *, require_equity=False) -> N
 
 
 def _assert_current_evidence(*, basis, account, activity_state, composition,
-                             activity_error, activity_message) -> None:
+                             activity_error, activity_message,
+                             conn=None, plan=None, deployment=None, commands=None) -> None:
     """Preserve evidence variants and each boundary's refusal classification."""
     if isinstance(basis, PlanCashFundingBasis):
         if composition != basis.broker_composition_sha256 or activity_state is not None:
@@ -287,7 +347,48 @@ def _assert_current_evidence(*, basis, account, activity_state, composition,
             raise ProtectedFundingRefused("funding evidence variant changed")
         if (activity_state is None or activity_state.processed_through < basis.observed_at
                 or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
+            if isinstance(basis, NativeFeeFundingBasis):
+                _assert_native_fee_evidence(conn, basis=basis, plan=plan,
+                    deployment=deployment, account=account, activity_state=activity_state,
+                    activity_error=activity_error, activity_message=activity_message, commands=commands)
+                return
             raise activity_error(activity_message)
+        if isinstance(basis, NativeFeeFundingBasis):
+            _assert_native_fee_evidence(conn, basis=basis, plan=plan,
+                deployment=deployment, account=account, activity_state=activity_state,
+                activity_error=activity_error, activity_message=activity_message, commands=commands)
+
+
+def _assert_native_fee_evidence(conn, *, basis, plan, deployment, account,
+                                activity_state, activity_error, activity_message, commands=None):
+    """The funding owner earns the exception; callers cannot supply a verdict."""
+    from sentinel.paper.model import PaperActivationRefused
+    if (conn is None or plan is None or deployment is None or activity_state is None
+            or basis.deployment != _deployment(deployment)
+            or basis.plan_id != plan.plan_id or basis.plan_fingerprint != plan.fingerprint()
+            or activity_state.processed_through < basis.observed_at):
+        raise activity_error(activity_message)
+    try:
+        if _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256:
+            from sentinel.paper.cash import load_native_fee_plan_baseline, require_exact_native_fee_cash
+            plan_boundary = load_native_fee_plan_baseline(conn, plan=plan,
+                deployment=deployment, account=account, activity_state=activity_state)
+            if plan_boundary is None:
+                raise activity_error(activity_message)
+            fees = broker_cash.activity_boundaries_are_debit_fees_only(conn,
+                baselines=(basis.cash_activity_boundary.baseline(plan), plan_boundary),
+                activity_state=activity_state)
+            if not all(fees):
+                raise activity_error(activity_message)
+            require_exact_native_fee_cash(conn, plan=plan, deployment=deployment,
+                account=account, activity_state=activity_state, baseline=plan_boundary, commands=commands)
+        else:
+            broker_cash.plan_activity_is_debit_fees_only(conn,
+                baseline=basis.cash_activity_boundary.baseline(plan), activity_state=activity_state)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise activity_error("native funding membership is inconsistent") from exc
+    except PaperActivationRefused as exc:
+        raise activity_error("native fee funding cash is not exactly explained") from exc
 
 
 def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliation,
@@ -329,9 +430,9 @@ def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliat
     if (observation.observed_at.astimezone(ZoneInfo(calendar.EXCHANGE_TZ)).date()
             != plan.effective_session):
         raise ProtectedFundingNotReady("protected continuation belongs to another effective session")
-    _assert_funding_account(basis=basis, account=account, deployment=deployment,
-                            activity_state=activity_state, broker=broker)
     commands = journal.load_commands(conn, deployment)
+    _assert_funding_account(basis=basis, account=account, deployment=deployment,
+        activity_state=activity_state, broker=broker, conn=conn, plan=plan, commands=commands)
     cohort = {}
     protected_terms = None
     for command in commands:
@@ -470,7 +571,13 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
         basis = PlanCashFundingBasis(**fields, broker_composition_sha256=composition,
             plan_cash_ceiling=_plan_cash_ceiling(plan=plan, account=account, commands=commands))
     else:
-        basis = FundingBasis(**fields, cash_activity_sha256=_sha(_activity_identity(activity_state)))
+        boundary = NativeFeeBoundary(broker=activity_state.broker,
+            account_id=activity_state.account_id, processed_through=activity_state.processed_through,
+            last_activity_id=activity_state.last_activity_id, balance_total=activity_state.balance_total,
+            activity_identity_scheme=activity_state.activity_identity_scheme,
+            activity_membership=broker_cash.capture_activity_membership(conn, activity_state=activity_state))
+        basis = NativeFeeFundingBasis(**fields,
+            cash_activity_sha256=_sha(_activity_identity(activity_state)), cash_activity_boundary=boundary)
     value = basis.model_dump(mode="json")
     value["funding_sha256"] = _sha(value)
     with conn.cursor() as cur:
@@ -561,10 +668,12 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
         raise ProtectedFundingRefused("protected projection, policy or funding basis is absent")
     _assert_basis(basis, plan=plan, projection=projection,
                   deployment=binding.identity, policy=policy)
+    commands = journal.load_commands(conn, binding.identity)
     _assert_current_evidence(basis=basis, account=account,
         activity_state=activity_state, composition=_plan_cash_composition(broker),
         activity_error=ProtectedFundingRefused,
-        activity_message="native cash activity changed or is incomplete after the funding basis")
+        activity_message="native cash activity changed or is incomplete after the funding basis",
+        conn=conn, plan=plan, deployment=binding.identity, commands=commands)
     references, protected_terms = protected_limits.submission_protection(
         conn, plan=plan, projection=projection)
     if references.symbols.get(instrument.security_id) != instrument.symbol:
@@ -575,7 +684,6 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
         raise ProtectedFundingRefused("BUY native asset differs from its authenticated source identity")
     target_reprojection.assert_projection(
         conn, plan=plan, projection=projection, through_session=plan.effective_session)
-    commands = journal.load_commands(conn, binding.identity)
     candidates = [command for command in commands if command.client_key == client_key]
     if len(candidates) != 1:
         raise ProtectedFundingRefused("exact durable candidate is absent or duplicated")

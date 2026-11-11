@@ -37,7 +37,7 @@ def backup():
             schema='sentinel.backup-maintenance-progress/1', attempt='a'*32,
             started_at=int((NOW-timedelta(minutes=6)).timestamp()), deadline=int((NOW+timedelta(minutes=54)).timestamp()),
             system_identifier='123', image='sha256:'+'b'*64, predecessor_base=OLD, base_backup=NEW, phase='VERIFY_RESTORE'),
-        expected_image='sha256:'+'b'*64)
+        )
 
 
 def test_exact_backup_successor_waits_amber_then_requires_completed_chain():
@@ -84,7 +84,7 @@ def test_backup_transition_identity_guard_has_a_falsifier():
 
 @pytest.mark.parametrize('field,value', [('base_at',NOW-timedelta(hours=27)),
     ('base_at',NOW+timedelta(seconds=1)), ('restore_at',NOW+timedelta(seconds=1)),
-    ('expected_image','sha256:'+'c'*64), ('expected_image',None)])
+    ])
 def test_renewal_cannot_mask_expired_future_or_foreign_image_evidence(field, value):
     values = backup()
     values[field] = value

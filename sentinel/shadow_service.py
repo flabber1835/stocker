@@ -31,6 +31,18 @@ from sentinel.shadow_service_config import (
 PREFLIGHT_SCHEMA = "sentinel.shadow-service-preflight/1"
 
 
+def _require_operational_source(conn):
+    from sentinel.feed import operational_snapshot, readers
+    current = readers.current(conn)
+    if not readers.is_rolling(current):
+        raise ShadowServiceRefused(
+            "operational shadow requires rolling Alpaca inputs")
+    try:
+        operational_snapshot.require_alpaca_openfigi(conn, current)
+    except operational_snapshot.OperationalSnapshotRefused as exc:
+        raise ShadowServiceRefused(str(exc)) from exc
+
+
 def _preflight(conn, config: ShadowServiceConfig, *,
                now: Optional[datetime] = None,
                allow_stale_frontier: bool = False) -> dict:
@@ -39,15 +51,7 @@ def _preflight(conn, config: ShadowServiceConfig, *,
         cur.execute("BEGIN TRANSACTION READ ONLY")
     schema.require_runtime_schema(conn)
     if config.operational_source_only:
-        from sentinel.feed import operational_snapshot, readers
-        current = readers.current(conn)
-        if not readers.is_rolling(current):
-            raise ShadowServiceRefused(
-                "operational shadow requires rolling Alpaca inputs")
-        try:
-            operational_snapshot.require_alpaca_openfigi(conn, current)
-        except operational_snapshot.OperationalSnapshotRefused as exc:
-            raise ShadowServiceRefused(str(exc)) from exc
+        _require_operational_source(conn)
     classified = shadow_runtime.classify_shadow_lineage(
         conn, observation_id=config.observation_id,
         starting_cash=config.starting_cash,
@@ -218,11 +222,59 @@ def _causal_target(*, preflight_status: str,
     return target
 
 
+def _advance_rolling(config, *, target, acquisition_deadline, now=None):
+    """One rolling owner; no financial result is borrowed from route selection."""
+    from sentinel import rolling_runtime
+    conn = feed_store.connect(config.database_url)
+    discard_connection = False
+    try:
+        if config.operational_source_only:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN TRANSACTION READ ONLY")
+            schema.require_runtime_schema(conn)
+            _require_operational_source(conn)
+            conn.rollback()
+            target = _causal_target(preflight_status='', now=now,
+                                    allow_state_preparation=True)
+        return rolling_runtime.service_advance(conn, through=target,
+            observation_id=config.observation_id, starting_cash=config.starting_cash,
+            acquisition_deadline=acquisition_deadline).to_dict()
+    except BaseException as exc:
+        discard_connection = writer_schedule.connection_discarded(exc)
+        if discard_connection or not isinstance(exc, Exception):
+            raise
+        if isinstance(exc, (ShadowServiceRefused, ShadowServiceWaiting)):
+            raise
+        from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+        from sentinel.feed.rolling_jobs import JobDeadlineExceeded
+        from sentinel.feed.source_wait import SourceCoveragePending
+        from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+        if isinstance(exc, RollingSourceFrontierPending):
+            raise ShadowServiceWaiting(str(exc)) from exc
+        if isinstance(exc, SourceCoveragePending):
+            raise ShadowServiceWaiting(str(exc)) from exc
+        if isinstance(exc, InputsUnavailable):
+            raise ShadowServiceWaiting(str(exc)) from exc
+        if isinstance(exc, JobDeadlineExceeded):
+            raise ShadowServiceRetry("rolling shadow acquisition deadline exhausted") from exc
+        from sentinel.shadow_worker import _availability_failure
+        if _availability_failure(exc):
+            raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc
+        raise ShadowServiceRefused("rolling shadow service refused: " + str(exc)) from exc
+    finally:
+        if not discard_connection:
+            conn.rollback()
+            conn.close()
+
+
 def advance_once(config: ShadowServiceConfig, *,
                  now: Optional[datetime] = None) -> dict:
     """Advance the current fully published close and append one verified row."""
     from sentinel import shadow_budget
     acquisition_deadline = shadow_budget.cutoff()
+    if config.operational_source_only:
+        return _advance_rolling(config, target=None,
+            acquisition_deadline=acquisition_deadline, now=now)
     # Prove immutable lineage structure before allowing the corpus to move.
     # Full current-corpus status is deliberately postponed until after ingest:
     # at the source-final boundary an honest database is exactly one session
@@ -230,11 +282,6 @@ def advance_once(config: ShadowServiceConfig, *,
     # config/source identity drift, or malformed authority still refuses here.
     retained = preflight(
         config, now=now, allow_stale_frontier=True)
-    if config.operational_source_only:
-        from sentinel.rolling_runtime import SCHEMA
-        if retained.get("input_contract") != SCHEMA:
-            raise ShadowServiceRefused(
-                "operational shadow requires rolling Alpaca inputs")
     retained_status = str(retained.get("status") or "")
     target = (str(retained.get("recovery_session"))
               if retained_status == "RECOVERY_REQUIRED"
@@ -245,36 +292,8 @@ def advance_once(config: ShadowServiceConfig, *,
         from sentinel import rolling_runtime
         if retained["input_contract"] != rolling_runtime.SCHEMA:
             raise ShadowServiceRefused("unknown shadow runtime input contract")
-        conn = feed_store.connect(config.database_url)
-        discard_connection = False
-        try:
-            return rolling_runtime.service_advance(conn, through=target,
-                observation_id=config.observation_id, starting_cash=config.starting_cash,
-                acquisition_deadline=acquisition_deadline).to_dict()
-        except BaseException as exc:
-            discard_connection = writer_schedule.connection_discarded(exc)
-            if discard_connection or not isinstance(exc, Exception):
-                raise
-            from sentinel.rolling_reconstruction_evidence import InputsUnavailable
-            from sentinel.feed.rolling_jobs import JobDeadlineExceeded
-            from sentinel.feed.source_wait import SourceCoveragePending
-            from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
-            if isinstance(exc, RollingSourceFrontierPending):
-                raise ShadowServiceWaiting(str(exc)) from exc
-            if isinstance(exc, SourceCoveragePending):
-                raise ShadowServiceWaiting(str(exc)) from exc
-            if isinstance(exc, InputsUnavailable):
-                raise ShadowServiceWaiting(str(exc)) from exc
-            if isinstance(exc, JobDeadlineExceeded):
-                raise ShadowServiceRetry("rolling shadow acquisition deadline exhausted") from exc
-            from sentinel.shadow_worker import _availability_failure
-            if _availability_failure(exc):
-                raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc
-            raise ShadowServiceRefused("rolling shadow service refused: " + str(exc)) from exc
-        finally:
-            if not discard_connection:
-                conn.rollback()
-                conn.close()
+        return _advance_rolling(config, target=target,
+            acquisition_deadline=acquisition_deadline)
     retained_lineage = retained.get("lineage")
     retained_session = (
         retained.get("latest_session")

@@ -161,19 +161,26 @@ _WORKING_ORDER_STATES = frozenset({
 
 
 def _utc(dt) -> Optional[datetime]:
-    """Normalise whatever the driver hands back. A naive timestamp compared
-    against an aware `now` raises, and a panel that 500s because a database
-    column had no timezone is a panel that fails exactly when it is needed."""
+    """Normalize a known instant; an absent timezone cannot establish one."""
     if dt is None:
         return None
     if isinstance(dt, str):
         try:
             dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if not isinstance(dt, datetime):
-        return None
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        except ValueError as exc:
+            raise ValueError('source clock is malformed') from exc
+    if not isinstance(dt, datetime) or dt.utcoffset() is None:
+        raise ValueError('source clock is not timezone aware')
+    return dt.astimezone(timezone.utc)
+
+
+def _utc_row(row: model.Row) -> model.Row:
+    """Freeze producer clocks as UTC without changing any absolute deadline."""
+    recovery = (replace(row.recovery,
+        next_attempt_at=_utc(row.recovery.next_attempt_at),
+        deadline=_utc(row.recovery.deadline)) if row.recovery is not None else None)
+    return replace(row, as_of=_utc(row.as_of), valid_until=_utc(row.valid_until),
+                   recovery=recovery)
 
 
 def _bounded_dsn(dsn: str) -> str:
@@ -459,7 +466,20 @@ def _current_trading_run(conn):
         cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
             p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
             p.target_basket,p.broker,p.broker_account_id,
-            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York'),
+            c.last_clean_reconciliation_id,c.failure_code,jsonb_build_object(
+                'clean',c.diagnostic->'clean'='true'::jsonb,
+                'runtime_state',CASE WHEN c.diagnostic->'runtime_state'='"RUNNING"'::jsonb THEN 'RUNNING' ELSE NULL END,
+                'cash_plan_superseded',c.diagnostic->'cash_plan_superseded'='true'::jsonb,
+                'observation_id',CASE WHEN jsonb_typeof(c.diagnostic->'observation_id')='number'
+                    AND c.diagnostic->>'observation_id' ~ '^[1-9][0-9]{0,18}$'
+                    THEN c.diagnostic->'observation_id' ELSE NULL END,
+                'unresolved',CASE WHEN c.diagnostic->'unresolved'='[]'::jsonb THEN '[]'::jsonb ELSE NULL END,
+                'foreign_orders',CASE WHEN c.diagnostic->'foreign_orders'='[]'::jsonb THEN '[]'::jsonb ELSE NULL END,
+                'foreign_positions',CASE WHEN c.diagnostic->'foreign_positions'='[]'::jsonb THEN '[]'::jsonb ELSE NULL END,
+                'restricted_securities',CASE WHEN c.diagnostic->'restricted_securities'='{}'::jsonb THEN '{}'::jsonb ELSE NULL END,
+                'terminal_reason',CASE WHEN c.diagnostic->'terminal_reason' IS NULL
+                    OR c.diagnostic->'terminal_reason'='null'::jsonb THEN NULL ELSE 'PRESENT' END)
             FROM sentinel_automation_cycles c
             JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation=a.generation
               AND c.deployment_id=a.deployment_id AND c.broker=a.broker
@@ -518,9 +538,11 @@ def _completed_trading_run(conn):
 
 def _trading_run_row(conn, row, *, completed_history=False):
     """Share original intent/command validation across the two display scopes."""
+    if len(row) not in {14, 17}:
+        raise ValueError('current trading run shape changed')
     plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
         'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
-        'broker','broker_account_id','valid_until'), row, strict=True))
+        'broker','broker_account_id','valid_until'), row[:14], strict=True))
     if completed_history and (plan['state'] != 'SUCCEEDED' or plan['completed_at'] is None):
         raise ValueError('historical trading run is not completed')
     from sentinel.execution import journal
@@ -561,14 +583,46 @@ def _trading_run_row(conn, row, *, completed_history=False):
         item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
     status = model.FAIL if failed else model.WARN if run.state in {
         'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
+    retirement = (_historical_cash_skip_fact(conn, plan, run, row[14:])
+                  if not completed_history and len(row) == 17 else None)
     return model.Row('completed_trading_run' if completed_history else 'trading_run',
         'Today’s recorded completed run' if completed_history else 'Today’s paper trading',
-        run.state, status,
+        'SKIPPED · CASH ACTIVITY RECONCILED' if retirement else run.state,
+        model.WARN if retirement else status,
         detail=('Recorded completed run from before the current software activation; '
                 if completed_history else '')
                +'Saved original intent and durable command progress; post-close verification is separate.',
-        as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
-        valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
+        as_of=_utc(max([run.updated_at]+[item.observed_at for item in run.orders])),
+        valid_until=_utc(plan['valid_until'])-timedelta(microseconds=1), trading_run=run,
+        operational_fact=retirement)
+
+
+def _historical_cash_skip_fact(conn, plan, run, terminal):
+    """An immutable safe retirement is history, never current PAPER authority."""
+    from sentinel import local_paper
+    from sentinel.execution import journal
+    clean, reason, diagnostic = terminal
+    if (not local_paper.require_bound_account(conn) or run.state != 'SUPERSEDED'
+            or reason != 'POST_PLAN_CASH_ACTIVITY_RECONCILED' or not isinstance(diagnostic, dict)
+            or diagnostic.get('terminal_reason') is not None or diagnostic.get('clean') is not True
+            or diagnostic.get('runtime_state') != 'RUNNING' or diagnostic.get('cash_plan_superseded') is not True
+            or any(diagnostic.get(key) != [] for key in ('unresolved', 'foreign_orders', 'foreign_positions'))
+            or diagnostic.get('restricted_securities') != {}
+            or not isinstance(clean, (int, str)) or isinstance(clean, bool) or not str(clean).isdigit()
+            or int(clean) < 1 or diagnostic.get('observation_id') != int(clean)
+            or any(order.state not in {'FILLED', 'CANCELLED'} for order in run.orders)):
+        return None
+    payload = journal.load_observation_payload(conn, int(clean))
+    observed = conn.execute('SELECT observed_at,runtime_state,completeness FROM sentinel_observations '
+                            'WHERE seq=%s', (int(clean),)).fetchone()
+    if (payload.get('completeness') != 'COMPLETE' or observed is None
+            or observed[1:] != ('RUNNING', 'COMPLETE')
+            or not run.intent.execute_at <= observed[0] <= run.updated_at):
+        return None
+    return model.OperationalFact(kind='EXECUTION_HISTORY', state='SUPERSEDED',
+        opening=model.OpeningEvidence(cycle_id=run.intent.cycle_id, plan_id=run.intent.plan_id,
+            started_at=run.updated_at, deadline=_utc(plan['valid_until'])-timedelta(microseconds=1),
+            observation_id=int(clean), terminal_reason=reason, reconciled_at=_utc(observed[0])))
 
 
 def _first_inconsistent_observation(conn, *, cycle_id):
@@ -746,8 +800,7 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
         sleep(min(FEED_PIN_POLL_SECONDS, remaining))
 
 
-def _feed_rows(database_url: str, *, post_close_wait=None,
-               now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
+def _feed_rows(database_url: str, now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
     One connection for all three: three page-load connections to serve one
@@ -815,7 +868,8 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
         if frontier:
             from sentinel.feed import calendar as _cal
             try:
-                freshness = _cal.freshness(str(frontier))
+                freshness = (_cal.freshness(str(frontier)) if now is None
+                             else _cal.freshness(str(frontier), now))
                 behind = freshness.sessions_behind
                 ahead = freshness.ahead
             except Exception:                            # noqa: BLE001
@@ -860,13 +914,6 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                            frontier_ahead=ahead, publication_version=publication_version),
             ingest,
         ]
-        if (post_close_wait is not None and not run_err and not front_err
-                and ingest.status not in {model.FAIL, model.UNKNOWN}):
-            from sentinel.panel import postclose_feed_wait
-            rows[0] = postclose_feed_wait.project(rows[0], post_close_wait,
-                frontier=str(frontier) if frontier else None,
-                sessions_behind=behind, ready=ready,
-                now=now or datetime.now(timezone.utc))
         # `source_errors` is the banner across the top of the page and it means
         # "the panel could not read the world". A single slow query does not
         # qualify — the rows below say so themselves, in the right place. Only a
@@ -1212,19 +1259,25 @@ def _cycle_recovery(
         cycle, phases=phases, failure_domains=failure_domains).evidence
 
 
+def _account_valid_until(fact_at: datetime | None) -> datetime | None:
+    """The independent account collector never borrows a trading wake."""
+    return fact_at + timedelta(minutes=10) if fact_at is not None else None
+
+
 def _runtime_valid_until(
         cycle: Mapping | None, fact_at: datetime | None, *,
         broker_fact: bool = False) -> datetime | None:
-    """Use the durable scheduler cadence, with a ten-minute active fallback."""
+    """Saved execution facts follow their owner's next required observation."""
     if fact_at is None:
         return None
-    state = str((cycle or {}).get("state") or "").upper()
-    retry_phase = str((cycle or {}).get("retry_phase") or "").upper()
-    broker_active = (
-        state in {"EXECUTING", "RECONCILING"}
-        or (state == "RETRY_WAIT" and retry_phase in {
-            "PREFLIGHT_RECOVER", "EXECUTE", "RECOVER"}))
-    if broker_fact and broker_active:
+    state = str((cycle or {}).get('state') or '').upper()
+    phase = str((cycle or {}).get('retry_phase') or '').upper()
+    active = (state in {'EXECUTING', 'RECONCILING'}
+        or state == 'RETRY_WAIT' and phase in {'PREFLIGHT_RECOVER', 'EXECUTE', 'RECOVER'})
+    known_idle = (state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING',
+                           'PLAN_READY', 'WAITING_OPEN', 'SUCCEEDED'}
+        or state == 'RETRY_WAIT' and phase in {'REFRESH', 'PREPARE'})
+    if broker_fact and (active or not known_idle):
         return fact_at + timedelta(minutes=10)
     wake = (cycle or {}).get("next_wake_at")
     if isinstance(wake, datetime) and wake > fact_at:
@@ -1640,8 +1693,7 @@ def _operator_evidence_rows(
 
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
-        account_valid_until = _runtime_valid_until(
-            cycle, (account or {}).get("observed_at"), broker_fact=True)
+        account_valid_until = _account_valid_until((account or {}).get("observed_at"))
         if operator_reservation is not None:
             expiry = _utc(operator_reservation["valid_until"])
             account_valid_until = min(account_valid_until, expiry) if account_valid_until else expiry
@@ -1677,7 +1729,6 @@ def _operator_evidence_rows(
             runtime_proof=(runtime_backup or {}).get("proof"),
             maintenance_proof=(maintenance or {}).get('proof'),
             maintenance_at=(maintenance or {}).get('observed_at'),
-            expected_image=os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST'),
             # PostgreSQL archive catch-up may self-heal while the automation's
             # typed backup retry remains bounded. Phase or error prose alone
             # can never lend that recovery budget to backup evidence.
@@ -2359,6 +2410,77 @@ def _completed_postopen_mirror(conn, cycle, active_publication, frontier, *, now
         paper_alignment='COMPLETED_WITH_HISTORY')
 
 
+def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=None):
+    """Historical warnings cannot turn proven ongoing transport into a mismatch."""
+    from sentinel import local_paper
+    from sentinel.automation.health import read_health
+    from sentinel.execution import journal
+    from sentinel.feed import calendar
+    from sentinel.panel.retry_status import submitted_commands_progress
+
+    now = now or datetime.now(timezone.utc)
+    state = cycle.get('state')
+    if (state not in {'EXECUTING', 'RECONCILING'}
+            or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))
+            or not local_paper.require_bound_account(conn)):
+        return None
+    if state == 'RECONCILING':
+        if not submitted_commands_progress(cycle):
+            return None
+    elif cycle.get('failure_code') or cycle.get('failure_detail'):
+        return None
+    opened, closed = (cycle.get(k) for k in ('execute_at', 'execution_close_at'))
+    if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (opened, closed))
+            or not opened <= now < closed):
+        return None
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.enabled is not True or health.kill_switch_engaged is not False
+            or health.policy_state != 'LEADER_ACTIVE' or health.authority_verdict != 'PASS'
+            or health.authority_lifecycle_current is not True
+            or (health.latest_cycle_id, health.latest_cycle_state) != (cycle.get('cycle_id'), state)):
+        return None
+    current = _current_trading_run(conn)
+    if (current is None or current.key != 'trading_run'
+            or current.effective_status(now) != model.WARN
+            or not current.can_show_trading_run(now) or current.valid_until is None
+            or current.as_of is None):
+        return None
+    run = current.trading_run
+    if (run.state != state or run.intent.cycle_id != cycle.get('cycle_id')
+            or run.intent.plan_id != cycle.get('plan_id') or run.completed_at is not None
+            or run.intent.execute_at != opened or run.updated_at != cycle.get('updated_at')
+            or str(run.intent.decision_session) != str(frontier)
+            or str(run.intent.effective_session) != calendar.next_session(str(frontier))
+            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
+            or health.broker_outcome_unresolved != sum(order.state != 'FILLED' for order in run.orders)):
+        return None
+    if state == 'RECONCILING' and not set(cycle['diagnostic']['execution']['submitted']) <= {
+            order.client_key for order in run.orders}:
+        return None
+    plan = journal.load_plan(conn, run.intent.plan_id)
+    if (plan is None or plan.fingerprint() != cycle.get('plan_fingerprint')
+            or plan.data_version != active_publication.version):
+        return None
+    callback = cycle.get('observation_callback')
+    if isinstance(callback, Mapping):
+        started, deadline = (callback.get(k) for k in ('started_at', 'deadline'))
+        if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (started, deadline))
+                or not run.updated_at <= started <= now < deadline):
+            return None
+    elif state == 'RECONCILING':
+        deadline = cycle['next_wake_at']
+    else:
+        return None
+    boundary = min(closed, current.valid_until, deadline)
+    if now >= boundary:
+        return None
+    return replace(model.paper_reconciliation_row(state='PENDING', cycle_state=state,
+        detail='current saved plan is executing; recorded orders and fills remain in progress; post-close verification is separate'),
+        as_of=current.as_of, valid_until=boundary, required_current=True,
+        recovery=model.RecoveryEvidence(phase='PAPER_TRANSPORT', automatic=True, deadline=boundary))
+
+
 def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     """Keep authenticated all-history warnings distinct from exact future readiness."""
     from sentinel import informational_paper_mirror
@@ -2370,6 +2492,11 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
     if historical:
         if scheduled is None:
+            ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
+            if ongoing is not None:
+                return replace(ongoing, detail=(
+                    f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+                    + ongoing.detail))
             completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
             if completed is not None:
                 return replace(completed, detail=(
@@ -2439,10 +2566,159 @@ def _retired_local_paper_failure(conn) -> Optional[RetiredPaperFailureEligibilit
     return RetiredPaperFailureEligibility(account_observed_at=row.as_of, valid_until=min(deadlines))
 
 
+def _clean_cash_supersession(conn, cycle, *, trading_row=None, now=None):
+    """Explain one cleanly skipped immutable plan, never a generic terminal error."""
+    from sentinel import local_paper
+    from sentinel.automation.health import read_health
+    from sentinel.execution import journal
+    from sentinel.automation import schedule
+    from sentinel.automation.model import AutomationConfig
+    from sentinel.feed import calendar
+    from sentinel.panel.overview_data import account_overview
+
+    now = now or datetime.now(timezone.utc)
+    diagnostic = (cycle or {}).get('diagnostic')
+    if (not cycle or cycle.get('state') != 'SUPERSEDED'
+            or cycle.get('failure_code') != 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+            or cycle.get('terminal_reason') is not None
+            or not isinstance(diagnostic, dict) or diagnostic.get('clean') is not True
+            or diagnostic.get('runtime_state') != 'RUNNING'
+            or diagnostic.get('cash_plan_superseded') is not True
+            or any(diagnostic.get(key) != [] for key in ('unresolved', 'foreign_orders', 'foreign_positions'))
+            or diagnostic.get('restricted_securities') != {}
+            or not local_paper.require_bound_account(conn)):
+        return None
+    clean = cycle.get('clean_reconciliation_id')
+    if (not isinstance(clean, (str, int)) or isinstance(clean, bool)
+            or not str(clean).isdigit() or int(clean) < 1
+            or diagnostic.get('observation_id') != int(clean)):
+        return None
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.enabled is not True or health.kill_switch_engaged is not False
+            or health.authority_verdict != 'PASS' or health.authority_lifecycle_current is not True
+            or not health.leader_active or not health.service_heartbeat_fresh
+            or health.broker_outcome_unresolved != 0
+            or (health.latest_cycle_id, health.latest_cycle_state) != (cycle.get('cycle_id'), 'SUPERSEDED')):
+        return None
+    current = trading_row if trading_row is not None else _current_trading_run(conn)
+    run = current.trading_run if current is not None else None
+    if (run is None or run.state != 'SUPERSEDED'
+            or (run.intent.cycle_id, run.intent.plan_id) != (cycle.get('cycle_id'), cycle.get('plan_id'))
+            or run.updated_at != cycle.get('updated_at')
+            or current.valid_until is None or now >= current.valid_until or current.is_future(now)
+            or any(order.state not in {'FILLED', 'CANCELLED'} for order in run.orders)):
+        return None
+    if _active_commands(conn)['counts']:
+        return None
+    latest = conn.execute('SELECT seq,observed_at,completeness,runtime_state FROM sentinel_observations '
+                          'ORDER BY seq DESC LIMIT 1').fetchone()
+    if (latest is None or latest[0] < int(clean) or latest[2:] != ('COMPLETE', 'RUNNING')
+            or not isinstance(latest[1], datetime) or not run.intent.execute_at <= latest[1] <= now):
+        return None
+    historical = current.operational_fact
+    proved_history = (historical is not None and historical.kind == 'EXECUTION_HISTORY'
+        and historical.state == 'SUPERSEDED' and historical.opening is not None
+        and historical.opening.terminal_reason == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+        and historical.opening.reconciled_at is not None
+        and (historical.opening.cycle_id, historical.opening.plan_id, historical.opening.observation_id,
+             historical.opening.started_at) == (run.intent.cycle_id, run.intent.plan_id, int(clean), run.updated_at))
+    for observation_id in ({int(clean), latest[0]} - ({int(clean)} if proved_history else set())):
+        payload = journal.load_observation_payload(conn, observation_id)
+        if payload.get('completeness') != 'COMPLETE':
+            return None
+    clean_state = ((historical.opening.reconciled_at, 'RUNNING', 'COMPLETE') if proved_history else
+        conn.execute('SELECT observed_at,runtime_state,completeness FROM sentinel_observations '
+                     'WHERE seq=%s', (int(clean),)).fetchone())
+    if (clean_state is None or clean_state[1:] != ('RUNNING', 'COMPLETE')
+            or not run.intent.execute_at <= clean_state[0] <= run.updated_at <= now):
+        return None
+    account = _latest_account_evidence(conn)
+    if not account:
+        return None
+    expected = _bound_account_id(conn)
+    account_row = model.alpaca_account_row(available=True, expected_account_id=expected,
+        valid_until=_account_valid_until(account.get('observed_at')), **account)
+    if (account_row.effective_status(now) != model.OK or account_row.as_of is None
+            or account_row.is_future(now) or account_row.valid_until is None):
+        return None
+    account_overview(account, expected_account_id=expected)
+    # This is the existing saved idle-observation obligation, not a renewal of
+    # native broker liveness or of the independent account collector's clock.
+    decision = calendar.next_session(str(run.intent.decision_session))
+    broker_boundary = _utc(schedule.for_decision_session(decision, AutomationConfig()).prepare_at)
+    if not now < broker_boundary:
+        return None
+    boundary = min(account_row.valid_until, current.valid_until, broker_boundary)
+    fact = model.OperationalFact(kind='PAPER_VERIFICATION', state='AWAITING_NEXT_DECISION',
+        opening=model.OpeningEvidence(cycle_id=run.intent.cycle_id, plan_id=run.intent.plan_id,
+            started_at=run.updated_at, deadline=boundary, observation_id=int(clean)))
+    return fact, account_row.as_of, boundary, broker_boundary
+
+
+def _clean_idle_candidate(cycle, trading_row, broker, commands, *, now):
+    """Already-read metadata is a candidate, never the independent clean proof."""
+    from sentinel.automation import schedule
+    from sentinel.automation.model import AutomationConfig
+    from sentinel.feed import calendar
+    run = trading_row.trading_run if trading_row is not None else None
+    diagnostic = (cycle or {}).get('diagnostic') or {}
+    if (not cycle or cycle.get('state') != 'SUPERSEDED'
+            or cycle.get('failure_code') != 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+            or cycle.get('terminal_reason') is not None or diagnostic.get('clean') is not True
+            or diagnostic.get('runtime_state') != 'RUNNING'
+            or diagnostic.get('cash_plan_superseded') is not True
+            or any(diagnostic.get(key) != [] for key in ('unresolved', 'foreign_orders', 'foreign_positions'))
+            or diagnostic.get('restricted_securities') != {}
+            or not commands or commands['counts'] or broker.status != model.OK
+            or run is None or run.state != 'SUPERSEDED'
+            or trading_row.valid_until is None or now >= trading_row.valid_until or trading_row.is_future(now)
+            or (run.intent.cycle_id, run.intent.plan_id) != (cycle.get('cycle_id'), cycle.get('plan_id'))
+            or run.updated_at != cycle.get('updated_at') or run.updated_at > now
+            or any(order.state not in {'FILLED', 'CANCELLED'} for order in run.orders)):
+        return None
+    clean = cycle.get('clean_reconciliation_id')
+    if (not isinstance(clean, (int, str)) or isinstance(clean, bool) or not str(clean).isdigit()
+            or int(clean) < 1 or diagnostic.get('observation_id') != int(clean)):
+        return None
+    boundary = _utc(schedule.for_decision_session(
+        calendar.next_session(str(run.intent.decision_session)), AutomationConfig()).prepare_at)
+    if not now < boundary:
+        return None
+    return model.OperationalFact(kind='EXECUTION_PROGRESS', state='AWAITING_NEXT_DECISION',
+        opening=model.OpeningEvidence(cycle_id=run.intent.cycle_id, plan_id=run.intent.plan_id,
+            started_at=run.updated_at, deadline=boundary, observation_id=int(clean)))
+
+
+def _execution_progress_fact(cycle, trading_row, broker, *, now):
+    callback = (cycle or {}).get('observation_callback')
+    run = trading_row.trading_run if trading_row is not None else None
+    if (run is None or not isinstance(callback, Mapping)
+            or trading_row.valid_until is None or now >= trading_row.valid_until or trading_row.is_future(now)
+            or trading_row.effective_status(now) != model.WARN
+            or run.state not in {'EXECUTING', 'RECONCILING'} or cycle.get('state') != run.state
+            or (run.intent.cycle_id, run.intent.plan_id) != (cycle.get('cycle_id'), cycle.get('plan_id'))
+            or run.updated_at != cycle.get('updated_at')
+            or any(cycle.get(key) for key in ('terminal_reason', 'callback_failure', 'exception_type'))
+            or run.state == 'EXECUTING' and (cycle.get('failure_code') or cycle.get('failure_detail'))
+            or run.state == 'RECONCILING' and not model.submitted_commands_progress(cycle)
+            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
+            or broker.effective_status(now) not in {model.OK, model.WARN}
+            or broker.recovery is None or broker.recovery.phase != 'BROKER_CALLBACK_REFRESH'):
+        return None
+    start, deadline, closed = callback.get('started_at'), callback.get('deadline'), cycle.get('execution_close_at')
+    if (not all(isinstance(value, datetime) and value.utcoffset() == timedelta(0)
+                for value in (start, deadline, closed))
+            or not run.intent.execute_at <= run.updated_at <= start <= now < min(deadline, closed)):
+        return None
+    return model.OperationalFact(kind='EXECUTION_PROGRESS', state=run.state,
+        opening=model.OpeningEvidence(cycle_id=run.intent.cycle_id, plan_id=run.intent.plan_id,
+            started_at=start, deadline=min(deadline, closed)))
+
+
 def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     feed_store) -> model.Row:
     """Project PAPER independently of an already-proven shadow result."""
-    mirror_count = _informational_mirror_count(conn)
     cycle = _latest_automation_cycle(conn)
     cycle_state = str((cycle or {}).get("state") or "").upper()
     if (cycle_state == "SUPERSEDED"
@@ -2451,6 +2727,15 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING", cycle_state=cycle_state,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        clean_skip = _clean_cash_supersession(conn, cycle)
+        if clean_skip is not None:
+            fact, observed, boundary, _ = clean_skip
+            return model.Row('paper_reconciliation', 'Alpaca PAPER mirror',
+                'PLAN SKIPPED · CASH ACTIVITY RECONCILED', model.WARN,
+                'The immutable plan was retired after positively reconciled native cash activity; '
+                'awaiting the next ordinary decision. No order or completed-plan success is claimed.',
+                as_of=observed, required_current=True, valid_until=boundary, operational_fact=fact,
+                recovery=model.RecoveryEvidence(phase='AWAITING_NEXT_DECISION', automatic=True, deadline=boundary))
         retired = _retired_local_paper_failure(conn)
         if retired is not None:
             current = publication.current(conn)
@@ -2477,6 +2762,7 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     + "; no broker mismatch is established by this cycle status; "
                     + str(cycle.get('failure_code') or 'cycle did not converge')
                     + ": " + str(cycle.get('failure_detail') or 'no recorded detail')))
+    mirror_count = _informational_mirror_count(conn)
     if cycle is None and mirror_count == 0:
         return model.paper_reconciliation_row(
             state="NOT_STARTED", cycle_state=cycle_state)
@@ -2619,7 +2905,8 @@ def _shadow_holdings(state, session, nav):
 
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
                                propagate_read_unavailability: bool = False,
-                               project_execution_context: bool = True):
+                               project_execution_context: bool = True,
+                               source_wait=None):
     """Project the actual canonical shadow; never create a catchup book."""
     if result is None or not verified:
         detail = "current canonical shadow verification is unavailable"
@@ -2640,6 +2927,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
         # contribute its unpriced counts to the canonical book projection.
         if plan is not None and plan["decision_session"] != view["session"]:
             plan = None
+        basis = None
         if project_execution_context:
             exposure = _exposure_row(
                 view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
@@ -2647,12 +2935,24 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
             decision = view['decision'] or {}
             if decision.get('session') != view['session']:
                 raise ValueError('canonical controller decision session changed')
-            basis = model.ShadowProjectionBasis(session=view['session'], observed_at=now,
-                target_core_exposure=str(decision['target_core_exposure']),
-                **{key: view[key] for key in ('slots_used','slots_total','blocked','unresolved','carried','pending')},
-                nav=str(view['nav']), cash=str(view['cash']))
-            exposure = model.exposure_row(exposure=float(basis.target_core_exposure),
-                controller_active=True, adopted=False, session=basis.session, as_of=now)
+            if source_wait is not None:
+                target = _finite_float(decision['target_core_exposure'], label='historical controller exposure')
+                if not 0 <= target <= 1:
+                    raise ValueError('historical controller exposure is outside [0, 1]')
+                boundary = source_wait.deadline-timedelta(microseconds=1)
+                exposure = model.Row('exposure', 'Exposure',
+                    f'LAST ATTESTED THROUGH {source_wait.session} · {target:.0%}', model.WARN,
+                    'Historical controller allocation. Current-session verification is pending.',
+                    as_of=source_wait.attested_at, required_current=True, valid_until=boundary,
+                    recovery=model.RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
+                                                    deadline=boundary))
+            else:
+                basis = model.ShadowProjectionBasis(session=view['session'], observed_at=now,
+                    target_core_exposure=str(decision['target_core_exposure']),
+                    **{key: view[key] for key in ('slots_used','slots_total','blocked','unresolved','carried','pending')},
+                    nav=str(view['nav']), cash=str(view['cash']))
+                exposure = model.exposure_row(exposure=float(basis.target_core_exposure),
+                    controller_active=True, adopted=False, session=basis.session, as_of=now)
         book = model.book_row(
             available=True, slots_used=view['slots_used'], slots_total=view['slots_total'],
             nav=view['nav'], cash=view['cash'], blocked=view['blocked'],
@@ -2660,7 +2960,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
             unpriced_securities=len(plan['unpriced_securities']) if plan else None,
             as_of=now)
         book = replace(book, shadow_book=_shadow_holdings(state, result.session, Decimal(str(view['nav']))))
-        if not project_execution_context:
+        if basis is not None:
             book = replace(book, shadow_projection=basis)
         terminals = model.terminals_row(
             current_unresolved=view['unresolved'], current_pending=view['carried'],
@@ -2723,19 +3023,26 @@ def _dual_authority_rows(
         result = None
         shadow_error = None
         source_wait = None
+        from sentinel.panel import shadow_source_wait
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
-                starting_cash=starting_cash)
+                starting_cash=starting_cash,
+                **({'historical_frontier':True} if not project_execution_context else {}))
+            if not project_execution_context:
+                from sentinel.rolling_runtime import HistoricalSourceFrontier
+                if isinstance(result, HistoricalSourceFrontier):
+                    source_wait = shadow_source_wait.from_history(result, now=now)
+                    result = source_wait.result
         except shadow_runtime.ShadowRuntimeRefused as exc:
             shadow_error = _short(exc)
-            from sentinel.panel import shadow_source_wait
-            source_wait = shadow_source_wait.read(
-                conn, exc, observation_id=observation_id,
-                starting_cash=starting_cash, now=now)
-            if source_wait is not None:
-                result = source_wait.result
-                shadow_error = None
+            if project_execution_context:
+                source_wait = shadow_source_wait.read(
+                    conn, exc, observation_id=observation_id,
+                    starting_cash=starting_cash, now=now)
+                if source_wait is not None:
+                    result = source_wait.result
+                    shadow_error = None
 
         current = source_wait is None and result is not None and result.sessions_lag == 0
         shadow = model.shadow_verification_row(
@@ -2780,7 +3087,7 @@ def _dual_authority_rows(
             conn, result, verified=(verified or source_wait is not None),
             now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)),
             propagate_read_unavailability=propagate_read_unavailability,
-            project_execution_context=project_execution_context)
+            project_execution_context=project_execution_context, source_wait=source_wait)
         if source_wait is not None:
             book_rows = [replace(row, status=model.WARN,
                 value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",
@@ -3251,6 +3558,14 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 uncertain = sum(
                     count for state, count in counts.items()
                     if state in _UNCERTAIN_COMMAND_STATES)
+                observed_at = observation['observed_at']
+                if observed_at is None:
+                    raise ValueError('broker observation clock is missing')
+                broker_valid_until = _runtime_valid_until(
+                    recovery_cycle, observed_at, broker_fact=True)
+                if working_orders or active or uncertain:
+                    broker_valid_until = min(broker_valid_until,
+                        observed_at+timedelta(minutes=10))
                 broker = model.broker_row(
                     available=True, positions=position_count,
                     completeness=observation["completeness"],
@@ -3261,9 +3576,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                     command_as_of=commands["updated_at"],
                     as_of=observation["observed_at"],
                     recovery=broker_recovery,
-                    valid_until=_runtime_valid_until(
-                        recovery_cycle, observation["observed_at"],
-                        broker_fact=True))
+                    valid_until=broker_valid_until)
                 if (trading_row is not None and observation['completeness']=='INCONSISTENT'
                         and recovery_cycle and recovery_cycle.get('observation_callback')
                         and recovery_cycle.get('cycle_id') == trading_row.trading_run.intent.cycle_id
@@ -3297,6 +3610,14 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 ("commands", command_error))
             if error
         ]
+        if not observation_error and not command_error and recovery_cycle is not None:
+            fact = _clean_idle_candidate(recovery_cycle, trading_row, broker, commands,
+                                        now=now or datetime.now(timezone.utc))
+            if fact is None:
+                fact = _execution_progress_fact(recovery_cycle, trading_row, broker,
+                                                now=now or datetime.now(timezone.utc))
+            if fact is not None:
+                broker = replace(broker, operational_fact=fact)
         if trading_error:
             errors.append('current trading run: '+trading_error)
             trading_row = model.Row('trading_run','Today’s paper trading','UNAVAILABLE',
@@ -3325,7 +3646,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 detail='Saved plan; proposed changes use the dated recorded Alpaca observation. '
                        'Fresh account, funding, corporate-action and execution checks can restrict saved targets. '
                        'No orders are submitted by this view.',
-                as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
+                as_of=_utc(preview.created_at),valid_until=_utc(preview.execute_at),paper_plan=preview)
             outcomes, outcome_error = _read(conn,
                 lambda c: _previous_buy_outcomes(c, preview=preview),
                 STATEMENT_TIMEOUT_MS, default=[])
@@ -3450,10 +3771,7 @@ def build_panel(*, state_dir: Path, database_url: str,
                                 diagnostics=worker_diagnostics)
               if mode in {'dual', 'shadow'} else None)
     from sentinel.panel import postclose_feed_wait
-    feed_now = fixed_now or datetime.now(timezone.utc)
-    post_close_wait = postclose_feed_wait.from_rows(financial_rows, worker, now=feed_now)
-    feed_rows, feed_errs = (_feed_rows(database_url, post_close_wait=post_close_wait, now=feed_now)
-                           if post_close_wait is not None else _feed_rows(database_url))
+    feed_rows, feed_errs = _feed_rows(database_url, fixed_now)
     errors.extend(feed_errs)
     # Reviewed dual mode changes performance authority, not visibility into
     # the execution membrane. Durable runtime rows are always projected.
@@ -3483,12 +3801,13 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
+    rows = model.project_opening_rows(rows, now=completed_at)
     from sentinel import local_paper
     try:
         local_mode = local_paper.enabled()
     except (RuntimeError, ValueError):
         local_mode = False  # Existing runtime/account error rows remain visible.
-    return model.Panel(rows=rows, now=completed_at, source_errors=errors,
+    return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at, source_errors=errors,
                        trial_details={**trial_details, **worker_diagnostics},
                        trial_history=trial_history,
                        local_paper_mode=local_mode)

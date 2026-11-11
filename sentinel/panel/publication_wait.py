@@ -19,7 +19,10 @@ def observe(database_url, include_paper, expected_key):
     proof=source_publication_wait.observe(database_url,now=datetime.now(timezone.utc))
     if proof is None:
         return None
-    decision,deadline,now=proof.decision_session,proof.deadline,proof.observed_at
+    from sentinel.panel.sources import _utc
+    decision,deadline,now=proof.decision_session,_utc(proof.deadline),_utc(proof.observed_at)
+    if deadline is None or now is None:
+        raise ValueError('publication wait clocks are missing')
     labels=({'paper_reconciliation':'Alpaca PAPER mirror'} if include_paper else {
         'shadow_verification':'Certified shadow strategy','shadow_nav':'Certified shadow NAV',
         'shadow_return':'Certified strategy return','exposure':'Exposure','book':'Book','terminals':'Terminals'})

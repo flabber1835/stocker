@@ -130,8 +130,6 @@ def test_missing_spoofed_terminal_or_broker_evidence_keeps_existing_failure(diag
 @pytest.mark.parametrize('row', [
     {'next_wake_at': None}, {'next_wake_at': OPEN},
     {'next_wake_at': OPEN+timedelta(seconds=1)},
-    {'next_wake_at': WAKE.replace(tzinfo=None)},
-    {'execution_open_at': OPEN.replace(tzinfo=None)},
     {'execution_open_at': OPEN+timedelta(minutes=1)},
     {'execution_open_at': None}, {'effective_session': '2026-10-26'},
     {'decision_session': '2026-10-24', 'effective_session': '2026-10-26'},
@@ -142,6 +140,17 @@ def test_unproven_saved_schedule_never_gains_availability_allowance(row):
     assert retry_status.availability_recovery(cycle) is None
     assert summary.effective_status(NOW) == model.FAIL
     assert exposure.effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize('attempt,field,stamp', [
+    pytest.param(9, 'next_wake_at', WAKE, id='wake-attempt-9'),
+    pytest.param(9, 'execution_open_at', OPEN, id='open-attempt-9'),
+    pytest.param(7, 'next_wake_at', WAKE, id='wake-below-retry-limit'),
+])
+def test_sql_cycle_reader_refuses_timezone_naive_availability_clocks(attempt, field, stamp):
+    connection = CycleRows(attempt=attempt, row={field: stamp.replace(tzinfo=None)})
+    with pytest.raises(ValueError, match='source clock is not timezone aware'):
+        sources._latest_automation_cycle(connection, generation=46)
 
 
 def test_shared_source_helper_respects_phase_and_failure_domain_filters():
@@ -162,7 +171,6 @@ def test_shared_source_helper_respects_phase_and_failure_domain_filters():
     ({'callback_failure': 'DATA_INTEGRITY'}, {}),
     ({'exception_type': None}, {}),
     ({}, {'next_wake_at': None}),
-    ({}, {'next_wake_at': WAKE.replace(tzinfo=None)}),
     ({}, {'effective_session': '2026-10-26'}),
 ])
 def test_malformed_explicit_availability_cannot_fall_back_below_bound(diagnostic, row):

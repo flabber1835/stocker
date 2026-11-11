@@ -1,6 +1,6 @@
 """Project authenticated closing-data recovery without claiming current data."""
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sentinel.feed import calendar
 from sentinel.panel import model
@@ -37,7 +37,8 @@ def from_rows(financial_rows: list[model.Row], worker: model.Row | None,
     frontier = book.shadow_book.session
     try:
         decision = calendar.next_session(frontier)
-        deadline = calendar.session_window(calendar.next_session(decision))[0] - timedelta(microseconds=1)
+        deadline = calendar.session_window(calendar.next_session(decision))[0].astimezone(
+            timezone.utc) - timedelta(microseconds=1)
         if (decision != calendar.latest_closed_session(now)
                 or not calendar.session_window(decision)[1] <= now <= deadline
                 or shadow.valid_until != deadline):
@@ -63,6 +64,29 @@ def project(row: model.Row, wait: ClosingDataWait | None, *, frontier: str | Non
         valid_until=deadline,
         recovery=model.RecoveryEvidence(phase='POST_CLOSE_SOURCE_WAIT', automatic=True,
                                         deadline=deadline))
+
+
+def _project_frontier(row, wait, ingest, *, now):
+    fact = row.operational_fact
+    if (row.key != 'feed' or not row.required_current or fact is None
+            or fact.kind != 'MARKET_DATA' or fact.state != 'READY'
+            or fact.sessions_behind != 1 or fact.session is None):
+        return row
+    frontier = fact.session.isoformat()
+    usable = (wait is not None and wait.frontier == frontier and ingest is not None
+              and ingest.effective_status(now) not in {model.FAIL, model.UNKNOWN})
+    if row.status == model.WARN and row.recovery is not None and row.recovery.phase == 'POST_CLOSE_SOURCE_WAIT':
+        if (usable and row.valid_until is not None
+                and row.valid_until == row.recovery.deadline <= wait.deadline
+                and now < row.valid_until and row.recovery.active(now) and not row.is_future(now)):
+            return row
+        return replace(row, status=model.FAIL, recovery=None,
+            value=f'{frontier} · 1 session behind',
+            detail='The recorded feed verdict does not cover the owed close. Current source-wait evidence is unavailable.')
+    if not usable:
+        return row
+    return project(row, wait, frontier=frontier, sessions_behind=fact.sessions_behind,
+                   ready=True, now=now)
 
 
 def publication_deadline(financial_rows, worker, *, now):
@@ -99,6 +123,9 @@ def attestation_deadline(financial_rows, worker, *, now):
 
 def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now):
     """Withdraw old PASS; preserve failures while confirmed publication runs."""
+    wait=from_rows(financial_rows,worker,now=now)
+    ingest=next((row for row in feed_rows if row.key=='ingest'),None)
+    feed_rows=[_project_frontier(row,wait,ingest,now=now) for row in feed_rows]
     publication=publication_deadline(financial_rows,worker,now=now)
     attestation=attestation_deadline(financial_rows,worker,now=now)
     if attestation is not None:
@@ -129,7 +156,6 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
             if row.key in {'feed','ingest'} and row.status==model.WARN
                 and row.recovery is not None and row.recovery.phase=='FEED_INGEST'
             else row for row in feed_rows]
-    wait=from_rows(financial_rows,worker,now=now)
     deadline=wait.deadline if wait is not None else publication if publication is not None else attestation
     values={row.key:row for row in automation_rows}
     control,cycle=values.get('automation'),values.get('automation_cycle')
@@ -151,3 +177,37 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
             and row.is_stale(now) and not row.is_future(now)
         else row for row in automation_rows]
     return feed_rows,automation_rows
+
+
+def reproject(panel, *, now, subject=None):
+    """Recompute dependents after fresh receipts/liveness replace their inputs.
+
+    A current negative is never rewritten. This pure projection cannot collect,
+    renew a fact, or confer financial authority, including on an HTTP read.
+    """
+    feeds = [replace(row, recovery=None,
+        detail=('Current data verification pending; no current matching bounded '
+                'readiness handoff has been established.'))
+        if (row.key == 'feed' and row.status == model.WARN and row.required_current
+            and row.feed_readiness == 'AWAITING_VERDICT' and row.recovery is not None
+            and row.recovery.phase in {'READINESS_HANDOFF', 'SHADOW_ATTESTATION'})
+        else row for row in panel.rows if row.key in {'feed', 'ingest'}]
+    worker = next((row for row in panel.rows if row.key == 'shadow_worker'), None)
+    financial = [row for row in panel.rows if row.key in {
+        'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book', 'terminals'}]
+    automation = [row for row in panel.rows if row.key not in {
+        *(row.key for row in feeds), *(row.key for row in financial), 'shadow_worker'}]
+    feeds, automation = project_progress(feeds, automation, financial, worker, now=now)
+    if subject is not None:
+        from sentinel.panel import readiness_handoff
+        boundary = readiness_handoff.deadline(panel, subject=subject, now=now)
+        if boundary is not None:
+            feeds = [replace(row, valid_until=boundary,
+                detail=('Current publication is awaiting its measured readiness handoff; '
+                        'its matching bounded verification attempt is in progress. '
+                        'No readiness verdict has been claimed.'),
+                recovery=model.RecoveryEvidence(phase='READINESS_HANDOFF', automatic=True,
+                                                deadline=boundary))
+                if row.key == 'feed' else row for row in feeds]
+    replacements = {row.key: row for row in [*feeds, *automation]}
+    return replace(panel, rows=[replacements.get(row.key, row) for row in panel.rows])
