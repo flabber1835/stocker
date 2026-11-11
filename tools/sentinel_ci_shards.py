@@ -9,7 +9,7 @@ import re
 import subprocess
 
 GENERAL_SHARDS = 8
-ROLLING_SHARDS = 4
+ROLLING_SHARDS = 5
 CURRENT_LANES = {
     'sentinel-current-workflow': 'tests/sentinel/test_current_operational_workflow.py',
     'sentinel-current-process-recovery': 'tests/sentinel/test_current_process_recovery.py',
@@ -120,7 +120,7 @@ def refine_balance(lanes: list[list[str]], estimates: dict[str, int], default: i
 
 
 def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
-    if (GENERAL_SHARDS, ROLLING_SHARDS) != (8, 4):
+    if (GENERAL_SHARDS, ROLLING_SHARDS) != (8, 5):
         raise ValueError("incomplete reviewed family shard inventory")
     if not modules or len(modules) != len(set(modules)):
         raise ValueError("Sentinel test module inventory is empty or duplicated")

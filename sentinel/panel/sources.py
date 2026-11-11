@@ -2416,11 +2416,11 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     from sentinel.automation.health import read_health
     from sentinel.execution import journal
     from sentinel.feed import calendar
-    from sentinel.panel.retry_status import submitted_commands_progress
+    from sentinel.panel.retry_status import project_cycle_recovery, submitted_commands_progress
 
     now = now or datetime.now(timezone.utc)
     state = cycle.get('state')
-    if (state not in {'EXECUTING', 'RECONCILING'}
+    if (state not in {'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}
             or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))
             or not local_paper.require_bound_account(conn)):
         return None
@@ -2428,6 +2428,8 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
         if not submitted_commands_progress(cycle):
             return None
     elif cycle.get('failure_code') or cycle.get('failure_detail'):
+        return None
+    if state == 'RETRY_WAIT' and cycle.get('retry_phase') != 'RECOVER':
         return None
     opened, closed = (cycle.get(k) for k in ('execute_at', 'execution_close_at'))
     if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (opened, closed))
@@ -2447,13 +2449,18 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
             or current.as_of is None):
         return None
     run = current.trading_run
+    in_flight = {'ACKNOWLEDGED', 'PARTIALLY_FILLED'}
+    allowed = in_flight | {'FILLED'}
+    if state == 'EXECUTING':
+        in_flight.add('SEND_PENDING')
+        allowed.update({'SEND_PENDING', 'PLANNED'})
     if (run.state != state or run.intent.cycle_id != cycle.get('cycle_id')
             or run.intent.plan_id != cycle.get('plan_id') or run.completed_at is not None
             or run.intent.execute_at != opened or run.updated_at != cycle.get('updated_at')
             or str(run.intent.decision_session) != str(frontier)
             or str(run.intent.effective_session) != calendar.next_session(str(frontier))
-            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
-            or health.broker_outcome_unresolved != sum(order.state != 'FILLED' for order in run.orders)):
+            or any(order.state not in allowed for order in run.orders)
+            or health.broker_outcome_unresolved != sum(order.state in in_flight for order in run.orders)):
         return None
     if state == 'RECONCILING' and not set(cycle['diagnostic']['execution']['submitted']) <= {
             order.client_key for order in run.orders}:
@@ -2463,7 +2470,25 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
             or plan.data_version != active_publication.version):
         return None
     callback = cycle.get('observation_callback')
-    if isinstance(callback, Mapping):
+    if state == 'RETRY_WAIT':
+        recovery = project_cycle_recovery(cycle, phases=('RECOVER',)).protected_recovery
+        if recovery is None or not recovery.active(now):
+            return None
+        diagnostic = cycle.get('diagnostic') or {}
+        if (diagnostic.get('clean') is not True or diagnostic.get('runtime_state') != 'RUNNING'
+                or any(diagnostic.get(field) != [] for field in (
+                    'unresolved', 'foreign_orders', 'foreign_positions'))):
+            return None
+        account = _latest_account_evidence(conn)
+        match = _matched_resting_reservation(conn, account=account, cycle=cycle, now=now)
+        if match is None:
+            return None
+        account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+            matched_protected_reservation=match, **account)
+        if account_row.effective_status(now) != model.OK:
+            return None
+        deadline = recovery.deadline
+    elif isinstance(callback, Mapping):
         started, deadline = (callback.get(k) for k in ('started_at', 'deadline'))
         if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (started, deadline))
                 or not run.updated_at <= started <= now < deadline):

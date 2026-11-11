@@ -210,7 +210,8 @@ def test_owner_expiring_during_history_validation_cannot_write(conn, monkeypatch
 def test_failure_without_financial_receipt_is_durable_in_existing_refresh_loop(conn, monkeypatch):
     owned = owner(conn)
     state = attempt(code='SUPERSESSION_EXHAUSTED')
-    reader = SimpleNamespace(read=lambda *args, **kwargs: None, attempt_state=lambda: state)
+    reader = SimpleNamespace(
+        completed=None, read=lambda *args, **kwargs: None, attempt_state=lambda: state)
     monkeypatch.setattr(verifier, 'snapshot', lambda *args, **kwargs: None)
     monkeypatch.setattr(verifier, '_require_iteration_time', lambda *_: None)
     # The loop uses its real wall clock; original attempt time is diagnostic only.
@@ -229,7 +230,8 @@ def test_failure_without_financial_receipt_is_durable_in_existing_refresh_loop(c
 
 def test_financial_and_diagnostic_updates_commit_atomically_or_not_at_all(conn, monkeypatch):
     owned = owner(conn)
-    reader = SimpleNamespace(read=lambda *args, **kwargs: None, attempt_state=lambda: attempt())
+    reader = SimpleNamespace(
+        completed=None, read=lambda *args, **kwargs: None, attempt_state=lambda: attempt())
     monkeypatch.setattr(verifier, 'snapshot', lambda *args, **kwargs: ({'subject_sha256': 'b'*64}, 'c'*64))
     monkeypatch.setattr(verifier, '_require_iteration_time', lambda *_: None)
     monkeypatch.setattr(read_projection, 'subject', lambda *args: 'b'*64)

@@ -495,6 +495,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
     compact_headline = health['label']
+    opening_refresh = bool(health.get('opening_refresh')) and not refresh_pending
+    heartbeat_label = ('Refreshing opening evidence · last-known cards keep their original times'
+                       if opening_refresh else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO')
     if refresh_pending:
         compact_headline = 'Refreshing status · last known values'
     return f"""<!doctype html>
@@ -514,6 +517,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 </head><body data-generated-at="{_esc(generated)}"
              data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
+             data-opening-refresh="{str(opening_refresh).lower()}"
              data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
              data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
              data-controller-version="2"
@@ -524,7 +528,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
-        aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
+        aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else _esc(heartbeat_label)}</span>
 </header>
 {errs}
 <div id="portfolio-overview">{overview}</div>
@@ -761,8 +765,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       if (!invalidated && continuityCurrent()){{ showResume(); }}
       else {{ invalidate(true); }}
     }} else if (!invalidated && !refreshDelayed){{
-      var text = "DASHBOARD HEARTBEAT · UPDATED " +
-        Math.max(0, Math.floor(elapsedVisualAge() / 1000)) + "s AGO";
+      var text = document.body.dataset.openingRefresh === "true"
+        ? "Refreshing opening evidence · last-known cards keep their original times"
+        : "DASHBOARD HEARTBEAT · UPDATED " + Math.max(0, Math.floor(elapsedVisualAge() / 1000)) + "s AGO";
       if (heartbeat.textContent !== text){{ heartbeat.textContent = text; }}
     }}
   }}

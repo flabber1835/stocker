@@ -906,6 +906,13 @@ def dashboard_health(panel) -> dict:
             boundaries.append(work.active_until)
     boundary = min(boundaries).astimezone(timezone.utc) if boundaries else None
     if not display_current(panel) and not negative:
+        from sentinel.panel.delivery import opening_refresh_deadline
+        opening = opening_refresh_deadline(panel)
+        if opening is not None:
+            return dict(status='warn', color='amber', label='Refreshing opening evidence',
+                        valid_until=opening.isoformat(), plan_readiness='unavailable',
+                        active_conditions=facts['active'], review_conditions=facts['warnings'],
+                        opening_refresh=True)
         return dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],

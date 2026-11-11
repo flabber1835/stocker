@@ -157,14 +157,14 @@ def test_network_deadline_is_bounded_and_leaves_no_new_evidence(db, monkeypatch)
 
 
 def test_account_identity_guard_falsifier_is_detected(db, monkeypatch):
-    source = inspect.getsource(module._collect)
+    source = inspect.getsource(module._observation)
     needle = "    _inspection_account_or_refuse(snapshot, bound[2])"
     last = "    _inspection_account_or_refuse(last, bound[2])"
     assert source.count(needle) == source.count(last) == 1
     namespace = {}
     exec(compile(source.replace(needle, "    pass").replace(last, "    pass"), "<removed-account-identity-guard>", "exec"),
-         module._collect.__globals__, namespace)
-    monkeypatch.setattr(module, "_collect", namespace["_collect"])
+         module._observation.__globals__, namespace)
+    monkeypatch.setattr(module, "_observation", namespace["_observation"])
     with pytest.raises(pytest.fail.Exception):
         test_invalid_or_foreign_account_does_not_refresh_evidence(
             db, monkeypatch, "account_number", "PAforeign")
@@ -288,3 +288,35 @@ def test_native_identity_guard_falsifier_is_detected(db, monkeypatch):
     monkeypatch.setattr(module, "_native_orders", namespace["_native_orders"])
     with pytest.raises(AssertionError):
         test_changed_native_order_never_explains_cash(db, monkeypatch, "id", NATIVE)
+
+
+def test_second_coherent_read_resolves_reservation_before_publication(db, monkeypatch):
+    f = fixture(db, monkeypatch)
+    resting(db, f)
+    f.account['buying_power'] = '9500'
+    read = f.reader.account_snapshot
+    snapshots = []
+
+    async def settling_account():
+        snapshots.append(True)
+        if len(snapshots) == 3:
+            f.account['buying_power'] = '8959.27'
+        return await read()
+
+    monkeypatch.setattr(f.reader, 'account_snapshot', settling_account)
+    assert collect(db, f) is True
+    assert len(snapshots) == 4
+    account = observed(db)
+    assert module.recorded_reservation(db, account=account, now=NOW)['reserved_cash'] == '1040.73'
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (1,)
+
+
+def test_blocked_account_bypasses_reservation_recheck(db, monkeypatch):
+    f = fixture(db, monkeypatch)
+    resting(db, f)
+    f.account.update(buying_power='9500', trading_blocked=True)
+    assert collect(db, f) is True
+    assert [path for _, path in f.calls].count('/v2/account') == 2
+    account = observed(db)
+    assert module.recorded_reservation(db, account=account, now=NOW) is None
+    assert account_row(account, None).effective_status(NOW) == model.FAIL

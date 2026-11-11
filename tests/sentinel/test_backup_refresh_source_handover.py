@@ -18,9 +18,9 @@ def test_backup_refresh_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(profile['retained_predecessors'])==42 and profile['authority_effect']=='NONE'
+    assert len(profile['retained_predecessors'])==43 and profile['authority_effect']=='NONE'
     originals={rev:value for rev,value in profile['retained_predecessors'].items()
-               if rev not in {REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION}}
+               if rev not in {REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='1aa0adbbf956d0bb909ccd809a23f216cdfcdeb6cf23b623cca5c35723a6dccf'
 
@@ -31,12 +31,12 @@ def test_renewal_margin_preserves_the_exact_installed_inventory_and_earlier_hist
     assert basis.BACKUP_MARGIN_PREDECESSOR_REVISION == revision
     before = profile['retained_predecessors'][revision]['files']
     assert admission.source_closure(before) == '3cd7fe2e6195939cec67a2e459ac542b6b30ba24b0ca7f9226bc4467f43e1726'
-    actual = admission._source_files(basis.PROFILE.parent)
+    actual = profile['retained_predecessors'][basis.OPENING_STABILITY_PREDECESSOR_REVISION]['files']
     assert set(actual) == set(before)
     assert {name for name in actual if actual[name] != before[name]} == {
         'backup_integrity_reuse.py', 'url_selected_source_basis.py'}
-    assert basis.predecessor_view(actual, previous=before) == before
-    earlier = {key: value for key, value in profile['retained_predecessors'].items() if key != revision}
+    assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent), previous=before) == before
+    earlier = {key: value for key, value in profile['retained_predecessors'].items() if key not in {revision, basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw = json.dumps(earlier, sort_keys=True, separators=(',', ':')).encode()
     assert hashlib.sha256(raw).hexdigest() == '83527a8bd784a676a7d60c8978a3670398259cc32afed3b02d4932537a01d181'
 

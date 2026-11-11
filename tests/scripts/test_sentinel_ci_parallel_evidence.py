@@ -19,6 +19,7 @@ from tools import sentinel_ci_shards as shards
 @pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-general-4",
                                           "sentinel-general-5", "sentinel-general-6", "sentinel-general-7", "sentinel-current-workflow",
                                           "sentinel-current-process-recovery", "sentinel-rolling-2",
+                                          "sentinel-rolling-4",
                                           "sentinel-contention", "sentinel-status",
                                           "sentinel-automation", "sentinel-warmup"])
 def test_all_sentinel_workers_cover_each_module_once_and_propagate_failure(tmp_path, failed_lane):
@@ -129,13 +130,13 @@ def test_workflow_declares_every_reviewed_worker_once():
     workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
                             '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
     lanes=workflow['jobs']['parallel-certification']['strategy']['matrix']['lane']
-    assert len(lanes)==len(set(lanes))==22
+    assert len(lanes)==len(set(lanes))==23
     assert set(lanes)==set(evidence.LANES)
-    assert len(evidence.GENERAL_LANES)==8 and len(evidence.ROLLING_LANES)==4
+    assert len(evidence.GENERAL_LANES)==8 and len(evidence.ROLLING_LANES)==5
     assert set(shards.CURRENT_LANES).issubset(lanes)
 
 
-@pytest.mark.parametrize("lane", ["sentinel-general-6", "sentinel-general-7"])
+@pytest.mark.parametrize("lane", ["sentinel-general-6", "sentinel-general-7", "sentinel-rolling-4"])
 def test_omitting_a_new_worker_is_detected(monkeypatch, lane):
     workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
                             '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))

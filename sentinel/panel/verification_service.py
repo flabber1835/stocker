@@ -110,6 +110,13 @@ def snapshot(reader, result, *, scope, now):
             expiry = observed+timedelta(seconds=financial.FRESH_SECONDS)
         else:
             rows, _, _, errors = result
+            retained = reader.negative_result if scope == 'PAPER' else None
+            if (retained is not None and len(rows) == 1 and not errors
+                    and rows[0].key == retained[0].key and rows[0].status == retained[0].status
+                    and rows[0].as_of == retained[0].as_of):
+                # The original receipt and attempt retain their own subject and clocks.
+                # Rebinding the row would make a dated failure a new observation.
+                return None
             observed = reader.last_result_at or reader.pending_at
             if observed is None:
                 return None
@@ -205,13 +212,49 @@ def _require_iteration_time(deadline):
         raise TimeoutError('verifier retry or ownership deadline expired')
 
 
+def _opening_scan_reserve(conn, now):
+    """Read the current bound cycle's short opening resource reservation."""
+    cycle = conn.execute(
+        "SELECT c.state,c.execution_open_at,c.execute_at,c.execution_close_at,c.next_wake_at,"
+        "c.diagnostic->>'retry_phase' FROM sentinel_automation_cycles c"
+        " JOIN sentinel_automation_control a ON a.id=1 AND a.generation=c.control_generation"
+        " JOIN sentinel_automation_lease l ON l.id=1 AND l.control_generation=a.generation"
+        " AND l.expires_at>clock_timestamp()"
+        " JOIN sentinel_account_binding b ON b.id=1 AND b.deployment_id=c.deployment_id"
+        " AND b.broker=c.broker AND b.broker_account_id=c.broker_account_id"
+        " AND b.takeover_epoch=c.takeover_epoch"
+        " WHERE a.enabled AND NOT a.kill_switch_engaged AND b.broker='alpaca'"
+        " AND b.ownership_state='SENTINEL_OWNED' AND a.authority_verdict='PASS'"
+        " AND c.effective_session=(%s AT TIME ZONE 'America/New_York')::date"
+        " ORDER BY c.created_at DESC,c.cycle_id DESC LIMIT 1", (now,)).fetchone()
+    if cycle is None:
+        return None
+    state, opened, execute, closed, wake, retry = cycle
+    cutoff = min(closed, opened + timedelta(minutes=10))
+    if not opened <= execute < cutoff or not execute - timedelta(seconds=90) <= now < cutoff:
+        return None
+    if (state == 'WAITING_OPEN' and now <= execute + timedelta(seconds=15)
+            or state in {'EXECUTING', 'RECONCILING'}) or (
+            state == 'RETRY_WAIT' and retry == 'RECOVER' and wake is not None
+            and wake <= now + timedelta(seconds=30)):
+        return cutoff
+    return None
+
+
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
             break
         _require_iteration_time(deadline)
-        result = reader.read(database_url, include_paper=scope == 'PAPER')
+        reserve = None
+        if scope == 'SHADOW' and reader.completed is not None:
+            from sentinel import local_paper
+            if local_paper.enabled():
+                with conn.transaction(force_rollback=True):
+                    reserve = _opening_scan_reserve(conn, datetime.now(timezone.utc))
+        options = {} if reserve is None else {'defer_refresh_until': reserve}
+        result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
         financial_changed = False
         if value is not None and previous.get(scope) != value:
