@@ -126,7 +126,9 @@ def test_archive_frontier_hint_reads_real_statistics_without_a_copy():
         server.start()
         server.enable_archive()
         with psycopg.connect(server.sync_dsn,autocommit=True) as conn:
-            conn.execute('CREATE TABLE sentinel_backup_recovery_markers(marker text primary key)')
+            conn.execute('CREATE TABLE sentinel_backup_recovery_markers('
+                         'marker text primary key, created_at timestamptz NOT NULL DEFAULT NOW())')
+            schema.ensure_schema(conn)
             conn.execute('SELECT pg_switch_wal()')
             deadline=time.monotonic()+15
             while not conn.execute('SELECT last_archived_wal IS NOT NULL FROM pg_stat_archiver').fetchone()[0]:

@@ -110,13 +110,13 @@ def test_shadow_owner_preserves_disposed_primary_without_translation_or_cleanup(
 
 
 def test_removed_shadow_owner_disposal_guard_is_detected(monkeypatch):
-    source = inspect.getsource(shadow_service.advance_once)
+    source = inspect.getsource(shadow_service._advance_rolling)
     guard = 'if not discard_connection:'
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'if True:'), 'unguarded disposed shadow owner', 'exec'),
          shadow_service.__dict__, namespace)
-    monkeypatch.setattr(shadow_service, 'advance_once', namespace['advance_once'])
+    monkeypatch.setattr(shadow_service, '_advance_rolling', namespace['_advance_rolling'])
     with pytest.raises(AssertionError, match='disposed session reused'):
         test_shadow_owner_preserves_disposed_primary_without_translation_or_cleanup(
             monkeypatch, 'interrupt', False)

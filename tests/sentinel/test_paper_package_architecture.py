@@ -211,6 +211,8 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 
 
 @pytest.mark.parametrize('definition,owner', [
+    ('_plan_fill_cash', 'cash'),
+    ('_cash_authority_or_refuse', 'cash'),
     ('_local_window_resizing', 'preparation'),
     ('prepare_paper_plan', 'preparation'),
     ('current_paper_plan', 'preparation'),

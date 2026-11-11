@@ -227,19 +227,10 @@ test.describe('App resume presentation', () => {
   test.use({serviceWorkers:'block'});
 
   async function shortProofDisplay(page) {
-    // Change only the client presentation, exactly as the resume fixture below:
-    // CI's real financial rows remain unconfigured/negative. Nine seconds is
-    // the observed presentation budget, not a fabricated financial receipt.
-    const response = await page.request.get('/');
+    // CI's financial rows remain unconfigured. The real controller derives
+    // its five-second refresh cadence from the fixture's nine-second proof.
+    const response = await page.request.get('/?document=1');
     const source = await response.text();
-    const duePattern = /var ordinaryDue = Date\.now\(\) \+ \d+;/g;
-    const nextDuePattern = /ordinaryDue = Date\.now\(\)\+\d+;/g;
-    const refreshPattern = /refreshTimer = setTimeout\(function\(\)\{ checkAge\(\); refreshDocument\(\); \}, \d+\);/g;
-    expect([...source.matchAll(duePattern)]).toHaveLength(1);
-    expect([...source.matchAll(nextDuePattern)]).toHaveLength(1);
-    // Both the initial timer and the post-reconciliation timer share the
-    // shortened fixture cadence; fetched documents do not execute scripts.
-    expect([...source.matchAll(refreshPattern)]).toHaveLength(2);
     const base = new Date('2026-10-30T23:00:00Z');
     const requests = [];
     let closing = false;
@@ -251,11 +242,7 @@ test.describe('App resume presentation', () => {
       let body = source.replace(/data-generated-at="[^"]+"/,
         `data-generated-at="${new Date(now).toISOString()}"`)
         .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
-        .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"')
-        .replace(duePattern, 'var ordinaryDue = Date.now() + 5000;')
-        .replace(nextDuePattern, 'ordinaryDue = Date.now()+5000;')
-        .replace(refreshPattern,
-          'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);');
+        .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"');
       if (positive) body = body.replace(
         /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
         '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
@@ -263,8 +250,6 @@ test.describe('App resume presentation', () => {
         '<div id="portfolio-overview"><ol id="browser-slot-fixture" aria-label="Browser fixture only">'+
         Array.from({length:20},(_,i)=>'<li class="slot-tile occupied" data-browser-slot="'+i+'"><span class="slot-state">Browser fixture only</span></li>').join('')+'</ol>');
       expect(body).toContain('data-max-age-seconds="9"');
-      expect(body).toContain('var ordinaryDue = Date.now() + 5000;');
-      expect(body).toContain('refreshDocument(); }, 5000);');
       return body;
     }
 

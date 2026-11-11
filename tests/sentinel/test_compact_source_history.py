@@ -56,14 +56,20 @@ def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
 
 def test_storage_is_small_and_roundtrip_preserves_every_logical_map():
     raw = basis.PROFILE.read_bytes()
-    assert len(raw) < 250_000  # Existing outer security bound remains 1,000,000.
     logical = expanded_profile()
+    # The number of retained releases can grow. Compare compact storage with
+    # the same complete maps, while keeping the loader's absolute size bound.
+    compact_bytes = len(raw)
+    expanded_bytes = len(json.dumps(logical, sort_keys=True, separators=(',', ':')).encode())
+    assert compact_bytes < 1_000_000
+    assert compact_bytes * 4 < expanded_bytes
     assert encoded(logical) == raw
     assert logical == basis._profile()
     assert set(logical['retained_predecessors']) == set(basis.RETAINED_PREDECESSORS)
 
 
 def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(monkeypatch):
+    wire = json.loads(basis.PROFILE.read_bytes())
     maps, closures = [], []
     original_map, original_closure = basis._source_map, basis._validated_closure
     def validated(value):
@@ -75,9 +81,9 @@ def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(
     monkeypatch.setattr(basis, '_source_map', validated)
     monkeypatch.setattr(basis, '_validated_closure', hashed)
     profile = basis._profile()
-    assert len(maps) == 2+len(profile['retained_predecessors'])
+    assert maps == [len(wire['base_files']), len(wire['candidate_files']),
+                    *(len(record['overrides']) for record in wire['retained_predecessors'].values())]
     assert len(closures) == 1+len(profile['retained_predecessors'])
-    assert sum(maps) < 2500
 
 
 def repin_wire(tmp_path, monkeypatch, value):

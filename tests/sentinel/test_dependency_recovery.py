@@ -148,9 +148,10 @@ def test_dependency_walk_stops_at_integrity_decisions_and_cause_cycles():
 def test_wrapped_database_timeout_retries_one_durable_transition(conn, monkeypatch):
     from datetime import datetime, timezone
     from types import SimpleNamespace
-    from sentinel import rolling_runtime, shadow_budget, shadow_service
+    from sentinel import rolling_runtime, schema, shadow_budget, shadow_service
     from sentinel.shadow_observation import ShadowObservationRefused
 
+    schema.ensure_schema(conn)
     conn.execute('CREATE TEMP TABLE autonomy_transition (session text PRIMARY KEY)')
     conn.commit()
     config = SimpleNamespace(operational_source_only=True, observation_id='test',
@@ -158,7 +159,8 @@ def test_wrapped_database_timeout_retries_one_durable_transition(conn, monkeypat
     attempts = []
 
     class BorrowedConnection:
-        def rollback(self): conn.rollback()
+        def __getattr__(self, name):
+            return getattr(conn, name)
         def close(self): pass
 
     def advance(*args, **kwargs):
@@ -174,8 +176,7 @@ def test_wrapped_database_timeout_retries_one_durable_transition(conn, monkeypat
             raise ShadowObservationRefused('shadow observation append failed') from exc
 
     monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: config)
-    monkeypatch.setattr(shadow_service, 'preflight', lambda *a, **k: {
-        'status': 'ATTESTED_STRUCTURAL', 'input_contract': rolling_runtime.SCHEMA})
+    monkeypatch.setattr(shadow_service, '_require_operational_source', lambda conn: None)
     monkeypatch.setattr(shadow_service, '_causal_target', lambda **k: '2026-10-15')
     monkeypatch.setattr(shadow_budget, 'cutoff', lambda: datetime.now(timezone.utc))
     monkeypatch.setattr(shadow_service.feed_store, 'connect', lambda *a, **k: BorrowedConnection())
@@ -183,6 +184,7 @@ def test_wrapped_database_timeout_retries_one_durable_transition(conn, monkeypat
     monkeypatch.setattr(shadow_worker, 'advance_once', shadow_service.advance_once)
     assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
     assert shadow_worker.main() == 0
+    assert attempts == [0, 1]
     assert conn.execute('SELECT count(*) FROM autonomy_transition').fetchone()[0] == 1
     conn.rollback()
 

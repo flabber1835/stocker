@@ -1,6 +1,7 @@
 """Execute the final software reader; historical warnings remain amber facts."""
 from copy import deepcopy
 from dataclasses import replace
+import datetime as datetime_module
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -147,7 +148,14 @@ def test_removing_the_typed_history_flag_is_detected_by_the_executed_reader(monk
 
 
 def test_original_post_trade_amber_behavior_is_unchanged(monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 11, 10, 14, 39, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.replace(tzinfo=None) if tz is None else now.astimezone(tz)
+
+    monkeypatch.setattr(datetime_module, 'datetime', Clock)
     execute, completed = now-timedelta(minutes=10), now-timedelta(minutes=5)
     decision, effective = now.date()-timedelta(days=1), now.date()
     panel = healthy_history_panel(now=now, execute_at=execute)

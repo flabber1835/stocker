@@ -381,11 +381,11 @@ def test_periodic_paper_check_keeps_its_original_deadline_and_leader_bound():
 
 
 def test_periodic_check_phase_guard_has_an_executed_false_green_falsifier(monkeypatch):
-    source = inspect.getsource(presentation._paper_check_normal)
+    source = inspect.getsource(model.checking_paper_row)
     guard = "and recovery.phase == 'FINANCIAL_VERIFICATION'"
     assert source.count(guard)==1
-    namespace = dict(vars(presentation))
+    namespace = dict(vars(model))
     exec(compile(source.replace(guard,''),'<missing-bounded-paper-check-phase>','exec'),namespace)
-    monkeypatch.setattr(presentation,'_paper_check_normal',namespace['_paper_check_normal'])
+    monkeypatch.setattr(model, 'checking_paper_row', namespace['checking_paper_row'])
     with pytest.raises(AssertionError):
         test_only_current_owned_bounded_paper_checks_can_explain_a_scheduled_wait('wrong_phase')

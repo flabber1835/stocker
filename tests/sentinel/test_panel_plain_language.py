@@ -86,17 +86,18 @@ def test_shadow_build_never_selects_legacy_trial_certificates(monkeypatch):
 
 
 def test_slow_status_read_dates_document_at_completion_without_redating_facts(monkeypatch):
-    clock = [NOW]
-    class Clock:
-        @staticmethod
-        def now(tz):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz):
             return clock[0]
+
+    clock = [Clock.fromisoformat(NOW.isoformat())]
     stale = model.Row('feed', 'Feed', '2026-10-02', model.OK, 'original fact',
-                      NOW, freshness=timedelta(seconds=45), required_current=True)
+                      clock[0], freshness=timedelta(seconds=45), required_current=True)
     monkeypatch.setattr(sources, 'datetime', Clock)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
     def financial(*a, **k):
-        clock[0] = NOW + timedelta(seconds=100)
+        clock[0] += timedelta(seconds=100)
         return [], {}, [], []
     monkeypatch.setattr(sources, '_bounded_dual_authority_rows', financial)
     monkeypatch.setattr(sources, '_ownership', lambda *a: model.Row('ownership', '', '', model.OK))

@@ -312,8 +312,19 @@ def test_bridge_refuses_borrowed_transaction_without_committing_it(media):
         assert borrowed.execute('SELECT count(*) FROM caller_work').fetchone() == (0,)
 
 
+def expire_proof_clock(monkeypatch):
+    """Advance past the 300-second window without forging a pre-boot completion."""
+    original = reuse._clock
+
+    def advanced(conn):
+        physical, boot, uptime, before = original(conn)
+        return physical, boot, uptime + 301, before
+
+    monkeypatch.setattr(reuse, '_clock', advanced)
+
+
 @pytest.mark.parametrize('change', [
-    lambda p: p.update(completed_uptime=p['completed_uptime']-301),
+    pytest.param(None, id='expired'),
     lambda p: p.update(completed_uptime=p['completed_uptime']+301),
     lambda p: p.update(boot='00000000-0000-0000-0000-000000000000'),
     lambda p: p['context'].update(postmaster='2000-01-01T00:00:00+00:00'),
@@ -323,7 +334,10 @@ def test_bridge_refuses_borrowed_transaction_without_committing_it(media):
 ])
 def test_expired_or_foreign_receipt_requires_real_full_scrub(media, monkeypatch, change):
     media.prove()
-    media.rewrite_receipt(change)
+    if change is None:
+        expire_proof_clock(monkeypatch)
+    else:
+        media.rewrite_receipt(change)
     with count_reads(monkeypatch) as reads:
         result = media.prove()
     assert result['integrity_full_scrub'] is True and len(reads) == 4
@@ -380,7 +394,7 @@ def test_second_authenticated_owner_observation_exports_only_expired_clocks(medi
     original = authority.require
     def expire_after_full_proof(*args, **kwargs):
         result = original(*args, **kwargs)
-        media.rewrite_receipt(lambda p: p.update(completed_uptime=p['completed_uptime']-301))
+        expire_proof_clock(monkeypatch)
         return result
     monkeypatch.setattr(authority, 'require', expire_after_full_proof)
     trace = maintenance._Trace()
@@ -494,7 +508,7 @@ def test_same_metadata_corruption_is_caught_by_original_expiry(media, monkeypatc
     with count_reads(monkeypatch) as reads:
         assert media.prove()['integrity_objects_hashed'] == 0
     assert reads == []
-    media.rewrite_receipt(lambda p: p.update(completed_uptime=p['completed_uptime']-301))
+    expire_proof_clock(monkeypatch)
     with pytest.raises(authority.BackupRuntimeRefused, match='SHA-256'):
         media.prove()
     assert media.receipt()['proof']['outcome'] == 'INVALID'

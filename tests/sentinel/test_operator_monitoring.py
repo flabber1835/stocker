@@ -842,9 +842,11 @@ def test_insert_command_tag_is_detected_by_actual_psql_acceptance(
     maintenance = host_maintenance
     original = maintenance.sql
     def broken(query, runner):
-        query = query.replace("), recorded AS (", ") ", 1).replace(
-            "FROM evidence RETURNING proof) SELECT proof::text FROM recorded",
-            "FROM evidence RETURNING proof::text", 1)
+        recorded = "), recorded AS ("
+        payload = "json_build_object('proof',proof,'observed_at',observed_at)::text"
+        result = f"RETURNING proof,observed_at) SELECT {payload} FROM recorded"
+        assert query.count(recorded) == query.count(result) == 1
+        query = query.replace(recorded, ") ", 1).replace(result, f"RETURNING {payload}", 1)
         return original(query, runner)
     monkeypatch.setattr(maintenance, "sql", broken)
     with pytest.raises(json.JSONDecodeError):
