@@ -411,12 +411,66 @@ def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None, re
         policy, plan=plan)
 
 
+def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
+                                    observation, client_key, instrument,
+                                    quantity, order_terms, estimate, session):
+    """Bind a market BUY to the exact quiescent book and pending command."""
+    from fractions import Fraction
+    from sentinel.execution import commands, market_buy_sizing, target_reprojection
+    from sentinel.execution.contract import OrderTerms, Side
+    from sentinel.execution.protected_funding import _require_writer
+    from sentinel.execution.states import CommandState
+    from sentinel.execution.guarded import OrderEvidenceNotReady
+
+    _require_writer(conn)
+    durable_plan = _latest_plan_or_refuse(conn)
+    if (durable_plan is None or durable_plan.plan_id != plan.plan_id
+            or durable_plan.fingerprint() != plan.fingerprint()
+            or binding_mod.require(conn).identity != deployment
+            or session != plan.effective_session):
+        raise PaperActivationRefused("market BUY plan, account or session changed")
+    _assert_deterministic_plan_id(durable_plan)
+    try:
+        dual_plan_authority.require_current_buy_policy(conn, plan=durable_plan)
+    except dual_plan_authority.DualPlanAuthorityRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+    target_reprojection.assert_projection(
+        conn, plan=durable_plan, projection=projection, through_session=session)
+    market_buy_sizing.validate_projection(
+        projection, require_current_policy=True, plan=durable_plan)
+    if (not observation.is_complete
+            or not deployment.matches_account(observation.account_identity)
+            or any(order.is_working for order in observation.orders)):
+        raise OrderEvidenceNotReady("market BUY requires a quiescent account observation")
+    in_flight = journal.in_flight_commands(conn, deployment)
+    if len(in_flight) != 1 or in_flight[0].client_key != client_key:
+        raise OrderEvidenceNotReady("market BUY requires its exact key as the only unresolved order")
+    candidate = in_flight[0]
+    if (candidate.state is not CommandState.SEND_PENDING
+            or candidate.identity.deployment != deployment
+            or candidate.identity.plan_id != plan.plan_id
+            or candidate.side is not Side.BUY
+            or candidate.instrument != instrument or candidate.quantity != quantity
+            or candidate.order_terms != order_terms or order_terms != OrderTerms()
+            or candidate.broker_order_id is not None or candidate.filled_quantity != 0):
+        raise PaperActivationRefused("pending market BUY differs from the exact durable command")
+    delta = commands.compute_delta(
+        security_id=instrument.security_id,
+        desired=projection.target_basket.get(instrument.security_id, Decimal(0)),
+        observation=observation, min_increment=Decimal(1))
+    if not delta.is_increase or delta.quantity != quantity:
+        raise PaperActivationRefused("market BUY differs from the immutable target share delta")
+    budget = market_buy_sizing.entry_budget(projection, instrument.security_id)
+    if budget is not None and Fraction(estimate) > budget:
+        raise OrderEvidenceNotReady("estimated market BUY cost exceeds the saved entry allocation")
+
+
 def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   now_provider, strategy_provider,
                   automation_config_sha256: str | None = None,
                   dual_shadow_observation_id: str | None = None,
                   dual_shadow_starting_cash: Decimal | str | None = None,
-                  issuer_admission_check=None
+                  issuer_admission_check=None, market_buy_funding=None
                   ) -> GuardedExecutionBroker:
     from sentinel.structural_verification import Scope
     from sentinel.structural_verification import owned
@@ -455,7 +509,7 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
 
     wrapped = GuardedExecutionBroker(
         inner=broker, grant=grant, guard=guard, protected_funding=protected_funding,
-        issuer_admission_check=issuer_admission_check)
+        issuer_admission_check=issuer_admission_check, market_buy_funding=market_buy_funding)
     from .inspection import _require_certified_paper_broker
     _require_certified_paper_broker(wrapped)
     return wrapped

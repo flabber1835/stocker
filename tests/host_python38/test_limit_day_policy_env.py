@@ -38,6 +38,25 @@ class ProtectedPolicyHostTests(unittest.TestCase):
         with self.assertRaisesRegex(env.EnvRefused, "PAPER_BUY_POLICY_REQUIRED"):
             env._validate_semantics({"SENTINEL_PAPER_BUY_CAP_BPS": "100"}, alert_dispatcher=False)
 
+    def test_market_day_accepts_only_backed_owner_paper(self):
+        selected = {
+            "SENTINEL_PAPER_BUY_POLICY": "MARKET_DAY_V1",
+            "SENTINEL_LOCAL_PAPER_MODE": "OWNER_AUTHORIZED_FUNCTION_FIRST_V1",
+            "SENTINEL_LOCAL_PAPER_ACCOUNT_ID": "PATEST",
+            "SENTINEL_LOCAL_PAPER_BACKUP_POLICY": "REQUIRED_V1",
+        }
+        env._validate_semantics(selected, alert_dispatcher=False)
+        for override, error in (
+            ({"SENTINEL_LOCAL_PAPER_BACKUP_POLICY": ""}, "MARKET_DAY_REQUIRES_BACKED_OWNER_PAPER"),
+            ({"SENTINEL_LOCAL_PAPER_MODE": ""}, "LOCAL_PAPER_ACCOUNT_MODE_REQUIRED"),
+            ({"SENTINEL_LOCAL_PAPER_ACCOUNT_ID": ""}, "LOCAL_PAPER_ACCOUNT_MODE_REQUIRED"),
+            ({"ALPACA_BASE_URL": "https://api.alpaca.markets"}, "PAPER_ENDPOINT_REQUIRED"),
+            ({"SENTINEL_PAPER_BUY_CAP_BPS": "0"}, "INVALID_PAPER_BUY_CAP_BPS"),
+            ({"SENTINEL_PAPER_DEBUG_WINDOW": "{}"}, "PAPER_DEBUG_WINDOW_REQUIRES_PROTECTED_100_BPS"),
+        ):
+            with self.subTest(override=override), self.assertRaisesRegex(env.EnvRefused, error):
+                env._validate_semantics(dict(selected, **override), alert_dispatcher=False)
+
     def test_changed_host_module_parses_as_python38(self):
         ast.parse((ROOT / "scripts/sentinel_env.py").read_text(encoding="utf-8"),
                   filename="scripts/sentinel_env.py", feature_version=8)

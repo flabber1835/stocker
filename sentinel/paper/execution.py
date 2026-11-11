@@ -65,7 +65,9 @@ from sentinel.execution.guarded import (
     BrokerOperation,
     GuardedExecutionBroker,
     ManualExecutionGrant,
+    OrderEvidenceNotReady,
     PaperPreparationGrant,
+    PreTransportAuthorityRefused,
 )
 
 from sentinel.execution.states import RuntimeState
@@ -93,11 +95,13 @@ from .validation import (
     _assert_deterministic_plan_id,
     _validate_automation_grant,
     _guard_broker,
+    _market_buy_candidate_or_refuse,
     _state_and_plan_or_refuse,
     _assert_plan_authorities,
 )
 
 from .cash import (
+    _account_economics,
     _broker_cash_state_or_refuse,
     _cash_authority_or_refuse,
 )
@@ -233,6 +237,12 @@ async def _execute_current_paper_plan(
     if dual_mode and not isinstance(grant, AutomationExecutionGrant):
         raise PaperActivationRefused(
             "informational dual transport is automation-only")
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+    try:
+        market_policy = MarketBuyPolicy.from_env()
+    except TargetProjectionRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
     real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
@@ -291,6 +301,10 @@ async def _execute_current_paper_plan(
                     raise PaperActivationRefused(
                         "automation cycle does not name the current plan")
                 confirmed_account = grant.broker_account_id
+            try:
+                dual_plan_authority.require_current_buy_policy(conn, plan=plan)
+            except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                raise PaperActivationRefused(str(exc)) from exc
             _assert_plan_authorities(
                 conn, state=state, plan=plan, binding=binding, pinned=pinned,
                 frontier=str(frontier), today=today,
@@ -363,6 +377,31 @@ async def _execute_current_paper_plan(
             issuer_admission = (PaperIssuerAdmission(
                 conn=conn, binding=binding.identity, clock=clock)
                 if policy_selected(conn, binding.identity) else None)
+            market_settled = None
+
+            async def authorize_market_funding(*, account, **candidate):
+                if market_settled is None:
+                    raise OrderEvidenceNotReady("market BUY lacks settled account evidence")
+                settled_observation, settled_account = market_settled
+                try:
+                    _account_or_refuse(account, binding, confirmed_account)
+                    if _account_economics(account) != _account_economics(settled_account):
+                        raise PaperRetryableRefused("market BUY cash changed after complete reconciliation")
+                    observed_at = clock()
+                    fresh_activity = await _broker_cash_state_or_refuse(
+                        conn, broker=broker, binding=binding, through=observed_at)
+                    _cash_authority_or_refuse(
+                        conn, plan=plan, deployment=binding.identity, account=account,
+                        observation=settled_observation, activity_state=fresh_activity,
+                        endpoint_lag_observed_at=observed_at)
+                    _market_buy_candidate_or_refuse(
+                        conn, plan=plan, projection=target_projection,
+                        deployment=binding.identity, observation=settled_observation, **candidate)
+                except PaperRetryableRefused as exc:
+                    raise OrderEvidenceNotReady(str(exc)) from exc
+                except PaperActivationRefused as exc:
+                    raise PreTransportAuthorityRefused(str(exc)) from exc
+
             broker = _guard_broker(
                 conn=conn, broker=broker, grant=grant, base_url=base_url,
                 now_provider=clock,
@@ -371,7 +410,8 @@ async def _execute_current_paper_plan(
                 dual_shadow_observation_id=dual_shadow_observation_id,
                 dual_shadow_starting_cash=dual_shadow_starting_cash,
                 issuer_admission_check=(
-                    issuer_admission.final_check if issuer_admission else None))
+                    issuer_admission.final_check if issuer_admission else None),
+                market_buy_funding=(authorize_market_funding if market_policy is not None else None))
 
             account = await broker.account_snapshot()
             from sentinel.execution import protected_funding, protected_limits
@@ -516,6 +556,22 @@ async def _execute_current_paper_plan(
                     restricted_security_ids=restrictions)
 
                 async def authorize_increases(fresh_observation, fresh_reconciliation=None):
+                    nonlocal market_settled
+                    if market_policy is not None:
+                        if (fresh_reconciliation is None
+                                or fresh_reconciliation.observation is not fresh_observation):
+                            raise PaperActivationRefused("market BUY requires the executor's exact reconciliation")
+                        confirmed, cash, activity, _, observed_at = await _settled_account_evidence_bracket(
+                            conn=conn, broker=broker, binding=binding,
+                            expected_account=confirmed_account, deployment=binding.identity,
+                            initial_result=fresh_reconciliation, actions=actions,
+                            dual_mode=dual_mode, clock=clock)
+                        _cash_authority_or_refuse(
+                            conn, plan=plan, deployment=binding.identity, account=cash,
+                            observation=confirmed.observation, activity_state=activity,
+                            endpoint_lag_observed_at=observed_at)
+                        market_settled = (confirmed.observation, cash)
+                        return
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
                             observation=fresh_observation):
@@ -561,9 +617,10 @@ async def _execute_current_paper_plan(
                         fresh_reconciliation)
 
                 from sentinel.execution.protected_limits import ProtectedLimitPolicy
-                protected_selected = ProtectedLimitPolicy.from_env() is not None
+                requires_reconciliation = (market_policy is not None
+                    or ProtectedLimitPolicy.from_env() is not None)
 
-                async def authorize_protected_cohort(fresh_reconciliation):
+                async def authorize_from_reconciliation(fresh_reconciliation):
                     await authorize_increases(
                         fresh_reconciliation.observation, fresh_reconciliation)
 
@@ -572,9 +629,9 @@ async def _execute_current_paper_plan(
                     plan=plan, instruments=instruments, today=today,
                     actions=actions, target_projection=target_projection,
                     min_increment=minimum_increment,
-                    increase_authority=(None if protected_selected else authorize_increases),
+                    increase_authority=(None if requires_reconciliation else authorize_increases),
                     increase_reconciliation_authority=(
-                        authorize_protected_cohort if protected_selected else None),
+                        authorize_from_reconciliation if requires_reconciliation else None),
                     mutation_authority=(
                         authorize_dual_mutations
                         if dual_mode else None),

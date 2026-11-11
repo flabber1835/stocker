@@ -542,7 +542,7 @@ class TestProtectedCohortContinuation:
         from sentinel.execution import executor
         self.test_first_protected_funding_deferral_returns_promptly_to_recovery(continuation_cohort, monkeypatch)
         source = inspect.getsource(executor._execute_session_locked)
-        before = 'if delta.is_increase and order_terms.order_type == "limit":'
+        before = 'if delta.is_increase and (order_terms.order_type == "limit" or market):'
         assert source.count(before) == 1
         local = {}
         exec(compile(source.replace(before, "if False:"), "<private-prompt-recovery>", "exec"),

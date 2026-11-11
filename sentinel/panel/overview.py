@@ -12,7 +12,7 @@ from decimal import Decimal
 from html import escape
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import FAIL, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
+from sentinel.panel.model import FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
 from sentinel.panel.presentation import describe, dashboard_health, preparation_stage, visible_preparation
 
 
@@ -275,13 +275,18 @@ def _account_html(panel: Panel) -> str:
         return ('<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
                 '<h2 id="account-overview-title">Recorded paper account</h2>'
                 '<p class="overview-unavailable">Account totals unavailable.</p></section>')
+    market_buying_power = (
+        '<div><span>Broker buying power</span><strong>$'+f'{account.buying_power:,.2f}'
+        +'</strong></div>' if row.recovery is not None
+        and row.recovery.phase == MARKET_BUY_OBSERVATION else '')
     return (
         '<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
         '<div class="overview-heading"><h2 id="account-overview-title">Recorded paper account</h2>'
         '<span class="overview-tag">ALPACA</span></div>'
         '<div class="account-stats"><div><span>Account value</span><strong>$'+f'{account.equity:,.2f}'
         +'</strong></div><div><span>Cash · '+f'{account.cash/account.equity*100:.1f}'
-        +'%</span><strong>$'+f'{account.cash:,.2f}'+'</strong></div></div>'
+        +'%</span><strong>$'+f'{account.cash:,.2f}'+'</strong></div>'
+        +market_buying_power+'</div>'
         +_stamp(account.observed_at, label='Account snapshot:')+'</section>')
 
 

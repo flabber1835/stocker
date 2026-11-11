@@ -363,9 +363,21 @@ def _target_projection_or_refuse(
             pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
-        from sentinel.execution import protected_limits
+        from sentinel.execution import market_buy_sizing, protected_limits
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        market_policy = MarketBuyPolicy.from_env()
         policy = protected_limits.ProtectedLimitPolicy.from_env()
-        if policy is not None:
+        if market_policy is not None:
+            from sentinel.execution import held_targets
+            retained = held_targets.plan_targets(conn, plan=plan, state=state)
+            if opening_prices is None and plan.opening_intents and plan.target_exposure > 0:
+                stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+                if stored is not None:
+                    market_buy_sizing.validate_projection(stored, require_current_policy=True, plan=plan)
+                    opening_prices = market_buy_sizing.original_prices(stored)
+            projected = market_buy_sizing.resolve(
+                state, plan, projected, opening_prices, market_policy, retained_targets=retained)
+        elif policy is not None:
             from sentinel.execution import held_targets
             retained = held_targets.plan_targets(conn, plan=plan, state=state)
             references = protected_limits.build_references(
@@ -422,8 +434,20 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     if not preparation:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
-        from sentinel.execution import protected_limits
-        if (projection is not None and isinstance(projection.opening_sizing, dict)
+        from sentinel.execution import market_buy_sizing, protected_limits
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        if MarketBuyPolicy.from_env() is not None:
+            try:
+                market_buy_sizing.validate_projection(projection, require_current_policy=True, plan=plan)
+                if projection.target_basket != desired:
+                    raise target_reprojection.TargetProjectionRefused(
+                        "market instrument map differs from its retained projection")
+                opening_prices = market_buy_sizing.original_prices(projection)
+            except target_reprojection.TargetProjectionRefused as exc:
+                raise PaperActivationRefused(str(exc)) from exc
+            if opening_prices is not None:
+                symbols.update(opening_prices.symbols)
+        elif (projection is not None and isinstance(projection.opening_sizing, dict)
                 and projection.opening_sizing.get("mode") == protected_limits.PROTECTED_MODE):
             if (projection.plan_fingerprint != plan.fingerprint()
                     or projection.target_basket != desired):

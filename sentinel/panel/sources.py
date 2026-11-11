@@ -1604,6 +1604,89 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
     return matched.model_dump(mode="json", by_alias=True) if matched else None
 
 
+def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, plan=None):
+    """A finite display wait for the current plan's positively matched native order."""
+    from sentinel import dual_plan_authority
+    from sentinel.execution import account_status, journal
+
+    if not account or not cycle:
+        return None
+    state, failure = cycle.get("state"), cycle.get("failure_code")
+    if state not in {"EXECUTING", "RECONCILING", "RETRY_WAIT"} or any(
+            cycle.get(key) for key in ("terminal_reason", "callback_failure", "exception_type")):
+        return None
+    if state == "RETRY_WAIT" and (cycle.get("retry_phase") != "RECOVER"
+                                  or failure != "COMMANDS_IN_FLIGHT"):
+        return None
+    if failure not in {None, "COMMANDS_IN_FLIGHT"} or (failure is None and cycle.get("failure_detail")):
+        return None
+    diagnostic = cycle.get("diagnostic") or {}
+    if state == "RETRY_WAIT":
+        if (diagnostic.get("clean") is not True or diagnostic.get("runtime_state") != "RUNNING"
+                or any(diagnostic.get(field) != [] for field in (
+                    "unresolved", "foreign_orders", "foreign_positions"))):
+            return None
+    proof = account_status.recorded_market_working(
+        conn, account=account, now=now, plan_id=cycle.get("plan_id"))
+    if proof is None:
+        return None
+    order = proof["order"]
+    if state == "RETRY_WAIT" and diagnostic.get("in_flight_commands") != [order["client_key"]]:
+        return None
+    current = trading_row if trading_row is not None else _current_trading_run(conn)
+    run = current.trading_run if current is not None else None
+    if (run is None or current.valid_until is None or not current.can_show_trading_run(now)
+            or current.effective_status(now) != model.WARN
+            or run.state != state or run.completed_at is not None
+            or run.intent.cycle_id != cycle.get("cycle_id")
+            or run.intent.plan_id != cycle.get("plan_id")
+            or run.updated_at != cycle.get("updated_at")):
+        return None
+    recorded = next((item for item in run.orders if item.client_key == order["client_key"]), None)
+    if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
+            or recorded.state != order["state"] or recorded.order_terms != order["terms"]
+            or recorded.side != order["side"] or recorded.quantity != Decimal(order["quantity"])
+            or recorded.filled_quantity != Decimal(order["filled_quantity"])
+            or recorded.filled_average_price != (
+                Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):
+        return None
+    opened, closed = (cycle.get(key) for key in ("execute_at", "execution_close_at"))
+    observed = account.get("observed_at")
+    if (not all(isinstance(value, datetime) and value.utcoffset() is not None
+                for value in (opened, closed, observed))
+            or opened != run.intent.execute_at or not opened <= observed <= now < closed):
+        return None
+    callback = cycle.get("observation_callback")
+    if isinstance(callback, Mapping):
+        started, deadline = (callback.get(key) for key in ("started_at", "deadline"))
+        if (not all(isinstance(value, datetime) and value.utcoffset() is not None
+                    for value in (started, deadline))
+                or not run.updated_at <= started <= now < deadline):
+            return None
+    elif state != "EXECUTING":
+        deadline = cycle.get("next_wake_at")
+        if (not isinstance(deadline, datetime) or deadline.utcoffset() is None
+                or not run.updated_at <= now < deadline <= closed):
+            return None
+    else:
+        return None
+    boundary = min(deadline, closed, proof["valid_until"], _account_valid_until(observed),
+                   current.valid_until)
+    if now >= boundary:
+        return None
+    if plan is None:
+        plan = journal.load_plan(conn, run.intent.plan_id)
+    if (plan is None or plan.plan_id != run.intent.plan_id
+            or plan.fingerprint() != cycle.get("plan_fingerprint")):
+        return None
+    try:
+        dual_plan_authority.require_current_buy_policy(conn, plan=plan)
+    except dual_plan_authority.DualPlanAuthorityRefused:
+        return None
+    return model.RecoveryEvidence(phase=model.MARKET_BUY_OBSERVATION, automatic=True,
+                                  deadline=boundary)
+
+
 def _latest_backup_evidence(conn, kind: str) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -1684,12 +1767,18 @@ def _operator_evidence_rows(
             conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
             STATEMENT_TIMEOUT_MS, default=None)
 
-        operator_reservation = None
+        operator_reservation = market_working = None
         if local and reservation is None and reservation_error is None:
             from sentinel.execution import account_status
-            operator_reservation, reservation_error = _read(
-                conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
-                STATEMENT_TIMEOUT_MS, default=None)
+            proof = ((account or {}).get("flags") or {}).get(account_status.RESERVATION_FLAG)
+            if isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
+                market_working, reservation_error = _read(
+                    conn, lambda c: _matched_market_order_wait(c, account=account, cycle=cycle, now=now),
+                    STATEMENT_TIMEOUT_MS, default=None)
+            else:
+                operator_reservation, reservation_error = _read(
+                    conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
+                    STATEMENT_TIMEOUT_MS, default=None)
 
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
@@ -1713,8 +1802,9 @@ def _operator_evidence_rows(
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
                 matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
-                **(account or {})))
-        if account_row.status == model.OK:
+                market_working=market_working, **(account or {})))
+        if account_row.status == model.OK or (
+                market_working is not None and account_row.recovery == market_working):
             from sentinel.panel.overview_data import account_overview
             account_row = replace(account_row, paper_account=account_overview(
                 account, expected_account_id=bound))
@@ -2427,7 +2517,8 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     if state == 'RECONCILING':
         if not submitted_commands_progress(cycle):
             return None
-    elif cycle.get('failure_code') or cycle.get('failure_detail'):
+    elif ((cycle.get('failure_code') or cycle.get('failure_detail'))
+          and not (state == 'RETRY_WAIT' and cycle.get('failure_code') == 'COMMANDS_IN_FLIGHT')):
         return None
     if state == 'RETRY_WAIT' and cycle.get('retry_phase') != 'RECOVER':
         return None
@@ -2472,22 +2563,31 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     callback = cycle.get('observation_callback')
     if state == 'RETRY_WAIT':
         recovery = project_cycle_recovery(cycle, phases=('RECOVER',)).protected_recovery
-        if recovery is None or not recovery.active(now):
-            return None
         diagnostic = cycle.get('diagnostic') or {}
         if (diagnostic.get('clean') is not True or diagnostic.get('runtime_state') != 'RUNNING'
                 or any(diagnostic.get(field) != [] for field in (
                     'unresolved', 'foreign_orders', 'foreign_positions'))):
             return None
         account = _latest_account_evidence(conn)
-        match = _matched_resting_reservation(conn, account=account, cycle=cycle, now=now)
-        if match is None:
-            return None
-        account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
-            matched_protected_reservation=match, **account)
-        if account_row.effective_status(now) != model.OK:
-            return None
-        deadline = recovery.deadline
+        if recovery is not None and recovery.active(now):
+            match = _matched_resting_reservation(conn, account=account, cycle=cycle, now=now)
+            if match is None:
+                return None
+            account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+                matched_protected_reservation=match, **account)
+            if account_row.effective_status(now) != model.OK:
+                return None
+            deadline = recovery.deadline
+        else:
+            market_working = _matched_market_order_wait(conn, account=account, cycle=cycle,
+                                                       now=now, trading_row=current, plan=plan)
+            if market_working is None:
+                return None
+            account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+                market_working=market_working, **account)
+            if account_row.effective_status(now) != model.WARN:
+                return None
+            deadline = market_working.deadline
     elif isinstance(callback, Mapping):
         started, deadline = (callback.get(k) for k in ('started_at', 'deadline'))
         if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (started, deadline))

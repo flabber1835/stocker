@@ -488,8 +488,13 @@ def shadow_config_from_env(
 
 
 def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
     source = os.environ if env is None else env
     values = {}
+    market_policy = MarketBuyPolicy.from_env(source)
+    if market_policy is not None:
+        values["market_buy_policy_sha256"] = market_policy.fingerprint()
     for field, name in AUTOMATION_CONFIG_ENV_BY_FIELD.items():
         raw = str(source.get(name, "")).strip()
         if not raw:

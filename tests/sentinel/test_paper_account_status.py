@@ -17,7 +17,7 @@ from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, OrderTerms, Side
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.states import CommandState as S
-from sentinel.panel import sources, model
+from sentinel.panel import sources, model, overview, overview_data
 from tests.sentinel.test_operator_monitoring import db, issue369_pg
 
 NATIVE = "11111111-1111-4111-8111-111111111111"
@@ -175,20 +175,28 @@ ASSET = "33333333-3333-4333-8333-333333333333"
 ORDER = "22222222-2222-4222-8222-222222222222"
 
 
-def resting(db, f):
+def resting(db, f, *, order_terms=None, filled=0):
+    terms = order_terms or OrderTerms("limit", "day", D("346.91"))
     owner = binding.require(db)
     command = Command(CommandIdentity(owner.identity, "plan", "SEC-PANW"),
         BrokerInstrument("SEC-PANW", "PANW", ASSET), Side.BUY, D(3),
-        order_terms=OrderTerms("limit", "day", D("346.91")))
+        order_terms=terms)
     journal.save_command(db, command)
     sent = command.transition(S.SEND_PENDING)
     journal.save_command(db, sent, previous=S.PLANNED)
     ack = sent.transition(S.ACKNOWLEDGED, broker_order_id=ORDER)
     journal.save_command(db, ack, previous=S.SEND_PENDING)
+    if filled:
+        ack = ack.transition(S.PARTIALLY_FILLED, filled_quantity=D(filled),
+                             filled_average_price=D("346.88"))
+        journal.save_command(db, ack, previous=S.ACKNOWLEDGED)
     db.commit()
     f.orders.append(dict(id=ORDER, client_order_id=command.client_key, asset_id=ASSET,
-        symbol="PANW", side="buy", qty="3", filled_qty="0", status="new",
-        submitted_at=NOW.isoformat(), type="limit", time_in_force="day", limit_price="346.91",
+        symbol="PANW", side="buy", qty="3", filled_qty=str(filled),
+        status="partially_filled" if filled else "new",
+        filled_avg_price="346.88" if filled else None,
+        submitted_at=NOW.isoformat(), type=terms.order_type, time_in_force="day",
+        limit_price=str(terms.limit_price) if terms.limit_price is not None else None,
         order_class="simple", extended_hours=False))
     return ack
 
@@ -320,3 +328,85 @@ def test_blocked_account_bypasses_reservation_recheck(db, monkeypatch):
     account = observed(db)
     assert module.recorded_reservation(db, account=account, now=NOW) is None
     assert account_row(account, None).effective_status(NOW) == model.FAIL
+
+
+def market_order_fixture(db, monkeypatch, *, filled):
+    f = fixture(db, monkeypatch)
+    monkeypatch.setenv(local_paper.BACKUP_POLICY_ENV, local_paper.BACKUP_POLICY)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "MARKET_DAY_V1")
+    monkeypatch.delenv("SENTINEL_PAPER_BUY_CAP_BPS", raising=False)
+    monkeypatch.delenv("SENTINEL_PAPER_DEBUG_WINDOW", raising=False)
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    command = resting(db, f, order_terms=OrderTerms(), filled=filled)
+    f.account["buying_power"] = "8930.04"
+    return f, command
+
+
+@pytest.mark.parametrize("filled", [0, 1])
+def test_market_order_displays_native_buying_power_without_limit_reservation(db, monkeypatch, filled):
+    from dataclasses import replace
+    f, command = market_order_fixture(db, monkeypatch, filled=filled)
+    assert collect(db, f)
+    account = observed(db)
+    assert account["flags"][module.RESERVATION_FLAG]["schema"] == module.MARKET_WORKING_SCHEMA
+    proof = module.recorded_market_working(db, account=account, now=NOW, plan_id="plan")
+    assert proof["order"] == module._fact(command)
+    assert "reserved_cash" not in proof
+    assert module.recorded_reservation(db, account=account, now=NOW) is None
+    assert module.recorded_market_working(db, account=account, now=NOW, plan_id="foreign") is None
+    for stamp in (NOW - timedelta(seconds=1), NOW + timedelta(days=1)):
+        assert module.recorded_market_working(db, account=account, now=stamp, plan_id="plan") is None
+
+    deadline = NOW + timedelta(seconds=25)
+    wait = model.RecoveryEvidence(phase=model.MARKET_BUY_OBSERVATION, automatic=True, deadline=deadline)
+    row = model.alpaca_account_row(available=True, expected_account_id="PAfixture",
+                                   market_working=wait, **account)
+    row = replace(row, paper_account=overview_data.account_overview(account, expected_account_id="PAfixture"))
+    assert row.effective_status(NOW) == model.WARN
+    assert row.can_show_paper_account(NOW)
+    assert "buying power $8,930.04" in row.detail and "reserved" not in row.detail
+    assert "Broker buying power</span><strong>$8,930.04" in overview._account_html(
+        model.Panel(now=NOW, rows=[row]))
+    expired = deadline + timedelta(microseconds=1)
+    assert row.effective_status(expired) == model.FAIL
+    assert not row.can_show_paper_account(expired)
+    for changed in ({"cash": D("-1")}, {"buying_power": D("11000")}, {"multiplier": D("2")},
+                    {"flags": {"account_blocked": True}}):
+        failed = model.alpaca_account_row(available=True, expected_account_id="PAfixture",
+                                         market_working=wait, **{**account, **changed})
+        assert failed.effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize("fault", ["foreign", "fill_price", "account_moved", "balance_changed",
+                                   "unknown", "other_policy"])
+def test_market_buy_evidence_requires_exact_owned_native_fills_and_stable_account(db, monkeypatch, fault):
+    f, _ = market_order_fixture(db, monkeypatch, filled=1)
+    if fault == "foreign":
+        f.orders.append(dict(f.orders[0], id=NATIVE, client_order_id="foreign"))
+    elif fault == "fill_price":
+        f.orders[0]["filled_avg_price"] = "346.89"
+    elif fault == "account_moved":
+        f.change.append({"buying_power": "8929"})
+    assert collect(db, f)
+    account = observed(db)
+    if fault == "unknown":
+        db.execute("UPDATE sentinel_commands SET state='UNKNOWN'")
+    elif fault == "balance_changed":
+        account["buying_power"] = D("8500")
+    elif fault == "other_policy":
+        monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY")
+    assert module.recorded_market_working(db, account=account, now=NOW, plan_id="plan") is None
+    assert account_row(account, None).effective_status(NOW) == model.FAIL
+
+
+def test_market_fill_average_match_falsifier(db, monkeypatch):
+    source = inspect.getsource(module._fact)
+    guard = 'if order.order_terms.order_type == "market":'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, "if False:"), "<ignore-market-fill-price>", "exec"),
+         module._fact.__globals__, namespace)
+    monkeypatch.setattr(module, "_fact", namespace["_fact"])
+    with pytest.raises(AssertionError):
+        test_market_buy_evidence_requires_exact_owned_native_fills_and_stable_account(
+            db, monkeypatch, "fill_price")

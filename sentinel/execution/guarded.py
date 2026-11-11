@@ -267,7 +267,8 @@ class GuardedExecutionBroker(ExecutionBroker):
     def __init__(
             self, *, inner: ExecutionBroker, grant: ExecutionGrant,
             guard: ExecutionBrokerGuard, protected_funding=None,
-            issuer_admission_check=None, live_policy=None) -> None:
+            issuer_admission_check=None, live_policy=None,
+            market_buy_funding=None) -> None:
         if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
                                   AutomationExecutionGrant, AttendedPaperExecutionGrant,
                                   LiveExecutionGrant)):
@@ -297,6 +298,9 @@ class GuardedExecutionBroker(ExecutionBroker):
         if protected_funding is not None and not callable(protected_funding):
             raise TypeError("protected_funding must be a canonical funding callback")
         self._protected_funding = protected_funding
+        if market_buy_funding is not None and not callable(market_buy_funding):
+            raise TypeError("market_buy_funding must be a canonical funding callback")
+        self._market_buy_funding = market_buy_funding
         if issuer_admission_check is not None and not callable(issuer_admission_check):
             raise TypeError('issuer_admission_check must be a synchronous canonical callback')
         self._issuer_admission_check = issuer_admission_check
@@ -554,18 +558,24 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise ValueError('no matching unused pre-transport submission proof')
 
     @staticmethod
-    def _require_selected_buy_terms(*, side: Side, order_terms: OrderTerms) -> None:
+    def _require_selected_buy_terms(*, side: Side, order_terms: OrderTerms):
         if side is not Side.BUY:
-            return
+            return None
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
         from sentinel.execution.protected_limits import ProtectedLimitPolicy
         from sentinel.execution.target_reprojection import TargetProjectionRefused
         try:
+            market = MarketBuyPolicy.from_env()
             selected = ProtectedLimitPolicy.from_env()
         except TargetProjectionRefused as exc:
             raise PreTransportAuthorityRefused(f"BUY policy configuration refused: {exc}") from exc
         if selected is not None and order_terms.order_type != "limit":
             raise PreTransportAuthorityRefused(
                 "selected protected BUY policy requires immutable LIMIT/DAY terms")
+        if market is not None and order_terms != OrderTerms():
+            raise PreTransportAuthorityRefused(
+                "selected market BUY policy requires immutable MARKET/DAY terms")
+        return market
 
     def _require_issuer_admission(self, *, client_key, instrument, side,
                                   quantity, order_terms) -> None:
@@ -605,8 +615,23 @@ class GuardedExecutionBroker(ExecutionBroker):
             order_terms.require_owned_submission(side)
         except (TypeError, ValueError) as exc:
             raise PreTransportAuthorityRefused(str(exc)) from exc
-        self._require_selected_buy_terms(side=side, order_terms=order_terms)
+        market = self._require_selected_buy_terms(side=side, order_terms=order_terms)
         protected = order_terms.order_type == "limit"
+        if side is Side.BUY and (market is not None) != (self._market_buy_funding is not None):
+            raise PreTransportAuthorityRefused("market BUY policy differs from its funding authority")
+        if market is not None:
+            if (self._live or not isinstance(
+                    self._grant, (ManualExecutionGrant, AutomationExecutionGrant))
+                    or not self.supports_market_clock
+                    or not callable(getattr(self._inner, "_now", None))
+                    or not self.capabilities.regular_session_quote_prices
+                    or not self.capabilities.pre_submit_instrument_revalidation):
+                raise PreTransportAuthorityRefused(
+                    "market BUY requires the PAPER execution grant, clock, quote, "
+                    "instrument and funding authority")
+            if (not isinstance(quantity, Decimal) or not quantity.is_finite()
+                    or quantity <= 0 or quantity != quantity.to_integral_value()):
+                raise OrderEvidenceNotReady("market BUY requires a positive whole-share quantity")
         if self._live and side is Side.BUY and not protected:
             raise PreTransportAuthorityRefused("LIVE BUY requires protected LIMIT/DAY terms")
         if protected:
@@ -667,7 +692,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
-        from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
+        from sentinel.execution.opening_prices import OpeningPriceNotReady, QUOTE_SOURCE, RegularQuotes
         quote = None
         if protected and not self._live:
             try:
@@ -696,12 +721,29 @@ class GuardedExecutionBroker(ExecutionBroker):
                 account = await self.account_snapshot()
                 # Funding does not assume a favourable fill or unsettled proceeds.
                 from sentinel.execution.contract import available_purchase_cash
+                from sentinel.execution.market_buy_policy import estimated_market_buy_cost
                 available = available_purchase_cash(account)
-                if quantity * quote.prices[instrument.security_id] > available:
+                ask = quote.prices[instrument.security_id]
+                if market is not None:
+                    if quote.source != QUOTE_SOURCE:
+                        raise PreTransportAuthorityRefused("market BUY quote requires the reviewed IEX source")
+                    if (quote.session != clock.timestamp.date()
+                            or quote.symbols.get(instrument.security_id) != instrument.symbol):
+                        raise PreTransportAuthorityRefused("market BUY quote names another session or symbol")
+                    estimate = estimated_market_buy_cost(quantity, ask)
+                    if estimate > available:
+                        raise OrderFundingNotReady(
+                            "estimated market BUY cost exceeds native cash or buying power")
+                    await self._market_buy_funding(client_key=client_key, instrument=instrument,
+                        quantity=quantity, order_terms=order_terms, account=account,
+                        estimate=estimate, session=quote.session)
+                elif quantity * ask > available:
                     raise OrderFundingNotReady('fresh ask exceeds available cash for the fixed quantity')
             except (OpeningPriceNotReady, OrderFundingNotReady) as exc:
                 raise OrderEvidenceNotReady(
                     f'{instrument.symbol}: {type(exc).__name__}: {exc}') from exc
+            except PreTransportAuthorityRefused:
+                raise
             except Exception as exc:
                 raise PreTransportAuthorityRefused(
                     'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
@@ -756,15 +798,22 @@ class GuardedExecutionBroker(ExecutionBroker):
                             raise ValueError("debug submission requires protected terms in its exact session")
                         earliest, latest = window.not_before, window.not_after
                     else:
-                        earliest = opened + (timedelta(seconds=60) if protected else timedelta(0))
+                        earliest = opened + timedelta(seconds=60 if protected or market is not None else 0)
                         latest = min(closed, opened + timedelta(seconds=600))
+                if market is not None and (quote is None or now.date() != quote.session):
+                    raise ValueError("market BUY quote is outside the final regular session")
                 if not earliest <= now < latest:
-                    raise ValueError(
-                        f"increase freshness expired at {latest.isoformat()}; "
-                        f"submission time is {now.isoformat()}")
-                if quote is not None and now - quote.quoted_at[instrument.security_id] > timedelta(seconds=60):
-                    from sentinel.execution.opening_prices import OpeningPriceNotReady
-                    raise OpeningPriceNotReady('executable quote expired during submission authority checks')
+                    detail = (f"increase freshness expired at {latest.isoformat()}; "
+                              f"submission time is {now.isoformat()}")
+                    if market is not None:
+                        raise OrderEvidenceNotReady(
+                            f"market BUY refused at final next-open freshness boundary: {detail}")
+                    raise ValueError(detail)
+                if quote is not None:
+                    quote_age = now - quote.quoted_at[instrument.security_id]
+                    if quote_age > timedelta(seconds=60) or (market is not None and quote_age < timedelta(0)):
+                        raise OpeningPriceNotReady(
+                            "executable quote is outside the final submission freshness window")
             except OpeningPriceNotReady as exc:
                 raise OrderEvidenceNotReady(
                     f'{instrument.symbol}: {type(exc).__name__}: {exc}') from exc
@@ -775,6 +824,14 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "increase refused at final next-open freshness boundary: "
                     f"{type(exc).__name__}: {exc}") from exc
         self._require_selected_buy_terms(side=side, order_terms=order_terms)
+        if side is Side.BUY:
+            from sentinel.execution.market_buy_policy import MarketBuyPolicy
+            from sentinel.execution.target_reprojection import TargetProjectionRefused
+            try:
+                if MarketBuyPolicy.from_env() != market:
+                    raise PreTransportAuthorityRefused("market BUY policy changed during submission checks")
+            except TargetProjectionRefused as exc:
+                raise PreTransportAuthorityRefused("market BUY policy became invalid") from exc
         return live_permit
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:

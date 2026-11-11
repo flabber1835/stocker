@@ -44,6 +44,7 @@ from sentinel.execution.numeric import decimal_text
 
 SCHEMA = "sentinel.dual-plan-sizing-authority/1"
 HELD_SCHEMA = "sentinel.dual-plan-sizing-authority/2"
+MARKET_SCHEMA = "sentinel.dual-plan-sizing-authority/3"
 CURSOR_PREFIX = "dual-plan-sizing-authority:v1:"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _REGENESIS_FLAT_SIZING_REQUIRED = ContextVar(
@@ -378,7 +379,8 @@ def _decode_observation(value: Any) -> BrokerObservation:
 def build_authority(
         *, plan, shadow_result, publication, account_snapshot,
         observation, marks: Mapping, tickers: Mapping,
-        held_share_targets: Mapping | None = None) -> dict:
+        held_share_targets: Mapping | None = None,
+        market_buy_policy_sha256: str | None = None) -> dict:
     """Build the immutable evidence committed beside one PAPER plan."""
     state = getattr(shadow_result, "state", None)
     if not isinstance(state, SessionState):
@@ -414,6 +416,13 @@ def build_authority(
     if held_share_targets is not None:
         body["schema"] = HELD_SCHEMA
         body["held_share_targets"] = dict(held_share_targets)
+    if market_buy_policy_sha256 is not None:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
+        if held_share_targets is None or market_buy_policy_sha256 != MarketBuyPolicy().fingerprint():
+            raise DualPlanAuthorityRefused("market sizing authority requires held targets and the reviewed policy")
+        body["schema"] = MARKET_SCHEMA
+        body["market_buy_policy_sha256"] = market_buy_policy_sha256
     body["authority_sha256"] = _sha256(body)
     return json.loads(_canonical(body))
 
@@ -426,11 +435,19 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
         "shadow_state", "publication", "account_snapshot",
         "broker_observation", "marks", "tickers", "authority_sha256",
     }
-    if raw.get("schema") == HELD_SCHEMA:
+    schema = raw.get("schema")
+    if schema in (HELD_SCHEMA, MARKET_SCHEMA):
         expected.add("held_share_targets")
-    if set(raw) != expected or raw.get("schema") not in {SCHEMA, HELD_SCHEMA}:
+    if schema == MARKET_SCHEMA:
+        expected.add("market_buy_policy_sha256")
+    if set(raw) != expected or schema not in (SCHEMA, HELD_SCHEMA, MARKET_SCHEMA):
         raise DualPlanAuthorityRefused(
             "dual sizing authority has an unknown schema or shape")
+    if schema == MARKET_SCHEMA:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
+        if raw["market_buy_policy_sha256"] != MarketBuyPolicy().fingerprint():
+            raise DualPlanAuthorityRefused("dual sizing authority has an unknown market BUY policy")
     digest = str(raw.get("authority_sha256") or "")
     unsigned = dict(raw)
     unsigned.pop("authority_sha256", None)
@@ -470,6 +487,24 @@ def load_authority(conn, *, plan_id: str) -> dict | None:
         raise DualPlanAuthorityRefused(
             "dual sizing authority session column disagrees with its payload")
     return result
+
+
+def require_current_buy_policy(conn, *, plan) -> None:
+    """Authorize new transport under the policy saved with the original plan."""
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+
+    try:
+        market_policy = MarketBuyPolicy.from_env()
+    except TargetProjectionRefused as exc:
+        raise DualPlanAuthorityRefused(str(exc)) from exc
+    expected = market_policy.fingerprint() if market_policy is not None else None
+    authority = load_authority(conn, plan_id=plan.plan_id)
+    stored = authority.get("market_buy_policy_sha256") if authority is not None else None
+    if (expected != stored
+            or (stored is not None and authority["plan_fingerprint"] != plan.fingerprint())):
+        raise DualPlanAuthorityRefused(
+            "current BUY policy differs from the original plan; prepare a new decision")
 
 
 def record_authority(conn, authority: Mapping, *, commit: bool = True) -> dict:
@@ -588,7 +623,7 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
                for key, value in tickers_raw.items()}
     try:
         retained_targets = None
-        if authority["schema"] == HELD_SCHEMA:
+        if authority["schema"] in (HELD_SCHEMA, MARKET_SCHEMA):
             from sentinel.execution import held_targets
             retained_targets = held_targets.verified_targets(conn, plan=plan,
                 basis=authority["held_share_targets"], state=state,
@@ -631,5 +666,5 @@ __all__ = [
     "CURSOR_PREFIX", "SCHEMA", "DualPlanAuthorityRefused",
     "build_authority", "load_authority", "record_authority",
     "regenesis_flat_sizing_required", "regenesis_flat_sizing_scope",
-    "require_regenesis_flat_authority", "rederive_plan",
+    "require_current_buy_policy", "require_regenesis_flat_authority", "rederive_plan",
 ]
