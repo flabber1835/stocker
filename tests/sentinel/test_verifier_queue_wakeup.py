@@ -330,3 +330,109 @@ def test_restoring_clear_after_observe_loses_the_completion_and_is_detected(monk
     monkeypatch.setattr(service,'_run_owned_loop',namespace['_run_owned_loop'])
     with pytest.raises(AssertionError):
         test_completion_before_during_or_after_refresh_is_not_lost_and_bursts_coalesce(monkeypatch,'refresh')
+
+
+def test_retained_negative_stays_under_its_original_receipt_and_clock(monkeypatch):
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'a-test-key-at-least-thirty-two-bytes')
+    case = Scenario(retain=True)
+    case.fail = True
+    case.queue()
+    case.tick = 7.377081
+    case.grant()
+    initial = case.value.read('private')
+    original, _ = service.snapshot(case.value, initial, scope='PAPER', now=case.value.wall_clock())
+    assert original['subject_sha256'] == 'a' * 64
+    assert original['observed_at'] == case.value.wall_clock().isoformat()
+    case.tick = 23
+    case.key = 'b' * 64
+    changed = case.value.read('private')
+    assert changed[0][0].status == model.FAIL and 'LAST KNOWN' in changed[0][0].detail
+    assert service.snapshot(case.value, changed, scope='PAPER', now=case.value.wall_clock()) is None
+    assert case.value.attempt_state()['latched_failure']['code'] == 'NEGATIVE_RESULT'
+
+    code = inspect.getsource(service.snapshot)
+    guard = 'and rows[0].as_of == retained[0].as_of'
+    assert guard in code
+    namespace = {}
+    exec(code.replace(guard, 'and False'), vars(service), namespace)
+    with pytest.raises(ValueError, match='verification receipt fact is future dated'):
+        namespace['snapshot'](case.value, changed, scope='PAPER', now=case.value.wall_clock())
+
+
+@pytest.mark.parametrize('state,retry,wake,allowed', [
+    ('WAITING_OPEN', None, None, True),
+    ('EXECUTING', None, None, True),
+    ('RECONCILING', None, None, True),
+    ('RETRY_WAIT', 'RECOVER', 0, True),
+    ('RETRY_WAIT', 'RECOVER', 31, False),
+    ('RETRY_WAIT', 'PREPARE', 0, False),
+    ('SUCCEEDED', None, None, False),
+])
+def test_scan_reservation_is_bounded_to_the_current_opening(state, retry, wake, allowed):
+    opened = NOW
+    execute = NOW + timedelta(minutes=1)
+    close = NOW + timedelta(hours=6)
+    stamp = NOW if state == 'WAITING_OPEN' else NOW + timedelta(minutes=2)
+    values = state, opened, execute, close, None if wake is None else stamp + timedelta(seconds=wake), retry
+    conn = SimpleNamespace(execute=lambda *_: SimpleNamespace(fetchone=lambda: values))
+    assert service._opening_scan_reserve(conn, stamp) == (NOW + timedelta(minutes=10) if allowed else None)
+    assert service._opening_scan_reserve(conn, NOW + timedelta(minutes=10)) is None
+    assert service._opening_scan_reserve(conn, NOW - timedelta(seconds=31)) is None
+
+
+def test_optional_shadow_scan_is_deferred_only_while_positive_proof_covers_opening():
+    tick = [301.0]
+    started = Event()
+
+    def run(*_args, **_kwargs):
+        started.set()
+        return observer_codec.pack([model.Row('shadow_verification', 'Shadow', 'Verified', model.OK)],
+            [], observed_at=NOW + timedelta(seconds=tick[0]))
+
+    evidence = reader.Reader(runner=run, clock=lambda:tick[0],
+        wall_clock=lambda:NOW + timedelta(seconds=tick[0]),
+        evidence_reader=lambda *_:'shadow', key_factory=lambda _url,_paper,key:key,
+        expected_keys=frozenset({'shadow_verification'}))
+    evidence.configuration = 'shadow'
+    evidence.completed = ([model.Row('shadow_verification', 'Shadow', 'Verified', model.OK,
+        as_of=NOW)], [], NOW)
+    reserve = NOW + timedelta(minutes=10)
+    assert evidence.read('private', include_paper=False, defer_refresh_until=reserve)[0][0].status == model.OK
+    assert evidence.pending is None and not started.is_set()
+    tick[0] = reader.FRESH_SECONDS - 30
+    evidence.read('private', include_paper=False, defer_refresh_until=reserve)
+    assert started.wait(2)
+    if evidence.pending is not None:
+        evidence.pending.join(2)
+
+
+def test_scan_reservation_requires_current_binding_control_and_live_lease(conn):
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_cycles (
+        state text, execution_open_at timestamptz, execute_at timestamptz, execution_close_at timestamptz,
+        next_wake_at timestamptz, diagnostic jsonb, control_generation int, deployment_id text,
+        broker text, broker_account_id text, takeover_epoch int, effective_session date,
+        created_at timestamptz, cycle_id text)""")
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_control (
+        id int, generation int, enabled bool, kill_switch_engaged bool, authority_verdict text)""")
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_lease (
+        id int, control_generation int, expires_at timestamptz)""")
+    conn.execute("""CREATE TEMP TABLE sentinel_account_binding (
+        id int, deployment_id text, broker text, broker_account_id text, takeover_epoch int, ownership_state text)""")
+    conn.execute("INSERT INTO sentinel_automation_control VALUES (1, 5, true, false, 'PASS')")
+    conn.execute("INSERT INTO sentinel_automation_lease VALUES (1, 5, clock_timestamp() + interval '60 sec')")
+    conn.execute("INSERT INTO sentinel_account_binding VALUES (1,'d','alpaca','fixture',2,'SENTINEL_OWNED')")
+    opened = datetime(2026, 11, 11, 14, 30, tzinfo=timezone.utc)
+    conn.execute("""INSERT INTO sentinel_automation_cycles VALUES ('EXECUTING',%s,%s,%s,NULL,'{}',
+        5,'d','alpaca','fixture',2,'2026-11-11',%s,'fixture-cycle')""",
+        (opened, opened + timedelta(minutes=1), opened + timedelta(hours=6), opened))
+    now = opened + timedelta(minutes=2)
+    assert service._opening_scan_reserve(conn, now) == opened + timedelta(minutes=10)
+    with conn.transaction(force_rollback=True):
+        conn.execute("UPDATE sentinel_account_binding SET takeover_epoch=3")
+        assert service._opening_scan_reserve(conn, now) is None
+    with conn.transaction(force_rollback=True):
+        conn.execute("UPDATE sentinel_automation_control SET generation=6")
+        assert service._opening_scan_reserve(conn, now) is None
+    with conn.transaction(force_rollback=True):
+        conn.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()")
+        assert service._opening_scan_reserve(conn, now) is None

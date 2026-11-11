@@ -204,3 +204,58 @@ def test_countdown_uses_its_own_card_and_browser_bounds(fresh,card,delayed,expec
 def test_reintroduced_global_countdown_gate_is_detected():
     with pytest.raises(AssertionError):
         assert _countdown(display_page(current=False),add_global_gate=True).startswith('Market open in')
+
+
+@pytest.mark.parametrize('cutoff', ['market', 'execution'])
+def test_signed_opening_boundary_shows_amber_without_current_plan_or_machine_readiness(cutoff, monkeypatch):
+    page = display_page(current=False)
+    plan_row = page.row('paper_plan')
+    opened = page.now if cutoff == 'market' else page.now - timedelta(minutes=1)
+    execute = opened + timedelta(minutes=1)
+    preview = plan_row.paper_plan.model_copy(update={'execution_open_at':opened, 'execute_at':execute})
+    plan_row = replace(plan_row, paper_plan=preview, valid_until=execute)
+    cycle = model.Row('automation_cycle', 'Cycle', 'WAITING_OPEN', model.WARN,
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE', state='WAITING_OPEN'))
+    changed = ('PAPER',) if cutoff == 'execution' else ()
+    page = replace(page, observation_generated_at=page.now-timedelta(milliseconds=500),
+        observation_changed_scopes=changed, observation_retained=True, observation_display_keys=(),
+        rows=[row for row in page.rows if row.key not in {'paper_plan','automation_cycle'}] + [plan_row, cycle])
+    health = dashboard_health(page)
+    assert health['color'] == 'amber' and health['opening_refresh'] is True
+    assert health['plan_readiness'] == 'unavailable'
+    assert _brand_border(render(page)) == 'var(--warn)'
+    assert _brand_border(render(page), browser_state='not-current') == '#8b8b93'
+    module = importlib.import_module('sentinel.panel.app')
+    monkeypatch.setattr(module,'_read_panel',lambda:page)
+    assert module.panel_json().headers['X-Sentinel-Panel-Status']=='PARTIAL'
+    machine = module.operational_health()
+    assert machine.status_code==503 and json.loads(machine.body)['color']=='neutral'
+
+    assert dashboard_health(replace(page, observation_changed_scopes=('SHADOW',)))['color']=='neutral'
+    assert dashboard_health(replace(page, now=page.observation_valid_until))['color']=='neutral'
+    failure = model.Row('backup_restore', 'Backup', 'Proof failed', model.FAIL)
+    adverse = replace(page, rows=[row for row in page.rows if row.key != 'backup_restore'] + [failure])
+    assert dashboard_health(adverse)['color']=='red'
+
+
+def test_partial_execution_refresh_requires_original_finite_callback():
+    page = display_page(current=False)
+    preview = page.row('paper_plan').paper_plan.model_copy(
+        update={'execute_at':page.now-timedelta(seconds=5)})
+    run = model.TradingRun(intent=preview, state='EXECUTING', updated_at=preview.execute_at)
+    cycle = model.Row('automation_cycle', 'Cycle', 'EXECUTING', model.WARN,
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE', state='EXECUTING'))
+    trading = model.Row('trading_run', 'Run', 'EXECUTING', model.WARN, trading_run=run)
+    recovery = model.RecoveryEvidence(phase='BROKER_CALLBACK_REFRESH', automatic=True,
+        next_attempt_at=page.now+timedelta(seconds=1), attempt=1, maximum_attempts=2)
+    broker = model.Row('broker', 'Broker', 'Refreshing', model.WARN, recovery=recovery)
+    base = [row for row in page.rows if row.key not in {'broker','automation_cycle','trading_run'}]
+    page = replace(page, observation_generated_at=page.now-timedelta(seconds=1),
+        observation_display_keys=(), rows=base + [broker, cycle, trading])
+    assert dashboard_health(page)['color'] == 'neutral'
+
+    deadline = page.now+timedelta(seconds=5)
+    broker = replace(broker, recovery=replace(recovery, deadline=deadline))
+    page = replace(page, rows=base + [broker, cycle, trading])
+    assert dashboard_health(page)['opening_refresh'] is True
+    assert dashboard_health(replace(page, now=deadline))['color'] == 'neutral'

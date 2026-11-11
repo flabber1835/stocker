@@ -16,6 +16,8 @@ from sentinel.paper.inspection import _inspection_account_or_refuse
 
 POLL_SECONDS = 60
 DEADLINE_SECONDS = 8
+RESERVATION_RECHECK = 'RESERVATION_RECHECK'
+RESERVATION_RECHECK_SECONDS = 2
 RESERVATION_SCHEMA = "sentinel.operator-account-reservation/1"
 RESERVATION_FLAG = "operator_order_reservation"
 
@@ -108,7 +110,7 @@ def recorded_reservation(conn, *, account, now):
             "order_count": len(commands)}
 
 
-async def _collect(conn, *, reader, bound, commands, config=None):
+async def _observation(conn, *, reader, bound, commands, config):
     conn.commit()  # Never retain a database transaction over provider I/O.
     snapshot = await reader.account_snapshot()
     _inspection_account_or_refuse(snapshot, bound[2])
@@ -128,17 +130,43 @@ async def _collect(conn, *, reader, bound, commands, config=None):
     current = _bound(conn) if config is None else _bound(conn, config=config)
     if current != bound:
         raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
+    current_commands = _commands(conn, bound) if commands is not None else None
     proof = None
-    if (native_orders and commands == _commands(conn, bound)
+    if (native_orders and commands == current_commands
             and snapshot.cash == last.cash and snapshot.buying_power == last.buying_power
             and abs(Fraction(last.cash)-Fraction(last.buying_power)-Fraction(_reserved(commands))) <= 1):
         proof = dict(schema=RESERVATION_SCHEMA, binding=list(bound), native_orders=native_orders)
+    unsettled = (
+        proof is None and bool(current_commands)
+        and str(last.status).upper() == 'ACTIVE' and last.multiplier == 1
+        and not (last.trading_blocked or last.account_blocked or last.trade_suspended_by_user)
+        and last.equity > 0 and last.buying_power >= 0
+        and 1 < last.cash - last.buying_power <= _reserved(current_commands) + 1
+    )
+    return last, proof, unsettled, current_commands
+
+
+async def _collect(conn, *, reader, bound, commands, config=None):
+    clock = asyncio.get_running_loop().time
+    started = clock()
+    last, proof, unsettled, current = await _observation(
+        conn, reader=reader, bound=bound, commands=commands, config=config)
+    remaining = min(3, DEADLINE_SECONDS - (clock() - started) - 0.5)
+    if unsettled and remaining > 0:
+        try:
+            async with asyncio.timeout(remaining):
+                last, proof, unsettled, _ = await _observation(
+                    conn, reader=reader, bound=bound, commands=current, config=config)
+        except TimeoutError:
+            conn.rollback()
+            if (_bound(conn) if config is None else _bound(conn, config=config)) != bound:
+                raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
     operational_evidence.record_account_snapshot(conn, last, display_reservation=proof)
     conn.commit()
-    return True
+    return RESERVATION_RECHECK if unsettled else True
 
 
-async def collect(conn, *, config, reader=None):
+async def collect(conn, *, config, reader=None, report_reservation_recheck=False):
     """Publish authenticated display evidence only, including blocked accounts."""
     from sentinel.trading_environment import TradingEnvironment
     live = config.environment is TradingEnvironment.LIVE
@@ -155,6 +183,7 @@ async def collect(conn, *, config, reader=None):
         from sentinel.execution.alpaca import AlpacaExecutionBroker
         reader = AlpacaExecutionBroker(api_key=config.alpaca_key,
             secret_key=config.alpaca_secret, base_url=config.base_url)
-    return await asyncio.wait_for(
+    result = await asyncio.wait_for(
         _collect(conn, reader=reader, bound=bound, commands=commands,
                  config=config if live else None), DEADLINE_SECONDS)
+    return result if report_reservation_recheck else bool(result)

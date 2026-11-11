@@ -1,5 +1,6 @@
 """Scope-aware current styling, separate from native facts and transport age."""
 from dataclasses import replace
+from datetime import timedelta
 
 from sentinel.panel import model
 
@@ -24,6 +25,45 @@ def display_current(panel):
 def display_keys(panel):
     return tuple(row.key for row in panel.rows
                  if row.key in _KNOWN or row.key.startswith('automation_step_'))
+
+
+def opening_refresh_deadline(panel):
+    """Bound an opening refresh label to the original signed display window."""
+    from sentinel.panel.operational_snapshot import MAX_SECONDS
+
+    generated = panel.observation_generated_at
+    until = panel.observation_valid_until
+    review = panel.operator_review
+    if (not panel.local_paper_mode or panel.source_errors
+            or set(panel.observation_changed_scopes) - {'PAPER'}
+            or generated is None or until is None or review is None
+            or review.status not in {'CLEAN', 'REVIEW'}):
+        return None
+    boundary = min(until, generated + timedelta(seconds=MAX_SECONDS))
+    if not generated <= panel.now < boundary:
+        return None
+    cycle = panel.row('automation_cycle')
+    if (cycle is None or cycle.operational_fact is None
+            or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'):
+        return None
+    state = cycle.operational_fact.state
+    plan_row = panel.row('paper_plan')
+    plan = plan_row.paper_plan if plan_row is not None else None
+    if (state == 'WAITING_OPEN' and plan is not None and plan_row.status == model.OK
+            and any(stamp is not None and generated < stamp <= panel.now
+                    for stamp in (plan.execution_open_at, plan.execute_at))):
+        return boundary
+    trading = panel.row('trading_run')
+    run = trading.trading_run if trading is not None else None
+    broker = panel.row('broker')
+    recovery = broker.recovery if broker is not None else None
+    if (state in {'EXECUTING', 'RECONCILING'} and run is not None and run.state == state
+            and trading.status == model.WARN and run.intent.execute_at <= run.updated_at <= generated
+            and recovery is not None and recovery.phase == 'BROKER_CALLBACK_REFRESH'
+            and recovery.deadline is not None and panel.now < recovery.deadline
+            and recovery.active(panel.now)):
+        return min(boundary, recovery.deadline)
+    return None
 
 
 def row_current(panel, row):

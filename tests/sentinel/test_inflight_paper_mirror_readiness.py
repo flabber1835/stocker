@@ -117,7 +117,68 @@ def test_history_count_and_warning_remain_during_proven_progress(ongoing,monkeyp
 
 def test_removed_order_state_guard_fails_oracle(ongoing,monkeypatch):
     code=textwrap.dedent(inspect.getsource(sources._in_progress_paper_mirror))
-    guard="any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)"
+    guard="any(order.state not in allowed for order in run.orders)"
     assert guard in code;scope=dict(vars(sources));exec(code.replace(guard,'False'),scope)
     monkeypatch.setattr(sources,'_in_progress_paper_mirror',scope['_in_progress_paper_mirror'])
-    with pytest.raises(AssertionError):test_uncertain_or_unproved_transport_keeps_refusal(ongoing,'unknown')
+    ongoing['health'].broker_outcome_unresolved = 0
+    with pytest.raises(AssertionError):
+        test_uncertain_or_unproved_transport_keeps_refusal(ongoing, 'rejected')
+
+
+def test_first_send_keeps_historical_warning_pending_until_original_callback(ongoing):
+    v = ongoing
+    c = v['cycle']
+    c.update(state='EXECUTING', failure_code=None, failure_detail=None,
+             observation_callback={'started_at': c['updated_at'], 'deadline': NOW + timedelta(seconds=30)})
+    v['health'].latest_cycle_state = 'EXECUTING'
+    run = v['row'].trading_run
+    pending = run.orders[0].model_copy(update={'state': 'SEND_PENDING', 'broker_order_id': None})
+    v['row'] = replace(v['row'], trading_run=run.model_copy(update={'state': 'EXECUTING', 'orders': [pending]}))
+    row = observe(v)
+    assert row.status == model.WARN and row.valid_until == c['observation_callback']['deadline']
+    assert row.operational_fact.state == 'PENDING'
+    c['observation_callback']['deadline'] = NOW
+    assert observe(v) is None
+
+
+@pytest.mark.parametrize('fault', [None, 'expired', 'unresolved', 'no_match'])
+def test_protected_day_recovery_uses_exact_original_proof(ongoing, monkeypatch, fault):
+    from sentinel.feed import calendar
+    from tests.sentinel.test_operator_monitoring import day_wait_wait_payload
+
+    v = ongoing
+    c = v['cycle']
+    c['effective_session'] = str(v['row'].trading_run.intent.effective_session)
+    held_at = NOW - timedelta(seconds=5) if fault != 'expired' else NOW - timedelta(minutes=11)
+    _, close = calendar.session_window(c['effective_session'])
+    wait = day_wait_wait_payload(held_at, plan_id=c['plan_id'])
+    wait.update(effective_session=c['effective_session'], deadline=(close + timedelta(minutes=10)).isoformat())
+    c.update(state='RETRY_WAIT', retry_phase='RECOVER', failure_code=None, failure_detail=None,
+             protected_day_wait=wait,
+             diagnostic={'clean': True, 'runtime_state': 'RUNNING',
+                         'unresolved': ['UNKNOWN'] if fault == 'unresolved' else [],
+                         'foreign_orders': [], 'foreign_positions': []})
+    v['health'].latest_cycle_state = 'RETRY_WAIT'
+    run = v['row'].trading_run
+    v['row'] = replace(v['row'], trading_run=run.model_copy(update={'state': 'RETRY_WAIT'}))
+    monkeypatch.setattr(sources, '_latest_account_evidence', lambda *_: {})
+    monkeypatch.setattr(sources, '_bound_account_id', lambda *_: 'synthetic-account')
+    monkeypatch.setattr(sources, '_matched_resting_reservation',
+        lambda *_args, **_kwargs: None if fault == 'no_match' else wait)
+    monkeypatch.setattr(model, 'alpaca_account_row',
+        lambda **_: model.Row('alpaca_account', 'Account', 'ACTIVE', model.OK))
+    row = observe(v)
+    if fault is None:
+        assert row.status == model.WARN and row.valid_until == held_at + timedelta(minutes=10)
+    else:
+        assert row is None
+
+
+def test_missing_protected_proof_guard_falsifier(ongoing, monkeypatch):
+    code = textwrap.dedent(inspect.getsource(sources._in_progress_paper_mirror))
+    assert 'if match is None:' in code
+    scope = dict(vars(sources))
+    exec(code.replace('if match is None:', 'if False:'), scope)
+    monkeypatch.setattr(sources, '_in_progress_paper_mirror', scope['_in_progress_paper_mirror'])
+    with pytest.raises(AssertionError):
+        test_protected_day_recovery_uses_exact_original_proof(ongoing, monkeypatch, 'no_match')

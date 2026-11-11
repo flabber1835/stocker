@@ -93,8 +93,11 @@ def collect_once(kind, *, reader=None, config=None, connection_factory=None):
             return issuer_refresh.collect(conn, email=os.environ.get(CONTACT_ENV, ''))
         module = {'ACCOUNT':account_status,'FILL':fill_notifications}[kind]
         try:
-            asyncio.run(module.collect(conn,config=config,reader=reader))
-            return 'COLLECTED'
+            options = {'report_reservation_recheck': True} if kind == 'ACCOUNT' else {}
+            result = asyncio.run(module.collect(conn,config=config,reader=reader, **options))
+            return (account_status.RESERVATION_RECHECK
+                    if kind == 'ACCOUNT' and result == account_status.RESERVATION_RECHECK
+                    else 'COLLECTED')
         except Exception as exc:
             conn.rollback()
             typed = kind == 'FILL' and isinstance(exc,fill_notifications.FillNotificationRefused)
@@ -122,6 +125,7 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
         signal.signal(signum,lambda *_:stopped.set())
     due = {'ACCOUNT':float('-inf'),'FILL':float('-inf'),'ISSUER':float('-inf')}
     diagnostics = _FailureDiagnostics()
+    reservation_retry = False
     try:
         while not stopped.is_set():
             live = trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE
@@ -136,6 +140,13 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
                     result = runner(collect_once,kind,
                         timeout=issuer_refresh.DEADLINE_SECONDS if kind == 'ISSUER' else DEADLINE_SECONDS,
                         start_method='spawn')
+                    if kind == 'ACCOUNT':
+                        recheck = result == account_status.RESERVATION_RECHECK
+                        if recheck and not reservation_retry:
+                            due[kind] = min(due[kind], clock() + account_status.RESERVATION_RECHECK_SECONDS)
+                        reservation_retry = recheck and not reservation_retry
+                        if recheck:
+                            result = 'COLLECTED'
                     diagnostics.collected(kind, result)
                     if kind == 'ISSUER' and isinstance(result,dict):
                         retry = result.get('retry_after_seconds')

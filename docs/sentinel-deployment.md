@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[PAPER opening stability](paper-opening-stability-20261111.md) records the
+November 11 receipt, dashboard, account evidence and opening work corrections.
+
 [WAL proof refresh overlap](backup-proof-refresh-overlap.md) defines how backed
 PAPER can use a current completed receipt during an exclusive maintenance scrub,
 with renewal scheduled from the original byte-proof clock.
