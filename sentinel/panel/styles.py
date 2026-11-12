@@ -25,7 +25,7 @@ body[data-health="green"] .brand{border-color:var(--ok)}
 body[data-health="amber"] .brand{border-color:var(--warn)}
 body[data-health="red"] .brand{border-color:var(--fail)}
 .not-current body .brand,.refreshing-status body .brand,
-body[data-observation-current="false"]:not([data-health="red"]):not([data-opening-refresh="true"]) .brand,
+body[data-observation-current="false"]:not([data-health="red"]):not([data-opening-refresh="true"]):not([data-closing-refresh="true"]) .brand,
 body[data-refresh-pending="true"] .brand{border-color:#8b8b93}
 .brand img{display:block;width:100%;max-width:100%;height:auto}
 #operational-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}

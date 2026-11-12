@@ -72,6 +72,7 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "availability_retry_unbounded", "callback_failure", "exception_type",
     "availability_retry_clocks_aware", "diagnostic",
     "protected_day_wait",
+    "preflight_recovery",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
 })
@@ -965,6 +966,41 @@ def _automation_control(conn, found: Mapping[str, set[str]]) -> dict:
     }
 
 
+def _execution_authority_display(lifecycle, control, *, verdict, detail, checked_at):
+    from sentinel import local_paper
+
+    lifecycle = dict(lifecycle or {})
+    digest = lifecycle.get('certificate_sha256')
+    owner_local = local_paper.enabled()
+    return model.execution_authority_row(
+        installed=True, runtime_verdict=verdict, runtime_detail=detail, checked_at=checked_at,
+        verdict_binding_matches=bool(digest and control and control.get('certificate_sha256') == digest),
+        owner_local_runtime=owner_local,
+        runtime_git_commit=os.environ.get('SENTINEL_GIT_COMMIT') if owner_local else None,
+        runtime_image_digest=os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST') if owner_local else None,
+        **lifecycle)
+
+
+def _late_authority_display(conn, old, *, now):
+    """Read an independently recorded verdict before the previous one expires."""
+    if (old.status != model.OK or old.as_of is None or old.freshness is None
+            or now < old.as_of + old.freshness - timedelta(seconds=30)):
+        return old
+    control, error = _read(conn, lambda c: _automation_control(
+        c, {'sentinel_automation_control': _AUTHORITY_VERDICT_COLUMNS}),
+        STATEMENT_TIMEOUT_MS, default=None)
+    if error:
+        return model.execution_authority_row(installed=True, error=error)
+    checked = control['authority_checked_at']
+    if checked is None or checked <= old.as_of:
+        return old
+    lifecycle, error = _read(conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
+    if error:
+        return model.execution_authority_row(installed=True, error=error)
+    return _execution_authority_display(lifecycle, control,
+        verdict=control['authority_verdict'], detail=control['authority_detail'], checked_at=checked)
+
+
 def _automation_lease(conn, generation: int) -> dict:
     with conn.cursor() as cur:
         cur.execute(
@@ -1117,14 +1153,19 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "created_at": _utc(created_at),
         "completed_at": _utc(completed_at),
     }
-    if str(state) in {"EXECUTING", "RECONCILING"}:
+    if str(state) in {"DISCOVERED", "EXECUTING", "RECONCILING"}:
         value["observation_callback"] = _broker_callback(conn, str(cycle_id), str(state))
+    if str(state) == "DISCOVERED":
+        callback = _observation_recovery(value)
+        if callback is not None:
+            value["preflight_recovery"] = replace(callback, phase="AUTOMATION_PREFLIGHT_RECOVER")
     return value
 
 
 def _broker_callback(conn, cycle_id: str, state: str) -> dict | None:
     """Read one original invocation deadline from its live current fence."""
-    expected = {"EXECUTING": "EXECUTE_CALLBACK", "RECONCILING": "RECOVER_CALLBACK"}.get(state)
+    expected = {"DISCOVERED": "PREFLIGHT_RECOVER_CALLBACK",
+                "EXECUTING": "EXECUTE_CALLBACK", "RECONCILING": "RECOVER_CALLBACK"}.get(state)
     if expected is None:
         return None
     with conn.cursor() as cur:
@@ -1142,7 +1183,10 @@ def _broker_callback(conn, cycle_id: str, state: str) -> dict | None:
             " AND s.heartbeat_at>clock_timestamp()-INTERVAL '30 seconds' "
             " AND s.callback_started_at>=c.updated_at AND s.callback_started_at<=clock_timestamp() "
             " AND s.callback_deadline_at>s.callback_started_at "
-            " AND s.callback_deadline_at>clock_timestamp()",
+            " AND s.callback_deadline_at>clock_timestamp() "
+            " AND (c.state<>'DISCOVERED' OR (c.plan_id IS NULL "
+            "  AND c.failure_code IS NULL AND c.failure_detail IS NULL "
+            "  AND c.prepare_at<=s.callback_started_at AND clock_timestamp()<c.execution_open_at))",
             (cycle_id, state, expected))
         row = cur.fetchone()
     return ({"started_at": _utc(row[0]), "deadline": _utc(row[1])} if row else None)
@@ -1280,6 +1324,13 @@ def _runtime_valid_until(
     if broker_fact and (active or not known_idle):
         return fact_at + timedelta(minutes=10)
     wake = (cycle or {}).get("next_wake_at")
+    if broker_fact and (state == 'REFRESHING_DATA' or state == 'RETRY_WAIT' and phase == 'REFRESH'):
+        # REFRESH owns data, not a fresh broker observation. Preflight has
+        # already reconciled the book. PREPARE independently reobserves it.
+        due = (cycle or {}).get('prepare_at')
+        opened = (cycle or {}).get('execution_open_at')
+        if isinstance(due, datetime) and isinstance(opened, datetime) and due <= fact_at < opened:
+            return opened
     if isinstance(wake, datetime) and wake > fact_at:
         return wake
     decision_session = (cycle or {}).get("decision_session")
@@ -1306,16 +1357,23 @@ def _observation_recovery(
     if retry is not None:
         return retry
     callback = (cycle or {}).get("observation_callback")
-    if (cycle and str(cycle.get("state") or "").upper()
-            in {"EXECUTING", "RECONCILING"} and isinstance(callback, Mapping)):
+    state = str((cycle or {}).get("state") or "").upper()
+    if state in {"DISCOVERED", "EXECUTING", "RECONCILING"} and isinstance(callback, Mapping):
         deadline = callback.get("deadline")
         started = callback.get("started_at")
         if (not isinstance(started, datetime) or not isinstance(deadline, datetime)
                 or started >= deadline):
             return None
-        return model.RecoveryEvidence(
-            phase="BROKER_CALLBACK_REFRESH", automatic=True,
-            deadline=deadline)
+        phase = "BROKER_CALLBACK_REFRESH"
+        if state == "DISCOVERED":
+            opened, due = cycle.get("execution_open_at"), cycle.get("prepare_at")
+            if (cycle.get("plan_id") or cycle.get("failure_code") or cycle.get("failure_detail")
+                    or not all(isinstance(stamp, datetime) and stamp.utcoffset() is not None
+                               for stamp in (opened, due, started, deadline))
+                    or not due <= started < opened):
+                return None
+            deadline, phase = min(deadline, opened), "BROKER_PREFLIGHT_REFRESH"
+        return model.RecoveryEvidence(phase=phase, automatic=True, deadline=deadline)
     return None
 
 
@@ -1782,6 +1840,8 @@ def _operator_evidence_rows(
 
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
+        if account_recovery is not None and account_recovery.phase == 'BROKER_PREFLIGHT_REFRESH':
+            account_recovery = None
         account_valid_until = _account_valid_until((account or {}).get("observed_at"))
         if operator_reservation is not None:
             expiry = _utc(operator_reservation["valid_until"])
@@ -2139,25 +2199,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         runtime_verdict=runtime_verdict,
                         runtime_detail=runtime_detail, checked_at=checked_at)
                 else:
-                    lifecycle_view = dict(lifecycle or {})
-                    from sentinel import local_paper
-                    owner_local_runtime = local_paper.enabled()
-                    verdict_binding_matches = bool(
-                        control is not None
-                        and control.get("certificate_sha256")
-                        and lifecycle_view.get("certificate_sha256")
-                        and control["certificate_sha256"]
-                        == lifecycle_view["certificate_sha256"])
-                    authority = model.execution_authority_row(
-                        installed=True, runtime_verdict=runtime_verdict,
-                        runtime_detail=runtime_detail, checked_at=checked_at,
-                        verdict_binding_matches=verdict_binding_matches,
-                        owner_local_runtime=owner_local_runtime,
-                        runtime_git_commit=(os.environ.get('SENTINEL_GIT_COMMIT')
-                                            if owner_local_runtime else None),
-                        runtime_image_digest=(os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')
-                                              if owner_local_runtime else None),
-                        **lifecycle_view)
+                    authority = _execution_authority_display(lifecycle, control,
+                        verdict=runtime_verdict, detail=runtime_detail, checked_at=checked_at)
 
         raw_errors = (
             ([] if not automation_present else
@@ -3830,6 +3873,8 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
             ('The publisher is running. Portfolio verification is a separate check.' if running else
              'The publisher is halted; retained-state verification and operator recovery are required.'),
             as_of=value.get('observed_at'), freshness=timedelta(seconds=status.MAX_AGE_SECONDS),
+            operational_fact=(model.OperationalFact(kind='SHADOW_WORKER', state='ACTIVE_WORKER')
+                              if running and reason == 'ACTIVE_WORKER' else None),
             required_current=True, valid_until=(min(value['observed_at']+timedelta(
                 seconds=status.MAX_AGE_SECONDS), value['worker_deadline'])
                 if value.get('worker_deadline') is not None else

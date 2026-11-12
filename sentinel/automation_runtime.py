@@ -30,6 +30,7 @@ from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
+    BackupProofBusy,
     CycleContext,
     CycleSpec,
     CycleState,
@@ -307,6 +308,8 @@ def classify_dependency_failure(
         exc: BaseException) -> AutomationRefused | None:
     """Map reviewed dependency failures; leave programming defects unknown."""
     from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
+    from sentinel.backup_retry import busy_reason
+    from sentinel.backup_runtime_authority import BackupIntegrityBusy
     from sentinel.dependency_availability import database_unavailable, local_contention
     from sentinel.execution.guarded import BrokerAuthorityCheckFailed, OrderFundingNotReady, PreTransportAuthorityRefused
     from sentinel.execution.opening_prices import OpeningPriceNotReady
@@ -327,6 +330,9 @@ def classify_dependency_failure(
         return TransientInfrastructureFailure(f"local database lock unavailable: {exc}")
     if isinstance(exc, BackupConfigurationRefused):
         return BackupPermanentFailure(f"backup integrity refused: {exc}")
+    if type(exc) is BackupIntegrityBusy:
+        return BackupProofBusy(f"backup durability is temporarily unavailable: {exc}",
+                               reason=busy_reason(exc))
     if isinstance(exc, BackupUnavailable):
         return BackupTransientFailure(f"backup temporarily unavailable: {exc}")
     if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
@@ -782,7 +788,8 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _assert_control_authority(self, conn, permit, *, require_publication=False):
+    def _assert_control_authority(self, conn, permit, *, require_publication=False,
+                                  record_verdict=True):
         """Verify current signed authority without requiring any cycle row."""
         try:
             store.require_leader(conn, permit)
@@ -821,11 +828,13 @@ class ProductionAutomation:
             self._idle_attestation = None
             if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
                 conn.rollback()
-            else:
+            elif record_verdict:
                 self._record_authority_verdict(
                     conn, permit, verdict="FAIL",
                     detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
+        if not record_verdict:
+            return control, certificate
         published = self._record_authority_verdict(
             conn, permit, verdict="PASS",
             detail=(f"signed certificate {certificate.certificate_sha256} "
@@ -836,11 +845,14 @@ class ProductionAutomation:
 
     def _assert_cycle_authority(
             self, conn, context: CycleContext, *, operation_scope: str,
-            verified_control=None):
+            verified_control=None, record_verdict=True):
         context.require_active()
         if verified_control is None:
-            control, certificate = self._assert_control_authority(
-                conn, context.permit)
+            if record_verdict:
+                control, certificate = self._assert_control_authority(conn, context.permit)
+            else:
+                control, certificate = self._assert_control_authority(
+                    conn, context.permit, record_verdict=False)
         else:
             control, certificate = verified_control
         try:
@@ -864,12 +876,12 @@ class ProductionAutomation:
             self._idle_attestation = None
             if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
                 conn.rollback()
-            else:
+            elif record_verdict:
                 self._record_authority_verdict(
                     conn, context.permit, verdict="FAIL",
                     detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
-        if verified_control is None:
+        if verified_control is None and record_verdict:
             self._record_authority_verdict(
                 conn, context.permit, verdict="PASS",
                 detail=(f"signed certificate {certificate.certificate_sha256} "
@@ -1070,6 +1082,48 @@ class ProductionAutomation:
                 minimum_quantity_increment=minimum_quantity_increment)
             if delta.classification is not execution_commands.DeltaClass.NONE)
 
+    def _refresh_inputs(self, conn):
+        current = feed_inputs.current(conn)
+        if self._operational_source_only:
+            if not feed_inputs.is_rolling(current):
+                raise NonRetryableCallbackRefused(
+                    "operational automation requires rolling Alpaca inputs")
+            from sentinel.feed import operational_snapshot
+            try:
+                operational_snapshot.require_alpaca_openfigi(conn, current)
+            except operational_snapshot.OperationalSnapshotRefused as exc:
+                raise NonRetryableCallbackRefused(str(exc)) from exc
+        if feed_inputs.is_rolling(current):
+            feed_inputs.require_shadow_mode(
+                current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
+        return current
+
+    def _closing_refresh_wait(self, conn, cycle, frontier, *, closing_paper):
+        if (closing_paper and isinstance(frontier, str)
+                and frontier < str(cycle.decision_session)
+                and _current_close_refresh(cycle, self.automation_config, _now_utc())):
+            before_close = cycle.decision_close_at - timedelta(microseconds=1)
+            if frontier == calendar.latest_closed_session(before_close):
+                return ClosingDataPending(
+                    'the dedicated shadow publisher is awaiting the exact decision close')
+        if frontier == str(cycle.decision_session) and getattr(self, 'sentinel_config', None) is not None:
+            from sentinel import prepare_shadow_wait
+            preparation = prepare_shadow_wait.observe(conn,
+                decision_session=cycle.decision_session,
+                observation_id=self._shadow_observation_id,
+                starting_cash=self._shadow_starting_cash,
+                state_dir=self.sentinel_config.state_dir,
+                database_url=self.sentinel_config.database_url)
+            if preparation is not None:
+                detail = ('the current closing-data publication is '
+                          'awaiting its certified shadow attestation')
+                if preparation.quiet_eligible is True:
+                    return ClosingDataPending(detail,
+                        publisher_deadline_at=preparation.publisher_deadline,
+                        worker_deadline_at=preparation.worker_deadline)
+                return SourceDataPending(detail)
+        return None
+
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
         cycle = getattr(context, 'cycle', None)
@@ -1083,44 +1137,12 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
-            current = feed_inputs.current(conn)
-            if (self._operational_source_only
-                    and not feed_inputs.is_rolling(current)):
-                raise NonRetryableCallbackRefused(
-                    "operational automation requires rolling Alpaca inputs")
-            if self._operational_source_only:
-                from sentinel.feed import operational_snapshot
-                try:
-                    operational_snapshot.require_alpaca_openfigi(conn, current)
-                except operational_snapshot.OperationalSnapshotRefused as exc:
-                    raise NonRetryableCallbackRefused(str(exc)) from exc
+            current = self._refresh_inputs(conn)
             if feed_inputs.is_rolling(current):
-                feed_inputs.require_shadow_mode(current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
                 frontier = getattr(current, 'window_end', None)
-                if closing_paper and isinstance(frontier, str) and frontier < str(cycle.decision_session):
-                    now = _now_utc()
-                    if _current_close_refresh(cycle, self.automation_config, now):
-                        before_close = cycle.decision_close_at - timedelta(microseconds=1)
-                        if frontier == calendar.latest_closed_session(before_close):
-                            raise ClosingDataPending(
-                                'the dedicated shadow publisher is awaiting the exact decision close')
-                if (frontier == str(cycle.decision_session)
-                        and getattr(self, 'sentinel_config', None) is not None):
-                    from sentinel import prepare_shadow_wait
-                    preparation = prepare_shadow_wait.observe(conn,
-                        decision_session=cycle.decision_session,
-                        observation_id=self._shadow_observation_id,
-                        starting_cash=self._shadow_starting_cash,
-                        state_dir=self.sentinel_config.state_dir,
-                        database_url=self.sentinel_config.database_url)
-                    if preparation is not None:
-                        detail = ('the current closing-data publication is '
-                            'awaiting its certified shadow attestation')
-                        if preparation.quiet_eligible is True:
-                            raise ClosingDataPending(detail,
-                                publisher_deadline_at=preparation.publisher_deadline,
-                                worker_deadline_at=preparation.worker_deadline)
-                        raise SourceDataPending(detail)
+                wait = self._closing_refresh_wait(conn, cycle, frontier, closing_paper=closing_paper)
+                if wait is not None:
+                    raise wait
                 from sentinel import dual_reconciliation
                 try:
                     if getattr(self, "_live_run_enabled", False):

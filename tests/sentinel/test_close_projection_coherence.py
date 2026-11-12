@@ -65,7 +65,7 @@ def metadata(conn, monkeypatch):
     monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
     monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
     for sql in (
-        'CREATE TEMP TABLE sentinel_corpus_publications(version int,previous_version int,window_end date,evidence jsonb,window_start date)',
+        'CREATE TEMP TABLE sentinel_corpus_publications(version int,previous_version int,window_end date,evidence jsonb,window_start date,run_id uuid)',
         'CREATE TEMP TABLE sentinel_operational_snapshots(publication_version int,job_id uuid,candidate_id uuid,validation_sha256 text)',
         'CREATE TEMP TABLE sentinel_snapshot_jobs(job_id uuid,candidate_id uuid,state text,publication_version int,request jsonb,request_sha256 text,created_at timestamptz,deadline timestamptz)',
         'CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id uuid)',
@@ -75,7 +75,7 @@ def metadata(conn, monkeypatch):
         expected_publication_version=16, strategy_sha256='a'*64, dependencies_sha256=digest({
             'schema':operational_snapshot.SCHEMA,'dependencies':digest({'scope':rolling_go_inputs.SCHEMA})}))
     binding = dict(schema=operational_snapshot.SCHEMA,job_id=str(job),candidate_id=str(candidate),validation_sha256='c'*64)
-    conn.execute('INSERT INTO sentinel_corpus_publications VALUES(17,16,\'2026-11-09\',%s,%s)',
+    conn.execute('INSERT INTO sentinel_corpus_publications VALUES(17,16,\'2026-11-09\',%s,%s,NULL)',
         (Jsonb(dict(rolling_snapshot=binding)),request.window.start))
     conn.execute('INSERT INTO sentinel_operational_snapshots VALUES(17,%s,%s,%s)', (job,candidate,'c'*64))
     conn.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES(%s)', (job,))
@@ -149,13 +149,60 @@ def test_missing_unrelated_failed_or_ambiguous_progress_never_quiets_feed(metada
 
 def test_removing_exact_attempt_subject_guard_is_detected(metadata,monkeypatch):
     code=textwrap.dedent(inspect.getsource(handoff.capture))
-    guard='attempt.subject_sha256 != subject or '
+    guard='attempt.subject_sha256 == subject and '
     assert code.count(guard)==1
     namespace={}
     exec(compile(code.replace(guard,''),'<removed-progress-subject>','exec'),vars(handoff),namespace)
     monkeypatch.setattr(handoff,'capture',namespace['capture'])
     with pytest.raises(AssertionError,match='unproved progress'):
         test_missing_unrelated_failed_or_ambiguous_progress_never_quiets_feed(metadata,'subject')
+
+
+def test_current_attempt_can_explain_original_publication_rollover(metadata):
+    conn, original = metadata
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    started = original.row('feed').as_of
+    attempt.update(supersession_started_at=started.isoformat(),
+                   supersession_deadline=(started+timedelta(minutes=10)).isoformat())
+    assert capture((conn, original)) is not None
+    started -= timedelta(microseconds=1)
+    attempt.update(supersession_started_at=started.isoformat(),
+                   supersession_deadline=(started+timedelta(minutes=10)).isoformat())
+    assert capture((conn, original)) is None
+
+
+def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(metadata, monkeypatch):
+    conn, original = metadata
+    observed = NOW-timedelta(seconds=45)
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(outcome='VERIFIED', completed_at=(observed+timedelta(seconds=1)).isoformat(),
+                   subject_sha256='e'*64)
+    shadow = replace(original.row('shadow_verification'), as_of=observed,
+        source_publication_version=17, source_session='2026-11-09')
+    worker = replace(original.row('shadow_worker'), operational_fact=model.OperationalFact(
+        kind='SHADOW_WORKER', state='ACTIVE_WORKER'))
+    original = replace(original, rows=[original.row('feed'), shadow, worker])
+    calls = []
+    def checkpoint(conn, *, pub, binding, closed, now):
+        calls.append((pub.version, binding['candidate_id']))
+        return 'd'*64, observed
+    monkeypatch.setattr(handoff, '_checkpoint_bound', checkpoint)
+    memo = handoff.CandidateMemo()
+    def read(page, subject=SUBJECT):
+        return handoff.capture(conn, page, subject=subject, owner_expiry=NOW+timedelta(minutes=5),
+                               now=NOW, candidate_memo=memo)
+    proof = read(original)
+    assert proof['checkpoint_sha256'] == 'd'*64
+    assert read(original) == proof and len(calls) == 1
+    assert read(original, subject='c'*64) != proof and len(calls) == 2
+    signed = replace(original, trial_details={**original.trial_details, 'readiness_handoff':proof})
+    current = waiting.reproject(signed, subject=SUBJECT, now=NOW)
+    assert current.row('feed').effective_status(NOW) == model.WARN
+    assert current.row('shadow_verification').value == 'CHECKING'
+    failed = replace(shadow, status=model.FAIL, recovery=None)
+    signed = replace(signed, rows=[signed.row('feed'), failed, worker])
+    assert read(signed) is None
+    assert waiting.reproject(signed, subject=SUBJECT, now=NOW).row('feed').effective_status(NOW) == model.FAIL
 
 
 def test_row_clock_diagnostic_is_closed_and_preserves_strict_refusal(monkeypatch,caplog):

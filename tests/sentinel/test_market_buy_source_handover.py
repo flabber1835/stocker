@@ -11,12 +11,12 @@ def test_reviewed_market_policy_source_keeps_the_exact_opening_stability_predece
     assert admission.source_closure(prior) == "082bc5ae6789dea75a193b4c49ba51b3e1123b49505bec62344de151afa09544"
     assert profile["authority_effect"] == "NONE"
 
-    current = admission._source_files(basis.PROFILE.parent)
-    assert set(current) - set(prior) == {
+    installed = profile["retained_predecessors"][basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION]["files"]
+    assert set(installed) - set(prior) == {
         "execution/market_buy_policy.py", "execution/market_buy_sizing.py",
     }
-    assert set(prior) <= set(current)
-    assert {name for name in prior if prior[name] != current[name]} == {
+    assert set(prior) <= set(installed)
+    assert {name for name in prior if prior[name] != installed[name]} == {
         "authority/validation.py",
         "automation/model.py",
         "automation_runtime.py",
@@ -38,6 +38,7 @@ def test_reviewed_market_policy_source_keeps_the_exact_opening_stability_predece
         "paper/validation.py",
         "url_selected_source_basis.py",
     }
+    current = admission._source_files(basis.PROFILE.parent)
     assert basis.predecessor_view(current, previous=prior) == prior
     edited = {**current, "execution/market_buy_policy.py": "0" * 64}
     assert basis.predecessor_view(edited, previous=prior) is edited

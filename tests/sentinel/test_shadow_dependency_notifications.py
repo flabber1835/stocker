@@ -7,8 +7,9 @@ from types import SimpleNamespace
 import psycopg
 import pytest
 
-from sentinel import shadow_dependency_notifications as notices, shadow_worker, shadow_supervisor
+from sentinel import backup_retry, shadow_dependency_notifications as notices, shadow_worker, shadow_supervisor
 from sentinel.automation import outbox
+from sentinel.backup_runtime_authority import BackupIntegrityBusy
 from sentinel.feed import calendar, rolling_publisher
 from sentinel.feed.publication import CorpusLockUnavailable
 from sentinel.feed.rolling_jobs import JobDeadlineExceeded
@@ -105,6 +106,49 @@ def test_database_reporting_failure_keeps_original_safe_log_and_exit(monkeypatch
     assert attempts[0][1] == {'timeout': 1.0}
     assert 'credential-bearing' not in json.dumps(logs)
     assert 'original-private-message' not in json.dumps(logs)
+
+
+def test_exact_backup_busy_class_drives_short_retry_and_safe_diagnostic(monkeypatch):
+    failure = BackupIntegrityBusy('completed backup integrity proof does not cover the advanced frontier')
+    failure.__cause__ = ValueError('private')
+    wrapped = ShadowServiceRetry('backup unavailable')
+    wrapped.__cause__ = failure
+    monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: CONFIG)
+    monkeypatch.setattr(shadow_worker, 'advance_once', lambda _: (_ for _ in ()).throw(wrapped))
+    monkeypatch.setattr(notices, 'report_failure', lambda *_: None)
+    assert shadow_worker.main() == shadow_worker.EXIT_BACKUP_PROOF_BUSY
+    payload = notices.warning_payload(wrapped, CONFIG, now=NOW)
+    assert payload['cause_code'] == 'BACKUP_WRITE_FENCED'
+    assert payload['exception_type'] == 'sentinel.backup_runtime_authority.BackupIntegrityBusy'
+    assert payload['backup_busy_reason'] == 'FRONTIER_CHANGED'
+    assert 'private' not in json.dumps(payload)
+
+
+def test_continuity_wrapper_retains_only_exact_safe_busy_reason():
+    changed = BackupIntegrityBusy('completed backup integrity proof does not cover current media')
+    outer = BackupIntegrityBusy('strict backup refusal PROOF_OWNER_BUSY')
+    outer.__cause__ = changed
+    assert backup_retry.busy_reason(outer).value == 'COVERAGE_CHANGED'
+    outer.__cause__ = ValueError(str(changed))
+    assert backup_retry.busy_reason(outer).value == 'OWNER_ACTIVE'
+
+
+@pytest.mark.parametrize('ready_at,stop_at,expected', [(10, None, 10), (None, None, 30), (10, 7, 7)])
+def test_shadow_wait_keeps_heartbeats_fallback_and_stop(monkeypatch, ready_at, stop_at, expected):
+    clock, calls = [0.0], []
+    monkeypatch.setattr(shadow_supervisor.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(shadow_supervisor.time, 'sleep', lambda n: clock.__setitem__(0, clock[0] + n))
+
+    def ready():
+        calls.append(clock[0])
+        return ready_at is not None and clock[0] >= ready_at
+
+    heartbeat = []
+    shadow_supervisor._poll_after_worker(
+        deadline=30, close_at=None, stopping=lambda: stop_at is not None and clock[0] >= stop_at,
+        heartbeat=lambda: heartbeat.append(clock[0]), backup_completed=ready)
+    assert clock[0] == expected and heartbeat
+    assert all(t % 5 == 0 and 0 < t < 30 for t in calls)
 
 
 def test_integrity_refusal_stays_terminal_and_does_not_report_retry(monkeypatch):

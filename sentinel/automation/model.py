@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Any, Literal, Mapping
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from sentinel.backup_guard import BackupProofBusyReason
 
 
 class AutomationRefused(RuntimeError):
@@ -45,6 +46,16 @@ class SourceDataPending(TransientInfrastructureFailure):
 
 class RefreshPublicationPinUnavailable(TransientInfrastructureFailure):
     """An operational close refresh could not acquire its publication read pin."""
+
+
+class BackupProofBusy(TransientInfrastructureFailure):
+    """A strict backup proof owner refused admission during its work."""
+
+    failure_domain = "BACKUP"
+
+    def __init__(self, detail, *, reason):
+        super().__init__(detail)
+        self.reason = BackupProofBusyReason(reason)
 
 
 class CorporateActionPending(TransientInfrastructureFailure):

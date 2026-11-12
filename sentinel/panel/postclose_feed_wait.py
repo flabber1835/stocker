@@ -89,6 +89,39 @@ def _project_frontier(row, wait, ingest, *, now):
                    ready=True, now=now)
 
 
+def _preflight_source_wait(financial, automation, worker, *, now):
+    """The last verified close can describe the exact next source wait."""
+    rows = {row.key: row for row in [*financial, *automation]}
+    shadow, book, cycle, leader, control = (rows.get(key) for key in (
+        'shadow_verification', 'book', 'automation_cycle', 'automation_leader', 'automation'))
+    if any(row is None for row in (shadow, book, cycle, leader, control, worker)):
+        return None
+    if (any(row.effective_status(now) != model.OK or row.is_future(now)
+            for row in (shadow, book, leader, control, worker))
+            or any(row.valid_until is None or now >= row.valid_until for row in (leader, worker))
+            or not book.can_show_shadow_book(now) or cycle.effective_status(now) != model.WARN
+            or cycle.as_of is None or cycle.recovery is None or cycle.recovery.deadline is None
+            or control.operational_fact is None or control.operational_fact.state != 'ENABLED_RELEASED'
+            or shadow.operational_fact is None or shadow.operational_fact.state != 'VERIFIED'):
+        return None
+    prior = book.shadow_book.session
+    if str(shadow.operational_fact.session) != prior:
+        return None
+    phase = cycle.recovery.phase
+    if phase not in {'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_REFRESHING_DATA',
+                     'AUTOMATION_CLOSING_DATA'}:
+        return None
+    session = calendar.next_session(prior)
+    closed = calendar.session_window(session)[1]
+    opened = calendar.session_window(calendar.next_session(session))[0]
+    if session != calendar.latest_closed_session(now) or not closed <= cycle.as_of <= now < opened:
+        return None
+    deadline = min(cycle.recovery.deadline, leader.valid_until, worker.valid_until, opened)
+    if phase == 'AUTOMATION_REFRESHING_DATA':
+        deadline = min(deadline, cycle.as_of + timedelta(seconds=30))
+    return ClosingDataWait(prior, session, deadline) if now < deadline else None
+
+
 def publication_deadline(financial_rows, worker, *, now):
     """Only a scoped signed publication result and fresh publisher explain work."""
     values={row.key:row for row in financial_rows}
@@ -121,9 +154,10 @@ def attestation_deadline(financial_rows, worker, *, now):
     return row.valid_until
 
 
-def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now):
+def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now, handoff=None):
     """Withdraw old PASS; preserve failures while confirmed publication runs."""
-    wait=from_rows(financial_rows,worker,now=now)
+    wait = (from_rows(financial_rows, worker, now=now)
+            or _preflight_source_wait(financial_rows, automation_rows, worker, now=now))
     ingest=next((row for row in feed_rows if row.key=='ingest'),None)
     feed_rows=[_project_frontier(row,wait,ingest,now=now) for row in feed_rows]
     publication=publication_deadline(financial_rows,worker,now=now)
@@ -156,7 +190,9 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
             if row.key in {'feed','ingest'} and row.status==model.WARN
                 and row.recovery is not None and row.recovery.phase=='FEED_INGEST'
             else row for row in feed_rows]
-    deadline=wait.deadline if wait is not None else publication if publication is not None else attestation
+    deadline = next((value for value in (
+        wait.deadline if wait is not None else None, publication, attestation, handoff)
+        if value is not None), None)
     values={row.key:row for row in automation_rows}
     control,cycle=values.get('automation'),values.get('automation_cycle')
     if (deadline is None or control is None or control.effective_status(now)!=model.OK
@@ -171,7 +207,8 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
         detail='Previous PASS is not current execution authority; automatic refresh must '
                'finish before fresh trading checks. Last recorded check: '+row.detail,
         valid_until=deadline,recovery=model.RecoveryEvidence(
-            phase=('AUTHORITY_RECHECK_AFTER_SHADOW' if attestation is not None
+            phase=('AUTHORITY_RECHECK_AFTER_HANDOFF' if handoff is not None
+                   else 'AUTHORITY_RECHECK_AFTER_SHADOW' if attestation is not None
                    else 'AUTHORITY_RECHECK_AFTER_DATA'),automatic=True,deadline=deadline))
         if row.key=='authority' and row.status==model.OK and row.as_of is not None
             and row.is_stale(now) and not row.is_future(now)
@@ -195,19 +232,23 @@ def reproject(panel, *, now, subject=None):
     worker = next((row for row in panel.rows if row.key == 'shadow_worker'), None)
     financial = [row for row in panel.rows if row.key in {
         'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book', 'terminals'}]
-    automation = [row for row in panel.rows if row.key not in {
+    automation = [replace(row, status=model.OK, valid_until=None, recovery=None)
+        if (row.key == 'authority' and row.status == model.WARN and row.recovery is not None
+            and row.recovery.phase == 'AUTHORITY_RECHECK_AFTER_HANDOFF')
+        else row for row in panel.rows if row.key not in {
         *(row.key for row in feeds), *(row.key for row in financial), 'shadow_worker'}]
-    feeds, automation = project_progress(feeds, automation, financial, worker, now=now)
+    boundary = None
     if subject is not None:
         from sentinel.panel import readiness_handoff
         boundary = readiness_handoff.deadline(panel, subject=subject, now=now)
-        if boundary is not None:
-            feeds = [replace(row, valid_until=boundary,
-                detail=('Current publication is awaiting its measured readiness handoff; '
-                        'its matching bounded verification attempt is in progress. '
-                        'No readiness verdict has been claimed.'),
-                recovery=model.RecoveryEvidence(phase='READINESS_HANDOFF', automatic=True,
-                                                deadline=boundary))
-                if row.key == 'feed' else row for row in feeds]
+    feeds, automation = project_progress(feeds, automation, financial, worker, now=now, handoff=boundary)
+    if boundary is not None:
+        feeds = [replace(row, valid_until=boundary,
+            detail=('Current publication is awaiting its measured readiness handoff. '
+                    'A matching bounded verification is in progress. '
+                    'No readiness verdict has been claimed.'),
+            recovery=model.RecoveryEvidence(phase='READINESS_HANDOFF', automatic=True,
+                                            deadline=boundary))
+            if row.key == 'feed' else row for row in feeds]
     replacements = {row.key: row for row in [*feeds, *automation]}
     return replace(panel, rows=[replacements.get(row.key, row) for row in panel.rows])

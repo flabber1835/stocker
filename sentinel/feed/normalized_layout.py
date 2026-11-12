@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from typing import Literal
 
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, canonical_json, digest
@@ -186,6 +187,39 @@ SELECT session,close_signal,close_unadjusted FROM (
    WHERE b.block_sha256=r.block_sha256 AND p.security_id=a.security_id OFFSET 0) p
   ORDER BY r.session DESC LIMIT 1) q)
 ) history ORDER BY session DESC LIMIT 1"""
+
+_PREDECESSOR_BATCH = (
+    'SELECT session,security_id,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
+    'WHERE candidate_id=%s AND session<%s AND security_id=ANY(%s) ORDER BY session')
+
+
+def predecessor_prices(conn, candidate_id, coordinates, *, query):
+    """Resolve strictly earlier prices for all action days in one ordered scan."""
+    from sentinel.feed import store
+
+    days = sorted((date.fromisoformat(day), ids) for day, ids in coordinates.items() if ids)
+    if not days:
+        return {}
+    securities = sorted({sid for _, ids in days for sid in ids})
+    latest = {}
+    result = {}
+    rolling_work.checkpoint()
+    with store.streaming_cursor(conn, query(_PREDECESSOR_BATCH),
+                                (candidate_id, days[-1][0], securities)) as prices:
+        prices = iter(prices)
+        price = next(prices, None)
+        consumed = 0
+        for day, ids in days:
+            rolling_work.checkpoint()
+            while price is not None and price[0] < day:
+                observed, sid, signal, raw = price
+                latest[sid] = (str(observed), signal, raw)
+                price = next(prices, None)
+                consumed += 1
+                if consumed % 5000 == 0:
+                    rolling_work.checkpoint()
+            result[str(day)] = [[sid, *latest[sid]] for sid in ids if sid in latest]
+    return result
 
 
 def query_router(conn):

@@ -29,10 +29,12 @@ from pydantic import ValidationError
 
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.source_completion import SourceCompletionHint, progressed
+from sentinel.backup_guard import BUSY_RETRY_MAX_SECONDS
 from sentinel.execution.journal import WriterLockUnavailable
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
+    BackupProofBusy,
     CallbackDeadlineExceeded,
     ClosingDataPending,
     CorporateActionPending,
@@ -118,6 +120,7 @@ class _CallbackOutcome:
 
 _CHILD_EXCEPTION_TYPES = {
     (cls.__module__, cls.__qualname__): cls for cls in (
+        BackupProofBusy,
         CallbackDeadlineExceeded,
         ClosingDataPending,
         DataIntegrityFailure,
@@ -134,6 +137,7 @@ _CHILD_EXCEPTION_TYPES = {
 _REVIEWED_FAILURE_DOMAINS = frozenset({"BACKUP"})
 _PUBLICATION_PIN_EXCEPTION = (
     f"{RefreshPublicationPinUnavailable.__module__}.{RefreshPublicationPinUnavailable.__qualname__}")
+_BACKUP_BUSY_EXCEPTION = f"{BackupProofBusy.__module__}.{BackupProofBusy.__qualname__}"
 
 
 def _failure_domain(exc: BaseException) -> str | None:
@@ -152,7 +156,7 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if candidate not in (ClosingDataPending, RefreshPublicationPinUnavailable)
+        if candidate not in (BackupProofBusy, ClosingDataPending, RefreshPublicationPinUnavailable)
         and isinstance(exc, candidate))
     if not matches:
         return None
@@ -218,6 +222,7 @@ def _callback_child(
             "detail": str(exc),
             "reviewed": reviewed_class is not None,
             "failure_domain": _failure_domain(exc),
+            "backup_busy_reason": exc.reason.value if type(exc) is BackupProofBusy else None,
             "retry_after_seconds": getattr(exc, "retry_after_seconds", 0),
             "publisher_deadline_at": (exc.publisher_deadline_at
                 if type(exc) is ClosingDataPending else None),
@@ -282,6 +287,11 @@ def _decode_child_callback(payload: bytes):
                     name = field.removesuffix('_at').replace('_', ' ')
                     raise SoftwareDefect(f'callback child returned an invalid {name}') from exc
             decoded = trusted(detail, **deadlines)
+        elif trusted is BackupProofBusy:
+            try:
+                decoded = trusted(detail, reason=envelope.get("backup_busy_reason"))
+            except (TypeError, ValueError) as exc:
+                raise SoftwareDefect("callback child returned an invalid backup busy reason") from exc
         else:
             decoded = trusted(detail)
         if isinstance(decoded, TransientInfrastructureFailure):
@@ -375,6 +385,7 @@ class AutomationService:
             notify: NotifyCallable | None = None,
             terminal: TerminalCallable | None = None,
             source_completion_hint: SourceCompletionCallable | None = None,
+            backup_proof_completed: Callable[[datetime], bool] | None = None,
             callback_authority: Callable | None = None) -> None:
         if not holder_id:
             raise ValueError("holder_id must be non-empty")
@@ -387,6 +398,7 @@ class AutomationService:
         self.notify = notify
         self.terminal = terminal
         self.source_completion_hint = source_completion_hint
+        self.backup_proof_completed = backup_proof_completed
         self.callback_authority = callback_authority
 
     def _source_completion(self, cycle: CycleRecord) -> SourceCompletionHint | None:
@@ -420,6 +432,20 @@ class AutomationService:
         current = self._source_completion(cycle)
         return current if progressed(previous, current,
                                      decision_session=cycle.decision_session) else None
+
+    def _advanced_backup_proof(self, cycle: CycleRecord, *, now: datetime) -> bool:
+        diagnostic = cycle.diagnostic
+        if (self.backup_proof_completed is None
+                or diagnostic.get("retry_phase") not in {"REFRESH", "PREPARE"}
+                or diagnostic.get("exception_type") != _BACKUP_BUSY_EXCEPTION
+                or cycle.failure_code != BackupProofBusy.__name__
+                or not cycle.prepare_at <= now < cycle.execution_open_at):
+            return False
+        try:
+            failed_at = datetime.fromisoformat(diagnostic["latest_failure_at"])
+            return failed_at < now and self.backup_proof_completed(failed_at) is True
+        except Exception:                                     # scheduling hint only
+            return False
 
     def _schedule(self, now: datetime):
         """Production XNYS obligation; an isolated rehearsal may override it."""
@@ -608,7 +634,12 @@ class AutomationService:
             pin_attempt = 1
             if prior_phase == phase and prior.get("exception_type") == _PUBLICATION_PIN_EXCEPTION:
                 pin_attempt += int(prior.get("publication_pin_attempt_count", 0))
-        budget_attempt = pin_attempt if pin_attempt is not None else phase_attempt
+        busy_attempt = None
+        if type(exc) is BackupProofBusy:
+            busy_attempt = 1
+            if prior_phase == phase and prior.get("exception_type") == _BACKUP_BUSY_EXCEPTION:
+                busy_attempt += int(prior.get("backup_busy_attempt_count", 0))
+        budget_attempt = busy_attempt or pin_attempt or phase_attempt
         exhausted = explicitly_transient and budget_attempt >= max_attempts and not source_wait
         terminal = not explicitly_transient or exhausted
         if isinstance(exc, (ValidationError, DataIntegrityFailure)):
@@ -647,6 +678,9 @@ class AutomationService:
             diagnostic["failure_domain"] = failure_domain
         if pin_attempt is not None:
             diagnostic["publication_pin_attempt_count"] = pin_attempt
+        if busy_attempt is not None:
+            diagnostic["backup_busy_attempt_count"] = busy_attempt
+            diagnostic["backup_busy_reason"] = exc.reason.value
         return terminal, diagnostic
 
     def _handle_callback_failure(
@@ -670,12 +704,14 @@ class AutomationService:
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.RECONCILING)
+        retry_attempt = diagnostic.get("backup_busy_attempt_count") or int(
+            diagnostic.get("publication_pin_attempt_count", diagnostic["phase_attempt_count"]))
         retry_at = (
             None if terminal
-            else self._retry_at(
-                now, int(diagnostic.get("publication_pin_attempt_count",
-                                        diagnostic["phase_attempt_count"]))))
+            else self._retry_at(now, retry_attempt))
         if retry_at is not None:
+            if type(exc) is BackupProofBusy:
+                retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
             retry_at = max(retry_at, now + timedelta(
                 seconds=getattr(exc, "retry_after_seconds", 0)))
         diagnostic = {
@@ -1316,7 +1352,7 @@ class AutomationService:
         if cycle.state is CycleState.RETRY_WAIT:
             if cycle.next_wake_at is not None and now < cycle.next_wake_at:
                 advancing_source = self._advanced_source_completion(cycle, now=now)
-                if advancing_source is None:
+                if advancing_source is None and not self._advanced_backup_proof(cycle, now=now):
                     return TickResult(
                         action=TickAction.WAITING, cycle=cycle, permit=permit,
                         reason="durable retry wake has not arrived")

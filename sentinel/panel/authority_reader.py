@@ -517,12 +517,15 @@ class Reader:
                     self.attempt_outcome = 'FAILED'
                     self.failure = 'financial observer failed: '+self.diagnostic.safe_detail()
             if (defer_refresh_until is not None and fresh is not None
-                    and self.failure is None and self.identity_failure is None
-                    and any(row.key == 'shadow_verification' and row.status == model.OK
-                            for row in fresh[0])):
+                    and self.failure is None and self.identity_failure is None):
                 instant = self.wall_clock()
-                renewal = observed + timedelta(seconds=FRESH_SECONDS - 30)
-                allow_start = allow_start and instant >= min(defer_refresh_until, renewal)
+                shadow = next((row for row in fresh[0] if row.key == 'shadow_verification'), None)
+                if shadow is not None and shadow.effective_status(instant) == model.OK:
+                    proof_until = observed + timedelta(seconds=FRESH_SECONDS)
+                    if shadow.valid_until is not None:
+                        proof_until = min(proof_until, shadow.valid_until)
+                    allow_start = allow_start and instant >= min(
+                        defer_refresh_until, proof_until - timedelta(seconds=30))
             if (allow_start and refresh_due and self.pending is None
                     and (not self.retain_failed_attempt or self._failed_attempt_handoff is None)
                     and (coalesced is not None or self.clock()-self.last_attempt >= RETRY_SECONDS)):

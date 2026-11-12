@@ -25,9 +25,9 @@ def test_integrity_work_is_one_exact_complete_successor_without_old_map_loss():
     assert not set(before)-set(actual)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
+    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
     originals={revision:value for revision,value in profile['retained_predecessors'].items()
-               if revision not in {REVISION,basis.BACKUP_DEADLINE_PREDECESSOR_REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION}}
+               if revision not in {REVISION,basis.BACKUP_DEADLINE_PREDECESSOR_REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}}
     canonical=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(canonical).hexdigest()=='452757473116229ab60a0211fc580da7b31ac9030866231d2cb878e59b42d814'
 

@@ -16,6 +16,7 @@ _CLOSING_DATA_PHASES = frozenset({
     'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
     'AUTOMATION_CLOSING_DATA', 'AUTHORITY_RECHECK_AFTER_DATA',
     'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'AUTHORITY_RECHECK_AFTER_SHADOW',
+    'READINESS_HANDOFF', 'AUTHORITY_RECHECK_AFTER_HANDOFF',
 })
 _CLOSING_DATA_ROWS = frozenset({
     'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book',
@@ -135,7 +136,7 @@ def _closing_source_proof(panel) -> bool:
         and row.recovery.active(panel.now)
         and row.recovery.phase in {
             'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
-            'SHADOW_ATTESTATION'} for row in panel.rows))
+            'SHADOW_ATTESTATION', 'READINESS_HANDOFF'} for row in panel.rows))
 
 
 def _enabled_policy(row: Row | None) -> bool:
@@ -760,13 +761,17 @@ def preparation_stage(panel) -> str | None:
                 else 'Waiting for market open')
     if _completed_work_normal(panel):
         return 'Today’s trading complete'
+    cycle = panel.row('automation_cycle')
+    if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
+            and cycle.recovery is not None and cycle.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER'):
+        return 'Checking the recorded broker account'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
                   and row.recovery.active(panel.now)}
         if 'SOURCE_PUBLICATION' in phases:
             return 'Publishing closing data'
-        if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION'}:
+        if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'READINESS_HANDOFF'}:
             return 'Preparing strategy verification'
     work = visible_preparation(panel)
     if work is not None:
@@ -906,13 +911,19 @@ def dashboard_health(panel) -> dict:
             boundaries.append(work.active_until)
     boundary = min(boundaries).astimezone(timezone.utc) if boundaries else None
     if not display_current(panel) and not negative:
-        from sentinel.panel.delivery import opening_refresh_deadline
+        from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
             return dict(status='warn', color='amber', label='Refreshing opening evidence',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
                         opening_refresh=True)
+        closing = closing_refresh_deadline(panel)
+        if closing is not None:
+            return dict(status='warn', color='amber', label='Refreshing closing evidence',
+                        valid_until=closing.isoformat(), plan_readiness='unavailable',
+                        active_conditions=facts['active'], review_conditions=facts['warnings'],
+                        closing_refresh=True)
         return dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],

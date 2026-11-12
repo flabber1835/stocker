@@ -1,7 +1,7 @@
 """Alpaca/Nasdaq GO source through the real snapshot tables and reader."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 import json
@@ -138,13 +138,27 @@ def alpaca_path(monkeypatch):
 
 def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path, monkeypatch):
     from sentinel.core.rolling_inputs import readiness_inputs
-    from sentinel.feed import sharadar, snapshot_export
+    from sentinel.feed import progress, sharadar, snapshot_export
     monkeypatch.setattr(sharadar, "fetch_table", lambda *a, **k: pytest.fail("Sharadar GET"))
     monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **k: pytest.fail("Sharadar export"))
     job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
                      dependencies_sha256=digest("test-deps"), budget_seconds=240)
     conn.commit()
+    visible = []
+    original_emit = progress.emit
+
+    def emit(stage, status, **details):
+        if stage == 'rolling_operational_visibility':
+            assert status == 'completed' and details['job_id'] == job
+            assert datetime.fromisoformat(details['commit_observed_at']).utcoffset() == timedelta(0)
+            with store.connect(conn.info.dsn) as reader:
+                visible.append(reader.execute('SELECT publication_version FROM sentinel_operational_snapshots '
+                                              'WHERE job_id=%s', (job,)).fetchone())
+        original_emit(stage, status, **details)
+
+    monkeypatch.setattr(progress, 'emit', emit)
     result = op.prepare(conn, job)
+    assert visible == [(result['data_version'],)]
     manifest = rolling_store.manifest(conn, result["candidate_id"])
     assert manifest.provider == "ALPACA_OPENFIGI"
     assert manifest.bar_count == 600

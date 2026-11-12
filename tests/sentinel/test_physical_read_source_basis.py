@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from sentinel import physical_read_source_basis as basis
+from sentinel import close_feed_source_basis as close_basis, physical_read_source_basis as basis
 from sentinel.feed.rolling_contract import digest
 from sentinel.strategy import production_strategy
 
@@ -26,6 +26,24 @@ def predecessor_sources():
 
 
 def unchanged_compiler_body(module, raw):
+    if module == close_basis.MODULE:
+        replacements = (
+            (b'import predecessor_prices, query_router', b'import query_router'),
+            (b'    coordinates = {}\n', b''),
+            (b'        coordinates[day] = [row[0] for row in rows]\n',
+             b'        for sid, *_ in rows:\n'
+             b'            prior = conn.execute(query("SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars "\n'
+             b'                "WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1"),\n'
+             b'                (refs.candidate_id, sid, day)).fetchone()\n'
+             b'            if prior:\n'
+             b'                item["predecessors"].append([sid, str(prior[0]), *prior[1:]])\n'),
+            (b'    for day, prices in predecessor_prices(conn, refs.candidate_id, coordinates, query=query).items():\n'
+             b'        material[day]["predecessors"] = prices\n', b''),
+        )
+        for before, after in replacements:
+            assert raw.count(before) == 1
+            raw = raw.replace(before, after)
+        assert hashlib.sha256(raw).hexdigest() == close_basis.PREDECESSOR_SHA256
     old=ast.parse(predecessor_sources()[module]);new=ast.parse(raw)
     if module=='sentinel.feed.rolling_store':
         dump=lambda nodes:ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False)
@@ -110,7 +128,7 @@ def test_every_nonphysical_compiler_expression_matches_independent_c84_source(mo
      b'value = manifest(conn, candidate_id)'),
     ('sentinel.feed.rolling_store',b'require_payload(conn, candidate_id)\n    manifest(conn, candidate_id)',
      b'pass\n    manifest(conn, candidate_id)'),
-    ('sentinel.feed.action_history',b'session<%s',b'session<=%s')])
+    ('sentinel.feed.action_history',b'session=%s AND ticker=ANY(%s)',b'session<=%s AND ticker=ANY(%s)')])
 def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new):
     raw=Path(importlib.import_module(module).__file__).read_bytes()
     assert old in raw
@@ -120,9 +138,20 @@ def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new)
 @pytest.mark.parametrize('module', sorted(basis.BASELINES))
 def test_exact_current_compiler_preserves_original_contribution_and_unknown_bytes_do_not(module):
     raw=Path(importlib.import_module(module).__file__).read_bytes()
-    assert basis.contribution(module,raw)==basis.BASELINES[module]
+    mapper = close_basis.contribution if module == close_basis.MODULE else lambda value: basis.contribution(module, value)
+    assert mapper(raw)==basis.BASELINES[module]
     changed=raw+b'\n# unknown compiler bytes\n'
-    assert basis.contribution(module,changed)==hashlib.sha256(changed).hexdigest()
+    assert mapper(changed)==hashlib.sha256(changed).hexdigest()
+
+
+@pytest.mark.parametrize('name', ['normalized_layout.py', 'read_contract.py'])
+def test_unknown_batch_storage_or_sql_cannot_inherit_original_compiler_identity(name, monkeypatch):
+    raw = Path(importlib.import_module(close_basis.MODULE).__file__).read_bytes()
+    read = Path.read_bytes
+    path = close_basis.FEED / name
+    monkeypatch.setattr(Path, 'read_bytes',
+                        lambda self: read(self) + b'\n# unknown storage edit\n' if self == path else read(self))
+    assert close_basis.contribution(raw) == hashlib.sha256(raw).hexdigest()
 
 
 def test_other_modules_never_gain_physical_mapping():

@@ -26,10 +26,12 @@ from time import monotonic as diagnostic_clock
 from sentinel.feed import calendar
 from sentinel.feed import observation_timing
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
+from sentinel.backup_guard import BUSY_PROBE_SECONDS, BUSY_RETRY_MAX_SECONDS
 from sentinel import shadow_restart_recovery as restart_recovery
 from sentinel.shadow_service_config import ShadowServiceConfig, ShadowServiceWaiting
 from sentinel.shadow_exit_codes import (
-    EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
+    EXIT_AVAILABILITY, EXIT_BACKUP_PROOF_BUSY, EXIT_DEPENDENCY_UNAVAILABLE,
+    EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
@@ -51,7 +53,8 @@ def _next_acquisition_close(started_at):
         return None
 
 
-def _poll_after_worker(*, deadline, close_at, stopping, heartbeat):
+def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_completed=None):
+    probe_at = time.monotonic() + BUSY_PROBE_SECONDS
     while not stopping():
         remaining = deadline - time.monotonic()
         if close_at is not None:
@@ -59,6 +62,11 @@ def _poll_after_worker(*, deadline, close_at, stopping, heartbeat):
         if remaining <= 0:
             return
         heartbeat()
+        if backup_completed is not None and time.monotonic() >= probe_at:
+            if backup_completed():
+                return
+            probe_at = time.monotonic() + BUSY_PROBE_SECONDS
+            continue
         time.sleep(min(1.0, remaining))
 
 
@@ -600,13 +608,14 @@ def _run_owned(owner_fd) -> int:
                 # A natural terminal refusal can race our termination request.
                 # Only an observed signal termination earns the retryable outcome.
                 code = int(code) if code is not None else -1
+            backup_failed_at = shadow_budget.now() if code == EXIT_BACKUP_PROOF_BUSY else None
             active = None
             if code == EXIT_REFUSED:
                 pending = _latch("shadow worker reported terminal integrity refusal")
                 return _latched_wait(lambda: stopping, pending)
             if code not in {
                     0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY,
-                    EXIT_DEPENDENCY_UNAVAILABLE, 124}:
+                    EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY, 124}:
                 pending = _latch(f"shadow worker exited unexpectedly with {code}")
                 return _latched_wait(lambda: stopping, pending)
 
@@ -626,7 +635,7 @@ def _run_owned(owner_fd) -> int:
             elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
                 _source_recovery_alert()
                 consecutive_failures = 0
-            elif code == EXIT_DEPENDENCY_UNAVAILABLE:
+            elif code in {EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY}:
                 _dependency_retry_alert()
                 consecutive_failures = 0
             else:
@@ -650,8 +659,15 @@ def _run_owned(owner_fd) -> int:
             if getattr(config, 'operational_source_only', False) and (
                     close_at is None or worker_started_at >= close_at):
                 close_at = _next_acquisition_close(worker_started_at)
-            _poll_after_worker(deadline=deadline, close_at=close_at,
-                               stopping=lambda: stopping, heartbeat=heartbeat)
+            poll = dict(deadline=deadline, close_at=close_at,
+                        stopping=lambda: stopping, heartbeat=heartbeat)
+            if backup_failed_at is not None:
+                from sentinel.backup_retry import completed_since
+
+                poll["deadline"] = min(deadline, time.monotonic() + BUSY_RETRY_MAX_SECONDS)
+                poll["backup_completed"] = lambda: completed_since(
+                    config.database_url, backup_failed_at)
+            _poll_after_worker(**poll)
     finally:
         # Dispose of the active worker before any best-effort filesystem cleanup.
         if active is not None:

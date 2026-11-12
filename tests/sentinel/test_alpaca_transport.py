@@ -9,7 +9,7 @@ import pytest
 
 from sentinel.feed.alpaca_transport import (
     ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused,
-    AlpacaTransportUnavailable, Client,
+    AlpacaTransportUnavailable, Client, measure_requests,
 )
 from sentinel.feed.alpaca_source import _groups
 
@@ -122,6 +122,25 @@ def test_basic_plan_requests_are_paced_and_429_retry_after_is_bounded():
     client.get(BAR_URL)
     assert delays == [3, 0.35]
     assert opener.methods == ["GET", "GET", "GET"]
+
+
+def test_request_measurement_reports_retries_and_bytes_without_touching_evidence(monkeypatch):
+    from sentinel.feed import alpaca_transport as transport
+
+    ticks = iter(range(0, 50_000_000, 1_000_000))
+    monkeypatch.setattr(transport.time, 'perf_counter_ns', lambda: next(ticks))
+    error = HTTPError(BAR_URL, 429, 'private', {'Retry-After': '3'}, io.BytesIO(b'hidden'))
+    body = {'bars': {}, 'next_page_token': None}
+    client = Client(opener=_Opener([error, body, body]), interval=0, sleeper=lambda _: None)
+    with measure_requests() as metrics:
+        _, proof = client.get(BAR_URL, {'symbols': 'private-symbol'})
+    after = metrics.fields()
+    assert after == {'requests': 2, 'retries': 1, 'response_bytes': proof['bytes'], 'rate_limits': 1,
+                     'pacing_ms': 2, 'http_ms': 2, 'decode_ms': 1, 'retry_backoff_ms': 1}
+    assert 'private' not in repr(after) and 'hidden' not in repr(after)
+    assert set(proof) == {'endpoint', 'params', 'observed_at', 'sha256', 'bytes'}
+    client.get(BAR_URL)
+    assert metrics.fields() == after
 
 
 def test_monthly_daily_bar_groups_fill_one_bounded_page_without_losing_symbols():

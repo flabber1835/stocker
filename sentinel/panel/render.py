@@ -496,8 +496,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     generated = now.astimezone(timezone.utc).isoformat()
     compact_headline = health['label']
     opening_refresh = bool(health.get('opening_refresh')) and not refresh_pending
+    closing_refresh = bool(health.get('closing_refresh')) and not refresh_pending
     heartbeat_label = ('Refreshing opening evidence · last-known cards keep their original times'
-                       if opening_refresh else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO')
+                       if opening_refresh else
+                       'Refreshing closing evidence · last-known cards keep their original times'
+                       if closing_refresh else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO')
     if refresh_pending:
         compact_headline = 'Refreshing status · last known values'
     return f"""<!doctype html>
@@ -518,6 +521,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-opening-refresh="{str(opening_refresh).lower()}"
+             data-closing-refresh="{str(closing_refresh).lower()}"
              data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
              data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
              data-controller-version="2"
@@ -767,6 +771,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }} else if (!invalidated && !refreshDelayed){{
       var text = document.body.dataset.openingRefresh === "true"
         ? "Refreshing opening evidence · last-known cards keep their original times"
+        : document.body.dataset.closingRefresh === "true"
+        ? "Refreshing closing evidence · last-known cards keep their original times"
         : "DASHBOARD HEARTBEAT · UPDATED " + Math.max(0, Math.floor(elapsedVisualAge() / 1000)) + "s AGO";
       if (heartbeat.textContent !== text){{ heartbeat.textContent = text; }}
     }}

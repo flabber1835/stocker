@@ -12,7 +12,7 @@ from textwrap import dedent
 import pytest
 from psycopg.pq import TransactionStatus
 
-from sentinel import backup_integrity_reuse as reuse, backup_runtime_authority as authority
+from sentinel import backup_integrity_reuse as reuse, backup_retry, backup_runtime_authority as authority
 from lab import NOW, Cursor, Database, Media, wal_name
 
 
@@ -43,7 +43,9 @@ class SharedDatabase(Database):
     def cursor(self):return NativeMetadataCursor(self)
 
     def execute(self, sql, params=()):
-        if sql.startswith('SELECT pg_postmaster_start_time()'):
+        if sql=='SELECT clock_timestamp()':
+            row=(NOW+timedelta(seconds=self.uptime-1000),)
+        elif sql.startswith('SELECT pg_postmaster_start_time()'):
             row=(self.postmaster,'private-test',self.boot,f'{self.uptime} 0.0')
         elif sql=='SELECT pg_read_binary_file(%s,0,%s,true)' and params[0]==reuse.NAME:
             row=(self.receipt.read_bytes() if self.receipt.exists() else None,)
@@ -119,6 +121,33 @@ def test_forged_receipt_refuses_and_never_takes_account_ownership(world):
     with pytest.raises(authority.BackupRuntimeRefused,match='reuse record'):
         admit(world)
     assert world.locks=={} and world.commits==0
+
+
+@pytest.mark.parametrize('omit_frontier', [False, True])
+def test_retry_wakes_only_after_authenticated_fresh_completion(world, monkeypatch, omit_frontier):
+    admit(world)
+    refused_at=NOW+timedelta(seconds=151)
+    world.uptime+=152
+    assert not backup_retry._completed_since(world, refused_at)
+    authority.require(world, operation='private proactive scrub', maintenance_refresh=True)
+    world.uptime+=1
+    assert backup_retry._completed_since(world, refused_at)
+    assert world.publications==2 and world.commits==0 and world.locks=={}
+
+    if omit_frontier:
+        source=dedent(inspect.getsource(backup_retry._completed_since))
+        guard=' or owner.proof.end != end'
+        assert source.count(guard)==1
+        namespace={}
+        exec(source.replace(guard,''),vars(backup_retry),namespace)
+        monkeypatch.setattr(backup_retry,'_completed_since',namespace['_completed_since'])
+
+    world.media.segment(6)
+    world.frontier=wal_name(6)
+    assert backup_retry._completed_since(world, refused_at) is omit_frontier
+    world.frontier=wal_name(5)
+    world.uptime+=300
+    assert not backup_retry._completed_since(world, NOW+timedelta(seconds=440))
 
 
 def test_concurrent_cold_owner_refuses_before_reading_archive_payload(world,monkeypatch):

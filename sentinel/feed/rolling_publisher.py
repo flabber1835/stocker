@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from sentinel import backup_runtime_authority, identity
 from sentinel.dependency_availability import database_unavailable
@@ -35,6 +36,9 @@ class PublicationObserver:
         from sentinel.feed import progress
         with progress.phase(phase, job_id=job_id), writer_schedule.turn(self.conn, self.lease), store.corpus_write_lock(self.conn):
             yield
+        if phase == 'rolling_operational_publication':
+            progress.emit('rolling_operational_visibility', 'completed', job_id=job_id,
+                          commit_observed_at=datetime.now(timezone.utc).isoformat())
 
 
 def _record_failure(conn, lease, exc, *, operational=False):

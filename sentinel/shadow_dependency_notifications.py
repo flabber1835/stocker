@@ -94,6 +94,7 @@ def _exception_type(original):
     from sentinel.feed.rolling_jobs import JobDeadlineExceeded
     reviewed = (CorpusLockUnavailable, WriterLockUnavailable, JobDeadlineExceeded,
                 backup_guard.BackupWriteFenced, backup_guard.BackupUnavailable,
+                backup_runtime_authority.BackupIntegrityBusy,
                 backup_runtime_authority.BackupRuntimeUnavailable,
                 backup_runtime_authority.BackupHorizonExceeded)
     for candidate in reviewed:
@@ -137,6 +138,8 @@ def _session(value):
 
 
 def warning_payload(exc, config=None, *, now=None):
+    from sentinel.backup_retry import busy_reason
+    from sentinel.backup_runtime_authority import BackupIntegrityBusy
     from sentinel.feed import calendar
     instant = _utc(now)
     context = next((getattr(item, '_sentinel_dependency_context', None)
@@ -162,6 +165,8 @@ def warning_payload(exc, config=None, *, now=None):
     sqlstate = getattr(original, 'sqlstate', None)
     if cause == 'DATABASE_UNAVAILABLE' and isinstance(sqlstate, str) and re.fullmatch(r'[0-9A-Z]{5}', sqlstate):
         payload['sqlstate'] = sqlstate
+    if type(original) is BackupIntegrityBusy:
+        payload['backup_busy_reason'] = busy_reason(original).value
     return payload
 
 

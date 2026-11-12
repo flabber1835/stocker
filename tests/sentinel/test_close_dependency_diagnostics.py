@@ -58,6 +58,8 @@ async def assert_durable_backup_refusal(conn, monkeypatch, *, enter_absence_prob
     assert result.cycle.diagnostic['retry_phase'] == 'PREPARE'
     assert result.cycle.plan_id is None
     assert not fallback_calls, 'owner contention ran the media absence probe'
+    assert result.cycle.diagnostic['backup_busy_reason'] == 'OWNER_ACTIVE'
+    assert result.cycle.diagnostic['backup_busy_attempt_count'] == 1
     assert len(backup_connections) == 1 and backup_connections[0].closed
     state, detail = conn.execute(
         'SELECT to_state,detail FROM sentinel_automation_cycle_events '
