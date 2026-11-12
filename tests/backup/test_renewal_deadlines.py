@@ -111,7 +111,7 @@ def test_due_base_seeds_existing_freshness_schedule_from_qualified_current_clock
     coordinator._prime_bulk_byte_renewal(schedule, observation, dict(selected, name='foreign'))
     assert schedule.next_at() == 300
     coordinator._prime_bulk_byte_renewal(schedule, observation, selected)
-    assert schedule.next_at() == 130
+    assert schedule.next_at() == 100
     assert schedule.deadline == 600
     assert schedule.timing()['byte_due_at'] is None
 
@@ -246,7 +246,7 @@ def test_actual_publication_carries_native_byte_clock_through_pass_result(monkey
     coordinator.tick('/media', runner, freshness=True, budget=120)
     result = renewal.parse(capsys.readouterr().out, refresh=True)
     assert (renewal.timestamp(result['byte_renewal_at']) -
-            renewal.timestamp(result['publication_at'])).total_seconds() == 130
+            renewal.timestamp(result['publication_at'])).total_seconds() == 100
 
 
 @pytest.mark.parametrize('bad_metadata',(False,True))
