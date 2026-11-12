@@ -48,15 +48,8 @@ def _closing_data_recovery(cycle: Mapping, recovery: RecoveryEvidence) -> Recove
         return recovery
 
 
-def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
-    """Keep this retry amber only until its original actual next-session open."""
-    if not isinstance(cycle, Mapping) or cycle.get('state') != 'RETRY_WAIT':
-        return None
-    phase = cycle.get('retry_phase')
-    if (phase not in ('REFRESH', 'PREPARE')
-            or cycle.get('availability_retry_unbounded') is not True
-            or cycle.get('callback_failure') not in (
-                'SOURCE_DATA_PENDING', 'TRANSIENT_INFRASTRUCTURE')
+def _availability_attempt(cycle: Mapping) -> int | None:
+    if (cycle.get('callback_failure') not in ('SOURCE_DATA_PENDING', 'TRANSIENT_INFRASTRUCTURE')
             or cycle.get('terminal_reason') is not None):
         return None
     exception_type = cycle.get('exception_type')
@@ -71,9 +64,10 @@ def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
     if ('availability_retry_clocks_aware' in cycle
             and cycle['availability_retry_clocks_aware'] is not True):
         return None
-    wake, saved_open = cycle.get('next_wake_at'), cycle.get('execution_open_at')
-    if not _aware(wake) or not _aware(saved_open) or wake >= saved_open:
-        return None
+    return attempt
+
+
+def _retry_session_window(cycle: Mapping) -> tuple[datetime, datetime] | None:
     try:
         from sentinel.feed import calendar
 
@@ -84,10 +78,25 @@ def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
                 or calendar.session_on_or_after(decision) != decision
                 or calendar.next_session(decision) != effective):
             return None
-        actual_open, _ = calendar.session_window(effective)
-        if saved_open != actual_open:
-            return None
+        return calendar.session_window(effective)
     except (ValueError, TypeError, OverflowError, RuntimeError):
+        return None
+
+
+def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
+    """Keep this retry amber only until its original actual next-session open."""
+    if not isinstance(cycle, Mapping) or cycle.get('state') != 'RETRY_WAIT':
+        return None
+    phase = cycle.get('retry_phase')
+    if (phase not in ('REFRESH', 'PREPARE')
+            or cycle.get('availability_retry_unbounded') is not True):
+        return None
+    attempt = _availability_attempt(cycle)
+    wake, saved_open = cycle.get('next_wake_at'), cycle.get('execution_open_at')
+    if attempt is None or not _aware(wake) or not _aware(saved_open) or wake >= saved_open:
+        return None
+    window = _retry_session_window(cycle)
+    if window is None or saved_open != window[0]:
         return None
     recovery = RecoveryEvidence(
         phase=f'AUTOMATION_{phase}_AVAILABILITY', automatic=True,
@@ -96,9 +105,31 @@ def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
     return _closing_data_recovery(cycle, recovery)
 
 
+def _reconciliation_retry(cycle: Mapping) -> RecoveryEvidence | None:
+    """A retry of the original plan remains pending through its session close."""
+    plan = cycle.get('plan_id')
+    if (cycle.get('retry_phase') != 'RECOVER'
+            or cycle.get('availability_retry_unbounded') is not True
+            or not isinstance(plan, str) or not plan):
+        return None
+    attempt = _availability_attempt(cycle)
+    opened, execute, updated, wake, closed = (cycle.get(key) for key in (
+        'execution_open_at', 'execute_at', 'updated_at', 'next_wake_at', 'execution_close_at'))
+    if (attempt is None or not all(_aware(value) for value in (opened, execute, updated, wake, closed))
+            or not opened <= execute <= updated < wake < closed):
+        return None
+    if _retry_session_window(cycle) != (opened, closed):
+        return None
+    return RecoveryEvidence(phase='AUTOMATION_RECOVER_AVAILABILITY', automatic=True,
+        attempt=attempt, next_attempt_at=wake, deadline=closed-timedelta(microseconds=1))
+
+
 def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
-    state = ('WAITING FOR INPUTS' if cycle.get('callback_failure') == 'SOURCE_DATA_PENDING'
-             else 'RETRYING AVAILABILITY')
+    if recovery.phase == 'AUTOMATION_RECOVER_AVAILABILITY':
+        state = 'RETRYING RECONCILIATION'
+    else:
+        state = ('WAITING FOR INPUTS' if cycle.get('callback_failure') == 'SOURCE_DATA_PENDING'
+                 else 'RETRYING AVAILABILITY')
     return f'{state} · ATTEMPT {recovery.attempt}'
 
 
@@ -225,7 +256,7 @@ def project_cycle_recovery(
         if wait is not None else None)
     if str(cycle.get('state') or '').upper() != 'RETRY_WAIT':
         return CycleRecovery(protected_wait=wait, protected_recovery=wait_recovery)
-    availability = availability_recovery(cycle)
+    availability = availability_recovery(cycle) or _reconciliation_retry(cycle)
     refused = availability_refusal(cycle, availability)
     if refused is not None:
         return CycleRecovery(evidence=refused, availability_refused=True)

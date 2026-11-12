@@ -2626,8 +2626,8 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
         recovery=model.RecoveryEvidence(phase='PAPER_TRANSPORT', automatic=True, deadline=boundary))
 
 
-def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
-    """Keep authenticated all-history warnings distinct from exact future readiness."""
+def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *, unstamped=False):
+    """Keep historical mirror warnings separate from current plan progress."""
     from sentinel import informational_paper_mirror
     historical = mirror.get('status') == informational_paper_mirror.MISMATCH
     count = mirror.get('historical_mismatch_count')
@@ -2635,27 +2635,26 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
         return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
             detail='historical mirror mismatch has no valid authenticated count')
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
-    if historical:
-        if scheduled is None:
-            ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
-            if ongoing is not None:
-                return replace(ongoing, detail=(
-                    f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
-                    + ongoing.detail))
-            completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
-            if completed is not None:
-                return replace(completed, detail=(
-                    f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
-                    + completed.detail))
-            return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
-                detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
-        return model.paper_reconciliation_row(
-            state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
-            scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
-            detail=(f'{count} historical informational mirror mismatch(es) '
-                'remain recorded for earlier transported plans; this is not a '
-                'mismatch of the current scheduled plan. '+scheduled.detail))
-    return scheduled
+    if not historical:
+        if cycle.get('state') in {'EXECUTING', 'RECONCILING'}:
+            return _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
+        return scheduled
+    history = f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+    if scheduled is None:
+        ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
+        if ongoing is not None:
+            return replace(ongoing, detail=history + ongoing.detail)
+        if unstamped:
+            return None
+        completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
+        if completed is not None:
+            return replace(completed, detail=history + completed.detail)
+        return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+            detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
+    return model.paper_reconciliation_row(
+        state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
+        scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
+        detail=history + 'this is not a mismatch of the current scheduled plan. ' + scheduled.detail)
 
 
 @dataclass(frozen=True)
@@ -2916,7 +2915,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="MISMATCH", detail=(
                 "informational mirror evidence is not bound to a current "
                 "automation cycle"))
-    if mirror_count == 0:
+    active_transport = cycle_state in {'EXECUTING', 'RECONCILING'}
+    if mirror_count == 0 and not active_transport:
         state = "MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"
         return model.paper_reconciliation_row(
             state=state, cycle_state=cycle_state,
@@ -2986,9 +2986,9 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="MISMATCH", cycle_state=cycle_state, detail=_short(exc))
     except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
         from sentinel import local_paper
-        if cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn):
+        if active_transport or (cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn)):
             scheduled = _scheduled_paper_mirror(
-                conn, cycle, active_publication, frontier, mirror)
+                conn, cycle, active_publication, frontier, mirror, unstamped=active_transport)
             if scheduled is not None:
                 return scheduled
         return model.paper_reconciliation_row(

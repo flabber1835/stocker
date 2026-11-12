@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[November 12 PAPER opening recovery](paper-opening-recovery-20261112.md) records
+the opening evidence handoff, verification renewal and reconciliation fixes.
+
 [Backup verification renewal headroom](backup-renewal-headroom.md) records the
 earlier full verification trigger for backed PAPER.
 

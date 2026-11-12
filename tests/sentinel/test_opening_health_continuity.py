@@ -71,7 +71,7 @@ def clean_skip_panel():
     return replace(page, rows=model.project_opening_rows(rows,now=NOW))
 
 
-def executing_panel(*, stale_broker=False):
+def executing_panel(*, stale_broker=False, pending_transport=False):
     page=base_panel();updated=NOW-timedelta(minutes=8)
     bound=NOW+timedelta(minutes=7)
     evidence=model.OpeningEvidence(cycle_id='opening-cycle',plan_id='opening-plan',
@@ -97,6 +97,11 @@ def executing_panel(*, stale_broker=False):
         as_of=NOW-timedelta(days=1) if stale_broker else NOW,
         valid_until=NOW-timedelta(hours=20) if stale_broker else NOW+timedelta(minutes=10),
         recovery=model.RecoveryEvidence(phase='BROKER_CALLBACK_REFRESH',automatic=True,deadline=bound))
+    if pending_transport:
+        changed['paper_reconciliation'] = replace(
+            model.paper_reconciliation_row(state='PENDING', cycle_state='EXECUTING'),
+            as_of=updated, required_current=True, valid_until=bound,
+            recovery=model.RecoveryEvidence(phase='PAPER_TRANSPORT', automatic=True, deadline=bound))
     return replace(page,rows=[changed.get(row.key,row) for row in page.rows]+[changed['trading_run']])
 
 
@@ -122,6 +127,35 @@ def test_exact_execution_progress_is_ordinary_but_stale_broker_cannot_establish_
     assert datetime.fromisoformat(health['valid_until'])>page.now
     assert page.row('broker').is_stale(page.now) is stale
     assert page.row('broker').as_of== (NOW-timedelta(days=1) if stale else NOW)
+
+
+@pytest.mark.parametrize('fault', ['untyped', 'not_required', 'expired', 'negative'])
+def test_unproved_paper_transport_keeps_review_or_failure(fault):
+    page = executing_panel(pending_transport=True)
+    paper = page.row('paper_reconciliation')
+    if fault == 'untyped':
+        paper = replace(paper, operational_fact=None)
+    elif fault == 'not_required':
+        paper = replace(paper, required_current=False)
+    elif fault == 'expired':
+        paper = replace(paper, valid_until=NOW, recovery=replace(paper.recovery, deadline=NOW))
+    else:
+        paper = replace(paper, status=model.FAIL)
+    page = replace(page, rows=[paper if row.key == paper.key else row for row in page.rows])
+    assert not presentation._execution_work_normal(page)
+    facts = presentation.health_facts(page)
+    assert paper.key in facts['warnings'] + facts['active']
+
+
+def test_removed_paper_transport_type_guard_is_detected(monkeypatch):
+    source = inspect.getsource(presentation._execution_work_normal)
+    guard = "and paper_fact is not None and paper_fact.kind == 'PAPER_VERIFICATION' and paper_fact.state == 'PENDING'"
+    assert source.count(guard) == 1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard, ''), '<untyped-paper-transport>', 'exec'), namespace)
+    monkeypatch.setattr(presentation, '_execution_work_normal', namespace['_execution_work_normal'])
+    with pytest.raises(AssertionError):
+        test_unproved_paper_transport_keeps_review_or_failure('untyped')
 
 
 @pytest.mark.parametrize('fixture',[clean_skip_panel,executing_panel])
@@ -184,7 +218,8 @@ def test_signed_history_does_not_turn_bounded_progress_or_clean_skip_into_new_in
     owner=review.Recorder();page=executing_panel()
     observed=owner.observe(page,conn.info.dsn)
     baseline=owner.acknowledge(page,conn.info.dsn,observed.token,actor='private qualification operator')
-    for page in (executing_panel(stale_broker=True),clean_skip_panel()):
+    for page in (executing_panel(stale_broker=True, pending_transport=True),
+                 executing_panel(pending_transport=True), clean_skip_panel()):
         result=owner.observe(page,conn.info.dsn)
         assert result.status=='CLEAN' and result.head==result.reviewed_head==baseline.head
         assert result.active==result.warnings==[]

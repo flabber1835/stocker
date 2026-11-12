@@ -113,7 +113,12 @@ def snapshot(reader, result, *, scope, now):
                 # The original receipt and attempt retain their own subject and clocks.
                 # Rebinding the row would make a dated failure a new observation.
                 return None
-            observed = reader.last_result_at or reader.pending_at
+            current_check = (reader.pending is not None and reader.pending_key == key
+                             and any(row.recovery is not None
+                                     and row.recovery.phase == 'FINANCIAL_VERIFICATION'
+                                     for row in rows))
+            observed = (reader.pending_at if current_check
+                        else reader.last_result_at or reader.pending_at)
             if observed is None:
                 return None
             deadlines = [row.valid_until for row in rows if row.valid_until is not None]

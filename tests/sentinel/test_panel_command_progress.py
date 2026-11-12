@@ -33,11 +33,13 @@ def summary(c):
         **{k:v for k,v in c.items() if k in fields})
 
 
-def steps(c):
-    event={'from_state':'EXECUTING','to_state':'RECONCILING','at':c['updated_at'],
-        'detail':{'failure_code':c['failure_code'],'failure_detail':c['failure_detail'],
-            'last_clean_reconciliation_id':c['clean_reconciliation_id'],
-            'next_wake_at':c['next_wake_at'],'diagnostic':deepcopy(c['diagnostic'])}}
+def steps(c, *, submission=None):
+    if submission is None:
+        submission = c
+    event={'from_state':'EXECUTING','to_state':'RECONCILING','at':submission['updated_at'],
+        'detail':{'failure_code':submission['failure_code'],'failure_detail':submission['failure_detail'],
+            'last_clean_reconciliation_id':submission['clean_reconciliation_id'],
+            'next_wake_at':submission['next_wake_at'].isoformat(),'diagnostic':deepcopy(submission['diagnostic'])}}
     return model.automation_step_rows(installed=True,enabled=True,cycle=c,events=[event])
 
 
@@ -54,6 +56,22 @@ def test_reproduced_clean_submission_is_not_interrupted_transport():
     assert rows['automation_step_transport'].status==model.OK
     assert rows['automation_step_reconcile'].effective_status(NOW)==model.WARN
     assert 'INTERRUPTED' not in rows['automation_step_transport'].value
+
+
+@pytest.mark.parametrize('adverse_history', [False, True])
+def test_recovery_retry_cannot_rewrite_the_earlier_submission(adverse_history):
+    submission = cycle()
+    if adverse_history:
+        submission['diagnostic']['callback_failure'] = 'TRANSIENT_INFRASTRUCTURE'
+    current = dict(cycle(), state='RETRY_WAIT', retry_phase='RECOVER',
+        failure_code='TransientInfrastructureFailure', callback_failure='TRANSIENT_INFRASTRUCTURE',
+        exception_type='sentinel.automation.model.TransientInfrastructureFailure')
+    rows = {row.key:row for row in steps(current, submission=submission)}
+    transport = rows['automation_step_transport']
+    if adverse_history:
+        assert transport.status == model.FAIL and 'INTERRUPTED' in transport.value
+    else:
+        assert transport.status == model.OK and transport.value == 'COMPLETE'
 
 
 @pytest.mark.parametrize('path,value', [

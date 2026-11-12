@@ -414,10 +414,14 @@ def _execution_work_normal(panel) -> bool:
         return False
     if _paper_check_normal(panel, paper):
         return row_current(panel, paper)
+    paper_fact = paper.operational_fact if paper is not None else None
+    paper_recovery = paper.recovery if paper is not None else None
     return (paper is not None and row_current(panel, paper)
-        and paper.effective_status(panel.now) == 'warn' and not paper.is_stale(panel.now)
-        and paper.recovery is not None and paper.recovery.phase == 'PAPER_TRANSPORT'
-        and paper.recovery.active(panel.now) and paper.valid_until == paper.recovery.deadline)
+        and paper.status == paper.effective_status(panel.now) == 'warn' and paper.required_current
+        and paper_fact is not None and paper_fact.kind == 'PAPER_VERIFICATION' and paper_fact.state == 'PENDING'
+        and paper_recovery is not None and paper_recovery.phase == 'PAPER_TRANSPORT'
+        and _aware(paper.valid_until) and paper.valid_until == paper_recovery.deadline
+        and panel.now < paper.valid_until and paper_recovery.active(panel.now))
 
 
 def _clean_skip_work_normal(panel) -> bool:
@@ -660,11 +664,11 @@ def _normal_warning(panel, row: Row) -> bool:
             and row.recovery.phase == 'AWAITING_NEXT_DECISION'
             and row.recovery.deadline <= panel.row('paper_reconciliation').valid_until
             and row.valid_until == row.recovery.deadline and row.recovery.active(panel.now))
-    if (row.key in {'broker', 'automation_cycle', 'automation_step_transport',
+    if (row.key in {'paper_reconciliation', 'broker', 'automation_cycle', 'automation_step_transport',
                     'automation_step_reconcile', 'trading_run'} and _execution_work_normal(panel)):
         if row.effective_status(panel.now) != 'warn':
             return False
-        if row.key in {'broker', 'trading_run'}:
+        if row.key in {'paper_reconciliation', 'broker', 'trading_run'}:
             return True
         run = panel.row('trading_run').trading_run
         phases = {'automation_cycle': 'AUTOMATION_'+run.state,

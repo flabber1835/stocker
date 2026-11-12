@@ -831,16 +831,21 @@ class ProductionAutomation:
                 conn, permit, verdict="FAIL", detail=f"{type(exc).__name__}: {exc}")
         self._raise_authority_refusal(exc)
 
+    def _record_authority_pass(self, conn, permit, certificate):
+        # The PAPER revision tracks the detail as well as the verdict. Reuse
+        # the same detail so a fresh clock alone does not invalidate it.
+        return self._record_authority_verdict(
+            conn, permit, verdict="PASS",
+            detail=(f"signed certificate {certificate.certificate_sha256} "
+                    "verified for active automation control"))
+
     def _assert_control_authority(self, conn, permit, *, require_publication=False):
         """Verify current signed authority without requiring any cycle row."""
         try:
             control, certificate = self._validate_control_authority(conn, permit)
         except Exception as exc:                              # noqa: BLE001
             self._finish_authority_refusal(conn, permit, exc, record_verdict=True)
-        published = self._record_authority_verdict(
-            conn, permit, verdict="PASS",
-            detail=(f"signed certificate {certificate.certificate_sha256} "
-                    "verified for active automation control"))
+        published = self._record_authority_pass(conn, permit, certificate)
         if require_publication and not published:
             raise TransientInfrastructureFailure('callback authority verdict could not be persisted')
         return control, certificate
@@ -871,10 +876,7 @@ class ProductionAutomation:
         except Exception as exc:                              # noqa: BLE001
             self._finish_authority_refusal(conn, context.permit, exc, record_verdict=record_verdict)
         if verified_control is None and record_verdict:
-            self._record_authority_verdict(
-                conn, context.permit, verdict="PASS",
-                detail=(f"signed certificate {certificate.certificate_sha256} "
-                        f"verified for automation cycle {cycle.cycle_id}"))
+            self._record_authority_pass(conn, context.permit, certificate)
         return cycle, control
 
     @staticmethod

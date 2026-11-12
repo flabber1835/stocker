@@ -16,6 +16,7 @@ DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
+RESERVED_REFRESH_LEAD_SECONDS = 150
 CORPUS_LOCK_RETRY_SECONDS = 20
 CORPUS_LOCK_POLL_SECONDS = 0.5
 # Canonical execution/trial namespaces sharing the processed-session table.
@@ -488,7 +489,8 @@ class Reader:
                     if shadow.valid_until is not None:
                         proof_until = min(proof_until, shadow.valid_until)
                     allow_start = allow_start and instant >= min(
-                        defer_refresh_until, proof_until - timedelta(seconds=30))
+                        defer_refresh_until,
+                        proof_until - timedelta(seconds=RESERVED_REFRESH_LEAD_SECONDS))
             if (allow_start and refresh_due and self.pending is None
                     and (not self.retain_failed_attempt or self._failed_attempt_handoff is None)
                     and (coalesced is not None or self.clock()-self.last_attempt >= RETRY_SECONDS)):

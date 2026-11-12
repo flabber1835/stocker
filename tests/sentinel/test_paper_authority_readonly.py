@@ -69,6 +69,50 @@ def test_real_revision_lock_does_not_block_fresh_checks_or_publish_evidence(guar
         old(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
 
 
+def test_callback_pass_renews_its_clock_under_the_paper_revision_lock(guarded_writer, monkeypatch):
+    from contextlib import closing
+    from tests.sentinel.test_automation_runtime import config, production
+
+    conn, grant, _, _ = guarded_writer
+    conn.rollback()
+    permit = store.acquire_lease(conn, holder_id=grant.holder_id, lease_seconds=120)
+    runtime = production(config())
+    runtime.holder_id = permit.holder_id
+    cycle = SimpleNamespace(cycle_id=grant.cycle_id, control_generation=permit.control_generation,
+        certificate_sha256=grant.certificate_sha256, rollout_mode=grant.rollout_mode,
+        rollout_version=grant.rollout_version)
+    context = SimpleNamespace(permit=permit, cycle=cycle, require_active=lambda: None)
+
+    def validate(fresh, current_permit):
+        store.require_leader(fresh, current_permit)
+        return store.load_control(fresh), SimpleNamespace(certificate_sha256=grant.certificate_sha256)
+
+    monkeypatch.setattr(runtime, '_validate_control_authority', validate)
+    monkeypatch.setattr(store, 'load_cycle', lambda fresh, cycle_id: cycle)
+    evidence = "SELECT authority_detail,authority_checked_at,revision FROM sentinel_automation_control " \
+        "JOIN sentinel_operational_read_revisions ON scope='PAPER' WHERE id=1"
+    with closing(feed_store.connect(conn.info.dsn, statement_timeout_ms=250)) as observer:
+        runtime._assert_cycle_authority(observer, context, operation_scope='RECOVER')
+        original_detail, original_clock, original_revision = observer.execute(evidence).fetchone()
+        conn.execute("SELECT revision FROM sentinel_operational_read_revisions "
+                     "WHERE scope='PAPER' FOR NO KEY UPDATE").fetchone()
+        runtime._assert_control_authority(observer, permit, require_publication=True)
+        detail, checked_at, revision = observer.execute(evidence).fetchone()
+        assert detail == original_detail and revision == original_revision
+        assert checked_at > original_clock
+
+        # The original different PASS wording must time out at the exact row.
+        with pytest.raises(psycopg.errors.QueryCanceled, match='sentinel_operational_read_revisions'):
+            store.record_authority_verdict(observer, verdict='PASS',
+                detail=f'signed certificate {grant.certificate_sha256} verified for automation cycle {cycle.cycle_id}',
+                holder_id=permit.holder_id, fence_token=permit.fence_token,
+                control_generation=permit.control_generation)
+        conn.rollback()
+        store.engage_kill(conn, actor='fixture', reason='revoke callback authority')
+        with pytest.raises(StaleLeaderRefused):
+            runtime._assert_control_authority(observer, permit, require_publication=True)
+
+
 def test_readonly_check_still_refuses_a_fresh_kill(guarded_writer):
     conn, grant, arguments, _ = guarded_writer
     check = authority_gate.build_fresh_execution_check(**arguments, publish_operational_evidence=False)

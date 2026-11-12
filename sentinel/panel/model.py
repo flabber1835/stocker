@@ -1587,7 +1587,7 @@ def automation_cycle_row(*, installed: Optional[bool],
         protected_day_wait=protected_day_wait, plan_id=plan_id,
         original_execution_deadline_at=original_execution_deadline_at,
         execute_at=execute_at, execution_close_at=execution_close_at,
-        prepare_at=prepare_at, diagnostic=diagnostic)
+        prepare_at=prepare_at, updated_at=updated_at, diagnostic=diagnostic)
     if availability_retry_clocks_aware is not None:
         availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
     projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)
@@ -1766,10 +1766,16 @@ def automation_step_rows(
             interrupted_transport = (
                 dict(detail) if isinstance(detail, Mapping)
                 and (detail.get("failure_code") or detail.get("failure_detail")) else None)
-            if interrupted_transport and submitted_commands_progress(dict(
-                    cycle, state='RECONCILING',
+            historical_diagnostic = interrupted_transport.get('diagnostic') if interrupted_transport else None
+            if isinstance(historical_diagnostic, Mapping) and submitted_commands_progress(dict(
+                    state='RECONCILING', plan_id=cycle.get('plan_id'),
+                    execution_open_at=cycle.get('execution_open_at'), execute_at=cycle.get('execute_at'),
+                    execution_close_at=cycle.get('execution_close_at'),
                     failure_code=interrupted_transport.get('failure_code'),
-                    diagnostic=interrupted_transport.get('diagnostic'),
+                    diagnostic=historical_diagnostic,
+                    terminal_reason=historical_diagnostic.get('terminal_reason'),
+                    callback_failure=historical_diagnostic.get('callback_failure'),
+                    exception_type=historical_diagnostic.get('exception_type'),
                     clean_reconciliation_id=interrupted_transport.get('last_clean_reconciliation_id'),
                     next_wake_at=_historical_wake(interrupted_transport.get('next_wake_at')),
                     updated_at=event.get('at'))):

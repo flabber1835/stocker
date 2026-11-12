@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from sentinel.panel import authority_reader as reader, model, observer_codec, verification_service as service
+from sentinel.panel import authority_reader as reader, model, observer_codec, read_projection
+from sentinel.panel import verification_service as service
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
 
@@ -400,11 +401,69 @@ def test_optional_shadow_scan_is_deferred_only_while_positive_proof_covers_openi
     reserve = NOW + timedelta(minutes=10)
     assert evidence.read('private', include_paper=False, defer_refresh_until=reserve)[0][0].status == model.OK
     assert evidence.pending is None and not started.is_set()
-    tick[0] = reader.FRESH_SECONDS - 30
+    tick[0] = 449.999
+    evidence.read('private', include_paper=False, defer_refresh_until=reserve)
+    assert evidence.pending is None and not started.is_set()
+    tick[0] = 450
     evidence.read('private', include_paper=False, defer_refresh_until=reserve)
     assert started.wait(2)
     if evidence.pending is not None:
         evidence.pending.join(2)
+
+
+def test_same_subject_shadow_renewal_publishes_checking_at_original_attempt_clocks(monkeypatch):
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-queue-test-'+'x'*40)
+    tick = [450.0]
+    started, release = Event(), Event()
+    key = 'a'*64
+    rows = [model.Row(name, name, 'Verified', model.OK, as_of=NOW)
+            for name in sorted(read_projection.SHADOW_KEYS)]
+
+    def run(*_args, **_kwargs):
+        started.set()
+        assert release.wait(3)
+        return observer_codec.pack(rows, [], observed_at=NOW+timedelta(seconds=tick[0]))
+
+    evidence = reader.Reader(runner=run, clock=lambda:tick[0],
+        wall_clock=lambda:NOW+timedelta(seconds=tick[0]), evidence_reader=lambda *_:key)
+    evidence.configuration = key
+    evidence.completed = (rows, [], NOW)
+    evidence.last_result_at = NOW+timedelta(seconds=1)
+    try:
+        fresh = evidence.read('private', include_paper=False)
+        assert started.wait(2)
+        positive, positive_signature = service.snapshot(
+            evidence, fresh, scope='SHADOW', now=evidence.wall_clock())
+        assert datetime.fromisoformat(positive['valid_until']) == NOW+timedelta(seconds=600)
+
+        tick[0] = 610
+        now = evidence.wall_clock()
+        with pytest.raises(ValueError, match='verification receipt expired'):
+            read_projection.decode(positive, positive_signature,
+                                   current_subject=key, scope='SHADOW', now=now)
+        pending = evidence.read('private', include_paper=False)
+        current = service.snapshot(evidence, pending, scope='SHADOW', now=now)
+        assert current is not None, 'the old result clock expired the active check'
+        receipt, signature = current
+        assert datetime.fromisoformat(receipt['observed_at']) == NOW+timedelta(seconds=450)
+        deadline = NOW+timedelta(seconds=750)
+        assert datetime.fromisoformat(receipt['valid_until']) == deadline
+        checking, _, _, errors = read_projection.decode(
+            receipt, signature, current_subject=key, scope='SHADOW', now=now)
+        assert not errors and all(row.status == model.WARN for row in checking)
+        shadow = next(row for row in checking if row.key == 'shadow_verification')
+        assert shadow.value == 'CHECK IN PROGRESS' and shadow.recovery.deadline == deadline
+
+        tick[0] = 750.001
+        now = evidence.wall_clock()
+        with pytest.raises(ValueError, match='verification receipt expired'):
+            read_projection.decode(receipt, signature, current_subject=key, scope='SHADOW', now=now)
+        expired = evidence.read('private', include_paper=False)
+        assert service.snapshot(evidence, expired, scope='SHADOW', now=now) is None
+    finally:
+        release.set()
+        if evidence.pending is not None:
+            evidence.pending.join(3)
 
 
 def test_scan_reservation_requires_current_binding_control_and_live_lease(conn):

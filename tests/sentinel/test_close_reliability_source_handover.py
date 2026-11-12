@@ -58,3 +58,22 @@ def test_repinning_the_profile_cannot_relabel_the_signed_predecessor(tmp_path, m
     monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(payload).hexdigest())
     with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
         basis._profile()
+
+
+def test_opening_recovery_preserves_installed_source_and_earlier_maps():
+    revision = 'fad555c0ea0449a9225b01c8f6d96e22140b35b3'
+    assert basis.OPENING_RECOVERY_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    assert profile['authority_effect'] == 'NONE'
+    history = dict(profile['retained_predecessors'])
+    installed = history.pop(revision)['files']
+    assert len(installed) == 475
+    assert admission.source_closure(installed) == '129def6620017e734a6733dd9cfc541f8fd9a12f52f8227c9f3737e444d5f1fe'
+    assert len(history) == 47
+    payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
+    assert hashlib.sha256(payload).hexdigest() == '7a33e9f3400eac8f49a6a131c7b42d8ab646dce9f759fa349105f364db7852cb'
+
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=installed) == installed
+    actual['paper/recovery.py'] = '0' * 64
+    assert basis.predecessor_view(actual, previous=installed) is actual
