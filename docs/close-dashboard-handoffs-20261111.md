@@ -18,9 +18,9 @@ lease fence and callback start must agree. The operator status for the last
 complete, clean broker observation may show the same bounded refresh when
 its original observation expires. A failed read, incomplete observation,
 unresolved command or invalid runtime remains visible. After clean preflight,
-data refresh and preparation wakes do not expire the broker observation.
-The original next broker operation remains the boundary, with the existing
-short lifetime for working or unresolved orders.
+data-only REFRESH wakes do not expire the broker observation. Use the scheduled
+open as an upper bound during that wait. PREPARE independently reobserves the
+broker and working or unresolved orders keep the existing short lifetime.
 
 ## Publication and strategy verification
 

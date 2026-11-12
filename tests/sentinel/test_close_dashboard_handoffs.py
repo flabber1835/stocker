@@ -100,9 +100,10 @@ def test_initial_close_wait_needs_verified_prior_book_and_live_preflight():
             automatic=True, deadline=now+timedelta(minutes=2)))
     feed = model.feed_row(frontier='2026-11-10', sessions_behind=1, ready=True,
         checks_passed=4, checks_total=4, as_of=CLOSE-timedelta(days=1), checked_at=CLOSE)
+    ingest = model.Row('ingest', 'Ingest', 'PUBLISHED', model.OK, as_of=feed.as_of)
     def projected(*, rows=financial, leader=leader, feed=feed, instant=now):
         return postclose_feed_wait.project_progress(
-            [feed], [leader, control, cycle], rows, worker, now=instant)[0][0]
+            [feed, ingest], [leader, control, cycle], rows, worker, now=instant)[0][0]
     assert projected().effective_status(now) == model.WARN
     assert projected().valid_until == deadline
     assert projected(leader=replace(leader, status=model.FAIL)).effective_status(now) == model.FAIL
