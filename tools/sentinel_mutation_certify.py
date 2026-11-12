@@ -36,6 +36,9 @@ ASSERTION_SIGNALS = (
     FailureSignal("builtins.Failed", r"^DID NOT RAISE <class '[A-Za-z0-9_.]+'>$"),
 )
 
+ALPACA_ASSET_ID_SUBMIT = '        return await self._submit_order(symbol=str(instrument.broker_id),\n'
+ALPACA_SYMBOL_SUBMIT = '        return await self._submit_order(symbol=str(instrument.symbol),\n'
+
 
 @dataclass(frozen=True)
 class Mutant:
@@ -163,8 +166,8 @@ MUTANTS = (
     Mutant(
         name="alpaca-submit-falls-back-to-mutable-symbol",
         relative_path="sentinel/execution/alpaca.py",
-        original='        body = _submit_body(symbol=str(instrument.broker_id), client_key=client_key,\n',
-        replacement='        body = _submit_body(symbol=str(instrument.symbol), client_key=client_key,\n',
+        original=ALPACA_ASSET_ID_SUBMIT,
+        replacement=ALPACA_SYMBOL_SUBMIT,
         test=(
             "tests/sentinel/test_alpaca_certification_boundary.py::"
             "test_every_certified_alpaca_variant_submits_by_stable_asset_id"

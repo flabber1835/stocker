@@ -392,7 +392,7 @@ def test_observer_and_cached_reader_preserve_execution_boundary(ready, monkeypat
     monkeypatch.setattr(mirror, "require_current_plan_status", lambda *args, **kw: {"status": mirror.PENDING})
     monkeypatch.setattr(store, "connect", lambda *args, **kw: ready.connection)
     monkeypatch.setattr(verification_monitor, "evidence", lambda *args: "evidence")
-    monkeypatch.setattr(authority_reader, "_key", lambda *args: "expected")
+    monkeypatch.setattr(verification_monitor, "_key", lambda *args: "expected")
     class ClockType(type):
         def __instancecheck__(cls, value):
             return isinstance(value, datetime)

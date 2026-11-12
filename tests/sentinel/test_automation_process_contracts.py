@@ -13,12 +13,14 @@ from sentinel import automation_runtime
 from sentinel.automation import service as service_module
 from sentinel.automation.model import (
     AutomationConfig,
+    BackupProofBusy,
     CancellationAuthority,
     PermanentOperationalRefusal,
     SoftwareDefect,
     TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
+from sentinel.backup_guard import BackupProofBusyReason
 
 
 ROOT = Path(os.environ.get(
@@ -165,6 +167,9 @@ async def test_process_boundary_preserves_provider_retry_delay(monkeypatch):
 async def test_process_backed_callback_preserves_every_reviewed_exception_type(
         monkeypatch, exception_type) -> None:
     async def fail(_context):
+        if exception_type is BackupProofBusy:
+            raise BackupProofBusy("reviewed callback failure",
+                                  reason=BackupProofBusyReason.FRONTIER_CHANGED)
         raise exception_type("reviewed callback failure")
 
     assert inspect.iscoroutinefunction(fail)
@@ -181,6 +186,8 @@ async def test_process_backed_callback_preserves_every_reviewed_exception_type(
             phase="PREPARE",
             heartbeat_conn_factory=_HeartbeatConnection)
     assert type(exc_info.value) is exception_type
+    if exception_type is BackupProofBusy:
+        assert exc_info.value.reason is BackupProofBusyReason.FRONTIER_CHANGED
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires fork supervision")

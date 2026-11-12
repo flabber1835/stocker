@@ -134,13 +134,13 @@ def test_every_tampered_missing_or_extra_current_file_keeps_actual_identity():
 
 
 def test_complete_source_guard_has_a_behavioral_falsifier(monkeypatch):
-    source = inspect.getsource(basis.predecessor_view)
+    source = inspect.getsource(basis.predecessor_views)
     needle = 'if actual != expected:'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'if False:'), 'open-source-successor', 'exec'),
          basis.__dict__, namespace)
-    monkeypatch.setattr(basis, 'predecessor_view', namespace['predecessor_view'])
+    monkeypatch.setattr(basis, 'predecessor_views', namespace['predecessor_views'])
     with pytest.raises(AssertionError):
         _all_unknown_sources_refuse()
 
@@ -664,13 +664,13 @@ def test_exact_predecessor_pair_is_the_only_new_registry_edge(revision):
 
 
 def test_direct_retained_selection_guard_has_a_behavioral_falsifier(monkeypatch):
-    source = inspect.getsource(basis.predecessor_view)
+    source = inspect.getsource(basis.predecessor_views)
     needle = 'if previous == retained:'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'if previous is not None:'), 'open-direct-predecessor', 'exec'),
          basis.__dict__, namespace)
-    monkeypatch.setattr(basis, 'predecessor_view', namespace['predecessor_view'])
+    monkeypatch.setattr(basis, 'predecessor_views', namespace['predecessor_views'])
     with pytest.raises(AssertionError):
         test_exact_predecessor_pair_is_the_only_new_registry_edge(basis.RETAINED_REVISION)
 

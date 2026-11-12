@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import os
 from threading import BoundedSemaphore, Event, Lock, Thread
+import time
 
 from sentinel.panel import authority_reader as financial
 from sentinel.panel.observer_codec import pack
-import hashlib, json
 from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 def evidence(database_url, include_paper):
@@ -62,23 +65,35 @@ def shadow_evidence(database_url, include_paper=False):
     return evidence(database_url, False)
 
 
+def _key(database_url, include_paper, evidence):
+    environment = {key: value for key, value in os.environ.items() if key.startswith('SENTINEL_')}
+    return hashlib.sha256(json.dumps([database_url, include_paper, environment, evidence],
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def _retry_corpus_lock(operation):
+    from sentinel.feed.publication import CorpusLockUnavailable
+    return financial._retry_read(operation, (CorpusLockUnavailable,),
+        clock=time.monotonic, sleep=time.sleep)
+
+
 def _observe_shadow_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     assert include_paper is False
-    if financial._key(database_url, False, shadow_evidence(database_url)) != expected_key:
+    if _key(database_url, False, shadow_evidence(database_url)) != expected_key:
         raise ValueError('shadow evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(database_url,
         now=datetime.now(timezone.utc), include_paper=False, propagate_corpus_lock=True)
     if details or history:
         raise ValueError('unexpected shadow observer shape')
     value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
-    if financial._key(database_url, False, shadow_evidence(database_url)) != expected_key:
+    if _key(database_url, False, shadow_evidence(database_url)) != expected_key:
         raise ValueError('shadow evidence changed during observation')
     return value
 
 
 def observe_shadow(database_url, include_paper, expected_key):
-    return financial.retry_corpus_lock(lambda: _observe_shadow_once(
+    return _retry_corpus_lock(lambda: _observe_shadow_once(
         database_url, include_paper, expected_key))
 
 
@@ -87,7 +102,7 @@ def _observe_paper_once(database_url, include_paper, expected_key):
     from sentinel.feed import readers, store
     from sentinel.panel import sources
     assert include_paper is True
-    if financial._key(database_url, True, evidence(database_url, True)) != expected_key:
+    if _key(database_url, True, evidence(database_url, True)) != expected_key:
         raise ValueError('paper evidence changed before observation')
     conn = store.connect(database_url, connect_timeout=3,
                          statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
@@ -98,13 +113,13 @@ def _observe_paper_once(database_url, include_paper, expected_key):
         value = pack([row], [], observed_at=datetime.now(timezone.utc))
     finally:
         conn.rollback(); conn.close()
-    if financial._key(database_url, True, evidence(database_url, True)) != expected_key:
+    if _key(database_url, True, evidence(database_url, True)) != expected_key:
         raise ValueError('paper evidence changed during observation')
     return value
 
 
 def observe_paper(database_url, include_paper, expected_key):
-    return financial.retry_corpus_lock(lambda: _observe_paper_once(
+    return _retry_corpus_lock(lambda: _observe_paper_once(
         database_url, include_paper, expected_key))
 
 
@@ -134,9 +149,9 @@ class Monitor:
             if self.configuration == configuration and self.thread is not None and self.thread.is_alive():
                 return
         self.stop()
-        shadow = self.reader_factory(evidence_reader=shadow_evidence, observer=observe_shadow,
+        shadow = self.reader_factory(evidence_reader=shadow_evidence, observer=observe_shadow, key_factory=_key,
             execution_slot=self.slot, scope_label='retained portfolio verification')
-        paper = self.reader_factory(evidence_reader=evidence, observer=observe_paper,
+        paper = self.reader_factory(evidence_reader=evidence, observer=observe_paper, key_factory=_key,
             expected_keys=frozenset({'paper_reconciliation'}), unknown_factory=paper_unknown,
             execution_slot=self.slot, scope_label='paper alignment verification') if include_paper else None
         stop = Event()

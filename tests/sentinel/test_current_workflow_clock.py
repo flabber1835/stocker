@@ -88,25 +88,36 @@ def test_selecting_a_past_open_breaks_the_close_boundary_oracle(monkeypatch):
 
 def test_private_collector_receives_parent_market_clock_without_changing_wall_deadlines(monkeypatch):
     from sentinel.feed import calendar
-    from sentinel.panel import projection_service, sources
+    from sentinel.panel import composition, projection_service, sources
     from tests.support import current_workflow_run as run
     import time
     offset = timedelta(days=2)
     observed = {}
     monotonic = time.monotonic
-    def collect(*args):
-        observed.update(market=calendar._dt.datetime.now(timezone.utc),
-                        wall=projection_service.datetime.now(timezone.utc),
-                        observation=sources.datetime.now(timezone.utc), args=args)
+    def record(stage, args, wall):
+        observed[stage] = (calendar._dt.datetime.now(timezone.utc),
+                           wall, sources.datetime.now(timezone.utc), args)
         assert time.monotonic is monotonic
+
+    def collect(*args):
+        record('composition', args, composition.datetime.now(timezone.utc))
+        return {'outcome': 'PUBLISHED'}
+
+    def publish(*args):
+        assert 'composition' in observed
+        record('publication', args, projection_service.datetime.now(timezone.utc))
         return {'outcome': 'fixture clock observed'}
-    monkeypatch.setattr(projection_service, 'collect_result', collect)
+
+    monkeypatch.setattr(composition, 'collect', collect)
+    monkeypatch.setattr(projection_service, 'collect_result', publish)
     answer = run._current_operational_collection('isolated', 'owner', 'state', 'instance',
         'private-roots', 'private-reference', 'a'*64, offset, False)
     assert answer == {'outcome': 'fixture clock observed'}
-    assert abs((observed['market']-observed['wall']-offset).total_seconds()) < 1
-    assert abs((observed['observation']-observed['wall']).total_seconds()) < 1
-    assert observed['args'] == ('isolated', 'owner', 'state', 'instance', False)
+    for market, wall, observation, _ in observed.values():
+        assert abs((market-wall-offset).total_seconds()) < 1
+        assert abs((observation-wall).total_seconds()) < 1
+    assert observed['composition'][3] == ('isolated', 'owner', 'state', 'instance')
+    assert observed['publication'][3] == ('isolated', 'owner', 'state', 'instance', False)
 
 
 def test_omitting_the_private_collector_clock_breaks_its_handoff_oracle(monkeypatch):

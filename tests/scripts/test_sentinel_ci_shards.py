@@ -72,7 +72,8 @@ def test_tracked_inventory_rejects_untracked_and_symlinked_modules(tmp_path):
     'test_activation_startup_contention.py', 'test_automation_generation.py',
     'test_automation_clock_sampling.py', 'test_idle_leader_progress.py',
     'test_database_startup_recovery.py', 'test_closing_data_notifications.py',
-    'test_source_completion_wake.py', 'test_close_scheduling_root_causes.py'])
+    'test_source_completion_wake.py', 'test_close_scheduling_root_causes.py',
+    'test_close_backup_retry.py', 'test_reboot_outage_recovery.py'])
 def test_new_automation_boundaries_have_one_coverage_owner(module):
     modules = _inventory()
     startup = "tests/sentinel/" + module
@@ -98,7 +99,8 @@ def test_missing_callback_connection_coverage_owner_has_a_falsifier(monkeypatch)
 
 
 @pytest.mark.parametrize('name', ['test_source_completion_wake.py',
-    'test_close_scheduling_root_causes.py', 'test_callback_authority_observer.py'])
+    'test_close_scheduling_root_causes.py', 'test_callback_authority_observer.py',
+    'test_close_backup_retry.py', 'test_reboot_outage_recovery.py'])
 def test_missing_callback_or_source_coverage_owner_has_a_falsifier(monkeypatch, name):
     monkeypatch.setattr(shards, 'AUTOMATION', shards.AUTOMATION - {name})
     with pytest.raises(AssertionError):

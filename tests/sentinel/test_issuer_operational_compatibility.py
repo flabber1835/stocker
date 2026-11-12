@@ -88,7 +88,48 @@ _READ_ORDER_COMMENT = (
     '    # Optional installations read the same marker columns; validate those\n'
     "    # columns before any component can query them in the caller's transaction.\n")
 
+_NORMALIZED_PREDECESSOR_BATCH = '''_PREDECESSOR_BATCH = (
+    'SELECT session,security_id,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
+    'WHERE candidate_id=%s AND session<%s AND security_id=ANY(%s) ORDER BY session')
+
+
+def predecessor_prices(conn, candidate_id, coordinates, *, query):
+    """Resolve strictly earlier prices for all action days in one ordered scan."""
+    from sentinel.feed import store
+
+    days = sorted((date.fromisoformat(day), ids) for day, ids in coordinates.items() if ids)
+    if not days:
+        return {}
+    securities = sorted({sid for _, ids in days for sid in ids})
+    latest = {}
+    result = {}
+    rolling_work.checkpoint()
+    with store.streaming_cursor(conn, query(_PREDECESSOR_BATCH),
+                                (candidate_id, days[-1][0], securities)) as prices:
+        prices = iter(prices)
+        price = next(prices, None)
+        consumed = 0
+        for day, ids in days:
+            rolling_work.checkpoint()
+            while price is not None and price[0] < day:
+                observed, sid, signal, raw = price
+                latest[sid] = (str(observed), signal, raw)
+                price = next(prices, None)
+                consumed += 1
+                if consumed % 5000 == 0:
+                    rolling_work.checkpoint()
+            result[str(day)] = [[sid, *latest[sid]] for sid in ids if sid in latest]
+    return result
+
+'''
+
 _ACCESS_PATH_OVERLAY = {
+    # The close reliability patch added a read path while retaining the DDL.
+    'feed/normalized_layout.py': (
+        ('import json\nfrom datetime import date\nfrom typing import Literal\n',
+         'import json\nfrom typing import Literal\n'),
+        (_NORMALIZED_PREDECESSOR_BATCH, ''),
+    ),
     "operational_catalog.py": (
         ("\n\ndef _index_pairs(module):\n    values = getattr(module, 'extension_index_pairs', ())\n    _require(isinstance(values, (tuple, list, set, frozenset))\n             and all(isinstance(item, tuple) and len(item) == 2\n                     and all(isinstance(name, str) and name for name in item)\n                     for item in values), 'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    pairs = set(values)\n    _require(len({name for _, name in pairs}) == len(pairs),\n             'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    return pairs\n\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    index_pairs = _index_pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n",
          "\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n"),
@@ -186,6 +227,7 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
     ('operational_schema.py', b'(name, key) not in excluded_indexes', b'False'),
     ('operational_schema.py', b"'state': ('jsonb', False)", b"'state': ('text', False)"),
     ('operational_schema.py', b'if marker_possible:', b'if False:'),
+    ('feed/normalized_layout.py', b'price[0] < day:', b'price[0] <= day:'),
 ])
 def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent

@@ -442,22 +442,16 @@ def test_adjacent_runtime_repository_discovery_has_typed_strict_json(monkeypatch
 
 
 @pytest.mark.parametrize('epoch', [True, False, 0, -1, '1', 1.0, None])
-def test_adjacent_owned_and_shadow_integrity_keep_epoch_types(monkeypatch, tmp_path, epoch):
+def test_adjacent_owned_and_shadow_integrity_keep_epoch_types(tmp_path, epoch):
     from types import SimpleNamespace
+    from sentinel_activation_roles import activation_types
     status = dict(STATUS, takeover_epoch=epoch)
     cfg = SimpleNamespace(account_id=STATUS['broker_account_id'],
                           deployment_id=STATUS['deployment_id'])
     with pytest.raises(core.DeployRefused): core.validate_owned_status(status, cfg)
-    # Restore every overlay assignment after exercising the actual shadow reader.
-    with monkeypatch.context() as patch:
-        for module, field in ((install.bootstrap, 'BootstrapDeploy'),
-                              (install.bootstrap, '_signing_key_path'),
-                              (install.bootstrap.hardened, 'Config'),
-                              (core, 'verify_reviewed_account_binding')):
-            patch.setattr(module, field, getattr(module, field))
-        entry._install_shadow_overlay()
-        obj = install.bootstrap.BootstrapDeploy(cfg, SimpleNamespace(env={}), tmp_path)
-        obj.reviewed_validation = SimpleNamespace(mode='shadow')
-        obj._status = lambda: status
-        with pytest.raises(core.DeployRefused, match='durable OWNED binding is structurally malformed'):
-            obj.check_durable_deployment_integrity()
+    _, shadow_deploy = activation_types('shadow')
+    obj = shadow_deploy(cfg, SimpleNamespace(env={}), tmp_path)
+    obj.reviewed_validation = SimpleNamespace(mode='shadow')
+    obj._status = lambda: status
+    with pytest.raises(core.DeployRefused, match='durable OWNED binding is structurally malformed'):
+        obj.check_durable_deployment_integrity()

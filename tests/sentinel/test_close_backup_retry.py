@@ -64,7 +64,17 @@ async def test_busy_retry_owns_its_budget_and_rechecks_the_gate_on_wake(
     assert first.cycle.diagnostic["backup_busy_attempt_count"] == 1
     assert first.cycle.diagnostic["backup_busy_reason"] == "FRONTIER_CHANGED"
     assert first.cycle.next_wake_at == now + timedelta(seconds=5)
-    assert (await service.tick(conn, now=now + timedelta(seconds=1))).action is TickAction.WAITING
+
+    def unavailable_probe(failed_at):
+        assert failed_at == now
+        raise OSError("private backup proof reader unavailable")
+
+    service.backup_proof_completed = unavailable_probe
+    waiting = await service.tick(conn, now=now + timedelta(seconds=1))
+    assert waiting.action is TickAction.WAITING
+    assert waiting.cycle.next_wake_at == first.cycle.next_wake_at
+    assert len(attempts) == 9
+    service.backup_proof_completed = completions.__contains__
 
     completions.add(now)
     now += timedelta(seconds=2)

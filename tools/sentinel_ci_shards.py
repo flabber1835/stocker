@@ -19,6 +19,7 @@ AUTOMATION = frozenset({
     "test_callback_heartbeat_connection_owner.py",
     "test_activation_startup_contention.py",
     "test_automation_clock_sampling.py",
+    "test_close_backup_retry.py",
     "test_closing_data_notifications.py",
     "test_close_scheduling_root_causes.py",
     "test_database_startup_recovery.py",
@@ -32,6 +33,7 @@ AUTOMATION = frozenset({
     "test_automation_safety_seams.py",
     "test_automation_process_contracts.py",
     "test_automation_service_fault_paths.py",
+    "test_reboot_outage_recovery.py",
     "test_source_completion_wake.py",
 })
 SPECIAL = AUTOMATION | frozenset(Path(name).name for name in CURRENT_LANES.values()) | frozenset({
