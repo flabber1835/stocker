@@ -163,8 +163,10 @@ def build(monkeypatch, *, ingest_status='success', extra=(), errors=()):
     monkeypatch.setattr(sources,'_feed_status_snapshot',lambda *a:(FRONTIER,SimpleNamespace(
         ready=True,checks_passed=14,checks_total=14,computed_at=NOW-timedelta(minutes=15))))
     monkeypatch.setattr(calendar,'freshness',lambda *a:SimpleNamespace(sessions_behind=1,ahead=False))
-    return sources.build_panel(state_dir=Path('/synthetic'),
+    panel = sources.build_panel(state_dir=Path('/synthetic'),
         database_url='postgresql://fixture@isolated.invalid/fixture',now=NOW)
+    from sentinel.panel.postclose_feed_wait import project_panel
+    return project_panel(panel, now=NOW)
 
 
 def test_real_build_json_html_and_health_share_queued_ingest_wait(monkeypatch):

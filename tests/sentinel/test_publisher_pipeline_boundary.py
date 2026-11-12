@@ -107,7 +107,7 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
     new_prepare = _definition(new, '_prepare')
     old_try = next(n for n in old_prepare.body if isinstance(n, ast.Try))
     new_try = next(n for n in new_prepare.body if isinstance(n, ast.Try))
-    # Only stage storage moved from a local variable to the observer.
+    # Restore the historical local stage variable for the handler comparison.
     handlers = deepcopy(new_try.handlers)
     for node in ast.walk(handlers[0]):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -115,7 +115,15 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
             node.args[1] = ast.Name(id='operation_stage', ctx=ast.Load())
     assert _dump(ast.Module(body=handlers, type_ignores=[])) == _dump(
         ast.Module(body=old_try.handlers, type_ignores=[]))
-    assert _dump(ast.Module(body=new_try.finalbody, type_ignores=[])) == _dump(
+    # The idle SHADOW supervisor owns retention. Verify the exact remaining
+    # operational commit, then restore retention solely for the baseline comparison.
+    cleanup = deepcopy(new_try.finalbody)
+    operational_cleanup = cleanup[0].body[-1]
+    assert _dump(operational_cleanup) == _dump(ast.parse(
+        'if operational:\n    conn.commit()').body[0])
+    operational_cleanup.body = ast.parse(
+        'from sentinel.feed import retention\nconn.commit()\nretention.maintain(conn)').body
+    assert _dump(ast.Module(body=cleanup, type_ignores=[])) == _dump(
         ast.Module(body=old_try.finalbody, type_ignores=[]))
     assert _dump(new_try.body[0].value) == _dump(ast.parse(
         'publisher_pipeline.run(conn, job_id, operational=operational, '
@@ -129,6 +137,7 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
     restored_try = next(n for n in restored.body if isinstance(n, ast.Try))
     restored_try.body = deepcopy(old_try.body)
     restored_try.handlers = handlers
+    restored_try.finalbody = cleanup
     assert _dump(restored) == _dump(old_prepare)
 
 

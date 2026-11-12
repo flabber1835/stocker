@@ -81,7 +81,11 @@ def _service(**config_overrides):
     )
 
 
-def test_transient_outage_never_exhausts_activation_generation():
+@pytest.mark.parametrize("source_probe", [
+    pytest.param(None, id="without-source-probe"),
+    pytest.param({"session": "2026-08-31", "identities": ["111101"]}, id="with-source-probe"),
+])
+def test_transient_outage_never_exhausts_activation_generation(source_probe):
     service = _service(
         refresh_max_attempts=2,
         retry_base_seconds=1,
@@ -92,6 +96,7 @@ def test_transient_outage_never_exhausts_activation_generation():
         "retry_phase": "REFRESH",
         "phase_attempt_count": 1000,
         "first_failure_at": (now - timedelta(days=7)).isoformat(),
+        "source_probe": source_probe,
     })
     terminal, diagnostic = service._failure_diagnostic(
         cycle=cycle,
@@ -103,6 +108,10 @@ def test_transient_outage_never_exhausts_activation_generation():
     assert diagnostic["callback_failure"] == "TRANSIENT_INFRASTRUCTURE"
     assert diagnostic["availability_retry_unbounded"] is True
     assert diagnostic["phase_attempt_count"] == 1001
+    if source_probe is None:
+        assert "source_probe" not in diagnostic
+    else:
+        assert diagnostic["source_probe"] == source_probe
 
 
 def test_long_data_callback_restarts_after_deadline_without_blocking():

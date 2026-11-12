@@ -338,10 +338,10 @@ def _check_and_remove_backup_gate_delta(node):
         assert ast.dump(statements[index - 1]) == ast.dump(predecessor)
         del statements[index]
     elif node.name == "recover_automated_paper_cycle":
-        # The opening-isolation design adds only an owned rolling proof scope.
-        # Strip its exact reviewed syntax before comparing the frozen financial
-        # body; do not re-pin the historical recovery fingerprint.
+        # Reverse the reviewed ordering and scope before comparing the frozen
+        # recovery body. Keep its historical fingerprint intact.
         owner = next(item for item in node.body if isinstance(item, ast.With))
+        _restore_recovery_observation_order(owner)
         extra = ast.parse('with ExitStack() as proof_scope:\n    pass').body[0].items[0]
         assert len(owner.items) == 2 and ast.dump(owner.items[1]) == ast.dump(extra)
         owner.items.pop()
@@ -374,6 +374,37 @@ def _check_and_remove_backup_gate_delta(node):
             "journal.writer_lock(conn, recovery_only=True)").body[0].value
         assert ast.dump(locks[0]) == ast.dump(expected)
         locks[0].keywords = []
+
+
+def _restore_recovery_observation_order(owner):
+    condition = ast.parse('if dual_mode and plan is not None:\n    pass').body[0].test
+    proofs = [(index, statement) for index, statement in enumerate(owner.body)
+        if isinstance(statement, ast.If) and ast.dump(statement.test) == ast.dump(condition)]
+    assert len(proofs) == 2
+    (shadow_at, shadow), (mirror_at, mirror) = proofs
+    assert not shadow.orelse and not mirror.orelse
+    observations = ast.parse('account = await broker.account_snapshot()\n'
+        '_recovery_account_identity_or_refuse(account, binding, grant.broker_account_id)\n'
+        'activity_state = await _broker_cash_state_or_refuse('
+        'conn, broker=broker, binding=binding, through=clock())').body
+    assert [ast.dump(item) for item in owner.body[shadow_at+1:mirror_at]] == [
+        ast.dump(item) for item in observations]
+    guard = [index for index, statement in enumerate(owner.body)
+        if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Name) and statement.value.func.id == '_guard_broker']
+    assert len(guard) == 1 and guard[0] < shadow_at
+    shadow.body.extend(mirror.body)
+    del owner.body[shadow_at+1:mirror_at+1]
+    owner.body[guard[0]+1:guard[0]+1] = observations
+
+
+def test_recovery_observation_witness_refuses_cash_ingestion_before_shadow_proof():
+    node = next(item for item in ast.parse((PACKAGE / 'recovery.py').read_bytes()).body
+        if isinstance(item, ast.AsyncFunctionDef) and item.name == 'recover_automated_paper_cycle')
+    owner = next(item for item in node.body if isinstance(item, ast.With))
+    _restore_recovery_observation_order(owner)
+    with pytest.raises(AssertionError):
+        _check_and_remove_backup_gate_delta(node)
 
 
 @pytest.mark.parametrize('before,after', [

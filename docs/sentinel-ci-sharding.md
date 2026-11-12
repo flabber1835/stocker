@@ -88,6 +88,11 @@ branches. Their complete module is registered once in `AUTOMATION`, so it is
 excluded from ordinary shards. Keep the existing 100% service branch gate;
 running these tests elsewhere does not contribute to that worker's coverage.
 
+The strict backup retry and unattended reboot recovery modules also run in the
+automation worker. The shared service now owns their retry decisions and the
+typed backup callback protocol. Moving both modules preserves one execution
+per test and keeps the 100% branch coverage requirement on the service.
+
 Every worker runs the production code from the single built test lens without
 rebuilding it. Its receipt binds the same source commit, tree, workflow run and
 attempt, runtime image ID, test-lens image ID, and exact JUnit bytes. The

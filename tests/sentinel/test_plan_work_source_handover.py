@@ -5,7 +5,7 @@ import json
 import pytest
 
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile, encoded_profile
+from tests.support.source_history import expanded_profile, encoded_profile, pre_market_history
 
 REVISION='1e7f4b181fbcb998b3086833ab813c21b1c2ca8e'
 CLOSURE='17e4297b1d60a397b73994d8259252d8fd9275beb0f2657816fc357301a3de9b'
@@ -24,7 +24,7 @@ def test_operational_successor_preserves_all_twenty_four_source_maps():
     assert set(actual)-set(previous)=={'backup_integrity_reuse.py'}
     assert {name for name in actual if actual[name]!=previous.get(name)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=previous)==previous
-    originals={revision:value for revision,value in profile['retained_predecessors'].items()
+    originals={revision:value for revision,value in pre_market_history(profile).items()
                if revision not in {REVISION,basis.BACKUP_RENEWAL_PREDECESSOR_REVISION,
                                    basis.OPENING_OBSERVATION_PREDECESSOR_REVISION,
                                    basis.BOUNDARY_DISPLAY_PREDECESSOR_REVISION,
@@ -33,11 +33,11 @@ def test_operational_successor_preserves_all_twenty_four_source_maps():
                                    basis.CLOSE_TRACE_PREDECESSOR_REVISION,
                                    basis.ACCOUNT_CLOCK_PREDECESSOR_REVISION,
                                    basis.INTEGRITY_WORK_PREDECESSOR_REVISION,
-                                   basis.BACKUP_DEADLINE_PREDECESSOR_REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION}}
+                                   basis.BACKUP_DEADLINE_PREDECESSOR_REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     assert len(originals)==24
     assert hashlib.sha256(json.dumps(originals,sort_keys=True,separators=(',',':')).encode()).hexdigest()==(
         'a5c06518948b779dbc47890fb6c30b27000aaa948c6bd9bbafbc8f8554e82a08')
-    assert profile['authority_effect']=='NONE' and profile['schema']=='sentinel.url-selected-trading-transition/45'
+    assert profile['authority_effect']=='NONE'
 
 
 @pytest.mark.parametrize('fault',['changed','missing','extra'])

@@ -193,14 +193,14 @@ def test_coordinator_fences_before_go_only_when_it_must_produce_a_bundle(monkeyp
         run_activation=lambda:calls.append('activation-body'))
     monkeypatch.setattr(core, 'merged_environment', lambda:{})
     monkeypatch.setattr(activate.sentinel_env, 'validate', lambda *a,**k:None)
-    monkeypatch.setattr(activate.bootstrap, 'discover', lambda env:env)
-    monkeypatch.setattr(activate.bootstrap.hardened, 'Config', lambda env:object())
+    monkeypatch.setattr(activate.bootstrap, 'discover', lambda env, **_kwargs:env)
     monkeypatch.setattr(core, '_attempt_dir', lambda *a:tmp_path)
-    monkeypatch.setattr(activate.bootstrap, 'BootstrapDeploy', lambda *a:obj)
-    monkeypatch.setattr(install.InstallationDeploy, 'build_promote', lambda obj:None)
+    monkeypatch.setattr(activate.roles, 'activation_types',
+        lambda mode: (lambda env: object(), lambda *args, **kwargs: obj))
+    monkeypatch.setattr(install, 'select_certified_runtime', lambda obj:None)
     def bundle(*args):calls.append('bundle');return tmp_path/'bundle.zip','digest'
     monkeypatch.setattr(activate, 'financial_bundle', bundle)
-    monkeypatch.setattr(core, 'parse_reviewed_validation_bundle', lambda *a,**k:SimpleNamespace(git_commit=SHA))
+    monkeypatch.setattr(activate, 'parse_reviewed_validation_bundle', lambda *a,**k:SimpleNamespace(git_commit=SHA))
     monkeypatch.setattr(activate, 'publish_immutable', lambda *a:None)
     activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
         installation_sha256='f'*64,bundle='bundle.zip' if supplied_bundle else None),
@@ -220,14 +220,15 @@ def test_malformed_request_refuses_before_financial_work(phase_request, field, v
 
 
 def test_owned_configuration_checkpoint_allows_only_canonical_updates(monkeypatch, phase_request):
-    monkeypatch.setattr(activate.bootstrap, '_safe_update_dotenv', safe_update_dotenv)
     original = activate.digest(phase_request.parent / 'installation-receipt.json')
-    with activate.owned_configuration(phase_request):
-        activate.core.update_dotenv(activate.core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
-        activate.validate_request(phase_request)
-        activate.core.ENV_PATH.write_text('SENTINEL_BACKUP_DIR=/operator-changed\n')
-        with pytest.raises(core.DeployRefused, match='outside'): activate.core.update_dotenv(
-            activate.core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
+    original_writer = activate.core.update_dotenv
+    write = activate.owned_configuration(phase_request, safe_update_dotenv)
+    write(activate.core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
+    assert activate.core.update_dotenv is original_writer
+    activate.validate_request(phase_request)
+    activate.core.ENV_PATH.write_text('SENTINEL_BACKUP_DIR=/operator-changed\n')
+    with pytest.raises(core.DeployRefused, match='outside'):
+        write(activate.core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
     with pytest.raises(core.DeployRefused, match='configuration changed'): activate.validate_request(phase_request)
     assert activate.digest(phase_request.parent / 'installation-receipt.json') == original
 
@@ -491,14 +492,11 @@ def test_coordinator_outcome_never_overwrites_software_completion(monkeypatch, p
     monkeypatch.setattr(activate.signal, 'signal', lambda *args: None)
     monkeypatch.setattr(activate.core, 'merged_environment', lambda: {
         'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent / 'authority')})
-    import sentinel_autonomous_deploy_entry as entry
-    monkeypatch.setattr(entry, 'install_runtime_guards', lambda mode: None)
-    monkeypatch.setattr(activate.bootstrap, '_install_wallclock_independent_dual_overlay', lambda: None)
     monkeypatch.setattr(activate, 'host_lifecycle_lock', nullcontext)
     monkeypatch.setattr(activate.time, 'sleep', lambda delay: None)
     original = (phase_request.parent / 'installation-receipt.json').read_bytes()
     attempts = []
-    def attempt(path, request, receipt):
+    def attempt(path, request, receipt, *, environment_writer):
         attempts.append(request['mode'])
         if completion == 'pending-then-success' and len(attempts) == 1:
             raise core.ActivationPending('source not yet ready')
@@ -585,12 +583,9 @@ def test_coordinator_releases_lifecycle_ownership_during_readiness_sleep(monkeyp
         finally: owned.pop()
     monkeypatch.setattr(activate, 'host_lifecycle_lock', lock)
     monkeypatch.setattr(activate.signal, 'signal', lambda *args: None)
-    import sentinel_autonomous_deploy_entry as entry
-    monkeypatch.setattr(entry, 'install_runtime_guards', lambda mode: None)
-    monkeypatch.setattr(activate.bootstrap, '_install_wallclock_independent_dual_overlay', lambda: None)
     monkeypatch.setattr(core, 'merged_environment', lambda: {
         'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent / 'authority')})
-    def pending(*args):
+    def pending(*args, **kwargs):
         assert owned
         raise core.ActivationPending('readiness pending')
     def sleeping(*args):
@@ -617,7 +612,7 @@ def test_legacy_install_objects_cannot_reenter_financial_build_path(monkeypatch,
     obj._installation_only = True
     obj.phase = lambda text: pytest.fail('installation entered financial release build')
     calls = []
-    monkeypatch.setattr(install.InstallationDeploy, 'build_promote', lambda actual: calls.append(actual))
+    monkeypatch.setattr(install, 'select_certified_runtime', lambda actual: calls.append(actual))
     obj.build_promote()
     assert calls == [obj]
 
@@ -691,7 +686,6 @@ def test_nonexact_source_failures_remain_terminal(defect):
 
 def test_source_wait_reuses_sealed_request_and_releases_lifecycle_before_retry(monkeypatch, phase_request):
     from contextlib import contextmanager
-    import sentinel_autonomous_deploy_entry as entry
     owned = []
     calls = []
     @contextmanager
@@ -701,8 +695,6 @@ def test_source_wait_reuses_sealed_request_and_releases_lifecycle_before_retry(m
         finally: owned.pop()
     monkeypatch.setattr(activate, 'host_lifecycle_lock', lock)
     monkeypatch.setattr(activate.signal, 'signal', lambda *args: None)
-    monkeypatch.setattr(entry, 'install_runtime_guards', lambda mode: None)
-    monkeypatch.setattr(activate.bootstrap, '_install_wallclock_independent_dual_overlay', lambda: None)
     monkeypatch.setattr(core, 'merged_environment', lambda: {
         'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent/'authority')})
     bundle = phase_request.parent/'bundle.zip'
@@ -718,7 +710,7 @@ def test_source_wait_reuses_sealed_request_and_releases_lifecycle_before_retry(m
         calls.append(command)
         return outputs.pop(0)
     obj = SimpleNamespace(runner=SimpleNamespace(run=run))
-    def attempt(path, request, receipt):
+    def attempt(path, request, receipt, *, environment_writer):
         activate.financial_bundle(obj, request)
     def sleep(delay):
         assert delay == 60 and not owned

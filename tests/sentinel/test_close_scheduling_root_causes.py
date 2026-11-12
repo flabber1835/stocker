@@ -92,8 +92,8 @@ async def test_publication_pin_handoff_keeps_its_own_retry_and_consumes_each_hin
         monkeypatch.setattr(service.AutomationService, name, namespace[name])
 
     if omit == 'pin_budget':
-        mutate('_handle_callback_failure', 'diagnostic.get("publication_pin_attempt_count",',
-               'diagnostic.get("phase_attempt_count",')
+        mutate('_record_retry', 'classified.get("publication_pin_attempt_count",',
+               'classified.get("phase_attempt_count",')
     elif omit == 'pin_hint':
         mutate('_advanced_source_completion',
                'and cycle.failure_code == RefreshPublicationPinUnavailable.__name__', 'and False')
@@ -199,12 +199,12 @@ def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeyp
     monkeypatch.setattr(operational_snapshot, 'require_alpaca_openfigi', provider)
     monkeypatch.setattr(dual_reconciliation, 'verified_shadow_intent', verify)
     if condition == 'omit_adjacency':
-        source = textwrap.dedent(inspect.getsource(runtime.ProductionAutomation.refresh))
+        source = textwrap.dedent(inspect.getsource(runtime.ProductionAutomation._closing_refresh_wait))
         guard = 'if frontier == calendar.latest_closed_session(before_close):'
         assert source.count(guard) == 1
         namespace = {}
         exec(source.replace(guard, 'if True:'), vars(runtime), namespace)
-        monkeypatch.setattr(runtime.ProductionAutomation, 'refresh', namespace['refresh'])
+        monkeypatch.setattr(runtime.ProductionAutomation, '_closing_refresh_wait', namespace['_closing_refresh_wait'])
         with pytest.raises(AssertionError):
             with pytest.raises(ClosingDataPending):
                 asyncio.run(worker.refresh(SimpleNamespace(cycle=cycle)))
@@ -236,12 +236,14 @@ def test_unavailable_calendar_retains_routine_wake(monkeypatch):
     assert supervisor._next_acquisition_close(datetime.now(timezone.utc)) is None
 
 
-@pytest.mark.parametrize('operational, omit', [(True, False), (False, False), (True, True)])
-def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monkeypatch, operational, omit):
+@pytest.mark.parametrize('operational, omit, busy', [
+    (True, False, False), (False, False, False), (True, True, False), (True, False, True),
+])
+def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monkeypatch, operational, omit, busy):
     started = datetime.fromisoformat('2026-11-10T20:59:55+00:00')
     clock, launches, signals = [0.0], [], {}
     monkeypatch.setattr(supervisor.ShadowServiceConfig, 'from_env', lambda: SimpleNamespace(
-        poll_seconds=300, operational_source_only=operational))
+        poll_seconds=300, operational_source_only=operational, database_url='isolated'))
     monkeypatch.setattr(supervisor.shadow_budget, 'now', lambda: started + timedelta(seconds=clock[0]))
     monkeypatch.setattr(supervisor.time, 'monotonic', lambda: clock[0])
     monkeypatch.setattr(supervisor.time, 'sleep', lambda delay: clock.__setitem__(0, clock[0] + delay))
@@ -250,23 +252,33 @@ def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monk
     monkeypatch.setattr(supervisor, '_latch_exists', lambda: False)
     monkeypatch.setattr(supervisor, '_arm_worker', lambda _pid: 'same-owner')
     monkeypatch.setattr(supervisor, '_clear_worker', lambda: None)
+    monkeypatch.setattr(supervisor, '_dependency_retry_alert', lambda: None)
     monkeypatch.setattr(supervisor, '_remove_heartbeat', lambda: None)
     monkeypatch.setattr(supervisor.shadow_worker_liveness, 'clear', lambda: None)
     monkeypatch.setattr(supervisor.supervisor_io, 'run', lambda fn, *a, **kw: fn(*a))
     monkeypatch.setattr(supervisor.signal, 'signal', lambda signal, callback: signals.update({signal: callback}))
+    from sentinel import backup_retry
+    def completed(database_url, failed_at):
+        assert database_url == 'isolated' and failed_at == started + timedelta(seconds=5)
+        return clock[0] == 15
+    monkeypatch.setattr(backup_retry, 'completed_since', completed)
 
     def launch(*_a, **kwargs):
         assert kwargs['pass_fds'] == (42,)
         launches.append(clock[0])
         if len(launches) == 3:
             signals[supervisor.signal.SIGTERM]()
+        if busy and len(launches) == 2:
+            return SimpleNamespace(poll=lambda: supervisor.EXIT_BACKUP_PROOF_BUSY)
         return SimpleNamespace(poll=lambda: 0)
 
     monkeypatch.setattr(supervisor.subprocess, 'Popen', launch)
     if omit:
         monkeypatch.setattr(supervisor, '_next_acquisition_close', lambda _started: None)
     assert supervisor._run_owned(42) == 0
-    if not operational:
+    if busy:
+        assert launches == [0, 5, 15]
+    elif not operational:
         assert launches == [0, 300, 600]
     elif omit:
         with pytest.raises(AssertionError):

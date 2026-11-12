@@ -64,6 +64,36 @@ def test_original_view_route_falsifies_work_bound(conn,monkeypatch):
     with pytest.raises(AssertionError):assert_one_block(conn,identity,window)
 
 
+@pytest.mark.parametrize('shared', [False, True])
+def test_batch_keeps_exact_point_evidence_and_coordinate_order(conn, shared):
+    identity, window = candidate(conn, shared)
+    query = layout.query_router(conn)
+    coordinates = {str(window.sessions[i]): ['B', 'missing', 'A'] for i in (299, 0, 1, 2, 5, 8)}
+    expected = {}
+    for day, securities in coordinates.items():
+        expected[day] = []
+        for sid in securities:
+            row = conn.execute(query(layout._PREDECESSOR_POINT), (identity, sid, day)).fetchone()
+            if row is not None:
+                expected[day].append([sid, str(row[0]), *row[1:]])
+    assert layout.predecessor_prices(conn, identity, coordinates, query=query) == expected
+
+
+def test_batch_decodes_each_shared_session_once_for_overlapping_coordinates(conn):
+    identity, window = candidate(conn, True)
+    query = layout.query_router(conn)
+    plan = conn.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + query(layout._PREDECESSOR_BATCH),
+        (identity, window.sessions[8], ['A', 'B'])).fetchone()[0][0]['Plan']
+
+    def scans(node):
+        if node.get('Function Name') == 'jsonb_to_recordset':
+            yield node['Actual Loops']
+        for child in node.get('Plans', []):
+            yield from scans(child)
+
+    assert list(scans(plan)) == [8]
+
+
 def test_only_exact_point_query_uses_fast_physical_route(monkeypatch):
     monkeypatch.setattr(layout,'available',lambda conn:True)
     assert layout.candidate_query(None,layout._PREDECESSOR_POINT)==layout._ORDERED_PREDECESSOR

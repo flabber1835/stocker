@@ -29,10 +29,6 @@ RETRY_SECONDS = 20
 RETRY_POLL_SECONDS = .5
 
 
-def _identity_key(_database_url, _include_paper, evidence):
-    return evidence
-
-
 def _queued_subject(database_url, include_paper, owner_id):
     """Fresh exact subject and owner after resource grant; no proof or renewal."""
     from sentinel.feed import store
@@ -117,7 +113,12 @@ def snapshot(reader, result, *, scope, now):
                 # The original receipt and attempt retain their own subject and clocks.
                 # Rebinding the row would make a dated failure a new observation.
                 return None
-            observed = reader.last_result_at or reader.pending_at
+            current_check = (reader.pending is not None and reader.pending_key == key
+                             and any(row.recovery is not None
+                                     and row.recovery.phase == 'FINANCIAL_VERIFICATION'
+                                     for row in rows))
+            observed = (reader.pending_at if current_check
+                        else reader.last_result_at or reader.pending_at)
             if observed is None:
                 return None
             deadlines = [row.valid_until for row in rows if row.valid_until is not None]
@@ -241,6 +242,45 @@ def _opening_scan_reserve(conn, now):
     return None
 
 
+def _closing_scan_reserve(conn, now):
+    """Defer optional scans for the exact closing boundary or a live callback."""
+    from sentinel.automation.callback_observation import CURRENT_LEADER, ENABLED, active_instance
+    row = conn.execute(f"""
+        WITH tick AS MATERIALIZED (
+            SELECT %s::timestamptz AS at, clock_timestamp() AS database_now
+        ), market AS (
+            SELECT at, database_now, (at AT TIME ZONE 'America/New_York')::date AS session
+            FROM tick
+        )
+        SELECT CASE WHEN c.decision_session=market.session
+                    THEN LEAST(s.callback_deadline_at,c.execution_open_at,l.expires_at)
+                    ELSE LEAST(c.execution_close_at+INTERVAL '60 seconds',l.expires_at)
+               END
+        {CURRENT_LEADER}
+        CROSS JOIN market
+        JOIN sentinel_account_binding b ON b.id=1 AND b.deployment_id=c.deployment_id
+          AND b.broker=c.broker AND b.broker_account_id=c.broker_account_id
+          AND b.takeover_epoch=c.takeover_epoch
+        WHERE {ENABLED}
+          AND l.expires_at>market.database_now AND l.expires_at>market.at
+          AND b.broker='alpaca' AND b.ownership_state='SENTINEL_OWNED'
+          AND (
+              (c.effective_session=market.session AND c.state='SUCCEEDED'
+               AND market.at>=c.execution_close_at-INTERVAL '90 seconds'
+               AND market.at<c.execution_close_at+INTERVAL '60 seconds')
+              OR
+              (c.decision_session=market.session AND market.at>=c.prepare_at
+               AND market.at<c.execution_open_at
+               AND c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+               AND ({active_instance('market.database_now')})
+               AND s.callback_started_at<=market.at
+               AND s.callback_deadline_at>market.at)
+          )
+        ORDER BY c.created_at DESC,c.cycle_id DESC LIMIT 1
+        """, (now,)).fetchone()
+    return row[0] if row is not None else None
+
+
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
@@ -252,7 +292,8 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
             from sentinel import local_paper
             if local_paper.enabled():
                 with conn.transaction(force_rollback=True):
-                    reserve = _opening_scan_reserve(conn, datetime.now(timezone.utc))
+                    now = datetime.now(timezone.utc)
+                    reserve = _opening_scan_reserve(conn, now) or _closing_scan_reserve(conn, now)
         options = {} if reserve is None else {'defer_refresh_until': reserve}
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
@@ -368,7 +409,7 @@ def run(*, stopped=None):
                     and time.monotonic() < owner['deadline'])
         slot = BoundedSemaphore(1)
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
-            key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
+            expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             retain_failed_attempt=True,
             completion=wakeup, work_allowed=work_allowed,

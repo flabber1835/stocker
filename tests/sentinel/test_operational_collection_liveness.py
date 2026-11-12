@@ -66,7 +66,7 @@ class ControlledCollector:
             namespace = dict(vars(producer))
             exec(compile(source.replace(pulse, 'pass'), '<removed-entry-pulse>', 'exec'), namespace)
             producer.collect_result = namespace['collect_result']
-        collection = producer.Collector()
+        collection = producer.FastCollector()
         try:
             return collection('private-unused', 'private-owner', self.directory,
                               'private-instance', prior_failed)

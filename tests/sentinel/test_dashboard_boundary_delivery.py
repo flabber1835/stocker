@@ -122,7 +122,8 @@ def prime(operational,monkeypatch,*,account=False,at=None):
     from sentinel.panel import sources
     monkeypatch.setattr(sources,'build_panel',lambda **_:page)
     monkeypatch.setattr(review_store,'database_now',lambda _:clock[0])
-    producer.publish_once(c.info.dsn,owner,'/private','boundary-fixture')
+    from tests.support.panel_composition import compose_and_publish
+    compose_and_publish(c.info.dsn,owner,'/private','boundary-fixture')
     return c,clock,page
 
 

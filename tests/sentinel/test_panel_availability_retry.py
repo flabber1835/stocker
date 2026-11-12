@@ -192,6 +192,40 @@ def test_unflagged_generic_zero_retry_keeps_existing_bounded_semantics():
         assert result.recovery.attempt == 0 and result.recovery.maximum_attempts == 8
 
 
+@pytest.mark.parametrize('defect', [None, 'no-plan', 'late-wake', 'changed-close', 'terminal'])
+def test_original_reconciliation_retry_uses_its_session_close(defect):
+    close = OPEN + timedelta(hours=6, minutes=30)
+    updated = OPEN + timedelta(minutes=6, seconds=18)
+    wake = updated + timedelta(seconds=5)
+    row = dict(plan_id='original-plan', execution_close_at=close, updated_at=updated,
+        next_wake_at=wake, failure_code='TransientInfrastructureFailure',
+        failure_detail='callback authority validation temporarily unavailable')
+    diagnostic = {'exception_type': 'sentinel.automation.model.TransientInfrastructureFailure'}
+    if defect == 'no-plan':
+        row['plan_id'] = None
+    elif defect == 'late-wake':
+        row['next_wake_at'] = close
+    elif defect == 'changed-close':
+        row['execution_close_at'] += timedelta(minutes=1)
+    elif defect == 'terminal':
+        diagnostic['terminal_reason'] = 'OPERATOR_REQUIRED'
+    cycle, summary, steps, _ = projections(CycleRows(attempt=9, phase='RECOVER',
+        category='TRANSIENT_INFRASTRUCTURE', diagnostic=diagnostic, row=row))
+    assert retry_status.availability_recovery(cycle) is None
+    assert sources._cycle_recovery(cycle, phases=('REFRESH', 'PREPARE')) is None
+    evidence = summary.recovery
+    assert evidence == steps[5].recovery == sources._cycle_recovery(cycle)
+    if defect is not None:
+        assert evidence.operator_required and summary.effective_status(updated) == model.FAIL
+        return
+    assert evidence.phase == 'AUTOMATION_RECOVER_AVAILABILITY'
+    assert evidence.automatic and evidence.maximum_attempts is None and evidence.attempt == 9
+    assert evidence.next_attempt_at == wake and evidence.deadline == close-timedelta(microseconds=1)
+    assert summary.value == steps[5].value == 'RETRYING RECONCILIATION · ATTEMPT 9'
+    assert summary.effective_status(updated) == steps[5].effective_status(updated) == model.WARN
+    assert summary.effective_status(close) == steps[5].effective_status(close) == model.FAIL
+
+
 def test_corporate_preflight_uses_bounded_restriction_retry_without_source_allowance():
     cycle, summary, _, exposure = projections(CycleRows(attempt=1,
         phase="PREFLIGHT_RECOVER", category="CORPORATE_ACTION_PENDING",

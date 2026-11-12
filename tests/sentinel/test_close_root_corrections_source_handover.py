@@ -3,7 +3,7 @@ import hashlib
 import json
 import pytest
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile, encoded_profile
+from tests.support.source_history import expanded_profile, encoded_profile, pre_market_history
 
 REVISION='42d775b6952138191f89deb5054f97c079624bc2'
 CLOSURE='890c1546a6ed20243517e263d5b6755e8e89039997fa7447aa4eef30dc20a702'
@@ -18,8 +18,8 @@ def test_close_root_corrections_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION}}
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in pre_market_history(profile).items() if rev not in {REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='112941159785c415c2889d50ffb48e1f2d0a0656fb580f29ce22b79ec52d78e3'
 

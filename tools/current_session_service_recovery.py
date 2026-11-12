@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from functools import partial
 import json
 import os
 import sys
@@ -33,11 +34,44 @@ from tests.sentinel.test_current_operational_workflow import OBSERVATION, cluste
 from tests.sentinel.test_current_service_recovery import _require_final_order_witness
 from tools.current_session_qualification import SessionQualificationRefused
 from tests.support.current_workflow_authority import issue_current_paper_authority
+from tests.support.current_workflow_clock import BusinessClock
 from tests.support.current_workflow_faults import fenced_private_control
+from tests.support.current_workflow_issuer import enroll_generated_account
 from tests.support.current_workflow_run import _assets, live_lease
 from tests.support.current_service_faults import (ServiceProxyTransport, assert_owned_worker,
     independent_service_provider, linux_process_identity, process_gone_or_zombie,
     wait_until, whole_service_process)
+
+
+def _observe_with_generated_authority_inputs(roots_file, business_now, *args):
+    """Supply the disposable public roots and business time inside spawn."""
+    from sentinel.authority import validation
+
+    parse_roots = validation.load_trust_roots
+    with pytest.MonkeyPatch.context() as inputs:
+        inputs.setattr(validation, 'load_trust_roots', lambda _path=None: parse_roots(roots_file))
+        BusinessClock(business_now).install(inputs)
+        return automation_runtime._observe_callback_authority(*args)
+
+
+def _install_spawned_observer_inputs(monkeypatch, *, roots_file, clock):
+    from sentinel import supervisor_io
+
+    run_observer = supervisor_io.run
+
+    def run(function, *args, **kwargs):
+        if function is automation_runtime._observe_callback_authority:
+            assert kwargs['start_method'] == 'spawn'
+            function = partial(_observe_with_generated_authority_inputs, roots_file, clock.now())
+        return run_observer(function, *args, **kwargs)
+
+    monkeypatch.setattr(supervisor_io, 'run', run)
+
+
+def _activity_reads(snapshot):
+    routes = ('GET /v2/account/activities', 'GET /v2beta1/events/activities')
+    return {name: count for name, count in snapshot['state']['requests'].items()
+            if name.startswith(routes)}
 
 
 def test_current_whole_service_restart_takes_over_real_lease_without_reposting_unknown(
@@ -63,6 +97,8 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
     certificate = issue_current_paper_authority(conn, monkeypatch, tmp_path, now=clock.now(),
         observation_id=OBSERVATION, controller=controller, strategy=strategy,
         automation_config_sha256=config.fingerprint)
+    _install_spawned_observer_inputs(monkeypatch,
+        roots_file=tmp_path/'current-workflow-public-roots.json', clock=clock)
     bound, rollout = binding.require(conn), load_rollout_state(conn)
     timing = schedule.for_decision_session(origin['session'], config)
     actual_schedule = schedule.for_clock(datetime.now(timezone.utc), config)
@@ -94,6 +130,7 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
                 automation_config=config, holder_id=holder)
 
         setup = factory('private-whole-service-setup')
+        enroll_generated_account(conn, campaign=setup, clock=clock, observation_id=OBSERVATION)
         control = ControlBinding(deployment_id=bound.deployment_id, broker=bound.broker,
             broker_account_id=bound.broker_account_id, takeover_epoch=bound.takeover_epoch,
             certificate_sha256=certificate, rollout_mode=rollout.mode.value,
@@ -139,6 +176,7 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
             first = provider.snapshot()
             assert len(first['state']['orders']) == 1
             assert first['state']['requests']['POST /v2/orders'] == 1
+            assert _activity_reads(first)
             key = first['first_key']
             original = next(row for row in journal.load_commands(conn, bound.identity,
                 plan_id=plan.plan_id) if row.client_key == key)
@@ -264,14 +302,12 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
             assert final_state['state']['requests'].get('GET /v2/stocks/quotes/latest', 0) == 0
             assert json.loads(state_path.read_text()) == final_state
             # Current dual PAPER reconciliation accepts positive cumulative
-            # order evidence. It deliberately does not claim accepted native
-            # activity history or project provider events into a fill ledger.
+            # order evidence. The existing cash reads belong to preflight and
+            # submission. Recovery adds no activity reads or fill ledger rows.
             assert setup._broker(conn,
                 cycle.effective_session.isoformat()).capabilities.recent_fill_history is False
             assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone() == (0,)
-            assert not any(name.startswith('GET /v2/account/activities')
-                or name.startswith('GET /v2beta1/events/activities')
-                for name in final_state['state']['requests'])
+            assert _activity_reads(final_state) == _activity_reads(first)
             assert conn.execute('SELECT count(*) FROM sentinel_commands WHERE client_key=%s',
                 (key,)).fetchone() == (1,)
             history = journal.command_history(conn, key)

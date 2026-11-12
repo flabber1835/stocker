@@ -187,11 +187,6 @@ async def recover_automated_paper_cycle(
             automation_config_sha256=automation_config_sha256,
             dual_shadow_observation_id=dual_shadow_observation_id,
             dual_shadow_starting_cash=dual_shadow_starting_cash)
-        account = await broker.account_snapshot()
-        _recovery_account_identity_or_refuse(
-            account, binding, grant.broker_account_id)
-        activity_state = await _broker_cash_state_or_refuse(
-            conn, broker=broker, binding=binding, through=clock())
         # A dual recovery never consults the separate PAPER catch-up lineage.
         # Its exact shadow state is loaded after the current-generation plan is
         # identified below.
@@ -242,6 +237,16 @@ async def recover_automated_paper_cycle(
             except dual_plan_authority.DualPlanAuthorityRefused as exc:
                     raise PaperActivationRefused(
                         f"dual sizing authority refused recovery: {exc}") from exc
+
+        # The cash cursor changes the PAPER revision. Finish the cold shadow
+        # proof before taking that transaction lock.
+        account = await broker.account_snapshot()
+        _recovery_account_identity_or_refuse(
+            account, binding, grant.broker_account_id)
+        activity_state = await _broker_cash_state_or_refuse(
+            conn, broker=broker, binding=binding, through=clock())
+
+        if dual_mode and plan is not None:
             try:
                 # A cycle can remain RECONCILING across the next close.  Its
                 # due post-close unit check must be earned here before the

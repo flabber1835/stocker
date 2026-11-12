@@ -12,10 +12,12 @@ from sentinel.panel import model, operational_snapshot as snapshots, projection_
 from sentinel.panel import review, review_schema, review_store
 from tests.sentinel.test_operational_read_projection import install_projection
 from tests.sentinel.test_supervisor_dependency_bounds import conn, pg  # noqa: F401
+from tests.support.panel_composition import compose_and_publish, isolate_storage
 
 
 @pytest.fixture
-def operational(conn, monkeypatch):
+def operational(conn, monkeypatch, tmp_path):
+    isolate_storage(tmp_path, monkeypatch)
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-qualification-'+'x'*40)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
     monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
@@ -31,7 +33,7 @@ def operational(conn, monkeypatch):
         "(1,%s,clock_timestamp()+interval '600 seconds')", (owner_id,))
     conn.commit()
     condition = {'broker': model.OK, 'collect': None, 'financial': False, 'rich': False}
-    from sentinel.panel import sources
+    from sentinel.panel import composition, sources
     def collect(**_):
         now = datetime.now(timezone.utc)
         keys = ('runtime_identity', 'automation', 'automation_leader', 'authority', 'feed',
@@ -52,12 +54,14 @@ def operational(conn, monkeypatch):
     monkeypatch.setattr(sources, 'build_panel', collect)
     # Native late-lease behavior has separate real-PostgreSQL qualification.
     monkeypatch.setattr(sources, '_late_automation_rows', lambda _conn, rows: rows)
+    monkeypatch.setattr(composition, 'native_services', lambda _conn, rows, **_: rows)
+    monkeypatch.setattr(sources, '_shadow_worker_row', lambda *_, **__: None)
     return conn, owner_id, condition
 
 
 def publish(operational, *, instance='one-verifier', prior_failed=False):
     conn, owner_id, _ = operational
-    return producer.publish_once(conn.info.dsn, owner_id, '/var/lib/sentinel', instance, prior_failed)
+    return compose_and_publish(conn.info.dsn, owner_id, '/var/lib/sentinel', instance, prior_failed)
 
 
 def state(conn):
@@ -84,7 +88,7 @@ def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject
     result=composition.collect(conn.info.dsn,owner,'/private',instance)
     original,_,_,expiry=composition.read(owner,instance,now=datetime.now(timezone.utc))
     for _ in range(3):
-        producer.publish_once(conn.info.dsn,owner,'/private',instance,use_composition=True)
+        producer.publish_once(conn.info.dsn,owner,'/private',instance)
         page=producer.read(conn.info.dsn)
         assert page.row('broker').as_of==original.row('broker').as_of
         assert datetime.fromisoformat(result['valid_until'])==expiry
@@ -92,10 +96,10 @@ def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject
     original_context=snapshots.context
     monkeypatch.setattr(snapshots,'context',lambda *args:'0'*64)
     with pytest.raises(producer.CollectionSuperseded,match='inputs changed'):
-        producer.publish_once(conn.info.dsn,owner,'/private',instance,use_composition=True)
+        producer.publish_once(conn.info.dsn,owner,'/private',instance)
     monkeypatch.setattr(snapshots,'context',original_context)
     composition.failure(owner,instance,TimeoutError())
-    result=producer.collect_result(conn.info.dsn,owner,'/private',instance,use_composition=True)
+    result=producer.collect_result(conn.info.dsn,owner,'/private',instance)
     assert result['outcome']=='PUBLISHED'
     assert producer.read(conn.info.dsn).row('operational_projection').status==model.UNKNOWN
 
@@ -194,20 +198,23 @@ def test_replaced_owner_cannot_record_review_or_publish_snapshot(operational):
     conn.execute(f'UPDATE {snapshots.schema.OWNER} SET owner_id=%s', (str(uuid.uuid4()),))
     conn.commit()
     with pytest.raises(ValueError):
-        producer.publish_once(conn.info.dsn, owner_id, '/var/lib/sentinel', 'stale-verifier')
+        compose_and_publish(conn.info.dsn, owner_id, '/var/lib/sentinel', 'stale-verifier')
     assert state(conn) is None
     assert conn.execute(f'SELECT count(*) FROM {snapshots.schema.RECEIPTS} WHERE scope=%s',
                         (snapshots.SCOPE,)).fetchone() == (0,)
 
 
 def test_collection_superseded_by_native_revision_commits_neither_half(operational):
-    conn, _, condition = operational
+    from sentinel.panel import composition
+
+    conn, owner_id, condition = operational
     def change_generation():
         conn.execute('UPDATE sentinel_automation_control SET generation=generation+1 WHERE id=1')
         conn.commit()
     condition['collect'] = change_generation
-    with pytest.raises(ValueError):
-        publish(operational)
+    with pytest.raises(producer.CollectionSuperseded, match='composition inputs changed'):
+        composition.collect(conn.info.dsn, owner_id, '/var/lib/sentinel', 'one-verifier')
+    assert not composition.path('one-verifier').exists()
     assert state(conn) is None
     assert conn.execute(f'SELECT count(*) FROM {snapshots.schema.RECEIPTS} WHERE scope=%s',
                         (snapshots.SCOPE,)).fetchone() == (0,)
@@ -412,9 +419,9 @@ def test_authenticated_snapshot_without_operator_review_has_controlled_refusal(o
 
 
 def test_removed_collection_subject_binding_is_detected(operational, monkeypatch):
-    from sentinel.panel import display_dependencies
-    constant = {'SHADOW': 'a'*64, 'PAPER': 'b'*64}
-    monkeypatch.setattr(display_dependencies, 'combined_subjects', lambda *_: constant)
+    conn, _, _ = operational
+    original = producer._coordinates(conn.info.dsn)
+    monkeypatch.setattr(producer, '_coordinates', lambda _: original)
     with pytest.raises(pytest.fail.Exception):
         test_collection_superseded_by_native_revision_commits_neither_half(operational)
 
@@ -516,13 +523,14 @@ def test_configured_http_startup_refuses_real_registration_lock_then_records_new
 def test_broken_public_renderer_rolls_back_primary_publication(operational, monkeypatch):
     import importlib
     renderer = importlib.import_module('sentinel.panel.render')
-    conn, _, _ = operational
+    conn, owner_id, _ = operational
     publish(operational)
     baseline = state(conn)
     previous = producer.read(conn.info.dsn)
     def broken(*_, **__): raise ValueError('private deterministic renderer fault')
     monkeypatch.setattr(renderer, 'render', broken)
-    with pytest.raises(ValueError): publish(operational)
+    with pytest.raises(ValueError):
+        producer.publish_once(conn.info.dsn, owner_id, '/var/lib/sentinel', 'one-verifier')
     assert state(conn) == baseline
     assert producer.read(conn.info.dsn).operator_review == previous.operator_review
 

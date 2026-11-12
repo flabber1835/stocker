@@ -40,7 +40,7 @@ def test_retry_budget_is_fixed_and_capped_by_original_work_deadline():
             calls.append(True)
             raise CorpusLockUnavailable('writer owns the corpus')
         with pytest.raises(CorpusLockUnavailable):
-            reader.retry_corpus_lock(busy, clock=clock, sleep=clock.sleep)
+            reader.retry_observation_read(busy, clock=clock, sleep=clock.sleep)
         assert clock.now == expected
         assert len(clock.waits) <= reader.CORPUS_LOCK_RETRY_SECONDS / reader.CORPUS_LOCK_POLL_SECONDS
 
@@ -53,7 +53,7 @@ def test_other_errors_are_not_retried(error):
         calls.append(True)
         raise error
     with pytest.raises(type(error)):
-        reader.retry_corpus_lock(fail, clock=clock, sleep=clock.sleep)
+        reader.retry_observation_read(fail, clock=clock, sleep=clock.sleep)
     assert len(calls) == 1 and clock.waits == []
 
 
@@ -66,7 +66,7 @@ def test_success_after_refused_pin_preserves_semantic_negative_result():
         if len(calls) < 3:
             raise CorpusLockUnavailable('busy')
         return negative
-    assert reader.retry_corpus_lock(attempt, clock=clock, sleep=clock.sleep) is negative
+    assert reader.retry_observation_read(attempt, clock=clock, sleep=clock.sleep) is negative
     assert clock.now == 1 and len(calls) == 3
 
 
@@ -128,7 +128,7 @@ def test_exhausted_contention_is_not_cached_for_five_minutes():
         if not healthy[0]:
             raise CorpusLockUnavailable('writer still owns the corpus')
         return result()
-    value = reader.Reader(runner=lambda *a, **k: reader.retry_corpus_lock(
+    value = reader.Reader(runner=lambda *a, **k: reader.retry_observation_read(
         attempt, clock=clock, sleep=clock.sleep),
         evidence_reader=lambda *_: 'unchanged', clock=lambda: scheduler_clock[0])
     value.read('fixture')
@@ -176,7 +176,7 @@ def test_real_exclusive_pin_collision_recovers_without_cached_red(pg, monkeypatc
     monkeypatch.setattr(read_projection, 'subject_for', lambda *_: 'fixed-book-and-source')
     value = reader.Reader(runner=lambda operation, *args, **_: operation(*args),
         observer=verifier.observe, evidence_reader=read_projection.subject_for,
-        key_factory=verifier._identity_key, expected_keys=read_projection.SHADOW_KEYS)
+        expected_keys=read_projection.SHADOW_KEYS)
     try:
         value.read(pg.sync_dsn, include_paper=False)
         assert collision.wait(3), 'test did not exercise the native lock refusal'

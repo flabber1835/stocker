@@ -142,9 +142,10 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
         # Startup records its real durable incarnation. The independent owner
         # then collects and signs the dashboard snapshot before any HTTP read.
         from sentinel.feed import issuer_reference
-        from sentinel.panel import projection_service, projection_worker
+        from sentinel.panel import composition, projection_service, projection_worker
+        instance = str(uuid.uuid4())
         collection = projection_worker.Worker(_current_operational_collection,
-            dsn, owner, str(tmp_path/'state'), 'current-workflow-verifier',
+            dsn, owner, str(tmp_path/'state'), instance,
             str(tmp_path/'current-workflow-public-roots.json'),
             str(issuer_reference.BUNDLED_PATH), issuer_reference.BUNDLED_SNAPSHOT_SHA256,
             clock.wall_offset)
@@ -155,10 +156,12 @@ def _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path):
             assert time.monotonic()-started < projection_service.DEADLINE_SECONDS
         finally:
             collection.close()
+            composition.path(instance).unlink(missing_ok=True)
         print('CURRENT_WORKFLOW bounded operational snapshot '+
               str(round(time.monotonic()-started, 3))+' seconds', flush=True)
         response = client.get('/panel.json')
         assert response.status_code==200,response.text
+        assert response.headers['X-Sentinel-Panel-Status']=='CURRENT'
         payload = response.json()
         rows = {row['key']:row for row in payload['rows']}
         assert rows['shadow_verification']['status']==model.OK, (
@@ -189,7 +192,7 @@ def _current_operational_collection(database_url, owner_id, state_dir, instance,
     from pytest import MonkeyPatch
     from sentinel.authority import validation
     from sentinel.feed import issuer_reference
-    from sentinel.panel import projection_service
+    from sentinel.panel import composition, projection_service
     original_loader = validation.load_trust_roots
     with MonkeyPatch.context() as inputs:
         from tests.support.current_workflow_clock import BusinessClock
@@ -203,6 +206,8 @@ def _current_operational_collection(database_url, owner_id, state_dir, instance,
             lambda _path=None: original_loader(Path(roots_file)))
         inputs.setattr(issuer_reference, 'BUNDLED_PATH', Path(reference_file))
         inputs.setattr(issuer_reference, 'BUNDLED_SNAPSHOT_SHA256', reference_sha256)
+        material = composition.collect(database_url, owner_id, state_dir, instance)
+        assert material['outcome']=='PUBLISHED', material
         return projection_service.collect_result(database_url, owner_id,
             state_dir, instance, prior_failed)
 

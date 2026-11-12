@@ -3,7 +3,7 @@
 No broker state is read here. The execution reader remains the sole interpreter
 of scalar and material events; this module preserves its evidence and outputs.
 """
-from sentinel.feed.normalized_layout import query_router
+from sentinel.feed.normalized_layout import predecessor_prices, query_router
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -134,6 +134,7 @@ def _material(conn, refs, pub):
     for day, payload in _dated_sources(refs, start=lo, end=hi):
         material[day]["sources"].append(payload)
     # Store only action/dividend coordinates and their actual predecessors.
+    coordinates = {}
     for day, item in material.items():
         rolling_work.checkpoint()
         symbols = sorted({p["ticker"] for p in item["sources"]}
@@ -151,16 +152,13 @@ def _material(conn, refs, pub):
             "FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s AND ticker=ANY(%s) "
             "ORDER BY security_id"), (refs.candidate_id, day, symbols)).fetchall()
         item["bars"] = [list(row) for row in rows]
-        for sid, *_ in rows:
-            prior = conn.execute(query("SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars "
-                "WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1"),
-                (refs.candidate_id, sid, day)).fetchone()
-            if prior:
-                item["predecessors"].append([sid, str(prior[0]), *prior[1:]])
+        coordinates[day] = [row[0] for row in rows]
         pair = conn.execute(query("SELECT session,bil_close_signal,bil_close_unadjusted "
             "FROM sentinel_snapshot_benchmarks WHERE candidate_id=%s AND session<=%s "
             "ORDER BY session DESC LIMIT 2"), (refs.candidate_id, day)).fetchall()
         item["defensive"] = [[str(r[0]), *r[1:]] for r in reversed(pair)]
+    for day, prices in predecessor_prices(conn, refs.candidate_id, coordinates, query=query).items():
+        material[day]["predecessors"] = prices
     validation_sha = conn.execute("SELECT validation_sha256 FROM sentinel_snapshot_validations "
                                   "WHERE candidate_id=%s", (refs.candidate_id,)).fetchone()[0]
     validation = rolling_store.load_evidence(conn, validation_sha)

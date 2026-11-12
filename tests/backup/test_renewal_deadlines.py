@@ -69,15 +69,19 @@ def test_byte_refresh_is_early_and_owned_by_original_maintenance_proof():
     published = clock.publication()
     byte_due = renewal.byte_renewal_at(published,
         dict(proof(), integrity_observed_uptime=1010), '1020.0')
-    assert byte_due == clock.publication(230)
+    assert byte_due == clock.publication(200)
+    # Reproduce the observed time from scheduled wake to proof publication.
+    completion = renewal.timestamp(byte_due) + timedelta(seconds=142.84)
+    original_expiry = renewal.timestamp(clock.publication(380))
+    assert (original_expiry-completion).total_seconds() == pytest.approx(37.16)
     value = renewal.result(outcome='SUCCESS', phase='COMPLETE', code='OK',
         publication_at=published, byte_due_at=byte_due)
     schedule.consume(renewal.parse(renewal.PASS_PREFIX+json.dumps(value)))
-    assert schedule.next_at() == 230
+    assert schedule.next_at() == 200
     assert schedule.deadline == 700
     clock.now = 105
     schedule.accept(clock.publication())
-    assert schedule.next_at() == 230
+    assert schedule.next_at() == 200
     assert schedule.deadline == 705
     assert schedule.timing()['byte_due_at'] is None
     clock.now = 110
@@ -107,7 +111,7 @@ def test_due_base_seeds_existing_freshness_schedule_from_qualified_current_clock
     coordinator._prime_bulk_byte_renewal(schedule, observation, dict(selected, name='foreign'))
     assert schedule.next_at() == 300
     coordinator._prime_bulk_byte_renewal(schedule, observation, selected)
-    assert schedule.next_at() == 130
+    assert schedule.next_at() == 100
     assert schedule.deadline == 600
     assert schedule.timing()['byte_due_at'] is None
 
@@ -242,7 +246,7 @@ def test_actual_publication_carries_native_byte_clock_through_pass_result(monkey
     coordinator.tick('/media', runner, freshness=True, budget=120)
     result = renewal.parse(capsys.readouterr().out, refresh=True)
     assert (renewal.timestamp(result['byte_renewal_at']) -
-            renewal.timestamp(result['publication_at'])).total_seconds() == 130
+            renewal.timestamp(result['publication_at'])).total_seconds() == 100
 
 
 @pytest.mark.parametrize('bad_metadata',(False,True))

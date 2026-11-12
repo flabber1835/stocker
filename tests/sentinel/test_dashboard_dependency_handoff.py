@@ -15,6 +15,7 @@ from sentinel.panel import model, delivery, display_dependencies as deps
 from sentinel.panel import operational_snapshot as snapshots, projection_service as producer
 from sentinel.panel import read_projection, review_store, sources
 from tests.sentinel.test_operational_projection_service import operational, conn, pg, save_financial
+from tests.support.panel_composition import compose_and_publish
 
 
 def account(c, *, equity='100', commit=True, observed_at=None, flags=None, buying_power='50'):
@@ -54,7 +55,7 @@ def primed(operational, monkeypatch, *, extra=(), short_book=False):
                 valid_until=current+timedelta(seconds=5) if short_book and k=='book' else None,
                 freshness=timedelta(seconds=60),required_current=True) for k in keys], *extra])
     monkeypatch.setattr(sources,'build_panel',build)
-    producer.publish_once(c.info.dsn,owner,'/private','dependency-fixture')
+    compose_and_publish(c.info.dsn,owner,'/private','dependency-fixture')
     return c, owner
 
 
@@ -212,7 +213,7 @@ def test_identical_future_append_is_negative_without_advancing_financial_revisio
     assert before['account_anchor']!=after['account_anchor']
     current=producer.read(c.info.dsn,display=True)
     assert current.row('alpaca_account').status==model.FAIL
-    producer.publish_once(c.info.dsn,owner,'/private',instance,use_composition=True)
+    producer.publish_once(c.info.dsn,owner,'/private',instance)
     assert producer.read(c.info.dsn).row('alpaca_account').status==model.FAIL
 
 
@@ -267,11 +268,11 @@ def test_fast_publication_reuses_composition_for_account_and_receipt_handoffs(op
         pytest.fail('fast publication repeated coordinates before its owned validation')
     monkeypatch.setattr(producer,'_coordinates',redundant_coordinates)
     account(c,equity='103')
-    producer.publish_once(c.info.dsn,owner,'/private',instance,use_composition=True)
+    producer.publish_once(c.info.dsn,owner,'/private',instance)
     saved=producer.read(c.info.dsn)
     assert saved.observation_current and len(calls)==1
     save_financial(c,'PAPER',[model.paper_reconciliation_row(state='CLEAN')])
-    renewed=producer.publish_once(c.info.dsn,owner,'/private',instance,use_composition=True)
+    renewed=producer.publish_once(c.info.dsn,owner,'/private',instance)
     assert len(calls)==1 and renewed['valid_until']<=initial['valid_until']
 
 
@@ -283,7 +284,7 @@ def test_fast_reuse_refuses_an_unclassified_composition_dependency(operational,m
     instance=str(uuid.uuid4());composition.collect(c.info.dsn,owner,'/private',instance)
     account(c,equity='103')
     with pytest.raises(producer.CollectionSuperseded,match='unproved display dependencies'):
-        producer.publish_once(c.info.dsn,owner,'/private',instance,use_composition=True)
+        producer.publish_once(c.info.dsn,owner,'/private',instance)
 
 
 @pytest.mark.parametrize('field,value',[('observation_display_current',True),
@@ -298,8 +299,7 @@ def test_signed_producer_cannot_inject_consumer_display_permission(monkeypatch,f
         snapshots.decode(raw,signed,context_sha256=CONTEXT,now=page.now)
 
 
-@pytest.mark.parametrize('fast,attempts',[(True,1),(False,2)])
-def test_retry_admission_uses_actual_parent_allowance(monkeypatch,fast,attempts):
+def test_retry_admission_uses_actual_parent_allowance(monkeypatch):
     elapsed=[0.0];calls=[]
     monkeypatch.setattr(producer.time,'monotonic',lambda:elapsed[0])
     monkeypatch.setattr(producer.time,'sleep',lambda n:None)
@@ -312,8 +312,8 @@ def test_retry_admission_uses_actual_parent_allowance(monkeypatch,fast,attempts)
         return {'valid_until':'2031-04-21T20:00:01+00:00'}
     monkeypatch.setattr(producer,'publish_once',publish)
     monkeypatch.setattr(producer,'publish_failure',lambda *_a,**_k:{'valid_until':'2031-04-21T20:00:01+00:00'})
-    producer.collect_result('unused','unused','unused','unused',use_composition=fast)
-    assert len(calls)==attempts
+    producer.collect_result('unused','unused','unused','unused')
+    assert len(calls)==1
 
 
 def test_serialization_conflict_is_superseded_without_recording_failure(monkeypatch):
@@ -321,7 +321,7 @@ def test_serialization_conflict_is_superseded_without_recording_failure(monkeypa
     def conflict(*_a,**_k):raise psycopg.errors.SerializationFailure('coherent read superseded')
     monkeypatch.setattr(producer,'publish_once',conflict)
     monkeypatch.setattr(producer,'publish_failure',lambda *_a,**_k:pytest.fail('serialization conflict recorded incident'))
-    assert producer.collect_result('unused','unused','unused','unused',use_composition=True)=={'outcome':'SUPERSEDED'}
+    assert producer.collect_result('unused','unused','unused','unused')=={'outcome':'SUPERSEDED'}
 
 
 @pytest.mark.parametrize('guard,change',[('counter','current[1] != prior[1] + 1'),

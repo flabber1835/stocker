@@ -207,6 +207,29 @@ def test_success_selects_source_then_starts_immediate_normal_loop(lab):
         lab.operation.rollback()
 
 
+@pytest.mark.parametrize('owns_loop', [True, False])
+def test_missing_deployment_selector_uses_exact_authenticated_running_host(lab, monkeypatch, owns_loop):
+    old_host = lab.host_selector.read_bytes()
+    old_local = lab.deployment_selector.read_bytes()
+    lab.deployment_selector.unlink()
+    lab.loop_valid = owns_loop
+    native = module.environment.Reader(lab.pid, lab.ticks, os.getuid(), os.getgid(),
+                                      tuple(sorted(os.getgroups())), str(lab.old))
+    monkeypatch.setattr(module.environment, 'readers', lambda *a, **k: (native,))
+    monkeypatch.setattr(module.environment, '_reader', lambda *a: native)
+    if owns_loop:
+        initial = lab.prepare()
+        assert initial['phase'] == 'PREPARED'
+        assert lab.deployment_selector.read_bytes() == old_local
+        assert lab.operation.resume()['phase'] == 'VERIFIED'
+    else:
+        with pytest.raises(DeliveryRefused, match='READER_CURRENT_OWNER_UNPROVEN'):
+            lab.prepare()
+        assert not lab.deployment_selector.exists()
+        assert lab.host_selector.read_bytes() == old_host
+        assert not lab.calls
+
+
 def held_child(path,started,release):
     with open(path,'r+') as stream:
         fcntl.flock(stream.fileno(),fcntl.LOCK_EX)

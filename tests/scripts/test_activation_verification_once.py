@@ -55,13 +55,13 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
     obj.persist_success=lambda health:events.append('success')
     monkeypatch.setattr(activate.sentinel_env,'validate',lambda *a,**k:None)
     monkeypatch.setattr(core,'merged_environment',lambda:env)
-    monkeypatch.setattr(activate.bootstrap,'discover',lambda actual:actual)
-    monkeypatch.setattr(activate.bootstrap.hardened,'Config',lambda actual:obj.cfg)
-    monkeypatch.setattr(activate.bootstrap,'BootstrapDeploy',lambda *a,**k:obj)
+    monkeypatch.setattr(activate.bootstrap,'discover',lambda actual, **_kwargs:actual)
+    monkeypatch.setattr(activate.roles, 'activation_types',
+        lambda mode: (lambda actual: obj.cfg, lambda *args, **kwargs: obj))
     monkeypatch.setattr(core,'Runner',lambda *a:obj.runner)
     monkeypatch.setattr(core,'_attempt_dir',lambda *a:tmp_path/'attempt')
     monkeypatch.setattr(core,'_utcnow',lambda:gate.NOW)
-    monkeypatch.setattr(installation.InstallationDeploy,'build_promote',
+    monkeypatch.setattr(installation,'select_certified_runtime',
         lambda actual:setattr(actual,'runtime_repo_digest',gate.RUNTIME))
     monkeypatch.setattr(activate,'financial_bundle',lambda *a:(bundle.path,bundle.sha256))
     monkeypatch.setattr(core,'deployment_request',lambda **k:pytest.fail('duplicate full reviewed validation'))

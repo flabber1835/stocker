@@ -1335,6 +1335,7 @@ def test_idle_loop_requires_real_progress_not_only_possible_work(monkeypatch, ma
             self.closed = True
     connection = Connection()
     monkeypatch.setattr(retention.store, 'connect', lambda *_a, **_k: connection)
+    monkeypatch.setattr(retention, '_closing_plan_pending', lambda _: False)
     monkeypatch.setattr(retention, 'maintain', lambda _: {
         'status': 'COMPLETE', 'more_work': True, 'progress_made': made_progress,
     })

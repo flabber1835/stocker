@@ -10,7 +10,7 @@ import time
 import pytest
 
 from sentinel import supervisor_io
-from sentinel.panel import authority_reader as reader, model, sources
+from sentinel.panel import authority_reader as reader, model, read_projection, sources, verification_service
 from tests.sentinel.test_operational_catalog_integration import cluster, conn  # noqa: F401
 
 
@@ -331,12 +331,23 @@ def test_positive_observation_is_reused_only_within_original_validity():
 
 
 def test_configuration_change_does_not_deliver_or_retain_old_positive_result(monkeypatch):
+    from sentinel import operational_ddl_epoch, operational_schema
+    from types import SimpleNamespace
+
+    native = SimpleNamespace(execute=lambda *_: SimpleNamespace(
+        fetchone=lambda: ('physical-fixture', 'fixture-database')))
+    monkeypatch.setattr(operational_schema, 'installation', lambda *_, **__: None)
+    monkeypatch.setattr(operational_ddl_epoch, 'current', lambda _: 1)
+    monkeypatch.setattr(read_projection, '_shadow_inventory', lambda _: [])
+    def evidence(database, _):
+        return read_projection._subject_for_revision(
+            native, database, 'SHADOW', ('fixture-incarnation', 1, '1'))
     entered, release = Event(), Event()
     def run(*args, **kwargs):
         entered.set()
         assert release.wait(3)
         return result()
-    value = reader.Reader(runner=run)
+    value = reader.Reader(runner=run, evidence_reader=evidence)
     value.read('fixture-database')
     assert entered.wait(1)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'changed-fixture')
@@ -414,10 +425,11 @@ def test_invalid_completed_rows_never_become_positive(field, value):
 
 
 def test_observer_has_a_small_allocation_boundary(monkeypatch):
+    monkeypatch.setattr(read_projection, 'subject_for', lambda *_: 'f'*64)
     monkeypatch.setattr(sources, '_dual_authority_rows', lambda *a, **k: (
         [model.Row('shadow_nav', 'NAV', 'x'*(reader.MAX_BYTES+1))], {}, [], []))
     with pytest.raises(ValueError, match='bound'):
-        reader._observe('fixture', False, reader._key('fixture', False, 'f'*64))
+        verification_service._observe_once('fixture', False, 'f'*64)
 
 
 def _stalled_process(filename):
@@ -437,7 +449,7 @@ def test_actual_spawned_observer_deadline_kills_and_reaps(tmp_path):
 
 
 def _threaded_fixture_runner(function, *args, **kwargs):
-    assert function is reader.diagnosed_observe
+    assert function is verification_service.diagnosed_observe
     assert kwargs == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
     # Real thread -> owned spawn -> bounded pipe -> parent validation. Only
     # the financial observation content is a named fixture, never authority.
@@ -544,15 +556,15 @@ def test_current_evidence_change_withdraws_even_a_fresh_completed_check():
     complete(value)
 
 
-def test_full_observer_refuses_an_identity_change_during_verification(monkeypatch):
+def test_scoped_observer_refuses_an_identity_change_during_verification(monkeypatch):
     identity = ['before']
-    monkeypatch.setattr(reader, '_evidence', lambda *a: identity[0])
+    monkeypatch.setattr(read_projection, 'subject_for', lambda *a: identity[0])
     def rows(*args, **kwargs):
         identity[0] = 'after'
         return [model.Row('fixture', 'Fixture', 'fixture')], {}, [], []
     monkeypatch.setattr(sources, '_dual_authority_rows', rows)
     with pytest.raises(ValueError, match='changed during'):
-        reader._observe('fixture', True, reader._key('fixture', True, 'before'))
+        verification_service._observe_once('fixture', False, 'before')
 
 
 def test_a_failed_check_cannot_be_restyled_as_an_owned_wait(monkeypatch):

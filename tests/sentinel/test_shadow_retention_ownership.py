@@ -1,12 +1,15 @@
-"""Disposal never inherits the financial advance's account ownership."""
+"""Retention is separate from financial work and respects the idle drain."""
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import fcntl
+import inspect
+import os
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel import rolling_runtime as runtime
-from sentinel import shadow_health_projection, shadow_service
+from sentinel import shadow_drain, shadow_health_projection, shadow_service, shadow_supervisor
 from sentinel.feed import retention
 
 
@@ -61,9 +64,9 @@ def invoke(service):
         observation_id="paper-source", starting_cash=100000, acquisition_deadline=object())
 
 
-def test_verified_health_stays_owned_and_disposal_runs_only_after_release(service):
+def test_verified_health_stays_owned_and_advance_does_not_run_disposal(service):
     assert invoke(service) is service.result
-    assert service.events == ["rollback", "acquire", "advance", "health", "release", "cleanup"]
+    assert service.events == ["rollback", "acquire", "advance", "health", "release"]
 
 
 def test_failed_advance_cannot_publish_health_or_enter_disposal(service, monkeypatch):
@@ -75,33 +78,23 @@ def test_failed_advance_cannot_publish_health_or_enter_disposal(service, monkeyp
     assert service.events == ["rollback", "acquire", "release"]
 
 
-def test_failed_health_hint_still_releases_ownership_before_best_effort_cleanup(service, monkeypatch, capsys):
+def test_failed_health_hint_still_releases_ownership(service, monkeypatch, capsys):
     def failed(*a, **kw):
         assert service.held[0]
         raise OSError("projection unavailable")
     monkeypatch.setattr(shadow_health_projection, "publish", failed)
     assert invoke(service) is service.result
-    assert service.events == ["rollback", "acquire", "advance", "release", "cleanup"]
+    assert service.events == ["rollback", "acquire", "advance", "release"]
     assert "shadow health projection unavailable: OSError" in capsys.readouterr().err
-
-
-def test_unexpected_disposal_failure_preserves_verified_result_and_rolls_back(service, monkeypatch, capsys):
-    def failed(_):
-        assert not service.held[0]
-        raise OSError("disposable cleanup unavailable")
-    monkeypatch.setattr(retention, "maintain", failed)
-    assert invoke(service) is service.result
-    assert service.events[-3:] == ["health", "release", "rollback"]
-    assert "rolling input maintenance unavailable: OSError" in capsys.readouterr().err
 
 
 def test_non_shadow_role_preserves_verification_and_does_not_publish_health(service, monkeypatch):
     monkeypatch.delenv("SENTINEL_FEED_SERVICE_MODE")
     assert invoke(service) is service.result
-    assert service.events == ["rollback", "acquire", "advance", "release", "cleanup"]
+    assert service.events == ["rollback", "acquire", "advance", "release"]
 
 
-def test_unchanged_branch_uses_same_best_effort_disposal_after_read_only_verification(service, monkeypatch):
+def test_unchanged_branch_renews_evidence_without_running_disposal(service, monkeypatch):
     from sentinel.feed import readiness
     monkeypatch.setattr(runtime, "classify", lambda *a, **kw: {
         "status": "VERIFIED_UNCHANGED", "result": service.result,
@@ -109,7 +102,51 @@ def test_unchanged_branch_uses_same_best_effort_disposal_after_read_only_verific
     monkeypatch.setattr(readiness, "save_snapshot", lambda *a: service.events.append("readiness"))
     monkeypatch.setattr(runtime, "_refresh_unchanged_health", lambda *a: service.events.append("health"))
     assert invoke(service) is service.result
-    assert service.events == ["readiness", "health", "cleanup"]
+    assert service.events == ["readiness", "health"]
+
+
+def test_idle_retention_holds_drain_admission_and_yields_to_a_drain(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow_supervisor, 'LATCH_FILE', tmp_path/'latch.json')
+    calls = []
+
+    def retain(url):
+        calls.append(url)
+        fd = os.open(tmp_path/shadow_drain.LOCK_NAME, os.O_RDONLY)
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        return True
+
+    monkeypatch.setattr(retention, 'idle_pass', retain)
+    assert shadow_supervisor._idle_retention('private') is True
+    monkeypatch.setattr(shadow_drain, '_acknowledge_idle', lambda *_, **__: True)
+    assert shadow_supervisor._idle_retention('private') is False
+    assert calls == ['private']
+
+
+def test_idle_retention_cannot_consume_the_next_close_wake(monkeypatch):
+    clock = [0.0]
+    close = datetime(2026, 11, 11, 21, tzinfo=timezone.utc)
+    monkeypatch.setattr(shadow_supervisor.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(shadow_supervisor.time, 'sleep', lambda n: clock.__setitem__(0, clock[0] + n))
+    monkeypatch.setattr(shadow_supervisor.shadow_budget, 'now', lambda: close + timedelta(seconds=clock[0]))
+    calls = []
+    args = dict(deadline=300, close_at=close + timedelta(seconds=8), stopping=lambda: False,
+                heartbeat=lambda: None, idle_work=lambda: calls.append(clock[0]) or False)
+    shadow_supervisor._poll_after_worker(**args)
+    assert clock[0] == 8 and calls == []
+
+    # Removing only the budget guard lets a child run with insufficient time.
+    source = inspect.getsource(shadow_supervisor._poll_after_worker)
+    guard = 'and remaining() > RETENTION_CHILD_SECONDS + RETENTION_REAP_SECONDS'
+    assert guard in source
+    altered = {}
+    exec(source.replace(guard, ''), vars(shadow_supervisor), altered)
+    clock[0] = 0
+    altered['_poll_after_worker'](**args)
+    assert calls == [0]
 
 
 def test_restoring_nested_cleanup_is_detected_by_lock_observation(service, monkeypatch):

@@ -46,6 +46,8 @@ def _utc(now: Optional[datetime]) -> datetime:
 def _require_backup_conn(conn, operation: str) -> None:
     try:
         backup_runtime_authority.require(conn, operation=operation)
+    except backup_runtime_authority.BackupIntegrityBusy:
+        raise
     except backup_runtime_authority.BackupRuntimeUnavailable as exc:
         raise backup_guard.BackupUnavailable(
             f"{operation}: runtime restore horizon unavailable: {exc}") from exc

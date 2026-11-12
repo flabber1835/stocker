@@ -108,13 +108,14 @@ def test_subject_check_has_typed_superseded_outcome_and_no_positive_result(monke
     assert diagnostic.phase == phase and 'rows' not in encoded
 
 
-def test_both_real_spawn_entrypoints_capture_failure_without_changing_direct_observer_contract(monkeypatch):
-    for owner, name in ((reader, '_observe'), (verifier, 'observe')):
-        monkeypatch.setattr(owner, name, lambda *args: private_failure())
-        encoded = owner.diagnosed_observe('private-fixture', False, 'expected')
-        assert failures.decode(encoded).code == 'READ_TIMEOUT'
-        with pytest.raises(QueryCanceled):
-            getattr(owner, name)('private-fixture', False, 'expected')
+def test_reader_uses_diagnosed_observer_without_changing_direct_observer_contract(monkeypatch):
+    monkeypatch.setattr(verifier, 'observe', lambda *args: private_failure())
+    observer = reader.Reader().observer
+    assert observer is verifier.diagnosed_observe
+    encoded = observer('private-fixture', False, 'expected')
+    assert failures.decode(encoded).code == 'READ_TIMEOUT'
+    with pytest.raises(QueryCanceled):
+        verifier.observe('private-fixture', False, 'expected')
 
 
 def fixture_reader(*, returned=None):

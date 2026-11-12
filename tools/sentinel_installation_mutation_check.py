@@ -47,7 +47,7 @@ MUTANTS = (
      'type(status.get("takeover_epoch")) is not int\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding does not match configured deployment/account")',
      'not isinstance(status.get("takeover_epoch"), int)\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding does not match configured deployment/account")',
      STORAGE_TEST + '::test_adjacent_owned_and_shadow_integrity_keep_epoch_types'),
-    ('shadow-takeover-type-weakened', 'scripts/sentinel_autonomous_deploy_entry.py',
+    ('shadow-takeover-type-weakened', 'scripts/sentinel_activation_roles.py',
      'type(status.get("takeover_epoch")) is not int', 'not isinstance(status.get("takeover_epoch"), int)',
      STORAGE_TEST + '::test_adjacent_owned_and_shadow_integrity_keep_epoch_types'),
     ('financial-read-inside-install', 'scripts/sentinel_autonomous_deploy.py',
@@ -74,7 +74,7 @@ MUTANTS = (
      "                    and fields.get('ActiveState') == 'active'\n", '',
      TEST + '::test_handoff_requires_exact_independent_systemd_owner'),
     ('wrong-image-revision-accepted', 'scripts/sentinel_installation_phase.py',
-     "                or labels.get('org.opencontainers.image.revision') != self.commit\n", '',
+     "            or labels.get('org.opencontainers.image.revision') != deploy.commit\n", '',
      TEST + '::test_independent_software_admission_rejects_mismatch_before_any_financial_work'),
     ('financial-no-go-accepted', 'scripts/sentinel_activation_coordinator.py',
      '    if completed.returncode:\n', '    if False and completed.returncode:\n',
@@ -90,7 +90,8 @@ MUTANTS = (
      '        _write_pointer(self.runtime_repo_digest)\n', '        pass\n',
      TEST + '::test_signed_install_selects_exact_runtime_only_after_durable_fence'),
     ('legacy-install-financial-build-restored', 'scripts/sentinel_autonomous_deploy.py',
-     "        if getattr(self, '_installation_only', False):\n", '        if False:\n',
+     "    def build_promote(self) -> None:\n        if getattr(self, '_installation_only', False):\n",
+     "    def build_promote(self) -> None:\n        if False:\n",
      TEST + '::test_legacy_install_objects_cannot_reenter_financial_build_path'),
     ('activation-financial-verification-skipped', 'scripts/sentinel_autonomous_deploy.py',
      '        self._installation_only = False\n', '',
@@ -120,7 +121,9 @@ def main():
                 shutil.copytree(ROOT / package, mutant / package, ignore=shutil.ignore_patterns('__pycache__'))
             # Child conftest derives its import root from its own path. Copy the
             # narrow test lens too, so production imports cannot escape a mutant.
-            for relative_test in ('tests/conftest.py', 'tests/sentinel/conftest.py', TEST, STORAGE_TEST):
+            for relative_test in ('tests/conftest.py', 'tests/legacy-backup-policy-modules.txt',
+                                  'tests/sentinel/conftest.py', 'tests/sentinel/legacy-fixture-modules.txt',
+                                  TEST, STORAGE_TEST):
                 destination = mutant / relative_test
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / relative_test, destination)

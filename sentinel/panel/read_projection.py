@@ -226,7 +226,20 @@ def changed_subject_wait(conn, row, *, scope, now):
         'account or verification inputs changed; waiting for the current bounded check',
         rows,checking_until=row[2])
     selected = PAPER_KEYS if scope=='PAPER' else SHADOW_KEYS
-    return [item for item in result[0] if item.key in selected], {}, [], result[3]
+    checking = [item for item in result[0] if item.key in selected]
+    if scope == 'SHADOW':
+        from sentinel.panel.shadow_source_wait import attestation_source
+        prior = next(item for item in rows if item.key == 'shadow_verification')
+        source = attestation_source(prior, now=now)
+        if source is not None:
+            boundary = min(prior.valid_until, row[2])
+            # Carry only the original bounded progress metadata. The old
+            # receipt cannot supply current financial values for this subject.
+            checking = [replace(item, as_of=prior.as_of, valid_until=boundary,
+                source_publication_version=source[0], source_session=source[1],
+                recovery=replace(item.recovery, deadline=boundary))
+                if item.key == 'shadow_verification' else item for item in checking]
+    return checking, {}, [], result[3]
 
 
 def _selected_scopes(include_paper, only_scope):
@@ -251,17 +264,18 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
         conn.rollback(); conn.close()
 
 
-def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None):
+def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
+               native_subjects=None):
     """Read through the caller's snapshot without owning its transaction.
 
-    Optional facts are invocation-local `_subject_facts` from this same
-    transaction. No connection, observer, commit, rollback or isolation change.
+    Optional facts and native subjects come from this same transaction's
+    coordinate capture. No connection, observer, commit, rollback or isolation change.
     """
     scopes=_selected_scopes(include_paper,only_scope)
     instant = now or datetime.now(timezone.utc)
     schema.require_schema(conn)
     facts_error = None
-    if facts is None:
+    if facts is None and native_subjects is None:
         try:
             facts=_subject_facts(conn)
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
@@ -272,7 +286,8 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
         try:
             if facts_error is not None:
                 raise facts_error
-            key = _subject(conn, database_url, scope, facts=facts)
+            key = (native_subjects[scope] if native_subjects is not None
+                   else _subject(conn, database_url, scope, facts=facts))
             row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
             if (row is None or row[1].isoformat() != row[3].get('observed_at')
                     or row[2].isoformat() != row[3].get('valid_until')):

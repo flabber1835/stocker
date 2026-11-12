@@ -17,7 +17,8 @@ from sentinel.shadow_recovery import (
 )
 
 from sentinel.shadow_exit_codes import (
-    EXIT_REFUSED, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE,
+    EXIT_REFUSED, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY,
+    EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY,
 )
 
 
@@ -80,11 +81,14 @@ def _availability_failure(exc: BaseException) -> bool:
 
 def _availability_exit(exc: BaseException) -> int:
     """Keep typed local/DB/backup deferrals separate from missing source."""
+    from sentinel.backup_runtime_authority import BackupIntegrityBusy
     from sentinel.feed.rolling_jobs import JobDeadlineExceeded
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if type(current) is BackupIntegrityBusy:
+            return EXIT_BACKUP_PROOF_BUSY
         if (database_unavailable(current) or local_contention(current)
                 or isinstance(current, JobDeadlineExceeded)
                 or _backup_availability(current)):
@@ -113,11 +117,11 @@ def main() -> int:
         from sentinel import shadow_dependency_notifications as notices
         notices.report_failure(exc, config)
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-        return EXIT_DEPENDENCY_UNAVAILABLE
+        return _availability_exit(exc)
     except ShadowServiceRetry as exc:
         if _availability_failure(exc):
             code = _availability_exit(exc)
-            if code == EXIT_DEPENDENCY_UNAVAILABLE:
+            if code in {EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY}:
                 from sentinel import shadow_dependency_notifications as notices
                 notices.report_failure(exc, config)
             print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
@@ -131,7 +135,7 @@ def main() -> int:
         if not _availability_failure(exc):
             raise
         code = _availability_exit(exc)
-        if code == EXIT_DEPENDENCY_UNAVAILABLE:
+        if code in {EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY}:
             from sentinel import shadow_dependency_notifications as notices
             notices.report_failure(exc, config)
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)

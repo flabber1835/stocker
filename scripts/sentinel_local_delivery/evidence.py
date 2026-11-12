@@ -286,14 +286,15 @@ def canonical_check(host, values, state):
     bound = {key: state['binding'][key] for key in _BINDING_KEYS}
     bound.update(ownership_state=state['binding']['ownership_state'],
                  notes=state['binding'].get('notes') or '')
-    repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
+    mode = handoff_mode(host.request)
+    repair = mode == 'BLOCKED_UNSENT'
     expected = dict(plan=None if repair else state['plan']['plan_id'], version=state['publication']['version'],
         account=state['control']['broker_account_id'], binding=bound,
         config=state['control']['config_sha256'],
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
-    if handoff_mode(host.request)=='POST_TRADE':
+    if mode == 'POST_TRADE':
         expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
-    if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
+    if mode == 'POST_TRADE_SUCCESSOR':
         expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
             reconciliation_id=state['reconciliation']['seq'],cycle_id=state['cycle']['cycle_id'],
             original_plan=state['successor']['original_plan'],
@@ -304,8 +305,7 @@ def canonical_check(host, values, state):
             generation=state['control']['generation'])
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
-        checks.BLOCKED_CANONICAL if repair else checks.SUCCESSOR_CANONICAL
-            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.CANONICAL,
+        checks.canonical_program(mode),
         json.dumps(expected, sort_keys=True), timeout=300)
     proof = json.loads(result.stdout)
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
@@ -556,15 +556,15 @@ def panel(host, state, *, wait_until=None):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
-    program=(checks.SKIPPED_PANEL if expected.get('clean_retired') else checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
-            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL)
+    program = checks.panel_program(handoff_mode(host.request),
+        clean_retired=expected.get('clean_retired') is True, observed=wait_until is not None)
     arguments=[json.dumps(expected, sort_keys=True)]
     timeout=35
     if wait_until is not None:
         from . import readiness
         remaining=(wait_until-utcnow()).total_seconds()
         require(0<remaining<=readiness.SECONDS+5,'APPLICATION_READINESS_DEADLINE')
-        arguments.extend([readiness.panel_validator(program),wait_until.isoformat()])
+        arguments.extend([program, wait_until.isoformat()])
         program=readiness.PANEL_WAIT
         timeout=remaining+5  # Owned child has the earlier original internal cutoff.
     result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',program,

@@ -72,7 +72,7 @@ def test_collector_is_lazy_picklable_reuses_one_observer_and_closes_it(monkeypat
         def close(self):
             self.closed = True
     monkeypatch.setattr(probe, 'Observer', Observer)
-    collector = pickle.loads(pickle.dumps(service.Collector()))
+    collector = pickle.loads(pickle.dumps(service.FastCollector()))
     assert created == []
     def collect(*args, **kwargs):
         calls.append((args, kwargs['shadow_observer']))

@@ -56,7 +56,15 @@ BACKUP_REFRESH_PREDECESSOR_REVISION = '3f7a8eb072cdc661a2800d1a9bf409b687a34f32'
 BACKUP_MARGIN_PREDECESSOR_REVISION = '047b3910cbb107fd303d214b4945069bdc688948'
 OPENING_STABILITY_PREDECESSOR_REVISION = '75b7c14f32f2e710561ef86a2d3d0782a019b355'
 MARKET_BUY_PREDECESSOR_REVISION = '5a49fa1b0e658bbb59dccda4089bb3ec1aada0e3'
+CLOSE_RELIABILITY_PREDECESSOR_REVISION = '1692c0421084198e3cba03d098d2d0f92adbb79d'
+SIMPLIFICATION_PREDECESSOR_REVISION = 'd75e75a01051662e8948254ebbd562a15c8fac3e'
+BACKUP_HEADROOM_PREDECESSOR_REVISION = 'a81a9e406997e4057f92c2be4b33ba89a060e038'
+OPENING_RECOVERY_PREDECESSOR_REVISION = 'fad555c0ea0449a9225b01c8f6d96e22140b35b3'
 RETAINED_PREDECESSORS = {
+    OPENING_RECOVERY_PREDECESSOR_REVISION: (475, '129def6620017e734a6733dd9cfc541f8fd9a12f52f8227c9f3737e444d5f1fe'),
+    BACKUP_HEADROOM_PREDECESSOR_REVISION: (475, '43794042e2f39be91712bbd5dfe764a411976fa8b9105a9a83b9cc44c634d151'),
+    SIMPLIFICATION_PREDECESSOR_REVISION: (473, '6e5c9464b95d991f8af2887e22cddaf3f3348b0c5deb0ade7dd960208f811772'),
+    CLOSE_RELIABILITY_PREDECESSOR_REVISION: (471, '9b7907bf1bbd7080607802f329604e7c554d3d5da6ae005cfa2532ca7129ef43'),
     MARKET_BUY_PREDECESSOR_REVISION: (469, '082bc5ae6789dea75a193b4c49ba51b3e1123b49505bec62344de151afa09544'),
     OPENING_STABILITY_PREDECESSOR_REVISION: (469, '81e23cc8b17e0ad3b754e1b972b2bbe3f3927419fc19115ec0e6dfd15ad1f0e5'),
     BACKUP_MARGIN_PREDECESSOR_REVISION: (469, '3cd7fe2e6195939cec67a2e459ac542b6b30ba24b0ca7f9226bc4467f43e1726'),
@@ -103,9 +111,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = '428e8d2ecb0ff35985052fd4fc1f23cd30f5a119693fbcbd8eb6637bfb9fde74'
+PROFILE_SHA256 = '972c431ec46fc007ab209c742815988a30dec2fe50a58115e0a6269d5bf11fef'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/45'
+_SCHEMA = 'sentinel.url-selected-trading-transition/49'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -218,41 +226,7 @@ def _profile() -> dict | None:
                 or len(record['files']) != count
                 or _validated_closure(record['files']) != expected_sha):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
-        if revision in {REVIEWED_PREDECESSOR_REVISION, INSTALLED_PREDECESSOR_REVISION,
-                        DASHBOARD_PREDECESSOR_REVISION, PAPER_RELEASE_PREDECESSOR_REVISION,
-                        VERIFIER_PREDECESSOR_REVISION, OPERATIONAL_PREDECESSOR_REVISION,
-                        PATCH_PREDECESSOR_REVISION, LOCAL_PROBE_PREDECESSOR_REVISION,
-                        PREPARATION_PREDECESSOR_REVISION, CHECKPOINT_ACCESS_PREDECESSOR_REVISION,
-                        FEED_DISPLAY_PREDECESSOR_REVISION, STARTUP_PREDECESSOR_REVISION,
-                        EFFICIENCY_PREDECESSOR_REVISION, DIAGNOSTIC_PREDECESSOR_REVISION,
-                        ROOT_CAUSE_PREDECESSOR_REVISION,
-                        READ_COST_PREDECESSOR_REVISION,
-                        LIVENESS_PREDECESSOR_REVISION,
-                        IDENTITY_AVAILABILITY_PREDECESSOR_REVISION,
-                        WORK_COORDINATION_PREDECESSOR_REVISION,
-                        PANEL_PRESENTATION_PREDECESSOR_REVISION,
-                        STARTUP_PROFILE_PREDECESSOR_REVISION,
-                        ACTIVATION_HEALTH_PREDECESSOR_REVISION,
-                        PLAN_WORK_PREDECESSOR_REVISION,
-                        BACKUP_RENEWAL_PREDECESSOR_REVISION,
-                        OPENING_OBSERVATION_PREDECESSOR_REVISION,
-                        BOUNDARY_DISPLAY_PREDECESSOR_REVISION,
-                        DISPLAY_DEPENDENCY_PREDECESSOR_REVISION,
-                        DISPLAY_SEQUENCE_PREDECESSOR_REVISION,
-                        CLOSE_TRACE_PREDECESSOR_REVISION,
-                        ACCOUNT_CLOCK_PREDECESSOR_REVISION,
-                        INTEGRITY_WORK_PREDECESSOR_REVISION,
-                        BACKUP_DEADLINE_PREDECESSOR_REVISION,
-                        MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,
-                        OPENING_REPAIR_PREDECESSOR_REVISION,
-                        TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,
-                        RETIREMENT_RENEWAL_PREDECESSOR_REVISION,
-                        INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,
-                        CLOSE_ROOT_PREDECESSOR_REVISION,
-                        BACKUP_REFRESH_PREDECESSOR_REVISION,
-                        BACKUP_MARGIN_PREDECESSOR_REVISION,
-                        OPENING_STABILITY_PREDECESSOR_REVISION,
-                        MARKET_BUY_PREDECESSOR_REVISION}:
+        if revision not in {PREVIOUS_BASE_REVISION, RETAINED_REVISION}:
             if not set(record['files']) <= set(candidate) | {_SELF}:
                 raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         elif set(record['files']) - set(baseline):
@@ -264,17 +238,23 @@ def _profile() -> dict | None:
     return value
 
 
-def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str, str]:
-    """Translate only the complete sealed candidate; retain actual identities."""
+def predecessor_views(actual: Mapping[str, str], *, previous=None):
+    """Authenticate the candidate once and return its predecessor and base views."""
     value = _profile()
     if value is None:
-        return actual
+        return actual, actual
     expected = dict(value['candidate_files'])
     expected[_SELF] = _sha(Path(__file__).read_bytes())
     if actual != expected:
-        return actual
+        return actual, actual
+    base = value['base_files']
     for record in value['retained_predecessors'].values():
         retained = record['files']
         if previous == retained:
-            return retained
-    return value['base_files']
+            return retained, base
+    return base, base
+
+
+def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str, str]:
+    """Translate only the complete sealed candidate; retain actual identities."""
+    return predecessor_views(actual, previous=previous)[0]

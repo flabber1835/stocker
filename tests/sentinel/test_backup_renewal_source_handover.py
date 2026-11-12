@@ -1,6 +1,7 @@
 """Only backup presentation changes; all predecessor and economic pins remain."""
 import hashlib,json
 from sentinel import runtime_admission as admission,url_selected_source_basis as basis
+from tests.support.source_history import pre_market_history
 
 def test_exact_installed_backup_projection_predecessor_is_preserved():
     profile=basis._profile();revision=basis.BACKUP_RENEWAL_PREDECESSOR_REVISION
@@ -12,4 +13,4 @@ def test_exact_installed_backup_projection_predecessor_is_preserved():
     assert {n for n in actual if actual[n]!=before[n]}=={
         'panel/model.py','panel/presentation.py','panel/sources.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'

@@ -9,6 +9,9 @@ import hashlib
 import json
 import os
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -26,6 +29,45 @@ MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_PAGES = 2000
 MAX_RETRIES = 4
 MIN_REQUEST_INTERVAL_SECONDS = 0.35  # Basic historical-data allowance: 200/min.
+
+
+@dataclass
+class RequestMetrics:
+    requests: int = 0
+    retries: int = 0
+    response_bytes: int = 0
+    rate_limits: int = 0
+    elapsed_ns: dict[str, int] = field(default_factory=dict)
+
+    def fields(self):
+        return dict(requests=self.requests, retries=self.retries, response_bytes=self.response_bytes,
+                    rate_limits=self.rate_limits,
+                    **{name + '_ms': self.elapsed_ns.get(name, 0) // 1_000_000
+                       for name in ('pacing', 'http', 'decode', 'retry_backoff')})
+
+
+_request_metrics: ContextVar[RequestMetrics | None] = ContextVar('alpaca_request_metrics', default=None)
+
+
+@contextmanager
+def measure_requests():
+    """Aggregate diagnostics for one caller-owned part, without touching proof bytes."""
+    metrics = RequestMetrics()
+    token = _request_metrics.set(metrics)
+    try:
+        yield metrics
+    finally:
+        _request_metrics.reset(token)
+
+
+@contextmanager
+def _measure(metrics, phase):
+    started = time.perf_counter_ns()
+    try:
+        yield
+    finally:
+        if metrics is not None:
+            metrics.elapsed_ns[phase] = metrics.elapsed_ns.get(phase, 0) + time.perf_counter_ns() - started
 
 
 class AlpacaTransportRefused(RuntimeError):
@@ -78,18 +120,27 @@ class Client:
             raise AlpacaTransportRefused("Alpaca read-only data credentials are absent")
         headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
         url = endpoint + ("?" + urlencode(params) if params else "")
+        metrics = _request_metrics.get()
         for attempt in range(MAX_RETRIES):
             rolling_work.checkpoint()
-            self._pace()
+            with _measure(metrics, 'pacing'):
+                self._pace()
             request = Request(url, headers=headers, method="GET")
+            if metrics is not None:
+                metrics.requests += 1
+                metrics.retries += int(attempt > 0)
             try:
-                with self._opener.open(request, timeout=45) as response:
-                    if response.status != 200:
-                        raise AlpacaTransportRefused("provider returned a non-200 response")
-                    raw = response.read(MAX_RESPONSE_BYTES + 1)
-                    if len(raw) > MAX_RESPONSE_BYTES:
-                        raise AlpacaTransportRefused("provider response exceeds bounded size")
-                    observed = self._clock().astimezone(timezone.utc).isoformat()
+                with _measure(metrics, 'http'):
+                    with self._opener.open(request, timeout=45) as response:
+                        if response.status != 200:
+                            raise AlpacaTransportRefused("provider returned a non-200 response")
+                        raw = response.read(MAX_RESPONSE_BYTES + 1)
+                        if metrics is not None:
+                            metrics.response_bytes += len(raw)
+                        if len(raw) > MAX_RESPONSE_BYTES:
+                            raise AlpacaTransportRefused("provider response exceeds bounded size")
+                        observed = self._clock().astimezone(timezone.utc).isoformat()
+                with _measure(metrics, 'decode'):
                     try:
                         value = raw.decode("utf-8-sig") if text else json.loads(raw)
                     except (UnicodeError, ValueError):
@@ -104,6 +155,8 @@ class Client:
                         "provider refused request with HTTP " + str(exc.code)) from None
                 wait = 0
                 if exc.code == 429:
+                    if metrics is not None:
+                        metrics.rate_limits += 1
                     raw_wait = exc.headers.get("Retry-After", "1") if exc.headers else "1"
                     try:
                         wait = min(60, max(1, int(raw_wait)))
@@ -113,7 +166,8 @@ class Client:
                 wait = 0
             if attempt + 1 == MAX_RETRIES:
                 break
-            self._sleep(max(wait, min(2 ** attempt, 8)))
+            with _measure(metrics, 'retry_backoff'):
+                self._sleep(max(wait, min(2 ** attempt, 8)))
         raise AlpacaTransportUnavailable("provider request exhausted its retry budget")
 
     def pages(self, endpoint: str, params: dict, *, key: str):

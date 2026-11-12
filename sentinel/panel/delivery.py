@@ -66,6 +66,47 @@ def opening_refresh_deadline(panel):
     return None
 
 
+def closing_refresh_deadline(panel):
+    """Bound partial close delivery to already proved operational progress."""
+    from sentinel.feed import calendar
+    from sentinel.panel.operational_snapshot import MAX_SECONDS
+    from sentinel.panel.presentation import _fresh_worker, _row_boundary
+
+    generated, until = panel.observation_generated_at, panel.observation_valid_until
+    review = panel.operator_review
+    changed = set(panel.observation_changed_scopes)
+    if (not panel.local_paper_mode or panel.source_errors or not changed
+            or changed - {'SHADOW', 'PAPER'} or generated is None or until is None
+            or review is None or review.status not in {'CLEAN', 'REVIEW'}):
+        return None
+    now = panel.now
+    boundary = min(until, generated + timedelta(seconds=MAX_SECONDS))
+    if not generated <= now < boundary or not _fresh_worker(panel, 'shadow_worker'):
+        return None
+    worker = panel.row('shadow_worker')
+    if not row_current(panel, worker):
+        return None
+    feed = panel.row('feed')
+    if feed is None or not row_current(panel, feed) or feed.is_future(now) or feed.is_stale(now):
+        return None
+    fact, recovery = feed.operational_fact, feed.recovery
+    ready = (feed.effective_status(now) == model.OK and fact is not None
+             and fact.kind == 'MARKET_DATA' and fact.state == 'READY' and fact.sessions_behind == 0)
+    preparing = (feed.effective_status(now) == model.WARN and recovery is not None
+                 and recovery.phase in {'FEED_INGEST', 'POST_CLOSE_SOURCE_WAIT',
+                                        'SOURCE_PUBLICATION', 'SHADOW_ATTESTATION', 'READINESS_HANDOFF'}
+                 and recovery.active(now))
+    if not ready and not preparing:
+        return None
+    session = calendar.latest_closed_session(now)
+    closed = calendar.session_window(session)[1]
+    opened = calendar.session_window(calendar.next_session(session))[0]
+    if not closed <= now < opened or ready and str(fact.session) != session:
+        return None
+    boundary = min(boundary, opened, worker.valid_until, _row_boundary(feed) or boundary)
+    return boundary if now < boundary else None
+
+
 def row_current(panel, row):
     if panel.observation_current:
         return True

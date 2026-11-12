@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime,timedelta
 from decimal import Decimal
 import inspect,textwrap
+from types import SimpleNamespace
 import pytest
 from sentinel.panel import sources,model,observer_codec,observer_failure
 from sentinel import dual_plan_authority, local_paper
@@ -56,6 +57,63 @@ def test_executing_before_submission_is_not_a_mirror_mismatch(ongoing):
     v['cycle']['observation_callback']={'started_at':v['cycle']['updated_at'],'deadline':NOW+timedelta(minutes=2)}
     v['row']=replace(v['row'],trading_run=v['row'].trading_run.model_copy(update={'state':'EXECUTING','orders':[]}))
     assert observe(v).status==model.WARN
+
+
+@pytest.mark.parametrize('stamp,history', [('unstamped', 0), ('unstamped', 2), ('pending', 0), ('pending', 2)])
+@pytest.mark.parametrize('state', ['EXECUTING', 'RECONCILING'])
+def test_current_plan_projection_uses_exact_pending_transport(ongoing, monkeypatch, stamp, history, state):
+    v = ongoing
+    cycle = v['cycle']
+    callback = {'started_at': cycle['updated_at'], 'deadline': NOW + timedelta(seconds=45)}
+    cycle['observation_callback'] = callback
+    if state == 'EXECUTING':
+        cycle.update(state=state, failure_code=None, failure_detail=None)
+        v['health'].latest_cycle_state = state
+        v['health'].broker_outcome_unresolved = 0
+        v['row'] = replace(v['row'], trading_run=v['row'].trading_run.model_copy(
+            update={'state': state, 'orders': []}))
+    read = sources._in_progress_paper_mirror
+    monkeypatch.setattr(sources, '_in_progress_paper_mirror',
+        lambda conn, cycle, publication, frontier: read(conn, cycle, publication, frontier, now=NOW))
+    monkeypatch.setattr(sources, '_latest_automation_cycle', lambda _: cycle)
+    monkeypatch.setattr(sources, '_informational_mirror_count', lambda _: 2 if history else int(stamp == 'pending'))
+    publication = SimpleNamespace(current=lambda _: v['publication'], frontier=lambda *_: '2026-10-30')
+    gate_reads = []
+
+    def transport_gate(conn, *, current_frontier, current_publication_version):
+        gate_reads.append((current_frontier, current_publication_version))
+        return {'status': mirror.MISMATCH if history else mirror.NO_UNIT_CHANGE,
+                'historical_mismatch_count': history}
+
+    def current_stamp(conn, *, plan_id, plan_fingerprint, **kwargs):
+        assert plan_id == cycle['plan_id'] and plan_fingerprint == cycle['plan_fingerprint']
+        if stamp == 'unstamped':
+            raise mirror.InformationalPaperMirrorUnstamped('no indexed mirror stamp')
+        return {'status': mirror.PENDING}
+
+    monkeypatch.setattr(mirror, 'require_transport_permitted', transport_gate)
+    monkeypatch.setattr(mirror, 'require_current_plan_status', current_stamp)
+    row = sources._dual_paper_row(object(), informational_paper_mirror=mirror,
+                                  publication=publication, feed_store=None)
+    assert gate_reads == [('2026-10-30', v['publication'].version)]
+    assert row.status == model.WARN and row.operational_fact.state == 'PENDING'
+    assert row.recovery.phase == 'PAPER_TRANSPORT' and row.valid_until == callback['deadline']
+    assert ('2 historical' in row.detail) is bool(history)
+
+    callback['deadline'] = NOW
+    row = sources._dual_paper_row(object(), informational_paper_mirror=mirror,
+                                  publication=publication, feed_store=None)
+    assert row.recovery is None
+
+    def current_mismatch(*args, **kwargs):
+        raise mirror.InformationalPaperMirrorMismatch('current plan share-unit mismatch')
+
+    callback['deadline'] = NOW + timedelta(seconds=45)
+    monkeypatch.setattr(mirror, 'require_current_plan_status', current_mismatch)
+    row = sources._dual_paper_row(object(), informational_paper_mirror=mirror,
+                                  publication=publication, feed_store=None)
+    assert row.status == model.FAIL and row.recovery is None
+    assert 'current plan share-unit mismatch' in row.detail
 
 
 def test_due_recovery_wake_uses_actual_fenced_callback_deadline(ongoing):

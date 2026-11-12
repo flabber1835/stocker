@@ -1,5 +1,21 @@
 # Sentinel current operating contract
 
+[November 12 PAPER opening recovery](paper-opening-recovery-20261112.md) records
+the opening evidence handoff, verification renewal and reconciliation fixes.
+
+[Backup verification renewal headroom](backup-renewal-headroom.md) records the
+earlier full verification trigger for backed PAPER.
+
+[Close runtime simplification](simplify-close-runtime.md) records the retention
+schedule, retained-source verification and predecessor of the follow-up PR.
+
+[November 11 close reliability](close-reliability-delivery-20261111.md)
+records the trace fixes and the backed local PAPER delivery boundary.
+
+[Close verification work scheduling](close-scan-reservation-20261111.md)
+reserves the existing heavy snapshot slot for bounded close work while a
+current verified result covers any deferred optional refresh.
+
 [Whole-share PAPER market buys](paper-market-buys.md) defines an opt-in
 policy for regular-session buys with serial cash reconciliation. Selection
 requires a separate qualified PAPER activation on a fresh plan.

@@ -2,6 +2,7 @@
 import pytest
 
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
+from tests.support.source_history import pre_market_history
 
 
 def test_close_patch_is_exact_nonfinancial_successor_of_installed_application():
@@ -19,7 +20,7 @@ def test_close_patch_is_exact_nonfinancial_successor_of_installed_application():
         'panel/postclose_feed_wait.py','panel/projection_service.py','panel/publication_wait.py',
         'panel/readiness_handoff.py','panel/render.py','panel/sources.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
 
 
 def test_partial_or_changed_candidate_cannot_translate_into_old_authority():

@@ -15,6 +15,7 @@ from sentinel.panel import model, operational_snapshot as snapshots
 from sentinel.panel import projection_service as producer, review_schema, review_store, sources
 from tests.sentinel.test_operational_read_projection import install_projection
 from tests.sentinel.test_supervisor_dependency_bounds import conn, pg  # noqa: F401
+from tests.support.panel_composition import compose_and_publish, isolate_storage
 
 
 def database_now(conn):
@@ -58,7 +59,9 @@ def composed_rows(now):
 
 
 @pytest.fixture
-def late(conn, monkeypatch):
+def late(conn, monkeypatch, tmp_path):
+    isolate_storage(tmp_path, monkeypatch)
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'operational-heartbeat')
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'late-qualification-'+'x'*40)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
     monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
@@ -81,6 +84,8 @@ def late(conn, monkeypatch):
     rows = composed_rows(heartbeat)
     page = model.Panel(rows=rows, now=heartbeat, local_paper_mode=True)
     monkeypatch.setattr(sources, 'build_panel', lambda **_: page)
+    from sentinel.panel import composition
+    monkeypatch.setattr(composition, 'native_services', lambda _conn, rows, **_: rows)
     return SimpleNamespace(conn=conn, owner_id=owner_id, heartbeat=heartbeat,
         expiry=expiry, wake=wake, rows=rows, page=page)
 
@@ -90,7 +95,7 @@ def by_key(rows, key):
 
 
 def publish(late):
-    return producer.publish_once(late.conn.info.dsn, late.owner_id,
+    return compose_and_publish(late.conn.info.dsn, late.owner_id,
         '/var/lib/sentinel', 'late-qualification-verifier')
 
 
@@ -280,6 +285,8 @@ def test_actual_expiry_after_late_observation_rolls_back_snapshot_and_review(lat
     late.conn.commit()
     original = serialization.preflight
     def expire_during_real_publication(panel):
+        if panel.operator_review is None:
+            return original(panel)
         assert panel.row('automation_leader').valid_until == expiry
         assert database_now(late.conn) < expiry
         # The database clock, not a mocked datetime or widened expiry, advances.

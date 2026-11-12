@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from time import perf_counter_ns
 from zoneinfo import ZoneInfo
 
 from sentinel.feed import calendar, progress, rolling_jobs as jobs
@@ -14,7 +15,7 @@ from sentinel.feed.alpaca_observation import (
     structural_action_date, stock_split, bar_page_rows, admissible_history,
 )
 from sentinel.feed.alpaca_transport import (
-    ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused, Client,
+    ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused, Client, measure_requests,
 )
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import digest
@@ -91,16 +92,28 @@ class AlpacaSource:
         elif component.startswith('SEP.'):
             _, lo, hi = component.split('.')
             details.update(date_from=lo,date_to=hi)
+        details['job_id'] = self.lease.job_id
         with self.parts.unit():
             retained = self.parts.get(component, generation,
                                       defer_prices=self.verify_during_coverage
                                       and component.startswith("SEP."))
             if retained is None:
                 progress.emit("source_download", "started", **details,
-                              reason="ACQUIRE_MISSING_PART", job_id=self.lease.job_id)
-                payload, prices, evidence, rows = acquire()
-                retained = self.parts.put(component, generation, payload=payload,
-                                          prices=prices, evidence=evidence, rows=rows)
+                              reason="ACQUIRE_MISSING_PART")
+                started = perf_counter_ns()
+                status, rows = 'failed', 0
+                with measure_requests() as requests:
+                    try:
+                        payload, prices, evidence, rows = acquire()
+                        status = 'completed'
+                    finally:
+                        progress.emit('alpaca_part_acquire', status, rows=rows,
+                                      elapsed_ms=(perf_counter_ns() - started) // 1_000_000,
+                                      **details, **requests.fields())
+                with progress.phase('alpaca_part_persist', **details) as count:
+                    retained = self.parts.put(component, generation, payload=payload,
+                                              prices=prices, evidence=evidence, rows=rows)
+                    count[0] = rows
                 reason = "PART_COMMITTED"
             else:
                 reason = "RETAINED_PART_REUSED"
@@ -114,7 +127,7 @@ class AlpacaSource:
             checkpoint(component, generation, manifest["content_sha256"],
                        manifest["rows"], 0)
             progress.emit("source_replay", "completed", **details,
-                          reason=reason, rows=manifest["rows"], job_id=self.lease.job_id)
+                          reason=reason, rows=manifest["rows"])
             return payload
 
     def _inventory(self):
@@ -385,8 +398,10 @@ class AlpacaSource:
                 raw, raw_proofs = self._bars(safe_symbols, lo, hi, "raw")
                 adjusted, adjusted_proofs = self._bars(safe_symbols, lo, hi, "split")
                 sessions = {str(day) for day in self.window.sessions if lo <= str(day) <= hi}
-                rows, absent = paired_month(raw, adjusted, symbols=safe_symbols,
-                                            sessions=sessions)
+                with progress.phase('alpaca_price_pairing', job_id=self.lease.job_id,
+                                    table='SEP', date_from=lo, date_to=hi) as count:
+                    rows, absent = paired_month(raw, adjusted, symbols=safe_symbols, sessions=sessions)
+                    count[0] = len(rows)
                 return {"pair_absent": [list(key) for key in sorted(absent)]}, rows, \
                     {"raw": raw_proofs, "split": adjusted_proofs}, len(rows)
             payload = self._part(component, generation, acquire, checkpoint)

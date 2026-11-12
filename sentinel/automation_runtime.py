@@ -20,7 +20,7 @@ from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, NoReturn
 from zoneinfo import ZoneInfo
 
 from sentinel import identity as system_identity, paper, schema, trial
@@ -30,6 +30,7 @@ from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
+    BackupProofBusy,
     CycleContext,
     CycleSpec,
     CycleState,
@@ -307,6 +308,8 @@ def classify_dependency_failure(
         exc: BaseException) -> AutomationRefused | None:
     """Map reviewed dependency failures; leave programming defects unknown."""
     from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
+    from sentinel.backup_retry import busy_reason
+    from sentinel.backup_runtime_authority import BackupIntegrityBusy
     from sentinel.dependency_availability import database_unavailable, local_contention
     from sentinel.execution.guarded import BrokerAuthorityCheckFailed, OrderFundingNotReady, PreTransportAuthorityRefused
     from sentinel.execution.opening_prices import OpeningPriceNotReady
@@ -327,6 +330,9 @@ def classify_dependency_failure(
         return TransientInfrastructureFailure(f"local database lock unavailable: {exc}")
     if isinstance(exc, BackupConfigurationRefused):
         return BackupPermanentFailure(f"backup integrity refused: {exc}")
+    if type(exc) is BackupIntegrityBusy:
+        return BackupProofBusy(f"backup durability is temporarily unavailable: {exc}",
+                               reason=busy_reason(exc))
     if isinstance(exc, BackupUnavailable):
         return BackupTransientFailure(f"backup temporarily unavailable: {exc}")
     if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
@@ -654,6 +660,9 @@ def _observe_callback_authority(sentinel_config, automation_config, holder_id, p
 class ProductionAutomation:
     """Inject canonical production actions into the durable automation core."""
 
+    _service_type = AutomationService
+    backup_proof_completed = None
+
     def __init__(self, *, sentinel_config: SentinelConfig,
                  automation_config: AutomationConfig,
                  holder_id: str | None = None,
@@ -691,12 +700,13 @@ class ProductionAutomation:
         # result or a grant. Mutable lifecycle/control facts are still polled.
         self._idle_attestation: tuple[datetime, tuple] | None = None
         self._idle_attestation_observed_at: datetime | None = None
-        self.service = AutomationService(
+        self.service = self._service_type(
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
             notify=self.notify, terminal=self.certify_terminal_cycle,
             source_completion_hint=self.source_completion_hint,
+            backup_proof_completed=self.backup_proof_completed,
             callback_authority=self.callback_authority)
 
     def callback_authority(self, context, stopped):
@@ -762,7 +772,7 @@ class ProductionAutomation:
             conn.rollback()
             return False
 
-    def _raise_authority_refusal(self, exc):
+    def _raise_authority_refusal(self, exc) -> NoReturn:
         if isinstance(exc, StaleLeaderRefused):
             raise exc
         temporary = classify_dependency_failure(exc)
@@ -782,68 +792,71 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _assert_control_authority(self, conn, permit, *, require_publication=False):
-        """Verify current signed authority without requiring any cycle row."""
-        try:
-            store.require_leader(conn, permit)
-            control = store.load_control(conn)
-            if (control.binding is None
-                    or control.generation != permit.control_generation
-                    or control.config_sha256
-                    != self.automation_config.fingerprint):
-                raise RuntimeError("automation control authority is stale")
-            rollout = load_rollout_state(conn)
-            current = feed_inputs.require_current(conn)
-            started = time.monotonic()
-            _controller, strategy = production_strategy()
-            runtime_identity = system_identity.rehearsal_identity()
-            self._warn_slow_authority_stage("runtime-source-packages", started)
-            started = time.monotonic()
-            certificate = require_current_authority(
-                conn, runtime_identity=runtime_identity,
-                strategy_identity=strategy, required_mode=rollout.mode,
-                required_operation="AUTOMATION",
-                paper_base_url=self.sentinel_config.base_url,
-                current_publication_version=current.version,
-                automation_config_sha256=self.automation_config.fingerprint)
-            self._warn_slow_authority_stage("signed-authority-publication", started)
-            bound = control.binding
-            if (bound is None
-                    or (getattr(self, "_live_run_enabled", False)
-                        and bound.broker != "alpaca-live")
-                    or certificate.certificate_sha256
-                    != bound.certificate_sha256
-                    or bound.rollout_mode != rollout.mode.value
-                    or bound.rollout_version != rollout.version):
-                raise RuntimeError(
-                    "current automation binding and signed authority differ")
-        except Exception as exc:                              # noqa: BLE001
-            self._idle_attestation = None
-            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
-                conn.rollback()
-            else:
-                self._record_authority_verdict(
-                    conn, permit, verdict="FAIL",
-                    detail=f"{type(exc).__name__}: {exc}")
-            self._raise_authority_refusal(exc)
-        published = self._record_authority_verdict(
+    def _validate_control_authority(self, conn, permit):
+        """Check the original authority scope without publishing a verdict."""
+        store.require_leader(conn, permit)
+        control = store.load_control(conn)
+        bound = control.binding
+        if (bound is None or control.generation != permit.control_generation
+                or control.config_sha256 != self.automation_config.fingerprint):
+            raise RuntimeError("automation control authority is stale")
+        rollout = load_rollout_state(conn)
+        current = feed_inputs.require_current(conn)
+        started = time.monotonic()
+        _controller, strategy = production_strategy()
+        runtime_identity = system_identity.rehearsal_identity()
+        self._warn_slow_authority_stage("runtime-source-packages", started)
+        started = time.monotonic()
+        certificate = require_current_authority(
+            conn, runtime_identity=runtime_identity,
+            strategy_identity=strategy, required_mode=rollout.mode,
+            required_operation="AUTOMATION",
+            paper_base_url=self.sentinel_config.base_url,
+            current_publication_version=current.version,
+            automation_config_sha256=self.automation_config.fingerprint)
+        self._warn_slow_authority_stage("signed-authority-publication", started)
+        if ((getattr(self, "_live_run_enabled", False) and bound.broker != "alpaca-live")
+                or certificate.certificate_sha256 != bound.certificate_sha256
+                or bound.rollout_mode != rollout.mode.value
+                or bound.rollout_version != rollout.version):
+            raise RuntimeError("current automation binding and signed authority differ")
+        return control, certificate
+
+    def _finish_authority_refusal(self, conn, permit, exc, *, record_verdict) -> NoReturn:
+        self._idle_attestation = None
+        if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
+            conn.rollback()
+        elif record_verdict:
+            self._record_authority_verdict(
+                conn, permit, verdict="FAIL", detail=f"{type(exc).__name__}: {exc}")
+        self._raise_authority_refusal(exc)
+
+    def _record_authority_pass(self, conn, permit, certificate):
+        # The PAPER revision tracks the detail as well as the verdict. Reuse
+        # the same detail so a fresh clock alone does not invalidate it.
+        return self._record_authority_verdict(
             conn, permit, verdict="PASS",
             detail=(f"signed certificate {certificate.certificate_sha256} "
                     "verified for active automation control"))
+
+    def _assert_control_authority(self, conn, permit, *, require_publication=False):
+        """Verify current signed authority without requiring any cycle row."""
+        try:
+            control, certificate = self._validate_control_authority(conn, permit)
+        except Exception as exc:                              # noqa: BLE001
+            self._finish_authority_refusal(conn, permit, exc, record_verdict=True)
+        published = self._record_authority_pass(conn, permit, certificate)
         if require_publication and not published:
             raise TransientInfrastructureFailure('callback authority verdict could not be persisted')
         return control, certificate
 
     def _assert_cycle_authority(
             self, conn, context: CycleContext, *, operation_scope: str,
-            verified_control=None):
+            verified_control=None, record_verdict=True):
         context.require_active()
-        if verified_control is None:
-            control, certificate = self._assert_control_authority(
-                conn, context.permit)
-        else:
-            control, certificate = verified_control
         try:
+            control, certificate = (self._validate_control_authority(conn, context.permit)
+                                    if verified_control is None else verified_control)
             cycle = store.load_cycle(conn, context.cycle.cycle_id)
             bound = control.binding
             assert bound is not None                          # proven above
@@ -861,19 +874,9 @@ class ProductionAutomation:
                     "old-generation cycle lacks current fenced read-only "
                     "recovery adoption")
         except Exception as exc:                              # noqa: BLE001
-            self._idle_attestation = None
-            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
-                conn.rollback()
-            else:
-                self._record_authority_verdict(
-                    conn, context.permit, verdict="FAIL",
-                    detail=f"{type(exc).__name__}: {exc}")
-            self._raise_authority_refusal(exc)
-        if verified_control is None:
-            self._record_authority_verdict(
-                conn, context.permit, verdict="PASS",
-                detail=(f"signed certificate {certificate.certificate_sha256} "
-                        f"verified for automation cycle {cycle.cycle_id}"))
+            self._finish_authority_refusal(conn, context.permit, exc, record_verdict=record_verdict)
+        if verified_control is None and record_verdict:
+            self._record_authority_pass(conn, context.permit, certificate)
         return cycle, control
 
     @staticmethod
@@ -1070,6 +1073,48 @@ class ProductionAutomation:
                 minimum_quantity_increment=minimum_quantity_increment)
             if delta.classification is not execution_commands.DeltaClass.NONE)
 
+    def _refresh_inputs(self, conn):
+        current = feed_inputs.current(conn)
+        if self._operational_source_only:
+            if not feed_inputs.is_rolling(current):
+                raise NonRetryableCallbackRefused(
+                    "operational automation requires rolling Alpaca inputs")
+            from sentinel.feed import operational_snapshot
+            try:
+                operational_snapshot.require_alpaca_openfigi(conn, current)
+            except operational_snapshot.OperationalSnapshotRefused as exc:
+                raise NonRetryableCallbackRefused(str(exc)) from exc
+        if feed_inputs.is_rolling(current):
+            feed_inputs.require_shadow_mode(
+                current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
+        return current
+
+    def _closing_refresh_wait(self, conn, cycle, frontier, *, closing_paper):
+        if (closing_paper and isinstance(frontier, str)
+                and frontier < str(cycle.decision_session)
+                and _current_close_refresh(cycle, self.automation_config, _now_utc())):
+            before_close = cycle.decision_close_at - timedelta(microseconds=1)
+            if frontier == calendar.latest_closed_session(before_close):
+                return ClosingDataPending(
+                    'the dedicated shadow publisher is awaiting the exact decision close')
+        if frontier == str(cycle.decision_session) and getattr(self, 'sentinel_config', None) is not None:
+            from sentinel import prepare_shadow_wait
+            preparation = prepare_shadow_wait.observe(conn,
+                decision_session=cycle.decision_session,
+                observation_id=self._shadow_observation_id,
+                starting_cash=self._shadow_starting_cash,
+                state_dir=self.sentinel_config.state_dir,
+                database_url=self.sentinel_config.database_url)
+            if preparation is not None:
+                detail = ('the current closing-data publication is '
+                          'awaiting its certified shadow attestation')
+                if preparation.quiet_eligible is True:
+                    return ClosingDataPending(detail,
+                        publisher_deadline_at=preparation.publisher_deadline,
+                        worker_deadline_at=preparation.worker_deadline)
+                return SourceDataPending(detail)
+        return None
+
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
         cycle = getattr(context, 'cycle', None)
@@ -1083,44 +1128,12 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
-            current = feed_inputs.current(conn)
-            if (self._operational_source_only
-                    and not feed_inputs.is_rolling(current)):
-                raise NonRetryableCallbackRefused(
-                    "operational automation requires rolling Alpaca inputs")
-            if self._operational_source_only:
-                from sentinel.feed import operational_snapshot
-                try:
-                    operational_snapshot.require_alpaca_openfigi(conn, current)
-                except operational_snapshot.OperationalSnapshotRefused as exc:
-                    raise NonRetryableCallbackRefused(str(exc)) from exc
+            current = self._refresh_inputs(conn)
             if feed_inputs.is_rolling(current):
-                feed_inputs.require_shadow_mode(current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
                 frontier = getattr(current, 'window_end', None)
-                if closing_paper and isinstance(frontier, str) and frontier < str(cycle.decision_session):
-                    now = _now_utc()
-                    if _current_close_refresh(cycle, self.automation_config, now):
-                        before_close = cycle.decision_close_at - timedelta(microseconds=1)
-                        if frontier == calendar.latest_closed_session(before_close):
-                            raise ClosingDataPending(
-                                'the dedicated shadow publisher is awaiting the exact decision close')
-                if (frontier == str(cycle.decision_session)
-                        and getattr(self, 'sentinel_config', None) is not None):
-                    from sentinel import prepare_shadow_wait
-                    preparation = prepare_shadow_wait.observe(conn,
-                        decision_session=cycle.decision_session,
-                        observation_id=self._shadow_observation_id,
-                        starting_cash=self._shadow_starting_cash,
-                        state_dir=self.sentinel_config.state_dir,
-                        database_url=self.sentinel_config.database_url)
-                    if preparation is not None:
-                        detail = ('the current closing-data publication is '
-                            'awaiting its certified shadow attestation')
-                        if preparation.quiet_eligible is True:
-                            raise ClosingDataPending(detail,
-                                publisher_deadline_at=preparation.publisher_deadline,
-                                worker_deadline_at=preparation.worker_deadline)
-                        raise SourceDataPending(detail)
+                wait = self._closing_refresh_wait(conn, cycle, frontier, closing_paper=closing_paper)
+                if wait is not None:
+                    raise wait
                 from sentinel import dual_reconciliation
                 try:
                     if getattr(self, "_live_run_enabled", False):

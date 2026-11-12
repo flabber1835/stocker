@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 import re
 import time
 
@@ -31,6 +32,8 @@ import time
 BACKUP_HARD_MAX_AGE_HOURS = 30
 BACKUP_PROBE_TIMEOUT_SECONDS = 20
 BACKUP_PROBE_POLL_SECONDS = 0.25
+BUSY_RETRY_MAX_SECONDS = 30
+BUSY_PROBE_SECONDS = 5
 BACKUP_WAL_MOUNT = "/sentinel-backup/wal"
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 
@@ -41,6 +44,14 @@ class BackupWriteFenced(RuntimeError):
 
 class BackupUnavailable(BackupWriteFenced):
     """External durability is temporarily unavailable and may self-heal."""
+
+
+class BackupProofBusyReason(str, Enum):
+    OWNER_ACTIVE = "OWNER_ACTIVE"
+    RECEIPT_UNAVAILABLE = "RECEIPT_UNAVAILABLE"
+    FRONTIER_CHANGED = "FRONTIER_CHANGED"
+    COVERAGE_CHANGED = "COVERAGE_CHANGED"
+    RECEIPT_CHANGED = "RECEIPT_CHANGED"
 
 
 class BackupConfigurationRefused(BackupWriteFenced):

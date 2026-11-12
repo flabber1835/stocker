@@ -681,7 +681,8 @@ def test_launcher_entry_delegates_to_software_installation_only(
     import sentinel_autonomous_deploy_entry as entry
 
     calls = []
-    monkeypatch.setattr(entry, 'install_runtime_guards', lambda _mode: pytest.fail('financial overlay during installation'))
+    import sentinel_activation_roles as roles
+    monkeypatch.setattr(roles, 'activation_types', lambda _mode: pytest.fail('financial role during installation'))
 
     def bootstrap_main(forwarded):
         assert forwarded is argv

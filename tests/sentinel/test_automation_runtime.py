@@ -1770,7 +1770,32 @@ def test_composition_requires_exact_signed_automation_authority(
         "current_publication_version": 81,
         "automation_config_sha256": cfg.fingerprint,
     }]
-    assert verdicts[-1]["verdict"] == "PASS"
+    assert [item["verdict"] for item in verdicts] == ["PASS"]
+
+    verdicts.clear()
+    runtime._assert_cycle_authority(conn, ctx, operation_scope="REFRESH", record_verdict=False)
+    assert verdicts == []
+
+    monkeypatch.setattr(store, "load_cycle", lambda _conn, _id: ctx.cycle.model_copy(
+        update={"certificate_sha256": "0" * 64}))
+    with pytest.raises(NonRetryableCallbackRefused, match="cycle authority is stale"):
+        runtime._assert_cycle_authority(conn, ctx, operation_scope="EXECUTE")
+    assert [item["verdict"] for item in verdicts] == ["FAIL"]
+
+
+def test_publishing_a_control_pass_before_cycle_validation_is_detected(monkeypatch):
+    from inspect import getsource
+    from textwrap import dedent
+
+    cls = automation_runtime.ProductionAutomation
+    source = dedent(getsource(cls._assert_cycle_authority))
+    validation = 'self._validate_control_authority(conn, context.permit)'
+    assert source.count(validation) == 1
+    namespace = dict(vars(automation_runtime))
+    exec(source.replace(validation, 'self._assert_control_authority(conn, context.permit)'), namespace)
+    monkeypatch.setattr(cls, '_assert_cycle_authority', namespace['_assert_cycle_authority'])
+    with pytest.raises(AssertionError):
+        test_composition_requires_exact_signed_automation_authority(monkeypatch)
 
 
 @pytest.fixture

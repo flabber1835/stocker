@@ -8,7 +8,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from tools.sentinel_mutation_certify import Mutant, _run
+from tools.sentinel_mutation_certify import (
+    ALPACA_ASSET_ID_SUBMIT, ALPACA_SYMBOL_SUBMIT, Mutant, _run,
+)
 from tools.test_responsibility_lib import load_authority
 
 MUTANTS = (
@@ -18,8 +20,7 @@ MUTANTS = (
            "tests/sentinel/test_alpaca_simulation_harness.py::"
            "test_empty_successful_exact_lookup_is_corruption_not_absence"),
     Mutant("stable-asset-id-is-replaced-by-symbol", "sentinel/execution/alpaca.py",
-           '        body = _submit_body(symbol=str(instrument.broker_id), client_key=client_key,\n',
-           '        body = _submit_body(symbol=str(instrument.symbol), client_key=client_key,\n',
+           ALPACA_ASSET_ID_SUBMIT, ALPACA_SYMBOL_SUBMIT,
            "tests/sentinel/test_alpaca_simulation_harness.py::"
            "test_stable_asset_handle_is_used_at_post"),
     Mutant("order-race-detector-disabled", "sentinel/execution/alpaca.py",

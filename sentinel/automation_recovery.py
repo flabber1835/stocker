@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 
 from sentinel import (
     backup_guard,
+    backup_integrity_reuse,
+    backup_retry,
     backup_runtime_authority,
     operational_evidence,
     paper,
@@ -43,6 +45,7 @@ from sentinel import (
 )
 from sentinel import automation_runtime as base
 from sentinel.automation.model import (
+    ClosingDataPending,
     NonRetryableCallbackRefused,
     TransientInfrastructureFailure,
 )
@@ -98,18 +101,11 @@ class _LateBoundRegenesisFlatSizing:
 class ProductionAutomation(base.ProductionAutomation):
     """Retain canonical automation behavior with production recovery guards."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        # Production availability is duration-independent. A typed temporary
-        # dependency failure may last for days and still heal with no change in
-        # financial authority. Rebuild only the broker-independent service
-        # wrapper; all canonical callbacks remain the base runtime methods.
-        self.service = RecoveryAutomationService(
-            config=self.automation_config, holder_id=self.holder_id,
-            refresh=self.refresh, prepare=self.prepare,
-            recover=self.recover, execute=self.execute,
-            notify=self.notify, terminal=self.certify_terminal_cycle,
-            source_completion_hint=self.source_completion_hint)
+    _service_type = RecoveryAutomationService
+
+    def backup_proof_completed(self, failed_at):
+        return backup_retry.completed_since(
+            self.sentinel_config.database_url, failed_at)
 
     def _require_backup_for_new_mutation(self, operation: str):
         try:
@@ -135,6 +131,8 @@ class ProductionAutomation(base.ProductionAutomation):
                         conn, kind="RUNTIME_CHAIN", proof=proof)
                     conn.commit()
                 return status
+            except backup_runtime_authority.BackupIntegrityBusy:
+                raise
             except (backup_guard.BackupUnavailable,
                     backup_runtime_authority.BackupRuntimeUnavailable) as exc:
                 raise RetryableBackupUnavailable(
@@ -269,7 +267,41 @@ class ProductionAutomation(base.ProductionAutomation):
             raise NonRetryableCallbackRefused(
                 f"dual-run plan/shadow reconciliation refused: {exc}") from exc
 
+    def _observe_negative_close_refresh(self, context):
+        if not (getattr(self, "_operational_source_only", False)
+                and getattr(self, "_dual_run_enabled", False)
+                and not getattr(self, "_live_run_enabled", False)):
+            return None
+        try:
+            if not (backup_integrity_reuse.selected() and base._current_close_refresh(
+                    context.cycle, self.automation_config, base._now_utc())):
+                return None
+            with base.feed_store.connect(self.sentinel_config.database_url,
+                    connect_timeout=1, statement_timeout_ms=1000) as conn:
+                # Default applies to every transaction, including after the
+                # leader and schema readers release their owned read.
+                conn.read_only = True
+                base.feed_store.require_feed_schema(conn)
+                base.schema.require_runtime_schema(conn)
+                cycle, _control = self._assert_cycle_authority(
+                    conn, context, operation_scope="REFRESH", record_verdict=False)
+                current = self._refresh_inputs(conn)
+                wait = self._closing_refresh_wait(
+                    conn, cycle, current.window_end, closing_paper=True)
+                if type(wait) is ClosingDataPending and base._current_close_refresh(
+                        cycle, self.automation_config, base._now_utc()):
+                    base.journal.require_observation_integrity(conn)
+                    context.require_active()
+                    return wait
+        except Exception:
+            # Unproved negative evidence returns to canonical guarded refresh.
+            pass
+        return None
+
     async def refresh(self, context):
+        wait = self._observe_negative_close_refresh(context)
+        if wait is not None:
+            raise wait
         self._require_backup_for_new_mutation("automation data refresh")
         return await super().refresh(context)
 

@@ -16,6 +16,7 @@ _CLOSING_DATA_PHASES = frozenset({
     'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
     'AUTOMATION_CLOSING_DATA', 'AUTHORITY_RECHECK_AFTER_DATA',
     'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'AUTHORITY_RECHECK_AFTER_SHADOW',
+    'READINESS_HANDOFF', 'AUTHORITY_RECHECK_AFTER_HANDOFF',
 })
 _CLOSING_DATA_ROWS = frozenset({
     'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book',
@@ -135,7 +136,7 @@ def _closing_source_proof(panel) -> bool:
         and row.recovery.active(panel.now)
         and row.recovery.phase in {
             'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
-            'SHADOW_ATTESTATION'} for row in panel.rows))
+            'SHADOW_ATTESTATION', 'READINESS_HANDOFF'} for row in panel.rows))
 
 
 def _enabled_policy(row: Row | None) -> bool:
@@ -413,10 +414,14 @@ def _execution_work_normal(panel) -> bool:
         return False
     if _paper_check_normal(panel, paper):
         return row_current(panel, paper)
+    paper_fact = paper.operational_fact if paper is not None else None
+    paper_recovery = paper.recovery if paper is not None else None
     return (paper is not None and row_current(panel, paper)
-        and paper.effective_status(panel.now) == 'warn' and not paper.is_stale(panel.now)
-        and paper.recovery is not None and paper.recovery.phase == 'PAPER_TRANSPORT'
-        and paper.recovery.active(panel.now) and paper.valid_until == paper.recovery.deadline)
+        and paper.status == paper.effective_status(panel.now) == 'warn' and paper.required_current
+        and paper_fact is not None and paper_fact.kind == 'PAPER_VERIFICATION' and paper_fact.state == 'PENDING'
+        and paper_recovery is not None and paper_recovery.phase == 'PAPER_TRANSPORT'
+        and _aware(paper.valid_until) and paper.valid_until == paper_recovery.deadline
+        and panel.now < paper.valid_until and paper_recovery.active(panel.now))
 
 
 def _clean_skip_work_normal(panel) -> bool:
@@ -659,11 +664,11 @@ def _normal_warning(panel, row: Row) -> bool:
             and row.recovery.phase == 'AWAITING_NEXT_DECISION'
             and row.recovery.deadline <= panel.row('paper_reconciliation').valid_until
             and row.valid_until == row.recovery.deadline and row.recovery.active(panel.now))
-    if (row.key in {'broker', 'automation_cycle', 'automation_step_transport',
+    if (row.key in {'paper_reconciliation', 'broker', 'automation_cycle', 'automation_step_transport',
                     'automation_step_reconcile', 'trading_run'} and _execution_work_normal(panel)):
         if row.effective_status(panel.now) != 'warn':
             return False
-        if row.key in {'broker', 'trading_run'}:
+        if row.key in {'paper_reconciliation', 'broker', 'trading_run'}:
             return True
         run = panel.row('trading_run').trading_run
         phases = {'automation_cycle': 'AUTOMATION_'+run.state,
@@ -760,13 +765,17 @@ def preparation_stage(panel) -> str | None:
                 else 'Waiting for market open')
     if _completed_work_normal(panel):
         return 'Today’s trading complete'
+    cycle = panel.row('automation_cycle')
+    if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
+            and cycle.recovery is not None and cycle.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER'):
+        return 'Checking the recorded broker account'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
                   and row.recovery.active(panel.now)}
         if 'SOURCE_PUBLICATION' in phases:
             return 'Publishing closing data'
-        if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION'}:
+        if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'READINESS_HANDOFF'}:
             return 'Preparing strategy verification'
     work = visible_preparation(panel)
     if work is not None:
@@ -793,17 +802,31 @@ def preparation_stage(panel) -> str | None:
     return None
 
 
+def _classify_health_rows(panel, *, include_inactive_warnings=False):
+    from sentinel.panel.delivery import row_current
+
+    for row in panel.rows:
+        status = row.effective_status(panel.now)
+        current = row_current(panel, row)
+        admits_warning = ((current or include_inactive_warnings) and status == 'warn'
+                          or current and status == 'fail' and row.key == 'exposure'
+                          and row.status == 'warn')
+        yield row, status, current, admits_warning and _normal_warning(panel, row)
+
+
 def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
     """Current facts only; old notification severity is not current failure."""
+    return _health_facts(panel, list(_classify_health_rows(panel)), boundaries=boundaries)
+
+
+def _health_facts(panel, classifications, *, boundaries) -> dict:
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
-    from sentinel.panel.delivery import row_current
-    for row in panel.rows:
-        if not row_current(panel, row):
+    for row, status, current, normal_warning in classifications:
+        if not current:
             continue
-        status = row.effective_status(panel.now)
         if status == 'fail' and row.key == 'exposure' and row.status == 'warn':
-            if _normal_warning(panel, row):
+            if normal_warning:
                 continue
             adoption_boundary = _deferred_adoption_boundary(panel, row)
             if adoption_boundary is not None:
@@ -814,12 +837,11 @@ def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
             active.append(row.key)
         elif (status == 'warn' and row.key != 'automation_alerts'
               and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
-              and not _normal_warning(panel, row)):
+              and not normal_warning):
             warnings.append(row.key)
     if not active and not warnings and not any(
-            row_current(panel, row) and (row.effective_status(panel.now) == 'ok'
-            or row.effective_status(panel.now) == 'warn' and _normal_warning(panel,row))
-            for row in panel.rows):
+            current and (status == 'ok' or status == 'warn' and normal_warning)
+            for _, status, current, normal_warning in classifications):
         warnings.append('no_current_operation')
     return {'active': sorted(set(active)), 'warnings': sorted(set(warnings))}
 
@@ -832,15 +854,13 @@ def dashboard_health(panel) -> dict:
                       else 'ready' if plan is not None and plan.can_show_paper_plan(panel.now)
                       else 'unavailable' if plan is not None
                       and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
-    statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
-    warnings = [row for row, status in statuses
-                if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
+    classifications = list(_classify_health_rows(panel, include_inactive_warnings=True))
     boundaries = []
-    facts = health_facts(panel, boundaries=boundaries)
+    facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
     normal = (not negative and not facts['warnings'] and _green_eligible(panel) and any(
-        status == 'ok' or status == 'warn' and _normal_warning(panel, row)
-        for row, status in statuses))
+        status == 'ok' or status == 'warn' and normal_warning
+        for _, status, _, normal_warning in classifications))
     review = panel.operator_review
     status = ('fail' if negative or review is not None and review.status in {'FAILED', 'UNAVAILABLE'}
               else 'ok' if normal and review is not None and review.status == 'CLEAN'
@@ -865,7 +885,9 @@ def dashboard_health(panel) -> dict:
             and broker.recovery is not None and broker.recovery.phase == 'BROKER_FILL_SNAPSHOT'
             and broker.recovery.active(panel.now)):
         label = 'Reconciling fills'
-    admitted = [row for row in warnings if _normal_warning(panel, row)]
+    admitted = [row for row, status, _, normal_warning in classifications
+                if status == 'warn' and normal_warning
+                and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
     execution_normal = _execution_work_normal(panel)
     boundaries.extend(row.operational_fact.opening.deadline
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
@@ -906,13 +928,19 @@ def dashboard_health(panel) -> dict:
             boundaries.append(work.active_until)
     boundary = min(boundaries).astimezone(timezone.utc) if boundaries else None
     if not display_current(panel) and not negative:
-        from sentinel.panel.delivery import opening_refresh_deadline
+        from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
             return dict(status='warn', color='amber', label='Refreshing opening evidence',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
                         opening_refresh=True)
+        closing = closing_refresh_deadline(panel)
+        if closing is not None:
+            return dict(status='warn', color='amber', label='Refreshing closing evidence',
+                        valid_until=closing.isoformat(), plan_readiness='unavailable',
+                        active_conditions=facts['active'], review_conditions=facts['warnings'],
+                        closing_refresh=True)
         return dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],

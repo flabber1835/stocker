@@ -80,13 +80,15 @@ class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
     kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
-                  'MARKET_DATA', 'SHADOW_VERIFICATION', 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY']
+                  'MARKET_DATA', 'SHADOW_VERIFICATION', 'SHADOW_WORKER',
+                  'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY']
     state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
                    'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                    'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
                    'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED',
                    'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'READY', 'NOT_READY',
-                   'AWAITING_VERDICT', 'VERIFIED', 'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION']
+                   'AWAITING_VERDICT', 'VERIFIED', 'ACTIVE_WORKER',
+                   'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION']
     session: date | None = None
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -102,6 +104,7 @@ class OperationalFact(BaseModel):
             'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED'},
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
+            'SHADOW_WORKER': {'ACTIVE_WORKER'},
             'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_HISTORY': {'SUPERSEDED'},
@@ -123,7 +126,8 @@ class OperationalFact(BaseModel):
                 or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
                 or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
                     and self.session is None)
-                or (self.kind in {'AUTOMATION_POLICY', 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'}
+                or (self.kind in {'AUTOMATION_POLICY', 'SHADOW_WORKER',
+                                 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'}
                     and self.session is not None)):
             raise ValueError('operational fact fields do not match their producer')
         if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
@@ -138,6 +142,7 @@ class OperationalFact(BaseModel):
                 ('discovery', 'data', 'prepare', 'open', 'transport', 'reconcile', 'complete'))},
             'CONTROLLER_DECISION': {'exposure'}, 'MARKET_DATA': {'feed'},
             'SHADOW_VERIFICATION': {'shadow_verification'},
+            'SHADOW_WORKER': {'shadow_worker'},
             'PAPER_VERIFICATION': {'paper_reconciliation'},
             'EXECUTION_PROGRESS': {'broker'},
             'EXECUTION_HISTORY': {'trading_run'},
@@ -1380,6 +1385,10 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
     working = int(working_orders or 0)
     active = int(active_commands or 0)
     uncertain = int(uncertain_commands or 0)
+    if (recovery is not None and recovery.phase == "BROKER_PREFLIGHT_REFRESH"
+            and (complete != "COMPLETE" or runtime != "RUNNING"
+                 or working or active or uncertain)):
+        recovery = None
     value = f"{positions} positions · {working} working"
     journal_age = (f" · latest counted journal update {command_as_of.isoformat()}"
                    if command_as_of else "")
@@ -1498,6 +1507,7 @@ def automation_leader_row(*, installed: Optional[bool],
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
                          discovery_recovery: Optional[RecoveryEvidence] = None,
+                         preflight_recovery: Optional[RecoveryEvidence] = None,
                          cycle_id: Optional[str] = None,
                          plan_id: Optional[str] = None,
                          state: Optional[str] = None,
@@ -1577,7 +1587,7 @@ def automation_cycle_row(*, installed: Optional[bool],
         protected_day_wait=protected_day_wait, plan_id=plan_id,
         original_execution_deadline_at=original_execution_deadline_at,
         execute_at=execute_at, execution_close_at=execution_close_at,
-        prepare_at=prepare_at, diagnostic=diagnostic)
+        prepare_at=prepare_at, updated_at=updated_at, diagnostic=diagnostic)
     if availability_retry_clocks_aware is not None:
         availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
     projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)
@@ -1621,10 +1631,14 @@ def automation_cycle_row(*, installed: Optional[bool],
             "EXECUTING": execution_close_at,
             "RECONCILING": execution_close_at,
         }
-        recovery = RecoveryEvidence(
-            phase=f"AUTOMATION_{normalized or 'UNKNOWN'}",
-            automatic=True, next_attempt_at=next_wake_at,
-            deadline=deadlines.get(normalized))
+        if normalized == "DISCOVERED" and preflight_recovery is not None:
+            recovery = preflight_recovery
+            detail += " · initial broker reconciliation is running"
+        else:
+            recovery = RecoveryEvidence(
+                phase=f"AUTOMATION_{normalized or 'UNKNOWN'}",
+                automatic=True, next_attempt_at=next_wake_at,
+                deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
                (availability_label(availability_cycle, availability) if availability is not None
                 else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
@@ -1752,10 +1766,16 @@ def automation_step_rows(
             interrupted_transport = (
                 dict(detail) if isinstance(detail, Mapping)
                 and (detail.get("failure_code") or detail.get("failure_detail")) else None)
-            if interrupted_transport and submitted_commands_progress(dict(
-                    cycle, state='RECONCILING',
+            historical_diagnostic = interrupted_transport.get('diagnostic') if interrupted_transport else None
+            if isinstance(historical_diagnostic, Mapping) and submitted_commands_progress(dict(
+                    state='RECONCILING', plan_id=cycle.get('plan_id'),
+                    execution_open_at=cycle.get('execution_open_at'), execute_at=cycle.get('execute_at'),
+                    execution_close_at=cycle.get('execution_close_at'),
                     failure_code=interrupted_transport.get('failure_code'),
-                    diagnostic=interrupted_transport.get('diagnostic'),
+                    diagnostic=historical_diagnostic,
+                    terminal_reason=historical_diagnostic.get('terminal_reason'),
+                    callback_failure=historical_diagnostic.get('callback_failure'),
+                    exception_type=historical_diagnostic.get('exception_type'),
                     clean_reconciliation_id=interrupted_transport.get('last_clean_reconciliation_id'),
                     next_wake_at=_historical_wake(interrupted_transport.get('next_wake_at')),
                     updated_at=event.get('at'))):
@@ -1868,6 +1888,10 @@ def automation_step_rows(
                 if clean_execution_wait:
                     value = "READY TO CONTINUE"
                     detail = "clean recovery permits only the original execution window"
+            elif state == "DISCOVERED" and cycle.get("preflight_recovery") is not None:
+                value = "PREFLIGHT IN PROGRESS"
+                detail = "Initial broker reconciliation is running within its original callback deadline."
+                recovery = cycle["preflight_recovery"]
             else:
                 value = state
                 if index == 3:

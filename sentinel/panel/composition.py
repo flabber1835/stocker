@@ -32,6 +32,8 @@ def path(instance):
 
 
 def stable_boundary(panel):
+    from sentinel.panel.postclose_feed_wait import project_panel
+    panel = project_panel(panel, now=panel.now)
     discovery = any(row.key == 'automation_cycle' and row.operational_fact is not None
         and row.operational_fact.state == 'DISCOVERY_WAIT' for row in panel.rows)
     rows = [row for row in panel.rows if row.key not in {'automation_leader','shadow_worker','alert_dispatcher'}

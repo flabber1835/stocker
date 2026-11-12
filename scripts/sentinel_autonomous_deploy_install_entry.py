@@ -248,25 +248,6 @@ def _is_deferred(reviewed) -> bool:
         return False
 
 
-def verify_reviewed_validation_environment(
-        reviewed, *, env: Mapping[str, str], invoke=subprocess.run) -> None:
-    if not _is_deferred(reviewed):
-        return _ORIGINAL_VERIFY(reviewed, env=env, invoke=invoke)
-
-    current_data = core._current_data_publication_subject(
-        reviewed, env=env, invoke=invoke)
-    provisional = core._validation_subject_digest(
-        "data_publication", current_data)
-    reviewed.data_publication_sha256 = provisional
-    original_lineage = core._reviewed_shadow_lineage_preflight
-    core._reviewed_shadow_lineage_preflight = lambda *_args, **_kwargs: None
-    try:
-        _ORIGINAL_VERIFY(reviewed, env=env, invoke=invoke)
-    finally:
-        core._reviewed_shadow_lineage_preflight = original_lineage
-        reviewed.data_publication_sha256 = None
-
-
 class InstallAnytimeConfig(hardened.Config):
     def __init__(self, env: Mapping[str, str]) -> None:
         super().__init__(env)
@@ -568,7 +549,7 @@ finally:
 
         try:
             _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
-            core.verify_reviewed_account_binding(reviewed, self.cfg.account_id)
+            self._verify_reviewed_account(reviewed)
             binding_timing = self._causal_timing()
             if wait_deadline is not None and time.monotonic() >= wait_deadline:
                 raise core.ActivationPending("causal publication binding wait deadline exhausted")
@@ -610,7 +591,7 @@ finally:
             encoding="utf-8")
         os.chmod(str(temporary), 0o600)
         temporary.replace(path)
-        bootstrap._safe_update_dotenv(core.ENV_PATH, {
+        self._persist_deploy_facts({
             "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": digest})
 
     def assert_activation_timing(self, decision_session: str) -> None:
@@ -664,13 +645,6 @@ finally:
                     self._write_deployment_state(
                         "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=1,
                         failures=[{"name": "session_timing", "detail": str(exc)}])
-
-
-def _install_overlay() -> None:
-    core.parse_reviewed_validation_bundle = parse_reviewed_validation_bundle
-    core.verify_reviewed_validation_environment = verify_reviewed_validation_environment
-    bootstrap.hardened.Config = InstallAnytimeConfig
-    bootstrap.BootstrapDeploy = InstallAnytimeDeploy
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

@@ -287,13 +287,13 @@ def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind)
 @pytest.mark.asyncio
 async def test_falsely_persisting_contention_as_negative_authority_is_detected(conn, monkeypatch):
     import inspect, textwrap
-    body = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation._assert_control_authority))
+    body = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation._finish_authority_refusal))
     old = 'if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):'
     assert old in body
     namespace = {}
     exec(compile(body.replace(old, 'if False:'), 'contention-authority-falsifier', 'exec'),
          automation_runtime.__dict__, namespace)
-    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_assert_control_authority',
-                        namespace['_assert_control_authority'])
+    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_finish_authority_refusal',
+                        namespace['_finish_authority_refusal'])
     with pytest.raises(AssertionError):
         await test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(conn, monkeypatch)

@@ -35,6 +35,52 @@ class InstallationConfig:
                                          name='heartbeat', minimum=1, maximum=300)
 
 
+def select_certified_runtime(deploy):
+    """Select the exact signed image for this owned installation or activation."""
+    deploy.phase('installation: independently verify the exact signed CI runtime')
+    deploy.resolve_compose()
+    from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused
+    try:
+        proof = deploy.software_verification().verify(
+            root=core.ROOT, commit=deploy.commit, env=deploy.env)
+    except CertifiedInstallRefused as exc:
+        raise core.DeployRefused(str(exc)) from None
+    reference = str(proof.get('certified_image') or '')
+    if (proof.get('source_commit') != deploy.commit
+            or proof.get('software_certification') != 'VERIFIED'
+            or proof.get('required_ci_jobs') != 'PASS'):
+        raise core.DeployRefused('software certification does not bind this exact release')
+    _reference, digest = core._repo_digest(reference, deploy.cfg.runtime_repository)
+    repository = deploy.cfg.runtime_repository
+    if proof.get('image_digest') != digest:
+        raise core.DeployRefused('signed software image digest disagrees')
+    deploy.runner.run(['docker', 'pull', reference], timeout=600)
+    inspected = deploy.runner.run(['docker', 'image', 'inspect', reference], capture=True, timeout=30)
+    records = core._json_value(inspected.stdout.encode(), label='certified image inspection')
+    if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
+        raise core.DeployRefused('certified software image inspection is malformed')
+    image = records[0]
+    config = image.get('Config')
+    labels = config.get('Labels') if isinstance(config, dict) else None
+    if (not isinstance(labels, dict)
+            or labels.get('org.opencontainers.image.revision') != deploy.commit
+            or not isinstance(image.get('RepoDigests'), list)
+            or reference not in (image.get('RepoDigests') or [])
+            or core._DIGEST.fullmatch(str(image.get('Id') or '')) is None):
+        raise core.DeployRefused('actual software image differs from signed certification')
+    deploy.runtime_repo_digest = deploy.test_repo_digest = reference
+    deploy.runtime_digest = deploy.test_digest = digest
+    deploy._ci_single_runtime = True
+    deploy.env.update({
+        'SENTINEL_GIT_COMMIT': deploy.commit,
+        'SENTINEL_RUNTIME_IMAGE_REF': reference,
+        'SENTINEL_RUNTIME_IMAGE_REPOSITORY': repository,
+        'SENTINEL_RUNTIME_IMAGE_DIGEST': digest,
+        'SENTINEL_TEST_IMAGE_DIGEST': digest,
+    })
+    deploy.runner.env.update(deploy.env)
+    publish_immutable(deploy.attempt_dir / 'ci-certified-runtime.json', proof)
+
 class InstallationDeploy(bootstrap.BootstrapDeploy):
     def _installation_control(self, *, timeout=None):
         """Read only the installation fence; financial health belongs to activation."""
@@ -64,49 +110,7 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
         return state
 
     def build_promote(self):
-        self.phase('installation: independently verify the exact signed CI runtime')
-        self.resolve_compose()
-        from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused
-        try:
-            proof = self.software_verification().verify(
-                root=core.ROOT, commit=self.commit, env=self.env)
-        except CertifiedInstallRefused as exc:
-            raise core.DeployRefused(str(exc)) from None
-        reference = str(proof.get('certified_image') or '')
-        if (proof.get('source_commit') != self.commit
-                or proof.get('software_certification') != 'VERIFIED'
-                or proof.get('required_ci_jobs') != 'PASS'):
-            raise core.DeployRefused('software certification does not bind this exact release')
-        _reference, digest = core._repo_digest(reference, self.cfg.runtime_repository)
-        repository = self.cfg.runtime_repository
-        if proof.get('image_digest') != digest:
-            raise core.DeployRefused('signed software image digest disagrees')
-        self.runner.run(['docker', 'pull', reference], timeout=600)
-        inspected = self.runner.run(['docker', 'image', 'inspect', reference], capture=True, timeout=30)
-        records = core._json_value(inspected.stdout.encode(), label='certified image inspection')
-        if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
-            raise core.DeployRefused('certified software image inspection is malformed')
-        image = records[0]
-        config = image.get('Config')
-        labels = config.get('Labels') if isinstance(config, dict) else None
-        if (not isinstance(labels, dict)
-                or labels.get('org.opencontainers.image.revision') != self.commit
-                or not isinstance(image.get('RepoDigests'), list)
-                or reference not in (image.get('RepoDigests') or [])
-                or core._DIGEST.fullmatch(str(image.get('Id') or '')) is None):
-            raise core.DeployRefused('actual software image differs from signed certification')
-        self.runtime_repo_digest = self.test_repo_digest = reference
-        self.runtime_digest = self.test_digest = digest
-        self._ci_single_runtime = True
-        self.env.update({
-            'SENTINEL_GIT_COMMIT': self.commit,
-            'SENTINEL_RUNTIME_IMAGE_REF': reference,
-            'SENTINEL_RUNTIME_IMAGE_REPOSITORY': repository,
-            'SENTINEL_RUNTIME_IMAGE_DIGEST': digest,
-            'SENTINEL_TEST_IMAGE_DIGEST': digest,
-        })
-        self.runner.env.update(self.env)
-        publish_immutable(self.attempt_dir / 'ci-certified-runtime.json', proof)
+        select_certified_runtime(self)
 
     def quiesce_backup_and_migrate(self):
         super().quiesce_backup_and_migrate()
@@ -215,7 +219,6 @@ def main(argv=None):
     previous_signal = signal.signal(signal.SIGTERM, interrupt)
     try:
         from sentinel_env_writer import safe_update_dotenv
-        bootstrap._safe_update_dotenv = core.update_dotenv = safe_update_dotenv
         env = core.merged_environment()
         sentinel_env.validate(env, profile='install')
         # Discovery preserves existing durable identity; it does not require a broker GET.
@@ -224,7 +227,7 @@ def main(argv=None):
         head = bootstrap._run(['git', 'rev-parse', 'HEAD'], env=env).stdout.strip()
         attempt = core._attempt_dir(cfg, head)
         runner = core.Runner(env, attempt / 'commands.log')
-        obj = InstallationDeploy(cfg, runner, attempt)
+        obj = InstallationDeploy(cfg, runner, attempt, environment_writer=safe_update_dotenv)
         with core.DeploymentLock(cfg.authority_dir / 'autonomous-deploy.lock'):
             obj.run()
         if args.activate_when_ready:
