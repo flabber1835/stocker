@@ -105,7 +105,7 @@ class OperationalFact(BaseModel):
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
             'SHADOW_WORKER': {'ACTIVE_WORKER'},
-            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_HISTORY': {'SUPERSEDED'},
         }
@@ -1524,6 +1524,7 @@ def automation_cycle_row(*, installed: Optional[bool],
                          callback_failure: Optional[str] = None,
                          exception_type: Optional[str] = None,
                          availability_retry_clocks_aware: Optional[bool] = None,
+                         observation_callback: Optional[dict] = None,
                          diagnostic: Optional[dict] = None,
                          retry_phase: Optional[str] = None,
                          original_execution_deadline_at: Optional[datetime] = None,
@@ -1587,7 +1588,8 @@ def automation_cycle_row(*, installed: Optional[bool],
         protected_day_wait=protected_day_wait, plan_id=plan_id,
         original_execution_deadline_at=original_execution_deadline_at,
         execute_at=execute_at, execution_close_at=execution_close_at,
-        prepare_at=prepare_at, updated_at=updated_at, diagnostic=diagnostic)
+        prepare_at=prepare_at, updated_at=updated_at, diagnostic=diagnostic,
+        observation_callback=observation_callback)
     if availability_retry_clocks_aware is not None:
         availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
     projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)

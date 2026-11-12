@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 import re
 
-from sentinel.automation.model import ProtectedDayWait
+from sentinel.automation.model import PreflightPublicationPinUnavailable, ProtectedDayWait
 from sentinel.operational_status import RecoveryEvidence
 
 
@@ -105,6 +105,37 @@ def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
     return _closing_data_recovery(cycle, recovery)
 
 
+def _planless_preflight_retry(cycle: Mapping) -> RecoveryEvidence | None:
+    """Use the original scheduled retry or its matching owned callback."""
+    kind = PreflightPublicationPinUnavailable
+    if (cycle.get('retry_phase') != 'PREFLIGHT_RECOVER'
+            or cycle.get('availability_retry_unbounded') is not True
+            or cycle.get('callback_failure') != 'TRANSIENT_INFRASTRUCTURE'
+            or cycle.get('plan_id') is not None
+            or cycle.get('failure_code') != kind.__name__
+            or cycle.get('exception_type') != f'{kind.__module__}.{kind.__qualname__}'):
+        return None
+    attempt = _availability_attempt(cycle)
+    prepared, updated, wake, opened = (cycle.get(key) for key in (
+        'prepare_at', 'updated_at', 'next_wake_at', 'execution_open_at'))
+    if (attempt is None or not all(_aware(stamp) for stamp in (prepared, updated, wake, opened))
+            or not prepared <= updated < wake < opened):
+        return None
+    window = _retry_session_window(cycle)
+    if window is None or opened != window[0]:
+        return None
+    callback = cycle.get('observation_callback')
+    if isinstance(callback, Mapping):
+        started, deadline = callback.get('started_at'), callback.get('deadline')
+        if not _aware(started) or not _aware(deadline) or not wake <= started < deadline:
+            return None
+        boundary = min(deadline, opened - timedelta(microseconds=1))
+    else:
+        boundary = wake
+    return RecoveryEvidence(phase='AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY',
+        automatic=True, attempt=attempt, next_attempt_at=wake, deadline=boundary)
+
+
 def _reconciliation_retry(cycle: Mapping) -> RecoveryEvidence | None:
     """A retry of the original plan remains pending through its session close."""
     plan = cycle.get('plan_id')
@@ -125,7 +156,7 @@ def _reconciliation_retry(cycle: Mapping) -> RecoveryEvidence | None:
 
 
 def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
-    if recovery.phase == 'AUTOMATION_RECOVER_AVAILABILITY':
+    if recovery.phase in {'AUTOMATION_RECOVER_AVAILABILITY', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}:
         state = 'RETRYING RECONCILIATION'
     else:
         state = ('WAITING FOR INPUTS' if cycle.get('callback_failure') == 'SOURCE_DATA_PENDING'
@@ -256,7 +287,7 @@ def project_cycle_recovery(
         if wait is not None else None)
     if str(cycle.get('state') or '').upper() != 'RETRY_WAIT':
         return CycleRecovery(protected_wait=wait, protected_recovery=wait_recovery)
-    availability = availability_recovery(cycle) or _reconciliation_retry(cycle)
+    availability = availability_recovery(cycle) or _planless_preflight_retry(cycle) or _reconciliation_retry(cycle)
     refused = availability_refusal(cycle, availability)
     if refused is not None:
         return CycleRecovery(evidence=refused, availability_refused=True)

@@ -84,6 +84,47 @@ def test_real_builder_protocol_reaches_host(stage, capsys):
         assert "alias discovery" in progress.describe(events[-1])
 
 
+def test_alpaca_acquisition_pairing_and_storage_progress_reaches_host(capsys):
+    from sentinel.feed import progress as producer
+    from sentinel.feed.alpaca_transport import RequestMetrics
+
+    details = dict(table="SEP", date_from="2026-11-01", date_to="2026-11-12")
+    requests = RequestMetrics(
+        requests=32, retries=2, response_bytes=800000, rate_limits=1,
+        elapsed_ns={"pacing": 4_000_000, "http": 600_000_000,
+                    "decode": 5_000_000, "retry_backoff": 150_000_000},
+    )
+    with producer.phase("alpaca_price_pairing", **details) as count:
+        count[0] = 200
+    producer.emit("alpaca_part_acquire", "completed", rows=200, elapsed_ms=790,
+                  **details, **requests.fields())
+    with producer.phase("alpaca_part_persist", **details) as count:
+        count[0] = 200
+    events = progress.collect(capsys.readouterr().err)
+    assert [(event["stage"], event["status"]) for event in events] == [
+        ("alpaca_price_pairing", "started"), ("alpaca_price_pairing", "completed"),
+        ("alpaca_part_acquire", "completed"),
+        ("alpaca_part_persist", "started"), ("alpaca_part_persist", "completed"),
+    ]
+    assert events[2]["rows"] == 200
+    assert {key: events[2][key] for key in requests.fields()} == requests.fields()
+    rendered = progress.describe(events[2])
+    assert "elapsed 790 ms" in rendered and "600 ms HTTP" in rendered
+    assert "2 retries" in rendered and "150 ms retry backoff" in rendered
+
+
+def test_alpaca_progress_rejects_unscoped_missing_and_invalid_counters():
+    event = dict(stage="alpaca_part_acquire", status="failed", rows=0, elapsed_ms=15,
+                 **dict.fromkeys(progress.ALPACA_COUNTERS, 0))
+    assert progress.parse(progress.PREFIX + json.dumps(event)) == event
+    missing = dict(event)
+    del missing["requests"]
+    for invalid in (missing, dict(event, http_ms="secret"), dict(event, retries=True),
+                    dict(event, response_bytes=10**12+1), dict(event, pacing_ms=-1),
+                    dict(event, stage="alpaca_part_persist"), dict(event, params=["secret"])):
+        assert progress.parse(progress.PREFIX + json.dumps(invalid)) is None
+
+
 @pytest.mark.parametrize("field,value", [("job_id", "password=secret"), ("job_id", []),
     ("job_id", "not-a-uuid"), ("subphase", "https://secret"), ("subphase", []),
     ("subphase", "new-unreviewed-phase")])

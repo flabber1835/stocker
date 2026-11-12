@@ -66,6 +66,7 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
     history.pop(basis.CASH_CORRECTION_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
@@ -86,6 +87,7 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == 'f95dd91f021b25965c8307ed90f636edc6bb66fe4f5a1c65e2591933bc98ea11'
@@ -96,4 +98,23 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     actual = admission._source_files(basis.PROFILE.parent)
     assert basis.predecessor_view(actual, previous=installed) == installed
     actual['execution/cash_corrections.py'] = '0' * 64
+    assert basis.predecessor_view(actual, previous=installed) is actual
+
+
+def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
+    revision = '35761cbbb2232c0fcb51cd37c97cdf5c3851ca17'
+    assert basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    assert profile['authority_effect'] == 'NONE'
+    history = dict(profile['retained_predecessors'])
+    installed = history.pop(revision)['files']
+    assert len(installed) == 475
+    assert admission.source_closure(installed) == '5d85fbb62053aca94a44a3db971876efd826b6ed8027b98da14826e3b3f8100c'
+    assert len(history) == 49
+    payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
+    assert hashlib.sha256(payload).hexdigest() == 'c278edcc5e1a6a220d281b9bf18c7d531f3d336a3977b1df847625270f38791a'
+
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=installed) == installed
+    actual['panel/readiness_handoff.py'] = '0' * 64
     assert basis.predecessor_view(actual, previous=installed) is actual

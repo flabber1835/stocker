@@ -65,7 +65,7 @@ def metadata(conn, monkeypatch):
     monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
     monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
     for sql in (
-        'CREATE TEMP TABLE sentinel_corpus_publications(version int,previous_version int,window_end date,evidence jsonb,window_start date,run_id uuid)',
+        'CREATE TEMP TABLE sentinel_corpus_publications(version int,previous_version int,window_end date,evidence jsonb,window_start date,run_id uuid,published_at timestamptz)',
         'CREATE TEMP TABLE sentinel_operational_snapshots(publication_version int,job_id uuid,candidate_id uuid,validation_sha256 text)',
         'CREATE TEMP TABLE sentinel_snapshot_jobs(job_id uuid,candidate_id uuid,state text,publication_version int,request jsonb,request_sha256 text,created_at timestamptz,deadline timestamptz)',
         'CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id uuid)',
@@ -75,8 +75,8 @@ def metadata(conn, monkeypatch):
         expected_publication_version=16, strategy_sha256='a'*64, dependencies_sha256=digest({
             'schema':operational_snapshot.SCHEMA,'dependencies':digest({'scope':rolling_go_inputs.SCHEMA})}))
     binding = dict(schema=operational_snapshot.SCHEMA,job_id=str(job),candidate_id=str(candidate),validation_sha256='c'*64)
-    conn.execute('INSERT INTO sentinel_corpus_publications VALUES(17,16,\'2026-11-09\',%s,%s,NULL)',
-        (Jsonb(dict(rolling_snapshot=binding)),request.window.start))
+    conn.execute('INSERT INTO sentinel_corpus_publications VALUES(17,16,\'2026-11-09\',%s,%s,NULL,%s)',
+        (Jsonb(dict(rolling_snapshot=binding)),request.window.start,NOW-timedelta(minutes=1)))
     conn.execute('INSERT INTO sentinel_operational_snapshots VALUES(17,%s,%s,%s)', (job,candidate,'c'*64))
     conn.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES(%s)', (job,))
     conn.execute('INSERT INTO sentinel_snapshot_jobs VALUES(%s,%s,\'PUBLISHED\',17,%s,%s,%s,%s)',
@@ -170,6 +170,35 @@ def test_current_attempt_can_explain_original_publication_rollover(metadata):
     attempt.update(supersession_started_at=started.isoformat(),
                    supersession_deadline=(started+timedelta(minutes=10)).isoformat())
     assert capture((conn, original)) is None
+
+
+def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(metadata):
+    conn, original = metadata
+    published_at = NOW - timedelta(seconds=47)
+    conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (published_at,))
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(outcome='VERIFIED', subject_sha256='e'*64,
+        admitted_at=(NOW-timedelta(minutes=2)).isoformat(),
+        work_started_at=(NOW-timedelta(minutes=2)).isoformat(),
+        completed_at=(NOW-timedelta(seconds=65)).isoformat())
+    feed = replace(original.row('feed'), as_of=NOW-timedelta(seconds=5))
+    worker = replace(original.row('shadow_worker'), operational_fact=model.OperationalFact(
+        kind='SHADOW_WORKER', state='ACTIVE_WORKER'))
+    panel = replace(original, rows=[feed, original.row('shadow_verification'), worker])
+    proof = capture((conn, panel))
+    deadline = published_at + timedelta(seconds=60)
+    assert proof is not None and datetime.fromisoformat(proof['deadline']) == deadline
+    assert datetime.fromisoformat(proof['admission_publication_at']) == published_at
+    signed = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff':proof})
+    projected = waiting.project_panel(signed, now=NOW, subject=SUBJECT)
+    assert projected.row('feed').effective_status(NOW) == model.WARN
+    assert projected.row('feed').as_of == feed.as_of
+    assert projected.row('feed').operational_fact.state == 'AWAITING_VERDICT'
+    assert waiting.project_panel(signed, now=deadline, subject=SUBJECT).row('feed').effective_status(deadline) == model.FAIL
+    assert waiting.project_panel(signed, now=NOW, subject='c'*64).row('feed').effective_status(NOW) == model.FAIL
+    attempt.update(outcome='FAILED')
+    assert capture((conn, panel)) is None
+    assert waiting.project_panel(signed, now=NOW, subject=SUBJECT).row('feed').effective_status(NOW) == model.FAIL
 
 
 def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(metadata, monkeypatch):

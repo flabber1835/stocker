@@ -492,7 +492,7 @@ class Publisher:
 def read(database_url, *, display=False):
     """SELECT-only current snapshot; requests never discover or record incidents."""
     from sentinel.feed import store
-    from sentinel.panel import operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
+    from sentinel.panel import model, operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -551,9 +551,6 @@ def read(database_url, *, display=False):
                 negative_keys = (negative.key,)
                 panel = replace(panel, observation_display_keys=negative_keys)
         owner_expiry = None
-        from sentinel.panel import postclose_feed_wait
-        panel = postclose_feed_wait.project_panel(panel, now=now,
-            subject=current_basis.get('native', {}).get('SHADOW'))
         reusable = False
         if display and changed and value.panel.display_basis and not retained and not head_changed:
             owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
@@ -563,6 +560,20 @@ def read(database_url, *, display=False):
                     value.panel.display_basis, current_basis, facts=facts))
             if reusable:
                 panel = replace(panel, observation_display_keys=delivery.display_keys(panel))
+        from sentinel.panel import postclose_feed_wait
+        prepare_witness = None
+        if display and not reusable and not retained and not head_changed and changed == ('PAPER',):
+            exposure, cycle, plan = (panel.row(key) for key in ('exposure', 'automation_cycle', 'paper_plan'))
+            if (panel.local_paper_mode and not panel.source_errors and exposure is not None
+                    and exposure.status == model.WARN and exposure.operational_fact is not None
+                    and exposure.operational_fact.kind == 'CONTROLLER_DECISION'
+                    and cycle is not None and cycle.recovery is not None
+                    and cycle.recovery.phase in {'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING'}
+                    and plan is not None and plan.status == model.PENDING and plan.paper_plan is None):
+                from sentinel.automation.callback_observation import planless_prepare_boundary
+                prepare_witness = planless_prepare_boundary(conn, exposure.operational_fact.session)
+        panel = postclose_feed_wait.project_panel(panel, now=now,
+            subject=current_basis.get('native', {}).get('SHADOW'), prepare_witness=prepare_witness)
         finished = review.store.database_now(conn)
         if display:
             display_until = value.generated_at + timedelta(seconds=snapshots.MAX_SECONDS)

@@ -1,5 +1,16 @@
 # Sentinel current operating contract
 
+[November 12 dashboard handoffs](nov12-close-dashboard-handoffs.md) records
+how the dashboard follows the active close cycle and publication. The source
+transition retains the exact installed `35761cbb` cash-correction release and
+its signed predecessors without granting any new trading authority.
+
+[PAPER verification refresh](paper-terminal-verification-refresh.md) records
+the background refresh schedule for a durable failed plan preparation.
+
+[Close feed stage progress](close-feed-stage-progress.md) records how the
+operator can distinguish data acquisition, processing and persistence costs.
+
 [November 12 cash-correction patch](cash-correction-local-delivery-20261112.md)
 records how to retain correction evidence and recover the planless PAPER cycle.
 

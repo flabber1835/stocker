@@ -72,7 +72,7 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "availability_retry_unbounded", "callback_failure", "exception_type",
     "availability_retry_clocks_aware", "diagnostic",
     "protected_day_wait",
-    "preflight_recovery",
+    "preflight_recovery", "observation_callback",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
 })
@@ -1153,7 +1153,8 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "created_at": _utc(created_at),
         "completed_at": _utc(completed_at),
     }
-    if str(state) in {"DISCOVERED", "EXECUTING", "RECONCILING"}:
+    if (str(state) in {"DISCOVERED", "EXECUTING", "RECONCILING"}
+            or (str(state) == "RETRY_WAIT" and failure_code == "PreflightPublicationPinUnavailable")):
         value["observation_callback"] = _broker_callback(conn, str(cycle_id), str(state))
     if str(state) == "DISCOVERED":
         callback = _observation_recovery(value)
@@ -1332,6 +1333,8 @@ def _observation_recovery(
     retry = _cycle_recovery(
         cycle, phases=("PREFLIGHT_RECOVER", "RECOVER", "EXECUTE"))
     if retry is not None:
+        if retry.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY':
+            return replace(retry, phase='BROKER_PREFLIGHT_REFRESH')
         return retry
     callback = (cycle or {}).get("observation_callback")
     state = str((cycle or {}).get("state") or "").upper()
@@ -2900,12 +2903,16 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     + "; current healthy generation is waiting for its next decision; no completed reconciliation or qualification is claimed")),
                 as_of=retired.account_observed_at,
                 valid_until=retired.valid_until, required_current=False)
-        return model.paper_reconciliation_row(
+        failed = model.paper_reconciliation_row(
             state="CYCLE_FAILED", cycle_state=cycle_state,
             detail=("latest recorded decision " + str(cycle.get('decision_session') or 'unknown')
                     + "; no broker mismatch is established by this cycle status; "
                     + str(cycle.get('failure_code') or 'cycle did not converge')
                     + ": " + str(cycle.get('failure_detail') or 'no recorded detail')))
+        if cycle_state == 'BLOCKED' and cycle.get('completed_at') is not None:
+            return replace(failed, operational_fact=model.OperationalFact(
+                kind='PAPER_VERIFICATION', state='BLOCKED'))
+        return failed
     mirror_count = _informational_mirror_count(conn)
     if cycle is None and mirror_count == 0:
         return model.paper_reconciliation_row(

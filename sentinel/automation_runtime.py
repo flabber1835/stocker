@@ -40,6 +40,7 @@ from sentinel.automation.model import (
     HumanInterventionRequired,
     PrepareResult,
     ProtectedDayWait,
+    PreflightPublicationPinUnavailable,
     RefreshPublicationPinUnavailable,
     RefreshResult,
     SoftwareDefect,
@@ -1655,6 +1656,13 @@ class ProductionAutomation:
                 diagnostic=result_diagnostic)
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
+            if (getattr(self, '_operational_source_only', False)
+                    and not getattr(self, '_live_run_enabled', False)
+                    and context.cycle.plan_id is None
+                    and (context.cycle.state.value == 'DISCOVERED'
+                         or store.cycle_preflight_recovery_pending(context.cycle))
+                    and _native_publication_pin(exc) is not None):
+                raise PreflightPublicationPinUnavailable(str(mapped or exc)) from exc
             if mapped is None or mapped is exc:
                 raise
             raise mapped from exc

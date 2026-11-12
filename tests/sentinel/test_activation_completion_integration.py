@@ -101,7 +101,10 @@ def checkpoint_restore(c, directory, *, physical=False, corrupt=False):
     restored = _EphemeralPostgres()
     try:
         if physical:
-            shutil.rmtree(restored.datadir)
+            # The postgres user can traverse the parent without owning it.
+            # Give pg_basebackup the fixture's already-created empty directory.
+            if os.geteuid() == 0:
+                shutil.chown(restored.datadir, user='postgres', group='postgres')
             command = [_find_pg_bin('pg_basebackup'), '-D', restored.datadir,
                        '-h', '127.0.0.1', '-p', str(c.info.port), '-U', c.info.user,
                        '-X', 'stream', '-c', 'fast', '--no-password']

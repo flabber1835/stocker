@@ -52,6 +52,7 @@ from sentinel.automation.model import (
     protected_day_wait,
     PrepareResult,
     ProspectiveReplacementRefused,
+    PreflightPublicationPinUnavailable,
     RefreshPublicationPinUnavailable,
     RefreshResult,
     SoftwareDefect,
@@ -130,6 +131,7 @@ _CHILD_EXCEPTION_TYPES = {
         HumanInterventionRequired,
         NonRetryableCallbackRefused,
         PermanentOperationalRefusal,
+        PreflightPublicationPinUnavailable,
         RefreshPublicationPinUnavailable,
         SoftwareDefect,
         SourceDataPending,
@@ -159,7 +161,8 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if candidate not in (BackupProofBusy, ClosingDataPending, RefreshPublicationPinUnavailable)
+        if candidate not in (BackupProofBusy, ClosingDataPending, PreflightPublicationPinUnavailable,
+                             RefreshPublicationPinUnavailable)
         and isinstance(exc, candidate))
     if not matches:
         return None

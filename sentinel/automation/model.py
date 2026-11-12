@@ -48,6 +48,10 @@ class RefreshPublicationPinUnavailable(TransientInfrastructureFailure):
     """An operational close refresh could not acquire its publication read pin."""
 
 
+class PreflightPublicationPinUnavailable(TransientInfrastructureFailure):
+    """A planless preflight could not acquire its native corpus reader pin."""
+
+
 class BackupProofBusy(TransientInfrastructureFailure):
     """A strict backup proof owner refused admission during its work."""
 
