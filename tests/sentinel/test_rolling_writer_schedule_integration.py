@@ -201,6 +201,7 @@ def _coordinator(monkeypatch, *, ready=False, failure_phase=None,
                         lambda _connection, _lease, exc, **_: recorded.append(exc))
     monkeypatch.setattr(publisher.staging, 'clear',
                         lambda _connection, **_: cleared.append('scratch'))
+    # Record any accidental return of inline retention to the publisher.
     monkeypatch.setattr(retention, 'maintain', lambda _: cleared.append('maintenance'))
     return SimpleNamespace(connection=connection, lease=lease, failure=failure,
                            recorded=recorded, cleared=cleared)
@@ -217,7 +218,7 @@ def _assert_scopes(monkeypatch, *, ready=False):
                          ('original', phase, 'exit'), ('turn', phase, 'exit')])
     assert fixture.connection.events == expected
     assert fixture.connection.depth == 0 and fixture.connection.close_calls == 0
-    assert fixture.recorded == [] and fixture.cleared == ['scratch', 'maintenance']
+    assert fixture.recorded == [] and fixture.cleared == ['scratch']
 
 
 @pytest.mark.parametrize('ready', [False, True], ids=['acquiring-three-scopes', 'ready-skips-build'])
@@ -236,7 +237,7 @@ def test_phase_failure_balances_both_locks_and_retains_original_diagnostic(monke
     context = getattr(fixture.failure, '_sentinel_dependency_context')
     assert isinstance(context, notices.FailureContext) and context.stage == stage
     assert fixture.recorded == [fixture.failure]
-    assert fixture.cleared == ['scratch', 'maintenance']
+    assert fixture.cleared == ['scratch']
     assert fixture.connection.depth == 0 and not fixture.connection.closed
     assert fixture.connection.events[-2:] == [('original', phase, 'exit'), ('turn', phase, 'exit')]
 

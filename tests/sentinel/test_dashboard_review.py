@@ -258,12 +258,12 @@ def test_only_pending_capabilities_cannot_be_acknowledged_into_a_clean_interval(
 
 
 def test_removed_current_operation_guard_is_detected(conn,monkeypatch):
-    source=inspect.getsource(presentation.health_facts)
+    source=inspect.getsource(presentation._health_facts)
     guard="warnings.append('no_current_operation')"
     assert source.count(guard)==1
     namespace=dict(vars(presentation))
     exec(compile(source.replace(guard,'pass'),'removed-current-operation','exec'),namespace)
-    monkeypatch.setattr(presentation,'health_facts',namespace['health_facts'])
+    monkeypatch.setattr(presentation,'_health_facts',namespace['_health_facts'])
     with pytest.raises(AssertionError):
         test_only_pending_capabilities_cannot_be_acknowledged_into_a_clean_interval(conn)
 

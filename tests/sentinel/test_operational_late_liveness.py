@@ -61,6 +61,7 @@ def composed_rows(now):
 @pytest.fixture
 def late(conn, monkeypatch, tmp_path):
     isolate_storage(tmp_path, monkeypatch)
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'operational-heartbeat')
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'late-qualification-'+'x'*40)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
     monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')

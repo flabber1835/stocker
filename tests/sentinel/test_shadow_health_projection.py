@@ -223,7 +223,10 @@ def test_killed_probe_parent_cannot_leave_reader_running(tmp_path):
 import os,sys,time
 from sentinel import supervisor_io
 def reader():
- Path(sys.argv[1]).write_text(str(os.getpid()))
+ target = Path(sys.argv[1])
+ temporary = target.with_suffix('.tmp')
+ temporary.write_text(str(os.getpid()))
+ temporary.replace(target)
  time.sleep(60)
 supervisor_io.run(reader,timeout=60)
 '''
