@@ -394,7 +394,8 @@ def test_current_receipts_preserve_their_full_nonempty_issuer_snapshot(tmp_path,
 
 
 @pytest.mark.parametrize('mode,fault', [
-    ('PRE_OPEN',None), ('POST_TRADE',None), ('PRE_OPEN','routed-program'), ('PRE_OPEN','other-field'),
+    ('PRE_OPEN',None), ('POST_TRADE',None), ('PRE_OPEN','routed-program'), ('PRE_OPEN','unreviewed-program'),
+    ('PRE_OPEN','other-field'),
     ('POST_TRADE','other-mode'), ('PRE_OPEN','reader'), ('PRE_OPEN','started'),
     ('POST_TRADE','proof-shape'), ('POST_TRADE','proof-digest'),
     ('POST_TRADE','old-malformed'), ('POST_TRADE','current-malformed'),
@@ -411,7 +412,13 @@ def test_issuer_only_change_uses_reviewed_same_mode_verified_predecessor(tmp_pat
     monkeypatch.setattr(patch,'_REVIEWED_CANONICAL_RUNTIME_MAPS',{patch.digest(files)})
     files['scripts/sentinel_local_delivery/coordinator.py']=patch._REVIEWED_CANONICAL_COORDINATOR
     if fault=='routed-program':
-        files.update({name:patch.sha256_file(ROOT/name) for name in patch._CANONICAL_PROGRAM_FILES})
+        # The exact routed predecessor is an archived qualification, independent
+        # of the currently checked-out implementation of the proof.
+        files.update(zip(patch._CANONICAL_PROGRAM_FILES,(
+            '4c74570ef82d1c5022d9d947ae9f4179139cfa857c16abc6ab260cdfdf4c38d5',
+            'c56aefa4c013c0bdd81bd7cfafc97d694a894616581962c34e1abd498533c840')))
+    elif fault=='unreviewed-program':
+        files.update({name:'c'*64 for name in patch._CANONICAL_PROGRAM_FILES})
     else:
         files.update(zip(patch._CANONICAL_PROGRAM_FILES,(
             '8186821a440ab620b7da37ba43196174a69aeff9594a13d0026b641df548847e',

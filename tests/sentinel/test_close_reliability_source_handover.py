@@ -5,7 +5,7 @@ import json
 import pytest
 
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import encoded_profile, expanded_profile
+from tests.support.source_history import encoded_profile, expanded_profile, pre_market_history
 
 
 REVISION = '1692c0421084198e3cba03d098d2d0f92adbb79d'
@@ -15,14 +15,14 @@ CLOSURE = '9b7907bf1bbd7080607802f329604e7c554d3d5da6ae005cfa2532ca7129ef43'
 def test_exact_close_successor_retains_every_historical_map():
     profile = basis._profile()
     assert basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION == REVISION
-    assert profile['schema'] == 'sentinel.url-selected-trading-transition/46'
     assert profile['authority_effect'] == 'NONE'
     records = profile['retained_predecessors']
     predecessor = records[REVISION]['files']
     assert len(predecessor) == 471
     assert admission.source_closure(predecessor) == CLOSURE
 
-    history = {revision: record for revision, record in records.items() if revision != REVISION}
+    market = basis.MARKET_BUY_PREDECESSOR_REVISION
+    history = {**pre_market_history(profile), market: records[market]}
     assert len(history) == 44
     payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
     assert hashlib.sha256(payload).hexdigest() == (

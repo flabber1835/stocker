@@ -1,5 +1,6 @@
 """The display-only boundary change preserves exact installed financial code."""
 from sentinel import runtime_admission as admission,url_selected_source_basis as basis
+from tests.support.source_history import pre_market_history
 
 
 def test_boundary_delivery_has_only_the_documented_panel_delta():
@@ -14,4 +15,4 @@ def test_boundary_delivery_has_only_the_documented_panel_delta():
         'panel/model.py','panel/operational_snapshot.py','panel/overview.py',
         'panel/projection_service.py','panel/serialization.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert profile['authority_effect']=='NONE' and len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43
+    assert profile['authority_effect']=='NONE' and len(pre_market_history(profile)) == 43

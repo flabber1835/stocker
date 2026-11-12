@@ -43,12 +43,26 @@ def comparison_view(actual, *, previous=None):
     return predecessor_view(actual, previous=previous)
 
 
-def historical_view(previous, actual):
+@dataclass(frozen=True)
+class SourceComparison:
+    historical: Mapping[str, str]
+    backed_base: Mapping[str, str]
+    exact_predecessor: bool
+
+
+def compare_sources(previous, actual):
+    """Select the views for a single already owned compatibility proof."""
     from sentinel import structural_refactor_source_basis
-    predecessor = comparison_view(actual, previous=previous)
-    if predecessor != actual and previous == predecessor:
-        return predecessor
-    return structural_refactor_source_basis.historical_view(predecessor)
+    from sentinel.url_selected_source_basis import predecessor_views
+
+    predecessor, base = predecessor_views(actual, previous=previous)
+    exact = predecessor != actual and previous == predecessor
+    historical = predecessor if exact else structural_refactor_source_basis.historical_view(predecessor)
+    return SourceComparison(historical, base, exact)
+
+
+def historical_view(previous, actual):
+    return compare_sources(previous, actual).historical
 
 
 def _sha(raw):
@@ -180,10 +194,12 @@ class Transitions:
         return allowed
 
     def closure_allowed(self, previous, actual, base_additions):
-        predecessor = comparison_view(actual, previous=previous)
-        if predecessor != actual and previous == predecessor:
-            return True
-        actual = historical_view(previous, actual)
+        return self.comparison_allowed(previous, compare_sources(previous, actual), base_additions)
+
+    def comparison_allowed(self, previous, comparison: SourceComparison, base_additions):
+        if comparison.exact_predecessor:
+            return previous == comparison.historical
+        actual = comparison.historical
         allowed = self.additions_allowed(actual)
         if set(previous) - set(actual):
             return False

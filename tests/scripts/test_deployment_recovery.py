@@ -16,10 +16,9 @@ def test_public_installer_failure_cleanup_attempts_every_boundary(failure):
 import sys
 from types import SimpleNamespace
 sys.path.insert(0, 'scripts')
-import sentinel_autonomous_deploy_entry as entry
-entry.install_runtime_guards('dual')
-entry.bootstrap._install_wallclock_independent_dual_overlay()
-obj = object.__new__(entry.bootstrap.BootstrapDeploy)
+import sentinel_activation_roles as entry
+_, cls = entry.activation_types('dual')
+obj = object.__new__(cls)
 events = []
 failure = sys.argv[1]
 def boundary(name):
@@ -34,8 +33,8 @@ obj._direct_stop_automation = boundary('automation')
 obj._direct_stop_shadow = boundary('shadow')
 try:
     with obj.transition():
-        raise entry.bootstrap.core.DeployRefused('original deployment failure')
-except entry.bootstrap.core.DeployRefused as exc:
+        raise entry.core.DeployRefused('original deployment failure')
+except entry.core.DeployRefused as exc:
     assert str(exc) == 'original deployment failure'
 else:
     raise AssertionError('failure was swallowed')
@@ -53,10 +52,8 @@ def test_actual_public_installer_starts_operator_services_before_financial_progr
 import sys
 from types import SimpleNamespace
 sys.path.insert(0, 'scripts')
-import sentinel_autonomous_deploy_entry as entry
-entry.install_runtime_guards(sys.argv[1])
-entry.bootstrap._install_wallclock_independent_dual_overlay()
-cls = entry.bootstrap.BootstrapDeploy
+import sentinel_activation_roles as entry
+_, cls = entry.activation_types(sys.argv[1])
 events = []
 def run(argv, **kwargs):
     events.append(argv)
@@ -124,10 +121,8 @@ def test_public_bootstrap_requires_global_fence_before_backup_or_migration(proof
 import json,sys
 from types import SimpleNamespace
 sys.path.insert(0,'scripts')
-import sentinel_autonomous_deploy_entry as entry
-entry.install_runtime_guards('dual')
-entry.bootstrap._install_wallclock_independent_dual_overlay()
-cls=entry.bootstrap.BootstrapDeploy
+import sentinel_activation_roles as entry
+_, cls = entry.activation_types('dual')
 obj=object.__new__(cls)
 obj.cfg=SimpleNamespace(actor='fixture',health_timeout=30)
 obj.phase=lambda _:None
@@ -156,7 +151,7 @@ try:
     obj.quiesce_backup_and_migrate()
 except BackupReached:
     assert sys.argv[1]!='UNFENCED'
-except entry.bootstrap.core.DeployRefused:
+except entry.core.DeployRefused:
     assert sys.argv[1]=='UNFENCED'
 else:
     raise AssertionError('unexpected completion')
@@ -235,15 +230,13 @@ def test_unfenced_migration_stops_before_backup_and_schema_commands():
 @pytest.mark.parametrize('window', ['valid', 'expired-before-plan', 'expires-before-release'])
 @pytest.mark.parametrize('receipt', ['match', 'mismatch', 'malformed', 'absent'])
 def test_public_installer_hierarchy_preserves_reviewed_preparation_mode(mode, window, receipt):
-    # The public entry mutates class dispatch; exercise it in its own process.
+    # The test uses the selected production activation class in its own process.
     script = r'''
 import json, sys
 from types import SimpleNamespace
 sys.path.insert(0, 'scripts')
-import sentinel_autonomous_deploy_entry as entry
-entry.install_runtime_guards(sys.argv[1])
-entry.bootstrap._install_wallclock_independent_dual_overlay()
-cls = entry.bootstrap.BootstrapDeploy
+import sentinel_activation_roles as entry
+_, cls = entry.activation_types(sys.argv[1])
 assert cls.prepare_activate_start.__module__ == 'sentinel_autonomous_deploy_driver'
 obj = object.__new__(cls)
 obj.cfg = SimpleNamespace(account_id='SIMULATED', deployment_id='local', actor='fixture')

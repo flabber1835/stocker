@@ -3,7 +3,7 @@ import hashlib
 import json
 import pytest
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile, encoded_profile
+from tests.support.source_history import expanded_profile, encoded_profile, pre_market_history
 
 REVISION='9d0743834b63a6705b3638a291a8b32f390a9eca'
 CLOSURE='361372ad62cdb8b567089cde38da4ef09da1aaa293d33b1a7606e7eb175fb9b5'
@@ -18,8 +18,8 @@ def test_retirement_renewal_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}}
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in pre_market_history(profile).items() if rev not in {REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='61777ba02bd04ba5169775b6acde744bd65981499ad939552dcd49333a4a0085'
 

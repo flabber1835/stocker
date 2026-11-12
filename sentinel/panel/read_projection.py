@@ -264,17 +264,18 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
         conn.rollback(); conn.close()
 
 
-def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None):
+def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
+               native_subjects=None):
     """Read through the caller's snapshot without owning its transaction.
 
-    Optional facts are invocation-local `_subject_facts` from this same
-    transaction. No connection, observer, commit, rollback or isolation change.
+    Optional facts and native subjects come from this same transaction's
+    coordinate capture. No connection, observer, commit, rollback or isolation change.
     """
     scopes=_selected_scopes(include_paper,only_scope)
     instant = now or datetime.now(timezone.utc)
     schema.require_schema(conn)
     facts_error = None
-    if facts is None:
+    if facts is None and native_subjects is None:
         try:
             facts=_subject_facts(conn)
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
@@ -285,7 +286,8 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
         try:
             if facts_error is not None:
                 raise facts_error
-            key = _subject(conn, database_url, scope, facts=facts)
+            key = (native_subjects[scope] if native_subjects is not None
+                   else _subject(conn, database_url, scope, facts=facts))
             row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
             if (row is None or row[1].isoformat() != row[3].get('observed_at')
                     or row[2].isoformat() != row[3].get('valid_until')):

@@ -18,19 +18,19 @@ def test_receipt_overlay_reprojects_the_same_feed_dependency_without_renewing_cl
     ingest = model.Row('ingest', 'Ingest', 'PUBLISHED', model.OK)
     instant = worker.as_of
     page = model.Panel(rows=[*rows, worker, raw, ingest], now=instant)
-    projected = postclose_feed_wait.reproject(page, now=instant)
+    projected = postclose_feed_wait.project_panel(page, now=instant)
     waiting = projected.row('feed')
     assert waiting.status == model.WARN and waiting.recovery.phase == 'POST_CLOSE_SOURCE_WAIT'
     assert waiting.as_of == raw.as_of and waiting.valid_until <= raw.valid_until
-    assert postclose_feed_wait.reproject(projected, now=instant) == projected
-    broken = replace(projected, rows=[replace(row, status=model.UNKNOWN) if row.key == 'shadow_worker'
-                                     else row for row in projected.rows])
-    withdrawn = postclose_feed_wait.reproject(broken, now=instant).row('feed')
+    assert postclose_feed_wait.project_panel(page, now=instant) == projected
+    broken = replace(page, rows=[replace(row, status=model.UNKNOWN) if row.key == 'shadow_worker'
+                                else row for row in page.rows])
+    withdrawn = postclose_feed_wait.project_panel(broken, now=instant).row('feed')
     assert withdrawn.status == model.FAIL and withdrawn.recovery is None
-    assert withdrawn.as_of == waiting.as_of and withdrawn.valid_until == waiting.valid_until
+    assert withdrawn.as_of == raw.as_of and withdrawn.valid_until == raw.valid_until
     for negative in [feed(ready=False), replace(raw, status=model.UNKNOWN)]:
         broken = replace(page, rows=[negative if row.key == 'feed' else row for row in page.rows])
-        assert postclose_feed_wait.reproject(broken, now=instant).row('feed') == negative
+        assert postclose_feed_wait.project_panel(broken, now=instant).row('feed') == negative
 
 
 def test_removed_feed_dependency_projection_has_an_executed_falsifier(monkeypatch):

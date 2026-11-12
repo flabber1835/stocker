@@ -494,7 +494,7 @@ def test_close_scan_reserves_exact_early_close_for_the_bound_settled_cycle(close
     ('REFRESHING_DATA', 'REFRESH_CALLBACK'),
     ('PREPARING', 'PREPARE_CALLBACK'),
 ])
-def test_close_scan_requires_exact_current_callback_and_original_deadline(close_scan, state, callback):
+def test_close_scan_requires_exact_current_callback_and_original_deadline(close_scan, state, callback, monkeypatch):
     conn, now = close_scan
     today = now.astimezone(ZoneInfo('America/New_York')).date()
     deadline = now + timedelta(seconds=80)
@@ -521,12 +521,13 @@ def test_close_scan_requires_exact_current_callback_and_original_deadline(close_
     with conn.transaction(force_rollback=True):
         conn.execute('UPDATE sentinel_automation_lease SET fence_token=9')
         assert service._closing_scan_reserve(conn, now) is None
-        source = inspect.getsource(service._closing_scan_reserve)
-        guard = ' AND c.last_fence_token=l.fence_token'
-        assert guard in source
-        unguarded = {}
-        exec(source.replace(guard, ''), unguarded)
-        assert unguarded['_closing_scan_reserve'](conn, now) == deadline
+        from sentinel.automation import callback_observation
+        active = callback_observation.active_instance
+        guard = 'c.last_fence_token=l.fence_token'
+        assert guard in active('market.database_now')
+        monkeypatch.setattr(callback_observation, 'active_instance',
+            lambda clock: active(clock).replace(guard, 'TRUE'))
+        assert service._closing_scan_reserve(conn, now) == deadline
 
 
 def test_optional_shadow_scan_respects_the_original_row_expiry():

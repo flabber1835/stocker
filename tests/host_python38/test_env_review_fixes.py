@@ -357,61 +357,53 @@ class EnvReviewFixes(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
                 "ALPACA_SECRET_KEY=operator\n")
 
-    def test_production_entry_routes_both_legacy_writers_through_safe_writer(self):
-        import sentinel_autonomous_deploy_entry as entry
-        original_core = entry.core.update_dotenv
-        original_bootstrap = entry.bootstrap._safe_update_dotenv
-        original_overlay = entry.bootstrap._install_wallclock_independent_dual_overlay
-        try:
-            entry.install_runtime_guards(None)
-            self.assertIs(entry.core.update_dotenv, entry._deploy_writer)
-            self.assertIs(
-                entry.bootstrap._safe_update_dotenv, entry._deploy_writer)
-        finally:
-            entry.core.update_dotenv = original_core
-            entry.bootstrap._safe_update_dotenv = original_bootstrap
-            entry.bootstrap._install_wallclock_independent_dual_overlay = original_overlay
+    def test_activation_writer_is_owned_by_the_selected_deployment(self):
+        import sentinel_activation_roles as roles
+        import sentinel_autonomous_deploy_bootstrap as bootstrap
+        original_core = roles.core.update_dotenv
+        original_bootstrap = bootstrap._safe_update_dotenv
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / ".env"
+            path.write_text("PRIVATE_NOTE=preserved\n")
+            writes = []
 
-    def test_shadow_overlay_config_and_integrity_never_require_broker_secrets(self):
-        import sentinel_autonomous_deploy_entry as entry
-        original_cfg = entry.bootstrap.hardened.Config
-        original_deploy = entry.bootstrap.BootstrapDeploy
-        original_verify = entry.core.verify_reviewed_account_binding
-        original_key = entry.bootstrap._signing_key_path
-        try:
-            entry._install_shadow_overlay()
-            with tempfile.TemporaryDirectory() as raw:
-                cfg = entry.bootstrap.hardened.Config({
-                    **BASE_SHADOW,
-                    "SENTINEL_RUNTIME_IMAGE_REPOSITORY":
-                        "ghcr.io/example/sentinel",
-                    "SENTINEL_TEST_IMAGE_REPOSITORY":
-                        "ghcr.io/example/sentinel-test",
-                    "SENTINEL_AUTHORITY_ARTIFACTS_DIR": raw,
-                })
-                self.assertEqual(cfg.account_id, "")
-                self.assertEqual(cfg.deployment_id, "")
-                reviewed = SimpleNamespace(mode="shadow")
-                runner = SimpleNamespace(env={})
-                obj = entry.bootstrap.BootstrapDeploy(
-                    cfg, runner, Path(raw),
-                    reviewed_validation=reviewed)
-                self.assertEqual(
-                    obj.check_paper_account_deployment_integrity(),
-                    "BROKER_NOT_APPLICABLE")
-                obj._status = lambda: {
-                    "ownership": "NOT_OWNED",
-                    "paper_execution_authority": {},
-                    "administrative_authority": {},
-                }
-                status = obj.check_durable_deployment_integrity()
-                self.assertEqual(status["ownership"], "NOT_OWNED")
-                entry.core.verify_reviewed_account_binding(reviewed, "")
-        finally:
-            entry.bootstrap.hardened.Config = original_cfg
-            entry.bootstrap.BootstrapDeploy = original_deploy
-            entry.core.verify_reviewed_account_binding = original_verify
-            entry.bootstrap._signing_key_path = original_key
+            def persist(_path, updates):
+                writes.append(updates)
+                roles._deploy_writer(path, updates)
+
+            for mode in ("dual", "paper", "shadow"):
+                _, deploy_type = roles.activation_types(mode)
+                deploy = deploy_type(SimpleNamespace(), SimpleNamespace(env={}), Path(raw),
+                                     environment_writer=persist)
+                deploy._persist_deploy_facts({"SENTINEL_GIT_COMMIT": "c" * 40})
+            self.assertEqual(len(writes), 3)
+            self.assertIn("PRIVATE_NOTE=preserved", path.read_text())
+            self.assertIs(roles.core.update_dotenv, original_core)
+            self.assertIs(bootstrap._safe_update_dotenv, original_bootstrap)
+
+    def test_explicit_shadow_role_never_requires_broker_secrets(self):
+        import sentinel_activation_roles as roles
+        cfg_type, deploy_type = roles.activation_types("shadow")
+        with tempfile.TemporaryDirectory() as raw:
+            cfg = cfg_type({
+                **BASE_SHADOW,
+                "SENTINEL_RUNTIME_IMAGE_REPOSITORY": "ghcr.io/example/sentinel",
+                "SENTINEL_TEST_IMAGE_REPOSITORY": "ghcr.io/example/sentinel-test",
+                "SENTINEL_AUTHORITY_ARTIFACTS_DIR": raw,
+            })
+            self.assertEqual(cfg.account_id, "")
+            self.assertEqual(cfg.deployment_id, "")
+            reviewed = SimpleNamespace(mode="shadow")
+            obj = deploy_type(cfg, SimpleNamespace(env={}), Path(raw),
+                              reviewed_validation=reviewed)
+            self.assertEqual(obj.check_paper_account_deployment_integrity(), "BROKER_NOT_APPLICABLE")
+            obj._status = lambda: {
+                "ownership": "NOT_OWNED",
+                "paper_execution_authority": {},
+                "administrative_authority": {},
+            }
+            self.assertEqual(obj.check_durable_deployment_integrity()["ownership"], "NOT_OWNED")
+            obj._verify_reviewed_account(reviewed)
 
 
 if __name__ == "__main__":

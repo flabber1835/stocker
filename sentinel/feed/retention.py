@@ -846,13 +846,36 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
         return result
 
 
+def _closing_plan_pending(conn):
+    """An owned plan still preparing can use the corpus before disposal."""
+    if conn.execute("SELECT to_regclass('sentinel_automation_cycles')").fetchone()[0] is None:
+        return False
+    return conn.execute("""
+        SELECT EXISTS (
+            SELECT 1 FROM sentinel_automation_cycles c
+            JOIN sentinel_automation_control a ON a.id=1 AND a.generation=c.control_generation
+              AND a.config_sha256=c.config_sha256 AND a.certificate_sha256=c.certificate_sha256
+            JOIN sentinel_account_binding b ON b.id=1 AND b.deployment_id=c.deployment_id
+              AND b.broker=c.broker AND b.broker_account_id=c.broker_account_id
+              AND b.takeover_epoch=c.takeover_epoch
+            WHERE a.enabled AND NOT a.kill_switch_engaged
+              AND c.prepare_at<=statement_timestamp() AND statement_timestamp()<c.execution_open_at
+              AND (c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING','PLAN_READY')
+                   OR c.state='RETRY_WAIT' AND c.diagnostic->>'retry_phase' IN
+                      ('PREFLIGHT_RECOVER','REFRESH','PREPARE'))
+        )
+        """).fetchone()[0] is True
+
+
 def idle_pass(database_url):
     """Continue only committed useful work, never a loop of unknown retries."""
     conn = None
     try:
         conn = store.connect(database_url,connect_timeout=3,statement_timeout_ms=1000)
-        available = conn.execute("SELECT to_regclass('sentinel_operational_snapshots')").fetchone()[0]
-        if not available or not conn.execute('SELECT 1 FROM sentinel_operational_snapshots LIMIT 1').fetchone():
+        available = conn.execute("SELECT to_regclass('sentinel_operational_snapshot_jobs')").fetchone()[0]
+        if not available or not conn.execute('SELECT 1 FROM sentinel_operational_snapshot_jobs LIMIT 1').fetchone():
+            return False
+        if _closing_plan_pending(conn):
             return False
         conn.rollback()
         result = maintain(conn)

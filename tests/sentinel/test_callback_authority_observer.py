@@ -56,6 +56,56 @@ async def test_revocation_cancels_the_running_callback(monkeypatch):
     assert time.monotonic()-started<1.5
 
 
+@pytest.mark.parametrize('remove_wiring', [False, True])
+async def test_deployed_worker_observes_authority_until_its_callback_ends(monkeypatch, remove_wiring):
+    from pathlib import Path
+
+    from sentinel import automation_worker
+    from sentinel.automation_resilience import RecoveryAutomationService
+    from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
+    from tests.sentinel.test_automation_runtime import config
+
+    connection = setup(monkeypatch)
+    checks = []
+
+    def revoke(_self, _context, stopped):
+        assert not stopped.is_set()
+        checks.append('revoked')
+        raise NonRetryableCallbackRefused('worker certificate revoked')
+
+    monkeypatch.setattr(automation_worker.ProductionAutomation, 'callback_authority', revoke)
+    if remove_wiring:
+        constructor = dedent(inspect.getsource(automation_runtime.ProductionAutomation.__init__))
+        guard = 'callback_authority=self.callback_authority'
+        assert constructor.count(guard) == 1
+        namespace = dict(vars(automation_runtime))
+        exec(constructor.replace(guard, 'callback_authority=None'), namespace)
+        monkeypatch.setattr(automation_runtime.ProductionAutomation, '__init__', namespace['__init__'])
+    runtime = automation_worker.ProductionAutomation(
+        sentinel_config=SentinelConfig(alpaca_key='', alpaca_secret='',
+            base_url=DEFAULT_BASE_URL, state_dir=Path('.'), max_cycles=1, poll_seconds=0,
+            database_url='postgresql://unused'), automation_config=config(), holder_id='worker-a')
+    assert isinstance(runtime.service, RecoveryAutomationService)
+    assert runtime.service.backup_proof_completed == runtime.backup_proof_completed
+    context = _CallbackContext()
+
+    async def callback(_context):
+        time.sleep(.4)
+        return {'unsafe success': True}
+
+    async def require_revocation():
+        with pytest.raises(NonRetryableCallbackRefused, match='worker certificate revoked'):
+            await runtime.service._invoke(callback, context, permit=object(), phase='PREPARE',
+                                          heartbeat_conn_factory=connection)
+        assert checks == ['revoked'] and context.cancellation.cancelled
+
+    if remove_wiring:
+        with pytest.raises(pytest.fail.Exception):
+            await require_revocation()
+    else:
+        await require_revocation()
+
+
 async def test_callback_completion_cancels_its_owned_observer(monkeypatch):
     connection=setup(monkeypatch);service=_service();stopped_observer=threading.Event()
     def authority(context, stopped):

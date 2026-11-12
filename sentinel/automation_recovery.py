@@ -101,19 +101,7 @@ class _LateBoundRegenesisFlatSizing:
 class ProductionAutomation(base.ProductionAutomation):
     """Retain canonical automation behavior with production recovery guards."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        # Production availability is duration-independent. A typed temporary
-        # dependency failure may last for days and still heal with no change in
-        # financial authority. Rebuild only the broker-independent service
-        # wrapper; all canonical callbacks remain the base runtime methods.
-        self.service = RecoveryAutomationService(
-            config=self.automation_config, holder_id=self.holder_id,
-            refresh=self.refresh, prepare=self.prepare,
-            recover=self.recover, execute=self.execute,
-            notify=self.notify, terminal=self.certify_terminal_cycle,
-            source_completion_hint=self.source_completion_hint,
-            backup_proof_completed=self.backup_proof_completed)
+    _service_type = RecoveryAutomationService
 
     def backup_proof_completed(self, failed_at):
         return backup_retry.completed_since(

@@ -149,7 +149,8 @@ def _signing_key_path(env: Mapping[str, str]) -> Optional[Path]:
     return None
 
 
-def discover(env: Mapping[str, str], *, installation_only: bool = False) -> Dict[str, str]:
+def discover(env: Mapping[str, str], *, installation_only: bool = False,
+             discover_signing_key: bool = True) -> Dict[str, str]:
     resolved = dict(env)
     status = _existing_status(resolved)
     if status and status.get("ownership") == "OWNED":
@@ -178,7 +179,7 @@ def discover(env: Mapping[str, str], *, installation_only: bool = False) -> Dict
     if runtime_repo and not str(resolved.get("SENTINEL_TEST_IMAGE_REPOSITORY", "")).strip():
         resolved["SENTINEL_TEST_IMAGE_REPOSITORY"] = runtime_repo + "-test"
 
-    key = None if installation_only else _signing_key_path(resolved)
+    key = _signing_key_path(resolved) if discover_signing_key and not installation_only else None
     if key is not None:
         resolved["SENTINEL_DEPLOY_SIGNING_KEY_FILE"] = str(key)
     if not str(resolved.get("SENTINEL_DEPLOY_SIGNING_KEY_ID", "")).strip():
@@ -307,8 +308,8 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
 
     def build_promote(self) -> None:
         if getattr(self, '_installation_only', False):
-            from sentinel_installation_phase import InstallationDeploy
-            return InstallationDeploy.build_promote(self)
+            from sentinel_installation_phase import select_certified_runtime
+            return select_certified_runtime(self)
         reviewed = self.reviewed_validation
         if (reviewed is not None
                 and reviewed.test_image_digest == reviewed.runtime_image_digest):
@@ -441,7 +442,8 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 "automation did not reach disabled+killed deployment state")
 
     def _persist_deploy_facts(self, updates: Mapping[str, str]) -> None:
-        _safe_update_dotenv(core.ENV_PATH, updates)
+        writer = getattr(self, '_environment_writer', None) or _safe_update_dotenv
+        writer(core.ENV_PATH, updates)
 
     def _post_deploy_backup(self) -> str:
         if getattr(self, '_activation_backup', None):
@@ -510,7 +512,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             })
         receipt['schema'] = 'sentinel.activation-receipt/1'
         path = self.attempt_dir / "activation-receipt.json"
-        _safe_update_dotenv(core.ENV_PATH, managed)
+        self._persist_deploy_facts(managed)
         from sentinel_phase_records import publish_immutable
         publish_immutable(path, receipt)
         if dual:
@@ -554,17 +556,6 @@ print(actual)
         if not actual.startswith("ed25519-sha256:"):
             raise core.DeployRefused("could not derive the Ed25519 signing key id")
         self.cfg.signing_key_id = actual
-
-
-def _install_wallclock_independent_dual_overlay() -> None:
-    """Extend this vetted bootstrap without changing the operator entrypoint."""
-    # When executed as a script, bind the canonical module name to this exact
-    # instance before importing the overlay. The overlay must patch the classes
-    # and globals used by this running bootstrap, not a second imported copy.
-    sys.modules.setdefault(
-        "sentinel_autonomous_deploy_bootstrap", sys.modules[__name__])
-    import sentinel_autonomous_deploy_install_entry as install_anytime  # noqa: PLC0415
-    install_anytime._install_overlay()
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

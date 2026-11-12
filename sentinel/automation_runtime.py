@@ -20,7 +20,7 @@ from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, NoReturn
 from zoneinfo import ZoneInfo
 
 from sentinel import identity as system_identity, paper, schema, trial
@@ -660,6 +660,9 @@ def _observe_callback_authority(sentinel_config, automation_config, holder_id, p
 class ProductionAutomation:
     """Inject canonical production actions into the durable automation core."""
 
+    _service_type = AutomationService
+    backup_proof_completed = None
+
     def __init__(self, *, sentinel_config: SentinelConfig,
                  automation_config: AutomationConfig,
                  holder_id: str | None = None,
@@ -697,12 +700,13 @@ class ProductionAutomation:
         # result or a grant. Mutable lifecycle/control facts are still polled.
         self._idle_attestation: tuple[datetime, tuple] | None = None
         self._idle_attestation_observed_at: datetime | None = None
-        self.service = AutomationService(
+        self.service = self._service_type(
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
             notify=self.notify, terminal=self.certify_terminal_cycle,
             source_completion_hint=self.source_completion_hint,
+            backup_proof_completed=self.backup_proof_completed,
             callback_authority=self.callback_authority)
 
     def callback_authority(self, context, stopped):
@@ -768,7 +772,7 @@ class ProductionAutomation:
             conn.rollback()
             return False
 
-    def _raise_authority_refusal(self, exc):
+    def _raise_authority_refusal(self, exc) -> NoReturn:
         if isinstance(exc, StaleLeaderRefused):
             raise exc
         temporary = classify_dependency_failure(exc)
@@ -788,53 +792,51 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _assert_control_authority(self, conn, permit, *, require_publication=False,
-                                  record_verdict=True):
+    def _validate_control_authority(self, conn, permit):
+        """Check the original authority scope without publishing a verdict."""
+        store.require_leader(conn, permit)
+        control = store.load_control(conn)
+        bound = control.binding
+        if (bound is None or control.generation != permit.control_generation
+                or control.config_sha256 != self.automation_config.fingerprint):
+            raise RuntimeError("automation control authority is stale")
+        rollout = load_rollout_state(conn)
+        current = feed_inputs.require_current(conn)
+        started = time.monotonic()
+        _controller, strategy = production_strategy()
+        runtime_identity = system_identity.rehearsal_identity()
+        self._warn_slow_authority_stage("runtime-source-packages", started)
+        started = time.monotonic()
+        certificate = require_current_authority(
+            conn, runtime_identity=runtime_identity,
+            strategy_identity=strategy, required_mode=rollout.mode,
+            required_operation="AUTOMATION",
+            paper_base_url=self.sentinel_config.base_url,
+            current_publication_version=current.version,
+            automation_config_sha256=self.automation_config.fingerprint)
+        self._warn_slow_authority_stage("signed-authority-publication", started)
+        if ((getattr(self, "_live_run_enabled", False) and bound.broker != "alpaca-live")
+                or certificate.certificate_sha256 != bound.certificate_sha256
+                or bound.rollout_mode != rollout.mode.value
+                or bound.rollout_version != rollout.version):
+            raise RuntimeError("current automation binding and signed authority differ")
+        return control, certificate
+
+    def _finish_authority_refusal(self, conn, permit, exc, *, record_verdict) -> NoReturn:
+        self._idle_attestation = None
+        if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
+            conn.rollback()
+        elif record_verdict:
+            self._record_authority_verdict(
+                conn, permit, verdict="FAIL", detail=f"{type(exc).__name__}: {exc}")
+        self._raise_authority_refusal(exc)
+
+    def _assert_control_authority(self, conn, permit, *, require_publication=False):
         """Verify current signed authority without requiring any cycle row."""
         try:
-            store.require_leader(conn, permit)
-            control = store.load_control(conn)
-            if (control.binding is None
-                    or control.generation != permit.control_generation
-                    or control.config_sha256
-                    != self.automation_config.fingerprint):
-                raise RuntimeError("automation control authority is stale")
-            rollout = load_rollout_state(conn)
-            current = feed_inputs.require_current(conn)
-            started = time.monotonic()
-            _controller, strategy = production_strategy()
-            runtime_identity = system_identity.rehearsal_identity()
-            self._warn_slow_authority_stage("runtime-source-packages", started)
-            started = time.monotonic()
-            certificate = require_current_authority(
-                conn, runtime_identity=runtime_identity,
-                strategy_identity=strategy, required_mode=rollout.mode,
-                required_operation="AUTOMATION",
-                paper_base_url=self.sentinel_config.base_url,
-                current_publication_version=current.version,
-                automation_config_sha256=self.automation_config.fingerprint)
-            self._warn_slow_authority_stage("signed-authority-publication", started)
-            bound = control.binding
-            if (bound is None
-                    or (getattr(self, "_live_run_enabled", False)
-                        and bound.broker != "alpaca-live")
-                    or certificate.certificate_sha256
-                    != bound.certificate_sha256
-                    or bound.rollout_mode != rollout.mode.value
-                    or bound.rollout_version != rollout.version):
-                raise RuntimeError(
-                    "current automation binding and signed authority differ")
+            control, certificate = self._validate_control_authority(conn, permit)
         except Exception as exc:                              # noqa: BLE001
-            self._idle_attestation = None
-            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
-                conn.rollback()
-            elif record_verdict:
-                self._record_authority_verdict(
-                    conn, permit, verdict="FAIL",
-                    detail=f"{type(exc).__name__}: {exc}")
-            self._raise_authority_refusal(exc)
-        if not record_verdict:
-            return control, certificate
+            self._finish_authority_refusal(conn, permit, exc, record_verdict=True)
         published = self._record_authority_verdict(
             conn, permit, verdict="PASS",
             detail=(f"signed certificate {certificate.certificate_sha256} "
@@ -847,15 +849,9 @@ class ProductionAutomation:
             self, conn, context: CycleContext, *, operation_scope: str,
             verified_control=None, record_verdict=True):
         context.require_active()
-        if verified_control is None:
-            if record_verdict:
-                control, certificate = self._assert_control_authority(conn, context.permit)
-            else:
-                control, certificate = self._assert_control_authority(
-                    conn, context.permit, record_verdict=False)
-        else:
-            control, certificate = verified_control
         try:
+            control, certificate = (self._validate_control_authority(conn, context.permit)
+                                    if verified_control is None else verified_control)
             cycle = store.load_cycle(conn, context.cycle.cycle_id)
             bound = control.binding
             assert bound is not None                          # proven above
@@ -873,14 +869,7 @@ class ProductionAutomation:
                     "old-generation cycle lacks current fenced read-only "
                     "recovery adoption")
         except Exception as exc:                              # noqa: BLE001
-            self._idle_attestation = None
-            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
-                conn.rollback()
-            elif record_verdict:
-                self._record_authority_verdict(
-                    conn, context.permit, verdict="FAIL",
-                    detail=f"{type(exc).__name__}: {exc}")
-            self._raise_authority_refusal(exc)
+            self._finish_authority_refusal(conn, context.permit, exc, record_verdict=record_verdict)
         if verified_control is None and record_verdict:
             self._record_authority_verdict(
                 conn, context.permit, verdict="PASS",

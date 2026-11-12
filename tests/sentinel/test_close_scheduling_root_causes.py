@@ -92,8 +92,8 @@ async def test_publication_pin_handoff_keeps_its_own_retry_and_consumes_each_hin
         monkeypatch.setattr(service.AutomationService, name, namespace[name])
 
     if omit == 'pin_budget':
-        mutate('_handle_callback_failure', 'diagnostic.get("publication_pin_attempt_count",',
-               'diagnostic.get("phase_attempt_count",')
+        mutate('_record_retry', 'classified.get("publication_pin_attempt_count",',
+               'classified.get("phase_attempt_count",')
     elif omit == 'pin_hint':
         mutate('_advanced_source_completion',
                'and cycle.failure_code == RefreshPublicationPinUnavailable.__name__', 'and False')

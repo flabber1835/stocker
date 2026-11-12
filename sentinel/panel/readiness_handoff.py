@@ -12,7 +12,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, rolling_jobs
+from sentinel import close_observation
+from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs
+from sentinel.feed.publication import Publication
 from sentinel.feed.rolling_contract import digest
 from sentinel.panel import model, observer_failure
 
@@ -49,7 +51,7 @@ def checking(panel, *, now):
 def _checkpoint_bound(conn, *, pub, binding, closed, now):
     """Authenticate the new candidate and its previous authority in this snapshot."""
     from psycopg import Error
-    from sentinel import rolling_authority, rolling_daily_checkpoint, shadow_observation
+    from sentinel import rolling_authority, rolling_daily_checkpoint
 
     observation = os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary').strip()
     try:
@@ -67,14 +69,12 @@ def _checkpoint_bound(conn, *, pub, binding, closed, now):
             authority = rolling_authority.latest(conn, observation)
             if (not authority or type(authority[0]) is not rolling_authority.Authority
                     or calendar.next_session(authority[0].session) != checkpoint.session
-                    or checkpoint.history_anchor.get('previous_record_sha256') != authority[0].record_sha256
                     or checkpoint.history_anchor.get('prior_data_version') != pub.previous_version):
                 return None
-            timing = shadow_observation._timing_proof(checkpoint.precommit_timing,
-                decision_session=checkpoint.session, committed=False, where='closing dashboard candidate')
-            if not closed <= datetime.fromisoformat(timing['observed_at']) <= now:
-                return None
-            return digest(checkpoint.model_dump(by_alias=True)), datetime.fromisoformat(timing['observed_at'])
+            observed = close_observation.candidate_observed_at(checkpoint.session,
+                checkpoint.history_anchor, checkpoint.precommit_timing, authority[0],
+                wanted=pub.window_end, closed=closed, now=now)
+            return digest(checkpoint.model_dump(by_alias=True)), observed
     except (Error, KeyError, TypeError, ValueError, OverflowError, RuntimeError):
         return None
 
@@ -163,29 +163,26 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
             return None
         (version, previous, session, evidence, job, candidate_id, validation, state,
          published, owned, raw, sha, created, deadline, start, run_id) = records[0]
-        request = rolling_jobs.PreparationRequest.model_validate(raw)
         binding = evidence.get('rolling_snapshot') if isinstance(evidence, dict) else None
         if (version != feed.source_publication_version or str(session) != feed.source_session
-                or state != 'PUBLISHED' or published != version or candidate_id != owned
                 or not isinstance(binding, dict) or binding.get('schema') != operational_snapshot.SCHEMA
                 or binding.get('job_id') != str(job) or binding.get('candidate_id') != str(candidate_id)
-                or binding.get('validation_sha256') != validation
-                or request.request_sha256 != sha or request.expected_publication_version != previous
-                or request.cursor is not None or request.dependencies_sha256 != digest({
-                    'schema': operational_snapshot.SCHEMA,
-                    'dependencies': digest({'scope': rolling_go_inputs.SCHEMA})})
-                or str(request.window.start) != str(start)
-                or str(request.window.end) != feed.source_session
-                or not closed <= created <= now < deadline
-                or not timedelta(0) < deadline-created <= timedelta(seconds=86400)):
+                or binding.get('validation_sha256') != validation):
+            return None
+        pub = Publication(version, previous, str(run_id) if run_id else None,
+                          str(start), str(session), evidence)
+        request, deadline = close_observation.published_job(pub, binding,
+            dict(job_id=job, candidate_id=owned, state=state, publication_version=published,
+                 request=raw, request_sha256=sha, created_at=created, deadline=deadline),
+            closed=closed, now=now)
+        if (now >= deadline or request.cursor is not None or request.dependencies_sha256 != digest({
+                'schema': operational_snapshot.SCHEMA,
+                'dependencies': digest({'scope': rolling_go_inputs.SCHEMA})})):
             return None
         opened = calendar.session_window(calendar.next_session(feed.source_session))[0]
         boundary = min(deadline, attempt.deadline, worker.valid_until, owner_expiry, opened)
         checkpoint = None
         if candidate:
-            from sentinel.feed import publication
-            pub = publication.Publication(version, previous, str(run_id) if run_id else None,
-                                          str(start), str(session), evidence)
             memo = candidate_memo if candidate_memo is not None else CandidateMemo()
             checkpoint = memo.read(conn, subject=subject, pub=pub, binding=binding,
                                    closed=closed, now=now)

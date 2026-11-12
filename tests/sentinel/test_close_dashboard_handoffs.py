@@ -1,7 +1,5 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-import inspect
-import textwrap
 
 import pytest
 
@@ -60,12 +58,12 @@ def test_live_preflight_callback_is_bound_to_the_planless_current_fence(conn, mo
         assert sources._broker_callback(conn, 'cycle', 'DISCOVERED') is None
     conn.execute("UPDATE sentinel_automation_cycles SET last_fence_token=7")
     rejects_foreign_fence()
-    code = textwrap.dedent(inspect.getsource(sources._broker_callback))
-    guard = " AND c.last_fence_token=l.fence_token"
-    assert code.count(guard) == 1
-    namespace = dict(vars(sources))
-    exec(compile(code.replace(guard, ''), '<close-preflight-fence-falsifier>', 'exec'), namespace)
-    monkeypatch.setattr(sources, '_broker_callback', namespace['_broker_callback'])
+    from sentinel.automation import callback_observation
+    active = callback_observation.active_instance
+    guard = 'c.last_fence_token=l.fence_token'
+    assert guard in active('sampled.at')
+    monkeypatch.setattr(callback_observation, 'active_instance',
+        lambda clock: active(clock).replace(guard, 'TRUE'))
     with pytest.raises(AssertionError):
         rejects_foreign_fence()
 

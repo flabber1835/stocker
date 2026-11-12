@@ -13,7 +13,9 @@ import time
 
 import sentinel_autonomous_deploy as core
 import sentinel_autonomous_deploy_bootstrap as bootstrap
+import sentinel_activation_roles as roles
 import sentinel_env
+from sentinel_autonomous_deploy_install_entry import parse_reviewed_validation_bundle
 from sentinel_env_writer import EnvWriteRefused
 from sentinel_phase_records import read_document, publish_immutable, write_document
 
@@ -108,36 +110,28 @@ def status(path, state, *, reason=None, installation_verified=True):
     return value
 
 
-@contextmanager
-def owned_configuration(request_path):
-    """Checkpoint only configuration writes performed by the canonical host writer."""
-    original = bootstrap._safe_update_dotenv
+def owned_configuration(request_path, writer):
+    """Bind this attempt's canonical writer to its exact configuration checkpoint."""
     request_sha256 = digest(request_path)
-    expected = [digest(core.ENV_PATH)]
+    expected = digest(core.ENV_PATH)
     def write(path, updates):
+        nonlocal expected
         if Path(path).resolve() != core.ENV_PATH.resolve():
             raise core.DeployRefused('activation writer targets another environment')
-        if digest(path) != expected[0]:
+        if digest(path) != expected:
             raise core.DeployRefused('environment changed outside the activation owner')
         if digest(request_path) != request_sha256:
             raise core.DeployRefused('activation request changed during configuration write')
         from sentinel_env_writer import _render
         intended = hashlib.sha256(_render(Path(path).read_bytes(), updates)).hexdigest()
-        original(path, updates)
+        writer(path, updates)
         if digest(path) != intended:
             raise core.DeployRefused('activation configuration changed during publication')
-        expected[0] = intended
+        expected = intended
         write_document(Path(request_path).parent / 'activation-checkpoint.json', {
             'schema': 'sentinel.activation-checkpoint/1',
-            'request_sha256': request_sha256, 'env_sha256': expected[0]})
-    bootstrap._safe_update_dotenv = write
-    core_original = core.update_dotenv
-    core.update_dotenv = write
-    try:
-        yield
-    finally:
-        bootstrap._safe_update_dotenv = original
-        core.update_dotenv = core_original
+            'request_sha256': request_sha256, 'env_sha256': expected})
+    return write
 
 
 def handoff(path, *, invoke=subprocess.run, sleep=time.sleep, monotonic=time.monotonic):
@@ -222,7 +216,7 @@ def financial_bundle(obj, request):
     return path, hashes[0]
 
 
-def attempt(path, request, receipt):
+def attempt(path, request, receipt, *, environment_writer=None):
     env = core.merged_environment()
     try:
         sentinel_env.validate(env, profile='go', target=(
@@ -232,24 +226,26 @@ def attempt(path, request, receipt):
                 or 'REQUIRED_ALERT_TRANSPORT_MISSING' in str(exc)):
             raise core.ActivationPending('activation configuration incomplete') from exc
         raise core.DeployRefused('activation configuration is malformed') from exc
-    env = bootstrap.discover(env)
+    config_type, deploy_type = roles.activation_types(request['mode'])
+    env = bootstrap.discover(env, discover_signing_key=request['mode'] != 'shadow')
     try:
-        cfg = bootstrap.hardened.Config(env)
+        cfg = config_type(env)
     except core.DeployRefused as exc:
         # Missing activation material is availability; malformed identities never retry.
         if 'is required' in str(exc) or 'signing key is not a readable file' in str(exc):
             raise core.ActivationPending('activation signing/identity configuration incomplete') from exc
         raise
     directory = core._attempt_dir(cfg, request['source_commit'])
-    obj = bootstrap.BootstrapDeploy(cfg, core.Runner(env, directory / 'commands.log'), directory)
+    obj = deploy_type(cfg, core.Runner(env, directory / 'commands.log'), directory,
+                      environment_writer=environment_writer or roles._deploy_writer)
     obj.requested_unsent_recovery = request.get('unsent_recovery')
     obj.requested_initial_paper_recovery = request.get('initial_paper_recovery')
     obj.git_preflight()
     if obj.commit != request['source_commit']:
         raise core.DeployRefused('activation checkout changed from installed software')
     # Independently reverify signed software before any privileged financial CLI.
-    from sentinel_installation_phase import InstallationDeploy
-    InstallationDeploy.build_promote(obj)
+    from sentinel_installation_phase import select_certified_runtime
+    select_certified_runtime(obj)
     if obj.runtime_repo_digest != receipt['runtime_image']:
         raise core.DeployRefused('activation runtime differs from installed software')
     # Readiness waits begin only after installed state exists. No competing source writer.
@@ -265,7 +261,7 @@ def attempt(path, request, receipt):
         bundle, confirmation = financial_bundle(obj, request)
         # Parse the signed proposal here; run_activation binds software/account
         # and reads current financial lineage once after confirming its fence.
-        reviewed = core.parse_reviewed_validation_bundle(
+        reviewed = parse_reviewed_validation_bundle(
             bundle, mode=request['mode'], confirmation=confirmation)
         if reviewed.git_commit != request['source_commit']:
             raise core.DeployRefused('financial bundle selects different installed software')
@@ -380,9 +376,6 @@ def main(argv=None):
     try:
         request, receipt = validate_request(args.request)
         verified = True
-        import sentinel_autonomous_deploy_entry as entry
-        entry.install_runtime_guards(request['mode'])
-        bootstrap._install_wallclock_independent_dual_overlay()
         env = core.merged_environment()
         authority = core._resolve_repo_path(env.get('SENTINEL_AUTHORITY_ARTIFACTS_DIR', 'artifacts/sentinel/authority'))
         with core.DeploymentLock(authority / 'activation-coordinator.lock'):
@@ -398,8 +391,8 @@ def main(argv=None):
                     status(args.request, 'PREPARING')
                     try:
                         with core.DeploymentLock(authority / 'autonomous-deploy.lock'):
-                            with owned_configuration(args.request):
-                                attempt(args.request, request, receipt)
+                            writer = owned_configuration(args.request, roles._deploy_writer)
+                            attempt(args.request, request, receipt, environment_writer=writer)
                     except core.ActivationPending:
                         status(args.request, 'WAITING_FOR_READINESS')
                     else:

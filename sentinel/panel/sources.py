@@ -1164,31 +1164,8 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
 
 def _broker_callback(conn, cycle_id: str, state: str) -> dict | None:
     """Read one original invocation deadline from its live current fence."""
-    expected = {"DISCOVERED": "PREFLIGHT_RECOVER_CALLBACK",
-                "EXECUTING": "EXECUTE_CALLBACK", "RECONCILING": "RECOVER_CALLBACK"}.get(state)
-    if expected is None:
-        return None
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT s.callback_started_at,s.callback_deadline_at FROM "
-            "sentinel_automation_service_instances s "
-            "JOIN sentinel_automation_lease l ON l.id=1 AND l.holder_id=s.instance_id "
-            "JOIN sentinel_automation_control a ON a.id=1 AND a.generation=l.control_generation "
-            "JOIN sentinel_automation_cycles c ON c.cycle_id=%s "
-            " AND c.control_generation=a.generation AND c.last_fence_token=l.fence_token "
-            " AND c.certificate_sha256=a.certificate_sha256 AND c.config_sha256=a.config_sha256 "
-            "WHERE a.enabled AND NOT a.kill_switch_engaged AND a.authority_verdict='PASS' "
-            " AND c.state=%s AND s.state=%s AND l.expires_at>clock_timestamp() "
-            " AND s.heartbeat_at<=clock_timestamp() "
-            " AND s.heartbeat_at>clock_timestamp()-INTERVAL '30 seconds' "
-            " AND s.callback_started_at>=c.updated_at AND s.callback_started_at<=clock_timestamp() "
-            " AND s.callback_deadline_at>s.callback_started_at "
-            " AND s.callback_deadline_at>clock_timestamp() "
-            " AND (c.state<>'DISCOVERED' OR (c.plan_id IS NULL "
-            "  AND c.failure_code IS NULL AND c.failure_detail IS NULL "
-            "  AND c.prepare_at<=s.callback_started_at AND clock_timestamp()<c.execution_open_at))",
-            (cycle_id, state, expected))
-        row = cur.fetchone()
+    from sentinel.automation.callback_observation import broker_refresh
+    row = broker_refresh(conn, cycle_id, state)
     return ({"started_at": _utc(row[0]), "deadline": _utc(row[1])} if row else None)
 
 
@@ -3940,7 +3917,6 @@ def build_panel(*, state_dir: Path, database_url: str,
     worker = (_shadow_worker_row(state_dir, database_url, observer=shadow_observer,
                                 diagnostics=worker_diagnostics)
               if mode in {'dual', 'shadow'} else None)
-    from sentinel.panel import postclose_feed_wait
     feed_rows, feed_errs = _feed_rows(database_url, fixed_now)
     errors.extend(feed_errs)
     # Reviewed dual mode changes performance authority, not visibility into
@@ -3949,9 +3925,6 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
-    feed_rows, automation_rows = postclose_feed_wait.project_progress(
-        feed_rows, automation_rows, financial_rows, worker,
-        now=fixed_now or datetime.now(timezone.utc))
     operator_rows, operator_errs = _operator_evidence_rows(
         database_url, now=now)
     errors.extend(operator_errs)
@@ -3971,7 +3944,6 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
-    rows = model.project_opening_rows(rows, now=completed_at)
     from sentinel import local_paper
     try:
         local_mode = local_paper.enabled()

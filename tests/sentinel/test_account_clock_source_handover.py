@@ -1,5 +1,6 @@
 """Forward repair preserves the unfinished candidate and economic identity."""
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
+from tests.support.source_history import pre_market_history
 
 
 def test_account_clock_repair_changes_only_observation_presentation():
@@ -13,7 +14,7 @@ def test_account_clock_repair_changes_only_observation_presentation():
     assert {name for name in actual if actual[name]!=previous[name]}=={
         'panel/sources.py','url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=previous)==previous
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
 
 
 def test_changed_or_partial_repair_does_not_translate_to_failed_candidate():

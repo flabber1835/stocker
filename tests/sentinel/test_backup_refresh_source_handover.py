@@ -3,7 +3,7 @@ import hashlib
 import json
 import pytest
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile, encoded_profile
+from tests.support.source_history import expanded_profile, encoded_profile, pre_market_history
 
 REVISION='3f7a8eb072cdc661a2800d1a9bf409b687a34f32'
 CLOSURE='a7b294d88bdcabf4499ddbb00d07bb4946ed82b086571133cb4c0596c3daeb11'
@@ -18,9 +18,9 @@ def test_backup_refresh_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before.get(n)}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items()
-               if rev not in {REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}}
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in pre_market_history(profile).items()
+               if rev not in {REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='1aa0adbbf956d0bb909ccd809a23f216cdfcdeb6cf23b623cca5c35723a6dccf'
 
@@ -36,7 +36,7 @@ def test_renewal_margin_preserves_the_exact_installed_inventory_and_earlier_hist
     assert {name for name in actual if actual[name] != before[name]} == {
         'backup_integrity_reuse.py', 'url_selected_source_basis.py'}
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent), previous=before) == before
-    earlier = {key: value for key, value in profile['retained_predecessors'].items() if key not in {revision, basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}}
+    earlier = {key: value for key, value in pre_market_history(profile).items() if key not in {revision, basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw = json.dumps(earlier, sort_keys=True, separators=(',', ':')).encode()
     assert hashlib.sha256(raw).hexdigest() == '83527a8bd784a676a7d60c8978a3670398259cc32afed3b02d4932537a01d181'
 

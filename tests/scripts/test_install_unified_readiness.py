@@ -41,8 +41,9 @@ def run_child(monkeypatch,pages,expected,*,seconds=20,audit=None):
     monkeypatch.setattr(urllib.request,'urlopen',get)
     monkeypatch.setattr(time,'monotonic',lambda:clock[0])
     monkeypatch.setattr(time,'sleep',lambda duration:clock.__setitem__(0,clock[0]+duration))
-    validator=checks.SKIPPED_PANEL if expected.get('clean_retired') is True else checks.PANEL
-    monkeypatch.setattr(sys,'argv',['reader',json.dumps(expected),readiness.panel_validator(validator),
+    validator = checks.panel_program(expected.get('handoff_mode', 'PRE_OPEN'),
+        clean_retired=expected.get('clean_retired') is True, observed=True)
+    monkeypatch.setattr(sys,'argv',['reader',json.dumps(expected),validator,
         (datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat()])
     with redirect_stdout(out),redirect_stderr(err):
         exec(compile(readiness.PANEL_WAIT,'actual readiness child','exec'),{})

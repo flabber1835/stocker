@@ -322,7 +322,7 @@ def _source_files(current):
             for p in current.rglob('*.py') if '__pycache__' not in p.parts}
 
 
-def _backed_owner_scope(runtime, context, *, actual=None):
+def _backed_owner_scope(runtime, context, *, actual=None, verified_base=None):
     """Identify the closed backed-PAPER edge, including existing admissions."""
     from sentinel import backed_paper_source, transition_registry
     # Historical book authentication intentionally uses its original process
@@ -333,16 +333,17 @@ def _backed_owner_scope(runtime, context, *, actual=None):
         return None
     if actual is None:
         actual = _source_files(identity._imported_package_root('sentinel'))
-    if source_closure(actual) != context['runtime']['sentinel_source_sha256']:
+    current_sha256 = source_closure(actual)
+    if current_sha256 != context['runtime']['sentinel_source_sha256']:
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
-    comparison = transition_registry.comparison_view(actual)
+    comparison = transition_registry.comparison_view(actual) if verified_base is None else verified_base
     scope = backed_paper_source.scope_for(revision=runtime['git_commit'],
         source_sha256=runtime['sentinel_source_sha256'], actual=comparison)
     if scope is None:
         raise Refused('BACKED_PAPER_SOURCE_SCOPE_REQUIRED')
     if comparison != actual:
         scope = replace(scope, current_files=MappingProxyType(dict(actual)),
-                        current_source_sha256=source_closure(actual))
+                        current_source_sha256=current_sha256)
     scope.require_mode()
     return scope
 
@@ -378,11 +379,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != context['runtime']['wealth_core_source_sha256']):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    comparison = transition_registry.compare_sources(manifest.files, actual)
     backed = None
     if env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']:
         # Attestations remain actual. Only this closed historical comparison
         # may restore the reviewed allocation refactor's prior package hash.
-        backed = _backed_owner_scope(old, context, actual=actual)
+        backed = _backed_owner_scope(old, context, actual=actual, verified_base=comparison.backed_base)
         if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
         from sentinel import performance_source_basis
@@ -400,12 +402,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
                 or historical_wealth['hash'] != old['wealth_core_source_sha256']):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
         env['wealth_core_source']['hash'] = old['wealth_core_source_sha256']
-    historical = transition_registry.historical_view(manifest.files, actual)
-    if not transitions.closure_allowed(manifest.files, actual, ADDITIONS):
+    historical = comparison.historical
+    if not transitions.comparison_allowed(manifest.files, comparison, ADDITIONS):
         # Supported historical edges retain their complete original verifier.
         # Only this supplementary edge requires the backed owner PAPER proof.
         if backed is None:
-            backed = _backed_owner_scope(old, context, actual=actual)
+            backed = _backed_owner_scope(old, context, actual=actual, verified_base=comparison.backed_base)
         if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     administrative = transitions.administrative(ADMINISTRATIVE, ADDITIONS)

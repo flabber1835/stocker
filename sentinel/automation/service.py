@@ -65,6 +65,9 @@ from sentinel.automation.model import (
 
 
 CALLBACK_AUTHORITY_SECONDS = 60
+_RESTARTABLE_DEADLINE_PHASES = frozenset({
+    "REFRESH", "PREFLIGHT_RECOVER", "PREPARE", "RECOVER",
+})
 
 
 PrepareCallable: TypeAlias = Callable[
@@ -378,6 +381,8 @@ def _utc(value: datetime) -> datetime:
 class AutomationService:
     """One deterministic tick; a process loop supplies wakeups and heartbeat."""
 
+    _unattended_recovery = False
+
     def __init__(
             self, *, config: AutomationConfig, holder_id: str,
             refresh: RefreshCallable, prepare: PrepareCallable,
@@ -640,8 +645,6 @@ class AutomationService:
             if prior_phase == phase and prior.get("exception_type") == _BACKUP_BUSY_EXCEPTION:
                 busy_attempt += int(prior.get("backup_busy_attempt_count", 0))
         budget_attempt = busy_attempt or pin_attempt or phase_attempt
-        exhausted = explicitly_transient and budget_attempt >= max_attempts and not source_wait
-        terminal = not explicitly_transient or exhausted
         if isinstance(exc, (ValidationError, DataIntegrityFailure)):
             category = "DATA_INTEGRITY"
         elif isinstance(exc, HumanInterventionRequired):
@@ -657,11 +660,24 @@ class AutomationService:
         elif source_wait:
             category = "SOURCE_DATA_PENDING"
         elif explicitly_transient:
-            category = (
-                "TRANSIENT_RETRY_EXHAUSTED" if exhausted
-                else "TRANSIENT_INFRASTRUCTURE")
+            category = "TRANSIENT_INFRASTRUCTURE"
         else:
             category = "SOFTWARE_DEFECT"
+        availability_retry = (self._unattended_recovery and explicitly_transient
+                              and category != "CORPORATE_ACTION_PENDING")
+        bounded_restart = (self._unattended_recovery
+                           and isinstance(exc, CallbackDeadlineExceeded)
+                           and phase in _RESTARTABLE_DEADLINE_PHASES)
+        exhausted = (explicitly_transient and budget_attempt >= max_attempts
+                     and not (source_wait or availability_retry))
+        terminal = not (explicitly_transient or bounded_restart) or exhausted
+        if bounded_restart:
+            category = "BOUNDED_CALLBACK_RESTART"
+        elif availability_retry:
+            category = ("SOURCE_DATA_PENDING" if isinstance(exc, SourceDataPending)
+                        else "TRANSIENT_INFRASTRUCTURE")
+        elif exhausted and category == "TRANSIENT_INFRASTRUCTURE":
+            category = "TRANSIENT_RETRY_EXHAUSTED"
         diagnostic = {
             "callback_failure": category,
             "retry_phase": phase,
@@ -681,66 +697,97 @@ class AutomationService:
         if busy_attempt is not None:
             diagnostic["backup_busy_attempt_count"] = busy_attempt
             diagnostic["backup_busy_reason"] = exc.reason.value
+        if bounded_restart:
+            diagnostic.update(bounded_checkpoint_restart=True, terminal_reason=None)
+        if availability_retry:
+            diagnostic.update(availability_retry_unbounded=True, terminal_reason=None)
+            if phase == "REFRESH":
+                from sentinel.feed.source_probe import coverage_hint
+                hint = coverage_hint(str(exc)) or prior.get("source_probe")
+                if hint is not None:
+                    diagnostic["source_probe"] = hint
         return terminal, diagnostic
 
-    def _handle_callback_failure(
+    def _record_retry(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
-            phase: str, exc: BaseException,
+            phase: str, exc: BaseException, failure_code: str | None,
+            failure_detail: str | None,
             recovery_transition: bool = False,
-            source_completion_hint: SourceCompletionHint | None = None) -> TickResult:
-        terminal, diagnostic = self._failure_diagnostic(
-            cycle=cycle, phase=phase, exc=exc, now=now)
-        to_state = (
-            PHASE_POLICIES[phase].terminal_state if terminal
-            else PHASE_POLICIES[phase].retry_state)
-        if phase == "EXECUTE":
-            # A callback can die after committing a send. No exception proves
-            # that the broker saw nothing; recover durable obligations first.
+            source_completion_hint: SourceCompletionHint | None = None,
+            result_diagnostic: Mapping[str, Any] | None = None,
+            last_clean_reconciliation_id: str | None = None) -> TickResult:
+        explicit_result = result_diagnostic is not None
+        reason = str(exc)
+        if (self._unattended_recovery and not explicit_result and phase == "EXECUTE"
+                and isinstance(exc, CallbackDeadlineExceeded)):
+            # A killed executor may already have crossed transport. Read the
+            # original command journal immediately before considering any send.
             terminal = False
             to_state = CycleState.RECONCILING
-        if (recovery_transition and not terminal
-                and cycle.state is CycleState.RETRY_WAIT
-                and cycle.control_generation == permit.control_generation):
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RECONCILING)
-        retry_attempt = diagnostic.get("backup_busy_attempt_count") or int(
-            diagnostic.get("publication_pin_attempt_count", diagnostic["phase_attempt_count"]))
-        retry_at = (
-            None if terminal
-            else self._retry_at(now, retry_attempt))
-        if retry_at is not None:
-            if type(exc) is BackupProofBusy:
-                retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
-            retry_at = max(retry_at, now + timedelta(
-                seconds=getattr(exc, "retry_after_seconds", 0)))
-        diagnostic = {
-            **dict(diagnostic),
-            "next_retry_at": retry_at.isoformat() if retry_at else None,
-            "terminal_reason": (
-                str(diagnostic["callback_failure"]) if terminal else None),
-        }
-        if (not terminal and phase == "REFRESH"
-                and (isinstance(exc, SourceDataPending)
-                     or type(exc) is RefreshPublicationPinUnavailable)
-                and source_completion_hint is not None):
-            diagnostic["source_completion_hint"] = source_completion_hint.model_dump(mode="json")
-        if not terminal:
-            diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
-        if not terminal and phase == 'REFRESH' and type(exc) is ClosingDataPending:
-            from sentinel.automation.closing_data_notifications import marker
-            closing_wait = marker(cycle=cycle, observed_at=now, next_retry_at=retry_at,
-                publisher_deadline_at=exc.publisher_deadline_at,
-                worker_deadline_at=exc.worker_deadline_at)
-            if closing_wait is not None:
-                diagnostic['closing_data_wait'] = closing_wait
+            retry_at = now
+            diagnostic = {
+                "callback_failure": "EXECUTE_TIMEOUT_REQUIRES_RECOVERY",
+                "retry_phase": "RECOVER",
+                "latest_failure_at": now.isoformat(),
+                "exception_type": f"{type(exc).__module__}.{type(exc).__qualname__}",
+                "exception_fingerprint": self._exception_fingerprint(exc),
+                "direct_execution_retry_permitted": False,
+            }
+            reason = ("execution callback deadline exceeded; fresh broker "
+                      "reconciliation is required before any further transport")
+        else:
+            terminal, classified = self._failure_diagnostic(
+                cycle=cycle, phase=phase, exc=exc, now=now)
+            if phase == "EXECUTE" and not explicit_result:
+                # Any exception may leave a durable send unresolved.
+                terminal = False
+                to_state = CycleState.RECONCILING
+            else:
+                policy = PHASE_POLICIES[phase]
+                to_state = policy.terminal_state if terminal else policy.retry_state
+            retry_attempt = classified.get("backup_busy_attempt_count") or int(
+                classified.get("publication_pin_attempt_count", classified["phase_attempt_count"]))
+            retry_at = None if terminal else self._retry_at(now, retry_attempt)
+            if retry_at is not None:
+                if type(exc) is BackupProofBusy:
+                    retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
+                retry_at = max(retry_at, now + timedelta(
+                    seconds=getattr(exc, "retry_after_seconds", 0)))
+            diagnostic = {
+                **(result_diagnostic or {}), **classified,
+                "next_retry_at": retry_at.isoformat() if retry_at else None,
+                "terminal_reason": None,
+            }
+            if terminal:
+                diagnostic["terminal_reason"] = ("TRANSIENT_RETRY_EXHAUSTED" if explicit_result
+                                                 else str(classified["callback_failure"]))
+            else:
+                diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
+            if not terminal and phase == "REFRESH":
+                if (source_completion_hint is not None and (isinstance(exc, SourceDataPending)
+                        or type(exc) is RefreshPublicationPinUnavailable)):
+                    diagnostic["source_completion_hint"] = source_completion_hint.model_dump(mode="json")
+                if type(exc) is ClosingDataPending:
+                    from sentinel.automation.closing_data_notifications import marker
+                    closing_wait = marker(cycle=cycle, observed_at=now, next_retry_at=retry_at,
+                        publisher_deadline_at=exc.publisher_deadline_at,
+                        worker_deadline_at=exc.worker_deadline_at)
+                    if closing_wait is not None:
+                        diagnostic["closing_data_wait"] = closing_wait
         changes = {
             "next_wake_at": retry_at,
-            "failure_code": type(exc).__name__,
-            "failure_detail": str(exc)[:4000],
+            "failure_code": failure_code,
+            "failure_detail": failure_detail,
             "diagnostic": diagnostic,
         }
+        if explicit_result:
+            changes["last_clean_reconciliation_id"] = last_clean_reconciliation_id
         if recovery_transition:
+            if (not terminal and cycle.state is CycleState.RETRY_WAIT
+                    and cycle.control_generation == permit.control_generation):
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.RECONCILING)
             cycle = self._recover_transition(
                 conn, permit=permit, cycle=cycle,
                 to_state=to_state, **changes)
@@ -751,7 +798,17 @@ class AutomationService:
         return TickResult(
             action=(TickAction.BLOCKED if terminal
                     else TickAction.RETRY_SCHEDULED),
-            cycle=cycle, permit=permit, reason=str(exc))
+            cycle=cycle, permit=permit, reason=reason)
+
+    def _handle_callback_failure(
+            self, conn, *, now: datetime, cycle: CycleRecord, permit,
+            phase: str, exc: BaseException,
+            recovery_transition: bool = False,
+            source_completion_hint: SourceCompletionHint | None = None) -> TickResult:
+        return self._record_retry(
+            conn, now=now, cycle=cycle, permit=permit, phase=phase, exc=exc,
+            failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
+            recovery_transition=recovery_transition, source_completion_hint=source_completion_hint)
 
     def _handle_retry_result(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
@@ -765,46 +822,11 @@ class AutomationService:
                if phase in {"PREFLIGHT_RECOVER", "RECOVER"}
                and failure_code == "CORPORATE_ACTION_PENDING"
                else TransientInfrastructureFailure(detail))
-        terminal, failure_diagnostic = self._failure_diagnostic(
-            cycle=cycle, phase=phase, exc=exc, now=now)
-        retry_at = (
-            None if terminal else self._retry_at(
-                now, int(failure_diagnostic["phase_attempt_count"])))
-        diagnostic = {
-            **dict(result_diagnostic),
-            **dict(failure_diagnostic),
-            "next_retry_at": retry_at.isoformat() if retry_at else None,
-            "terminal_reason": (
-                "TRANSIENT_RETRY_EXHAUSTED" if terminal else None),
-        }
-        if not terminal:
-            diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
-        if (recovery_transition and not terminal
-                and cycle.state is CycleState.RETRY_WAIT
-                and cycle.control_generation == permit.control_generation):
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RECONCILING)
-        changes = {
-            "next_wake_at": retry_at,
-            "last_clean_reconciliation_id": last_clean_reconciliation_id,
-            "failure_code": failure_code,
-            "failure_detail": failure_detail,
-            "diagnostic": diagnostic,
-        }
-        target = CycleState.BLOCKED if terminal else CycleState.RETRY_WAIT
-        if recovery_transition:
-            cycle = self._recover_transition(
-                conn, permit=permit, cycle=cycle,
-                to_state=target, **changes)
-        else:
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=target, **changes)
-        return TickResult(
-            action=(TickAction.BLOCKED if terminal
-                    else TickAction.RETRY_SCHEDULED),
-            cycle=cycle, permit=permit, reason=detail)
+        return self._record_retry(
+            conn, now=now, cycle=cycle, permit=permit, phase=phase, exc=exc,
+            failure_code=failure_code, failure_detail=failure_detail,
+            recovery_transition=recovery_transition, result_diagnostic=result_diagnostic,
+            last_clean_reconciliation_id=last_clean_reconciliation_id)
 
     @staticmethod
     def _recover_transition(

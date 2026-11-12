@@ -131,6 +131,4 @@ def _prepare(conn, job_id, *, operational):
             conn.rollback()
             staging.clear(conn, run_id=lease.owner)
             if operational:
-                from sentinel.feed import retention
                 conn.commit()
-                retention.maintain(conn)

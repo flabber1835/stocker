@@ -3,7 +3,6 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-import os
 from threading import Lock, Thread
 import time
 import uuid
@@ -27,13 +26,6 @@ def _evidence(database_url, include_paper):
     """Use the sole current invalidation contract, including DDL and identity."""
     from sentinel.panel import read_projection
     return read_projection.subject_for(database_url, include_paper)
-
-
-def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
-    """Retry only a refused corpus pin inside the original finite observer."""
-    from sentinel.feed.publication import CorpusLockUnavailable
-
-    return _retry_read(operation, (CorpusLockUnavailable,), clock=clock, sleep=sleep)
 
 
 def retry_observation_read(operation, *, clock=time.monotonic, sleep=time.sleep):
@@ -64,38 +56,6 @@ def _retry_read(operation, retryable, *, clock, sleep):
             sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
             if clock() >= retry_deadline:
                 raise
-
-
-def _observe_once(database_url, include_paper, expected_key):
-    from sentinel.panel.sources import _dual_authority_rows
-    if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
-        raise observer_failure.ObservationSuperseded(
-            'BEFORE_OBSERVATION', 'financial evidence changed before observation')
-    rows, details, history, errors = _dual_authority_rows(
-        database_url, now=datetime.now(timezone.utc), include_paper=include_paper,
-        propagate_corpus_lock=True, propagate_read_unavailability=True)
-    if details or history or len(rows) > 7:
-        raise ValueError('unexpected financial observer shape')
-    value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
-    if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
-        raise observer_failure.ObservationSuperseded(
-            'AFTER_OBSERVATION', 'financial evidence changed during observation')
-    return value
-
-
-def _observe(database_url, include_paper, expected_key):
-    return retry_observation_read(lambda: _observe_once(
-        database_url, include_paper, expected_key))
-
-
-def diagnosed_observe(database_url, include_paper, expected_key):
-    return observer_failure.capture(_observe, database_url, include_paper, expected_key)
-
-
-def _key(database_url, include_paper, evidence):
-    environment = {k: v for k, v in os.environ.items() if k.startswith('SENTINEL_')}
-    return hashlib.sha256(json.dumps([database_url, include_paper, environment, evidence],
-        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def _unknown(include_paper, detail, retained=None, *, checking_until=None):
@@ -152,8 +112,11 @@ class Reader:
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self.evidence_reader = evidence_reader or _evidence
-        self.key_factory = key_factory or _key
-        self.observer = observer or diagnosed_observe
+        self.key_factory = key_factory or (lambda _database_url, _include_paper, evidence: evidence)
+        if observer is None:
+            from sentinel.panel.verification_service import diagnosed_observe
+            observer = diagnosed_observe
+        self.observer = observer
         self.expected_keys = expected_keys
         self.unknown = unknown_factory or _unknown
         self.execution_slot = execution_slot

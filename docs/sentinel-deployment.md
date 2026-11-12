@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Close runtime simplification](simplify-close-runtime.md) records the retention
+schedule, retained-source verification and predecessor of the follow-up PR.
+
 [November 11 close reliability](close-reliability-delivery-20261111.md)
 records the trace fixes and the backed local PAPER delivery boundary.
 

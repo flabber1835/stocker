@@ -201,6 +201,12 @@ def _validate_panel(raw):
     return panel
 
 
+def _recorded_boundary(panel):
+    from sentinel.panel.postclose_feed_wait import project_panel
+    native = panel.display_basis.get('native', {})
+    return original_boundary(project_panel(panel, now=panel.now, subject=native.get('SHADOW')))
+
+
 def encode(panel, *, context_sha256, subjects, valid_until=None):
     _require(_digest(context_sha256) and _subjects(subjects), 'SNAPSHOT_SCOPE_INVALID')
     _require(_utc(panel.now), 'SNAPSHOT_PANEL_CLOCK_INVALID')
@@ -213,7 +219,7 @@ def encode(panel, *, context_sha256, subjects, valid_until=None):
         from sentinel.panel import display_dependencies
         _require(display_dependencies.combined_subjects(panel.display_basis) == subjects,
                  'SNAPSHOT_DISPLAY_BASIS_CHANGED')
-    boundary = original_boundary(panel)
+    boundary = _recorded_boundary(panel)
     expiry = valid_until if valid_until is not None else boundary
     _require(_utc(expiry) and panel.now < expiry <= boundary, 'SNAPSHOT_EXPIRY_INVALID')
     value = dict(schema=SCHEMA, scope=SCOPE, context_sha256=context_sha256,
@@ -245,7 +251,7 @@ def decode(value, signature, *, context_sha256, now):
         from sentinel.panel import display_dependencies
         _require(display_dependencies.combined_subjects(panel.display_basis) == value['subjects'],
                  'SNAPSHOT_DISPLAY_BASIS_CHANGED')
-    _require(panel.now == generated and expiry <= original_boundary(panel),
+    _require(panel.now == generated and expiry <= _recorded_boundary(panel),
              'SNAPSHOT_ORIGINAL_BOUNDARY_CHANGED')
     return Snapshot(panel, dict(value['subjects']), context_sha256, generated, expiry)
 

@@ -15,11 +15,10 @@ from tests.sentinel.test_operational_projection_service import (
 )
 
 
-def withdrawn(phase, fault):
-    original = waiting.reproject(page(typed=True), now=NOW)
-    feed = original.row('feed')
-    feed = replace(feed, recovery=replace(feed.recovery, phase=phase))
-    rows = [feed if row.key == 'feed' else row for row in original.rows]
+def withdrawn(fault):
+    original = page(typed=True)
+    before = waiting.project_panel(original, now=NOW).row('feed')
+    rows = original.rows
     if fault == 'missing':
         rows = [row for row in rows if row.key != 'shadow_verification']
     else:
@@ -29,17 +28,17 @@ def withdrawn(phase, fault):
                    else {'recovery': replace(original.row(key).recovery,
                                               phase='FINANCIAL_VERIFICATION')})
         rows = [replace(row, **changes) if row.key == key else row for row in rows]
-    return feed, waiting.reproject(replace(original, rows=rows), now=NOW).row('feed')
+    after = waiting.project_panel(replace(original, rows=rows), now=NOW).row('feed')
+    return original.row('feed'), before, after
 
 
-@pytest.mark.parametrize('phase', ['SHADOW_ATTESTATION', 'READINESS_HANDOFF'])
 @pytest.mark.parametrize('fault', ['missing', 'negative', 'generic', 'foreign', 'dead_worker'])
-def test_removed_or_refused_enabling_proof_withdraws_only_its_derived_wait(phase, fault):
-    before, after = withdrawn(phase, fault)
+def test_removed_or_refused_enabling_proof_withdraws_only_its_derived_wait(fault):
+    recorded, before, after = withdrawn(fault)
+    assert before.recovery.phase == 'SHADOW_ATTESTATION'
     assert after.recovery is None, 'a derived wait survived loss of its enabling proof'
     assert after.effective_status(NOW) == model.FAIL
-    assert replace(after, recovery=before.recovery, detail=before.detail) == before
-    assert 'no current matching bounded readiness handoff' in after.detail
+    assert after == recorded
 
 
 @pytest.mark.parametrize('status,phase', [
@@ -51,20 +50,19 @@ def test_native_negatives_and_unrelated_recovery_are_untouched(status, phase):
         recovery=model.RecoveryEvidence(phase=phase, automatic=True,
                                         deadline=NOW+timedelta(seconds=30)))
     original = replace(original, rows=[feed if row.key == 'feed' else row for row in original.rows])
-    assert waiting.reproject(original, now=NOW).row('feed') is feed
+    assert waiting.project_panel(original, now=NOW).row('feed') is feed
 
 
-def test_disabled_withdrawal_is_detected_by_an_executed_falsifier(monkeypatch):
-    source = textwrap.dedent(inspect.getsource(waiting.reproject))
-    guard = "and row.recovery.phase in {'READINESS_HANDOFF', 'SHADOW_ATTESTATION'}"
+def test_unrelated_attestation_is_detected_by_an_executed_falsifier(monkeypatch):
+    source = textwrap.dedent(inspect.getsource(waiting.project_progress))
+    guard = 'and row.source_publication_version == source[0]'
     assert source.count(guard) == 1
     namespace = {}
-    exec(compile(source.replace(guard, 'and False'), '<disabled-derived-withdrawal>', 'exec'),
+    exec(compile(source.replace(guard, ''), '<removed-attestation-publication>', 'exec'),
          vars(waiting), namespace)
-    monkeypatch.setattr(waiting, 'reproject', namespace['reproject'])
+    monkeypatch.setattr(waiting, 'project_progress', namespace['project_progress'])
     with pytest.raises(AssertionError, match='derived wait survived'):
-        test_removed_or_refused_enabling_proof_withdraws_only_its_derived_wait(
-            'SHADOW_ATTESTATION', 'negative')
+        test_removed_or_refused_enabling_proof_withdraws_only_its_derived_wait('foreign')
 
 
 def receipt_handoff(operational, monkeypatch):
@@ -144,8 +142,8 @@ def test_http_changed_signed_receipt_reprojects_feed_without_collection_or_autho
 def test_omitted_http_reprojection_is_detected_with_real_signed_receipts(operational, monkeypatch):
     conn, baseline, captured = receipt_handoff(operational, monkeypatch)
     source = textwrap.dedent(inspect.getsource(producer.read))
-    guard = ("        panel = postclose_feed_wait.reproject(panel, now=now,\n"
-             "            subject=current_basis['native']['SHADOW'] if current_basis else None)\n")
+    guard = ("        panel = postclose_feed_wait.project_panel(panel, now=now,\n"
+             "            subject=current_basis.get('native', {}).get('SHADOW'))\n")
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, ''), '<omitted-http-reprojection>', 'exec'),

@@ -352,6 +352,7 @@ def test_reader_pin_excludes_cleanup_and_incremental_retry_finishes(conn, operat
 
 
 def test_cleanup_rollback_and_failure_do_not_stop_next_publication(conn, operational_source, monkeypatch):
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     first = publish(conn)
     original = retention._pass
     def fail(c, **kwargs):
@@ -360,6 +361,7 @@ def test_cleanup_rollback_and_failure_do_not_stop_next_publication(conn, operati
     monkeypatch.setattr(retention, '_pass', fail)
     second = publish(conn)
     assert second['data_version'] == 2
+    assert retention.idle_pass(conn.info.dsn) is False
     assert len(list(rolling_store.read_bars(conn, first['candidate_id']))) == 600
     assert conn.execute('SELECT diagnostic FROM sentinel_snapshot_maintenance').fetchone()[0]['status'] == 'RETRY'
     conn.commit()
@@ -421,6 +423,7 @@ def test_text_reference_publication_retirement_and_schema_restart(conn, operatio
 
 def test_terminal_candidate_cleanup_preserves_job_and_exact_reacquisition(conn, operational_source, monkeypatch):
     from sentinel.feed.rolling_source import SharadarSource
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     original = SharadarSource.corroborate
     def fail(*args):
         raise ValueError('source interrupted')
@@ -431,6 +434,9 @@ def test_terminal_candidate_cleanup_preserves_job_and_exact_reacquisition(conn, 
     status = jobs.status(conn, job)
     assert status['state'] == 'REFUSED'
     candidate = status['candidate_id']
+    assert not rolling_store.retired(conn, candidate)
+    conn.commit()
+    retention.idle_pass(conn.info.dsn)
     assert rolling_store.retired(conn, candidate)
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 0
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_job_components WHERE job_id=%s', (job,)).fetchone()[0] > 0
@@ -493,11 +499,13 @@ def test_backup_authority_refusal_retains_data_and_retries(conn, operational_sou
 
 def test_retained_payload_cannot_be_rehydrated_under_different_identity(conn, operational_source, monkeypatch):
     from sentinel.feed.rolling_source import SharadarSource
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     def fail(*args):
         raise ValueError('source interrupted')
     monkeypatch.setattr(SharadarSource, 'corroborate', fail)
     with pytest.raises(ValueError, match='source interrupted'):
         publish(conn)
+    retention.idle_pass(conn.info.dsn)
     sha = conn.execute('SELECT evidence_sha256 FROM sentinel_snapshot_evidence WHERE payload IS NULL LIMIT 1').fetchone()[0]
     conn.commit()
     with pytest.raises(Exception, match='retirement requires'):
@@ -568,18 +576,10 @@ def test_idle_maintenance_drains_backlog_without_another_publication(conn, opera
 
 
 def test_shadow_idle_loop_drains_then_yields_without_reacquisition(monkeypatch):
-    from types import SimpleNamespace
-    from sentinel import shadow_service as service
-    handlers, clock, calls, advances = {}, [0], [], []
-    monkeypatch.setattr(service.signal, 'signal', lambda sig, fn: handlers.setdefault(sig, fn))
-    monkeypatch.setattr(service, 'service_health', lambda config: {})
-    monkeypatch.setattr(service, 'advance_once', lambda config: advances.append(1) or {})
+    from sentinel import shadow_supervisor as service
+    clock, calls = [0], []
     monkeypatch.setattr(service.time, 'monotonic', lambda: clock[0])
-    def sleep(seconds):
-        clock[0] += seconds
-        if clock[0] >= 3:
-            handlers[service.signal.SIGTERM](None, None)
-    monkeypatch.setattr(service.time, 'sleep', sleep)
-    monkeypatch.setattr(retention, 'idle_pass', lambda url: calls.append(url) or len(calls) < 2)
-    assert service.run(SimpleNamespace(database_url='unused', poll_seconds=300)) == 0
-    assert calls == ['unused', 'unused'] and advances == [1]
+    monkeypatch.setattr(service.time, 'sleep', lambda n: clock.__setitem__(0, clock[0] + n))
+    service._poll_after_worker(deadline=30, close_at=None, stopping=lambda: False,
+        heartbeat=lambda: None, idle_work=lambda: calls.append(clock[0]) or len(calls) < 2)
+    assert calls == [0, service.RETENTION_SPACING_SECONDS] and clock[0] == 30

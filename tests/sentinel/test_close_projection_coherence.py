@@ -39,12 +39,12 @@ def page(*, typed=False):
 def test_new_attestation_reprojects_old_red_derivative_without_new_fact_clocks():
     original = page(typed=True)
     assert original.row('feed').effective_status(NOW) == model.FAIL
-    result = waiting.reproject(original, now=NOW)
+    result = waiting.project_panel(original, now=NOW)
     assert result.row('feed').effective_status(NOW) == model.WARN
     assert result.row('feed').valid_until == original.row('shadow_worker').valid_until
     assert result.row('feed').as_of == original.row('feed').as_of
     assert result.row('shadow_verification') == original.row('shadow_verification')
-    assert waiting.reproject(result, now=NOW) == result
+    assert waiting.project_panel(original, now=NOW) == result
     assert result.row('feed').effective_status(NOW+timedelta(seconds=46)) == model.FAIL
 
 
@@ -57,7 +57,7 @@ def test_reprojection_requires_the_exact_current_typed_progress(fault):
     elif fault == 'foreign_publication': updates['feed'] = replace(original.row('feed'), source_publication_version=18)
     elif fault == 'foreign_session': updates['feed'] = replace(original.row('feed'), source_session='2026-11-06')
     original = replace(original, rows=[updates.get(row.key, row) for row in original.rows])
-    assert waiting.reproject(original, now=NOW).row('feed').effective_status(NOW) == model.FAIL
+    assert waiting.project_panel(original, now=NOW).row('feed').effective_status(NOW) == model.FAIL
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ def test_real_metadata_and_exact_attempt_explain_wait_without_earning_verdict(me
     proof = capture(metadata)
     assert proof is not None
     assert datetime.fromisoformat(proof['deadline']) == original.row('shadow_worker').valid_until
-    result = waiting.reproject(replace(original,trial_details={**original.trial_details,'readiness_handoff':proof}),
+    result = waiting.project_panel(replace(original,trial_details={**original.trial_details,'readiness_handoff':proof}),
         now=NOW,subject=SUBJECT)
     assert result.row('feed').effective_status(NOW) == model.WARN
     assert result.row('feed').feed_readiness == 'AWAITING_VERDICT'
@@ -111,7 +111,8 @@ def test_real_metadata_and_exact_attempt_explain_wait_without_earning_verdict(me
     assert result.row('shadow_verification') == original.row('shadow_verification')
     assert result.row('feed').as_of == original.row('feed').as_of
     assert result.row('feed').effective_status(NOW+timedelta(seconds=46)) == model.FAIL
-    assert waiting.reproject(result, now=NOW, subject=SUBJECT) == result
+    recorded = replace(original, trial_details={**original.trial_details, 'readiness_handoff':proof})
+    assert waiting.project_panel(recorded, now=NOW, subject=SUBJECT) == result
 
 
 @pytest.mark.parametrize('fault', ['subject','failed','superseded','diagnostic','runtime','stale',
@@ -196,13 +197,13 @@ def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(m
     assert read(original) == proof and len(calls) == 1
     assert read(original, subject='c'*64) != proof and len(calls) == 2
     signed = replace(original, trial_details={**original.trial_details, 'readiness_handoff':proof})
-    current = waiting.reproject(signed, subject=SUBJECT, now=NOW)
+    current = waiting.project_panel(signed, subject=SUBJECT, now=NOW)
     assert current.row('feed').effective_status(NOW) == model.WARN
     assert current.row('shadow_verification').value == 'CHECKING'
     failed = replace(shadow, status=model.FAIL, recovery=None)
     signed = replace(signed, rows=[signed.row('feed'), failed, worker])
     assert read(signed) is None
-    assert waiting.reproject(signed, subject=SUBJECT, now=NOW).row('feed').effective_status(NOW) == model.FAIL
+    assert waiting.project_panel(signed, subject=SUBJECT, now=NOW).row('feed').effective_status(NOW) == model.FAIL
 
 
 def test_row_clock_diagnostic_is_closed_and_preserves_strict_refusal(monkeypatch,caplog):

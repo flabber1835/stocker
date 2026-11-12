@@ -3,7 +3,7 @@ import hashlib
 import json
 import pytest
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile, encoded_profile
+from tests.support.source_history import expanded_profile, encoded_profile, pre_market_history
 
 REVISION='4dd0a32473caf25faac0a6e57491aaa5bed56ef2'
 CLOSURE='646f1551ab2cd51e61c69e9d528b1979cf5a1dc6f861e1a1d842514f757f9e61'
@@ -19,8 +19,8 @@ def test_backup_deadline_successor_preserves_every_installed_map():
     assert set(actual)==set(before)
     assert {n for n in actual if actual[n]!=before[n]}==CHANGED
     assert basis.predecessor_view(admission._source_files(basis.PROFILE.parent),previous=before)==before
-    assert len(set(profile['retained_predecessors']) - {basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}) == 43 and profile['authority_effect']=='NONE'
-    originals={rev:value for rev,value in profile['retained_predecessors'].items() if rev not in {REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION,basis.MARKET_BUY_PREDECESSOR_REVISION, basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION}}
+    assert len(pre_market_history(profile)) == 43 and profile['authority_effect']=='NONE'
+    originals={rev:value for rev,value in pre_market_history(profile).items() if rev not in {REVISION,basis.MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,basis.OPENING_REPAIR_PREDECESSOR_REVISION,basis.TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,basis.RETIREMENT_RENEWAL_PREDECESSOR_REVISION,basis.INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,basis.CLOSE_ROOT_PREDECESSOR_REVISION,basis.BACKUP_REFRESH_PREDECESSOR_REVISION,basis.BACKUP_MARGIN_PREDECESSOR_REVISION,basis.OPENING_STABILITY_PREDECESSOR_REVISION}}
     raw=json.dumps(originals,sort_keys=True,separators=(',',':')).encode()
     assert hashlib.sha256(raw).hexdigest()=='1a71e17201610a7a0d44e34d72860be6b30c9986f6944e35c7966307c0c012f6'
 

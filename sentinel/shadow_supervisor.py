@@ -53,21 +53,55 @@ def _next_acquisition_close(started_at):
         return None
 
 
-def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_completed=None):
-    probe_at = time.monotonic() + BUSY_PROBE_SECONDS
-    while not stopping():
-        remaining = deadline - time.monotonic()
+RETENTION_CHILD_SECONDS = 7.0
+RETENTION_REAP_SECONDS = 2.0
+RETENTION_SPACING_SECONDS = 5.0
+
+
+def _idle_retention(database_url):
+    from sentinel import shadow_drain
+    from sentinel.feed import retention
+
+    def work():
+        if _latch_exists():
+            return False
+        return retention.idle_pass(database_url)
+
+    # Hold the same admission lock used to request and acknowledge a drain.
+    # An idle acknowledgement must cover this separate bounded child as well.
+    return shadow_drain.arm_or_drain(LATCH_FILE.parent, database_url,
+                                     _STATUS_INCARNATION, work) is True
+
+
+def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_completed=None,
+                       idle_work=None):
+    def remaining():
+        budget = deadline - time.monotonic()
         if close_at is not None:
-            remaining = min(remaining, (close_at - shadow_budget.now()).total_seconds())
-        if remaining <= 0:
+            budget = min(budget, (close_at - shadow_budget.now()).total_seconds())
+        return budget
+
+    probe_at = time.monotonic() + BUSY_PROBE_SECONDS
+    work_at = time.monotonic()
+    while not stopping():
+        budget = remaining()
+        if budget <= 0:
             return
         heartbeat()
+        if stopping():
+            return
         if backup_completed is not None and time.monotonic() >= probe_at:
             if backup_completed():
                 return
             probe_at = time.monotonic() + BUSY_PROBE_SECONDS
             continue
-        time.sleep(min(1.0, remaining))
+        if (idle_work is not None and time.monotonic() >= work_at
+                and remaining() > RETENTION_CHILD_SECONDS + RETENTION_REAP_SECONDS):
+            if not idle_work():
+                idle_work = None
+            work_at = time.monotonic() + RETENTION_SPACING_SECONDS
+            continue
+        time.sleep(max(0.0, min(1.0, remaining())))
 
 
 def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,
@@ -667,6 +701,17 @@ def _run_owned(owner_fd) -> int:
                 poll["deadline"] = min(deadline, time.monotonic() + BUSY_RETRY_MAX_SECONDS)
                 poll["backup_completed"] = lambda: completed_since(
                     config.database_url, backup_failed_at)
+            elif getattr(config, 'operational_source_only', False) and code in {
+                    0, EXIT_WAITING, EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE}:
+                def run_idle_work():
+                    try:
+                        return supervisor_io.run(_idle_retention, config.database_url,
+                            timeout=RETENTION_CHILD_SECONDS, cancelled=lambda: stopping) is True
+                    except Exception as exc:
+                        supervisor_io.report('WARNING: rolling idle maintenance unavailable: '
+                                             + type(exc).__name__)
+                        return False
+                poll['idle_work'] = run_idle_work
             _poll_after_worker(**poll)
     finally:
         # Dispose of the active worker before any best-effort filesystem cleanup.

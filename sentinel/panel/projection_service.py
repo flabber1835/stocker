@@ -100,26 +100,16 @@ def lock_inputs(conn):
 
 
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
-                 *, shadow_observer=None, use_composition=False, candidate_memo=None):
+                 *, shadow_observer=None, candidate_memo=None):
     from sentinel.feed import store
-    from sentinel.panel import attempt_store, operational_snapshot as snapshots, review, segment_disclosure, sources, model
-    from sentinel.panel import display_dependencies, read_projection, delivery
+    from sentinel.panel import attempt_store, composition, operational_snapshot as snapshots, review, sources
+    from sentinel.panel import display_dependencies, read_projection, delivery, postclose_feed_wait
 
     _COLLECTION_STAGE.set('COORDINATES')
-    stable_expiry = None
     worker_row = None
-    if use_composition:
-        from sentinel.panel import composition
-        panel,context,subjects,stable_expiry = composition.read(owner_id,instance,now=datetime.now(timezone.utc))
-        if any(row.key=='shadow_worker' for row in panel.rows):
-            worker_row=sources._shadow_worker_row(state_dir,database_url,observer=shadow_observer)
-    else:
-        context, subjects, basis = _display_coordinates(database_url)
-        _COLLECTION_STAGE.set('COLLECT')
-        panel = segment_disclosure.disclose(sources.build_panel(
-            state_dir=Path(state_dir), database_url=database_url,
-            shadow_observer=shadow_observer), database_url)
-        panel = replace(panel, display_basis=basis)
+    panel,context,subjects,stable_expiry = composition.read(owner_id,instance,now=datetime.now(timezone.utc))
+    if panel.row('shadow_worker') is not None:
+        worker_row=sources._shadow_worker_row(state_dir,database_url,observer=shadow_observer)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
@@ -146,7 +136,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         changed = tuple(scope for scope in ('SHADOW','PAPER')
                         if current_subjects[scope] != subjects[scope])
         if changed:
-            if not use_composition or not display_dependencies.native_reuse(
+            if not display_dependencies.native_reuse(
                     conn, database_url, panel.display_basis, current_basis, facts=facts):
                 raise CollectionSuperseded('operational projection inputs changed')
             if set(delivery.display_keys(panel)) != {row.key for row in panel.rows}:
@@ -155,7 +145,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
             now = review.store.database_now(conn)
             for scope in changed:
                 rows, _, _, selected_errors = read_projection.read_owned(
-                    conn, database_url, now=now, only_scope=scope, facts=facts)
+                    conn, database_url, now=now, only_scope=scope, native_subjects=current_basis['native'])
                 replacements.update((row.key,row) for row in rows)
                 errors.extend(selected_errors)
             panel = replace(display_dependencies.overlay(panel, replacements),
@@ -167,8 +157,6 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                 panel = display_dependencies.overlay(panel, {negative.key:negative})
         subjects = current_subjects
         panel = replace(panel, display_basis=current_basis)
-        panel = replace(panel, rows=model.project_opening_rows(
-            panel.rows, now=review.store.database_now(conn)))
         # Full automation composition can outlive a 12-second leader lease.
         # Sample its bounded native liveness facts after fencing, without
         # repeating full alert and cycle-history composition.
@@ -179,36 +167,35 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
             current = sources._late_authority_display(conn, authority,
                 now=review.store.database_now(conn))
             panel = display_dependencies.overlay(panel, {current.key: current})
-        if use_composition:
-            panel=replace(panel,rows=composition.native_services(conn,panel.rows,worker=worker_row))
+        panel=replace(panel,rows=composition.native_services(conn,panel.rows,worker=worker_row))
         # Publisher and acknowledgement acquire the receipt before review state.
         # A common order avoids a receipt/state lock inversion.
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
                      "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
         now = review.store.database_now(conn)
-        if stable_expiry is not None and now >= stable_expiry:
+        if now >= stable_expiry:
             raise CollectionSuperseded('composition expired before publication')
         diagnostics = {scope: attempt_store.read_owned(conn, scope=scope, now=now)
                        for scope in ('SHADOW', 'PAPER')}
         panel = replace(panel, now=now, trial_details={**panel.trial_details,
             'verification_attempts': {key: value for key, value in diagnostics.items() if value is not None}})
-        from sentinel.panel import postclose_feed_wait, readiness_handoff
+        from sentinel.panel import readiness_handoff
         progress = readiness_handoff.capture(conn, panel, subject=current_basis['native']['SHADOW'],
             owner_expiry=owner[1], now=now, candidate_memo=candidate_memo)
         panel = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff': progress})
-        panel = postclose_feed_wait.reproject(panel, now=now, subject=current_basis['native']['SHADOW'])
         # Fresh receipt/native overlays enter after build_panel's producer
         # boundary. Apply the same known-instant contract to this final handoff.
         panel = replace(panel, rows=[sources._utc_row(row) for row in panel.rows])
+        view = postclose_feed_wait.project_panel(panel, now=now, subject=current_basis['native']['SHADOW'])
         _COLLECTION_STAGE.set('REVIEW')
-        result = recorder.observe_owned(conn, panel, database_url)
+        result = recorder.observe_owned(conn, view, database_url)
         panel = replace(panel, operator_review=result)
+        view = replace(view, operator_review=result)
         _COLLECTION_STAGE.set('ENCODE')
         from sentinel.panel.serialization import preflight
-        preflight(panel)
+        preflight(view)
         envelope, signature = snapshots.encode(panel, context_sha256=context, subjects=subjects,
-            valid_until=min(snapshots.original_boundary(panel), owner[1],
-                            stable_expiry or owner[1]))
+            valid_until=min(snapshots.original_boundary(view), owner[1], stable_expiry))
         _COLLECTION_STAGE.set('PUBLISH')
         snapshots.publish_owned(conn, owner_id=owner_id, value=envelope,
             signature=signature, context_sha256=context, subjects=subjects, now=now)
@@ -267,12 +254,12 @@ def publish_failure(database_url, owner_id, instance, diagnostic, *, context=Non
 
 
 def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
-                   *, shadow_observer=None, use_composition=False, candidate_memo=None):
+                   *, shadow_observer=None, candidate_memo=None):
     """Classify child refusals before the generic process wrapper loses type."""
     from psycopg.errors import LockNotAvailable, QueryCanceled, SerializationFailure
     from sentinel.panel import composition
     started = time.monotonic()
-    deadline = started + (FAST_DEADLINE_SECONDS if use_composition else DEADLINE_SECONDS)
+    deadline = started + FAST_DEADLINE_SECONDS
     attempts = 0
     token = _COLLECTION_STAGE.set('NOT_STARTED')
     try:
@@ -284,9 +271,7 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             try:
                 return {'outcome':'PUBLISHED', **publish_once(
                     database_url, owner_id, state_dir, instance, prior_failed,
-                    shadow_observer=shadow_observer,
-                    **({'use_composition':True} if use_composition else {}),
-                    **({'candidate_memo':candidate_memo} if candidate_memo is not None else {}))}
+                    shadow_observer=shadow_observer, candidate_memo=candidate_memo)}
             except (QueryCanceled, LockNotAvailable):
                 # One fresh read attempt, never a new transport/call allowance.
                 # COMMIT/REVIEW failures and unknown outcomes are not replayed.
@@ -329,14 +314,14 @@ class Collector:
         # verdict and is not a database, filesystem observer or broker probe.
         calendar._calendar()
 
-    def __call__(self, database_url, owner_id, state_dir, instance, prior_failed=False):
+    def observer_for(self, state_dir):
+        path = Path(state_dir)
         if self.observer is None:
             from sentinel.shadow_service_probe import Observer
-            self.observer = Observer(Path(state_dir))
-        elif self.observer.state_dir != Path(state_dir):
+            self.observer = Observer(path)
+        elif self.observer.state_dir != path:
             raise ValueError('collector observer state directory changed')
-        return collect_result(database_url, owner_id, state_dir, instance, prior_failed,
-                              shadow_observer=self.observer)
+        return self.observer
 
     def close(self):
         if self.observer is not None:
@@ -347,11 +332,9 @@ class Collector:
 class CompositionCollector(Collector):
     def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
         from sentinel.panel import composition
-        if self.observer is None:
-            from sentinel.shadow_service_probe import Observer
-            self.observer=Observer(Path(state_dir))
+        observer = self.observer_for(state_dir)
         try:
-            return composition.collect(database_url,owner_id,state_dir,instance,shadow_observer=self.observer)
+            return composition.collect(database_url,owner_id,state_dir,instance,shadow_observer=observer)
         except CollectionSuperseded:
             return {'outcome':'SUPERSEDED'}
         except Exception as exc:
@@ -365,14 +348,12 @@ class FastCollector(Collector):
         self.candidate_memo = None
 
     def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
-        if self.observer is None:
-            from sentinel.shadow_service_probe import Observer
-            self.observer=Observer(Path(state_dir))
+        observer = self.observer_for(state_dir)
         if self.candidate_memo is None:
             from sentinel.panel.readiness_handoff import CandidateMemo
             self.candidate_memo = CandidateMemo()
         return collect_result(database_url,owner_id,state_dir,instance,prior_failed,
-            shadow_observer=self.observer,use_composition=True,candidate_memo=self.candidate_memo)
+            shadow_observer=observer,candidate_memo=self.candidate_memo)
 
 
 class Publisher:
@@ -511,7 +492,7 @@ class Publisher:
 def read(database_url, *, display=False):
     """SELECT-only current snapshot; requests never discover or record incidents."""
     from sentinel.feed import store
-    from sentinel.panel import operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery, model
+    from sentinel.panel import operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -552,19 +533,15 @@ def read(database_url, *, display=False):
             replacements, selected_errors = {}, []
             for scope in changed:
                 current_rows, _, _, errors = read_projection.read_owned(
-                    conn, database_url, now=now, only_scope=scope, facts=facts)
+                    conn, database_url, now=now, only_scope=scope, facts=facts,
+                    native_subjects=current_basis.get('native'))
                 keys = (read_projection.SHADOW_KEYS if scope == 'SHADOW'
                         else read_projection.PAPER_KEYS)
                 replacements.update((row.key, row) for row in current_rows if row.key in keys)
                 selected_errors.extend(errors)
-            existing = {row.key for row in panel.rows}
-            panel = replace(panel, rows=[*[replacements.get(row.key, row) for row in panel.rows],
-                                        *[row for key, row in replacements.items() if key not in existing]],
+            panel = replace(display_dependencies.overlay(panel, replacements),
                             observation_revalidated_keys=tuple(replacements),
                             source_errors=list(dict.fromkeys([*panel.source_errors, *selected_errors])))
-        from sentinel.panel import postclose_feed_wait
-        panel = postclose_feed_wait.reproject(panel, now=now,
-            subject=current_basis['native']['SHADOW'] if current_basis else None)
         negative_keys = ()
         if (display and value.panel.display_basis
                 and value.panel.display_basis.get('account_anchor') != current_basis.get('account_anchor')):
@@ -574,7 +551,9 @@ def read(database_url, *, display=False):
                 negative_keys = (negative.key,)
                 panel = replace(panel, observation_display_keys=negative_keys)
         owner_expiry = None
-        panel = replace(panel, rows=model.project_opening_rows(panel.rows, now=now))
+        from sentinel.panel import postclose_feed_wait
+        panel = postclose_feed_wait.project_panel(panel, now=now,
+            subject=current_basis.get('native', {}).get('SHADOW'))
         reusable = False
         if display and changed and value.panel.display_basis and not retained and not head_changed:
             owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
@@ -608,7 +587,7 @@ def read(database_url, *, display=False):
 
 
 def guard_acknowledgement(conn, panel, database_url):
-    from sentinel.panel import operational_snapshot as snapshots, review
+    from sentinel.panel import operational_snapshot as snapshots, postclose_feed_wait, review
     if not panel.observation_current:
         raise review.store.ReviewRefused('operational snapshot is not current during acknowledgement')
     owner = conn.execute(f'SELECT owner_id FROM {schema.OWNER} '
@@ -619,9 +598,11 @@ def guard_acknowledgement(conn, panel, database_url):
     now = review.store.database_now(conn)
     latest = snapshots.read_owned(conn, context_sha256=snapshots.context(conn, database_url),
                                   now=now, lock=True)
+    latest_view = postclose_feed_wait.project_panel(latest.panel, now=latest.generated_at,
+        subject=latest.panel.display_basis.get('native', {}).get('SHADOW'))
     if (latest.subjects != snapshots.subjects(conn, database_url)
             or latest.panel.operator_review != panel.operator_review
-            or review.view_subject(latest.panel) != review.view_subject(panel)):
+            or review.view_subject(latest_view) != review.view_subject(panel)):
         raise review.store.ReviewRefused('operational snapshot changed during acknowledgement')
 
 

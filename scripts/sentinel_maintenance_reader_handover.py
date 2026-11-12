@@ -497,15 +497,20 @@ class Handover:
             require(not self.path.exists(), 'READER_OPERATION_EXISTS')
             deployment, source = safe_path(deployment), safe_path(source)
             require(re.fullmatch('[a-z0-9][a-z0-9-]{0,79}',operation_id), 'READER_OPERATION_ID_INVALID')
-            key = self.key(deployment)
+            env_sha = file_sha(deployment/'.env')
+            values = sentinel_env.load(deployment/'.env', required=True)
+            key = values.get('SENTINEL_PUBLICATION_RECEIPT_KEY')
             hp, dp = deployment.parent/environment.HOST_READER_SELECTION, deployment/environment.READER_SELECTION
-            host = selection(hp,deployment.parent,key); selected = selection(dp,deployment,key)
+            host = selection(hp,deployment.parent,key)
+            missing_selector = not dp.exists() and not dp.is_symlink()
+            selected = (dict(host, deployment=str(deployment)) if missing_selector
+                        else selection(dp,deployment,key))
             require({k:v for k,v in host.items() if k != 'deployment'} == {
                 k:v for k,v in selected.items() if k != 'deployment'}, 'READER_SELECTORS_DISAGREE')
             old = safe_path(selected['source'])
             require(source != old and all(not self.directory.is_relative_to(p) for p in (old,source,deployment)),
                 'READER_OPERATION_SCOPE_INVALID')
-            require(environment.selected_reader(deployment,sentinel_env.load(deployment/'.env',required=True))[0] == old,
+            require(environment.selected_reader(deployment,values)[0] == old,
                 'READER_SELECTED_SOURCE_CHANGED')
             spec = dict(operation_id=operation_id, deployment=str(deployment), source=str(source),
                 image=image, commit=qualification.git(source,'rev-parse','HEAD'), old_source=str(old),
@@ -525,6 +530,17 @@ class Handover:
                 new_dropin=render_dropin(str(source),unit['argv']), selectors=[])
             new_value = dict(selected,source=str(source),commit=spec['commit'],
                 script_sha256=spec['new_script_sha256'],environment_sha256=spec['new_environment_sha256'])
+            if missing_selector:
+                # The host selector already owns this active reader. Carry the
+                # same selection before recording the normal two-scope journal.
+                require(file_sha(deployment/'.env') == spec['deployment_environment_sha256'] == env_sha
+                    and selection(hp,deployment.parent,key) == host, 'READER_SELECTOR_DRIFT')
+                environment.handover_reader(deployment, deployment, values, values)
+                require(selection(hp,deployment.parent,key) == host
+                    and selection(dp,deployment,key) == selected, 'READER_SELECTOR_DRIFT')
+                require(self.platform.unit() == unit
+                    and self.platform.reader(str(deployment),str(old),required=True) == reader,
+                    'READER_CURRENT_OWNER_CHANGED')
             for path,binding in ((hp,deployment.parent),(dp,deployment)):
                 spec['selectors'].append(dict(path=str(path),old=raw_file(path).decode(),
                     new=selection_raw(new_value,binding,key).decode()))

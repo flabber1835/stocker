@@ -29,10 +29,6 @@ RETRY_SECONDS = 20
 RETRY_POLL_SECONDS = .5
 
 
-def _identity_key(_database_url, _include_paper, evidence):
-    return evidence
-
-
 def _queued_subject(database_url, include_paper, owner_id):
     """Fresh exact subject and owner after resource grant; no proof or renewal."""
     from sentinel.feed import store
@@ -243,7 +239,8 @@ def _opening_scan_reserve(conn, now):
 
 def _closing_scan_reserve(conn, now):
     """Defer optional scans for the exact closing boundary or a live callback."""
-    row = conn.execute("""
+    from sentinel.automation.callback_observation import CURRENT_LEADER, ENABLED, active_instance
+    row = conn.execute(f"""
         WITH tick AS MATERIALIZED (
             SELECT %s::timestamptz AS at, clock_timestamp() AS database_now
         ), market AS (
@@ -254,17 +251,13 @@ def _closing_scan_reserve(conn, now):
                     THEN LEAST(s.callback_deadline_at,c.execution_open_at,l.expires_at)
                     ELSE LEAST(c.execution_close_at+INTERVAL '60 seconds',l.expires_at)
                END
-        FROM sentinel_automation_cycles c
+        {CURRENT_LEADER}
         CROSS JOIN market
-        JOIN sentinel_automation_control a ON a.id=1 AND a.generation=c.control_generation
-          AND a.certificate_sha256=c.certificate_sha256 AND a.config_sha256=c.config_sha256
-        JOIN sentinel_automation_lease l ON l.id=1 AND l.control_generation=a.generation
-          AND l.expires_at>market.database_now AND l.expires_at>market.at
         JOIN sentinel_account_binding b ON b.id=1 AND b.deployment_id=c.deployment_id
           AND b.broker=c.broker AND b.broker_account_id=c.broker_account_id
           AND b.takeover_epoch=c.takeover_epoch
-        LEFT JOIN sentinel_automation_service_instances s ON s.instance_id=l.holder_id
-        WHERE a.enabled AND NOT a.kill_switch_engaged AND a.authority_verdict='PASS'
+        WHERE {ENABLED}
+          AND l.expires_at>market.database_now AND l.expires_at>market.at
           AND b.broker='alpaca' AND b.ownership_state='SENTINEL_OWNED'
           AND (
               (c.effective_session=market.session AND c.state='SUCCEEDED'
@@ -272,16 +265,10 @@ def _closing_scan_reserve(conn, now):
                AND market.at<c.execution_close_at+INTERVAL '60 seconds')
               OR
               (c.decision_session=market.session AND market.at>=c.prepare_at
-               AND market.at<c.execution_open_at AND c.last_fence_token=l.fence_token
-               AND s.state=CASE c.state WHEN 'DISCOVERED' THEN 'PREFLIGHT_RECOVER_CALLBACK'
-                    WHEN 'REFRESHING_DATA' THEN 'REFRESH_CALLBACK'
-                    WHEN 'PREPARING' THEN 'PREPARE_CALLBACK' END
-               AND s.heartbeat_at<=market.database_now
-               AND s.heartbeat_at>market.database_now-INTERVAL '30 seconds'
-               AND s.callback_started_at>=c.updated_at
-               AND s.callback_started_at<=market.database_now
+               AND market.at<c.execution_open_at
+               AND c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+               AND ({active_instance('market.database_now')})
                AND s.callback_started_at<=market.at
-               AND s.callback_deadline_at>market.database_now
                AND s.callback_deadline_at>market.at)
           )
         ORDER BY c.created_at DESC,c.cycle_id DESC LIMIT 1
@@ -417,7 +404,7 @@ def run(*, stopped=None):
                     and time.monotonic() < owner['deadline'])
         slot = BoundedSemaphore(1)
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
-            key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
+            expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             retain_failed_attempt=True,
             completion=wakeup, work_allowed=work_allowed,

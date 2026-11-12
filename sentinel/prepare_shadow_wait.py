@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sentinel import committed_read, rolling_runtime as runtime
+from sentinel import close_observation, committed_read, rolling_runtime as runtime
+from sentinel.close_observation import instant as _instant
 from sentinel import shadow_service_probe, shadow_service_status, supervisor_io
 from sentinel.feed import calendar, rolling_jobs
 
@@ -25,13 +26,6 @@ class ShadowPreparationWait:
     observed_at: datetime
     deadline: datetime
     quiet_eligible: bool
-
-
-def _instant(value):
-    value = datetime.fromisoformat(value) if isinstance(value, str) else value
-    if not isinstance(value, datetime) or value.utcoffset() is None:
-        raise ValueError('preparation evidence requires an aware clock')
-    return value.astimezone(timezone.utc)
 
 
 def _now():
@@ -63,19 +57,7 @@ def _worker(state_dir, database_url, *, closed, now):
 
 def _published_job(conn, pub, binding, *, closed, now):
     job = rolling_jobs.status(conn, binding['job_id'])
-    request = rolling_jobs.PreparationRequest.model_validate(job['request'])
-    created, deadline = _instant(job['created_at']), _instant(job['deadline'])
-    if (job['state'] != 'PUBLISHED' or job['publication_version'] != pub.version
-            or str(job['job_id']) != binding['job_id']
-            or str(job['candidate_id']) != binding['candidate_id']
-            or request.request_sha256 != job['request_sha256']
-            or request.expected_publication_version != pub.previous_version
-            or str(request.window.start) != pub.window_start
-            or str(request.window.end) != pub.window_end
-            or not closed <= created <= now or not created < deadline
-            # enqueue() permits at most the existing 86400-second job budget.
-            or deadline - created > timedelta(seconds=86400)):
-        raise ValueError('current published preparation request is not bound')
+    _, deadline = close_observation.published_job(pub, binding, job, closed=closed, now=now)
     return deadline
 
 
@@ -88,15 +70,10 @@ def _candidate_precommit(conn, checkpoint, result, previous, *, wanted, closed, 
         "state->'checkpoint'->'precommit_timing',state->'checkpoint'->'history_anchor' "
         "FROM sentinel_processed_sessions WHERE cursor_name=%s",
         (runtime.checkpoints.CURSOR,)).fetchone()
-    if (row is None or str(row[0]) != wanted or row[1] != result.record_sha256
-            or not isinstance(row[3], dict)
-            or row[3].get('previous_record_sha256') != previous.record_sha256):
+    if row is None or row[1] != result.record_sha256:
         raise ValueError('current candidate timing is not bound to its prospective predecessor')
-    runtime.shadow._timing_proof(row[2], decision_session=wanted,
-        committed=False, where='operational preparation candidate')
-    timing = row[2]
-    if not closed <= _instant(timing['observed_at']) <= now:
-        raise ValueError('current candidate timing is outside this closing interval')
+    close_observation.candidate_observed_at(row[0], row[3], row[2], previous,
+        wanted=wanted, closed=closed, now=now)
 
 
 def _observe_owned(conn, *, decision_session, observation_id, starting_cash,

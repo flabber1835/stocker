@@ -1427,7 +1427,8 @@ def health_heartbeat_proof(first: Mapping, second: Mapping, *, cfg: Config,
 
 class AutonomousDeploy:
     def __init__(self, cfg: Config, runner: Runner, attempt_dir: Path,
-                 reviewed_validation: Optional[ReviewedValidation] = None) -> None:
+                 reviewed_validation: Optional[ReviewedValidation] = None, *,
+                 environment_writer=None) -> None:
         self.cfg = cfg
         self.runner = runner
         self.attempt_dir = attempt_dir
@@ -1446,6 +1447,7 @@ class AutonomousDeploy:
         self.broker_readiness = "BROKER_NOT_CHECKED"
         self.ownership_state = "UNKNOWN"
         self.reviewed_validation = reviewed_validation
+        self._environment_writer = environment_writer
 
     def software_verification(self):
         """Only this deployment instance may reuse its signed software result."""
@@ -1493,6 +1495,9 @@ class AutonomousDeploy:
         verify_reviewed_software_environment(
             reviewed, env=self.env, invoke=self._reviewed_invoke,
             software_verification=self.software_verification())
+        self._verify_reviewed_account(reviewed)
+
+    def _verify_reviewed_account(self, reviewed):
         verify_reviewed_account_binding(reviewed, self.cfg.account_id)
 
     def _reviewed_invoke(self, argv, *, cwd=ROOT, env=None, check=False,
@@ -1611,8 +1616,8 @@ class AutonomousDeploy:
 
     def build_promote(self) -> None:
         if getattr(self, '_installation_only', False):
-            from sentinel_installation_phase import InstallationDeploy
-            return InstallationDeploy.build_promote(self)
+            from sentinel_installation_phase import select_certified_runtime
+            return select_certified_runtime(self)
         reviewed = self.reviewed_validation
         self.phase(
             "promote: exact reviewed runtime and test lens" if reviewed
@@ -2599,7 +2604,8 @@ class AutonomousDeploy:
         self.runner.env.update(updates)
 
     def _persist_deploy_facts(self, updates: Mapping[str, str]) -> None:
-        update_dotenv(ENV_PATH, updates)
+        writer = getattr(self, '_environment_writer', None) or update_dotenv
+        writer(ENV_PATH, updates)
 
     def _post_deploy_backup(self) -> Optional[str]:
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
@@ -2736,7 +2742,7 @@ class AutonomousDeploy:
                     self.reviewed_validation.data_publication_sha256 or ""
                     if dual else ""),
             })
-        update_dotenv(ENV_PATH, managed)
+        self._persist_deploy_facts(managed)
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
         self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])

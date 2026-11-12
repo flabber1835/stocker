@@ -138,8 +138,8 @@ _SNAPSHOT_SQL = r'''WITH candidates AS (
  JOIN sentinel_automation_control c ON c.id=1
    AND s.deployment_id=c.deployment_id AND s.broker=c.broker
    AND s.broker_account_id=c.broker_account_id AND s.takeover_epoch=c.takeover_epoch
-   AND s.control_generation=c.generation AND s.config_sha256=c.config_sha256
- WHERE __CANDIDATE_FILTER__ AND NOT s.historical_state_only
+   AND {cycle_generation}
+ WHERE {candidate} AND NOT s.historical_state_only
 ), latest_publication AS (
  SELECT * FROM sentinel_corpus_publications ORDER BY version DESC LIMIT 1
 )
@@ -152,10 +152,9 @@ SELECT json_build_object(
  'control',to_jsonb(c)-'authority_checked_at'-'authority_detail'-'updated_at',
  'binding',(SELECT to_jsonb(b) FROM sentinel_account_binding b WHERE b.id=1),
  'cycle',to_jsonb(s)-'updated_at'-'last_fence_token'-'next_wake_at',
- 'plan',json_build_object('plan_id',p.plan_id,'fingerprint',md5(to_jsonb(p)::text),
-   'target_basket',p.target_basket,'publication_fingerprint',p.publication_fingerprint),
- 'ready',(__READY_FILTER__) AND p.superseded_by IS NULL,
- __SETTLED_FACT__
+ 'plan',{plan_value},
+ 'ready',({ready}) {plan_ready},
+ {facts}
  'inflight',(SELECT count(*) FROM sentinel_commands WHERE state IN
    ('SEND_PENDING','ACKNOWLEDGED','UNKNOWN','PARTIALLY_FILLED','CANCEL_PENDING')),
  'other_active',(SELECT count(*) FROM sentinel_automation_cycles x
@@ -190,8 +189,8 @@ SELECT json_build_object(
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
      OR x.cursor_name LIKE 'shadow-observation:v1:%'),
- 'issuer_evidence',(SELECT json_build_object(__ISSUER_EVIDENCE_FIELDS__)
-   FROM sentinel_processed_sessions x WHERE __ISSUER_EVIDENCE_FILTER__),
+ 'issuer_evidence',(SELECT json_build_object({issuer_fields})
+   FROM sentinel_processed_sessions x WHERE {issuer_filter}),
  'push_subscriptions',(SELECT json_build_object(
    'active',count(*) FILTER (WHERE x.retired_at IS NULL),
    'retired',count(*) FILTER (WHERE x.retired_at IS NOT NULL),
@@ -206,7 +205,7 @@ SELECT json_build_object(
  'opening_md5',(SELECT md5(state::text) FROM sentinel_processed_sessions
    WHERE cursor_name='plan-opening-intents:v1:'||s.plan_id))
  FROM sentinel_automation_control c CROSS JOIN candidates s
- JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id
+ {plan_join}
  CROSS JOIN latest_publication pub WHERE c.id=1
 '''
 
@@ -240,33 +239,14 @@ def handoff_filters(mode):
     return candidate,ready
 
 
-def snapshot_sql(mode='PRE_OPEN'):
-    if mode=='POST_TRADE_SUCCESSOR':
-        return successor_snapshot_sql()
-    candidate,ready = handoff_filters(mode)
-    settled = ''
-    if mode=='POST_TRADE':
-        settled = """'reconciliation',(SELECT json_build_object('seq',o.seq,
+_SETTLED_FACTS = r''''reconciliation',(SELECT json_build_object('seq',o.seq,
             'fingerprint',md5(to_jsonb(o)::text),'provenance',md5(to_jsonb(r)::text))
             FROM sentinel_observations o JOIN sentinel_observation_provenance r ON r.observation_seq=o.seq
             WHERE o.seq::text=s.last_clean_reconciliation_id AND o.runtime_state='RUNNING'
               AND o.completeness='COMPLETE' AND r.broker=c.broker
-              AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),"""
-        settled += """'retired_plan_commands',(SELECT count(*) FROM sentinel_commands x
-            WHERE x.plan_id=s.plan_id),"""
-    statement = (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
-        .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled)
-        .replace('__ISSUER_EVIDENCE_FIELDS__',_ISSUER_EVIDENCE_FIELDS)
-        .replace('__ISSUER_EVIDENCE_FILTER__',_ISSUER_EVIDENCE_FILTER))
-    if mode=='BLOCKED_UNSENT':
-        statement = (statement.replace('s.control_generation=c.generation AND',
-            's.control_generation=c.generation-1 AND')
-            .replace('JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id',
-                'LEFT JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id')
-            .replace("'plan',json_build_object(","'plan',CASE WHEN p.plan_id IS NULL THEN NULL ELSE json_build_object(")
-            .replace("p.publication_fingerprint),", "p.publication_fingerprint) END,")
-            .replace('AND p.superseded_by IS NULL,', 'AND p.plan_id IS NULL,')
-            .replace("'inflight',", """'repair',json_build_object(
+              AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),'retired_plan_commands',(SELECT count(*) FROM sentinel_commands x
+            WHERE x.plan_id=s.plan_id),'''
+_BLOCKED_FACTS = r''''repair',json_build_object(
    'lease_live',(SELECT count(*) FROM sentinel_automation_lease WHERE expires_at>clock_timestamp()),
    'kill_event',(SELECT action FROM sentinel_automation_events WHERE generation=c.generation),
    'plain_kill',(SELECT detail->>'schema' IS DISTINCT FROM 'sentinel.unsent-recovery/1'
@@ -283,25 +263,8 @@ def snapshot_sql(mode='PRE_OPEN'):
      AND x.takeover_epoch=c.takeover_epoch AND (p.plan_id IS NULL OR p.effective_session=s.effective_session)),
    'transport_events',(SELECT count(*) FROM sentinel_automation_cycle_events x
      WHERE x.cycle_id=s.cycle_id AND (x.from_state IN ('EXECUTING','RECONCILING')
-       OR x.to_state IN ('EXECUTING','RECONCILING')))),
- 'inflight',"""))
-    return statement
-
-
-def successor_snapshot_sql():
-    """Keep completed history distinct from the sole current successor plan."""
-    statement=snapshot_sql('POST_TRADE')
-    ordinary_candidate,ordinary_ready=handoff_filters('POST_TRADE')
-    successor_candidate,successor_ready=handoff_filters('POST_TRADE_SUCCESSOR')
-    statement=statement.replace(ordinary_candidate,successor_candidate).replace(ordinary_ready,successor_ready)
-    statement=statement.replace(
-        's.control_generation=c.generation AND s.config_sha256=c.config_sha256',
-        's.control_generation<c.generation')
-    statement=statement.replace(
-        'JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id',
-        '''JOIN sentinel_execution_plans original ON original.plan_id=s.plan_id
- JOIN sentinel_execution_plans p ON p.plan_id=original.superseded_by''')
-    statement=statement.replace("'inflight',", """'successor',json_build_object(
+       OR x.to_state IN ('EXECUTING','RECONCILING')))),'''
+_SUCCESSOR_FACTS = r''''successor',json_build_object(
    'original_plan',to_jsonb(original),
    'current_plan',to_jsonb(p),
    'current_authority_md5',(SELECT md5(state::text) FROM sentinel_processed_sessions
@@ -321,9 +284,8 @@ def successor_snapshot_sql():
  'retained_incidents',(SELECT coalesce(jsonb_object_agg(x.alert_id,
    jsonb_build_object('event_type',x.event_type,'severity',x.severity,'payload',x.payload,
      'ack_state',x.ack_state,'created_at',x.created_at)),'{}'::jsonb)
-   FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL' AND x.ack_state='UNACKNOWLEDGED'),
- 'inflight',""")
-    statement=statement.replace('AND p.superseded_by IS NULL,', '''AND p.superseded_by IS NULL
+   FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL' AND x.ack_state='UNACKNOWLEDGED'),'''
+_SUCCESSOR_READY = r'''AND p.superseded_by IS NULL
    AND original.deployment_id=s.deployment_id AND original.broker=s.broker
    AND original.broker_account_id=s.broker_account_id AND original.takeover_epoch=s.takeover_epoch
    AND original.decision_session=s.decision_session AND original.effective_session=s.effective_session
@@ -334,8 +296,37 @@ def successor_snapshot_sql():
    AND p.decision_session=original.decision_session AND p.effective_session=original.effective_session
    AND p.target_basket=original.target_basket AND p.target_exposure=original.target_exposure
    AND p.rollout_mode=c.rollout_mode AND p.rollout_version=c.rollout_version
-   AND p.rollout_certificate_sha256 IS NOT DISTINCT FROM c.certificate_sha256,''')
-    return statement
+   AND p.rollout_certificate_sha256 IS NOT DISTINCT FROM c.certificate_sha256'''
+
+_PLAN_VALUE = """json_build_object('plan_id',p.plan_id,'fingerprint',md5(to_jsonb(p)::text),
+   'target_basket',p.target_basket,'publication_fingerprint',p.publication_fingerprint)"""
+_PLAN_JOIN = 'JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id'
+
+
+def snapshot_sql(mode='PRE_OPEN'):
+    candidate, ready = handoff_filters(mode)
+    generation = 's.control_generation=c.generation AND s.config_sha256=c.config_sha256'
+    plan_value, plan_join = _PLAN_VALUE, _PLAN_JOIN
+    plan_ready = 'AND p.superseded_by IS NULL'
+    facts = _SETTLED_FACTS if mode in {'POST_TRADE', 'POST_TRADE_SUCCESSOR'} else ''
+    if mode == 'BLOCKED_UNSENT':
+        generation = 's.control_generation=c.generation-1 AND s.config_sha256=c.config_sha256'
+        plan_value = 'CASE WHEN p.plan_id IS NULL THEN NULL ELSE '+_PLAN_VALUE+' END'
+        plan_join = 'LEFT '+_PLAN_JOIN
+        plan_ready = 'AND p.plan_id IS NULL'
+        facts += '\n '+_BLOCKED_FACTS
+    elif mode == 'POST_TRADE_SUCCESSOR':
+        generation = 's.control_generation<c.generation'
+        plan_join = (
+            'JOIN sentinel_execution_plans original ON original.plan_id=s.plan_id\n'
+            ' JOIN sentinel_execution_plans p ON p.plan_id=original.superseded_by'
+        )
+        plan_ready = _SUCCESSOR_READY
+        facts += '\n '+_SUCCESSOR_FACTS
+    return _SNAPSHOT_SQL.format(candidate=candidate, ready=ready, facts=facts,
+        issuer_fields=_ISSUER_EVIDENCE_FIELDS, issuer_filter=_ISSUER_EVIDENCE_FILTER,
+        cycle_generation=generation, plan_value=plan_value, plan_join=plan_join,
+        plan_ready=plan_ready)
 
 
 SNAPSHOT_SQL = snapshot_sql()
@@ -361,7 +352,7 @@ NOTIFICATION_SQL = r'''SELECT json_build_object(
    FROM sentinel_web_push_deliveries x WHERE x.state='DELIVERED'))
 '''
 
-CANONICAL = r'''import hashlib,json,os,sys,time
+_CANONICAL_OBSERVATION = r'''import hashlib,json,os,sys,time
 from decimal import Decimal
 import psycopg
 from psycopg.conninfo import make_conninfo
@@ -415,7 +406,9 @@ def verify_once():
         result=_rolling_status(conn)
         assert result is not None and result.session==expected['decision']
         assert result.shadow_verdict=='SHADOW_GO' and result.verification=='VERIFIED'
-        plan=journal.load_plan(conn,expected['plan'])
+'''
+
+_CANONICAL_PLAN = r'''        plan=journal.load_plan(conn,expected['plan'])
         assert plan is not None and plan.plan_id==expected['plan']
         assert str(plan.decision_session)==expected['decision'] and str(plan.effective_session)==expected['effective']
         assert plan.superseded_by is None
@@ -424,9 +417,9 @@ def verify_once():
         assert proof['verdict']=='MATCH'
         saved=authority.load_authority(conn,plan_id=plan.plan_id)
         assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
-        settled_native_positions=None
-        if expected.get('handoff_mode')=='POST_TRADE':
-            settled=journal.load_observation_payload(conn,expected['reconciliation_id'])
+'''
+
+_CANONICAL_SETTLED_POSITIONS = r'''            settled=journal.load_observation_payload(conn,expected['reconciliation_id'])
             assert settled['completeness']=='COMPLETE'
             assert settled['broker']==bound.broker and settled['account_id']==bound.broker_account_id
             settled_native_positions={}
@@ -435,7 +428,9 @@ def verify_once():
                 amount=Decimal(position['quantity'])
                 assert asset and asset not in settled_native_positions and amount.is_finite() and amount>0
                 settled_native_positions[asset]=str(amount)
-        policy=protected_limits.ProtectedLimitPolicy.from_env()
+'''
+
+_CANONICAL_PRESERVATION = r'''        policy=protected_limits.ProtectedLimitPolicy.from_env()
         assert policy is not None
         assert policy.cap_bps==100 and policy.debug_window is None
         projection=target_reprojection.load_projection(conn,plan_id=plan.plan_id)
@@ -477,7 +472,9 @@ def verify_once():
             transaction_read_only=conn.read_only)
         if settled_native_positions is not None:
             output['settled_native_positions']=settled_native_positions
-        conn.rollback()
+'''
+
+_CANONICAL_FINISH = r'''        conn.rollback()
     return output
 
 started=time.monotonic()
@@ -543,14 +540,6 @@ _SUCCESSOR_HISTORY = r'''        from datetime import datetime,timedelta,timezon
             sizing_sha256=hashlib.sha256(json.dumps(original_saved,sort_keys=True,
                 separators=(',',':'),ensure_ascii=True,allow_nan=False).encode()).hexdigest())
 '''
-
-SUCCESSOR_CANONICAL = (CANONICAL
-    .replace('        settled_native_positions=None\n',
-        _SUCCESSOR_HISTORY+'        settled_native_positions=None\n')
-    .replace("expected.get('handoff_mode')=='POST_TRADE'",
-        "expected.get('handoff_mode') in {'POST_TRADE','POST_TRADE_SUCCESSOR'}")
-    .replace('        conn.rollback()\n    return output',
-        "        output['historical_completion']=historical_completion\n        conn.rollback()\n    return output"))
 
 _BLOCKED_PANEL_BODY = r'''assert not page['source_errors']
 assert rows['automation']['value']=='ENABLED · KILLED' and rows['automation']['status']=='fail'
@@ -635,9 +624,31 @@ _BLOCKED_BODY = r'''        from datetime import datetime,timedelta,timezone
             service_worker_sha256=hashlib.sha256(SERVICE_WORKER.encode()).hexdigest(),
             transaction_read_only=conn.read_only)
 '''
-_PLAN_BEGIN = CANONICAL.index('        plan=journal.load_plan(')
-_PLAN_END = CANONICAL.index('        conn.rollback()\n    return output', _PLAN_BEGIN)
-BLOCKED_CANONICAL = CANONICAL[:_PLAN_BEGIN]+_BLOCKED_BODY+CANONICAL[_PLAN_END:]
+def _canonical_plan_program(*, successor):
+    settled_mode = ("in {'POST_TRADE','POST_TRADE_SUCCESSOR'}" if successor else "=='POST_TRADE'")
+    historical = _SUCCESSOR_HISTORY if successor else ''
+    historical_output = "        output['historical_completion']=historical_completion\n" if successor else ''
+    return (_CANONICAL_OBSERVATION + _CANONICAL_PLAN + historical
+        + "        settled_native_positions=None\n"
+        + "        if expected.get('handoff_mode')"+(' ' if successor else '')+settled_mode+":\n"
+        + _CANONICAL_SETTLED_POSITIONS + _CANONICAL_PRESERVATION
+        + historical_output + _CANONICAL_FINISH)
+
+
+CANONICAL = _canonical_plan_program(successor=False)
+SUCCESSOR_CANONICAL = _canonical_plan_program(successor=True)
+BLOCKED_CANONICAL = _CANONICAL_OBSERVATION + _BLOCKED_BODY + _CANONICAL_FINISH
+
+
+def canonical_program(mode):
+    if mode == 'BLOCKED_UNSENT':
+        return BLOCKED_CANONICAL
+    if mode == 'POST_TRADE_SUCCESSOR':
+        return SUCCESSOR_CANONICAL
+    if mode in {'PRE_OPEN', 'POST_TRADE'}:
+        return CANONICAL
+    raise ValueError('unknown handoff mode')
+
 
 RECOVERY_LINEAGE = r'''import json,os,sys
 from sentinel.feed import store
@@ -722,16 +733,22 @@ assert all(Decimal(row['qty']).is_finite() and Decimal(row['qty'])>0 for row in 
 print(json.dumps({row['asset_id']:row['qty'] for row in positions},sort_keys=True))
 '''
 
-PANEL = r'''import json,re,sys,urllib.request
+_PANEL_ARGUMENTS = r'''import json,re,sys,urllib.request
 from datetime import datetime,timedelta,timezone
 expected=json.loads(sys.argv[1])
-with urllib.request.urlopen('http://127.0.0.1:8000/panel.json',timeout=25) as response:
+'''
+
+_PANEL_FETCH = r'''with urllib.request.urlopen('http://127.0.0.1:8000/panel.json',timeout=25) as response:
  page=json.load(response)
-observed=datetime.fromisoformat(page['as_of'])
+'''
+
+_PANEL_OBSERVATION = r'''observed=datetime.fromisoformat(page['as_of'])
 now=datetime.now(timezone.utc)
 assert observed.utcoffset() is not None and now-timedelta(seconds=120)<=observed<=now+timedelta(seconds=5)
 rows={row['key']:row for row in page['rows']}
-post_trade=expected.get('handoff_mode')=='POST_TRADE'
+'''
+
+_PANEL_STANDARD = r'''post_trade=expected.get('handoff_mode')=='POST_TRADE'
 def utc_clock(value):
  assert isinstance(value,str)
  bound=datetime.fromisoformat(value[:-1]+'+00:00' if value.endswith('Z') else value)
@@ -899,7 +916,6 @@ if post_trade: current_boundaries(datetime.now(timezone.utc))
 print(json.dumps(output,sort_keys=True))
 '''
 
-BLOCKED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _BLOCKED_PANEL_BODY
 
 _SKIPPED_PANEL_BODY = r'''from sentinel.panel.review_model import OperatorReview
 from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
@@ -975,7 +991,6 @@ assert datetime.now(timezone.utc)<clock(output['installation_panel_valid_until']
 print(json.dumps(output,sort_keys=True))
 '''
 
-SKIPPED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _SKIPPED_PANEL_BODY
 
 _SUCCESSOR_PANEL_BODY = r'''assert not page['source_errors']
 recorded=rows.get('completed_trading_run',{}).get('trading_run')
@@ -1011,4 +1026,25 @@ print(json.dumps(dict(as_of=page['as_of'],color=page['color'],operational_ready=
  retained_incidents=sorted(actual),source_errors=page['source_errors']),sort_keys=True))
 '''
 
-SUCCESSOR_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _SUCCESSOR_PANEL_BODY
+
+def _panel_program(body, *, observed=False):
+    acquisition = 'response=_response\npage=_page\n' if observed else _PANEL_FETCH
+    return _PANEL_ARGUMENTS + acquisition + _PANEL_OBSERVATION + body
+
+
+PANEL = _panel_program(_PANEL_STANDARD)
+BLOCKED_PANEL = _panel_program(_BLOCKED_PANEL_BODY)
+SKIPPED_PANEL = _panel_program(_SKIPPED_PANEL_BODY)
+SUCCESSOR_PANEL = _panel_program(_SUCCESSOR_PANEL_BODY)
+
+
+def panel_program(mode, *, clean_retired=False, observed=False):
+    if clean_retired and mode == 'POST_TRADE':
+        return _panel_program(_SKIPPED_PANEL_BODY, observed=True) if observed else SKIPPED_PANEL
+    if mode == 'BLOCKED_UNSENT':
+        return _panel_program(_BLOCKED_PANEL_BODY, observed=True) if observed else BLOCKED_PANEL
+    if mode == 'POST_TRADE_SUCCESSOR':
+        return _panel_program(_SUCCESSOR_PANEL_BODY, observed=True) if observed else SUCCESSOR_PANEL
+    if mode in {'PRE_OPEN', 'POST_TRADE'}:
+        return _panel_program(_PANEL_STANDARD, observed=True) if observed else PANEL
+    raise ValueError('unknown handoff mode')

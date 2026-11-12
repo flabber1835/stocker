@@ -798,17 +798,31 @@ def preparation_stage(panel) -> str | None:
     return None
 
 
+def _classify_health_rows(panel, *, include_inactive_warnings=False):
+    from sentinel.panel.delivery import row_current
+
+    for row in panel.rows:
+        status = row.effective_status(panel.now)
+        current = row_current(panel, row)
+        admits_warning = ((current or include_inactive_warnings) and status == 'warn'
+                          or current and status == 'fail' and row.key == 'exposure'
+                          and row.status == 'warn')
+        yield row, status, current, admits_warning and _normal_warning(panel, row)
+
+
 def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
     """Current facts only; old notification severity is not current failure."""
+    return _health_facts(panel, list(_classify_health_rows(panel)), boundaries=boundaries)
+
+
+def _health_facts(panel, classifications, *, boundaries) -> dict:
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
-    from sentinel.panel.delivery import row_current
-    for row in panel.rows:
-        if not row_current(panel, row):
+    for row, status, current, normal_warning in classifications:
+        if not current:
             continue
-        status = row.effective_status(panel.now)
         if status == 'fail' and row.key == 'exposure' and row.status == 'warn':
-            if _normal_warning(panel, row):
+            if normal_warning:
                 continue
             adoption_boundary = _deferred_adoption_boundary(panel, row)
             if adoption_boundary is not None:
@@ -819,12 +833,11 @@ def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
             active.append(row.key)
         elif (status == 'warn' and row.key != 'automation_alerts'
               and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
-              and not _normal_warning(panel, row)):
+              and not normal_warning):
             warnings.append(row.key)
     if not active and not warnings and not any(
-            row_current(panel, row) and (row.effective_status(panel.now) == 'ok'
-            or row.effective_status(panel.now) == 'warn' and _normal_warning(panel,row))
-            for row in panel.rows):
+            current and (status == 'ok' or status == 'warn' and normal_warning)
+            for _, status, current, normal_warning in classifications):
         warnings.append('no_current_operation')
     return {'active': sorted(set(active)), 'warnings': sorted(set(warnings))}
 
@@ -837,15 +850,13 @@ def dashboard_health(panel) -> dict:
                       else 'ready' if plan is not None and plan.can_show_paper_plan(panel.now)
                       else 'unavailable' if plan is not None
                       and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
-    statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
-    warnings = [row for row, status in statuses
-                if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
+    classifications = list(_classify_health_rows(panel, include_inactive_warnings=True))
     boundaries = []
-    facts = health_facts(panel, boundaries=boundaries)
+    facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
     normal = (not negative and not facts['warnings'] and _green_eligible(panel) and any(
-        status == 'ok' or status == 'warn' and _normal_warning(panel, row)
-        for row, status in statuses))
+        status == 'ok' or status == 'warn' and normal_warning
+        for _, status, _, normal_warning in classifications))
     review = panel.operator_review
     status = ('fail' if negative or review is not None and review.status in {'FAILED', 'UNAVAILABLE'}
               else 'ok' if normal and review is not None and review.status == 'CLEAN'
@@ -870,7 +881,9 @@ def dashboard_health(panel) -> dict:
             and broker.recovery is not None and broker.recovery.phase == 'BROKER_FILL_SNAPSHOT'
             and broker.recovery.active(panel.now)):
         label = 'Reconciling fills'
-    admitted = [row for row in warnings if _normal_warning(panel, row)]
+    admitted = [row for row, status, _, normal_warning in classifications
+                if status == 'warn' and normal_warning
+                and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
     execution_normal = _execution_work_normal(panel)
     boundaries.extend(row.operational_fact.opening.deadline
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)

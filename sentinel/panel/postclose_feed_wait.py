@@ -216,30 +216,18 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now,
     return feed_rows,automation_rows
 
 
-def reproject(panel, *, now, subject=None):
-    """Recompute dependents after fresh receipts/liveness replace their inputs.
+def project_panel(panel, *, now, subject=None):
+    """Derive display rows from recorded facts after all scoped overlays."""
+    from sentinel.panel import readiness_handoff, read_projection
 
-    A current negative is never rewritten. This pure projection cannot collect,
-    renew a fact, or confer financial authority, including on an HTTP read.
-    """
-    feeds = [replace(row, recovery=None,
-        detail=('Current data verification pending; no current matching bounded '
-                'readiness handoff has been established.'))
-        if (row.key == 'feed' and row.status == model.WARN and row.required_current
-            and row.feed_readiness == 'AWAITING_VERDICT' and row.recovery is not None
-            and row.recovery.phase in {'READINESS_HANDOFF', 'SHADOW_ATTESTATION'})
-        else row for row in panel.rows if row.key in {'feed', 'ingest'}]
-    worker = next((row for row in panel.rows if row.key == 'shadow_worker'), None)
-    financial = [row for row in panel.rows if row.key in {
-        'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book', 'terminals'}]
-    automation = [replace(row, status=model.OK, valid_until=None, recovery=None)
-        if (row.key == 'authority' and row.status == model.WARN and row.recovery is not None
-            and row.recovery.phase == 'AUTHORITY_RECHECK_AFTER_HANDOFF')
-        else row for row in panel.rows if row.key not in {
-        *(row.key for row in feeds), *(row.key for row in financial), 'shadow_worker'}]
+    feed_keys = {'feed', 'ingest'}
+    feeds = [row for row in panel.rows if row.key in feed_keys]
+    worker = panel.row('shadow_worker')
+    financial = [row for row in panel.rows if row.key in read_projection.SHADOW_KEYS]
+    automation = [row for row in panel.rows
+                  if row.key not in feed_keys | read_projection.SHADOW_KEYS | {'shadow_worker'}]
     boundary = None
     if subject is not None:
-        from sentinel.panel import readiness_handoff
         boundary = readiness_handoff.deadline(panel, subject=subject, now=now)
     feeds, automation = project_progress(feeds, automation, financial, worker, now=now, handoff=boundary)
     if boundary is not None:
@@ -251,4 +239,5 @@ def reproject(panel, *, now, subject=None):
                                             deadline=boundary))
             if row.key == 'feed' else row for row in feeds]
     replacements = {row.key: row for row in [*feeds, *automation]}
-    return replace(panel, rows=[replacements.get(row.key, row) for row in panel.rows])
+    rows = [replacements.get(row.key, row) for row in panel.rows]
+    return replace(panel, rows=model.project_opening_rows(rows, now=now))

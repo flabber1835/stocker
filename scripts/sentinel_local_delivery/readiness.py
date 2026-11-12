@@ -373,10 +373,3 @@ while True:
   previous=reason
  time.sleep(min(5,budget()))
 '''
-
-
-def panel_validator(program):
-    fetch = ("with urllib.request.urlopen('http://127.0.0.1:8000/panel.json',timeout=25) as response:\n"
-             " page=json.load(response)\n")
-    require(program.count(fetch) == 1, 'PANEL_VALIDATOR_FETCH_CONTRACT_CHANGED')
-    return program.replace(fetch, 'response=_response\npage=_page\n')

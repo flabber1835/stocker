@@ -57,7 +57,9 @@ BACKUP_MARGIN_PREDECESSOR_REVISION = '047b3910cbb107fd303d214b4945069bdc688948'
 OPENING_STABILITY_PREDECESSOR_REVISION = '75b7c14f32f2e710561ef86a2d3d0782a019b355'
 MARKET_BUY_PREDECESSOR_REVISION = '5a49fa1b0e658bbb59dccda4089bb3ec1aada0e3'
 CLOSE_RELIABILITY_PREDECESSOR_REVISION = '1692c0421084198e3cba03d098d2d0f92adbb79d'
+SIMPLIFICATION_PREDECESSOR_REVISION = 'd75e75a01051662e8948254ebbd562a15c8fac3e'
 RETAINED_PREDECESSORS = {
+    SIMPLIFICATION_PREDECESSOR_REVISION: (473, '6e5c9464b95d991f8af2887e22cddaf3f3348b0c5deb0ade7dd960208f811772'),
     CLOSE_RELIABILITY_PREDECESSOR_REVISION: (471, '9b7907bf1bbd7080607802f329604e7c554d3d5da6ae005cfa2532ca7129ef43'),
     MARKET_BUY_PREDECESSOR_REVISION: (469, '082bc5ae6789dea75a193b4c49ba51b3e1123b49505bec62344de151afa09544'),
     OPENING_STABILITY_PREDECESSOR_REVISION: (469, '81e23cc8b17e0ad3b754e1b972b2bbe3f3927419fc19115ec0e6dfd15ad1f0e5'),
@@ -105,9 +107,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = '7b91dc5f36cd5fbef94f52b526f0490ae4130ead8e7b3455b25304d2aa61f92c'
+PROFILE_SHA256 = 'f3f4d202536a5cefec87fb0c338953816c5966bcc56449e414cb999fc07601c0'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/46'
+_SCHEMA = 'sentinel.url-selected-trading-transition/47'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -220,42 +222,7 @@ def _profile() -> dict | None:
                 or len(record['files']) != count
                 or _validated_closure(record['files']) != expected_sha):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
-        if revision in {REVIEWED_PREDECESSOR_REVISION, INSTALLED_PREDECESSOR_REVISION,
-                        DASHBOARD_PREDECESSOR_REVISION, PAPER_RELEASE_PREDECESSOR_REVISION,
-                        VERIFIER_PREDECESSOR_REVISION, OPERATIONAL_PREDECESSOR_REVISION,
-                        PATCH_PREDECESSOR_REVISION, LOCAL_PROBE_PREDECESSOR_REVISION,
-                        PREPARATION_PREDECESSOR_REVISION, CHECKPOINT_ACCESS_PREDECESSOR_REVISION,
-                        FEED_DISPLAY_PREDECESSOR_REVISION, STARTUP_PREDECESSOR_REVISION,
-                        EFFICIENCY_PREDECESSOR_REVISION, DIAGNOSTIC_PREDECESSOR_REVISION,
-                        ROOT_CAUSE_PREDECESSOR_REVISION,
-                        READ_COST_PREDECESSOR_REVISION,
-                        LIVENESS_PREDECESSOR_REVISION,
-                        IDENTITY_AVAILABILITY_PREDECESSOR_REVISION,
-                        WORK_COORDINATION_PREDECESSOR_REVISION,
-                        PANEL_PRESENTATION_PREDECESSOR_REVISION,
-                        STARTUP_PROFILE_PREDECESSOR_REVISION,
-                        ACTIVATION_HEALTH_PREDECESSOR_REVISION,
-                        PLAN_WORK_PREDECESSOR_REVISION,
-                        BACKUP_RENEWAL_PREDECESSOR_REVISION,
-                        OPENING_OBSERVATION_PREDECESSOR_REVISION,
-                        BOUNDARY_DISPLAY_PREDECESSOR_REVISION,
-                        DISPLAY_DEPENDENCY_PREDECESSOR_REVISION,
-                        DISPLAY_SEQUENCE_PREDECESSOR_REVISION,
-                        CLOSE_TRACE_PREDECESSOR_REVISION,
-                        ACCOUNT_CLOCK_PREDECESSOR_REVISION,
-                        INTEGRITY_WORK_PREDECESSOR_REVISION,
-                        BACKUP_DEADLINE_PREDECESSOR_REVISION,
-                        MAINTENANCE_CONTINUITY_PREDECESSOR_REVISION,
-                        OPENING_REPAIR_PREDECESSOR_REVISION,
-                        TRANSPORT_RESOLUTION_PREDECESSOR_REVISION,
-                        RETIREMENT_RENEWAL_PREDECESSOR_REVISION,
-                        INSTALL_CRITICAL_PATH_PREDECESSOR_REVISION,
-                        CLOSE_ROOT_PREDECESSOR_REVISION,
-                        BACKUP_REFRESH_PREDECESSOR_REVISION,
-                        BACKUP_MARGIN_PREDECESSOR_REVISION,
-                        OPENING_STABILITY_PREDECESSOR_REVISION,
-                        MARKET_BUY_PREDECESSOR_REVISION,
-                        CLOSE_RELIABILITY_PREDECESSOR_REVISION}:
+        if revision not in {PREVIOUS_BASE_REVISION, RETAINED_REVISION}:
             if not set(record['files']) <= set(candidate) | {_SELF}:
                 raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         elif set(record['files']) - set(baseline):
@@ -267,17 +234,23 @@ def _profile() -> dict | None:
     return value
 
 
-def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str, str]:
-    """Translate only the complete sealed candidate; retain actual identities."""
+def predecessor_views(actual: Mapping[str, str], *, previous=None):
+    """Authenticate the candidate once and return its predecessor and base views."""
     value = _profile()
     if value is None:
-        return actual
+        return actual, actual
     expected = dict(value['candidate_files'])
     expected[_SELF] = _sha(Path(__file__).read_bytes())
     if actual != expected:
-        return actual
+        return actual, actual
+    base = value['base_files']
     for record in value['retained_predecessors'].values():
         retained = record['files']
         if previous == retained:
-            return retained
-    return value['base_files']
+            return retained, base
+    return base, base
+
+
+def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str, str]:
+    """Translate only the complete sealed candidate; retain actual identities."""
+    return predecessor_views(actual, previous=previous)[0]
