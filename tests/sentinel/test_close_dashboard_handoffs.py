@@ -24,7 +24,7 @@ def test_live_preflight_callback_is_bound_to_the_planless_current_fence(conn, mo
     conn.execute("CREATE TEMP TABLE sentinel_automation_cycles (cycle_id text, state text, control_generation int,"
                  " last_fence_token int, certificate_sha256 text, config_sha256 text, updated_at timestamptz,"
                  " plan_id text, failure_code text, failure_detail text, prepare_at timestamptz,"
-                 " execution_open_at timestamptz)")
+                 " execution_open_at timestamptz, diagnostic jsonb, next_wake_at timestamptz)")
     now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
     due, started = now-timedelta(seconds=10), now-timedelta(seconds=8)
     deadline, opened = now+timedelta(minutes=1), now+timedelta(hours=8)
@@ -33,7 +33,8 @@ def test_live_preflight_callback_is_bound_to_the_planless_current_fence(conn, mo
     conn.execute("INSERT INTO sentinel_automation_service_instances VALUES"
                  " ('worker','PREFLIGHT_RECOVER_CALLBACK',%s,%s,%s)", (started, deadline, now))
     conn.execute("INSERT INTO sentinel_automation_cycles VALUES"
-                 " ('cycle','DISCOVERED',5,8,'cert','config',%s,NULL,NULL,NULL,%s,%s)", (due, due, opened))
+                 " ('cycle','DISCOVERED',5,8,'cert','config',%s,NULL,NULL,NULL,%s,%s,NULL,NULL)",
+                 (due, due, opened))
     callback = sources._broker_callback(conn, 'cycle', 'DISCOVERED')
     assert callback == {'started_at': started, 'deadline': deadline}
     cycle = dict(state='DISCOVERED', cycle_id='cycle', prepare_at=due, updated_at=due,
