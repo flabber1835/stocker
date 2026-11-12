@@ -13,7 +13,7 @@ from tests.scripts import test_sentinel_local_delivery_evidence as readers
 from tests.scripts import test_sentinel_local_delivery_coordinator as flow
 
 
-def blocked_host():
+def blocked_host(kind=readers.checks.PUBLICATION_CHANGED_KIND):
     host=readers.Host()
     host.supports_blocked_unsent=True
     host.request['handoff_mode']='BLOCKED_UNSENT'
@@ -31,6 +31,11 @@ def blocked_host():
         diagnostic=dict(retry_phase='REFRESH',callback_failure='PERMANENT_OPERATIONAL_REFUSAL',
             terminal_reason='PERMANENT_OPERATIONAL_REFUSAL',
             exception_type='sentinel.automation.model.NonRetryableCallbackRefused'))
+    if kind == readers.checks.PREPARE_CASH_CORRECTION_KIND:
+        state['cycle'].update(failure_code='SoftwareDefect',
+            failure_detail=readers.checks.PREPARE_CASH_CORRECTION_FAILURE,
+            diagnostic=dict(retry_phase='PREPARE',callback_failure='SOFTWARE_DEFECT',
+                terminal_reason='SOFTWARE_DEFECT',exception_type='sentinel.automation.model.SoftwareDefect'))
     return host
 
 
@@ -41,6 +46,7 @@ def test_exact_fenced_unsent_snapshot_has_no_plan_and_keeps_existing_history_dom
     assert 'LEFT JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id' in sql
     assert 's.control_generation=c.generation-1 AND' in sql
     assert "s.diagnostic->>'retry_phase'='REFRESH'" in sql
+    assert "s.diagnostic->>'retry_phase'='PREPARE'" in sql
     assert 'scoped_plans' in sql and 'scoped_commands' in sql and 'transport_events' in sql
     assert "'commands_md5'" in sql and "'fills_md5'" in sql and "'issuer_evidence'" in sql
     assert "'plans_md5'" in sql and "'control_events_md5'" in sql
@@ -80,6 +86,45 @@ def test_removing_negative_transport_proof_is_detected(monkeypatch):
         None if reason=='BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT' else original(ok,reason))
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         test_finite_repair_admission_refuses_every_unproved_boundary(('repair','scoped_commands'),1)
+
+
+@pytest.mark.parametrize('path,value',[
+    (('failure_code',),'NonRetryableCallbackRefused'),
+    (('failure_detail',),readers.checks.PREPARE_CASH_CORRECTION_FAILURE+' extra'),
+    (('diagnostic','retry_phase'),'REFRESH'),
+    (('diagnostic','callback_failure'),'PERMANENT_OPERATIONAL_REFUSAL'),
+    (('diagnostic','terminal_reason'),None),
+    (('diagnostic','exception_type'),'builtins.ValueError'),
+])
+def test_cash_correction_admission_requires_exact_prepare_diagnostic(path,value):
+    host=blocked_host(readers.checks.PREPARE_CASH_CORRECTION_KIND)
+    assert readers.evidence.snapshot(host)==host.state
+    cycle=host.state['cycle']
+    assert readers.checks.blocked_unsent_kind(cycle)==readers.checks.PREPARE_CASH_CORRECTION_KIND
+    selected=cycle if len(path)==1 else cycle[path[0]]
+    selected[path[-1]]=value
+    with pytest.raises(readers.model.DeliveryRefused,match='BLOCKED_UNSENT_INCIDENT_NOT_ELIGIBLE'):
+        readers.evidence.snapshot(host)
+
+
+@pytest.mark.parametrize('kind',[readers.checks.PUBLICATION_CHANGED_KIND,readers.checks.PREPARE_CASH_CORRECTION_KIND])
+def test_canonical_blocked_proof_binds_kind_and_preserves_old_receipt_format(kind):
+    host=blocked_host(kind)
+    proof=dict(plan=None,transaction_read_only=True)
+    if kind==readers.checks.PREPARE_CASH_CORRECTION_KIND:
+        proof['recovery_kind']=kind
+
+    def compose(values,*args,**kwargs):
+        expected=json.loads(args[-1])
+        assert expected['recovery_kind']==kind and expected['cycle_id']==host.state['cycle']['cycle_id']
+        assert args[-2]==readers.checks.BLOCKED_CANONICAL
+        return SimpleNamespace(stdout=json.dumps(proof))
+
+    host.compose=compose
+    assert readers.evidence.canonical_check(host,{},host.state)==proof
+    proof['recovery_kind']='unrelated-kind'
+    with pytest.raises(readers.model.DeliveryRefused,match='BLOCKED_UNSENT_CANONICAL_KIND_CHANGED'):
+        readers.evidence.canonical_check(host,{},host.state)
 
 
 def test_no_plan_program_is_canonical_read_only_and_never_runs_schema_installation():
@@ -282,9 +327,47 @@ def test_fenced_panel_program_retains_red_and_refuses_unrelated_failures(monkeyp
         assert json.loads(capsys.readouterr().out)['operational_ready'] is False
 
 
+@pytest.mark.parametrize('fault',[None,'legacy_kind','wrong_prepare','other_red','different_positions',
+    'working_order','inflight_order','unknown_observation','unmarked_stale','not_expired'])
+def test_fenced_cash_correction_panel_requires_exact_prepare_and_stale_clean_broker(monkeypatch,capsys,fault):
+    from datetime import datetime,timedelta,timezone
+    now=datetime.now(timezone.utc)
+    expected=dict(decision='2031-04-21',effective='2031-04-22',cycle_id='b'*64,plan=None,
+        recovery_kind=readers.checks.PREPARE_CASH_CORRECTION_KIND,native_positions_count=13)
+    def row(key,value,*,red=False,**fields):
+        return dict(key=key,value=value,status='fail' if red else 'ok',color='red' if red else 'green',**fields)
+    prepare=row('automation_step_prepare','FAILED',red=True,
+        detail='SoftwareDefect: '+readers.checks.PREPARE_CASH_CORRECTION_FAILURE)
+    broker=row('broker','13 positions · 0 working',red=True,stale=True,
+        as_of=(now-timedelta(minutes=20)).isoformat(),valid_until=(now-timedelta(minutes=10)).isoformat(),
+        detail=('saved observation COMPLETE · saved runtime classification reconciled (RUNNING) · '
+            'all-plan journal: 0 PLANNED (unsent) · 0 in-flight · 0 uncertain (included in in-flight)'))
+    rows=[row('automation','ENABLED · KILLED',red=True),row('automation_leader','INACTIVE BY POLICY'),
+        row('automation_cycle','BLOCKED',red=True),row('shadow_verification','SHADOW VERIFIED THROUGH '+expected['decision']),
+        row('feed',expected['decision']+' · 0 sessions behind'),row('alert_dispatcher','HEALTHY'),prepare,broker]
+    if fault=='legacy_kind':expected['recovery_kind']=readers.checks.PUBLICATION_CHANGED_KIND
+    elif fault=='wrong_prepare':prepare['detail']+=' extra'
+    elif fault=='other_red':rows.append(row('automation_step_transport','FAILED',red=True))
+    elif fault=='different_positions':expected['native_positions_count']=12
+    elif fault=='working_order':broker['value']='13 positions · 1 working'
+    elif fault=='inflight_order':broker['detail']=broker['detail'].replace('0 in-flight','1 in-flight')
+    elif fault=='unknown_observation':broker['detail']=broker['detail'].replace('COMPLETE','UNKNOWN')
+    elif fault=='unmarked_stale':broker['stale']=False
+    elif fault=='not_expired':broker['valid_until']=(now+timedelta(minutes=1)).isoformat()
+    page=dict(as_of=now.isoformat(),color='red',source_errors=[],rows=rows)
+    monkeypatch.setattr(sys,'argv',['program',json.dumps(expected)])
+    monkeypatch.setattr(urllib.request,'urlopen',lambda *a,**kw:io.BytesIO(json.dumps(page).encode()))
+    if fault:
+        with pytest.raises(AssertionError):exec(readers.checks.BLOCKED_PANEL,{})
+    else:
+        exec(readers.checks.BLOCKED_PANEL,{})
+        assert json.loads(capsys.readouterr().out)['operational_ready'] is False
+
+
 @pytest.mark.parametrize('fault',[None,'generation','killed','disabled','certificate','ready_generation',
     'ready_decision','kind','binding','fingerprints','incident'])
-def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,fault):
+@pytest.mark.parametrize('kind',[readers.checks.PUBLICATION_CHANGED_KIND,readers.checks.PREPARE_CASH_CORRECTION_KIND])
+def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,fault,kind):
     from tests.scripts.test_sentinel_backed_local_patch import patch
     from sentinel_local_delivery import evidence
     host=readers.Host()
@@ -293,7 +376,7 @@ def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,faul
     ready['cycle']['cycle_id']='d'*64
     binding={key:ready['control'][key] for key in ('deployment_id','broker','broker_account_id',
         'takeover_epoch','certificate_sha256','rollout_mode','rollout_version','config_sha256')}
-    repair=dict(generation=97,cycle_id='b'*64,fingerprints={'b'*64:'f'*64},binding=binding,
+    repair=dict(generation=97,cycle_id='b'*64,fingerprints={'b'*64:'f'*64},binding=binding,kind=kind,
         decision=ready['cycle']['decision_session'],effective=ready['cycle']['effective_session'])
     record=dict(repair_predecessor=repair,system='123456789',postgres={'unchanged':True})
     state=dict(generation=99,certificate=binding['certificate_sha256'],enabled=True,killed=False)
@@ -309,9 +392,9 @@ def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,faul
         calls.append(args)
         expected=json.loads(args[-1])
         assert args[-2]==readers.checks.RECOVERY_LINEAGE
-        assert expected['ready_cycle_id']=='d'*64 and expected['plan_id']=='future-plan'
+        assert expected['ready_cycle_id']=='d'*64 and expected['plan_id']=='future-plan' and expected['kind']==kind
         proof=dict(generation=99,blocked_cycle_id=repair['cycle_id'],certificate=binding['certificate_sha256'],
-            fingerprints=repair['fingerprints'],kind='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED',binding=binding)
+            fingerprints=repair['fingerprints'],kind=kind,binding=binding)
         if fault=='kind':proof['kind']='LOCAL_CONTENTION_MISCLASSIFIED'
         elif fault=='binding':proof['binding']={**binding,'takeover_epoch':10}
         elif fault=='fingerprints':proof['fingerprints']={'b'*64:'e'*64}
@@ -364,8 +447,9 @@ def test_repair_exposure_is_one_bound_scalar_read_not_a_book_replay(tmp_path,mon
         assert 'state::text' not in queries[0] and 'SELECT state ' not in queries[0]
 
 
-def test_repair_panel_receives_actual_bound_certificate_and_scalar(monkeypatch):
-    host=blocked_host()
+@pytest.mark.parametrize('kind',[readers.checks.PUBLICATION_CHANGED_KIND,readers.checks.PREPARE_CASH_CORRECTION_KIND])
+def test_repair_panel_receives_actual_bound_certificate_and_scalar(kind):
+    host=blocked_host(kind)
     host.state['control']['certificate_sha256']='a4be'+'0'*60
     calls=[]
     host.container=lambda name:{'Id':'exact-panel'}
@@ -374,9 +458,11 @@ def test_repair_panel_receives_actual_bound_certificate_and_scalar(monkeypatch):
         expected=json.loads(argv[-1])
         assert expected['certificate']==host.state['control']['certificate_sha256']
         assert expected['core_exposure']=='0.55' and expected['plan'] is None
+        if kind==readers.checks.PREPARE_CASH_CORRECTION_KIND:
+            assert expected['recovery_kind']==kind and expected['native_positions_count']==13
         return SimpleNamespace(stdout=b'{"operational_ready":false}')
     host.run=run
-    assert readers.evidence.panel(host,host.state)=={'operational_ready':False}
+    assert readers.evidence.panel(host,host.state,native_positions_count=13)=={'operational_ready':False}
     assert calls==[host.state]
 
 

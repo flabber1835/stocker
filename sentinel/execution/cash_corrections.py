@@ -291,18 +291,21 @@ def load(conn, pub, *, start, end, covered=None, records=None):
     scopes = [(item.get('security_id'), item.get('ticker'), item.get('session')) for item in markers]
     additions = []
     for marker, scope in zip(markers, scopes):
-        original = records.get(marker.get('session'))
-        correction = covered.get('correction_evidence', {}).get(marker.get('session'))
-        if not isinstance(original, dict) or not isinstance(correction, dict) or scopes.count(scope) != 1:
+        session = marker['session']
+        original = records.get(session)
+        if not isinstance(original, dict) or scopes.count(scope) != 1:
             continue
         old_version, origin_version = original.get('publication_version'), marker.get('publication_version')
         if type(old_version) is not int or type(origin_version) is not int:
             continue
+        if not 0 < old_version < origin_version <= pub.version:
+            raise ValueError('CASH_CORRECTION_ORIGINAL_LINK_CHANGED')
         old, origin = parent(old_version), parent(origin_version)
-        session = marker['session']
+        # The held publication's day entry may describe another observation.
+        correction = origin[0].get('correction_evidence', {}).get(session)
         if (old[0].get('added', {}).get(session) != digest(original)
                 or marker not in origin[0].get('corrections', ())
-                or origin[0].get('correction_evidence', {}).get(session) != correction
+                or not isinstance(correction, dict)
                 or not str(old[0]['basis']) < session <= str(old[0]['through'])):
             raise ValueError('CASH_CORRECTION_ORIGINAL_LINK_CHANGED')
         addition = classify(marker, original, correction, publication_version=pub.version,

@@ -387,8 +387,9 @@ class Delivery:
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
+        panel_scope={'native_positions_count':len(artifacts['native_positions'])} if repair else {}
         panel=evidence.panel(self.host,artifacts['preserved'],
-            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())))
+            wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())),**panel_scope)
         leader=self._readiness_unchanged(applications,leader)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')

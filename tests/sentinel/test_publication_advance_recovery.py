@@ -1,12 +1,14 @@
 """Exact unsent publication interval recovery retains every ordinary gate."""
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
 from sentinel.automation import store, unsent_recovery as recovery
 from sentinel.automation.model import AutomationRefused, CycleState
 from sentinel import backup_runtime_authority
-from tests.sentinel.test_automation_service import pg, conn, config, enable, service_for
+from tests.sentinel.test_automation_service import (pg, conn, config, enable, recovery_success,
+    refresh_result, service_for)
 from tests.sentinel.test_automation_generation import future_friday
 from tests.sentinel.test_unsent_cycle_recovery import authorize, release
 
@@ -123,3 +125,96 @@ def test_removed_exact_failure_guard_is_detected(conn, monkeypatch):
     with pytest.raises(AssertionError):
         test_only_exact_reviewed_unprepared_failure_is_eligible(conn, monkeypatch,
             'failure_detail', recovery.PUBLICATION_CHANGED_FAILURE+' extra')
+
+
+def prepare_cash_correction_block():
+    return SimpleNamespace(state=CycleState.BLOCKED, historical_state_only=False, plan_id=None,
+        failure_code='SoftwareDefect', failure_detail=recovery.PREPARE_CASH_CORRECTION_FAILURE,
+        diagnostic=dict(retry_phase='PREPARE', callback_failure='SOFTWARE_DEFECT',
+            terminal_reason='SOFTWARE_DEFECT', exception_type='sentinel.automation.model.SoftwareDefect'))
+
+
+@pytest.mark.parametrize('field,value', [
+    ('state', CycleState.RETRY_WAIT), ('historical_state_only', True), ('plan_id', 'old-plan'),
+    ('failure_code', 'NonRetryableCallbackRefused'),
+    ('failure_detail', recovery.PREPARE_CASH_CORRECTION_FAILURE+' extra'),
+    ('failure_detail', 'unreviewed callback exception builtins.ValueError: CASH_CORRECTION_MARKER_CHANGED'),
+    ('retry_phase', 'PREFLIGHT_RECOVER'), ('callback_failure', 'TRANSIENT_INFRASTRUCTURE'),
+    ('terminal_reason', None), ('exception_type', 'builtins.ValueError'),
+])
+def test_prepare_cash_correction_recovery_requires_exact_planless_signature(field, value):
+    block = prepare_cash_correction_block()
+    assert recovery.eligible_kind(block) == recovery.PREPARE_CASH_CORRECTION_KIND
+    if field in block.diagnostic:
+        block.diagnostic[field] = value
+    else:
+        setattr(block, field, value)
+    assert recovery.eligible_kind(block) is None
+
+
+def test_removed_prepare_cash_correction_signature_guard_is_detected(monkeypatch):
+    source = inspect.getsource(recovery.eligible_kind)
+    line = 'cycle.failure_detail == PREPARE_CASH_CORRECTION_FAILURE'
+    assert source.count(line) == 1
+    namespace = dict(vars(recovery))
+    exec(compile(source.replace(line, 'True'), '<cash-correction-recovery-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(recovery, 'eligible_kind', namespace['eligible_kind'])
+    with pytest.raises(AssertionError):
+        test_prepare_cash_correction_recovery_requires_exact_planless_signature(
+            'failure_detail', recovery.PREPARE_CASH_CORRECTION_FAILURE+' extra')
+
+
+@pytest.mark.asyncio
+async def test_prepare_cash_correction_block_replays_latest_close_under_new_authority(conn, monkeypatch):
+    cfg = config()
+    enable(conn, cfg)
+    timing, now = future_friday(conn, cfg)
+    monkeypatch.setattr(recovery.calendar, 'latest_closed_session', lambda _: str(timing.decision_session))
+
+    async def prepare_failed(_):
+        raise ValueError('CASH_CORRECTION_ORIGINAL_LINK_CHANGED')
+
+    async def use_current_publication(context):
+        return {**refresh_result(context), 'already_published': True}
+
+    async def reconcile_cleanly(context):
+        return recovery_success(context)
+
+    async def execute_early(_):
+        pytest.fail('before-open recovery must not invoke execution')
+
+    def heartbeat_conn():
+        from sentinel.feed import store as feed_store
+        return feed_store.connect(conn.info.dsn)
+
+    failed_service = service_for(cfg, refresh=use_current_publication, prepare=prepare_failed,
+        recover=reconcile_cleanly, execute=execute_early)
+    for _ in range(12):
+        blocked = (await failed_service.tick(conn, now=now, heartbeat_conn_factory=heartbeat_conn)).cycle
+        if blocked.state is CycleState.BLOCKED:
+            break
+    assert blocked.state is CycleState.BLOCKED and blocked.plan_id is None
+    assert blocked.data_version == f'publication-{timing.decision_session}', blocked.failure_detail
+    assert recovery.eligible_kind(blocked) == recovery.PREPARE_CASH_CORRECTION_KIND
+    events = conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                          (blocked.cycle_id,)).fetchall()
+    conn.rollback()
+    store.engage_kill(conn, actor='operator', reason='cash-correction incident')
+    generation, auth = authorize(conn, cfg, timing, now, blocked)
+    assert auth.kind == recovery.PREPARE_CASH_CORRECTION_KIND
+    assert authorize(conn, cfg, timing, now, blocked) == (generation, auth)
+    assert recovery.decode_authorization(auth.model_dump(mode='json', by_alias=True)) == auth
+    release(conn)
+
+    repaired_service = service_for(cfg, refresh=use_current_publication, execute=execute_early)
+    for _ in range(12):
+        replacement = (await repaired_service.tick(conn, now=now)).cycle
+        if replacement.state is CycleState.WAITING_OPEN:
+            break
+    assert replacement.state is CycleState.WAITING_OPEN
+    assert replacement.control_generation == generation + 1 and replacement.cycle_id != blocked.cycle_id
+    assert replacement.plan_id and replacement.data_version == blocked.data_version
+    assert store.load_cycle(conn, blocked.cycle_id) == blocked
+    assert conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                        (blocked.cycle_id,)).fetchall() == events
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0

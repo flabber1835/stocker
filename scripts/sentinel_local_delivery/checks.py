@@ -89,10 +89,39 @@ ISSUER_EVIDENCE_PREFIXES = (
     'protected-buy-funding:v1:issuer-policy:v1:shortfall:',
 )
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
+PUBLICATION_CHANGED_KIND = 'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
 PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
+PREPARE_CASH_CORRECTION_KIND = 'PREPARE_CASH_CORRECTION_ORIGINAL_LINK_MISCLASSIFIED'
+PREPARE_CASH_CORRECTION_FAILURE = ('unreviewed callback exception builtins.ValueError: '
+    'CASH_CORRECTION_ORIGINAL_LINK_CHANGED')
+_BLOCKED_DIAGNOSTIC_FIELDS = ('retry_phase', 'callback_failure', 'terminal_reason', 'exception_type')
+_BLOCKED_SIGNATURES = {
+    PUBLICATION_CHANGED_KIND: ('NonRetryableCallbackRefused', PUBLICATION_CHANGED_FAILURE,
+        'REFRESH', 'PERMANENT_OPERATIONAL_REFUSAL', 'PERMANENT_OPERATIONAL_REFUSAL',
+        'sentinel.automation.model.NonRetryableCallbackRefused'),
+    PREPARE_CASH_CORRECTION_KIND: ('SoftwareDefect', PREPARE_CASH_CORRECTION_FAILURE,
+        'PREPARE', 'SOFTWARE_DEFECT', 'SOFTWARE_DEFECT', 'sentinel.automation.model.SoftwareDefect'),
+}
 CASH_RETIRED_REASON = 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
 CASH_RETIRED_DETAIL = 'native cash activity changed; await the next ordinary decision'
+
+
+def blocked_unsent_kind(cycle):
+    """Match a retained diagnostic from either reviewed no-plan incident."""
+    diagnostic = cycle.get('diagnostic')
+    if not isinstance(diagnostic, dict):
+        return None
+    signature = (cycle.get('failure_code'), cycle.get('failure_detail'),
+                 *(diagnostic.get(field) for field in _BLOCKED_DIAGNOSTIC_FIELDS))
+    return next((kind for kind, reviewed in _BLOCKED_SIGNATURES.items() if signature == reviewed), None)
+
+
+_BLOCKED_SQL_FIELDS = ('s.failure_code', 's.failure_detail',
+                       *(f"s.diagnostic->>'{field}'" for field in _BLOCKED_DIAGNOSTIC_FIELDS))
+_BLOCKED_FAILURE_SQL = ' OR '.join(
+    '(' + ' AND '.join(f"{field}='{value}'" for field, value in zip(_BLOCKED_SQL_FIELDS, signature)) + ')'
+    for signature in _BLOCKED_SIGNATURES.values())
 
 
 def clean_cash_retirement(cycle):
@@ -227,12 +256,7 @@ def handoff_filters(mode):
     elif mode=='BLOCKED_UNSENT':
         candidate = "s.state='BLOCKED' AND s.plan_id IS NULL"
         ready = ("s.state='BLOCKED' AND s.plan_id IS NULL AND s.completed_at IS NOT NULL "
-            "AND s.failure_code='NonRetryableCallbackRefused' "
-            "AND s.failure_detail='"+PUBLICATION_CHANGED_FAILURE+"' "
-            "AND s.diagnostic->>'retry_phase'='REFRESH' "
-            "AND s.diagnostic->>'callback_failure'='PERMANENT_OPERATIONAL_REFUSAL' "
-            "AND s.diagnostic->>'terminal_reason'='PERMANENT_OPERATIONAL_REFUSAL' "
-            "AND s.diagnostic->>'exception_type'='sentinel.automation.model.NonRetryableCallbackRefused' "
+            "AND ("+_BLOCKED_FAILURE_SQL+") "
             "AND s.execution_open_at>clock_timestamp()+interval '15 minutes'")
     else:
         raise ValueError('unknown handoff mode')
@@ -558,6 +582,7 @@ allowed={
  'automation_step_complete':{'BLOCKED'},
  'paper_reconciliation':{'PAPER NOT VERIFIED · LATEST CYCLE FAILED'},
 }
+cash_prepare=expected.get('recovery_kind')==''' + repr(PREPARE_CASH_CORRECTION_KIND) + r'''
 for row in page['rows']:
  if row.get('color')!='red': continue
  if row['key']=='authority':
@@ -580,6 +605,20 @@ for row in page['rows']:
  elif row['key']=='automation_alerts':
   import re
   assert re.fullmatch(r'0 pending · 0 DLQ · [0-9]+ unacked',row['value'])
+ elif cash_prepare and row['key']=='automation_step_prepare':
+  assert row['status']=='fail' and row['value']=='FAILED'
+  assert row['detail']==''' + repr('SoftwareDefect: '+PREPARE_CASH_CORRECTION_FAILURE) + r'''
+ elif cash_prepare and row['key']=='broker':
+  native_count=expected['native_positions_count']
+  assert type(native_count) is int and native_count>=0
+  assert row['status']=='fail' and row['stale'] is True
+  assert row['value']==f'{native_count} positions · 0 working'
+  assert row['detail']==('saved observation COMPLETE · saved runtime classification reconciled (RUNNING) · '
+    'all-plan journal: 0 PLANNED (unsent) · 0 in-flight · 0 uncertain (included in in-flight)')
+  as_of=datetime.fromisoformat(row['as_of'])
+  valid_until=datetime.fromisoformat(row['valid_until'])
+  assert as_of.utcoffset() is not None and valid_until.utcoffset() is not None
+  assert as_of<valid_until<=now
  else:
   assert row['value'] in allowed.get(row['key'],set()),'unrelated red check: '+row['key']
 assert page['color']=='red'
@@ -599,12 +638,12 @@ _BLOCKED_BODY = r'''        from datetime import datetime,timedelta,timezone
         assert control.enabled and control.kill_switch_engaged and control.generation==expected['generation']
         assert cycle.state.value=='BLOCKED' and not cycle.historical_state_only and cycle.plan_id is None
         assert cycle.control_generation==control.generation-1
-        assert cycle.failure_code=='NonRetryableCallbackRefused'
-        assert cycle.failure_detail==''' + repr(PUBLICATION_CHANGED_FAILURE) + r'''
-        assert cycle.diagnostic.get('retry_phase')=='REFRESH'
-        assert cycle.diagnostic.get('callback_failure')=='PERMANENT_OPERATIONAL_REFUSAL'
-        assert cycle.diagnostic.get('terminal_reason')=='PERMANENT_OPERATIONAL_REFUSAL'
-        assert cycle.diagnostic.get('exception_type')=='sentinel.automation.model.NonRetryableCallbackRefused'
+        signatures = ''' + repr(_BLOCKED_SIGNATURES) + r'''
+        diagnostic_fields = ''' + repr(_BLOCKED_DIAGNOSTIC_FIELDS) + r'''
+        signature = (cycle.failure_code, cycle.failure_detail,
+                     *(cycle.diagnostic.get(field) for field in diagnostic_fields))
+        kind = expected['recovery_kind']
+        assert signature == signatures[kind]
         assert str(cycle.decision_session)==expected['decision'] and str(cycle.effective_session)==expected['effective']
         assert expected['decision']==calendar.latest_closed_session(datetime.now(timezone.utc))
         assert cycle.execution_open_at>datetime.now(timezone.utc)+timedelta(minutes=15)
@@ -623,6 +662,8 @@ _BLOCKED_BODY = r'''        from datetime import datetime,timedelta,timezone
             push_controller_sha256=hashlib.sha256(PUSH_SCRIPT.encode()).hexdigest(),
             service_worker_sha256=hashlib.sha256(SERVICE_WORKER.encode()).hexdigest(),
             transaction_read_only=conn.read_only)
+        if kind != ''' + repr(PUBLICATION_CHANGED_KIND) + r''':
+            output['recovery_kind'] = kind
 '''
 def _canonical_plan_program(*, successor):
     settled_mode = ("in {'POST_TRADE','POST_TRADE_SUCCESSOR'}" if successor else "=='POST_TRADE'")
@@ -667,7 +708,7 @@ try:
  assert control.binding.model_dump(mode='json')==expected['binding']
  assert certificate.certificate_sha256==expected['binding']['certificate_sha256']
  auth,at=unsent_recovery.load_authorization(c,expected['generation']+1)
- assert auth.kind=='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
+ assert auth.kind==expected['kind']
  assert auth.blocked_cycle_id==expected['cycle_id']
  assert auth.predecessor_fingerprints==expected['fingerprints']
  prior=[automation.load_cycle(c,key) for key in sorted(expected['fingerprints'])]
