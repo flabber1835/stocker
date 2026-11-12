@@ -371,14 +371,13 @@ def test_cleanup_rollback_and_failure_do_not_stop_next_publication(conn, operati
     assert MAINTAIN(conn)['deleted_rows'] == 0
 
 
-def test_repeated_publications_bound_bulk_storage_and_preserve_failed_attempts(conn, operational_source):
+def test_repeated_publications_bound_bulk_storage_and_preserve_failed_attempts(conn, operational_source, monkeypatch):
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     first = publish(conn)
     for _ in range(4):
         latest = publish(conn)
     conn.commit()
-    # Publication admits one finite cleanup pass, not an unbounded drain.
-    # Exercise the real ordinary idle wakes before requiring convergence; a
-    # broken/no-op cleanup still fails the exact storage and history checks.
+    # Exercise the bounded idle passes before checking storage convergence.
     for _ in range(10):
         if conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600:
             break
@@ -402,6 +401,7 @@ def test_missing_retained_event_cannot_become_no_action(conn, aged):
 
 def test_text_reference_publication_retirement_and_schema_restart(conn, operational_source, monkeypatch):
     monkeypatch.setattr(rolling_store, 'JSONB_EVIDENCE_BYTES', 1)
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     first = publish(conn)
     first_ref = conn.execute('SELECT reference_sha256 FROM sentinel_price_candidates WHERE candidate_id=%s',
                              (first['candidate_id'],)).fetchone()[0]
@@ -409,8 +409,10 @@ def test_text_reference_publication_retirement_and_schema_restart(conn, operatio
     # A different admitted reference generation lets maintenance release the old one.
     operational_source['TICKERS'][0]['name'] = 'updated reference fixture'
     second = publish(conn)
-    conn.commit()
     assert second['data_version'] == 2
+    assert rolling_store.load_evidence(conn, first_ref) == original
+    conn.commit()
+    retention.idle_pass(conn.info.dsn)
     assert conn.execute('SELECT payload,canonical_payload FROM sentinel_snapshot_evidence '
                         'WHERE evidence_sha256=%s', (first_ref,)).fetchone() == (None, None)
     assert op.published(conn, first['job_id']) == first
@@ -562,11 +564,10 @@ def test_retirement_requires_shared_writer_ownership(conn, operational_source, m
 
 
 def test_idle_maintenance_drains_backlog_without_another_publication(conn, operational_source, monkeypatch):
-    monkeypatch.setattr(retention, 'maintain', lambda *_: None)
+    monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     for _ in range(4):
         latest = publish(conn)
     conn.commit()
-    monkeypatch.setattr(retention, 'maintain', MAINTAIN)
     # One normal polling interval can perform independent bounded idle passes.
     for _ in range(10):
         if not retention.idle_pass(conn.info.dsn):
