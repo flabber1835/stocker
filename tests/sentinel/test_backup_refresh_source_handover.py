@@ -41,6 +41,17 @@ def test_renewal_margin_preserves_the_exact_installed_inventory_and_earlier_hist
     assert hashlib.sha256(raw).hexdigest() == '83527a8bd784a676a7d60c8978a3670398259cc32afed3b02d4932537a01d181'
 
 
+def test_renewal_headroom_retains_the_exact_installed_runtime():
+    revision = 'a81a9e406997e4057f92c2be4b33ba89a060e038'
+    assert basis.BACKUP_HEADROOM_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    before = profile['retained_predecessors'][revision]['files']
+    assert len(before) == 475
+    assert admission.source_closure(before) == '43794042e2f39be91712bbd5dfe764a411976fa8b9105a9a83b9cc44c634d151'
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=before) == before
+
+
 @pytest.mark.parametrize('fault',['changed','missing','extra'])
 def test_unknown_or_partial_retry_runtime_cannot_translate(fault):
     profile=basis._profile();previous=profile['retained_predecessors'][REVISION]['files']

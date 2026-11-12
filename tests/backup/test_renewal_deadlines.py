@@ -69,15 +69,19 @@ def test_byte_refresh_is_early_and_owned_by_original_maintenance_proof():
     published = clock.publication()
     byte_due = renewal.byte_renewal_at(published,
         dict(proof(), integrity_observed_uptime=1010), '1020.0')
-    assert byte_due == clock.publication(230)
+    assert byte_due == clock.publication(200)
+    # Reproduce the observed time from scheduled wake to proof publication.
+    completion = renewal.timestamp(byte_due) + timedelta(seconds=142.84)
+    original_expiry = renewal.timestamp(clock.publication(380))
+    assert (original_expiry-completion).total_seconds() == pytest.approx(37.16)
     value = renewal.result(outcome='SUCCESS', phase='COMPLETE', code='OK',
         publication_at=published, byte_due_at=byte_due)
     schedule.consume(renewal.parse(renewal.PASS_PREFIX+json.dumps(value)))
-    assert schedule.next_at() == 230
+    assert schedule.next_at() == 200
     assert schedule.deadline == 700
     clock.now = 105
     schedule.accept(clock.publication())
-    assert schedule.next_at() == 230
+    assert schedule.next_at() == 200
     assert schedule.deadline == 705
     assert schedule.timing()['byte_due_at'] is None
     clock.now = 110

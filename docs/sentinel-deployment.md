@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Backup verification renewal headroom](backup-renewal-headroom.md) records the
+earlier full verification trigger for backed PAPER.
+
 [Close runtime simplification](simplify-close-runtime.md) records the retention
 schedule, retained-source verification and predecessor of the follow-up PR.
 
