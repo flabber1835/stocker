@@ -31,6 +31,8 @@ same owned activation and exact authority, before the target regular open and
 the original validation expiry. It releases no fence while pending. Recheck
 current source timing and stopped writers before retrying. Other preparation
 refusals retain their existing behavior.
+The host loads the shared, dependency-free wire definition from its exact file
+without adding the inspection checkout to the Python module search path.
 
 Preserve the immutable plan baseline, canonical book, journal, account and
 source history. Qualify using the real native-activity ledger, the opening

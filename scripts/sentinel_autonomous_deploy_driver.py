@@ -685,6 +685,8 @@ c.rollback(); c.close()
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
         authorize_requested(self, certificate_sha256, decision_session)
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,

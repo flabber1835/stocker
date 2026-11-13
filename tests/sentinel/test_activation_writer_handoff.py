@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,26 @@ core = importlib.import_module('sentinel_autonomous_deploy')
 driver = importlib.import_module('sentinel_autonomous_deploy_driver')
 bootstrap = importlib.import_module('sentinel_autonomous_deploy_bootstrap')
 install = importlib.import_module('sentinel_autonomous_deploy_install_entry')
+
+
+def test_host_import_does_not_add_inspection_checkout_to_module_search_path():
+    code = """
+import importlib.util
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+assert str(root) not in sys.path
+spec = importlib.util.spec_from_file_location(
+    'isolated_activation_host', root / 'scripts' / 'sentinel_autonomous_deploy.py')
+host = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = host
+spec.loader.exec_module(host)
+assert str(root) not in sys.path
+assert host._fee_protocol.native_fee_wait_record('2026-10-08').startswith(
+    'SENTINEL_NATIVE_FEE_WAIT=')
+"""
+    subprocess.run([sys.executable, '-I', '-B', '-c', code, str(ROOT)], check=True)
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +57,7 @@ CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
 @pytest.mark.parametrize('cls', CLASSES)
 @pytest.mark.parametrize('case', [
     'converges', 'go-expired', 'open-expired', 'publication-changed', 'writer-reappeared',
-    'lost-kill', 'changed-certificate', 'bad-marker', 'duplicate-marker', 'wrong-channel',
+    'lost-kill', 'changed-certificate', 'authorization-crossed-cutoff', 'bad-marker', 'duplicate-marker', 'wrong-channel',
     'contradictory-status', 'unrelated-refusal', 'missing-review',
 ])
 def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch, cls, case):
@@ -83,6 +104,11 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
         }), stderr='', returncode=0)
     obj.runner.run = observe
 
+    if case == 'authorization-crossed-cutoff':
+        import sentinel_activation_recovery
+        monkeypatch.setattr(sentinel_activation_recovery, 'authorize_requested',
+                            lambda *_args: ticks.__setitem__(0, int((cutoff - now).total_seconds())))
+
     cli = obj._authorized_cli
     attempts = []
     def prepare(args, **kwargs):
@@ -90,7 +116,7 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
             return cli(args, **kwargs)
         attempts.append(kwargs)
         if len(attempts) > 1:
-            assert case == 'converges'
+            assert case in {'converges', 'authorization-crossed-cutoff'}
             assert kwargs['timeout'] == (cutoff - now).total_seconds() - ticks[0]
             return cli(args, **kwargs)
         events.append('prepare-paper-plan')
@@ -120,9 +146,15 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
         with pytest.raises(core.DeployRefused) as refused:
             obj.prepare_activate_start('certificate', decision)
         assert not isinstance(refused.value, core.ActivationPending)
-        assert len(attempts) == 1
-        assert 'activate-paper-automation' not in events
         assert 'release-paper-automation-kill-switch' not in events
+        if case == 'authorization-crossed-cutoff':
+            assert len(attempts) == 2
+            assert 'activate-paper-automation' in events
+            assert 'restore' in events and control['kill_switch_engaged']
+            assert 'original validation or opening cutoff' in str(refused.value)
+        else:
+            assert len(attempts) == 1
+            assert 'activate-paper-automation' not in events
         if case in {'go-expired', 'open-expired'}:
             assert 'original validation or opening cutoff' in str(refused.value)
             assert ticks[0] == 30

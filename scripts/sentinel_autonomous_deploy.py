@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -55,11 +56,19 @@ if sys.version_info < MIN_PYTHON:  # pragma: no cover - launcher checks first
     raise SystemExit(2)
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from sentinel.paper_fee_wait_protocol import (
-    EXIT_NATIVE_FEE_WAIT, NATIVE_FEE_WAIT_MARKER, native_fee_wait_record,
-)
+# This source file is also loaded from the inspection-only tree in CI.
+# Import only the dependency-free protocol from that tree.
+_fee_protocol_path = ROOT / "sentinel" / "paper_fee_wait_protocol.py"
+if not _fee_protocol_path.is_file() and os.environ.get("SENTINEL_IN_IMAGE") == "1":
+    # The executable CI lens only exposes the deployed package.
+    from sentinel import paper_fee_wait_protocol as _fee_protocol
+else:
+    _fee_protocol_spec = importlib.util.spec_from_file_location(
+        "sentinel_host_fee_wait_protocol", _fee_protocol_path)
+    if _fee_protocol_spec is None or _fee_protocol_spec.loader is None:
+        raise ImportError("native fee wait protocol loader is unavailable")
+    _fee_protocol = importlib.util.module_from_spec(_fee_protocol_spec)
+    _fee_protocol_spec.loader.exec_module(_fee_protocol)
 
 ENV_PATH = ROOT / ".env"
 PAPER_URL = "https://paper-api.alpaca.markets"
@@ -2282,16 +2291,17 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
             options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
             result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
             stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
-            if result.returncode != EXIT_NATIVE_FEE_WAIT:
-                if NATIVE_FEE_WAIT_MARKER in stdout or NATIVE_FEE_WAIT_MARKER in stderr:
+            if result.returncode != _fee_protocol.EXIT_NATIVE_FEE_WAIT:
+                if (_fee_protocol.NATIVE_FEE_WAIT_MARKER in stdout
+                        or _fee_protocol.NATIVE_FEE_WAIT_MARKER in stderr):
                     raise DeployRefused("native fee posting wait contradicted the command exit status")
                 if result.returncode != 0:
                     _raise_command_refusal(result, getattr(result, "args", prepare_args))
                 if deadline:
                     self._native_fee_wait_seconds(deadline)
                 return _json_output(result, label="prepared paper plan"), deadline
-            if (stdout.splitlines() != [native_fee_wait_record(decision_session)]
-                    or NATIVE_FEE_WAIT_MARKER in stderr
+            if (stdout.splitlines() != [_fee_protocol.native_fee_wait_record(decision_session)]
+                    or _fee_protocol.NATIVE_FEE_WAIT_MARKER in stderr
                     or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
                 raise DeployRefused("native fee posting wait result is malformed")
             if deadline is None:
@@ -2390,6 +2400,8 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
         authorize_requested(self, certificate_sha256, decision_session)
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
