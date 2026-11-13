@@ -145,16 +145,19 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
             now = review.store.database_now(conn)
             for scope in changed:
                 rows, _, _, selected_errors = read_projection.read_owned(
-                    conn, database_url, now=now, only_scope=scope, native_subjects=current_basis['native'])
+                    conn, database_url, now=now, only_scope=scope, facts=facts,
+                    native_subjects=current_basis['native'], display_basis=current_basis)
                 replacements.update((row.key,row) for row in rows)
                 errors.extend(selected_errors)
             panel = replace(display_dependencies.overlay(panel, replacements),
                 source_errors=list(dict.fromkeys([*panel.source_errors,*errors])))
         if panel.display_basis.get('account_anchor') != current_basis.get('account_anchor'):
-            negative = display_dependencies.current_account_negative(conn, panel,
-                now=review.store.database_now(conn))
-            if negative is not None:
-                panel = display_dependencies.overlay(panel, {negative.key:negative})
+            now = review.store.database_now(conn)
+            account = display_dependencies.current_account_negative(conn, panel, now=now)
+            if account is None and 'PAPER' in changed:
+                account = display_dependencies.completed_account_row(conn, panel, now=now)
+            if account is not None:
+                panel = display_dependencies.overlay(panel, {account.key:account})
         subjects = current_subjects
         panel = replace(panel, display_basis=current_basis)
         # Full automation composition can outlive a 12-second leader lease.
@@ -534,7 +537,7 @@ def read(database_url, *, display=False):
             for scope in changed:
                 current_rows, _, _, errors = read_projection.read_owned(
                     conn, database_url, now=now, only_scope=scope, facts=facts,
-                    native_subjects=current_basis.get('native'))
+                    native_subjects=current_basis.get('native'), display_basis=current_basis or None)
                 keys = (read_projection.SHADOW_KEYS if scope == 'SHADOW'
                         else read_projection.PAPER_KEYS)
                 replacements.update((row.key, row) for row in current_rows if row.key in keys)
@@ -542,14 +545,20 @@ def read(database_url, *, display=False):
             panel = replace(display_dependencies.overlay(panel, replacements),
                             observation_revalidated_keys=tuple(replacements),
                             source_errors=list(dict.fromkeys([*panel.source_errors, *selected_errors])))
-        negative_keys = ()
+        account_keys = ()
         if (display and value.panel.display_basis
                 and value.panel.display_basis.get('account_anchor') != current_basis.get('account_anchor')):
             negative = display_dependencies.current_account_negative(conn, panel, now=now)
             if negative is not None:
                 panel = display_dependencies.overlay(panel, {negative.key:negative})
-                negative_keys = (negative.key,)
-                panel = replace(panel, observation_display_keys=negative_keys)
+                account_keys = (negative.key,)
+            elif 'PAPER' in changed and not retained and not head_changed:
+                current_account = display_dependencies.completed_account_row(conn, panel, now=now)
+                if current_account is not None:
+                    panel = display_dependencies.overlay(panel, {current_account.key:current_account})
+                    account_keys = (current_account.key,)
+            if account_keys:
+                panel = replace(panel, observation_display_keys=account_keys)
         owner_expiry = None
         reusable = False
         if display and changed and value.panel.display_basis and not retained and not head_changed:
@@ -588,7 +597,16 @@ def read(database_url, *, display=False):
                 allowed = (not retained and owner_expiry > finished and finished < value.valid_until
                     and all(delivery.row_current(finished_panel,row) for row in panel.rows))
                 panel = replace(panel, observation_display_current=allowed,
-                    observation_display_keys=panel.observation_display_keys if allowed else negative_keys)
+                    observation_display_keys=panel.observation_display_keys if allowed else account_keys)
+            if retained and not changed and not head_changed:
+                owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
+                if owner is not None and owner[0] is not None and owner[0] > finished:
+                    handoff = delivery.bell_handoff(conn, value.panel,
+                        expired_at=value.valid_until, now=finished)
+                    if handoff is not None:
+                        panel = replace(panel, observation_display_current=True,
+                            observation_display_keys=handoff,
+                            observation_valid_until=min(display_until, owner[0]))
         elif finished >= value.valid_until:
             raise snapshots.SnapshotUnavailable('operational snapshot expired during read')
         return replace(panel, now=finished)

@@ -17,7 +17,8 @@ def _json(value: Mapping[str, Any]) -> str:
         ensure_ascii=True, default=str)
 
 
-def record_account_snapshot(conn, snapshot, *, display_reservation=None) -> None:
+def record_account_snapshot(conn, snapshot, *, display_reservation=None,
+                            opening_observation=None) -> None:
     """Append one already-authorized typed broker account result."""
     flags = {
         "trading_blocked": bool(snapshot.trading_blocked),
@@ -28,6 +29,9 @@ def record_account_snapshot(conn, snapshot, *, display_reservation=None) -> None
         # Execution's GET-only observer produced these operator-only facts.
         # Financial account guards never consume this table.
         flags["operator_order_reservation"] = display_reservation
+    if opening_observation is not None:
+        from sentinel.execution.opening_display import FLAG
+        flags[FLAG] = opening_observation
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_broker_account_evidence"

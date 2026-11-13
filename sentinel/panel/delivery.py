@@ -66,6 +66,36 @@ def opening_refresh_deadline(panel):
     return None
 
 
+def bell_handoff(conn, panel, *, expired_at, now):
+    """Cross only the market clock tick with independently current waiting facts."""
+    from sentinel.execution import opening_display
+    from sentinel.panel.operational_snapshot import MAX_SECONDS
+    from sentinel.panel.presentation import _row_boundary, _scheduled_work_normal, health_facts
+
+    saved = panel.row('paper_plan')
+    plan = saved.paper_plan if saved is not None else None
+    broker = panel.row('broker')
+    review = panel.operator_review
+    if (plan is None or plan.execution_open_at != expired_at
+            or not panel.local_paper_mode or panel.source_errors
+            or review is None or review.status != 'CLEAN'
+            or not panel.now < expired_at <= now < plan.execute_at
+            or now >= panel.now + timedelta(seconds=MAX_SECONDS)
+            or broker is None or broker.effective_status(now) != model.OK
+            or broker.is_stale(now) or broker.is_future(now)
+            or not _scheduled_work_normal(replace(panel, now=now))):
+        return None
+    for row in panel.rows:
+        boundary = _row_boundary(row)
+        if row.required_current and (row.is_future(now) or boundary is not None and now >= boundary):
+            return None
+    if any(health_facts(replace(panel, now=now)).values()):
+        return None
+    observed = opening_display.observed_at(
+        conn, cycle_id=plan.cycle_id, plan_id=plan.plan_id, waiting=True)
+    return display_keys(panel) if observed is not None and observed == broker.as_of else None
+
+
 def closing_refresh_deadline(panel):
     """Bound partial close delivery to already proved operational progress."""
     from sentinel.feed import calendar

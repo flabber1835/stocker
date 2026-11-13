@@ -679,6 +679,20 @@ def test_image_overlay_tamper_guard_has_a_falsifier(tmp_path,monkeypatch):
         test_image_overlay_refuses_changed_retained_bytes(tmp_path)
 
 
+def test_backed_compose_admits_only_the_dispatcher_preview_policy():
+    name = 'docker-compose.sentinel-automation.yml'
+    original = (b'services:\n  sentinel-alert-dispatcher:\n    environment:\n'
+                b'      ALPACA_API_KEY: ""\n      ALPACA_SECRET_KEY: ""\n'
+                b'  sentinel-verifier:\n    image: verified\n')
+    changed = original.replace(
+        b'  sentinel-verifier:', patch._DISPATCHER_PREVIEW_POLICY + b'  sentinel-verifier:')
+    assert patch._allowed_compose_change(name, original, changed)
+    assert not patch._allowed_compose_change(
+        name, original, changed.replace(b'ALPACA_API_KEY: ""', b'ALPACA_API_KEY: injected'))
+    assert not patch._allowed_compose_change(
+        name, original, changed.replace(b'image: verified', b'image: unverified'))
+
+
 def test_backed_compose_adds_image_overlay_without_changing_backing(tmp_path):
     host=object.__new__(patch.BackedHost)
     host.source=tmp_path;host.operation_dir=tmp_path

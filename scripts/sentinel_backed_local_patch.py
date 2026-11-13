@@ -28,6 +28,12 @@ COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
 _AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
 _AUTOMATION_SERVICE = re.compile(rb'(?m)^  sentinel-automation:\n(?:^(?:    [^\n]*|)\n)*')
+_DISPATCHER_SERVICE = re.compile(rb'(?m)^  sentinel-alert-dispatcher:\n(?:^(?:    [^\n]*|)\n)*')
+_DISPATCHER_NO_BROKER_KEYS = b'      ALPACA_API_KEY: ""\n      ALPACA_SECRET_KEY: ""\n'
+_DISPATCHER_PREVIEW_POLICY = (
+    b'      SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}\n'
+    b'      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}\n'
+)
 _AUTOMATION_CPU_CONTEXT = (
     b'    mem_limit: 2g\n'
     b'    cpus: 1.0\n'
@@ -68,6 +74,15 @@ def _allowed_compose_change(name, previous, candidate):
     """Admit the documented byte-for-byte automation Compose changes."""
     if name != 'docker-compose.sentinel-automation.yml':
         return False
+    dispatchers = list(_DISPATCHER_SERVICE.finditer(previous))
+    if len(dispatchers) == 1:
+        dispatcher = dispatchers[0]
+        if dispatcher.group().count(_DISPATCHER_NO_BROKER_KEYS) == 1:
+            updated = dispatcher.group().replace(
+                _DISPATCHER_NO_BROKER_KEYS,
+                _DISPATCHER_NO_BROKER_KEYS + _DISPATCHER_PREVIEW_POLICY, 1)
+            if previous[:dispatcher.start()] + updated + previous[dispatcher.end():] == candidate:
+                return True
     services = list(_AUTOMATION_SERVICE.finditer(previous))
     if len(services) == 1:
         worker = services[0]

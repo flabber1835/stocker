@@ -104,6 +104,19 @@ def test_empty_compose_policy_and_cap_preserve_legacy_mode(monkeypatch):
     assert limits.ProtectedLimitPolicy.from_env() is None
 
 
+def test_prior_close_preview_matches_protected_allocation_without_open_actions():
+    state,plan,projection,refs=protected_case()
+    refs=replace(refs,prices={**refs.prices,'SEC-AAA':D('1730.93')})
+    policy=limits.ProtectedLimitPolicy(100)
+    result=limits.resolve_protected(state,plan,projection,refs,policy)
+    estimates=limits.estimate_prior_close_openings(plan=plan,marks=refs.prices,
+        shadow_equity=decision._shadow_equity(state),policy=policy,retained_targets={})
+    assert estimates=={entry['security_id']:(Fraction(entry['budget']),
+        D(result.opening_sizing['limits'][entry['security_id']]),int(entry['account_shares']))
+        for entry in result.opening_sizing['entries']}
+    assert estimates['SEC-AAA'][1]==D('1748.23')
+
+
 @pytest.mark.parametrize("price,cap,expected", [
     ("100.009", 0, "100.00"), ("0.99999", 0, "0.9999"),
     ("0.99999", 1, "1.00"), ("100", 100, "101.00"),
@@ -567,12 +580,12 @@ def test_core_envelope_falsifier_detects_removed_guard(monkeypatch):
 
 
 def test_priority_falsifier_detects_released_unavailable_budget(monkeypatch):
-    original = inspect.getsource(limits.resolve_protected)
-    target = 'available -= budget'
-    assert original.count(target) == 1
-    namespace = {}
-    exec(compile(original.replace(target, 'available -= 0'), '<released-priority>', 'exec'),
-         limits.resolve_protected.__globals__, namespace)
-    monkeypatch.setattr(limits, "resolve_protected", namespace["resolve_protected"])
+    original = limits._opening_budget
+
+    def release_budget(intent, scale, available):
+        budget, _ = original(intent, scale, available)
+        return budget, available
+
+    monkeypatch.setattr(limits, '_opening_budget', release_budget)
     with pytest.raises(AssertionError):
         test_unavailable_first_entry_reserves_full_priority_budget()

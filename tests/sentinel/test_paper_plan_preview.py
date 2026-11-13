@@ -230,11 +230,31 @@ def test_opening_dollars_do_not_become_invented_share_orders():
     value=project(selected=selected,positions={})
     leg=next(x for x in value.legs if x.security_id=='one')
     assert leg.action=='BUY' and leg.opening_dollars==2000 and leg.change_quantity is None
+    value=preview._with_opening_estimates(value,{})
+    assert value.legs[0].action=='UNAVAILABLE' and value.buys==1
     row=model.Row('paper_plan','Next paper plan','ready',paper_plan=value,valid_until=value.execute_at)
     html=render._paper_plan_html(row,NOW)
     assert '2026-10-14' in html and '06:31 AM Pacific' in html
-    assert 'Sized at execution' in html and '$2000 budget' in html
+    assert 'Estimate unavailable' in html and '$2000 strategy intent' in html
     assert render._paper_plan_html(row,value.execute_at+timedelta(seconds=1))==''
+
+
+def test_protected_estimate_reports_quantity_without_counting_below_one_share():
+    selected=plan()
+    selected['target_basket']={'one':'0','two':'0'}
+    selected['opening_intents']=dict(kind='plan-opening-intents/v1',plan_id=selected['plan_id'],
+        plan_fingerprint='a'*64,intents=[dict(security_id=sid,slot_id=i,intended_dollars='2400.85')
+                                         for i,sid in enumerate(('one','two'))])
+    original=project(selected=selected,positions={})
+    estimates={'one':preview.protected_estimate('1339716675/1000000','1748.23','0'),
+               'two':preview.protected_estimate('1339716675/1000000','1248.23','1')}
+    value=preview._with_opening_estimates(original,estimates)
+    assert (original.buys,value.buys,value.skips)==(2,1,1)
+    assert (value.legs[0].action,value.legs[0].opening_estimate.shares)==('SKIP',0)
+    assert (value.legs[1].action,value.legs[1].opening_estimate.shares)==('BUY',1)
+    html=render._paper_plan_html(model.Row('paper_plan','Next paper plan','ready',paper_plan=value),NOW)
+    assert '$1,339.72 paper budget' in html and '$1,748.23 limit' in html
+    assert 'Budget below one share' in html and '1 estimated share' in html
 
 
 def test_duplicate_opening_slots_cannot_announce_two_buys():
@@ -259,6 +279,6 @@ def test_plan_notification_is_distinct_from_a_fill_and_payload_is_bounded():
     alert=SimpleNamespace(event_type='PAPER_PLAN_READY',severity='INFO',alert_id='a'*64,
         payload={'effective_session':'2026-10-14','reason':'2 proposed buys; no orders submitted'})
     value=web_push.notification_payload(alert)
-    assert value['title']=='Paper trades planned for 2026-10-14'
+    assert value['title']=='Paper trading plan for 2026-10-14'
     assert 'proposed' in value['body'] and 'filled' not in value['title']
     assert value['url']=='/' and value['tag']==alert.alert_id

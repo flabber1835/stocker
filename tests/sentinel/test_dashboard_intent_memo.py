@@ -44,6 +44,46 @@ def test_repeated_display_reuses_only_small_validated_projection(conn,monkeypatc
     assert memo.read(conn,plan_id=raw['plan_id'])['tickers']['one']=='ONE'
 
 
+def test_opening_preview_reuses_compact_exact_authority(conn, monkeypatch):
+    from sentinel import paper_plan_preview
+    from sentinel.execution import journal, protected_limits
+    from tests.sentinel.test_production_decision import _publication
+    from tests.v5.test_opening import case
+
+    state, plan = case(exposure='0.55')
+    raw = value(plan.plan_id)
+    raw.update(plan_fingerprint=plan.fingerprint(), decision_session=plan.decision_session.isoformat(),
+               shadow_state=state.to_dict(), publication=_publication().to_dict(), marks={'SEC-AAA':'3000'})
+    del raw['authority_sha256']
+    raw['authority_sha256'] = authority._sha256(raw)
+    insert(conn, raw)
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', protected_limits.PROTECTED_MODE)
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_CAP_BPS', '100')
+    monkeypatch.setattr(journal, 'load_plan', lambda _, plan_id: plan)
+    original = authority.load_authority
+    loads = []
+
+    def counted(*args, **kwargs):
+        loads.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(authority, 'load_authority', counted)
+    memo = display.IntentMemo()
+    for _ in range(3):
+        compact = memo.read(conn, plan_id=plan.plan_id)
+        assert 'shadow_state' not in compact and len(json.dumps(compact)) < 2000
+        estimate = paper_plan_preview._opening_estimates(conn, plan, plan.fingerprint(), compact)['SEC-AAA']
+        assert (estimate.account_budget, estimate.limit_price, estimate.shares) == (2750, 3030, 0)
+    assert len(loads) == 1
+
+    conn.execute('UPDATE sentinel_processed_sessions SET state=jsonb_set(state,\'{marks,SEC-AAA}\',\'"1"\') '
+                 'WHERE cursor_name=%s', (authority._cursor(plan.plan_id),))
+    conn.commit()
+    with pytest.raises(authority.DualPlanAuthorityRefused, match='digest'):
+        memo.read(conn, plan_id=plan.plan_id)
+    assert len(loads) == 2
+
+
 def tamper_case(conn,monkeypatch,*,removed=False):
     raw=value();insert(conn,raw)
     if removed:

@@ -15,7 +15,7 @@ from threading import BoundedSemaphore, Event
 import time
 import uuid
 
-from psycopg.errors import LockNotAvailable, QueryCanceled
+from psycopg.errors import LockNotAvailable, QueryCanceled, SerializationFailure
 
 from sentinel.panel import authority_reader as financial, observer_codec, observer_failure, read_projection
 from sentinel.panel import operational_schema as schema
@@ -283,12 +283,78 @@ def _closing_scan_reserve(conn, now):
     return row[0] if row is not None else None
 
 
+def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previous, deadline):
+    """Rebind the completed fact while preserving its original observation and expiry."""
+    from sentinel import receipt_authentication
+    with reader.lock:
+        if (reader.completed is None or reader.failure is not None
+                or reader.identity_failure is not None
+                or reader.pending is not None or reader.answer is not None):
+            return False
+        rows, errors, observed = reader.completed
+        now = datetime.now(timezone.utc)
+        if (errors or not timedelta(0) <= now-observed < timedelta(seconds=financial.REFRESH_SECONDS)
+                or not read_projection.completed_history(rows, now=now)):
+            return False
+        prior = previous.get('PAPER')
+        if (prior is None or not prior[0].get('valuation_basis')
+                or prior[0]['subject_sha256'] != reader.configuration):
+            return False
+        with conn.transaction():
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+            advanced = read_projection.rebase_completed_paper(conn, database_url, prior, now=now)
+            if advanced is None:
+                return False
+            value, _ = advanced
+            if value['subject_sha256'] == reader.configuration:
+                return True
+            _require_iteration_time(deadline)
+            signature = receipt_authentication.sign(value)
+            read_projection.publish(conn, owner_id=owner_id, value=value, signature=signature)
+            _require_iteration_time(deadline)
+        _require_iteration_time(deadline)
+        previous['PAPER'] = value, signature
+        reader.configuration = value['subject_sha256']
+        return True
+
+
+def _financial_publication(conn, database_url, scope, value, previous, *, now):
+    """Prepare one current subject publication in the owner's coherent snapshot."""
+    from sentinel import receipt_authentication
+    from sentinel.panel import display_dependencies
+    document = value[0]
+    if read_projection.subject(conn, database_url, scope) != document['subject_sha256']:
+        return None
+    if scope != 'PAPER' or document['errors']:
+        return value
+    rows = [read_projection._decode_row(row) for row in document['rows']]
+    if (previous is not None and rows[0].recovery is not None
+            and rows[0].key == 'paper_reconciliation'
+            and rows[0].recovery.phase == 'FINANCIAL_VERIFICATION'):
+        retained = read_projection.rebase_completed_paper(
+            conn, database_url, previous, now=now)
+        if retained is not None and retained[0]['subject_sha256'] == document['subject_sha256']:
+            return retained[0], receipt_authentication.sign(retained[0])
+    if not read_projection.completed_history(rows, now=now):
+        return value
+    basis = display_dependencies.capture(conn, database_url)
+    if (basis['native']['PAPER'] != document['subject_sha256']
+            or basis['account_anchor'] is None):
+        return value
+    return read_projection.make(scope, document['subject_sha256'], rows, [],
+        observed_at=datetime.fromisoformat(document['observed_at']),
+        valid_until=datetime.fromisoformat(document['valid_until']), valuation_basis=basis)
+
+
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
             break
         _require_iteration_time(deadline)
+        if scope == 'PAPER' and _renew_completed_paper_subject(
+                conn, reader, database_url, owner_id, previous, deadline):
+            continue
         reserve = None
         if scope == 'SHADOW' and reader.completed is not None:
             from sentinel import local_paper
@@ -300,13 +366,17 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
         financial_changed = False
-        if value is not None and previous.get(scope) != value:
-            # Recheck exact subject in the publishing transaction.
-            if read_projection.subject(conn, database_url, scope) == value[0]['subject_sha256']:
+        current = previous.get(scope)
+        if value is not None and (current is None or {
+                k:v for k,v in current[0].items() if k != 'valuation_basis'} != value[0]):
+            conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+            value = _financial_publication(conn, database_url, scope, value, current,
+                now=datetime.now(timezone.utc))
+            if value is not None and current != value:
                 _require_iteration_time(deadline)
                 read_projection.publish(conn, owner_id=owner_id, value=value[0], signature=value[1])
                 financial_changed = True
-            else:
+            elif value is None:
                 conn.rollback()
         retained_reader = getattr(reader, 'pending_failed_attempt', None)
         retained = retained_reader() if retained_reader is not None else None
@@ -331,11 +401,12 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 previous[scope] = value
             if attempt is not None:
                 previous[diagnostic_key] = attempt
-        elif attempt is not None:
-            # An identical authenticated history can survive a verifier restart.
-            # End the bounded metadata read without refreshing its clocks.
+        else:
+            # An identical authenticated history can survive a verifier restart;
+            # discard read-only state without refreshing its clocks.
             conn.rollback()
-            previous[diagnostic_key] = attempt
+            if attempt is not None:
+                previous[diagnostic_key] = attempt
 
 
 def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
@@ -359,7 +430,7 @@ def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, de
             if on_first_refresh is not None and not projection_started:
                 on_first_refresh()
                 projection_started = True
-        except (QueryCanceled, LockNotAvailable):
+        except (QueryCanceled, LockNotAvailable, SerializationFailure):
             conn.rollback()
             # The session lock belongs to this connection. Reconnecting here
             # would silently discard exclusive ownership of admitted work.

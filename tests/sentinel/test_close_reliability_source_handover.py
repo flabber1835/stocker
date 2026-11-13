@@ -66,6 +66,7 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
@@ -89,6 +90,7 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
@@ -111,6 +113,7 @@ def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
@@ -132,6 +135,7 @@ def test_rolling_index_proof_preserves_the_certified_source_and_all_earlier_maps
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
@@ -152,6 +156,7 @@ def test_native_fee_posting_delay_retains_certified_source_and_all_earlier_maps(
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
     certified = history.pop(revision)['files']
     assert len(certified) == 475
     assert admission.source_closure(certified) == (
@@ -165,3 +170,22 @@ def test_native_fee_posting_delay_retains_certified_source_and_all_earlier_maps(
     assert basis.predecessor_view(actual, previous=certified) == certified
     actual['paper/cash.py'] = '0' * 64
     assert basis.predecessor_view(actual, previous=certified) is actual
+
+
+def test_opening_outcomes_preserves_signed_predecessor_and_earlier_source_maps():
+    revision = 'aed1a26c335281169c6d8067b1ce2e7de1632053'
+    assert basis.OPENING_OUTCOMES_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    assert profile['authority_effect'] == 'NONE'
+    history = dict(profile['retained_predecessors'])
+    installed = history.pop(revision)['files']
+    assert len(installed) == 476
+    assert admission.source_closure(installed) == (
+        'a765d57aaee204f0e5b734fd6d34ef8092ce4c4c4d0ca29b7f9fdf9b158551d2')
+    assert len(history) == 52
+    assert hashlib.sha256(json.dumps(history, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == (
+        '82eda6e7d726f9675a1648a03b7d534fe3e6a28141690258c03e48036849c257')
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=installed) == installed
+    actual['automation/outbox.py'] = '0' * 64
+    assert basis.predecessor_view(actual, previous=installed) is actual

@@ -276,11 +276,52 @@ def limit_for(references, sid, policy):
     price = references.prices.get(sid)
     if price is None:
         return None
-    adjusted = Fraction(price) / Fraction(references.unit_factors[sid])
+    return _reference_limit(price, references.unit_factors[sid], policy)
+
+
+def _reference_limit(price, factor, policy):
+    adjusted = Fraction(price) / Fraction(factor)
     capped = adjusted * Fraction(10000 + policy.cap_bps, 10000)
     tick = Fraction(1, 100) if capped >= 1 else Fraction(1, 10000)
     limit = exact_decimal((capped // tick) * tick)
     return _positive(limit, "protected BUY limit")
+
+
+def _entry_quantity(budget, limit):
+    return 0 if limit is None else max(Fraction(0), budget-Fraction(HEADROOM)) // Fraction(limit)
+
+
+def _opening_budget(intent, scale, available):
+    budget = min(scale * Fraction(intent.intended_dollars), available)
+    return budget, available-budget
+
+
+def estimate_prior_close_openings(*, plan, marks, shadow_equity, policy, retained_targets):
+    """Advisory sizing from the plan's unaged decision-close inputs."""
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+
+    _positive(shadow_equity, "canonical shadow equity")
+    if (not plan.target_exposure.is_finite() or not 0 <= plan.target_exposure <= 1
+            or not plan.account_nav.is_finite() or plan.account_nav < 0):
+        raise TargetProjectionRefused('preview requires long-only account scaling')
+    opening = {intent.security_id for intent in plan.opening_intents}
+    core = {sid: qty for sid,qty in plan.target_basket.items()
+            if qty > 0 and sid != DEFENSIVE_SECURITY_ID and sid not in opening}
+    if not set(core) <= marks.keys():
+        return {}
+    core_budget = Fraction(plan.target_exposure)*Fraction(plan.account_nav)
+    held = sum((Fraction(qty)*Fraction(_positive(marks[sid], 'prior RAW close'))
+                for sid,qty in core.items()), Fraction(0))
+    available = max(Fraction(0), core_budget-held)
+    scale = core_budget/Fraction(shadow_equity)
+    estimates = {}
+    for intent in plan.opening_intents:
+        budget, available = _opening_budget(intent, scale, available)
+        sid = intent.security_id
+        if sid in marks and sid not in retained_targets:
+            limit = _reference_limit(_positive(marks[sid], 'prior RAW close'), 1, policy)
+            estimates[sid] = (budget, limit, _entry_quantity(budget, limit))
+    return estimates
 
 
 def _projection_limits(projection, references, policy, *, account_nav, target_exposure, opening):
@@ -391,10 +432,9 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
             entries.append({**intent.to_dict(), "budget": None, "account_shares": str(basket[intent.security_id]),
                 "status": "CORE_REFERENCE_UNAVAILABLE", "maximum_spend": "0"})
             continue
-        budget = min(scale * Fraction(intent.intended_dollars), available)
-        available -= budget
+        budget, available = _opening_budget(intent, scale, available)
         limit = limits.get(intent.security_id)
-        quantity = (0 if limit is None else max(Fraction(0), budget - Fraction(HEADROOM)) // Fraction(limit))
+        quantity = _entry_quantity(budget, limit)
         if intent.security_id in retained:
             quantity = retained[intent.security_id]
             limit = _fixed_entry_limit(limit, budget, quantity)
@@ -485,10 +525,9 @@ def _validate_allocation(projection, references, policy, plan=None):
             raise ValueError("nonopening Core allocation differs")
         available, rows = max(Fraction(0), core_budget - held), []
         for intent in intents:
-            budget = min(scale * Fraction(intent.intended_dollars), available)
-            available -= budget
+            budget, available = _opening_budget(intent, scale, available)
             limit = limit_for(references, intent.security_id, policy)
-            quantity = 0 if limit is None else max(Fraction(0), budget - Fraction(HEADROOM)) // Fraction(limit)
+            quantity = _entry_quantity(budget, limit)
             if intent.security_id in retained:
                 quantity = retained[intent.security_id]
                 limit = _fixed_entry_limit(limit, budget, quantity)
@@ -557,8 +596,8 @@ def _validated_projection(projection, *, require_current_policy=False, plan=None
     return _ValidatedProjection(projection, policy, references)
 
 
-def validate_projection(projection, *, require_current_policy=False):
-    view = _validated_projection(projection, require_current_policy=require_current_policy)
+def validate_projection(projection, *, require_current_policy=False, plan=None):
+    view = _validated_projection(projection, require_current_policy=require_current_policy, plan=plan)
     return view.policy, view.references
 
 

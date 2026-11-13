@@ -206,7 +206,7 @@ def test_source_wait_with_missing_or_invalid_original_time_labels_recording_time
     ("PUSH_ENROLLMENT_TEST", "INFO", {}, "Caesar's Palace notifications enabled",
        "Test notification requested from this device."),
     ("PAPER_PLAN_READY", "INFO", {"effective_session": "2026-10-26", "reason": "original plan"},
-       "Paper trades planned for 2026-10-26", "original plan"),
+       "Paper trading plan for 2026-10-26", "original plan"),
     ("SHADOW_DEPENDENCY_UNAVAILABLE", "CRITICAL", {"reason": "original critical reason"},
        "Caesar's Palace — action required", "original critical reason"),
     ("AUTOMATION_RETRY_SCHEDULED", "CRITICAL", {"reason": "SourceDataPending",

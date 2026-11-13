@@ -6,12 +6,13 @@ from sentinel.panel import model
 from sentinel.paper_plan_preview import project_original_intent, quantity
 
 
-def project_run(plan, authority, commands):
+def project_run(plan, authority, commands, *, below_whole_share=None):
     """Recover original proposed deltas from their immutable sizing snapshot."""
     intent = project_original_intent(plan,authority)
     orders = [model.RunOrder(**item) for item in commands]
     return model.TradingRun(intent=intent, state=plan['state'],
-        updated_at=plan['updated_at'], completed_at=plan['completed_at'], orders=orders)
+        updated_at=plan['updated_at'], completed_at=plan['completed_at'], orders=orders,
+        below_whole_share=below_whole_share or {})
 
 
 def moving_snapshot_recovery(*, run, observation, callback, first_inconsistent, now,

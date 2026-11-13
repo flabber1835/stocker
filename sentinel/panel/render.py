@@ -255,9 +255,19 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
         return ''
     def number(value):
         return 'Unavailable' if value is None else format(value,'f')
-    rows = [(leg.ticker,leg.action,number(leg.current_quantity),
-             '$'+number(leg.opening_dollars)+' budget' if leg.opening_dollars else number(leg.target_quantity),
-             'Sized at execution' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
+    rows = []
+    for leg in plan.legs:
+        estimate = leg.opening_estimate
+        if estimate is not None:
+            target = f'${estimate.account_budget:,.2f} paper budget · ${estimate.limit_price:,.2f} limit'
+            change = (f'{number(estimate.shares)} estimated '+('share' if estimate.shares==1 else 'shares') if estimate.shares
+                      else 'Budget below one share')
+        elif leg.opening_dollars is not None:
+            target = '$'+number(leg.opening_dollars)+' strategy intent'
+            change = 'Estimate unavailable'
+        else:
+            target, change = number(leg.target_quantity), number(leg.change_quantity)
+        rows.append((leg.ticker,leg.action,number(leg.current_quantity),target,change))
     opened = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
     observed = (plan.observation_at.astimezone(ZoneInfo('America/Los_Angeles')).strftime(
         '%Y-%m-%d at %I:%M:%S %p Pacific') if plan.observation_at else 'Unavailable')
@@ -265,8 +275,7 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
         '<div class="detail-body"><p>Trading date: '+_esc(plan.effective_session)+
         ' · scheduled '+_esc(opened.strftime('%I:%M %p Pacific'))+'. Decision close: '+_esc(plan.decision_session)+
         '. These are saved targets, not orders or fills. Final orders depend on the selected execution policy, '
-        'corporate actions, and fresh account and funding checks. Targets show shares, or a dollar budget '
-        'sized when execution begins.</p>'
+        'corporate actions, and fresh account and funding checks.</p>'
         '<p>Recorded broker shares as of '+_esc(observed)+
         '. These estimates use that dated snapshot; they are not current broker holdings. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
         _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows,portfolio=True)+

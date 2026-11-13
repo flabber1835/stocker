@@ -268,6 +268,10 @@ See [protected orders](free-data-execution-proposal.md),
 
 ## Dashboard and notifications
 
+[Opening outcomes and evidence continuity](opening-outcomes-and-evidence-20261113.md)
+defines protected-limit previews, verified zero-share outcomes, and the
+read-only broker refresh used at the open.
+
 [Verifier identity availability](verifier-identity-read-availability.md) separates
 a failed current-identity read from the actual in-flight verification outcome.
 Current evidence remains unavailable until a qualifying current verification

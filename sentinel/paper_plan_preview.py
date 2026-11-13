@@ -1,6 +1,7 @@
 """Saved next-open intent for display/notification; never execution authority."""
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -20,6 +21,33 @@ def quantity(value):
     return result
 
 
+class OpeningEstimate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    account_budget: Decimal
+    limit_price: Decimal
+    shares: Decimal
+
+    @model_validator(mode='after')
+    def coherent_sizing(self):
+        from sentinel.execution.protected_limits import HEADROOM
+
+        budget, limit, shares = map(quantity, (self.account_budget, self.limit_price, self.shares))
+        if (limit == 0 or (shares == 0 and budget >= limit+HEADROOM)
+                or (shares > 0 and Fraction(shares)*Fraction(limit)+Fraction(HEADROOM) > Fraction(budget))):
+            raise ValueError('estimated opening shares differ from the protected budget')
+        return self
+
+
+def protected_estimate(budget, limit, shares):
+    """Bound the display decimal without rounding up across a share threshold."""
+    from sentinel.execution.numeric import exact_decimal
+
+    precision = 10**24
+    budget = exact_decimal(Fraction((Fraction(budget)*precision) // 1, precision))
+    return OpeningEstimate(account_budget=budget,
+                           limit_price=Decimal(limit), shares=quantity(shares))
+
+
 class PlannedLeg(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     security_id: str = Field(min_length=1,max_length=100)
@@ -28,7 +56,8 @@ class PlannedLeg(BaseModel):
     target_quantity: Decimal
     change_quantity: Decimal | None
     opening_dollars: Decimal | None = None
-    action: Literal['BUY','SELL','HOLD','UNAVAILABLE']
+    opening_estimate: OpeningEstimate | None = None
+    action: Literal['BUY','SELL','HOLD','SKIP','UNAVAILABLE']
 
     @model_validator(mode='after')
     def bounded_values(self):
@@ -39,6 +68,13 @@ class PlannedLeg(BaseModel):
             quantity(abs(self.change_quantity))
             if self.current_quantity is None or self.change_quantity != self.target_quantity-self.current_quantity:
                 raise ValueError('planned share delta is inconsistent')
+        if self.opening_estimate is not None:
+            if (self.opening_dollars is None or self.current_quantity != 0
+                    or self.target_quantity != 0 or self.change_quantity is not None
+                    or self.action != ('BUY' if self.opening_estimate.shares else 'SKIP')):
+                raise ValueError('opening estimate differs from the saved intent')
+        elif self.action == 'SKIP':
+            raise ValueError('planned skip lacks opening sizing')
         return self
 
 
@@ -70,6 +106,10 @@ class PlanPreview(BaseModel):
     @property
     def buys(self):
         return sum(leg.action == 'BUY' for leg in self.legs)
+
+    @property
+    def skips(self):
+        return sum(leg.action == 'SKIP' for leg in self.legs)
 
     @property
     def sells(self):
@@ -178,6 +218,64 @@ def project_original_intent(plan, authority):
     return _project(plan=selected,positions=positions,observation_at=observed,tickers=tickers)
 
 
+def opening_sizing_basis(authority):
+    """Extract small display inputs from a canonically loaded authority."""
+    from sentinel.core.decision import _shadow_equity, publication_fingerprint
+    from sentinel.core.session import SessionState
+
+    if authority.get('market_buy_policy_sha256') or not authority.get('marks'):
+        return None
+    try:
+        shadow = authority['shadow_state']
+        if not any(order.get('intended_dollars') is not None for order in shadow.get('pending', [])):
+            return None
+        state = SessionState.from_dict(shadow, _copy_feed=False)
+        return dict(shadow_snapshot_hash=state.state_hash, shadow_equity=str(_shadow_equity(state)),
+            publication_fingerprint=publication_fingerprint(authority['publication']),
+            marks=dict(authority['marks']),
+            retained_targets=sorted(authority.get('held_share_targets', {}).get('targets', {})))
+    except (ValueError, ArithmeticError, KeyError, TypeError):
+        return None
+
+
+def _opening_estimates(conn, preview, plan_fingerprint, authority):
+    from sentinel.execution import journal, protected_limits, target_reprojection
+
+    try:
+        policy = protected_limits.ProtectedLimitPolicy.from_env()
+        if policy is None:
+            return {}
+        basis = (authority['opening_sizing_basis'] if 'opening_sizing_basis' in authority
+                 else opening_sizing_basis(authority))
+        if basis is None:
+            return {}
+        stored = journal.load_plan(conn, preview.plan_id)
+        if (stored is None or stored.broker != 'alpaca' or stored.fingerprint() != plan_fingerprint
+                or authority['plan_fingerprint'] != plan_fingerprint
+                or basis['publication_fingerprint'] != stored.publication_fingerprint
+                or basis['shadow_snapshot_hash'] != stored.shadow_snapshot_hash):
+            return {}
+        estimates = protected_limits.estimate_prior_close_openings(plan=stored,
+            marks={sid: Decimal(price) for sid,price in basis['marks'].items()},
+            shadow_equity=Decimal(basis['shadow_equity']), policy=policy,
+            retained_targets=basis['retained_targets'])
+        return {sid: protected_estimate(*estimate) for sid,estimate in estimates.items()}
+    except (ValueError, ArithmeticError, KeyError, target_reprojection.TargetProjectionRefused):
+        return {}  # An unavailable estimate remains visible and is never counted as an order.
+
+
+def _with_opening_estimates(preview, estimates):
+    legs = []
+    for leg in preview.legs:
+        if leg.opening_dollars is None or leg.action != 'BUY':
+            legs.append(leg)
+            continue
+        estimate = estimates.get(leg.security_id)
+        action = 'UNAVAILABLE' if estimate is None else 'BUY' if estimate.shares else 'SKIP'
+        legs.append(PlannedLeg(**{**leg.model_dump(), 'action': action, 'opening_estimate': estimate}))
+    return preview.model_copy(update={'legs': legs})
+
+
 def still_current(conn, *, cycle_id, plan_id):
     """Reject obsolete queued notifications without broker calls or writes."""
     with conn.cursor() as cur:
@@ -250,6 +348,12 @@ def read(conn, *, unnotified=False, authority_loader=None):
                 raise ValueError('planned security ticker is ambiguous')
             tickers[sid] = ticker
         if sizing and 'broker_observation' in sizing:
-            return project_original_intent(dict(plan,broker_account_id=plan['account']),dict(sizing,tickers=tickers))
-        return project(plan=plan,positions=observation[0] if observation else None,
-            observation_at=observation[1] if observation else None,tickers=tickers,now=plan['now'])
+            preview = project_original_intent(dict(plan,broker_account_id=plan['account']),dict(sizing,tickers=tickers))
+        else:
+            preview = project(plan=plan,positions=observation[0] if observation else None,
+                observation_at=observation[1] if observation else None,tickers=tickers,now=plan['now'])
+        if not any(leg.opening_dollars is not None and leg.action == 'BUY' for leg in preview.legs):
+            return preview
+        estimates = (_opening_estimates(conn, preview, plan['plan_fingerprint'], sizing)
+                     if sizing and 'broker_observation' in sizing else {})
+        return _with_opening_estimates(preview, estimates)

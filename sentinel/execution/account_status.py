@@ -205,7 +205,7 @@ async def _observation(conn, *, reader, bound, commands, config):
     return last, proof, unsettled, current_commands
 
 
-async def _collect(conn, *, reader, bound, commands, config=None):
+async def _collect(conn, *, reader, bound, commands, config=None, opening=None):
     clock = asyncio.get_running_loop().time
     started = clock()
     last, proof, unsettled, current = await _observation(
@@ -220,7 +220,11 @@ async def _collect(conn, *, reader, bound, commands, config=None):
             conn.rollback()
             if (_bound(conn) if config is None else _bound(conn, config=config)) != bound:
                 raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
-    operational_evidence.record_account_snapshot(conn, last, display_reservation=proof)
+    if opening is not None:
+        from sentinel.execution import opening_display
+        opening = opening_display.confirm(conn, bound, opening)
+    operational_evidence.record_account_snapshot(conn, last, display_reservation=proof,
+                                                opening_observation=opening)
     conn.commit()
     return RESERVATION_RECHECK if unsettled else True
 
@@ -242,7 +246,11 @@ async def collect(conn, *, config, reader=None, report_reservation_recheck=False
         from sentinel.execution.alpaca import AlpacaExecutionBroker
         reader = AlpacaExecutionBroker(api_key=config.alpaca_key,
             secret_key=config.alpaca_secret, base_url=config.base_url)
+    opening = None
+    if not live and commands == [] and hasattr(reader, 'observe'):
+        from sentinel.execution import opening_display
+        opening = await opening_display.collect(conn, reader=reader, bound=bound)
     result = await asyncio.wait_for(
         _collect(conn, reader=reader, bound=bound, commands=commands,
-                 config=config if live else None), DEADLINE_SECONDS)
+                 config=config if live else None, opening=opening), DEADLINE_SECONDS)
     return result if report_reservation_recheck else bool(result)

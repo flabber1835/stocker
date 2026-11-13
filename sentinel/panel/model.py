@@ -36,7 +36,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sentinel.paper_plan_preview import PlanPreview
+from sentinel.paper_plan_preview import OpeningEstimate, PlanPreview
 from sentinel.panel.retry_status import (
     availability_label,
     protected_day_wait as _protected_day_wait,
@@ -330,6 +330,7 @@ class TradingRun(BaseModel):
     updated_at: datetime
     completed_at: datetime | None = None
     orders: list[RunOrder] = Field(default_factory=list, max_length=100)
+    below_whole_share: dict[str, OpeningEstimate] = Field(default_factory=dict, max_length=100)
 
     @model_validator(mode='after')
     def coherent_progress(self):
@@ -344,6 +345,13 @@ class TradingRun(BaseModel):
         if not {order.security_id for order in self.orders} <= {
                 leg.security_id for leg in self.intent.legs}:
             raise ValueError('current-run command has no saved intent')
+        if self.below_whole_share:
+            openings = {leg.security_id for leg in self.intent.legs
+                        if leg.action == 'BUY' and leg.opening_dollars is not None}
+            if (self.state != 'SUCCEEDED' or not self.below_whole_share.keys() <= openings
+                    or self.below_whole_share.keys() & {order.security_id for order in self.orders}
+                    or any(item.shares != 0 for item in self.below_whole_share.values())):
+                raise ValueError('recorded skip lacks its matching unsubmitted opening intent')
         return self
 
 
