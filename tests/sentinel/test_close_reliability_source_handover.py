@@ -66,6 +66,7 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
     history.pop(basis.CASH_CORRECTION_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
@@ -87,6 +88,7 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
@@ -107,6 +109,7 @@ def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == '5d85fbb62053aca94a44a3db971876efd826b6ed8027b98da14826e3b3f8100c'
@@ -117,4 +120,23 @@ def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
     actual = admission._source_files(basis.PROFILE.parent)
     assert basis.predecessor_view(actual, previous=installed) == installed
     actual['panel/readiness_handoff.py'] = '0' * 64
+    assert basis.predecessor_view(actual, previous=installed) is actual
+
+
+def test_rolling_index_proof_preserves_the_certified_source_and_all_earlier_maps():
+    revision = '5ebacfb46d8fbc15e3b698b11bb610d951565d92'
+    assert basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    assert profile['authority_effect'] == 'NONE'
+    history = dict(profile['retained_predecessors'])
+    installed = history.pop(revision)['files']
+    assert len(installed) == 475
+    assert admission.source_closure(installed) == 'a2b9ae096cb8bb52ea61491fc793cdabddf3d0a52b4b2a6ce42222b0b0d31e72'
+    assert len(history) == 50
+    payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
+    assert hashlib.sha256(payload).hexdigest() == 'ca71c7291652f634cda53c7cf5bfd64a8c2ed9d0b8068dc867ffa37938889156'
+
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=installed) == installed
+    actual['feed/rolling_go_health.py'] = '0' * 64
     assert basis.predecessor_view(actual, previous=installed) is actual

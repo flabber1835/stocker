@@ -286,6 +286,9 @@ EXPLAIN query, read-only transaction and writer-exclusion measurements. Tests
 cover both accepted indexes, bitmap branches and the rejected plan shapes;
 the authenticated PostgreSQL GO payload must pass unchanged financial guards.
 
+The [rolling activation index proof](rolling-go-index-proof.md) records the
+bounded exception for an empty physical legacy branch of the normalized view.
+
 ## Preserve the caller's transaction during reader dispatch
 
 Decision, 2026-10-20: the canonical versioned reader selects the authenticated

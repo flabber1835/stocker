@@ -20,17 +20,30 @@ def _indexed(conn, query, params):
     plan = conn.execute("EXPLAIN (FORMAT JSON) " + query, params).fetchone()[0][0]["Plan"]
     relations = {"sentinel_snapshot_bars", "sentinel_candidate_blocks", "sentinel_normalized_blocks"}
     scans = [node for node in _nodes(plan) if node.get("Relation Name") in relations]
+    observed = {node["Relation Name"] for node in scans}
+    shared = {"sentinel_candidate_blocks", "sentinel_normalized_blocks"} <= observed
     allowed = {"sentinel_snapshot_bars_pkey", "sentinel_snapshot_bars_c_order",
                "sentinel_candidate_blocks_pkey", "sentinel_normalized_blocks_pkey"}
+    legacy_scan = False
     for scan in scans:
+        if (shared and scan["Relation Name"] == "sentinel_snapshot_bars"
+                and scan.get("Node Type") == "Seq Scan" and not scan.get("Parallel Aware")):
+            legacy_scan = True
+            continue
         if scan.get("Node Type") not in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"}:
             return False
         indexes = [node["Index Name"] for node in _nodes(scan) if "Index Name" in node]
         if not indexes or any(name not in allowed for name in indexes):
             return False
-    observed = {node.get("Relation Name") for node in scans}
-    return ("sentinel_snapshot_bars" in observed
-            or {"sentinel_candidate_blocks", "sentinel_normalized_blocks"} <= observed)
+    if legacy_scan:
+        # Measure the physical heap before the independent snapshot row check.
+        # Planner row estimates alone cannot establish an empty scan.
+        size, = conn.execute("SELECT pg_relation_size('sentinel_snapshot_bars'::regclass, 'main')").fetchone()
+        if size != 0:
+            return False
+        empty, = conn.execute("SELECT NOT EXISTS (SELECT 1 FROM sentinel_snapshot_bars)").fetchone()
+        return empty is True
+    return "sentinel_snapshot_bars" in observed or shared
 
 
 def inspect(conn, *, database_url: str):
