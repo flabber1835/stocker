@@ -21,6 +21,7 @@ from sentinel.execution import (
     reconcile as execution_reconciliation,
 )
 from sentinel.execution.contract import MalformedBrokerEvidence
+from sentinel.execution.states import RuntimeState
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerFillIntervalEvidence,
     BrokerObservation, Completeness)
@@ -523,7 +524,8 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
     conn = object()
     binding = SimpleNamespace(identity=DEPLOYMENT, to_dict=lambda: vars(DEPLOYMENT))
     observation = BrokerObservation(observed_at=now)
-    rec = SimpleNamespace(observation=observation, observation_id=81)
+    rec = execution_reconciliation.ReconciliationResult(
+        RuntimeState.RUNNING, observation=observation, observation_id=81)
     account = object()
     broker = SimpleNamespace()
     aged_actions = object()

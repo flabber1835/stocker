@@ -35,6 +35,7 @@ from sentinel.execution.guarded import (
 from sentinel.execution.plan import ExecutionPlan
 
 from .model import (
+    NativeFeePostingPending,
     PaperActivationRefused,
     PaperRetryableRefused,
 )
@@ -236,17 +237,28 @@ def _require_exact_fee_cash(*, account, exact_expected) -> None:
             "native fee continuation requires the exact fresh cash equation")
 
 
-def _fee_cash_continuation(conn, *, baseline, account, activity_state,
-                           exact_expected) -> bool:
+def _fee_cash_continuation(
+        conn, *, baseline, account, activity_state, exact_expected,
+        expected_without_activity, deployment, observation, allow_native_fee_wait) -> bool:
     try:
         debit_fees_only = broker_cash.plan_activity_is_debit_fees_only(
             conn, baseline=baseline, activity_state=activity_state)
     except broker_cash.BrokerCashAuthorityRefused as exc:
         raise PaperActivationRefused(
             f"native fee continuation evidence is inconsistent: {exc}") from exc
-    if debit_fees_only:
-        _require_exact_fee_cash(account=account, exact_expected=exact_expected)
-    return debit_fees_only
+    if not debit_fees_only:
+        return False
+    if (allow_native_fee_wait
+            and Fraction(account.cash) == expected_without_activity
+            and deployment.matches_account(account.identity)
+            and observation is not None and observation.account_identity is not None
+            and deployment.matches_account(observation.account_identity)):
+        from .inspection import _account_evidence_is_quiescent
+        if _account_evidence_is_quiescent(conn, deployment=deployment, observation=observation):
+            raise NativeFeePostingPending(
+                "Alpaca account cash has not yet reflected the verified debit fees")
+    _require_exact_fee_cash(account=account, exact_expected=exact_expected)
+    return True
 
 
 def load_native_fee_plan_baseline(conn, *, plan, deployment, account, activity_state):
@@ -297,7 +309,8 @@ def _cash_authority_or_refuse(
         account: BrokerAccountSnapshot, observation: BrokerObservation,
         activity_state: broker_cash.CashActivityState | None = None,
         permit_new_activity: bool = False,
-        endpoint_lag_observed_at: datetime | None = None) -> bool:
+        endpoint_lag_observed_at: datetime | None = None,
+        allow_native_fee_wait: bool = False) -> bool:
     """Reconcile immutable plan cash to fills plus durable broker activities.
 
     The account balance is never its own explanation. Native activities explain
@@ -353,8 +366,22 @@ def _cash_authority_or_refuse(
                 activity_state.last_activity_id != baseline.last_activity_id)
 
     exact_expected = expected_without_activity + activity_delta
+    actual_cash = Fraction(account.cash)
+    discrepancy = abs(actual_cash - exact_expected)
+    activity_changed = activity_delta != 0 or activity_identity_changed
+    possible_unposted_fee = allow_native_fee_wait and actual_cash == expected_without_activity
+    if (activity_state is not None and baseline.activity_membership is not None
+            and (discrepancy <= 1 or possible_unposted_fee)):
+        if _fee_cash_continuation(
+                conn, baseline=baseline, account=account, activity_state=activity_state,
+                exact_expected=exact_expected, expected_without_activity=expected_without_activity,
+                deployment=deployment, observation=observation,
+                allow_native_fee_wait=allow_native_fee_wait):
+            # A fee grants no new money and never changes a target or baseline.
+            # Every BUY still earns fresh actual-cash/reservation admission.
+            return False
     expected = _cash_decimal(exact_expected)
-    if abs(Fraction(account.cash) - exact_expected) > 1:
+    if discrepancy > 1:
         if (permit_new_activity and activity_state is not None
                 and baseline.activity_identity_authoritative
                 and activity_delta > 0
@@ -382,13 +409,6 @@ def _cash_authority_or_refuse(
             f"baseline {plan.account_cash}, durable fills and broker-native "
             f"cash activities (expected {expected}). Cash movement is never "
             "inferred")
-    activity_changed = activity_delta != 0 or activity_identity_changed
-    if activity_state is not None and baseline.activity_membership is not None:
-        if _fee_cash_continuation(conn, baseline=baseline, account=account,
-                activity_state=activity_state, exact_expected=exact_expected):
-            # A fee grants no new money and never changes a target or baseline.
-            # Every BUY still earns fresh actual-cash/reservation admission.
-            return False
     if activity_changed and not permit_new_activity:
         raise PaperActivationRefused(
             "broker-native cash activity changed after plan "

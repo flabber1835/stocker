@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel import schema
-from sentinel.automation import schedule, store
+from sentinel.automation import outbox, schedule, store
 from sentinel.automation import integrity as automation_integrity
 from sentinel.automation import service as service_module
 from sentinel.automation.model import (
@@ -14,6 +14,7 @@ from sentinel.automation.model import (
     ControlBinding,
     CycleState,
     MissingAutomationState,
+    NativeFeePostingWait,
     NonRetryableCallbackRefused,
     StaleLeaderRefused,
     TickAction,
@@ -135,6 +136,102 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
     return AutomationService(
         config=cfg, holder_id=holder, refresh=refresh, prepare=prepare,
         recover=recover, execute=execute)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("convergence", ["before-cutoff", "after-cutoff", "absent"])
+async def test_native_fee_at_execution_restarts_via_read_only_recovery(conn, convergence):
+    cfg = config()
+    enable(conn, cfg)
+    calls = []
+    sent = []
+
+    def execute(_context):
+        calls.append("execute")
+        raise NativeFeePostingWait("provider still reports pre-fee cash")
+
+    first = service_for(cfg, execute=execute)
+    for _ in range(3):
+        ready = await first.tick(conn, now=THURSDAY_BEFORE_OPEN)
+    pending = await first.tick(conn, now=THURSDAY_AFTER_OPEN)
+    cutoff = ready.cycle.execute_at + timedelta(seconds=cfg.maximum_execution_lateness_seconds)
+    assert calls == ["execute"] and sent == []
+    assert pending.cycle.state is CycleState.RETRY_WAIT
+    assert pending.cycle.diagnostic["retry_phase"] == "RECOVER"
+    assert pending.cycle.diagnostic["native_fee_posting_deadline_at"] == cutoff.isoformat()
+    assert pending.cycle.next_wake_at < cutoff
+    alert = outbox.enqueue_cycle_transition_alert(conn, cycle_id=pending.cycle.cycle_id,
+                                                  state=CycleState.RETRY_WAIT.value)
+    assert alert.severity == "WARN"
+
+    with conn.cursor() as cur:
+        cur.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-INTERVAL '1 second'")
+    conn.commit()
+
+    def recover(context):
+        calls.append("recover")
+        if convergence == "absent" or (convergence == "after-cutoff" and calls.count("recover") == 1):
+            raise NativeFeePostingWait("provider still reports pre-fee cash")
+        return {**recovery_success(context), "disposition": "READY_TO_EXECUTE"}
+
+    def send(context):
+        calls.append("execute")
+        sent.append(context.cycle.plan_id)
+        return execution_success(context)
+
+    replacement = service_for(cfg, holder="worker-b", recover=recover, execute=send)
+    resumed = await replacement.tick(conn, now=pending.cycle.next_wake_at)
+    assert resumed.permit.fence_token > pending.permit.fence_token
+    assert calls == ["execute", "recover"] and sent == []
+    assert resumed.cycle.cycle_id == pending.cycle.cycle_id
+    assert resumed.cycle.plan_id == pending.cycle.plan_id
+    if convergence == "before-cutoff":
+        assert resumed.cycle.diagnostic["retry_phase"] == "EXECUTE"
+        done = await replacement.tick(conn, now=resumed.cycle.next_wake_at)
+        assert done.cycle.state is CycleState.SUCCEEDED
+        assert calls == ["execute", "recover", "execute"] and sent == [pending.cycle.plan_id]
+    else:
+        assert resumed.cycle.diagnostic["retry_phase"] == "RECOVER"
+        assert resumed.cycle.diagnostic["phase_attempt_count"] == 2
+        assert resumed.cycle.diagnostic["native_fee_posting_deadline_at"] == cutoff.isoformat()
+        assert outbox.enqueue_cycle_transition_alert(conn, cycle_id=resumed.cycle.cycle_id,
+            state=CycleState.RETRY_WAIT.value).idempotency_key == alert.idempotency_key
+        missed = await replacement.tick(conn, now=cutoff + timedelta(seconds=1))
+        terminal = CycleState.BLOCKED if convergence == "absent" else CycleState.SUPERSEDED
+        assert missed.cycle.state is terminal
+        assert missed.cycle.next_wake_at is None and sent == []
+        assert calls == ["execute", "recover", "recover"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["PREFLIGHT_RECOVER", "PREPARE"])
+async def test_native_fee_preparation_retries_its_original_phase_before_open(conn, phase):
+    cfg = config()
+    enable(conn, cfg)
+    attempts = []
+
+    def wait_once(context):
+        attempts.append(context.cycle.state)
+        if len(attempts) == 1:
+            raise NativeFeePostingWait("provider still reports pre-fee cash")
+        return recovery_success(context) if phase == "PREFLIGHT_RECOVER" else prepare_result(context)
+
+    service = (service_for(cfg, recover=wait_once) if phase == "PREFLIGHT_RECOVER"
+               else service_for(cfg, prepare=wait_once))
+    if phase == "PREPARE":
+        for _ in range(2):
+            await service.tick(conn, now=THURSDAY_BEFORE_OPEN)
+    pending = await service.tick(conn, now=THURSDAY_BEFORE_OPEN)
+    assert pending.cycle.state is CycleState.RETRY_WAIT
+    assert pending.cycle.diagnostic["retry_phase"] == phase
+    assert pending.cycle.diagnostic["native_fee_posting_deadline_at"] == pending.cycle.execution_open_at.isoformat()
+    resumed = await service.tick(conn, now=pending.cycle.next_wake_at)
+    if phase == "PREFLIGHT_RECOVER":
+        assert attempts == [CycleState.DISCOVERED, CycleState.RETRY_WAIT]
+        assert resumed.cycle.state is CycleState.REFRESHING_DATA
+    else:
+        assert attempts == [CycleState.PREPARING, CycleState.PREPARING]
+        assert resumed.cycle.state is CycleState.PLAN_READY
 
 
 @pytest.fixture

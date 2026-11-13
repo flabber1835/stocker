@@ -479,7 +479,7 @@ async def _execute_current_paper_plan(
                     conn, plan=plan, deployment=binding.identity,
                     account=account, observation=observation,
                     activity_state=activity_state,
-                    endpoint_lag_observed_at=cash_evidence_at)
+                    endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
             current_commands = journal.load_commands(conn, binding.identity)
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
@@ -569,7 +569,7 @@ async def _execute_current_paper_plan(
                         _cash_authority_or_refuse(
                             conn, plan=plan, deployment=binding.identity, account=cash,
                             observation=confirmed.observation, activity_state=activity,
-                            endpoint_lag_observed_at=observed_at)
+                            endpoint_lag_observed_at=observed_at, allow_native_fee_wait=True)
                         market_settled = (confirmed.observation, cash)
                         return
                     if not _account_evidence_is_quiescent(
@@ -600,7 +600,8 @@ async def _execute_current_paper_plan(
                         conn, plan=plan, deployment=binding.identity,
                         account=fresh_account, observation=fresh_observation,
                         activity_state=fresh_activity_state,
-                        endpoint_lag_observed_at=fresh_cash_at)
+                        endpoint_lag_observed_at=fresh_cash_at,
+                        allow_native_fee_wait=bool(fresh_reconciliation and fresh_reconciliation.clean))
                     from sentinel.execution.protected_limits import ProtectedLimitPolicy
                     if ProtectedLimitPolicy.from_env() is not None:
                         if (fresh_reconciliation is None
@@ -663,7 +664,7 @@ async def _execute_current_paper_plan(
                     account=evidence_account,
                     observation=confirmed_reconciliation.observation,
                     activity_state=evidence_activity,
-                    endpoint_lag_observed_at=evidence_at)
+                    endpoint_lag_observed_at=evidence_at, allow_native_fee_wait=True)
                 trial.record_account_evidence(
                     conn, session=plan.effective_session,
                     observation_id=confirmed_reconciliation.observation_id,

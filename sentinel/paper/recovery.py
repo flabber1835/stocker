@@ -397,7 +397,7 @@ async def recover_automated_paper_cycle(
                 # it may be certified after the book is clean even though
                 # it would refuse a stale plan's new BUY authorization.
                 permit_new_activity=True,
-                endpoint_lag_observed_at=evidence_at)
+                endpoint_lag_observed_at=evidence_at, allow_native_fee_wait=True)
             result.cash_plan_superseded = bool(cash_changed)
             if target_projection is None:
                 return result

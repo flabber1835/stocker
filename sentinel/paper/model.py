@@ -47,6 +47,9 @@ class PaperActivationRefused(BrokerAuthorityRefused):
 class PaperRetryableRefused(PaperActivationRefused):
     """Temporary readiness or settlement evidence is not yet usable."""
 
+class NativeFeePostingPending(PaperRetryableRefused):
+    """Verified Alpaca debit fees are still absent from fresh account cash."""
+
 class PreOpenShareUnitAuthorityUnavailable(PaperActivationRefused):
     """The exact next-open units needed for safe transport are unavailable."""
 

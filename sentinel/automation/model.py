@@ -66,6 +66,10 @@ class CorporateActionPending(TransientInfrastructureFailure):
     """A scoped reconciliation wait uses its bounded preflight policy."""
 
 
+class NativeFeePostingWait(TransientInfrastructureFailure):
+    """The settled PAPER account still reports its exact pre-fee cash."""
+
+
 class ClosingDataPending(SourceDataPending):
     """Only the current closing frontier is awaiting its dedicated publisher."""
 
@@ -742,6 +746,6 @@ __all__ = [
     "HumanInterventionRequired", "NonRetryableCallbackRefused",
     "PermanentOperationalRefusal", "PrepareResult", "RefreshResult",
     "SessionSchedule", "SoftwareDefect", "SupervisorIntegrityFailure",
-    "TransientInfrastructureFailure", "CorporateActionPending",
+    "TransientInfrastructureFailure", "CorporateActionPending", "NativeFeePostingWait",
     "StaleLeaderRefused", "TickAction", "TickResult",
 ]

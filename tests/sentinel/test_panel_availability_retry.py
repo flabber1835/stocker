@@ -226,6 +226,49 @@ def test_original_reconciliation_retry_uses_its_session_close(defect):
     assert summary.effective_status(close) == steps[5].effective_status(close) == model.FAIL
 
 
+@pytest.mark.parametrize('defect', [None, 'missing-cutoff', 'wrong-phase', 'wrong-type', 'late-wake'])
+def test_native_fee_posting_wait_is_amber_only_until_the_original_cutoff(defect):
+    from sentinel.panel.presentation import dashboard_health
+    from sentinel.panel.review_model import OperatorReview
+
+    close = OPEN + timedelta(hours=6, minutes=30)
+    updated = OPEN + timedelta(minutes=1)
+    cutoff = OPEN + timedelta(minutes=10)
+    wake = updated + timedelta(seconds=5)
+    diagnostic = dict(availability_retry_unbounded=None, failure_domain=None,
+        exception_type='sentinel.automation.model.NativeFeePostingWait',
+        native_fee_posting_deadline_at=cutoff.isoformat())
+    row = dict(plan_id='original-plan', execution_close_at=close, updated_at=updated,
+        next_wake_at=wake, failure_code='NativeFeePostingWait',
+        failure_detail='provider still reports pre-fee cash')
+    if defect == 'missing-cutoff':
+        diagnostic.pop('native_fee_posting_deadline_at')
+    if defect == 'wrong-phase':
+        diagnostic['retry_phase'] = 'EXECUTE'
+    if defect == 'wrong-type':
+        diagnostic['exception_type'] = 'sentinel.automation.model.TransientInfrastructureFailure'
+    if defect == 'late-wake':
+        row['next_wake_at'] = cutoff + timedelta(seconds=1)
+    cycle, summary, steps, _ = projections(CycleRows(phase='RECOVER',
+        category='NATIVE_FEE_POSTING_PENDING', diagnostic=diagnostic, row=row))
+    assert summary.recovery == sources._cycle_recovery(cycle)
+    if defect is not None:
+        assert summary.recovery.operator_required and summary.effective_status(updated) == model.FAIL
+        return
+    assert summary.recovery == steps[5].recovery
+    assert summary.recovery.deadline == cutoff - timedelta(microseconds=1)
+    assert summary.value == steps[5].value == 'WAITING FOR FEE TO POST · ATTEMPT 9'
+    for when, color in [(updated, 'amber'), (cutoff, 'red')]:
+        review = OperatorReview(scope='a'*64, head=2, reviewed_head=2, status='CLEAN',
+                                observed_at=when, reviewed_at=when)
+        panel = model.Panel(rows=[summary, steps[5]], now=when, operator_review=review)
+        health = dashboard_health(panel)
+        assert health['color'] == color
+        if color == 'amber':
+            assert 'Waiting for the Alpaca fee to post' in health['label']
+            assert health['valid_until'] == summary.recovery.deadline.isoformat()
+
+
 def test_corporate_preflight_uses_bounded_restriction_retry_without_source_allowance():
     cycle, summary, _, exposure = projections(CycleRows(attempt=1,
         phase="PREFLIGHT_RECOVER", category="CORPORATE_ACTION_PENDING",

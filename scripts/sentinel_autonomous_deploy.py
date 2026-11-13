@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -1253,13 +1254,16 @@ class Runner:
                 if completed.stderr:
                     log.write(completed.stderr)
         if check and completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
-            tail = " | ".join(detail[-4:])[:1200]
-            raise DeployRefused(
-                "command failed (%d): %s%s" % (
-                    completed.returncode, " ".join(argv),
-                    (" — " + tail) if tail else ""))
+            _raise_command_refusal(completed, argv)
         return completed
+
+
+def _raise_command_refusal(completed, argv) -> None:
+    detail = (getattr(completed, "stderr", None) or completed.stdout or "").strip().splitlines()
+    tail = " | ".join(detail[-4:])[:1200]
+    raise DeployRefused(
+        "command failed (%d): %s%s" % (
+            completed.returncode, " ".join(argv), (" — " + tail) if tail else ""))
 
 
 class DeploymentLock:
@@ -1723,20 +1727,20 @@ class AutonomousDeploy:
             "--entrypoint", "python", "sentinel-test:latest",
             "-c", code, self.cfg.signing_key_id])
 
-    def _running_automation_containers(self) -> List[str]:
+    def _running_automation_containers(self, *, timeout: Optional[float] = None) -> List[str]:
         out = self.runner.run([
             "docker", "ps", "-q",
             "--filter", "label=com.docker.compose.project=sentinel",
             "--filter", "label=com.docker.compose.service=sentinel-automation"],
-            capture=True).stdout
+            capture=True, timeout=timeout).stdout
         return [line.strip() for line in out.splitlines() if line.strip()]
 
-    def _running_shadow_containers(self) -> List[str]:
+    def _running_shadow_containers(self, *, timeout: Optional[float] = None) -> List[str]:
         out = self.runner.run([
             "docker", "ps", "-q",
             "--filter", "label=com.docker.compose.project=sentinel",
             "--filter", "label=com.docker.compose.service=sentinel-shadow"],
-            capture=True).stdout
+            capture=True, timeout=timeout).stdout
         return [line.strip() for line in out.splitlines() if line.strip()]
 
     def _direct_stop_automation(self) -> None:
@@ -1937,7 +1941,8 @@ class AutonomousDeploy:
         self._verify_role_images(roles)
 
     def _authorized_cli(self, args: Sequence[str], *, capture: bool = False,
-                        check: bool = True) -> subprocess.CompletedProcess:
+                        check: bool = True,
+                        timeout: Optional[float] = None) -> subprocess.CompletedProcess:
         if not getattr(self, '_authorized_dependencies_ready', False):
             self.runner.run(self._authorized_compose() + [
                 '--profile', 'authorized-cli', 'up', '-d', '--wait',
@@ -1952,9 +1957,15 @@ class AutonomousDeploy:
             self.runner.run(self._authorized_compose() + [
                 '--profile', 'authorized-cli', 'run', '--rm', '-T', '--no-deps',
                 'sentinel-authority-permissions'])
-        return self.runner.run(self._authorized_compose() + [
+        command = self._authorized_compose() + [
             "--profile", "authorized-cli", "run", "--rm", "-T", '--no-deps',
-            "sentinel-authorized-cli"] + list(args), capture=capture, check=check,
+            "sentinel-authorized-cli"] + list(args)
+        if timeout is not None:
+            from sentinel_go_process import owned_command
+            with owned_command(command) as owner:
+                return self.runner.run(owner["command"], capture=capture, check=check,
+                                       timeout=timeout)
+        return self.runner.run(command, capture=capture, check=check,
             stream=bool(capture and args and args[0] in {
                 'create-paper-observation-candidate', 'create-empty-paper-binding-candidate'}))
 
@@ -2214,8 +2225,119 @@ class AutonomousDeploy:
                 source_identity_sha256=self.reviewed_validation.source_identity_sha256)['starting_cash']
         return str(self.account_equity)
 
-    def assert_activation_timing(self, decision_session: str) -> None:
+    def assert_activation_timing(self, decision_session: str, *,
+                                 timeout: Optional[float] = None) -> Optional[Mapping]:
         """Install overlays may recheck the actual prospective decision window."""
+
+    @staticmethod
+    def _native_fee_wait_seconds(deadline: Tuple[datetime, float]) -> float:
+        wall, monotonic = deadline
+        remaining = min((wall - _utcnow()).total_seconds(), monotonic - time.monotonic())
+        if remaining <= 0:
+            raise DeployRefused("native fee posting wait reached the original validation or opening cutoff")
+        return remaining
+
+    def _require_native_fee_wait_authority(self, certificate_sha256: str, *, timeout: float) -> None:
+        from sentinel_go_process import owned_command
+
+        code = r'''
+import json, os
+from sentinel.feed import store
+with store.connect(os.environ['SENTINEL_DATABASE_URL'],
+        connect_timeout=3, statement_timeout_ms=5000) as conn:
+    with conn.cursor() as cursor:
+        cursor.execute('SET TRANSACTION READ ONLY')
+        cursor.execute(
+            'SELECT c.enabled,c.kill_switch_engaged,a.active_certificate_sha256 '
+            'FROM sentinel_automation_control c CROSS JOIN sentinel_execution_authority_state a '
+            'WHERE c.id=1 AND a.id=1')
+        row = cursor.fetchone()
+    if row is None:
+        raise RuntimeError('fenced activation control or authority is missing')
+    print(json.dumps(dict(enabled=row[0], killed=row[1], certificate_sha256=row[2])))
+'''.strip()
+        command = self._authorized_compose() + [
+            "--profile", "authorized-cli", "run", "--rm", "-T", "--no-deps",
+            "--entrypoint", "python", "sentinel-authorized-cli", "-c", code]
+        with owned_command(command) as owner:
+            result = self.runner.run(owner["command"], capture=True, timeout=timeout)
+        state = _json_output(result, label="native fee posting wait authority")
+        if (set(state) != {"enabled", "killed", "certificate_sha256"}
+                or state["enabled"] is not False or state["killed"] is not True
+                or state["certificate_sha256"] != certificate_sha256):
+            raise DeployRefused("native fee posting wait lost the disabled, killed or signed authority")
+
+    @staticmethod
+    def _load_native_fee_protocol():
+        # The inspection checkout must remain off the module search path.
+        path = ROOT / "sentinel" / "paper_fee_wait_protocol.py"
+        if not path.is_file() and os.environ.get("SENTINEL_IN_IMAGE") == "1":
+            from sentinel import paper_fee_wait_protocol
+            return paper_fee_wait_protocol
+        spec = importlib.util.spec_from_file_location("sentinel_host_fee_wait_protocol", path)
+        if spec is None or spec.loader is None:
+            raise DeployRefused("native fee wait protocol loader is unavailable")
+        protocol = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(protocol)
+        return protocol
+
+    def _prepare_activation_plan(
+            self, prepare_args: Sequence[str], certificate_sha256: str,
+            decision_session: str, timing: Optional[Mapping],
+    ) -> Tuple[Mapping, Optional[Tuple[datetime, float]]]:
+        """Keep fee re-observation under the current owned and signed activation."""
+        protocol = self._load_native_fee_protocol()
+        deadline = None
+        while True:
+            options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
+            result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
+            stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
+            if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
+                if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
+                        or protocol.NATIVE_FEE_WAIT_MARKER in stderr):
+                    raise DeployRefused("native fee posting wait contradicted the command exit status")
+                if result.returncode != 0:
+                    _raise_command_refusal(result, getattr(result, "args", prepare_args))
+                if deadline:
+                    self._native_fee_wait_seconds(deadline)
+                return _json_output(result, label="prepared paper plan"), deadline
+            if (stdout.splitlines() != [protocol.native_fee_wait_record(decision_session)]
+                    or protocol.NATIVE_FEE_WAIT_MARKER in stderr
+                    or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
+                raise DeployRefused("native fee posting wait result is malformed")
+            if deadline is None:
+                reviewed = self.reviewed_validation
+                validation = getattr(reviewed, "validation", None)
+                if (getattr(reviewed, "mode", None) not in {"dual", "paper"}
+                        or not isinstance(validation, Mapping) or not isinstance(timing, Mapping)
+                        or timing.get("target") != decision_session):
+                    raise DeployRefused("native fee posting wait requires a reviewed exchange session")
+                open_text = timing.get("execution_open_at")
+                try:
+                    exchange_open = datetime.fromisoformat(open_text)
+                    if exchange_open.utcoffset() != timedelta(0):
+                        raise ValueError("non-UTC opening time")
+                except (TypeError, ValueError) as exc:
+                    raise DeployRefused("native fee posting wait opening time is malformed") from exc
+                cutoff = min(exchange_open, _parse_validation_time(
+                    validation.get("valid_until"), field="valid_until"))
+                deadline = (cutoff, time.monotonic() + (cutoff - _utcnow()).total_seconds())
+                self.phase("plan: waiting for Alpaca to post a native debit fee to account cash")
+            time.sleep(min(60, self._native_fee_wait_seconds(deadline)))
+            remaining = self._native_fee_wait_seconds(deadline)
+            try:
+                timing = self.assert_activation_timing(
+                    decision_session, timeout=remaining)
+            except ActivationPending as exc:
+                raise DeployRefused("native fee posting wait lost the reviewed publication") from exc
+            if (not isinstance(timing, Mapping) or timing.get("target") != decision_session
+                    or timing.get("execution_open_at") != open_text
+                    or timing.get("prospective") is not True):
+                raise DeployRefused("native fee posting wait lost the original exchange opening")
+            self._require_activation_writers_stopped(timeout=min(
+                15, self._native_fee_wait_seconds(deadline) / 2))
+            self._require_native_fee_wait_authority(
+                certificate_sha256, timeout=min(30, self._native_fee_wait_seconds(deadline)))
 
     def _initial_paper_recovery_args(self):
         requested = getattr(self, 'requested_initial_paper_recovery', None)
@@ -2232,7 +2354,7 @@ class AutonomousDeploy:
 
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
-        self.assert_activation_timing(decision_session)
+        timing = self.assert_activation_timing(decision_session)
         self.quiesce_activation_writers()
         self.phase("plan: prepare one current durable paper plan")
         prepare_args = [
@@ -2242,8 +2364,8 @@ class AutonomousDeploy:
                 and self.reviewed_validation.mode == "dual"):
             prepare_args.append("--reviewed-informational-dual")
         prepare_args += self._initial_paper_recovery_args()
-        prepared = _json_output(self._authorized_cli(prepare_args,
-            capture=True), label="prepared paper plan")
+        prepared, fee_deadline = self._prepare_activation_plan(
+            prepare_args, certificate_sha256, decision_session, timing)
         current = _json_output(self._base_cli(
             ["current-paper-plan"], capture=True), label="current paper plan")
         plan = prepared.get("plan") or {}
@@ -2255,6 +2377,8 @@ class AutonomousDeploy:
                 and self.reviewed_validation.mode == "dual"):
             self._verify_dual_plan_shadow_reconciliation()
 
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         self.phase("automation: activate behind kill with financial services stopped")
         self._authorized_cli([
             "activate-paper-automation",
@@ -2274,7 +2398,11 @@ class AutonomousDeploy:
         self.assert_activation_timing(decision_session)
         self._require_activation_writers_stopped()
         from sentinel_activation_recovery import authorize_requested
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         authorize_requested(self, certificate_sha256, decision_session)
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
@@ -2285,9 +2413,10 @@ class AutonomousDeploy:
         self.start_activated_runtime(certificate_sha256, decision_session)
         return current
 
-    def _require_activation_writers_stopped(self) -> None:
-        if (self._running_automation_containers()
-                or self._running_shadow_containers()):
+    def _require_activation_writers_stopped(self, *, timeout: Optional[float] = None) -> None:
+        options = {"timeout": timeout} if timeout is not None else {}
+        if (self._running_automation_containers(**options)
+                or self._running_shadow_containers(**options)):
             raise DeployRefused("activation writer handoff requires stopped financial services")
 
     def quiesce_activation_writers(self) -> None:

@@ -47,6 +47,7 @@ from sentinel.automation.model import (
     ExecuteResult,
     HumanInterventionRequired,
     LeaderPermit,
+    NativeFeePostingWait,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
     protected_day_wait,
@@ -129,6 +130,7 @@ _CHILD_EXCEPTION_TYPES = {
         ClosingDataPending,
         DataIntegrityFailure,
         HumanInterventionRequired,
+        NativeFeePostingWait,
         NonRetryableCallbackRefused,
         PermanentOperationalRefusal,
         PreflightPublicationPinUnavailable,
@@ -808,10 +810,58 @@ class AutomationService:
             phase: str, exc: BaseException,
             recovery_transition: bool = False,
             source_completion_hint: SourceCompletionHint | None = None) -> TickResult:
+        if type(exc) is NativeFeePostingWait and phase in {
+                "PREFLIGHT_RECOVER", "PREPARE", "EXECUTE", "RECOVER"}:
+            pre_open = phase in {"PREFLIGHT_RECOVER", "PREPARE"}
+            deadline = (cycle.execution_open_at if pre_open
+                        else self._latest_new_execution_at(cycle))
+            if now < deadline:
+                return self._record_native_fee_wait(
+                    conn, now=now, cycle=cycle, permit=permit, phase=phase,
+                    deadline=deadline, exc=exc,
+                    recovery_transition=recovery_transition)
+            exc = NonRetryableCallbackRefused(
+                f"native fee posting did not reconcile before the original {phase.lower()} cutoff: {exc}")
         return self._record_retry(
             conn, now=now, cycle=cycle, permit=permit, phase=phase, exc=exc,
             failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
             recovery_transition=recovery_transition, source_completion_hint=source_completion_hint)
+
+    def _record_native_fee_wait(
+            self, conn, *, now: datetime, cycle: CycleRecord, permit,
+            phase: str, deadline: datetime, exc: NativeFeePostingWait,
+            recovery_transition: bool) -> TickResult:
+        # Re-enter through broker reconciliation after any execution callback.
+        # Neither a retry nor a replacement lease can extend this cycle's cutoff.
+        retry_phase = "RECOVER" if phase == "EXECUTE" else phase
+        prior = cycle.diagnostic
+        exception_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
+        attempts = 1
+        first_failure = now.isoformat()
+        if prior.get("exception_type") == exception_type and prior.get("retry_phase") == retry_phase:
+            attempts += int(prior.get("phase_attempt_count", 0))
+            first_failure = prior["first_failure_at"]
+        retry_at = min(self._retry_at(now, attempts), deadline)
+        diagnostic = {
+            "retry_phase": retry_phase,
+            "callback_failure": "NATIVE_FEE_POSTING_PENDING",
+            "exception_type": exception_type,
+            "notifier_action": TickAction.RETRY_SCHEDULED.value,
+            "phase_attempt_count": attempts,
+            "first_failure_at": first_failure,
+            "native_fee_posting_deadline_at": deadline.isoformat(),
+        }
+        changes = dict(to_state=CycleState.RETRY_WAIT, next_wake_at=retry_at,
+                       failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
+                       diagnostic=diagnostic)
+        if (recovery_transition and cycle.state is CycleState.RETRY_WAIT
+                and cycle.control_generation == permit.control_generation):
+            cycle = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=CycleState.RECONCILING, failure_code=None, failure_detail=None)
+        cycle = self._recover_transition(conn, permit=permit, cycle=cycle, **changes)
+        return TickResult(action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
+                          reason=str(exc))
 
     def _handle_retry_result(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,

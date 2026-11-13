@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[PAPER debit fee posting delay](native-fee-posting-delay.md) defines the
+safe re-observation of documented Alpaca cash propagation lag.
+
 [Rolling activation index proof](rolling-go-index-proof.md) records the
 database measurement when the retired legacy price relation is empty.
 

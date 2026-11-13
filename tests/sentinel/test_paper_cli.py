@@ -262,6 +262,34 @@ def test_prepare_builds_resolver_after_schemas_and_prints_json(
     assert conn.closed
 
 
+@pytest.mark.parametrize('typed', [True, False])
+def test_prepare_reports_only_exact_native_fee_posting_wait(monkeypatch, capsys, typed):
+    from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused
+    from sentinel.paper_fee_wait_protocol import EXIT_NATIVE_FEE_WAIT, native_fee_wait_record
+
+    conn = _wire_database(monkeypatch, [])
+    monkeypatch.setattr(paper, 'build_security_resolver', lambda *_: object())
+    monkeypatch.setattr(paper_cli, 'build_execution_broker', lambda *_, **__: object())
+
+    async def prepare(**_):
+        refusal = NativeFeePostingPending if typed else PaperActivationRefused
+        raise refusal('waiting for broker account cash')
+
+    monkeypatch.setattr(paper, 'prepare_paper_plan', prepare)
+    args = SimpleNamespace(through='2026-08-12', warmup_sessions=252, expect_account='paper-123')
+    code = asyncio.run(paper_cli._prepare_paper_plan(_config(), args))
+    captured = capsys.readouterr()
+    if typed:
+        assert code == EXIT_NATIVE_FEE_WAIT
+        assert captured.out == native_fee_wait_record(args.through) + '\n'
+        assert captured.err == ''
+    else:
+        assert code == cli.EXIT_NOT_ESTABLISHED
+        assert captured.out == ''
+        assert 'REFUSED: waiting for broker account cash' in captured.err
+    assert conn.closed
+
+
 def _cash_retirement_args():
     return cli.build_parser().parse_args([
         'prepare-paper-plan', '--through', '2026-11-06', '--expect-account', 'paper-123',

@@ -18,14 +18,14 @@ from sentinel.execution import broker_cash, journal, protected_funding, protecte
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerInstrument,
-    BrokerObservation, OrderTerms, Side)
+    BrokerObservation, BrokerOrder, Completeness, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store
 from sentinel.paper import cash
-from sentinel.paper.model import PaperActivationRefused
+from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused
 from tests.sentinel.test_alpaca_boundary_overlay import Response, activity_event, sse
 from tests.sentinel.test_paper_current_cash_acceptance import (
     ACCOUNT_NUMBER, NOW, PATH, conn, pg, selected)  # noqa: F401
@@ -72,12 +72,12 @@ def case(conn):
             status='ACTIVE'), observation=BrokerObservation(NOW, account_identity=identity))
 
 
-def check(conn, case, state, *, actual=None, recovery=False):
+def check(conn, case, state, *, actual=None, recovery=False, allow_wait=False):
     value = actual if actual is not None else D(1000) + state.balance_total - D(25)
     return cash._cash_authority_or_refuse(conn, plan=case['plan'],
         deployment=case['deployment'], account=replace(case['account'], cash=value,
             buying_power=value), observation=case['observation'],
-        activity_state=state, permit_new_activity=recovery)
+        activity_state=state, permit_new_activity=recovery, allow_native_fee_wait=allow_wait)
 
 
 def baseline_json(conn, case):
@@ -211,6 +211,71 @@ def test_fee_continuation_requires_exact_cash_not_old_generic_tolerance(conn, ca
     state = fee_state(conn, case)
     with pytest.raises(PaperActivationRefused, match='exact fresh cash equation'):
         check(conn, case, state, actual=D('999.96') + D(offset))
+
+
+@pytest.mark.parametrize('amount', ['-0.01', '-3.17'])
+def test_verified_unposted_fee_waits_and_converges_without_changing_plan(conn, pg, case, amount):
+    events = [case['old'], event(2, 'FEE', amount)]
+    with pytest.raises(NativeFeePostingPending):
+        check(conn, case, ingest(conn, events, hours=1), actual=D(1000), allow_wait=True)
+    conn.rollback()
+
+    with store.connect(pg.sync_dsn) as restarted:
+        state = ingest(restarted, events, hours=2)
+        with pytest.raises(NativeFeePostingPending):
+            check(restarted, case, state, actual=D(1000), recovery=True, allow_wait=True)
+        assert check(restarted, case, state, allow_wait=True) is False
+        assert broker_cash.load_plan_baseline(restarted, plan_id=case['plan'].plan_id) == case['baseline']
+        assert journal.load_plan(restarted, case['plan'].plan_id).fingerprint() == case['plan'].fingerprint()
+        assert journal.load_commands(restarted, case['deployment']) == ()
+        assert restarted.execute(
+            "SELECT count(*) FROM sentinel_processed_sessions"
+            " WHERE cursor_name LIKE 'broker-account-lag:v1:%'"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('failure', [
+    'partial_fee', 'over_debit', 'unknown', 'working_order', 'incomplete',
+    'wrong_account', 'missing_account', 'changed_member', 'no_qualified_observation',
+])
+def test_unposted_fee_wait_does_not_accept_other_evidence(conn, case, failure):
+    state = fee_state(conn, case)
+    actual = {'partial_fee': D('999.98'), 'over_debit': D('999.95')}.get(failure, D(1000))
+    observation = case['observation']
+    if failure == 'unknown':
+        command = Command(
+            CommandIdentity(case['deployment'], 'prior-plan', 'SEC-A'),
+            BrokerInstrument('SEC-A', 'AAA', 'native-a'), Side.BUY, D(1),
+            state=CommandState.UNKNOWN)
+        journal.save_command(conn, command)
+    if failure == 'working_order':
+        order = BrokerOrder("working", None, BrokerInstrument("SEC-A", "AAA", "native-a"),
+                            Side.BUY, CommandState.ACKNOWLEDGED, D(1))
+        observation = replace(observation, orders=(order,))
+    if failure == 'incomplete':
+        observation = replace(observation, completeness=Completeness.INCONSISTENT)
+    if failure == 'wrong_account':
+        observation = replace(observation, account_identity=BrokerAccountIdentity('alpaca', 'OTHER'))
+    if failure == 'missing_account':
+        observation = replace(observation, account_identity=None)
+    if failure == 'changed_member':
+        conn.execute("UPDATE sentinel_cash_flows SET session=session+1 WHERE amount=25")
+    with pytest.raises(PaperActivationRefused) as caught:
+        check(conn, dict(case, observation=observation), state, actual=actual,
+              allow_wait=failure != 'no_qualified_observation')
+    assert not isinstance(caught.value, NativeFeePostingPending)
+
+
+def test_wait_requires_exact_pre_fee_balance_falsifier(conn, case, monkeypatch):
+    original = inspect.getsource(cash._fee_cash_continuation)
+    condition = 'and Fraction(account.cash) == expected_without_activity'
+    assert original.count(condition) == 1
+    namespace = {}
+    exec(compile(original.replace(condition, ''), '<removed-pre-fee-cash-equality>', 'exec'),
+        vars(cash), namespace)
+    monkeypatch.setattr(cash, '_fee_cash_continuation', namespace['_fee_cash_continuation'])
+    with pytest.raises(AssertionError):
+        test_unposted_fee_wait_does_not_accept_other_evidence(conn, case, 'partial_fee')
 
 
 def test_legacy_baseline_is_readable_but_never_backfilled(conn, case):

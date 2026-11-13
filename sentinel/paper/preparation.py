@@ -608,7 +608,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 _cash_authority_or_refuse(
                     conn, plan=existing_plan, deployment=binding.identity,
                     account=account, observation=observation,
-                    activity_state=activity_state)
+                    activity_state=activity_state, allow_native_fee_wait=rec.clean)
                 await _instrument_map(
                     conn, broker, state, existing_plan, observation, preparation=True)
                 journal.adopt_current_plan(conn, existing_plan)
@@ -664,7 +664,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 _cash_authority_or_refuse(
                     conn, plan=existing_plan, deployment=binding.identity,
                     account=account, observation=observation,
-                    activity_state=activity_state)
+                    activity_state=activity_state, allow_native_fee_wait=rec.clean)
                 # Repairs any legacy save/supersede crash shape without
                 # changing plan economics; identical adoption is idempotent.
                 await _instrument_map(
@@ -763,7 +763,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn, plan=existing_plan, deployment=binding.identity,
                         account=account, observation=observation,
                         activity_state=activity_state,
-                        permit_new_activity=True)
+                        permit_new_activity=True, allow_native_fee_wait=rec.clean)
                 if due_existing_cycle and not dual_mode:
                     await _finalize_due_succeeded_cycle_or_refuse(
                         conn, broker=broker, deployment=binding.identity,

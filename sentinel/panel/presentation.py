@@ -809,6 +809,10 @@ def preparation_stage(panel) -> str | None:
         return 'Today’s trading complete'
     cycle = panel.row('automation_cycle')
     if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
+            and cycle.recovery is not None and cycle.recovery.phase == 'NATIVE_FEE_POSTING'
+            and cycle.recovery.active(panel.now)):
+        return 'Waiting for the Alpaca fee to post'
+    if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
             and cycle.recovery is not None and cycle.recovery.phase in {
                 'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}):
         return 'Checking the recorded broker account'
@@ -935,6 +939,10 @@ def dashboard_health(panel) -> dict:
     boundaries.extend(row.operational_fact.opening.deadline
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
         else _row_boundary(row) for row in admitted)
+    cycle = panel.row('automation_cycle')
+    if (cycle is not None and cycle.recovery is not None
+            and cycle.recovery.phase == 'NATIVE_FEE_POSTING' and cycle.recovery.active(panel.now)):
+        boundaries.append(cycle.recovery.deadline)
     if execution_normal or _clean_skip_work_normal(panel) or _retired_check_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS
                           if key != 'broker' or not execution_normal or not panel.row(key).is_stale(panel.now))
