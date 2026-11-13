@@ -3,6 +3,18 @@
   "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
+    "NativeFeePostingPending": {
+      "module": "model",
+      "generated_ast_sha256": "7cd56d216f51a3b6ad4577781933986adf1adf0cd20e54d936a750b6bd6ce6eb",
+      "historical_ast_sha256": null,
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": null
+    },
     "_account_economics": {
       "generated_ast_sha256": "8fa8de73f3b6e9fc14aae1e49fcce7fef8569f0aeb5325411e7260f66e34c586",
       "historical_ast_sha256": "0004c6e1b91da0713753c4a12037fb5bebcf6e57dc66f7da5efea10db884db22",
@@ -55,7 +67,7 @@
       "fee_continuation_design": "docs/native-fee-plan-continuation.md",
       "fee_continuation_predecessor_ast_sha256": "b6fb62419b6d8133eb562b040cc37dd5a4647d381db6d9a2a68a2704bc4b9883",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "ccfdcc697f8c13370e66a91eab0005d6f7a82aa38ee62a6a458f2a4f84903a07",
+      "generated_ast_sha256": "71c03aad1e90a63e02d1b077ae748e9ad781777acc9d789157e5bfdbc4c22f49",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
       "native_cash_wait_acceptance": [
@@ -64,7 +76,14 @@
       ],
       "native_cash_wait_design": "docs/paper-current-cash-transition.md",
       "native_cash_wait_predecessor_ast_sha256": "b959a98a6d6d15d7091791ac2d3bc73297d28ac39a12cc3874dde220c341a71d",
-      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain. A known positive native cash delta with unchanged baseline-plus-fill cash is a read-only coherence wait during preparation/recovery. It grants no execution, replacement baseline or historical finality and never renews generic endpoint-lag grace."
+      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain. A known positive native cash delta with unchanged baseline-plus-fill cash is a read-only coherence wait during preparation/recovery. It grants no execution, replacement baseline or historical finality and never renews generic endpoint-lag grace.",
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": "ccfdcc697f8c13370e66a91eab0005d6f7a82aa38ee62a6a458f2a4f84903a07"
     },
     "_clean_or_refuse": {
       "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
@@ -100,7 +119,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "a56bbc10396548feadae0e5e5a4f96f31bef212482b752a5f64a4a64506ba25c",
+      "generated_ast_sha256": "30e7ffa82984ca66cb93e0229f480d741a62f6913256c91ec848315f601444f3",
       "market_buy_acceptance": [
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle",
         "tests/sentinel/test_market_day_execution.py"
@@ -145,15 +164,29 @@
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "retained_design": "docs/retained-state-activation.md"
+      "retained_design": "docs/retained-state-activation.md",
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": "a56bbc10396548feadae0e5e5a4f96f31bef212482b752a5f64a4a64506ba25c"
     },
     "_fee_cash_continuation": {
       "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
       "design": "docs/native-fee-plan-continuation.md",
-      "generated_ast_sha256": "c3eb303bbd18e1f8bd760b9f529a4d85493b4f4f476e033989ad34b126a749d3",
+      "generated_ast_sha256": "289319bee5e9fc085f5f5422ca9c96fa06974efabb59f66b34f81fbf1a78d63e",
       "historical_ast_sha256": null,
       "module": "cash",
-      "reason": "Require membership-proved native debit fees and exact actual cash before continuing a plan."
+      "reason": "Require membership-proved native debit fees and exact actual cash before continuing a plan.",
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": "c3eb303bbd18e1f8bd760b9f529a4d85493b4f4f476e033989ad34b126a749d3"
     },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
@@ -542,7 +575,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "5f048d3781335cb83498b046fefb8b2f525d0b9feb0e1411886fec63f1fde551",
+      "generated_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
       "market_buy_acceptance": [
         "tests/sentinel/test_dual_plan_scalar_proof.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -586,7 +619,14 @@
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "retained_design": "docs/retained-state-activation.md"
+      "retained_design": "docs/retained-state-activation.md",
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": "5f048d3781335cb83498b046fefb8b2f525d0b9feb0e1411886fec63f1fde551"
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",
@@ -600,7 +640,7 @@
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "1765a76cd540ac5d9d8569a7ac175e9604fb828087cc51f24ddc7d41830342f9",
+      "generated_ast_sha256": "202cf310a12be8daada8704adedeb4a8fb91cd5917ddcfa37b1a5243547dd3b5",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
       "protected_cohort_acceptance": [
@@ -610,7 +650,14 @@
       ],
       "protected_cohort_design": "docs/protected-cohort-continuation.md",
       "protected_cohort_reason": "For an existing protected basis and current projection, derive routing evidence from fresh account/activity and the same canonical continuation predicate used by execution. This grants no broker mutation or settlement: execution repeats the proof at its own writer boundary, and contradictory or missing proof retains ordinary unresolved-command handling.",
-      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks."
+      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks.",
+      "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
+      "native_fee_posting_delay_acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py",
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_activation_writer_handoff.py"
+      ],
+      "native_fee_posting_delay_predecessor_ast_sha256": "1765a76cd540ac5d9d8569a7ac175e9604fb828087cc51f24ddc7d41830342f9"
     },
     "require_exact_native_fee_cash": {
       "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],

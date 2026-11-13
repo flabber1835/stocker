@@ -627,7 +627,7 @@ c.rollback(); c.close()
 
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
-        self.assert_activation_timing(decision_session)
+        timing = self.assert_activation_timing(decision_session)
         self.quiesce_activation_writers()
         self.phase("plan: prepare and re-read one exact durable paper plan")
         prepare_args = [
@@ -638,8 +638,8 @@ c.rollback(); c.close()
                 and self.reviewed_validation.mode == "dual"):
             prepare_args.append("--reviewed-informational-dual")
         prepare_args += self._initial_paper_recovery_args()
-        prepared = core._json_output(self._authorized_cli(
-            prepare_args, capture=True), label="prepared paper plan")
+        prepared, fee_deadline = self._prepare_activation_plan(
+            prepare_args, certificate_sha256, decision_session, timing)
         current = core._json_output(self._base_cli(
             ["current-paper-plan"], capture=True), label="current paper plan")
         prepared_plan = prepared.get("plan") or {}
@@ -659,6 +659,8 @@ c.rollback(); c.close()
                 and self.reviewed_validation.mode == "dual"):
             self._verify_dual_plan_shadow_reconciliation()
 
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         self.phase(
             "automation: activate behind kill with financial services stopped")
         self._authorized_cli([
@@ -680,6 +682,8 @@ c.rollback(); c.close()
         self.assert_activation_timing(decision_session)
         self._require_activation_writers_stopped()
         from sentinel_activation_recovery import authorize_requested
+        if fee_deadline:
+            self._native_fee_wait_seconds(fee_deadline)
         authorize_requested(self, certificate_sha256, decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",

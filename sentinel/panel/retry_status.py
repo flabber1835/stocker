@@ -6,7 +6,11 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 import re
 
-from sentinel.automation.model import PreflightPublicationPinUnavailable, ProtectedDayWait
+from sentinel.automation.model import (
+    NativeFeePostingWait,
+    PreflightPublicationPinUnavailable,
+    ProtectedDayWait,
+)
 from sentinel.operational_status import RecoveryEvidence
 
 
@@ -155,8 +159,45 @@ def _reconciliation_retry(cycle: Mapping) -> RecoveryEvidence | None:
         attempt=attempt, next_attempt_at=wake, deadline=closed-timedelta(microseconds=1))
 
 
+def _native_fee_posting_retry(cycle: Mapping, diagnostic: Mapping) -> RecoveryEvidence:
+    """Use the scheduler's original phase cutoff, including after a restart."""
+    refused = RecoveryEvidence(phase='NATIVE_FEE_POSTING', automatic=False, operator_required=True)
+    kind = NativeFeePostingWait
+    phase = cycle.get('retry_phase')
+    window = _retry_session_window(cycle)
+    opened, execute, updated, wake, closed = (cycle.get(key) for key in (
+        'execution_open_at', 'execute_at', 'updated_at', 'next_wake_at', 'execution_close_at'))
+    if (cycle.get('state') != 'RETRY_WAIT' or phase not in {'PREFLIGHT_RECOVER', 'PREPARE', 'RECOVER'}
+            or cycle.get('failure_code') != kind.__name__
+            or cycle.get('exception_type') != f'{kind.__module__}.{kind.__qualname__}'
+            or cycle.get('callback_failure') != 'NATIVE_FEE_POSTING_PENDING'
+            or cycle.get('terminal_reason') is not None
+            or cycle.get('availability_retry_clocks_aware') is False
+            or not all(_aware(stamp) for stamp in (opened, execute, updated, wake, closed))
+            or window != (opened, closed)):
+        return refused
+    attempt = cycle.get('phase_attempt_count')
+    if type(attempt) is not int or attempt < 1:
+        return refused
+    try:
+        deadline = datetime.fromisoformat(diagnostic['native_fee_posting_deadline_at'])
+    except (KeyError, TypeError, ValueError):
+        return refused
+    if not _aware(deadline) or not updated < wake <= deadline:
+        return refused
+    if phase in {'PREFLIGHT_RECOVER', 'PREPARE'}:
+        if deadline != opened or cycle.get('plan_id') is not None:
+            return refused
+    elif not cycle.get('plan_id') or not opened <= execute <= updated < deadline <= closed:
+        return refused
+    return RecoveryEvidence(phase='NATIVE_FEE_POSTING', automatic=True, attempt=attempt,
+        next_attempt_at=wake, deadline=deadline-timedelta(microseconds=1))
+
+
 def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
-    if recovery.phase in {'AUTOMATION_RECOVER_AVAILABILITY', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}:
+    if recovery.phase == 'NATIVE_FEE_POSTING':
+        state = 'WAITING FOR FEE TO POST'
+    elif recovery.phase in {'AUTOMATION_RECOVER_AVAILABILITY', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}:
         state = 'RETRYING RECONCILIATION'
     else:
         state = ('WAITING FOR INPUTS' if cycle.get('callback_failure') == 'SOURCE_DATA_PENDING'
@@ -287,6 +328,12 @@ def project_cycle_recovery(
         if wait is not None else None)
     if str(cycle.get('state') or '').upper() != 'RETRY_WAIT':
         return CycleRecovery(protected_wait=wait, protected_recovery=wait_recovery)
+    if (cycle.get('failure_code') == NativeFeePostingWait.__name__
+            or cycle.get('callback_failure') == 'NATIVE_FEE_POSTING_PENDING'
+            or 'native_fee_posting_deadline_at' in diagnostic):
+        fee = _native_fee_posting_retry(cycle, diagnostic)
+        return CycleRecovery(evidence=fee, availability=fee if fee.automatic else None,
+                             availability_refused=not fee.automatic)
     availability = availability_recovery(cycle) or _planless_preflight_retry(cycle) or _reconciliation_retry(cycle)
     refused = availability_refusal(cycle, availability)
     if refused is not None:

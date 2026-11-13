@@ -222,6 +222,8 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     from sentinel import paper, schema
     from sentinel.automation_runtime import shadow_config_from_env
     from sentinel.feed import calendar, store as feed_store
+    from sentinel.paper.model import NativeFeePostingPending
+    from sentinel.paper_fee_wait_protocol import EXIT_NATIVE_FEE_WAIT, native_fee_wait_record
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -281,6 +283,11 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
             conn=conn, broker=broker, base_url=config.base_url,
             through=args.through, expected_account=args.expect_account,
             warmup_sessions=args.warmup_sessions, **dual_kwargs)
+    except NativeFeePostingPending as exc:
+        if type(exc) is not NativeFeePostingPending:
+            return _paper_refused(exc)
+        print(native_fee_wait_record(args.through))
+        return EXIT_NATIVE_FEE_WAIT
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:

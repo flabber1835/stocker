@@ -265,7 +265,7 @@ class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
             self.reviewed_validation is not None
             and _is_deferred(self.reviewed_validation))
 
-    def _causal_timing(self) -> Mapping:
+    def _causal_timing(self, *, timeout: Optional[float] = None) -> Mapping:
         """Observe both the owed closed session and the current publication."""
         import sentinel_activation_read as read_probe
         code = r'''
@@ -312,7 +312,7 @@ finally:
         result = read_probe.run(self, self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T", "--no-deps",
             "--entrypoint", "python", "sentinel", "-c", read_probe.child_code(code)],
-            'causal deployment timing', budget_seconds=300)
+            'causal deployment timing', budget_seconds=300, timeout=timeout)
         value = core._json_output(result, label="causal deployment timing")
         if (not isinstance(value.get("frontier"), str)
                 or type(value.get("publication_fingerprint")) is not str
@@ -594,11 +594,12 @@ finally:
         self._persist_deploy_facts({
             "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": digest})
 
-    def assert_activation_timing(self, decision_session: str) -> None:
+    def assert_activation_timing(self, decision_session: str, *,
+                                 timeout: Optional[float] = None) -> Optional[Mapping]:
         reviewed = self.reviewed_validation
         if reviewed is None or reviewed.mode not in {"dual", "paper"}:
             return
-        timing = self._causal_timing()
+        timing = self._causal_timing(**({"timeout": timeout} if timeout is not None else {}))
         publication = core.data_publication_subject_value({
             'publication_fingerprint': timing['publication_fingerprint'],
             'visible_frontier': timing['frontier']})
@@ -621,6 +622,7 @@ finally:
                 if not (reviewed.mode == "dual"
                         and getattr(self, "_operational_source_only", False))
                 else "paper activation requires the exact current finalized decision and source")
+        return timing
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         reviewed = self.reviewed_validation

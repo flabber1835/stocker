@@ -38,6 +38,7 @@ from sentinel.automation.model import (
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
+    NativeFeePostingWait,
     PrepareResult,
     ProtectedDayWait,
     PreflightPublicationPinUnavailable,
@@ -77,6 +78,7 @@ from sentinel.feed import (
 from sentinel.feed import store as feed_store
 from sentinel.feed.source_authority import SeedIdentityCollision
 from sentinel.feed.source_wait import SourceCoveragePending
+from sentinel.paper.model import NativeFeePostingPending
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
@@ -1305,6 +1307,8 @@ class ProductionAutomation:
                         self._shadow_starting_cash
                         if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None))
                 context.require_active()
+            except NativeFeePostingPending as exc:
+                raise NativeFeePostingWait(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -1399,6 +1403,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
+            except NativeFeePostingPending as exc:
+                raise NativeFeePostingWait(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -1728,6 +1734,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
+            except NativeFeePostingPending as exc:
+                raise NativeFeePostingWait(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,

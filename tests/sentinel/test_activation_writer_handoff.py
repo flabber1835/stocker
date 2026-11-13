@@ -1,5 +1,6 @@
 """Host sequencing, with real PostgreSQL/process acceptance in the companion suite."""
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import os
@@ -8,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from sentinel.paper_fee_wait_protocol import EXIT_NATIVE_FEE_WAIT, native_fee_wait_record
 
 ROOT = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -28,6 +31,103 @@ def offline_activation_read_owner(monkeypatch):
 
 CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
            bootstrap.BootstrapDeploy, install.InstallAnytimeDeploy]
+
+
+@pytest.mark.parametrize('cls', CLASSES)
+@pytest.mark.parametrize('case', [
+    'converges', 'go-expired', 'open-expired', 'publication-changed', 'writer-reappeared',
+    'lost-kill', 'changed-certificate', 'bad-marker', 'duplicate-marker', 'wrong-channel',
+    'contradictory-status', 'unrelated-refusal', 'missing-review',
+])
+def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch, cls, case):
+    obj, events, control, running = appliance(tmp_path, cls)
+    decision = '2026-10-08'
+    now = datetime(2026, 10, 9, 13, tzinfo=timezone.utc)
+    exchange_open = now + timedelta(seconds=30 if case == 'open-expired' else 900)
+    expiry = now + timedelta(seconds=30 if case == 'go-expired' else 900)
+    cutoff = min(exchange_open, expiry)
+    obj.reviewed_validation.validation = {'valid_until': core._utc_text(expiry)}
+    if case == 'missing-review':
+        obj.reviewed_validation = None
+    ticks = [0]
+    monkeypatch.setattr(core, '_utcnow', lambda: now + timedelta(seconds=ticks[0]))
+    monkeypatch.setattr(core.time, 'monotonic', lambda: ticks[0])
+
+    timing_calls = []
+    def timing(session, *, timeout=None):
+        timing_calls.append(session)
+        if case == 'publication-changed' and len(timing_calls) > 1:
+            raise core.ActivationPending('publication changed')
+        return {'target': decision, 'prospective': now + timedelta(seconds=ticks[0]) < exchange_open,
+                'execution_open_at': exchange_open.isoformat()}
+    obj.assert_activation_timing = timing
+
+    def sleep(seconds):
+        assert 'activate-paper-automation' not in events
+        assert not any(running.values())
+        assert not control['enabled'] and control['kill_switch_engaged']
+        ticks[0] += seconds
+        if case == 'writer-reappeared':
+            running['shadow'] = True
+        elif case == 'lost-kill':
+            control['kill_switch_engaged'] = False
+    monkeypatch.setattr(core.time, 'sleep', sleep)
+    run = obj.runner.run
+    def observe(args, **kwargs):
+        if 'FROM sentinel_automation_control' not in args[-1]:
+            return run(args, **kwargs)
+        assert kwargs['timeout'] == 30 and '--no-deps' in args
+        return SimpleNamespace(stdout=json.dumps({
+            'enabled': control['enabled'], 'killed': control['kill_switch_engaged'],
+            'certificate_sha256': 'foreign' if case == 'changed-certificate' else 'certificate',
+        }), stderr='', returncode=0)
+    obj.runner.run = observe
+
+    cli = obj._authorized_cli
+    attempts = []
+    def prepare(args, **kwargs):
+        if args[0] != 'prepare-paper-plan':
+            return cli(args, **kwargs)
+        attempts.append(kwargs)
+        if len(attempts) > 1:
+            assert case == 'converges'
+            assert kwargs['timeout'] == (cutoff - now).total_seconds() - ticks[0]
+            return cli(args, **kwargs)
+        events.append('prepare-paper-plan')
+        marker = native_fee_wait_record('2026-10-07' if case == 'bad-marker' else decision)
+        stdout = marker + '\n'
+        # Compose and broker diagnostics already use stderr in this command.
+        stderr = ' Container one-shot Created\nINFO HTTP Request: GET account\n'
+        code = EXIT_NATIVE_FEE_WAIT
+        if case == 'duplicate-marker':
+            stdout += marker + '\n'
+        if case == 'wrong-channel':
+            stderr += marker
+        if case == 'contradictory-status':
+            code = 0
+        if case == 'unrelated-refusal':
+            stdout, stderr, code = '', 'REFUSED: positions did not reconcile', 2
+        return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=code)
+    obj._authorized_cli = prepare
+
+    if case == 'converges':
+        assert obj.prepare_activate_start('certificate', decision)['plan']['plan_id'] == 'exact'
+        assert len(attempts) == 2
+        assert events.count('stop-shadow') == 1
+        assert events.index('restore') < events.index('release-paper-automation-kill-switch')
+        assert ticks[0] == 60
+    else:
+        with pytest.raises(core.DeployRefused) as refused:
+            obj.prepare_activate_start('certificate', decision)
+        assert not isinstance(refused.value, core.ActivationPending)
+        assert len(attempts) == 1
+        assert 'activate-paper-automation' not in events
+        assert 'release-paper-automation-kill-switch' not in events
+        if case in {'go-expired', 'open-expired'}:
+            assert 'original validation or opening cutoff' in str(refused.value)
+            assert ticks[0] == 30
+        if case == 'unrelated-refusal':
+            assert 'positions did not reconcile' in str(refused.value)
 
 
 @pytest.mark.parametrize('cls', CLASSES)
@@ -85,8 +185,8 @@ def appliance(tmp_path, cls, *, failure=None):
     obj.phase = lambda _: None
     obj._automation_status = lambda: dict(control)
     obj._authorized_compose = lambda: ['fixture-compose']
-    obj._running_shadow_containers = lambda: ['shadow'] if running['shadow'] else []
-    obj._running_automation_containers = lambda: ['automation'] if running['automation'] else []
+    obj._running_shadow_containers = lambda **_: ['shadow'] if running['shadow'] else []
+    obj._running_automation_containers = lambda **_: ['automation'] if running['automation'] else []
 
     def stop(service):
         events.append('stop-' + service)
