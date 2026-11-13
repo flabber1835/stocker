@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
+from sentinel.dependency_availability import database_unavailable
 from sentinel.operational_status import color
 from sentinel.panel import delivery, last_known, model, singleflight
 from sentinel.panel import operational_snapshot, projection_service
@@ -67,9 +68,9 @@ def _one_panel_build(function):
     def guarded(*args, **kwargs):
         try:
             return function(*args, **kwargs)
-        except singleflight.BuildUnavailable:
+        except singleflight.BuildUnavailable as exc:
             headers = {"Cache-Control": "no-store", "Retry-After": "5"}
-            message = "A status refresh is already running. Please retry shortly."
+            message = str(exc) or "Current status is temporarily unavailable. Please retry shortly."
             if function.__name__ == "panel":
                 retained = last_known.read(_config())
                 if retained is not None:
@@ -115,6 +116,10 @@ def _read_panel():
             return projection_service.read(dsn, display=True)
         except operational_snapshot.SnapshotUnavailable as exc:
             raise singleflight.BuildUnavailable('current operational snapshot unavailable') from exc
+        except Exception as exc:
+            if not database_unavailable(exc):
+                raise
+            raise singleflight.BuildUnavailable('Current database evidence is temporarily unavailable.') from exc
     result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)
     if _config() != configuration:
         raise singleflight.BuildUnavailable('dashboard configuration changed during refresh')

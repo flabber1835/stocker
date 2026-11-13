@@ -112,7 +112,7 @@ def subject_for(database_url, include_paper):
     from sentinel.feed import store
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         return subject(conn, database_url, 'PAPER' if include_paper else 'SHADOW')
     finally:
         conn.rollback(); conn.close()
@@ -303,7 +303,7 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
     instant = now or datetime.now(timezone.utc)
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         return read_owned(conn,database_url,include_paper=include_paper,
                           now=instant,only_scope=only_scope)
     finally:

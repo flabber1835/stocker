@@ -78,7 +78,7 @@ def _coordinate_read(database_url, *, display=False):
     from sentinel.panel import operational_snapshot as snapshots, read_projection, display_dependencies
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         context = snapshots.context(conn, database_url)
         facts = read_projection._subject_facts(conn)
         if display:
@@ -116,7 +116,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
     _COLLECTION_STAGE.set('CONNECT')
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
         _COLLECTION_STAGE.set('OWNER')
         owner = conn.execute(f'SELECT owner_id,expires_at FROM {schema.OWNER} '
             'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() FOR UPDATE',
@@ -498,7 +498,7 @@ def read(database_url, *, display=False):
     from sentinel.panel import model, operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         context = snapshots.context(conn, database_url)
         now = review.store.database_now(conn)
         value = snapshots.read_owned(conn, context_sha256=context, now=now,

@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Mapping, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from sentinel.prepare_shadow_wait import ShadowPreparationWait
     from sentinel.rolling_runtime import HistoricalSourceFrontier
 
 from sentinel import identity as system_identity
@@ -639,13 +640,17 @@ def verified_shadow_status(
         conn, *, observation_id: str,
         starting_cash: Decimal | str | int | float,
         historical_frontier: bool = False,
-        ) -> ShadowObservationResult | HistoricalSourceFrontier | None:
+        observe_handoff=None,
+        ) -> ShadowObservationResult | HistoricalSourceFrontier | ShadowPreparationWait | None:
     """Attested performance status, with opt-in dated display evidence."""
     try:
         from sentinel import rolling_runtime
         if rolling_runtime.selected(conn):
-            reader = rolling_runtime.observe_status if historical_frontier else rolling_runtime.status
-            return reader(conn, observation_id=observation_id, starting_cash=starting_cash)
+            if historical_frontier:
+                return rolling_runtime.observe_status(conn, observation_id=observation_id,
+                    starting_cash=starting_cash, observe_handoff=observe_handoff)
+            return rolling_runtime.status(conn, observation_id=observation_id,
+                starting_cash=starting_cash)
         return _verified_shadow_status(
             conn, observation_id=observation_id,
             starting_cash=starting_cash)

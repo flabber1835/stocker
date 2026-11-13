@@ -3232,12 +3232,19 @@ def _dual_authority_rows(
         shadow_error = None
         source_wait = None
         from sentinel.panel import shadow_source_wait
+        options = {}
+        if not project_execution_context:
+            options['historical_frontier'] = True
+            if not include_paper:
+                options['observe_handoff'] = shadow_source_wait.close_handoff_observer(database_url)
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
-                starting_cash=starting_cash,
-                **({'historical_frontier':True} if not project_execution_context else {}))
+                starting_cash=starting_cash, **options)
             if not project_execution_context:
+                from sentinel.prepare_shadow_wait import ShadowPreparationWait
+                if isinstance(result, ShadowPreparationWait):
+                    return shadow_source_wait.preparation_rows(result, include_paper=False), {}, [], []
                 from sentinel.rolling_runtime import HistoricalSourceFrontier
                 if isinstance(result, HistoricalSourceFrontier):
                     source_wait = shadow_source_wait.from_history(result, now=now)

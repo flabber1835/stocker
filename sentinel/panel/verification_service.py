@@ -36,7 +36,7 @@ def _queued_subject(database_url, include_paper, owner_id):
     from sentinel.feed import store
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         conn.execute("SET LOCAL lock_timeout='300ms'")
         row = conn.execute(f'SELECT owner_id::text,expires_at>clock_timestamp() '
             f'FROM {schema.OWNER} WHERE id=1').fetchone()
@@ -64,7 +64,7 @@ def _observe_once(database_url, include_paper, expected_key):
         from sentinel.feed import readers, store
         conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
         try:
-            conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             rows = [sources._dual_paper_row(conn, informational_paper_mirror=informational_paper_mirror,
                                             publication=readers, feed_store=store)]
             errors = []
@@ -80,9 +80,10 @@ def _observe_once(database_url, include_paper, expected_key):
 def observe(database_url, include_paper, expected_key):
     from sentinel.feed.publication import CorpusLockUnavailable
     from sentinel.panel.shadow_source_wait import observe_preparation
-    preparation = observe_preparation(database_url, include_paper, expected_key)
-    if preparation is not None:
-        return preparation
+    if include_paper:
+        preparation = observe_preparation(database_url, include_paper, expected_key)
+        if preparation is not None:
+            return preparation
     try:
         return financial.retry_observation_read(lambda: _observe_once(database_url, include_paper, expected_key))
     except CorpusLockUnavailable:
@@ -133,7 +134,7 @@ def snapshot(reader, result, *, scope, now):
 def _restore_readers(conn, readers, database_url, *, now):
     """Resume current completed display evidence, never another owner's job."""
     previous = {}
-    conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     try:
         schema.require_schema(conn)
         try:
@@ -273,7 +274,11 @@ def _closing_scan_reserve(conn, now):
               OR
               (c.decision_session=market.session AND market.at>=c.prepare_at
                AND market.at<c.execution_open_at
-               AND c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+               AND (c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+                    OR (c.state='RETRY_WAIT' AND c.plan_id IS NULL
+                        AND c.failure_code='PreflightPublicationPinUnavailable'
+                        AND c.diagnostic->>'retry_phase'='PREFLIGHT_RECOVER'
+                        AND c.next_wake_at<=s.callback_started_at))
                AND ({active_instance('market.database_now')})
                AND s.callback_started_at<=market.at
                AND s.callback_deadline_at>market.at)
@@ -356,12 +361,13 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 conn, reader, database_url, owner_id, previous, deadline):
             continue
         reserve = None
-        if scope == 'SHADOW' and reader.completed is not None:
+        if reader.completed is not None:
             from sentinel import local_paper
             if local_paper.enabled():
                 with conn.transaction(force_rollback=True):
                     now = datetime.now(timezone.utc)
-                    reserve = _opening_scan_reserve(conn, now) or _closing_scan_reserve(conn, now)
+                    reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
+                    reserve = reserve or _closing_scan_reserve(conn, now)
         options = {} if reserve is None else {'defer_refresh_until': reserve}
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
@@ -369,7 +375,7 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
         current = previous.get(scope)
         if value is not None and (current is None or {
                 k:v for k,v in current[0].items() if k != 'valuation_basis'} != value[0]):
-            conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
             value = _financial_publication(conn, database_url, scope, value, current,
                 now=datetime.now(timezone.utc))
             if value is not None and current != value:

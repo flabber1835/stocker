@@ -1,6 +1,7 @@
 """Historical display evidence for one typed missing source frontier; no GO."""
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from functools import partial
 import os
 from pathlib import Path
 import re
@@ -105,7 +106,7 @@ def preparation_rows(proof, *, include_paper):
 
 
 def observe_preparation(database_url, include_paper, expected_key):
-    """Background verifier only: reuse the canonical preparation observer.
+    """Optional preparation proof for the independent PAPER mirror observer.
 
     Its ordinary-current fast path avoids a second full authenticated closure.
     No panel HTTP request calls this observer or promotes its result to GO.
@@ -149,6 +150,15 @@ def observe_preparation(database_url, include_paper, expected_key):
         raise observer_failure.ObservationSuperseded(
             'AFTER_OBSERVATION', 'shadow preparation subject changed during observation')
     return result
+
+
+def close_handoff_observer(database_url):
+    """Recognize pending close work inside the verifier's single SHADOW proof."""
+    from sentinel.prepare_shadow_wait import observe_status_handoff
+    if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual', 'shadow'}:
+        return None
+    return partial(observe_status_handoff, database_url=database_url,
+        state_dir=Path(os.environ.get('SENTINEL_STATE_DIR', '/var/lib/sentinel')))
 
 
 def read(conn, refusal, *, observation_id, starting_cash, now):

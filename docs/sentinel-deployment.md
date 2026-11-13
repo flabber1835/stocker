@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[November 13 close root fixes](nov13-close-root-fixes.md) records the PAPER
+close handoff, database and trace shutdown repairs.
+
 [Retrying zero-share PAPER entries](retry-zero-share-paper-entries.md) keeps a
 continuing shadow entry eligible for whole-share sizing at subsequent opens.
 

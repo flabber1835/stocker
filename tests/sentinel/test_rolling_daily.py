@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -297,6 +298,65 @@ def test_stale_checkpoint_cannot_overwrite_current(conn, first, operational_sour
         cp.write(conn, stale, previous=stale)
     conn.rollback()
     assert resume(conn).state.state_hash == latest.state.state_hash
+
+
+@pytest.fixture
+def checkpoint_cas(conn, monkeypatch):
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'checkpoint-test-'+'x'*40)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sentinel_processed_sessions (
+            cursor_name text PRIMARY KEY, session date NOT NULL, state jsonb)
+        """)
+    checkpoint = cp.Checkpoint(
+        observation_id='fixture', session='2026-11-12', starting_cash='50000',
+        strategy_identity={}, runtime_identity={}, snapshot={}, publication={}, genesis_sha256='a'*64,
+        record_sha256='b'*64, state_sha256='c'*64, input_value={'material': 'x'*65536},
+        warmup_input_identity={}, precommit_timing={}, pitr={}, origin_sha256='d'*64, history_anchor={})
+    cp.write(conn, checkpoint, previous=None)
+    conn.commit()
+    return checkpoint
+
+
+def test_checkpoint_cas_writes_only_new_signed_payload(conn, checkpoint_cas):
+    previous = cp.read(conn)
+    updated = checkpoint_cas.model_copy(update={'session': '2026-11-13', 'input_value': {'new': 'y'}})
+    queries = []
+
+    def execute(query, params):
+        queries.append((query, params))
+        return conn.execute(query, params)
+
+    cp.write(SimpleNamespace(execute=execute), updated, previous=previous)
+    assert cp.read(conn).model_dump(by_alias=True) == updated.model_dump(by_alias=True)
+    assert len(queries) == 1
+    assert checkpoint_cas.input_value['material'] not in repr(queries[0][1])
+    assert '_row_version' not in previous.model_dump(by_alias=True)
+
+
+@pytest.mark.parametrize('defect', ['changed_tuple', 'new_transaction'])
+def test_checkpoint_cas_refuses_equal_json_from_another_row_or_transaction(conn, checkpoint_cas, defect):
+    import psycopg
+    previous = cp.read(conn)
+    if defect == 'changed_tuple':
+        with psycopg.connect(conn.info.dsn) as other:
+            other.execute('UPDATE sentinel_processed_sessions SET state=state WHERE cursor_name=%s',
+                          (cp.CURSOR,))
+    else:
+        conn.commit()
+    with pytest.raises(cp.Refused, match='CAS_CHANGED'):
+        cp.write(conn, checkpoint_cas, previous=previous)
+    conn.rollback()
+
+
+def test_checkpoint_cas_row_witness_omission_allows_a_rewritten_tuple(conn, checkpoint_cas, monkeypatch):
+    code = inspect.getsource(cp.write)
+    guard = 'AND xmin=%s::xid AND ctid=%s::tid'
+    assert guard in code
+    namespace = vars(cp).copy()
+    exec(code.replace(guard, 'AND %s::xid IS NOT NULL AND %s::tid IS NOT NULL'), namespace)
+    monkeypatch.setattr(cp, 'write', namespace['write'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_checkpoint_cas_refuses_equal_json_from_another_row_or_transaction(conn, checkpoint_cas, 'changed_tuple')
 
 
 @pytest.mark.parametrize("defect", ["record", "foreign", "suffix"])

@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import inspect
 import json
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
+from psycopg.errors import QueryCanceled
 
 from sentinel import automation_runtime, prepare_shadow_wait as waiting
 from sentinel import receipt_authentication, shadow_service_status as worker_status
@@ -136,6 +138,57 @@ def test_authenticated_direct_successor_can_wait_without_returning_strategy_resu
     assert all('SELECT ' in sql and 'UPDATE ' not in sql for sql, _ in facts.owned.queries)
 
 
+@pytest.mark.parametrize('condition', ['prior_checkpoint', 'candidate', 'missing_worker',
+                                       'foreign_predecessor', 'expired_publisher', 'query_timeout'])
+def test_display_uses_exact_close_wait_in_its_one_authenticated_proof(facts, monkeypatch, condition):
+    runtime = waiting.runtime
+    if condition == 'candidate':
+        candidate(facts)
+    elif condition == 'missing_worker':
+        monkeypatch.setattr(waiting, '_worker', lambda *_args, **_kwargs: None)
+    elif condition == 'foreign_predecessor':
+        facts.pub = publication.Publication(8, 6, None,
+            facts.pub.window_start, facts.pub.window_end, facts.pub.evidence)
+    elif condition == 'expired_publisher':
+        facts.job['deadline'] = NOW.isoformat()
+    elif condition == 'query_timeout':
+        def timed_out(*_args, **_kwargs):
+            raise QueryCanceled('retriable authenticated snapshot read')
+        monkeypatch.setattr(runtime.inputs, 'validate_status', timed_out)
+    owned = facts.owned
+    facts.caller = owned
+    original_execute = owned.execute
+    owned.execute = lambda sql, args=(): owned if 'SELECT EXISTS' in sql else original_execute(sql, args)
+    owned.rollback = lambda: None
+    fixture_fetch = owned.fetchone
+    owned.fetchone = lambda: (True,) if not owned.queries else fixture_fetch()
+    authenticate = runtime._closure
+    monkeypatch.setattr(runtime, '_closure',
+        lambda conn, ctx, **_kwargs: authenticate(conn, ctx, status_only=True))
+    monkeypatch.setattr(waiting, '_now', lambda: NOW)
+    handoff = partial(waiting.observe_status_handoff, state_dir='/private-state', database_url=DSN)
+    args = dict(observation_id='primary', starting_cash=50000)
+    if condition in {'prior_checkpoint', 'candidate'}:
+        proof = runtime._classify_owned(owned, historical_frontier=True,
+            observe_handoff=handoff, **args)
+        assert proof['status'] == 'PENDING_CLOSE_ATTESTATION'
+        assert proof['wait'].phase == ('AWAITING_ATTESTATION' if condition == 'candidate'
+                                       else 'AWAITING_SHADOW')
+        assert proof['wait'].deadline == WORKER_END - timedelta(microseconds=1)
+        assert facts.calls.count('authenticated-closure') == 1
+    elif condition == 'query_timeout':
+        with pytest.raises(QueryCanceled):
+            runtime._classify_owned(owned, historical_frontier=True,
+                observe_handoff=handoff, **args)
+    else:
+        with pytest.raises(runtime.Refused, match='ROLLING_RUNTIME_PUBLICATION_CHANGED'):
+            runtime._classify_owned(owned, historical_frontier=True,
+                observe_handoff=handoff, **args)
+    if condition == 'prior_checkpoint':
+        with pytest.raises(runtime.Refused, match='ROLLING_RUNTIME_PUBLICATION_CHANGED'):
+            runtime._classify_owned(owned, **args)
+
+
 def test_current_authority_fast_path_does_not_repeat_canonical_closure_or_worker_observation(facts, monkeypatch):
     facts.authorities = [facts.authority.model_copy(update={'session': '2026-10-27'})]
     monkeypatch.setattr(waiting, '_worker', lambda *_args, **_kwargs: pytest.fail('worker read on current authority'))
@@ -228,12 +281,12 @@ def test_preparation_interpretation_stays_inside_actual_close_to_following_open(
 
 
 def test_direct_publication_predecessor_gate_has_a_falsifier(facts, monkeypatch):
-    source = inspect.getsource(waiting._observe_owned)
+    source = inspect.getsource(waiting._from_closure)
     guard = 'pub.previous_version != prior_version'
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'False'), '<missing-direct-predecessor>', 'exec'), vars(waiting), namespace)
-    monkeypatch.setattr(waiting, '_observe_owned', namespace['_observe_owned'])
+    monkeypatch.setattr(waiting, '_from_closure', namespace['_from_closure'])
     with pytest.raises(AssertionError, match='invalid binding acquired'):
         test_missing_or_changed_canonical_and_publication_bindings_do_not_gain_pending_interpretation(
             facts, 'wrong_previous_publication')
@@ -266,13 +319,12 @@ def worker_snapshot(*, started=CLOSE+timedelta(minutes=1), observed=NOW-timedelt
 
 def worker(monkeypatch, snapshot):
     calls = []
-    def finite(function, *args, **kwargs):
-        calls.append((function, args, kwargs))
+    def finite(path):
+        calls.append(path)
         return snapshot
-    monkeypatch.setattr(waiting.supervisor_io, 'run', finite)
+    monkeypatch.setattr(waiting.shadow_service_probe, 'read', finite)
     result = waiting._worker('/private-state', DSN, closed=CLOSE, now=NOW)
-    assert calls[0][0] is waiting.shadow_service_probe.observe
-    assert calls[0][2] == {'timeout': 2, 'start_method': 'spawn'}
+    assert len(calls) == 1 and str(calls[0]).endswith('private-state')
     return result
 
 
@@ -339,7 +391,7 @@ def test_real_observer_samples_completion_after_closure_and_new_signed_heartbeat
         clock[0] = NOW+timedelta(seconds=10)
         return snapshot
 
-    monkeypatch.setattr(waiting.supervisor_io, 'run', finite)
+    monkeypatch.setattr(waiting.shadow_service_probe, 'read', finite)
     original_publisher = NOW+timedelta(seconds=8) if publisher_expired_during_probe else PUBLISHER_END
     facts.job['deadline'] = original_publisher.isoformat()
     proof = waiting.observe(facts.caller, decision_session='2026-10-27', observation_id='primary',
@@ -354,7 +406,7 @@ def test_explicit_observer_clock_does_not_follow_real_time_during_probe(facts, w
     monkeypatch.setattr(waiting, '_now', lambda: pytest.fail('explicit clock used live wall time'))
     monkeypatch.setattr(waiting, '_worker', REAL_WORKER)
     snapshot = worker_snapshot(observed=NOW+timedelta(seconds=9))
-    monkeypatch.setattr(waiting.supervisor_io, 'run', lambda *_args, **_kwargs: snapshot)
+    monkeypatch.setattr(waiting.shadow_service_probe, 'read', lambda _path: snapshot)
     proof = observe(facts)
     assert proof is not None and proof.quiet_eligible is False
     assert proof.observed_at == NOW and proof.publisher_deadline == PUBLISHER_END

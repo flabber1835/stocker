@@ -1,4 +1,13 @@
 {
+  "alpaca_page": {
+    "after": "90a61153491c1a68db42baef8e773ef55f5a713869c2242352469bb932ba7d45",
+    "before": "eeb8096ce599124edd1b82bf07e43abba66a75ee1ab917db12740b6509ea4434",
+    "read_files": {
+      "feed/acquisition_part_schema.py": "c150bbd24dace1daee466aa9438f4b05fcb5b6f1b46a136d3edbb5497f31fd8f",
+      "feed/acquisition_parts.py": "7395d75d09b50c4c93ffdd89d592cab703eb3ad091eb2c6b7beae61915b830fa",
+      "feed/store.py": "a9e400c4ab304a8a2597c547e34b7b9e88e5862588fd7eeabe4d387e60523980"
+    }
+  },
   "authority_effect": "NONE",
   "base_revision": "c84b7c26a170dd11c7a94521bfb391f88264987b",
   "compilers": {
@@ -11,7 +20,7 @@
       "before": "a88e70b2e84cd763813114a7f25d35d966ac0d1a3c1c3c27f3afc5d46a81104a"
     }
   },
-  "module_sha256": "d504cb6c4cb559a090de5b53c0aac489f9f77a5e898760a8f92160088c18aafb",
+  "module_sha256": "a85e92092f21b9f7df5ae95e2b1d437d5c85464e813fab318dd3ba96e0af8332",
   "read_contract_sha256": "ac6a4c2b407f9f437b837c394fa1e25fdc3b5dd0849edaed9c2c4ed460567c01",
-  "schema": "sentinel.physical-read-source-transition/1"
+  "schema": "sentinel.physical-read-source-transition/2"
 }

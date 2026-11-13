@@ -65,6 +65,7 @@ from sentinel.execution.authority_gate import require_current_authority
 from sentinel.execution import commands as execution_commands
 from sentinel.execution.guarded import (
     AutomationExecutionGrant,
+    BrokerAuthorityCheckFailed,
     BrokerAuthorityRefused,
 )
 from sentinel.execution.identity import DeploymentIdentity
@@ -235,16 +236,20 @@ def _dedicated_publisher_wait(frontier, decision_session):
                 'publisher to publish the exact decision close')
 
 
-def _native_publication_pin(exc):
+def _native_publication_pin(exc, *, broker_read=False):
     from sentinel.feed.publication import CorpusLockUnavailable
 
     if type(exc) is CorpusLockUnavailable:
         return exc
-    if (type(exc) is TransientInfrastructureFailure
-            and type(exc.__cause__) is CorpusLockUnavailable):
-        expected = classify_dependency_failure(exc.__cause__)
+    unwrapped = exc.__cause__ if type(exc) is TransientInfrastructureFailure else exc
+    native = (unwrapped.__cause__ if broker_read and type(unwrapped) is BrokerAuthorityCheckFailed
+              else unwrapped)
+    if type(native) is CorpusLockUnavailable:
+        if unwrapped is exc:
+            return native
+        expected = classify_dependency_failure(unwrapped)
         if type(expected) is type(exc) and expected.args == exc.args:
-            return exc.__cause__
+            return native
     return None
 
 
@@ -739,7 +744,7 @@ class ProductionAutomation:
         conn = feed_store.connect(self.sentinel_config.database_url,
                                   connect_timeout=1, statement_timeout_ms=1000)
         try:
-            conn.execute("BEGIN TRANSACTION READ ONLY")
+            conn.execute("SET TRANSACTION READ ONLY")
             return source_completion.read(conn,
                 observation_id=self._shadow_observation_id,
                 decision_session=cycle.decision_session)
@@ -1667,7 +1672,7 @@ class ProductionAutomation:
                     and context.cycle.plan_id is None
                     and (context.cycle.state.value == 'DISCOVERED'
                          or store.cycle_preflight_recovery_pending(context.cycle))
-                    and _native_publication_pin(exc) is not None):
+                    and _native_publication_pin(exc, broker_read=True) is not None):
                 raise PreflightPublicationPinUnavailable(str(mapped or exc)) from exc
             if mapped is None or mapped is exc:
                 raise
