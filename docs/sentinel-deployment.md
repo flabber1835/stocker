@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Rolling activation index proof](rolling-go-index-proof.md) records the
+database measurement when the retired legacy price relation is empty.
+
 [November 12 dashboard handoffs](nov12-close-dashboard-handoffs.md) records
 how the dashboard follows the active close cycle and publication. The source
 transition retains the exact installed `35761cbb` cash-correction release and

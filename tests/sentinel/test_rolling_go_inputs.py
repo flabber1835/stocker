@@ -228,6 +228,62 @@ def test_database_health_measures_actual_snapshot_queries_and_pin(conn, publishe
     assert report["recent_xnys_sessions"] == 252
 
 
+def test_database_health_bounds_the_legacy_branch_of_shared_snapshot_queries(conn):
+    from sentinel.feed import normalized_layout, rolling_store
+    from sentinel.feed.rolling_contract import digest
+    from tests.sentinel.test_normalized_layout import candidate, rows
+
+    shared, manifest, _ = candidate(conn)
+    lookups = (
+        ("SELECT close_signal FROM sentinel_snapshot_bars "
+         "WHERE candidate_id=%s AND session=%s AND security_id=%s",
+         (shared, manifest.window.sessions[-2], "asset-A")),
+        ("SELECT security_id,close_unadjusted FROM sentinel_snapshot_bars "
+         "WHERE candidate_id=%s AND session=%s", (shared, manifest.window.sessions[-1])),
+    )
+
+    def verify(*, legacy_heap_empty, legacy_rows):
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        assert conn.execute("SHOW enable_seqscan").fetchone() == ("on",)
+        size, visible = conn.execute("SELECT pg_relation_size('sentinel_snapshot_bars'), "
+            "EXISTS (SELECT 1 FROM sentinel_snapshot_bars)").fetchone()
+        assert (size == 0) is legacy_heap_empty
+        assert visible is legacy_rows
+        assert rolling_store.manifest(conn, shared) == manifest
+        for statement, params in lookups:
+            query = normalized_layout.candidate_query(conn, statement)
+            plan = conn.execute("EXPLAIN (FORMAT JSON) " + query, params).fetchone()[0][0]["Plan"]
+            scans = {node["Relation Name"]: node for node in health._nodes(plan)
+                     if "Relation Name" in node}
+            assert scans["sentinel_snapshot_bars"]["Node Type"] == "Seq Scan", plan
+            for relation in ("sentinel_candidate_blocks", "sentinel_normalized_blocks"):
+                assert scans[relation]["Index Name"] == relation + "_pkey", plan
+            assert health._indexed(conn, query, params) is legacy_heap_empty
+        conn.rollback()
+
+    conn.execute("ANALYZE sentinel_snapshot_bars, sentinel_candidate_blocks, sentinel_normalized_blocks")
+    conn.commit()
+    verify(legacy_heap_empty=True, legacy_rows=False)
+
+    # One row from a separate, legitimate legacy candidate grows the heap
+    # without making that row part of the verified shared candidate.
+    legacy = rolling_store.begin(conn, window=manifest.window,
+        reference_sha256=manifest.reference_sha256, source_evidence_sha256=manifest.source_evidence_sha256,
+        expected_publication_version=None, dependencies_sha256=digest({}))
+    bar = rows(manifest.window)[-1:]
+    conn.commit()
+    rolling_store.write_bars(conn, legacy, bar)
+    conn.rollback()
+    conn.execute("ANALYZE sentinel_snapshot_bars")
+    conn.commit()
+    verify(legacy_heap_empty=False, legacy_rows=False)
+
+    rolling_store.write_bars(conn, legacy, bar)
+    conn.execute("ANALYZE sentinel_snapshot_bars")
+    conn.commit()
+    verify(legacy_heap_empty=False, legacy_rows=True)
+
+
 def _measure_index_plan(plan, measure=health._indexed):
     class Explained:
         def execute(self, query, params):
