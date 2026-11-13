@@ -66,6 +66,7 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.CASH_CORRECTION_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == '129def6620017e734a6733dd9cfc541f8fd9a12f52f8227c9f3737e444d5f1fe'
@@ -76,4 +77,23 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     actual = admission._source_files(basis.PROFILE.parent)
     assert basis.predecessor_view(actual, previous=installed) == installed
     actual['paper/recovery.py'] = '0' * 64
+    assert basis.predecessor_view(actual, previous=installed) is actual
+
+
+def test_cash_correction_preserves_installed_source_and_earlier_maps():
+    revision = '509b66c5f50ffbe4b22331a471c1d021c9dde99d'
+    assert basis.CASH_CORRECTION_PREDECESSOR_REVISION == revision
+    profile = basis._profile()
+    assert profile['authority_effect'] == 'NONE'
+    history = dict(profile['retained_predecessors'])
+    installed = history.pop(revision)['files']
+    assert len(installed) == 475
+    assert admission.source_closure(installed) == 'f95dd91f021b25965c8307ed90f636edc6bb66fe4f5a1c65e2591933bc98ea11'
+    assert len(history) == 48
+    payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
+    assert hashlib.sha256(payload).hexdigest() == 'b2c1337a775c6bfc0267ab420bb8a5b5858c8d7374580d5d32a4baa41dbc15ad'
+
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=installed) == installed
+    actual['execution/cash_corrections.py'] = '0' * 64
     assert basis.predecessor_view(actual, previous=installed) is actual

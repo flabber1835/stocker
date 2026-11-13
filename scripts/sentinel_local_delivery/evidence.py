@@ -148,16 +148,10 @@ def snapshot(host):
             and all(bound.get(key) == control.get(key) for key in _BINDING_KEYS),
             'Durable account binding does not match current control')
     if repair:
-        diagnostic = cycle.get('diagnostic') or {}
         require(current['ready'] is True and plan is None and cycle.get('plan_id') is None
             and cycle.get('state')=='BLOCKED' and cycle.get('historical_state_only') is False
             and cycle.get('completed_at') is not None
-            and cycle.get('failure_code')=='NonRetryableCallbackRefused'
-            and cycle.get('failure_detail')==checks.PUBLICATION_CHANGED_FAILURE
-            and diagnostic.get('retry_phase')=='REFRESH'
-            and diagnostic.get('callback_failure')=='PERMANENT_OPERATIONAL_REFUSAL'
-            and diagnostic.get('terminal_reason')=='PERMANENT_OPERATIONAL_REFUSAL'
-            and diagnostic.get('exception_type')=='sentinel.automation.model.NonRetryableCallbackRefused'
+            and checks.blocked_unsent_kind(cycle) is not None
             and cycle['control_generation']==control['generation']-1,
             'BLOCKED_UNSENT_INCIDENT_NOT_ELIGIBLE')
         proof=current.get('repair')
@@ -301,8 +295,10 @@ def canonical_check(host, values, state):
             original_plan_fingerprint=state['cycle']['plan_fingerprint'],
             original_execute_at=state['cycle']['execute_at'])
     if repair:
+        kind = checks.blocked_unsent_kind(state['cycle'])
+        require(kind is not None, 'BLOCKED_UNSENT_INCIDENT_NOT_ELIGIBLE')
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
-            generation=state['control']['generation'])
+            generation=state['control']['generation'],recovery_kind=kind)
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
         checks.canonical_program(mode),
@@ -311,6 +307,9 @@ def canonical_check(host, values, state):
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
             'Canonical evidence did not confirm server read-only execution')
     require(proof.get('plan') == expected['plan'], 'Canonical proof returned a different plan')
+    if repair:
+        require(proof.get('recovery_kind', checks.PUBLICATION_CHANGED_KIND) == kind,
+            'BLOCKED_UNSENT_CANONICAL_KIND_CHANGED')
     return proof
 
 
@@ -537,7 +536,7 @@ def migrate_operational_schema(host, candidate):
     return value
 
 
-def panel(host, state, *, wait_until=None):
+def panel(host, state, *, wait_until=None, native_positions_count=None):
     """Require a current green page with the same saved plan and healthy sender."""
     data = host.container('sentinel-panel')
     repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
@@ -556,6 +555,11 @@ def panel(host, state, *, wait_until=None):
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
+        if checks.blocked_unsent_kind(state['cycle'])==checks.PREPARE_CASH_CORRECTION_KIND:
+            require(type(native_positions_count) is int and native_positions_count>=0,
+                'BLOCKED_UNSENT_NATIVE_POSITIONS_NOT_PROVEN')
+            expected.update(recovery_kind=checks.PREPARE_CASH_CORRECTION_KIND,
+                native_positions_count=native_positions_count)
     program = checks.panel_program(handoff_mode(host.request),
         clean_retired=expected.get('clean_retired') is True, observed=wait_until is not None)
     arguments=[json.dumps(expected, sort_keys=True)]

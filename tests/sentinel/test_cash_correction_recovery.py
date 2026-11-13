@@ -157,6 +157,106 @@ def test_live_reader_checks_parent_links_and_native_authentication(monkeypatch, 
     assert calls == [11]
 
 
+def same_day_successor(conn, pub, origin):
+    # The newer provider capture omits DELL but observes another cash addition.
+    # Both correction markers remain in coverage and retain different origins.
+    ticker, security = 'ACME', '11111111-1111-4111-8111-111111111111'
+    material = deepcopy(origin['correction_evidence'][DAY])
+    material['snapshot_id'] = 'f' * 64
+    observed = material['observed']
+    source = next(row for row in observed['sources'] if row['ticker'] == 'DELL')
+    source.update(ticker=ticker, source_row_id='b' * 64)
+    bar = next(row for row in observed['bars'] if row[0] == SID)
+    bar[0:2] = [security, ticker]
+    predecessor = next(row for row in observed['predecessors'] if row[0] == SID)
+    predecessor[0] = security
+    identity = next(row for row in observed['identity_rows'] if row['permaticker'] == SID)
+    identity.update(ticker=ticker, permaticker=security)
+    material['sources'] = deepcopy(observed['sources'])
+    new_marker = dict(origin['corrections'][0], ticker=ticker, security_id=security,
+                      publication_version=12, source_row_id=digest(material['sources']))
+    current = dict(origin, corrections=[*origin['corrections'], new_marker],
+                   correction_evidence={DAY: material})
+    hold_coverage(conn, pub, current, 12)
+    return current
+
+
+def hold_coverage(conn, pub, coverage, version):
+    conn.parents[version] = coverage
+    pub.version = version
+    pub.evidence['action_history'] = digest(coverage)
+
+
+@pytest.mark.parametrize('case', ['mixed_current', 'mixed_carried', 'sole_carry'])
+def test_same_day_corrections_read_each_exact_origin(monkeypatch, witness, case):
+    conn, pub, origin, calls = bound_reader(monkeypatch, witness)
+    current = same_day_successor(conn, pub, origin)
+    if case != 'mixed_current':
+        # The v1 producer can carry the day's last observation forward even
+        # if one of its markers is the only one left on that day.
+        if case == 'sole_carry':
+            current = dict(current, corrections=[origin['corrections'][0]])
+        hold_coverage(conn, pub, current, 13)
+    before = deepcopy(conn.parents)
+    view = cc.load(conn, pub, start=START, end=END, covered=current,
+                   records={DAY: witness['old_day']})
+    expected = {'DELL': 11} if case == 'sole_carry' else {'DELL': 11, 'ACME': 12}
+    assert {item.proof.ticker: item.proof.correction_publication_version
+            for item in view.additions} == expected
+    for item in view.additions:
+        proof = item.proof
+        parent = conn.parents[expected[proof.ticker]]
+        assert proof.publication_version == pub.version
+        assert proof.original_record_sha256 == witness['old_day_sha256']
+        assert proof.correction_coverage_sha256 == digest(parent)
+        assert proof.correction_evidence_sha256 == digest(parent['correction_evidence'][DAY])
+    assert calls == [pub.version]
+    assert conn.parents == before
+
+
+@pytest.mark.parametrize('fault', ['bad_origin_sources', 'duplicate_scope'])
+def test_mixed_origin_does_not_waive_source_hash_or_scope(monkeypatch, witness, fault):
+    conn, pub, origin, _ = bound_reader(monkeypatch, witness)
+    current = same_day_successor(conn, pub, origin)
+    if fault == 'bad_origin_sources':
+        # The origin's observed and source lists agree with one another but
+        # disagree with the marker's exact source-list digest.
+        source = next(row for row in origin['correction_evidence'][DAY]['observed']['sources']
+                      if row['ticker'] == 'DELL')
+        source['source_row_id'] = 'd' * 64
+        origin['correction_evidence'][DAY]['sources'] = deepcopy(
+            origin['correction_evidence'][DAY]['observed']['sources'])
+    else:
+        current['corrections'].append(deepcopy(origin['corrections'][0]))
+    hold_coverage(conn, pub, current, pub.version)
+    view = cc.load(conn, pub, start=START, end=END, covered=current,
+                   records={DAY: witness['old_day']})
+    assert [item.proof.ticker for item in view.additions] == ['ACME']
+
+
+def test_future_marker_origin_refuses_before_parent_lookup(monkeypatch, witness):
+    conn, pub, current, _ = bound_reader(monkeypatch, witness)
+    current['corrections'][0]['publication_version'] = 12
+    hold_coverage(conn, pub, current, pub.version)
+    with pytest.raises(ValueError, match='CASH_CORRECTION_ORIGINAL_LINK_CHANGED'):
+        cc.load(conn, pub, start=START, end=END, covered=current,
+                records={DAY: witness['old_day']})
+
+
+def test_current_day_alias_falsifies_same_day_origin_routing(monkeypatch, witness):
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(cc.load))
+    origin = "correction = origin[0].get('correction_evidence', {}).get(session)"
+    alias = "correction = covered.get('correction_evidence', {}).get(session)"
+    assert source.count(origin) == 1
+    namespace = dict(vars(cc))
+    exec(compile(source.replace(origin, alias), '<cash-correction-origin-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(cc, 'load', namespace['load'])
+    with pytest.raises(AssertionError):
+        test_same_day_corrections_read_each_exact_origin(monkeypatch, witness, 'mixed_current')
+
+
 @pytest.mark.parametrize('change', ['old_link', 'origin_marker', 'origin_evidence', 'native_auth'])
 def test_authenticated_parent_changes_refuse(monkeypatch, witness, change):
     conn, pub, covered, _ = bound_reader(monkeypatch, witness,

@@ -16,8 +16,11 @@ KIND = 'LOCAL_CONTENTION_MISCLASSIFIED'
 PREFLIGHT_KIND = 'PREFLIGHT_IDENTITY_BEYOND_FRONTIER'
 SOURCE_FRONTIER_KIND = 'ROLLING_SOURCE_FRONTIER_MISCLASSIFIED'
 PUBLICATION_CHANGED_KIND = 'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
+PREPARE_CASH_CORRECTION_KIND = 'PREPARE_CASH_CORRECTION_ORIGINAL_LINK_MISCLASSIFIED'
 PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
+PREPARE_CASH_CORRECTION_FAILURE = ('unreviewed callback exception builtins.ValueError: '
+    'CASH_CORRECTION_ORIGINAL_LINK_CHANGED')
 SOURCE_FRONTIER_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'RollingSourceFrontierPending: ROLLING_INPUTS_NOT_READY: rolling source-final frontier')
 PREFLIGHT_FAILURE = ('unreviewed callback exception '
@@ -31,7 +34,8 @@ class Authorization(Contract):
     kind: Literal['LOCAL_CONTENTION_MISCLASSIFIED',
                   'PREFLIGHT_IDENTITY_BEYOND_FRONTIER',
                   'ROLLING_SOURCE_FRONTIER_MISCLASSIFIED',
-                  'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'] = KIND
+                  'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED',
+                  'PREPARE_CASH_CORRECTION_ORIGINAL_LINK_MISCLASSIFIED'] = KIND
     binding: ControlBinding
     decision_session: date
     effective_session: date
@@ -80,6 +84,14 @@ def eligible_kind(cycle):
             and cycle.diagnostic.get('exception_type')
                 == 'sentinel.automation.model.NonRetryableCallbackRefused'):
         return PUBLICATION_CHANGED_KIND
+    if (cycle.plan_id is None and cycle.failure_code == 'SoftwareDefect'
+            and cycle.failure_detail == PREPARE_CASH_CORRECTION_FAILURE
+            and cycle.diagnostic.get('retry_phase') == 'PREPARE'
+            and cycle.diagnostic.get('callback_failure') == 'SOFTWARE_DEFECT'
+            and cycle.diagnostic.get('terminal_reason') == 'SOFTWARE_DEFECT'
+            and cycle.diagnostic.get('exception_type')
+                == 'sentinel.automation.model.SoftwareDefect'):
+        return PREPARE_CASH_CORRECTION_KIND
     return None
 
 

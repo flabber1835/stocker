@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[November 12 cash-correction patch](cash-correction-local-delivery-20261112.md)
+records how to retain correction evidence and recover the planless PAPER cycle.
+
 [November 12 PAPER opening recovery](paper-opening-recovery-20261112.md) records
 the opening evidence handoff, verification renewal and reconciliation fixes.
 

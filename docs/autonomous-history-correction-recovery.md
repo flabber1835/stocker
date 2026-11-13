@@ -45,6 +45,37 @@ ordinary structural restrictions for removals, replacements, changed identities,
 splits, unsupported actions and unavailable preimages. No ticker/date exception
 or DELL-specific bypass exists.
 
+## Retained markers with different publication origins
+
+Decision: 2026-11-12, before implementation. Publication 20 carried the
+November 2 IRS marker from publication 19 while recording other November 2
+corrections. Its day-keyed evidence entry described the newer observation.
+Comparing that entry with the carried marker's original evidence prevented
+PAPER preparation even though the marker, original action record and
+correction-origin publication were intact.
+
+Keep the existing coverage encoding and every immutable coverage, action and
+receipt record. Authenticate the marker in the held publication and in its
+own correction-origin publication. Resolve its material from that origin's
+evidence for the marker's session. Preserve the original action-record hash
+and interval checks, the exact source-list hash and the security-scoped
+classification. A missing, substituted or ambiguous origin supplies no cash
+authority. The current publication's evidence remains the origin evidence for
+markers it creates.
+
+On a later publication, a carried marker can coexist with newly observed
+corrections for its session. The producer's existing one-entry-per-day
+encoding represents the latest observation or a carried copy. It remains
+compatible with existing retained data. The reader derives authority from each
+marker’s origin even when another observation occupies that day's entry.
+The canonical action-history producer and economic source identity remain
+unchanged. Source disappearance alone supplies no cancellation or payment
+evidence.
+
+Qualify a retained marker alongside a current same-day correction and alongside
+a second retained origin. Exercise the next carry-only publication, exact
+current-origin reads, and origin link, source-list hash and scope falsifiers.
+
 ## One execution view for actions and cash
 
 Use the same qualified evidence for both execution share restrictions and the

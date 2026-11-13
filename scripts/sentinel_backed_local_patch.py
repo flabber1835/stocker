@@ -229,14 +229,17 @@ def _extend_predecessor(anchor, roots, request, artifacts, unfinished):
     lineage={}
     if request.get('handoff_mode')=='BLOCKED_UNSENT':
         proof=artifacts['canonical_proof']
+        kind=checks.blocked_unsent_kind(preserved['cycle'])
         require(artifacts.get('operational_ready') is False
             and artifacts.get('successor_proof_sha256')==digest(proof)
             and proof.get('operational_ready') is False and proof.get('plan') is None
             and isinstance(proof.get('recovery_predecessors'),dict)
+            and kind is not None and proof.get('recovery_kind',checks.PUBLICATION_CHANGED_KIND)==kind
             and proof.get('cycle_id')==preserved['cycle']['cycle_id'],
             'BACKED_REPAIR_RECEIPT_MALFORMED')
         lineage=dict(repair_predecessor=dict(generation=preserved['control']['generation'],
             cycle_id=proof['cycle_id'],fingerprints=proof['recovery_predecessors'],
+            kind=kind,
             binding={key:preserved['control'][key] for key in (
                 'deployment_id','broker','broker_account_id','takeover_epoch','certificate_sha256',
                 'rollout_mode','rollout_version','config_sha256')},
@@ -589,7 +592,7 @@ def recovered_baseline_generation(host, record, state):
     proof=json.loads(result.stdout)
     require(proof==dict(generation=state['generation'],blocked_cycle_id=expected['cycle_id'],
         certificate=expected['binding']['certificate_sha256'],fingerprints=expected['fingerprints'],
-        kind='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED',binding=expected['binding']),
+        kind=expected['kind'],binding=expected['binding']),
         'BACKED_REPAIR_RECOVERY_PROOF_CHANGED')
     return proof['generation']
 
