@@ -108,7 +108,8 @@ def _preflight_source_wait(financial, automation, worker, *, now):
     if str(shadow.operational_fact.session) != prior:
         return None
     phase = cycle.recovery.phase
-    if phase not in {'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_REFRESHING_DATA',
+    if phase not in {'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY',
+                     'AUTOMATION_REFRESHING_DATA',
                      'AUTOMATION_CLOSING_DATA'}:
         return None
     session = calendar.next_session(prior)
@@ -216,9 +217,9 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now,
     return feed_rows,automation_rows
 
 
-def project_panel(panel, *, now, subject=None):
+def project_panel(panel, *, now, subject=None, prepare_witness=None):
     """Derive display rows from recorded facts after all scoped overlays."""
-    from sentinel.panel import readiness_handoff, read_projection
+    from sentinel.panel import presentation, readiness_handoff, read_projection
 
     feed_keys = {'feed', 'ingest'}
     feeds = [row for row in panel.rows if row.key in feed_keys]
@@ -231,13 +232,16 @@ def project_panel(panel, *, now, subject=None):
         boundary = readiness_handoff.deadline(panel, subject=subject, now=now)
     feeds, automation = project_progress(feeds, automation, financial, worker, now=now, handoff=boundary)
     if boundary is not None:
+        progress = panel.trial_details['readiness_handoff']
+        stage = ('Verification admission is pending. ' if progress.get('admission_publication_at')
+                 else 'A matching bounded verification is in progress. ')
         feeds = [replace(row, valid_until=boundary,
             detail=('Current publication is awaiting its measured readiness handoff. '
-                    'A matching bounded verification is in progress. '
-                    'No readiness verdict has been claimed.'),
+                    + stage + 'No readiness verdict has been claimed.'),
             recovery=model.RecoveryEvidence(phase='READINESS_HANDOFF', automatic=True,
                                             deadline=boundary))
             if row.key == 'feed' else row for row in feeds]
     replacements = {row.key: row for row in [*feeds, *automation]}
     rows = [replacements.get(row.key, row) for row in panel.rows]
-    return replace(panel, rows=model.project_opening_rows(rows, now=now))
+    return presentation.project_planless_exposure(
+        replace(panel, rows=model.project_opening_rows(rows, now=now)), prepare_witness=prepare_witness)

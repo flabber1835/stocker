@@ -152,8 +152,8 @@ def test_negative_completed_observation_retries_after_30_seconds_without_clearin
 def test_negative_retry_guard_has_removed_fix_falsifier(monkeypatch):
     import inspect, textwrap
     body = textwrap.dedent(inspect.getsource(reader.Reader.read))
-    guard = ' or self.failure is not None'
-    assert guard in body
+    guard = ' or retry_failed_check'
+    assert body.count(guard) == 1
     namespace = {}
     exec(compile(body.replace(guard, ''), 'negative-retry-falsifier', 'exec'),
          reader.__dict__, namespace)

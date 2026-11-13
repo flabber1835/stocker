@@ -1,6 +1,7 @@
 """Plain-language display only; never alter a financial or operational verdict."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
@@ -8,7 +9,7 @@ from zoneinfo import ZoneInfo
 from typing import Literal
 
 from sentinel.panel.model import (
-    Row, FINANCIAL_AUTHORITY_ROW_KEYS,
+    RecoveryEvidence, Row, FINANCIAL_AUTHORITY_ROW_KEYS,
     OPERATIONAL_INFORMATIONAL_ROW_KEYS,
 )
 
@@ -510,42 +511,60 @@ def _unadopted_preparation_fact(panel, *, phase='AUTOMATION_PREPARING', session=
             and (row.valid_until is None or _aware(row.valid_until))
             and _row_boundary(row) is not None and panel.now < _row_boundary(row)
             and fact is not None and fact.kind == 'CONTROLLER_DECISION'
-            and fact.state == 'NOT_ADOPTED' and fact.session == date.fromisoformat(session)
+            and (fact.state == 'NOT_ADOPTED' or fact.state == 'PINNED' and fact.exposure == 1)
+            and fact.session == date.fromisoformat(session)
             and cycle is not None and cycle.recovery is not None
             and cycle.recovery.phase == phase
             and plan is not None and plan.status == 'pending' and plan.paper_plan is None)
 
 
-def _deferred_adoption_boundary(panel, row: Row | None) -> datetime | None:
+def _deferred_adoption_boundary(panel, row: Row | None, *, prepare_witness=None) -> datetime | None:
     """Attribute one current exposure fact during its bounded planless handoff."""
     from sentinel.panel.delivery import row_current
     cycle, plan = panel.row('automation_cycle'), panel.row('paper_plan')
     recovery = cycle.recovery if cycle is not None else None
     if (row is None or row.status != 'warn' or recovery is None
             or not panel.local_paper_mode or panel.source_errors or plan is None
-            or not row_current(panel, row) or not row_current(panel, plan)
-            or not row_current(panel, cycle) or not cycle.required_current
+            or not _enabled_policy(panel.row('automation'))
+            or not row_current(panel, row) or not cycle.required_current
+            or (prepare_witness is None and (not row_current(panel, plan) or not row_current(panel, cycle)))
             or cycle.status != cycle.effective_status(panel.now) or cycle.status != 'warn'
             or not recovery.active(panel.now) or not _aware(recovery.deadline)
             or not _aware(cycle.as_of) or cycle.is_future(panel.now) or cycle.is_stale(panel.now)):
         return None
     phase = recovery.phase
-    refreshing = phase == 'AUTOMATION_REFRESHING_DATA'
-    if refreshing:
-        if not _workflow(cycle, 'REFRESHING_DATA') or recovery.next_attempt_at is not None:
+    direct = {'AUTOMATION_PREFLIGHT_RECOVER': 'DISCOVERED',
+              'AUTOMATION_REFRESHING_DATA': 'REFRESHING_DATA',
+              'AUTOMATION_PREPARING': 'PREPARING'}
+    preflight = phase in {'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}
+    if phase in direct:
+        if (not _workflow(cycle, direct[phase])
+                or phase != 'AUTOMATION_PREPARING' and recovery.next_attempt_at is not None):
             return None
-    elif (phase not in {'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
+    elif (phase not in {'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY',
+                        'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
             or not _workflow(cycle, 'RETRY_WAIT') or type(recovery.attempt) is not int
             or recovery.attempt < 1 or not _aware(recovery.next_attempt_at)
-            or not cycle.as_of <= panel.now < recovery.next_attempt_at <= recovery.deadline):
+            or not cycle.as_of < recovery.next_attempt_at <= recovery.deadline
+            or not preflight and panel.now >= recovery.next_attempt_at):
         return None
     from sentinel.feed import calendar
     session = calendar.latest_closed_session(panel.now)
     closed = calendar.session_window(session)[1]
     opened = calendar.session_window(calendar.next_session(session))[0]
-    deadline = opened if refreshing else opened-timedelta(microseconds=1)
-    if (not closed <= cycle.as_of <= panel.now < deadline or recovery.deadline != deadline
+    if prepare_witness is not None:
+        updated, saved_open, native_deadline = prepare_witness
+        if (set(panel.observation_changed_scopes) != {'PAPER'}
+                or phase not in {'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING'}
+                or not all(_aware(value) for value in prepare_witness)
+                or saved_open != opened
+                or not cycle.as_of <= updated <= panel.now < native_deadline <= opened):
+            return None
+    deadline = opened if phase in direct else opened-timedelta(microseconds=1)
+    if (not closed <= cycle.as_of <= panel.now < recovery.deadline <= deadline
+            or not preflight and recovery.deadline != deadline
             or not _unadopted_preparation_fact(panel, phase=phase, session=session)
+            or row.as_of < closed
             or not _current_input_session(panel, session)):
         return None
     inputs = ('feed', 'shadow_verification', 'book', 'terminals')
@@ -555,11 +574,28 @@ def _deferred_adoption_boundary(panel, row: Row | None) -> datetime | None:
     if not book.can_show_shadow_book(panel.now) or book.shadow_book.session != session:
         return None
     owners = ('automation_leader', 'shadow_worker')
-    if not all(_fresh_worker(panel, key) and row_current(panel, panel.row(key)) for key in owners):
+    if not all(_fresh_worker(panel, key) and (
+            row_current(panel, panel.row(key)) or key == 'automation_leader' and prepare_witness is not None)
+            for key in owners):
         return None
     bounds = [_row_boundary(panel.row(key)) for key in (*inputs, *owners, 'exposure', 'automation_cycle')]
-    bounds.append(deadline if refreshing else recovery.next_attempt_at)
+    bounds.append(recovery.deadline if preflight or phase in direct else recovery.next_attempt_at)
+    if prepare_witness is not None:
+        bounds.append(native_deadline)
     return min(bound for bound in bounds if bound is not None)
+
+
+def project_planless_exposure(panel, *, prepare_witness=None):
+    """Keep a verified pending adoption coherent in detail rows and headline."""
+    row = panel.row('exposure')
+    deadline = _deferred_adoption_boundary(panel, row, prepare_witness=prepare_witness)
+    if deadline is None or deadline <= panel.now + timedelta(microseconds=1):
+        return panel
+    boundary = deadline - timedelta(microseconds=1)
+    pending = replace(row, valid_until=boundary,
+        recovery=RecoveryEvidence(phase='PLANLESS_EXPOSURE_ADOPTION',
+            automatic=True, deadline=boundary))
+    return replace(panel, rows=[pending if value is row else value for value in panel.rows])
 
 
 def _preparation_inputs_current(panel) -> bool:
@@ -647,6 +683,12 @@ def _preparing_work_normal(panel) -> bool:
 
 
 def _normal_warning(panel, row: Row) -> bool:
+    if (row.key == 'exposure' and row.status == 'warn' and row.recovery is not None
+            and row.recovery.phase == 'PLANLESS_EXPOSURE_ADOPTION'
+            and row.recovery.active(panel.now)
+            and row.valid_until == row.recovery.deadline
+            and not row.is_future(panel.now)):
+        return True
     if row.key == 'trading_run' and _historical_skip_record(panel):
         return True
     if _retired_workflow_history(panel,row):
@@ -767,7 +809,8 @@ def preparation_stage(panel) -> str | None:
         return 'Today’s trading complete'
     cycle = panel.row('automation_cycle')
     if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
-            and cycle.recovery is not None and cycle.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER'):
+            and cycle.recovery is not None and cycle.recovery.phase in {
+                'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}):
         return 'Checking the recorded broker account'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows

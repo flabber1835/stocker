@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import automation_runtime as module
+from sentinel.automation.model import CycleState
 from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.states import RuntimeState
 
@@ -26,7 +27,8 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
         finally:
             active.pop()
     cycle = SimpleNamespace(decision_session=date(2026,10,15),effective_session=date(2026,10,16),
-        deployment_id='test',broker='alpaca',broker_account_id='paper',takeover_epoch=1)
+        deployment_id='test',broker='alpaca',broker_account_id='paper',takeover_epoch=1,
+        state=CycleState.DISCOVERED,plan_id=None)
     owner = object.__new__(module.ProductionAutomation)
     owner.connect = lambda:conn
     owner._operational_source_only = owner._dual_run_enabled = True
@@ -69,7 +71,7 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
         return SimpleNamespace(runtime_state=RuntimeState.BROKER_DEGRADED,observation=None,to_dict=lambda:{})
     monkeypatch.setattr(module.paper,'prepare_paper_plan',prepare)
     monkeypatch.setattr(module.paper,'recover_automated_paper_cycle',recover)
-    context = SimpleNamespace(require_active=lambda:None)
+    context = SimpleNamespace(cycle=cycle, require_active=lambda:None)
     call = getattr(owner,operation)(context)
     if fail:
         with pytest.raises(RuntimeError,match='fixture factory failure'):

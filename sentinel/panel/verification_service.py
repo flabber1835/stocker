@@ -25,6 +25,8 @@ from sentinel.panel.verification_health import VERIFIER_HEARTBEAT
 HEARTBEAT = VERIFIER_HEARTBEAT
 OWNER_LOCK = (1_397_050_964, 1_448_748_626)
 OWNER_SECONDS = 610
+OWNER_POLL_SECONDS = 15
+CLOSE_RESERVATION_LEAD_SECONDS = 90 + OWNER_POLL_SECONDS
 RETRY_SECONDS = 20
 RETRY_POLL_SECONDS = .5
 
@@ -266,7 +268,7 @@ def _closing_scan_reserve(conn, now):
           AND b.broker='alpaca' AND b.ownership_state='SENTINEL_OWNED'
           AND (
               (c.effective_session=market.session AND c.state='SUCCEEDED'
-               AND market.at>=c.execution_close_at-INTERVAL '90 seconds'
+               AND market.at>=c.execution_close_at-make_interval(secs=>%s)
                AND market.at<c.execution_close_at+INTERVAL '60 seconds')
               OR
               (c.decision_session=market.session AND market.at>=c.prepare_at
@@ -277,7 +279,7 @@ def _closing_scan_reserve(conn, now):
                AND s.callback_deadline_at>market.at)
           )
         ORDER BY c.created_at DESC,c.cycle_id DESC LIMIT 1
-        """, (now,)).fetchone()
+        """, (now, CLOSE_RESERVATION_LEAD_SECONDS)).fetchone()
     return row[0] if row is not None else None
 
 
@@ -373,7 +375,7 @@ def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, de
         retry_until = None
         if not stopped.is_set():
             HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
-            (stopped if wakeup is None else wakeup).wait(15)
+            (stopped if wakeup is None else wakeup).wait(OWNER_POLL_SECONDS)
 
 
 def run(*, stopped=None):

@@ -141,13 +141,7 @@ def test_http_changed_signed_receipt_reprojects_feed_without_collection_or_autho
 
 def test_omitted_http_reprojection_is_detected_with_real_signed_receipts(operational, monkeypatch):
     conn, baseline, captured = receipt_handoff(operational, monkeypatch)
-    source = textwrap.dedent(inspect.getsource(producer.read))
-    guard = ("        panel = postclose_feed_wait.project_panel(panel, now=now,\n"
-             "            subject=current_basis.get('native', {}).get('SHADOW'))\n")
-    assert source.count(guard) == 1
-    namespace = {}
-    exec(compile(source.replace(guard, ''), '<omitted-http-reprojection>', 'exec'),
-         vars(producer), namespace)
-    monkeypatch.setattr(producer, 'read', namespace['read'])
+    # Disable only reprojection after the signed snapshot and receipt are saved.
+    monkeypatch.setattr(waiting, 'project_panel', lambda panel, **_: panel)
     with pytest.raises(AssertionError, match='fresh receipt was not reprojected'):
         assert_http_handoff(conn, baseline, captured, monkeypatch)

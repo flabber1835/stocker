@@ -465,7 +465,17 @@ class Reader:
                 else:
                     self.completed = None
                     self.check_reason = 'PROOF_EXPIRED'
-            refresh_due = (fresh is None or self.failure is not None or self.identity_failure is not None
+            retry_failed_check = self.failure is not None
+            if (retry_failed_check and fresh is not None and self.retain_failed_attempt
+                    and self.expected_keys == frozenset({'paper_reconciliation'}) and not errors):
+                paper = rows[0]
+                fact = paper.operational_fact
+                if (paper.status == model.FAIL and fact is not None
+                        and (fact.kind, fact.state) == ('PAPER_VERIFICATION', 'BLOCKED')
+                        and self.failure_diagnostic is not None
+                        and self.failure_diagnostic.code == 'NEGATIVE_RESULT'):
+                    retry_failed_check = False
+            refresh_due = (fresh is None or retry_failed_check or self.identity_failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
             coalesced = self._coalesced_retry
             if coalesced is not None:

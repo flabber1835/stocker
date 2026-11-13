@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from sentinel.panel import authority_reader as reader, model, observer_codec, read_projection
+from sentinel.panel import authority_reader as reader, model, observer_codec, read_projection, sources
 from sentinel.panel import verification_service as service
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
@@ -24,6 +24,7 @@ class Scenario:
         self.wakeup = Event()
         self.slot = BoundedSemaphore(1)
         self.fail = False
+        self.failure_row = None
         self.value = reader.Reader(runner=self.run, clock=lambda:self.tick,
             wall_clock=lambda:NOW+timedelta(seconds=self.tick),
             evidence_reader=lambda *_:self.key, key_factory=lambda _url,_paper,key:key,
@@ -34,9 +35,11 @@ class Scenario:
 
     def run(self, _function, _url, _paper, key, **kwargs):
         self.calls.append((key, kwargs['timeout']))
-        return observer_codec.pack([model.Row('paper_reconciliation','Paper','recorded',
-            model.FAIL if self.fail else model.OK, as_of=NOW+timedelta(seconds=self.tick))],
-            [], observed_at=NOW+timedelta(seconds=self.tick))
+        observed = NOW+timedelta(seconds=self.tick)
+        row = self.failure_row if self.fail and self.failure_row is not None else model.Row(
+            'paper_reconciliation', 'Paper', 'recorded', model.FAIL if self.fail else model.OK,
+            as_of=observed)
+        return observer_codec.pack([row], [], observed_at=observed)
 
     def finish(self):
         pending = self.value.pending
@@ -188,6 +191,81 @@ def test_known_negative_and_uncommitted_failure_survive_fast_coalesced_retry():
     case.finish();case.value.read('private')
     assert case.calls[-1][0]=='b'*64 and len(case.calls)==2
     assert case.value.negative_result is None and case.value.attempt_state()['outcome']=='VERIFIED'
+
+
+def _blocked_paper_observation(monkeypatch, *, state='BLOCKED', completed_at=NOW):
+    cycle = {'state': state, 'completed_at': completed_at}
+    monkeypatch.setattr(sources, '_latest_automation_cycle', lambda conn: cycle)
+    monkeypatch.setattr(sources, '_clean_cash_supersession', lambda conn, cycle: None)
+    monkeypatch.setattr(sources, '_retired_local_paper_failure', lambda conn: None)
+    return sources._dual_paper_row(None, informational_paper_mirror=None,
+                                  publication=None, feed_store=None)
+
+
+def _assert_terminal_refresh_pacing(monkeypatch):
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','private-blocked-test-'+'x'*40)
+    case = Scenario(retain=True)
+    case.fail = True
+    case.failure_row = _blocked_paper_observation(monkeypatch)
+    case.value.read('private'); case.finish()
+    result = case.value.read('private')
+    original = case.value.attempt_state()
+    receipt = service.snapshot(case.value, result, scope='PAPER', now=NOW)
+    assert original['outcome'] == 'FAILED' and receipt is not None
+    assert result[0][0].operational_fact == model.OperationalFact(
+        kind='PAPER_VERIFICATION', state='BLOCKED')
+    for tick in (31, 120, reader.REFRESH_SECONDS-1):
+        case.tick = tick
+        result = case.value.read('private')
+        assert case.value.pending is None and len(case.calls) == 1
+        assert result[0][0].status == model.FAIL
+        assert case.value.attempt_state() == original
+        assert service.snapshot(case.value, result, scope='PAPER',
+                                now=NOW+timedelta(seconds=tick)) == receipt
+    case.tick = reader.REFRESH_SECONDS
+    assert case.slot.acquire(timeout=1)
+    try:
+        result = case.value.read('private')
+        assert result[0][0].status == model.FAIL
+        assert case.value.attempt_state()['attempt_id'] != original['attempt_id']
+        assert case.value.pending_failed_attempt() == original
+    finally:
+        case.grant()
+    assert len(case.calls) == 2
+
+
+def test_durable_blocked_paper_refresh_keeps_original_negative_and_clocks(monkeypatch):
+    _assert_terminal_refresh_pacing(monkeypatch)
+
+
+def test_removed_terminal_paper_refresh_pacing_is_detected(monkeypatch):
+    replace_method(monkeypatch, reader.Reader, 'read',
+                   'retry_failed_check = False', 'retry_failed_check = True')
+    with pytest.raises(AssertionError):
+        _assert_terminal_refresh_pacing(monkeypatch)
+
+
+@pytest.mark.parametrize('changed', ['subject', 'identity', 'unfinished', 'other_negative'])
+def test_terminal_paper_refresh_does_not_delay_changed_or_unproved_results(monkeypatch, changed):
+    case = Scenario(retain=True)
+    case.fail = True
+    case.failure_row = _blocked_paper_observation(monkeypatch,
+        state='SUPERSEDED' if changed == 'other_negative' else 'BLOCKED',
+        completed_at=None if changed == 'unfinished' else NOW)
+    case.value.read('private'); case.finish()
+    assert case.value.read('private')[0][0].status == model.FAIL
+    case.tick = 31
+    if changed == 'subject':
+        case.key = 'b'*64
+    if changed == 'identity':
+        evidence_reader = case.value.evidence_reader
+        def refuse(*_):
+            raise ValueError('private current subject unavailable')
+        case.value.evidence_reader = refuse
+        assert case.value.read('private')[0][0].status == model.UNKNOWN
+        case.value.evidence_reader = evidence_reader
+    case.value.read('private'); case.finish()
+    assert len(case.calls) == 2 and case.calls[-1][0] == case.key
 
 
 class LoopWake:
@@ -536,8 +614,10 @@ def test_close_scan_reserves_exact_early_close_for_the_bound_settled_cycle(close
         (close - timedelta(days=2), close - timedelta(hours=3), close,
          close - timedelta(hours=2), close - timedelta(days=2)))
     end = close + timedelta(seconds=60)
-    assert service._closing_scan_reserve(conn, close - timedelta(seconds=90)) == end
-    assert service._closing_scan_reserve(conn, close - timedelta(seconds=91)) is None
+    observed_lead = timedelta(seconds=95, microseconds=176573)
+    assert service._closing_scan_reserve(conn, close - observed_lead) == end
+    assert service._closing_scan_reserve(conn, close - timedelta(seconds=105)) == end
+    assert service._closing_scan_reserve(conn, close - timedelta(seconds=106)) is None
     assert service._closing_scan_reserve(conn, end - timedelta(seconds=1)) == end
     assert service._closing_scan_reserve(conn, end) is None
     with conn.transaction(force_rollback=True):
@@ -546,6 +626,12 @@ def test_close_scan_reserves_exact_early_close_for_the_bound_settled_cycle(close
     with conn.transaction(force_rollback=True):
         conn.execute('UPDATE sentinel_account_binding SET takeover_epoch=3')
         assert service._closing_scan_reserve(conn, close) is None
+
+
+def test_old_close_reservation_misses_the_observed_admission(close_scan, monkeypatch):
+    monkeypatch.setattr(service, 'CLOSE_RESERVATION_LEAD_SECONDS', 90)
+    with pytest.raises(AssertionError):
+        test_close_scan_reserves_exact_early_close_for_the_bound_settled_cycle(close_scan)
 
 
 @pytest.mark.parametrize('state,callback', [

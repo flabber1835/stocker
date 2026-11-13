@@ -4,6 +4,11 @@ import re
 from datetime import datetime
 
 PREFIX = "SENTINEL_FEED_PROGRESS="
+ALPACA_STAGES = frozenset({"alpaca_part_acquire", "alpaca_part_persist", "alpaca_price_pairing"})
+ALPACA_COUNTERS = (
+    "requests", "retries", "response_bytes", "rate_limits", "pacing_ms",
+    "http_ms", "decode_ms", "retry_backoff_ms",
+)
 STAGES = frozenset({
     "actions_export", "actions_refresh", "identity_preflight", "identity_rebuild",
     "seed_membership_preflight",
@@ -17,7 +22,7 @@ STAGES = frozenset({
     "rolling_operational_validation", "rolling_operational_publication",
     "rolling_source_corroboration",
     "rolling_comparison_publication", "historical_formation",
-} | {kind + "_" + table for kind in ("capture", "download")
+} | ALPACA_STAGES | {kind + "_" + table for kind in ("capture", "download")
      for table in ("sep", "sfp", "tickers", "actions")})
 
 
@@ -33,6 +38,8 @@ def parse(line):
                 "updated_from", "updated_to", "part", "parts", "reason",
                 "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase",
                 "sessions", "required_sessions", "session", "component", "selected"}
+    if isinstance(value, dict) and value.get("stage") == "alpaca_part_acquire":
+        required.update(ALPACA_COUNTERS)
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
         return None
     if value.get("stage") == "historical_formation":
@@ -97,7 +104,7 @@ def parse(line):
             "fresh", "creating", "regenerating"}:
         return None
     if any(type(value[k]) is not int or not 0 <= value[k] <= 10**12
-           for k in ("rows", "elapsed_ms")):
+           for k in required - {"stage", "status"}):
         return None
     return value
 
@@ -129,6 +136,14 @@ def describe(value):
         text += "; acquisition budget remaining %ss" % value["remaining_seconds"]
     if "bytes" in value:
         text += "; %s bytes received" % format(value["bytes"], ",")
+    if value["stage"] in ALPACA_STAGES and value["status"] in {"completed", "failed"}:
+        text += "; elapsed %s ms" % format(value["elapsed_ms"], ",")
+    if value["stage"] == "alpaca_part_acquire":
+        text += (
+            "; %(requests)s requests, %(retries)s retries, %(rate_limits)s rate limits,"
+            " %(response_bytes)s bytes received, %(pacing_ms)s ms pacing, %(http_ms)s ms HTTP,"
+            " %(decode_ms)s ms decoding, %(retry_backoff_ms)s ms retry backoff"
+        ) % value
     if value.get("reason"):
         text += "; reason " + value["reason"]
     if value.get("refreshed_at"):
