@@ -257,6 +257,41 @@ def test_protected_estimate_reports_quantity_without_counting_below_one_share():
     assert 'Budget below one share' in html and '1 estimated share' in html
 
 
+@pytest.mark.parametrize('price, action', [('1730.93', 'SKIP'), ('1200', 'BUY')])
+def test_retry_without_shadow_pending_open_uses_compact_sizing_basis(monkeypatch, price, action):
+    from dataclasses import replace
+
+    from sentinel.execution import held_targets, journal, protected_limits
+    from sentinel.execution.plan import OpeningIntent
+    from sentinel.panel.intent_memo import projection
+    from tests.sentinel.test_production_decision import _episode, _publication, _state
+    from tests.v5.test_opening import case
+
+    _, original = case(exposure='0.55')
+    intent = OpeningIntent('SEC-AAA', 0, Decimal('2400.85'))
+    state = _state(episodes=(_episode(0, intent.security_id, 'MTD', 2),), equity='100000')
+    stored = replace(original, shadow_snapshot_hash=state.state_hash, opening_intents=(intent,))
+    selected, authority = original_authority()
+    selected.update(plan_id=stored.plan_id, plan_fingerprint=stored.fingerprint(),
+                    target_basket={'SEC-AAA': '0'}, opening_intents=[intent.to_dict()])
+    authority.update(plan_id=stored.plan_id, plan_fingerprint=stored.fingerprint(),
+        decision_session=str(stored.decision_session), shadow_state=state.to_dict(),
+        publication=_publication().to_dict(), marks={'SEC-AAA': price}, tickers={'SEC-AAA': 'MTD'},
+        held_share_targets=dict(schema=held_targets.RETRY_SCHEMA, targets={}, retry_openings=[intent.to_dict()]))
+    authority['broker_observation']['positions'] = []
+    assert not state.pending
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', protected_limits.PROTECTED_MODE)
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_CAP_BPS', '100')
+    monkeypatch.setattr(journal, 'load_plan', lambda *_a, **_k: stored)
+    compact = projection(authority)
+    assert compact['opening_sizing_basis'] == preview.opening_sizing_basis(authority)
+    assert 'shadow_state' not in compact
+    initial = preview.project_original_intent(selected, compact)
+    estimates = preview._opening_estimates(None, initial, stored.fingerprint(), compact)
+    leg, = preview._with_opening_estimates(initial, estimates).legs
+    assert (leg.ticker, leg.action, leg.opening_estimate.shares) == ('MTD', action, int(action == 'BUY'))
+
+
 def test_duplicate_opening_slots_cannot_announce_two_buys():
     selected = plan()
     selected['target_basket']['one'] = '0'

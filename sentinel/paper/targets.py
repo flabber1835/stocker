@@ -379,11 +379,12 @@ def _target_projection_or_refuse(
                 state, plan, projected, opening_prices, market_policy, retained_targets=retained)
         elif policy is not None:
             from sentinel.execution import held_targets
-            retained = held_targets.plan_targets(conn, plan=plan, state=state)
+            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
             references = protected_limits.build_references(
                 conn, plan=plan, projection=projected, policy=policy)
             projected = protected_limits.resolve_protected(
-                state, plan, projected, references, policy, retained_targets=retained)
+                state, plan, projected, references, policy, retained_targets=retained,
+                **({"retry_openings": retries} if retries else {}))
         elif plan.opening_intents:
             from sentinel.execution import opening_sizing
             from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable

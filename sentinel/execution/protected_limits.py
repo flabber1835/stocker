@@ -19,6 +19,7 @@ from typing import Mapping
 
 from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.contract import OrderTerms
+from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.target_reprojection import TargetProjection, TargetProjectionRefused, share_action_factor
 
 
@@ -378,7 +379,8 @@ def _fixed_entry_limit(raw_cap, budget, quantity):
     return None if rounded <= 0 else exact_decimal(rounded)
 
 
-def resolve_protected(state, plan, projection, references, policy, *, retained_targets=None):
+def resolve_protected(state, plan, projection, references, policy, *, retained_targets=None,
+                      retry_openings: tuple[OpeningIntent, ...] = ()):
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID, shadow_target, _shadow_equity
     if (not isinstance(references, PriorCloseReferences) or not isinstance(policy, ProtectedLimitPolicy)
             or state.state_hash != plan.shadow_snapshot_hash
@@ -396,13 +398,22 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
             or not plan.account_nav.is_finite() or plan.account_nav < 0):
         raise TargetProjectionRefused("protected sizing requires long-only account scaling")
     target = shadow_target(state)
-    if target.opening_intents != plan.opening_intents:
+    if not isinstance(retry_openings, tuple) or any(not isinstance(item, OpeningIntent) for item in retry_openings):
+        raise TargetProjectionRefused("protected retries require verified dollar reservations")
+    expected_openings = tuple(sorted((*target.opening_intents, *retry_openings), key=lambda item: item.slot_id))
+    if expected_openings != plan.opening_intents:
         raise TargetProjectionRefused("protected opening intents differ from canonical dollar reservations")
     basket = dict(projection.target_basket)
     retained = _retained_quantities(projection, retained_targets)
     opening = {item.security_id for item in plan.opening_intents}
+    retry_ids = {item.security_id for item in retry_openings}
+    for sid in retry_ids:
+        if (target.held_shares.get(sid, Decimal(0)) <= 0 or sid in target.pending_open_shares
+                or sid in target.pending_close_shares or sid in retained):
+            raise TargetProjectionRefused("protected retry requires a continuing shadow holding without a retained account target")
     for sid in opening:
-        if basket.get(sid) != 0 or target.held_shares.get(sid, Decimal(0)) != 0 or sid in target.pending_close_shares:
+        if (basket.get(sid) != 0 or sid in target.pending_close_shares
+                or sid not in retry_ids and target.held_shares.get(sid, Decimal(0)) != 0):
             raise TargetProjectionRefused("protected opening entry must be a distinct unheld zero-quantity intent")
     core_budget = Fraction(plan.target_exposure) * Fraction(plan.account_nav)
     held = Fraction(0)

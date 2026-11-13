@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Retrying zero-share PAPER entries](retry-zero-share-paper-entries.md) keeps a
+continuing shadow entry eligible for whole-share sizing at subsequent opens.
+
 [PAPER debit fee posting delay](native-fee-posting-delay.md) defines the
 safe re-observation of documented Alpaca cash propagation lag.
 

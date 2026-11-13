@@ -222,19 +222,23 @@ def opening_sizing_basis(authority):
     """Extract small display inputs from a canonically loaded authority."""
     from sentinel.core.decision import _shadow_equity, publication_fingerprint
     from sentinel.core.session import SessionState
+    from sentinel.execution.held_targets import retry_openings
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
 
     if authority.get('market_buy_policy_sha256') or not authority.get('marks'):
         return None
     try:
         shadow = authority['shadow_state']
-        if not any(order.get('intended_dollars') is not None for order in shadow.get('pending', [])):
+        held_basis = authority.get('held_share_targets', {})
+        if (not any(order.get('intended_dollars') is not None for order in shadow.get('pending', []))
+                and not retry_openings(held_basis)):
             return None
         state = SessionState.from_dict(shadow, _copy_feed=False)
         return dict(shadow_snapshot_hash=state.state_hash, shadow_equity=str(_shadow_equity(state)),
             publication_fingerprint=publication_fingerprint(authority['publication']),
             marks=dict(authority['marks']),
-            retained_targets=sorted(authority.get('held_share_targets', {}).get('targets', {})))
-    except (ValueError, ArithmeticError, KeyError, TypeError):
+            retained_targets=sorted(held_basis.get('targets', {})))
+    except (ValueError, ArithmeticError, KeyError, TypeError, TargetProjectionRefused):
         return None
 
 

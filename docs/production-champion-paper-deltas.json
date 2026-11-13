@@ -451,7 +451,7 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "generated_ast_sha256": "f379e87bc4f6c4daeec95a6a60bada3f4cb8b14ea65115dc864686e4d73e98cd",
       "market_buy_acceptance": [
         "tests/sentinel/test_market_day_sizing.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -474,7 +474,10 @@
         "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
-      "protected_buy_reason": "Resolve immutable protected terms from authenticated historical RAW/action evidence under explicit policy, retaining canonical quantities and legacy opening sizing."
+      "protected_buy_reason": "Resolve immutable protected terms from authenticated historical RAW/action evidence under explicit policy, retaining canonical quantities and legacy opening sizing.",
+      "zero_share_retry_design": "docs/retry-zero-share-paper-entries.md",
+      "zero_share_retry_predecessor_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "zero_share_retry_reason": "Pass the authenticated repeat opening reservations to protected sizing alongside their separate retained share quantities."
     },
     "_transport_observation_or_refuse": {
       "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
@@ -575,7 +578,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "generated_ast_sha256": "103000ca5a4d7b2df94301beaaf0c25d05bf95bd41953ac9109e3013902e7492",
       "market_buy_acceptance": [
         "tests/sentinel/test_dual_plan_scalar_proof.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -626,7 +629,10 @@
         "tests/sentinel/test_automation_service.py",
         "tests/sentinel/test_activation_writer_handoff.py"
       ],
-      "native_fee_posting_delay_predecessor_ast_sha256": "5f048d3781335cb83498b046fefb8b2f525d0b9feb0e1411886fec63f1fde551"
+      "native_fee_posting_delay_predecessor_ast_sha256": "5f048d3781335cb83498b046fefb8b2f525d0b9feb0e1411886fec63f1fde551",
+      "zero_share_retry_design": "docs/retry-zero-share-paper-entries.md",
+      "zero_share_retry_predecessor_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "zero_share_retry_reason": "Include explicitly skipped and still-owned entries in the next protected PAPER sizing basis and opening plan."
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",

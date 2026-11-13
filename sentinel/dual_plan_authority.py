@@ -491,18 +491,24 @@ def load_authority(conn, *, plan_id: str) -> dict | None:
 
 def require_current_buy_policy(conn, *, plan) -> None:
     """Authorize new transport under the policy saved with the original plan."""
+    from sentinel.execution import held_targets
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
     from sentinel.execution.target_reprojection import TargetProjectionRefused
 
+    authority = load_authority(conn, plan_id=plan.plan_id)
+    basis = authority.get("held_share_targets") if authority is not None else None
+    is_retry_plan = isinstance(basis, dict) and basis.get("schema") == held_targets.RETRY_SCHEMA
     try:
         market_policy = MarketBuyPolicy.from_env()
+        if is_retry_plan and (market_policy is not None or ProtectedLimitPolicy.from_env() is None):
+            raise DualPlanAuthorityRefused("opening retries require the protected PAPER BUY policy")
     except TargetProjectionRefused as exc:
         raise DualPlanAuthorityRefused(str(exc)) from exc
     expected = market_policy.fingerprint() if market_policy is not None else None
-    authority = load_authority(conn, plan_id=plan.plan_id)
     stored = authority.get("market_buy_policy_sha256") if authority is not None else None
     if (expected != stored
-            or (stored is not None and authority["plan_fingerprint"] != plan.fingerprint())):
+            or ((stored is not None or is_retry_plan) and authority["plan_fingerprint"] != plan.fingerprint())):
         raise DualPlanAuthorityRefused(
             "current BUY policy differs from the original plan; prepare a new decision")
 
@@ -623,12 +629,19 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
                for key, value in tickers_raw.items()}
     try:
         retained_targets = None
+        retries = ()
+        build = build_execution_plan
         if authority["schema"] in (HELD_SCHEMA, MARKET_SCHEMA):
             from sentinel.execution import held_targets
+            basis = authority["held_share_targets"]
             retained_targets = held_targets.verified_targets(conn, plan=plan,
-                basis=authority["held_share_targets"], state=state,
-                binding=binding, rollout=rollout_state)
-        derived = build_execution_plan(
+                basis=basis, state=state, binding=binding, rollout=rollout_state)
+            retries = held_targets.retry_openings(basis)
+            if retries:
+                if authority["schema"] != HELD_SCHEMA:
+                    raise DualPlanAuthorityRefused("opening retries require protected PAPER authority")
+                build = held_targets.build_execution_plan
+        derived = build(
             state=state, binding=binding,
             publication=_mapping(
                 authority["publication"], where="retained publication"),
@@ -637,7 +650,8 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
             marks=marks, tickers=tickers,
             decision_session=plan.decision_session,
             effective_session=plan.effective_session,
-            rollout_state=rollout_state, retained_targets=retained_targets)
+            rollout_state=rollout_state, retained_targets=retained_targets,
+            **({"retry_openings": retries} if retries else {}))
     except DualPlanAuthorityRefused:
         raise
     except Exception as exc:  # noqa: BLE001 - normalize adapter failure
@@ -658,6 +672,7 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
         "shadow_equity": decimal_text(_shadow_equity(state)),
         **({"retained_targets": {sid: decimal_text(qty) for sid, qty in retained_targets.items()}}
            if retained_targets is not None else {}),
+        **({"retry_openings": [intent.to_dict() for intent in retries]} if retries else {}),
         "verdict": "MATCH",
     }
 
