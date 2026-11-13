@@ -35,7 +35,7 @@ host = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = host
 spec.loader.exec_module(host)
 assert str(root) not in sys.path
-assert host._fee_protocol.native_fee_wait_record('2026-10-08').startswith(
+assert host.AutonomousDeploy._load_native_fee_protocol().native_fee_wait_record('2026-10-08').startswith(
     'SENTINEL_NATIVE_FEE_WAIT=')
 """
     subprocess.run([sys.executable, '-I', '-B', '-c', code, str(ROOT)], check=True)

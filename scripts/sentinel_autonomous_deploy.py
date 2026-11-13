@@ -56,20 +56,6 @@ if sys.version_info < MIN_PYTHON:  # pragma: no cover - launcher checks first
     raise SystemExit(2)
 
 ROOT = Path(__file__).resolve().parents[1]
-# This source file is also loaded from the inspection-only tree in CI.
-# Import only the dependency-free protocol from that tree.
-_fee_protocol_path = ROOT / "sentinel" / "paper_fee_wait_protocol.py"
-if not _fee_protocol_path.is_file() and os.environ.get("SENTINEL_IN_IMAGE") == "1":
-    # The executable CI lens only exposes the deployed package.
-    from sentinel import paper_fee_wait_protocol as _fee_protocol
-else:
-    _fee_protocol_spec = importlib.util.spec_from_file_location(
-        "sentinel_host_fee_wait_protocol", _fee_protocol_path)
-    if _fee_protocol_spec is None or _fee_protocol_spec.loader is None:
-        raise ImportError("native fee wait protocol loader is unavailable")
-    _fee_protocol = importlib.util.module_from_spec(_fee_protocol_spec)
-    _fee_protocol_spec.loader.exec_module(_fee_protocol)
-
 ENV_PATH = ROOT / ".env"
 PAPER_URL = "https://paper-api.alpaca.markets"
 DEPLOY_SCHEMA = "sentinel.autonomous-paper-deployment/1"
@@ -2281,27 +2267,42 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 or state["certificate_sha256"] != certificate_sha256):
             raise DeployRefused("native fee posting wait lost the disabled, killed or signed authority")
 
+    @staticmethod
+    def _load_native_fee_protocol():
+        # The inspection checkout must remain off the module search path.
+        path = ROOT / "sentinel" / "paper_fee_wait_protocol.py"
+        if not path.is_file() and os.environ.get("SENTINEL_IN_IMAGE") == "1":
+            from sentinel import paper_fee_wait_protocol
+            return paper_fee_wait_protocol
+        spec = importlib.util.spec_from_file_location("sentinel_host_fee_wait_protocol", path)
+        if spec is None or spec.loader is None:
+            raise DeployRefused("native fee wait protocol loader is unavailable")
+        protocol = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(protocol)
+        return protocol
+
     def _prepare_activation_plan(
             self, prepare_args: Sequence[str], certificate_sha256: str,
             decision_session: str, timing: Optional[Mapping],
     ) -> Tuple[Mapping, Optional[Tuple[datetime, float]]]:
         """Keep fee re-observation under the current owned and signed activation."""
+        protocol = self._load_native_fee_protocol()
         deadline = None
         while True:
             options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
             result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
             stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
-            if result.returncode != _fee_protocol.EXIT_NATIVE_FEE_WAIT:
-                if (_fee_protocol.NATIVE_FEE_WAIT_MARKER in stdout
-                        or _fee_protocol.NATIVE_FEE_WAIT_MARKER in stderr):
+            if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
+                if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
+                        or protocol.NATIVE_FEE_WAIT_MARKER in stderr):
                     raise DeployRefused("native fee posting wait contradicted the command exit status")
                 if result.returncode != 0:
                     _raise_command_refusal(result, getattr(result, "args", prepare_args))
                 if deadline:
                     self._native_fee_wait_seconds(deadline)
                 return _json_output(result, label="prepared paper plan"), deadline
-            if (stdout.splitlines() != [_fee_protocol.native_fee_wait_record(decision_session)]
-                    or _fee_protocol.NATIVE_FEE_WAIT_MARKER in stderr
+            if (stdout.splitlines() != [protocol.native_fee_wait_record(decision_session)]
+                    or protocol.NATIVE_FEE_WAIT_MARKER in stderr
                     or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
                 raise DeployRefused("native fee posting wait result is malformed")
             if deadline is None:
