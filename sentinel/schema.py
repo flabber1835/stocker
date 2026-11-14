@@ -2201,6 +2201,28 @@ def _migrate_order_amount(cur, catalog) -> None:
     if ((enabled and not killed)
             or (holder is not None and live and lease_generation == generation)):
         raise _operator_refusal("order-amount migration requires fenced automation and no live current leader")
+    from sentinel import deployment_fence, operational_ddl_handoff, operational_schema
+    from sentinel.execution import evidence_schema
+    from sentinel.feed import store
+
+    conn = cur.connection
+    if not evidence_schema.require_schema(conn, allow_absent=True):
+        _apply_order_amount(cur)
+        return
+    if row[:2] != (False, True):
+        raise _operator_refusal("order-amount coverage handoff requires disabled and killed automation")
+    deployment_fence.require(conn)
+    store.require_feed_schema(conn)
+    with operational_schema._financial_writer(conn):
+        with operational_ddl_handoff.transfer(conn, expected_advance=3,
+                label="order-amount migration", refusal=SchemaMigrationRefused):
+            _apply_order_amount(cur)
+            successor = _read_runtime_catalog(cur)
+            _validate_ledgered(cur, successor)
+            _validate_stage4_runtime(cur, successor)
+
+
+def _apply_order_amount(cur) -> None:
     for statement in _ORDER_AMOUNT_DDL:
         cur.execute(statement)
     cur.execute(

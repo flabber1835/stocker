@@ -11,23 +11,27 @@ import pytest
 
 ROOT=Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 sys.path.insert(0,str(ROOT/'scripts'))
-import sentinel_chain_progress_recovery as owner
+import sentinel_chain_progress_recovery as progress_owner
+import sentinel_order_amount_coverage_recovery as order_amount_owner
 
 SHA='a'*40
 IMAGE='ghcr.io/flabber1835/stocker/sentinel@sha256:'+'b'*64
 
 
-@pytest.fixture
-def operation(monkeypatch,tmp_path):
+@pytest.fixture(params=[progress_owner, order_amount_owner], ids=["progress", "order-amount"])
+def operation(monkeypatch,tmp_path,request):
+    owner = request.param
+    order_amount = owner is order_amount_owner
     root=tmp_path/'checkout';(root/'scripts').mkdir(parents=True)
-    monkeypatch.setattr(owner,'__file__',str(root/'scripts/sentinel_chain_progress_recovery.py'))
+    monkeypatch.setattr(owner,'__file__',str(root/'scripts'/Path(owner.__file__).name))
     (root/'.env').write_text('SENTINEL_BACKUP_DIR=/backup\nSENTINEL_POSTGRES_PASSWORD=synthetic\n'
         'SENTINEL_DEPLOYMENT_ID=fixture\nSENTINEL_PAPER_ACCOUNT_ID=PAfixture\n'
         'SENTINEL_LOCAL_PAPER_MODE=OWNER_AUTHORIZED_FUNCTION_FIRST_V1\n'
         'SENTINEL_LOCAL_PAPER_ACCOUNT_ID=PAfixture\nSENTINEL_LOCAL_PAPER_BACKUP_POLICY=REQUIRED_V1\n'
         'SENTINEL_PAPER_BUY_POLICY=PROTECTED_LIMIT_DAY_V1\nSENTINEL_PAPER_BUY_CAP_BPS=100\n'
         'ALPACA_BASE_URL=https://paper-api.alpaca.markets\n'
-        'SENTINEL_RUNTIME_IMAGE_REF='+IMAGE+'\n')
+        'SENTINEL_RUNTIME_IMAGE_REF='+IMAGE+'\n'
+        'SENTINEL_AUTHORITY_ARTIFACTS_DIR='+str(root/'authority')+'\n')
     receipt=root/'installation-receipt.json'
     value=dict(schema='sentinel.installation-receipt/1',installation_state='INSTALLED',
         activation_state='FENCED',automation_enabled=False,kill_switch_engaged=True,
@@ -41,7 +45,8 @@ def operation(monkeypatch,tmp_path):
     content_sha=hashlib.sha256(json.dumps(json.loads(witness.read_text()),sort_keys=True,
         separators=(',',':')).encode()).hexdigest()
     state=dict(dirty=False,head=SHA,proof_image=IMAGE,graph='-f docker-compose.sentinel.yml',
-        command_failed=False,result=dict(schema='sentinel.chain-progress-coverage-transfer/1',
+        command_failed=False,result=dict(schema=('sentinel.order-amount-coverage-transfer/1' if order_amount
+            else 'sentinel.chain-progress-coverage-transfer/1'),
             witness_content_sha256=content_sha,backup=args.backup,
             prefixes={'OBSERVATION':'c'*64,'MIRROR':'d'*64},operational_ready=False,broker_contacted=False))
     calls=[]
@@ -50,6 +55,9 @@ def operation(monkeypatch,tmp_path):
         return ('dirty' if state['dirty'] else '') if 'status' in argv else state['head']
     monkeypatch.setattr(owner.subprocess,'check_output',git)
     monkeypatch.setattr(owner.certification,'verify_current',lambda **kwargs:{'certified_image':state['proof_image']})
+    if order_amount:
+        monkeypatch.setattr(owner, '_pointer_digest', lambda: IMAGE)
+    runtime_target = ':/order-amount-ddl-witness.json:ro' if order_amount else ':/progress-witness.json:ro'
     class Runner:
         def __init__(self,env,log):
             assert env['SENTINEL_POSTGRES_PASSWORD']=='synthetic'
@@ -59,7 +67,7 @@ def operation(monkeypatch,tmp_path):
             if argv[:2]==['bash','scripts/sentinel-compose.sh']:
                 return subprocess.CompletedProcess(argv,0,state['graph'],'')
             assert '--no-deps' in argv and '-B' in argv and '-m' in argv
-            mounted=Path(argv[argv.index('--volume')+1].removesuffix(':/progress-witness.json:ro'))
+            mounted=Path(argv[argv.index('--volume')+1].removesuffix(runtime_target))
             assert mounted!=witness and mounted.read_bytes()==witness.read_bytes()
             assert mounted.stat().st_mode&0o777==0o444
             assert mounted.parent.stat().st_mode&0o777==0o700
@@ -69,18 +77,18 @@ def operation(monkeypatch,tmp_path):
             if state['command_failed']:raise owner.core.DeployRefused('native recovery refused')
             return subprocess.CompletedProcess(argv,0,json.dumps(state['result']),'')
     monkeypatch.setattr(owner.core,'Runner',Runner)
-    return args,state,calls,value
+    return owner,args,state,calls,value,runtime_target
 
 
 def test_one_shot_native_owner_binds_installed_source_and_exact_witness(operation):
-    args,state,calls,_receipt=operation
+    owner,args,state,calls,_receipt,runtime_target=operation
     owner.execute(args)
     result=owner.read_document(args.output)
     assert result['source_commit']==SHA and result['runtime_image']==IMAGE
     assert result['witness_file_sha256']==args.confirm_witness_sha256
     assert result['operational_ready'] is False
     assert len(calls)==2
-    runtime_mount=Path(calls[-1][calls[-1].index('--volume')+1].removesuffix(':/progress-witness.json:ro'))
+    runtime_mount=Path(calls[-1][calls[-1].index('--volume')+1].removesuffix(runtime_target))
     assert not runtime_mount.exists() and not runtime_mount.parent.exists()
     with pytest.raises(owner.core.DeployRefused,match='existing recovery'):
         owner.execute(args)
@@ -89,7 +97,7 @@ def test_one_shot_native_owner_binds_installed_source_and_exact_witness(operatio
 
 @pytest.mark.parametrize('fault',['dirty','head','image','witness','receipt','fence','existing'])
 def test_changed_installation_or_confirmation_refuses_before_docker(operation,fault):
-    args,state,calls,receipt=operation
+    owner,args,state,calls,receipt,_runtime_target=operation
     if fault=='dirty':state['dirty']=True
     if fault=='head':state['head']='e'*40
     if fault=='image':state['proof_image']=IMAGE.replace('b'*64,'e'*64)
@@ -104,7 +112,7 @@ def test_changed_installation_or_confirmation_refuses_before_docker(operation,fa
 
 @pytest.mark.parametrize('fault',['native','graph','ready','broker','prefix','subject','extra'])
 def test_native_refusal_or_malformed_result_never_publishes_success(operation,fault):
-    args,state,_calls,_receipt=operation
+    owner,args,state,_calls,_receipt,_runtime_target=operation
     if fault=='native':state['command_failed']=True
     if fault=='graph':state['graph']=''
     if fault=='ready':state['result']['operational_ready']=True
@@ -117,8 +125,11 @@ def test_native_refusal_or_malformed_result_never_publishes_success(operation,fa
 
 
 def test_competing_host_lifecycle_owner_prevents_docker(operation,monkeypatch):
-    args,_state,calls,_receipt=operation
+    owner,args,_state,calls,_receipt,_runtime_target=operation
     def busy(*_args):raise BlockingIOError('another host writer owns the lock')
-    monkeypatch.setattr(owner.fcntl,'flock',busy)
+    if owner is order_amount_owner:
+        monkeypatch.setattr(owner, 'host_lifecycle_lock', busy)
+    else:
+        monkeypatch.setattr(owner.fcntl, 'flock', busy)
     with pytest.raises(BlockingIOError):owner.execute(args)
     assert calls==[] and not args.output.with_suffix('.commands.log').exists()

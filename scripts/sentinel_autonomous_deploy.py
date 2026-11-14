@@ -2016,7 +2016,10 @@ class AutonomousDeploy:
             "import os; from sentinel import schema,deployment_fence; from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
             "deployment_fence.require(c); c.rollback(); "
-            "schema.ensure_schema(c); store.migrate_schema(c); c.close(); "
+            "schema.ensure_schema(c); from sentinel.feed.runtime_schema import FeedSchemaRefused; "
+            "\ntry:\n store.require_feed_schema(c)\n"
+            "except FeedSchemaRefused:\n c.rollback(); store.migrate_schema(c)\n"
+            "finally:\n c.close()\n"
             "print('schema migration PASS')")
         self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T",

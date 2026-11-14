@@ -18,7 +18,7 @@ from sentinel.execution.simulator import SimulatedBroker
 from sentinel.feed import store
 from sentinel.panel import review_schema, review_migration as migration
 from sentinel.panel import review_coverage_recovery as recovery
-from tests.support.postgres import _EphemeralPostgres
+from tests.support.postgres import _EphemeralPostgres, paused_physical_restore
 
 BASE = 'base-20261103T030000Z'
 MARKER = 'sentinel-backup-20261103T030000Z-123'
@@ -261,54 +261,18 @@ def test_primary_database_cannot_issue_a_pre_ddl_restore_witness(conn):
 
 
 def test_actual_paused_physical_restore_issues_witness_and_primary_recovers(conn, pg):
-    import os
-    import shutil
-    import tempfile
-    import time
-    from pathlib import Path
-    from tests.support.postgres import _find_pg_bin, _as_pg_user, _run
-    restored = _EphemeralPostgres()
-    base = Path(tempfile.mkdtemp(prefix='dashboard_ddl_physical_', dir=Path(pg.datadir).parent))
-    try:
-        if os.geteuid() == 0:
-            shutil.chown(base, user='postgres', group='postgres')
-        result = _run(_as_pg_user([_find_pg_bin('pg_basebackup'), '-h', '127.0.0.1',
-            '-p', str(pg.port), '-U', pg.user, '-D', str(base), '-Fp', '-Xs', '-c', 'fast']))
-        assert result.returncode == 0, result.stderr
-        target = Path(restored.datadir)
-        shutil.copytree(base, target, dirs_exist_ok=True)
-        with (target / 'postgresql.auto.conf').open('a') as stream:
-            stream.write("\nrecovery_target='immediate'\nrecovery_target_action='pause'\nrestore_command='false'\n")
-        (target / 'recovery.signal').touch()
-        if os.geteuid() == 0:
-            for item in [target, *target.rglob('*')]:
-                shutil.chown(item, user='postgres', group='postgres')
-        result = _run(_as_pg_user([_find_pg_bin('pg_ctl'), '-D', str(target),
-            '-o', f'-p {restored.port} -h 127.0.0.1 -k {target}', '-l', str(target / 'restored.log'),
-            '-w', '-t', '30', 'start']))
-        assert result.returncode == 0, result.stderr
-        restored._started = True
-        dsn = restored.sync_dsn.rsplit('/', 1)[0] + '/' + conn.info.dbname
-        with psycopg.connect(dsn, autocommit=True) as observed:
-            deadline = time.monotonic() + 15
-            while observed.execute('SELECT pg_get_wal_replay_pause_state()').fetchone()[0] != 'paused':
-                assert time.monotonic() < deadline
-                time.sleep(.1)
-        with store.connect(dsn) as recovered:
-            document = recovery.snapshot(recovered, backup=BASE, marker=MARKER, metadata_sha256='a' * 64)
-            assert recovered.execute('SHOW transaction_read_only').fetchone()[0] == 'on'
-            assert recovered.execute('SELECT pg_is_in_recovery()').fetchone()[0] is True
-        before = prefixes(conn)
-        failed_install(conn)
-        result = apply(conn, document)
-        assert result['broker_contacted'] is False and result['operational_ready'] is False
-        for domain in migration.DOMAINS:
-            unchanged_body(before[domain], coverage.require_current(conn, domain))
-        conn.rollback()
-    finally:
-        restored.stop()
-        assert base.name.startswith('dashboard_ddl_physical_')
-        shutil.rmtree(base)
+    before = prefixes(conn)
+    with paused_physical_restore(pg, conn.info.dbname) as restored:
+        document = recovery.snapshot(restored, backup=BASE, marker=MARKER, metadata_sha256='a' * 64)
+        assert restored.execute('SHOW transaction_read_only').fetchone()[0] == 'on'
+        assert restored.execute('SELECT pg_is_in_recovery()').fetchone()[0] is True
+    failed_install(conn)
+    result = apply(conn, document)
+    assert result['broker_contacted'] is False and result['operational_ready'] is False
+    for domain in migration.DOMAINS:
+        unchanged_body(before[domain], coverage.require_current(conn, domain))
+    conn.rollback()
+
 
 
 @pytest.mark.parametrize('remove_guard', [False, True])

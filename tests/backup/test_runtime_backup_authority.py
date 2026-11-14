@@ -396,7 +396,8 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                     assert owners[0].name == '_refresh_unchanged_health'
                     assert ast.unparse(node.func) == 'journal.writer_lock'
                 if relative in {'sentinel/chain_progress_recovery.py',
-                                'sentinel/panel/review_coverage_recovery.py'}:
+                                'sentinel/panel/review_coverage_recovery.py',
+                                'sentinel/order_amount_coverage_recovery.py'}:
                     # This explicit administrative transfer preserves the old
                     # authenticated prefixes; it cannot exempt another caller
                     # or a financial writer in the same module.
@@ -415,6 +416,10 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                         assert {'review_schema.require_schema',
                                 'operational_schema.require_idle_connection',
                                 'operational_ddl_epoch.current'} <= calls
+                if relative == 'sentinel/order_amount_coverage_recovery.py':
+                    assert {'_command_digest', 'store.require_feed_schema',
+                            'operational_schema.require_idle_connection',
+                            'operational_ddl_epoch.current'} <= calls
                 if relative == 'sentinel/trading.py':
                     owners = [f for f in ast.walk(tree)
                               if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -429,7 +434,7 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
         "sentinel/execution/executor.py", "sentinel/rolling_runtime.py",
         "sentinel/chain_progress_recovery.py", "sentinel/trading.py",
-        "sentinel/panel/review_coverage_recovery.py"}
+        "sentinel/panel/review_coverage_recovery.py", "sentinel/order_amount_coverage_recovery.py"}
 
 
 @pytest.mark.parametrize('remove_owner_guard', [False, True])

@@ -12,6 +12,29 @@ REVISION = '1692c0421084198e3cba03d098d2d0f92adbb79d'
 CLOSURE = '9b7907bf1bbd7080607802f329604e7c554d3d5da6ae005cfa2532ca7129ef43'
 
 
+# Freeze the historical window covered by the existing aggregate digests.
+# Future releases add their own witnesses and do not change these windows.
+_CLOSE_RELEASE_LINEAGE = (
+    basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION,
+    basis.SIMPLIFICATION_PREDECESSOR_REVISION,
+    basis.BACKUP_HEADROOM_PREDECESSOR_REVISION,
+    basis.OPENING_RECOVERY_PREDECESSOR_REVISION,
+    basis.CASH_CORRECTION_PREDECESSOR_REVISION,
+    basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION,
+    basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION,
+    basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION,
+    basis.OPENING_OUTCOMES_PREDECESSOR_REVISION,
+)
+
+
+def _history_before(profile, revision):
+    records = profile['retained_predecessors']
+    historical_revisions = (basis.MARKET_BUY_PREDECESSOR_REVISION,
+                            *_CLOSE_RELEASE_LINEAGE[:_CLOSE_RELEASE_LINEAGE.index(revision)])
+    return {**pre_market_history(profile),
+            **{previous: records[previous] for previous in historical_revisions}}
+
+
 def test_exact_close_successor_retains_every_historical_map():
     profile = basis._profile()
     assert basis.CLOSE_RELIABILITY_PREDECESSOR_REVISION == REVISION
@@ -21,8 +44,7 @@ def test_exact_close_successor_retains_every_historical_map():
     assert len(predecessor) == 471
     assert admission.source_closure(predecessor) == CLOSURE
 
-    market = basis.MARKET_BUY_PREDECESSOR_REVISION
-    history = {**pre_market_history(profile), market: records[market]}
+    history = _history_before(profile, REVISION)
     assert len(history) == 44
     payload = json.dumps(history, sort_keys=True, separators=(',', ':')).encode()
     assert hashlib.sha256(payload).hexdigest() == (
@@ -65,16 +87,8 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     assert basis.OPENING_RECOVERY_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
-    history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
-    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
-    history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
-    history.pop(basis.CASH_CORRECTION_PREDECESSOR_REVISION)
-    installed = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    installed = profile['retained_predecessors'][revision]['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == '129def6620017e734a6733dd9cfc541f8fd9a12f52f8227c9f3737e444d5f1fe'
     assert len(history) == 47
@@ -92,15 +106,8 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     assert basis.CASH_CORRECTION_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
-    history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
-    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
-    history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
-    installed = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    installed = profile['retained_predecessors'][revision]['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == 'f95dd91f021b25965c8307ed90f636edc6bb66fe4f5a1c65e2591933bc98ea11'
     assert len(history) == 48
@@ -118,14 +125,8 @@ def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
     assert basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
-    history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
-    history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
-    installed = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    installed = profile['retained_predecessors'][revision]['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == '5d85fbb62053aca94a44a3db971876efd826b6ed8027b98da14826e3b3f8100c'
     assert len(history) == 49
@@ -143,13 +144,8 @@ def test_rolling_index_proof_preserves_the_certified_source_and_all_earlier_maps
     assert basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
-    history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
-    installed = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    installed = profile['retained_predecessors'][revision]['files']
     assert len(installed) == 475
     assert admission.source_closure(installed) == 'a2b9ae096cb8bb52ea61491fc793cdabddf3d0a52b4b2a6ce42222b0b0d31e72'
     assert len(history) == 50
@@ -167,12 +163,8 @@ def test_native_fee_posting_delay_retains_certified_source_and_all_earlier_maps(
     assert basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    history.pop(basis.OPENING_OUTCOMES_PREDECESSOR_REVISION)
-    certified = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    certified = profile['retained_predecessors'][revision]['files']
     assert len(certified) == 475
     assert admission.source_closure(certified) == (
         '9b8784f7b1a97757c100fc3ece7fee0969712b8d5e4badd1bf726ff1cf345f28')
@@ -192,11 +184,8 @@ def test_opening_outcomes_preserves_signed_predecessor_and_earlier_source_maps()
     assert basis.OPENING_OUTCOMES_PREDECESSOR_REVISION == revision
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
-    history = dict(profile['retained_predecessors'])
-    history.pop(basis.NOV13_INSTALLED_REVISION)
-    history.pop(basis.NOV13_CLOSE_PREDECESSOR_REVISION)
-    history.pop(basis.ZERO_SHARE_RETRY_PREDECESSOR_REVISION)
-    installed = history.pop(revision)['files']
+    history = _history_before(profile, revision)
+    installed = profile['retained_predecessors'][revision]['files']
     assert len(installed) == 476
     assert admission.source_closure(installed) == (
         'a765d57aaee204f0e5b734fd6d34ef8092ce4c4c4d0ca29b7f9fdf9b158551d2')
