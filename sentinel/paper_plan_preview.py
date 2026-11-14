@@ -1,6 +1,7 @@
 """Saved next-open intent for display/notification; never execution authority."""
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,17 +29,24 @@ class PlannedLeg(BaseModel):
     target_quantity: Decimal
     change_quantity: Decimal | None
     opening_dollars: Decimal | None = None
-    action: Literal['BUY','SELL','HOLD','UNAVAILABLE']
+    purchase_notional: Decimal | None = None
+    action: Literal['BUY','SELL','HOLD','SKIP','UNAVAILABLE']
+    reason: Literal['BUDGET_BELOW_MINIMUM','REFERENCE_UNAVAILABLE'] | None = None
 
     @model_validator(mode='after')
     def bounded_values(self):
-        for value in (self.current_quantity,self.target_quantity,self.opening_dollars):
+        for value in (self.current_quantity,self.target_quantity,self.opening_dollars,self.purchase_notional):
             if value is not None:
                 quantity(value)
         if self.change_quantity is not None:
-            quantity(abs(self.change_quantity))
-            if self.current_quantity is None or self.change_quantity != self.target_quantity-self.current_quantity:
+            quantity(self.change_quantity.copy_abs())
+            if self.current_quantity is None or Fraction(self.change_quantity) != Fraction(self.target_quantity)-Fraction(self.current_quantity):
                 raise ValueError('planned share delta is inconsistent')
+        if self.purchase_notional is not None and (
+                self.action != 'BUY' or self.opening_dollars is None
+                or self.purchase_notional < 1 or self.purchase_notional > self.opening_dollars
+                or self.change_quantity is not None):
+            raise ValueError('planned dollar purchase is inconsistent')
         return self
 
 
@@ -53,6 +61,7 @@ class PlanPreview(BaseModel):
     observation_at: datetime | None
     legs: list[PlannedLeg] = Field(max_length=100)
     execution_open_at: datetime | None = None
+    buy_policy: Literal['MARKET_DAY_V1','FRACTIONAL_MARKET_DAY_V1'] | None = None
 
     @model_validator(mode='after')
     def coherent_dates(self):
@@ -87,7 +96,7 @@ def project(*, plan, positions, observation_at, tickers, now):
     return _project(plan=plan,positions=current,observation_at=observation_at,tickers=tickers)
 
 
-def _project(*, plan, positions, observation_at, tickers):
+def _project(*, plan, positions, observation_at, tickers, fractional_inputs=None, buy_policy=None):
     if not isinstance(plan['target_basket'],dict) or len(plan['target_basket'])>100:
         raise ValueError('paper plan exceeds display holdings bound')
     if positions is not None and (not isinstance(positions,dict) or len(positions)>100):
@@ -118,22 +127,73 @@ def _project(*, plan, positions, observation_at, tickers):
                 raise ValueError('paper opening intent is contradictory')
             slots.add(item['slot_id'])
             openings[sid] = dollars
+    purchases, blocked = {}, {}
+    if fractional_inputs is not None and current is not None:
+        from sentinel.execution.fractional_sizing import allocate
+        basis = fractional_inputs['held_share_targets']
+        equity = quantity(fractional_inputs['shadow_equity'])
+        exposure = quantity(plan['target_exposure'])
+        if equity <= 0 or exposure > 1:
+            raise ValueError('fractional preview valuation is invalid')
+        targets, purchases, blocked = allocate(raw_targets=targets,
+            retained={sid:quantity(qty) for sid,qty in basis['targets'].items()},
+            baseline={'holdings':current}, carry=basis.get('purchase_budgets',{}),
+            prices={sid:quantity(price) for sid,price in fractional_inputs['marks'].items()
+                    if quantity(price)>0}, intents=plan.get('opening_intents',{}).get('intents',[]),
+            nav=quantity(plan['account_nav']), exposure=exposure, shadow_equity=equity)
     legs = []
     for sid in sorted(set(targets) | set(current or {})):
         if not sid.strip():
             raise ValueError('planned security identity is empty')
         target = targets.get(sid,Decimal(0))
         held = current.get(sid,Decimal(0)) if current is not None else None
-        delta = target-held if held is not None else None
+        from sentinel.execution.numeric import exact_decimal
+        delta = exact_decimal(Fraction(target)-Fraction(held)) if held is not None else None
         dollars = openings.get(sid)
+        notional, reason = None, None
         action = ('UNAVAILABLE' if held is None or dollars and held != 0 else 'BUY' if dollars or delta > 0
                   else 'SELL' if delta < 0 else 'HOLD')
+        if fractional_inputs is not None:
+            dollars = None
+            if held is None or sid in blocked:
+                action, reason = 'UNAVAILABLE', 'REFERENCE_UNAVAILABLE'
+            elif sid in purchases:
+                from sentinel.execution.fractional_sizing import cents
+                from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
+                dollars = quantity(purchases[sid]['budget'])
+                amount = cents(max(Fraction(0), Fraction(dollars)-Fraction(MARKET_BUY_HEADROOM)))
+                delta = None
+                if amount < 1:
+                    action, reason = 'SKIP', 'BUDGET_BELOW_MINIMUM'
+                else:
+                    action, notional = 'BUY', amount
+            elif sid in openings:
+                action, reason, dollars, delta = 'SKIP', 'BUDGET_BELOW_MINIMUM', Decimal(0), None
+            else:
+                action = 'SELL' if delta < 0 else 'BUY' if delta > 0 else 'HOLD'
         legs.append(PlannedLeg(security_id=sid,ticker=tickers.get(sid,sid),
             current_quantity=held,target_quantity=target,change_quantity=None if dollars else delta,
-            opening_dollars=dollars,action=action))
+            opening_dollars=dollars,purchase_notional=notional,action=action,reason=reason))
     return PlanPreview(**{k:plan[k] for k in ('cycle_id','plan_id','decision_session',
         'effective_session','execute_at','created_at')},observation_at=observation_at,legs=legs,
-        execution_open_at=plan.get('execution_open_at'))
+        execution_open_at=plan.get('execution_open_at'),buy_policy=buy_policy)
+
+
+def sizing_display_inputs(authority):
+    """Small saved-policy projection, safe for the bounded display memo."""
+    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MARKET_MODE, MarketBuyPolicy
+    policy = authority.get('market_buy_policy_sha256')
+    if policy is None:
+        return {}
+    if policy == MarketBuyPolicy().fingerprint():
+        return dict(buy_policy=MARKET_MODE)
+    if policy != MarketBuyPolicy(fractional=True).fingerprint():
+        raise ValueError('saved plan BUY policy is unknown')
+    return dict(buy_policy=FRACTIONAL_MODE, fractional_inputs=dict(
+        marks=authority['marks'], held_share_targets={
+            'targets':authority['held_share_targets']['targets'],
+            'purchase_budgets':authority['held_share_targets'].get('purchase_budgets',{})},
+        shadow_equity=authority['shadow_state']['last_evidence']['wealth_core']['estimated_equity']))
 
 
 def project_original_intent(plan, authority):
@@ -175,7 +235,10 @@ def project_original_intent(plan, authority):
     if any(positions.get(item['security_id'],Decimal(0)) != 0
            for item in selected.get('opening_intents',{}).get('intents',[])):
         raise ValueError('original plan has contradictory opening intents')
-    return _project(plan=selected,positions=positions,observation_at=observed,tickers=tickers)
+    display = authority.get('sizing_display')
+    if display is None:
+        display = sizing_display_inputs(authority)
+    return _project(plan=selected,positions=positions,observation_at=observed,tickers=tickers,**display)
 
 
 def still_current(conn, *, cycle_id, plan_id):
@@ -201,7 +264,8 @@ def read(conn, *, unnotified=False, authority_loader=None):
     with conn.cursor() as cur:
         cur.execute("""SELECT c.cycle_id,p.plan_id,p.decision_session,p.effective_session,
             c.execute_at,p.created_at,p.target_basket,p.broker,p.broker_account_id,
-            clock_timestamp(),c.plan_fingerprint,c.execution_open_at FROM sentinel_automation_cycles c
+            clock_timestamp(),c.plan_fingerprint,c.execution_open_at,p.account_nav,p.target_exposure
+            FROM sentinel_automation_cycles c
             JOIN sentinel_automation_control a ON a.id=1 AND a.enabled AND NOT a.kill_switch_engaged
               AND a.generation=c.control_generation AND a.deployment_id=c.deployment_id
               AND a.broker=c.broker AND a.broker_account_id=c.broker_account_id
@@ -222,7 +286,8 @@ def read(conn, *, unnotified=False, authority_loader=None):
             return None
         row = values[0]
         plan = dict(zip(('cycle_id','plan_id','decision_session','effective_session','execute_at',
-                         'created_at','target_basket','broker','account','now','plan_fingerprint','execution_open_at'),row,strict=True))
+                         'created_at','target_basket','broker','account','now','plan_fingerprint','execution_open_at',
+                         'account_nav','target_exposure'),row,strict=True))
         cur.execute("SELECT o.positions,o.observed_at FROM sentinel_observations o "
             "JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq "
             "WHERE p.broker=%s AND p.broker_account_id=%s AND o.completeness='COMPLETE' "

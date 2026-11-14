@@ -323,6 +323,48 @@ def test_cash_retirement_cli_passes_only_the_explicit_request(monkeypatch, capsy
     assert json.loads(capsys.readouterr().out) == {'prepared': True}
 
 
+def _policy_replacement_args():
+    return cli.build_parser().parse_args([
+        'prepare-paper-plan', '--through', '2026-11-13', '--expect-account', 'paper-123',
+        '--reviewed-informational-dual', '--replace-unsent-plan', 'sentinel-'+'a'*64,
+        '--replace-unsent-plan-fingerprint', 'a'*64,
+        '--policy-replacement-actor', 'operator', '--policy-replacement-reason', 'Fractional policy',
+        '--confirm-unsent-policy-replacement'])
+
+
+def test_policy_replacement_cli_forwards_exact_confirmed_request(monkeypatch, capsys):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'dual')
+    monkeypatch.setattr('sentinel.automation_runtime.shadow_config_from_env',
+        lambda: (True, 'reviewed-shadow', Decimal('100000')))
+    monkeypatch.setattr(paper, 'build_security_resolver', lambda *_: object())
+    monkeypatch.setattr(paper_cli, 'build_execution_broker', lambda *_a, **_k: object())
+    received = []
+    async def prepare(**kwargs):
+        received.append(kwargs)
+        return SimpleNamespace(to_dict=lambda: {'prepared': True})
+    monkeypatch.setattr(paper, 'prepare_paper_plan', prepare)
+    assert asyncio.run(paper_cli._prepare_paper_plan(_config(), _policy_replacement_args())) == cli.EXIT_OK
+    from sentinel.paper.policy_replacement import Request
+    assert Request.model_validate(received[0]['unsent_policy_replacement']).plan_id == 'sentinel-'+'a'*64
+    assert received[0]['conn'] is conn and conn.closed
+
+
+@pytest.mark.parametrize('field,value', [
+    ('reviewed_informational_dual', False), ('confirm_unsent_policy_replacement', False),
+    ('replace_unsent_plan_fingerprint', None), ('policy_replacement_reason', ' '),
+])
+def test_incomplete_policy_replacement_refuses_before_broker(monkeypatch, field, value):
+    conn = _wire_database(monkeypatch, [])
+    monkeypatch.setattr(paper_cli, 'build_execution_broker',
+        lambda *_a, **_k: pytest.fail('incomplete replacement constructed a broker'))
+    args = _policy_replacement_args()
+    setattr(args, field, value)
+    assert asyncio.run(paper_cli._prepare_paper_plan(_config(), args)) != cli.EXIT_OK
+    assert conn.closed
+
+
 @pytest.mark.parametrize('field,value', [
     ('reviewed_informational_dual', False), ('confirm_prospective_cash_retirement', False),
     ('retirement_native_dividend_id', None), ('retire_legacy_cash_plan_fingerprint', None),

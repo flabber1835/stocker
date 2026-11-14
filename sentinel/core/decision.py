@@ -589,6 +589,7 @@ def build_execution_plan(
         defensive_security: str | None = DEFENSIVE_SECURITY_ID,
         rollout_state: RolloutState | None = None,
         retained_targets: Mapping[str, Decimal] | None = None,
+        fractional_sizing: bool | None = None,
         ) -> ProductionDecision:
     """Convert the durable current shadow/controller decision into one plan."""
 
@@ -647,8 +648,12 @@ def build_execution_plan(
     weights = _shadow_notionals(canonical, target, current_marks)
 
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
-    market_policy = MarketBuyPolicy.from_env()
-    lot = Decimal("0.000000001") if market_policy is not None and market_policy.fractional else Decimal(1)
+    if fractional_sizing is None:
+        market_policy = MarketBuyPolicy.from_env()
+        fractional_sizing = market_policy is not None and market_policy.fractional
+    if type(fractional_sizing) is not bool:
+        raise ValueError("account sizing policy must select fractional shares explicitly")
+    lot = Decimal("0.000000001") if fractional_sizing else Decimal(1)
     sized = project(
         shadow_weights=weights, exposure=exposure, nav=nav,
         marks=current_marks, defensive_security=defensive_security,

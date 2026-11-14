@@ -1151,6 +1151,13 @@ this renewal. The complete guards and atomic replacement contract are in
 [retained-state activation](retained-state-activation.md#same-session-authority-renewal).
 Execution continues to reject the old rollout stamp.
 
+The explicit [unsent fractional-policy replacement](fractional-paper-execution.md#replacing-an-already-saved-next-session-plan)
+adds an attended, pre-open policy transition to this renewal. It requires the
+exact predecessor confirmation, disabled/killed automation, complete unsent
+history, fresh reconciliation and an atomic authenticated replacement receipt.
+Historical sizing re-derives with its saved policy; ordinary retry and execution
+never gain permission to use a different policy on an existing plan.
+
 When a new session produces a new decision before the previous plan has
 completed, **history is not mutated**. A new plan is created and may supersede
 the old one's *unsent* commands. Commands already working at the broker must be

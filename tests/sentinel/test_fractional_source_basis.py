@@ -109,6 +109,7 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
         'execution/order_amount.py', 'execution/fractional_sizing.py',
         'execution/fractional_progress.py', 'execution/fractional_orders.py',
         'fractional_execution_source_basis.py',
+        'paper/policy_replacement.py',
     }
     edited = {**actual, 'execution/fractional_progress.py': 'f' * 64}
     assert runtime_basis.predecessor_view(edited, previous=prior) is edited

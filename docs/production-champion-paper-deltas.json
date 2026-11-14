@@ -627,7 +627,15 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "generated_ast_sha256": "59b9b25784a1b528d9024fc38bb93f9e574d24e069409f747223f3a2e9a6fdcc",
+      "fractional_replacement_predecessor_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "fractional_replacement_design": "docs/fractional-paper-execution.md#replacing-an-already-saved-next-session-plan",
+      "fractional_replacement_acceptance": [
+        "tests/sentinel/test_fractional_plan_replacement.py",
+        "tests/sentinel/test_paper_cli.py",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "fractional_replacement_reason": "Explicit attended pre-open conversion of a wholly unsent quantity plan under renewed same-mode PAPER authority. Retain the original holding basis and immutable predecessor, reconcile before adoption, and commit a signed replacement receipt atomically. Ordinary retry and historical transport policy checks remain strict.",
       "market_buy_acceptance": [
         "tests/sentinel/test_dual_plan_scalar_proof.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"

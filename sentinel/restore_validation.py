@@ -178,6 +178,8 @@ def validate_restored_database(conn) -> dict:
     from sentinel.paper.model import PaperActivationRefused
     try:
         verify_retirements(conn)
+        from sentinel.paper.policy_replacement import verify_receipts
+        verify_receipts(conn)
     except PaperActivationRefused as exc:
         raise RestoreValidationRefused(str(exc)) from exc
 

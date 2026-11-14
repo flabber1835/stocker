@@ -9,7 +9,7 @@ import re
 BASE_REVISION = "aed1a26c335281169c6d8067b1ce2e7de1632053"
 MODULE = "sentinel.execution.reconcile"
 BEFORE = "0a49d779f60888ff1d0e79d532f857e528789b7c17feeb8ac7816cba231693d9"
-PROFILE_SHA256 = '10729fac8e3c42b2665d599822d8265ad6305dfc4027b36c79811be486671556'
+PROFILE_SHA256 = '13ac7f8f52e89829f643a7bdbe489d764138e8d3c7abbeeb1d8971f982ee5be6'
 PROFILE = Path(__file__).with_name("fractional-execution-source-transition.json")
 
 
@@ -60,9 +60,14 @@ def decision_predecessor(raw):
     if _sha(raw) != pair["after"]:
         return raw
     changes = (
+        (b'        fractional_sizing: bool | None = None,\n', b''),
         (b'    from sentinel.execution.market_buy_policy import MarketBuyPolicy\n'
-         b'    market_policy = MarketBuyPolicy.from_env()\n'
-         b'    lot = Decimal("0.000000001") if market_policy is not None and market_policy.fractional else Decimal(1)\n', b''),
+         b'    if fractional_sizing is None:\n'
+         b'        market_policy = MarketBuyPolicy.from_env()\n'
+         b'        fractional_sizing = market_policy is not None and market_policy.fractional\n'
+         b'    if type(fractional_sizing) is not bool:\n'
+         b'        raise ValueError("account sizing policy must select fractional shares explicitly")\n'
+         b'    lot = Decimal("0.000000001") if fractional_sizing else Decimal(1)\n', b''),
         (b'defensive_weight=defensive_weight, weight_denominator=shadow_equity, lot=lot)',
          b'defensive_weight=defensive_weight, weight_denominator=shadow_equity)'),
         (b'defensive_security=defensive_security, lot=lot)', b'defensive_security=defensive_security)'),

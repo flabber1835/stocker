@@ -79,7 +79,13 @@ def _outcome_html(outcome: PaperOrderOutcome) -> str:
 
 def _leg_html(leg, outcomes) -> str:
     if leg.action == 'UNAVAILABLE':
-        action, quantity = 'Change unavailable', 'Recorded shares unavailable'
+        action, quantity = 'Change unavailable', (
+            'Sizing evidence unavailable' if leg.reason == 'REFERENCE_UNAVAILABLE'
+            else 'Recorded shares unavailable')
+    elif leg.action == 'SKIP':
+        action, quantity = 'Skip', 'Budget below minimum order'
+    elif leg.purchase_notional is not None:
+        action, quantity = 'Buy', f'${leg.purchase_notional:,.2f} market order'
     elif leg.opening_dollars is not None:
         action, quantity = 'Buy', f'${leg.opening_dollars:,.2f} budget'
     elif leg.action in {'BUY', 'SELL'}:
@@ -88,7 +94,7 @@ def _leg_html(leg, outcomes) -> str:
         quantity = _quantity(amount)+' '+('share' if amount == 1 else 'shares')
     else:
         action, quantity = 'Keep', _quantity(leg.target_quantity)+' shares'
-    target = ('$'+f'{leg.opening_dollars:,.2f}'+' budget · sized at execution'
+    target = ('$'+f'{leg.opening_dollars:,.2f}'+' budget · shares determined at execution'
               if leg.opening_dollars is not None else _quantity(leg.target_quantity)+' target')
     prior = ''.join(_outcome_html(outcome) for outcome in outcomes
                     if outcome.security_id == leg.security_id and outcome.side == leg.action)
@@ -141,6 +147,11 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
         +_esc(_quantity(leg.current_quantity))+'</td><td>'
         +_esc(('$'+f'{leg.opening_dollars:,.2f}'+' budget') if leg.opening_dollars is not None
                else _quantity(leg.target_quantity))+'</td></tr>' for leg in plan.legs)
+    note = ('Dollar purchases assume fractional eligibility; otherwise whole-share market orders apply. '
+            'Amounts reserve $1 per purchase. Eligibility and funding are checked at execution.'
+            if plan.buy_policy == 'FRACTIONAL_MARKET_DAY_V1' else
+            'Market orders and funding are checked at execution.' if plan.buy_policy == 'MARKET_DAY_V1'
+            else 'Buy limits and funding are checked at execution.')
     return (
         '<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
         '<div class="overview-heading"><div>'
@@ -150,8 +161,7 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
         +_esc(opened.isoformat() if opened is not None else '')+'">'+_esc(countdown)+'</strong></div>'
         +('' if current else '<p class="overview-retained">Last known saved plan · status refreshing.</p>')
         +'<ul class="plan-legs">'+changes+'</ul>'
-        '<p class="overview-note">Saved proposals, not submitted orders or fills. Buy limits and funding '
-        'are checked at execution.</p>'
+        '<p class="overview-note">Saved proposals, not submitted orders or fills. '+_esc(note)+'</p>'
         +_stamp(plan.observation_at, label='Recorded shares:')
         +'<details class="overview-disclosure" data-detail-key="overview-all-targets"><summary>All saved targets <span>'
         +str(len(plan.legs))+'</span></summary><div class="detail-body">'

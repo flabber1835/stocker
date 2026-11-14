@@ -20,11 +20,20 @@ def cents(value):
 
 def _allocate(*, raw_targets, retained, baseline, carry, references, intents,
               nav, exposure, shadow_equity):
-    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
-    desired = {**raw_targets, **retained}
-    holdings = {sid: Decimal(qty) for sid, qty in baseline["holdings"].items()}
     prices = {sid: Fraction(price) / Fraction(references.unit_factors[sid])
               for sid, price in references.prices.items()}
+    return allocate(raw_targets=raw_targets, retained=retained, baseline=baseline,
+        carry=carry, prices=prices, intents=intents, nav=nav, exposure=exposure,
+        shadow_equity=shadow_equity)
+
+
+def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
+             nav, exposure, shadow_equity):
+    """Pure allocation in one share/price domain, shared with the dated preview."""
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+    prices = {sid: Fraction(price) for sid, price in prices.items()}
+    desired = {**raw_targets, **retained}
+    holdings = {sid: Decimal(qty) for sid, qty in baseline["holdings"].items()}
     opening = {item["security_id"] for item in intents}
     core_budget = Fraction(nav) * Fraction(exposure)
     missing = [sid for sid, qty in desired.items() if qty > 0 and sid not in opening

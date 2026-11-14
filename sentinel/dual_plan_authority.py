@@ -629,6 +629,7 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
     tickers = {str(key): _text(value, where=f"ticker {key}")
                for key, value in tickers_raw.items()}
     try:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
         retained_targets = None
         if authority["schema"] in (HELD_SCHEMA, MARKET_SCHEMA):
             from sentinel.execution import held_targets
@@ -644,7 +645,9 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
             marks=marks, tickers=tickers,
             decision_session=plan.decision_session,
             effective_session=plan.effective_session,
-            rollout_state=rollout_state, retained_targets=retained_targets)
+            rollout_state=rollout_state, retained_targets=retained_targets,
+            fractional_sizing=(authority.get("market_buy_policy_sha256")
+                               == MarketBuyPolicy(fractional=True).fingerprint()))
     except DualPlanAuthorityRefused:
         raise
     except Exception as exc:  # noqa: BLE001 - normalize adapter failure

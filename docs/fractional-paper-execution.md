@@ -103,6 +103,76 @@ successor may spend only its evidenced remainder with renewed cost headroom and
 current authority inside the ordinary window. Do not determine reusable dollars
 from an inadequately precise average fill price.
 
+## Replacing an already saved next-session plan
+
+Owner follow-up, recorded before implementation on November 13: provide an
+attended replacement of the unsent Monday plan when selecting the fractional
+policy. Installing the software alone neither selects the policy nor replaces
+saved intent. The normal same-policy retry remains immutable.
+
+Extend `prepare-paper-plan --reviewed-informational-dual` with an explicit
+replacement request naming the predecessor plan ID and fingerprint, actor,
+reason and confirmation. Only a transition from a retained quantity policy to
+`FRACTIONAL_MARKET_DAY_V1` is supported. Require a fresh, monotonic same-mode
+controller certificate renewal, the exact unchanged decision/shadow record and
+publication, backed owner PAPER, disabled/killed automation without a live
+leader, and a time before the effective session's regular open. A certificate
+renewal gives the successor a distinct deterministic plan identity even when
+quantities and cash happen to be identical. No identity salt or historical plan
+edit is introduced.
+
+Authenticate and re-derive the predecessor using its saved sizing policy,
+independently of the newly selected policy. Require wholly unsent command rows
+and history, with no fills, recovered identities or unresolved account commands,
+both before broker reads and after complete account/order/cash reconciliation.
+Do not use this path to resolve a failed, canceled, filled or UNKNOWN attempt,
+or unexplained cash. Preserve all existing financial and backup gates.
+
+Adopt the new account-sized plan, its original sizing/cash evidence, supersession
+link and authenticated replacement receipt in one transaction. The receipt
+binds both plans, both policies, the unchanged shadow record, renewed certificate,
+control generation and exact request. An identical attended retry validates and
+returns that successor; it cannot size again or consume the request for another
+plan. Old plan economics, command rows and their history remain intact. Ordinary
+automation must bind the new configuration and acquire the new plan through its
+existing fresh-generation scheduling path; replacement does not enable trading.
+
+The next-plan display reads the saved policy, never the process environment.
+For fractional plans it uses the shared allocation calculation over the saved
+decision valuation, holdings and retained share/budget basis, and shows proposed
+USD market purchases after the existing fee headroom. These are dated estimates:
+current asset eligibility, share-unit actions, cash and execution authority are
+checked at submission. Do not invent an asset's fractional eligibility or a fill
+quantity. Explicitly name the whole-share market fallback. Show exact quantity
+reductions and unchanged holds; keep unavailable inputs visible. Update both
+overview and detailed previews, including their bounded memo. No quote lookup,
+broker write or execution projection persistence belongs in display rendering.
+
+Capture the exact predecessor ID and fingerprint with `current-paper-plan`
+before changing its financial authority or selected policy. After the qualified
+software installation, keep automation disabled and killed. Select the new
+market policy in the reviewed configuration, clear incompatible protected-cap
+or debug-window selections, and obtain the fresh PAPER certificate renewal bound
+to that configuration. Then perform the attended replacement. Its supported
+preparation arguments are:
+
+```text
+prepare-paper-plan --through <decision-close> --expect-account <paper-account>
+  --reviewed-informational-dual
+  --replace-unsent-plan <old-plan-id>
+  --replace-unsent-plan-fingerprint <old-plan-fingerprint>
+  --policy-replacement-actor <actor>
+  --policy-replacement-reason <reason>
+  --confirm-unsent-policy-replacement
+```
+
+Use the ordinary qualified CLI/runtime entry point. Verify the returned current
+plan and retained replacement receipt, then complete the separately authorized
+fresh automation binding and release. The ordinary next-plan reader selects the
+new generation's future plan; it never relabels the old cycle. If any requirement
+refuses, leave the plan history intact and diagnose that evidence. These flags
+are not an account reset, a certificate issuer, or permission to submit orders.
+
 ## Current asset eligibility
 
 Permanent security identity and native asset identity stay separate from current
