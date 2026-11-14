@@ -447,17 +447,18 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
         _fail('BACKUP_TRANSPORT_REQUIRES_CONTINUITY_POLICY')
     buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
     buy_cap = str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip()
+    market_policies = {"MARKET_DAY_V1", "FRACTIONAL_MARKET_DAY_V1"}
     if local_mode or local_account or backup_policy:
         if (not local_mode or re.fullmatch(r"PA[A-Za-z0-9]+", local_account) is None):
             _fail("LOCAL_PAPER_ACCOUNT_MODE_REQUIRED")
         if env.get("ALPACA_BASE_URL", PAPER_URL) != PAPER_URL:
             _fail("PAPER_ENDPOINT_REQUIRED", key="ALPACA_BASE_URL")
-        if (buy_policy != "MARKET_DAY_V1"
+        if (buy_policy not in market_policies
                 and (buy_policy != "PROTECTED_LIMIT_DAY_V1" or buy_cap != "100")):
             _fail("LOCAL_PAPER_PROTECTED_POLICY_REQUIRED")
-    if buy_policy not in {"", "PROTECTED_LIMIT_DAY_V1", "MARKET_DAY_V1"}:
+    if buy_policy not in market_policies | {"", "PROTECTED_LIMIT_DAY_V1"}:
         _fail("INVALID_PAPER_BUY_POLICY", key="SENTINEL_PAPER_BUY_POLICY")
-    if buy_policy == "MARKET_DAY_V1":
+    if buy_policy in market_policies:
         if local_mode != "OWNER_AUTHORIZED_FUNCTION_FIRST_V1" or backup_policy != "REQUIRED_V1":
             _fail("MARKET_DAY_REQUIRES_BACKED_OWNER_PAPER", key="SENTINEL_PAPER_BUY_POLICY")
         if buy_cap:

@@ -209,6 +209,11 @@ signed authority renewal. Reject combinations with other recovery requests.
 The coordinator must stop for operator review if the named replacement has
 already completed under a different authority.
 
+Host environment validation admits the fractional selection under the same
+owner PAPER and required backup prerequisites as the whole-share market policy.
+The protected cap and debug window must be absent before installation or
+activation can use either market policy.
+
 ## Current asset eligibility
 
 Permanent security identity and native asset identity stay separate from current
