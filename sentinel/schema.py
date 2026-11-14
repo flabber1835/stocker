@@ -89,6 +89,33 @@ _ORDER_TERMS_TARGET_CATALOG_SHA256 = {
     "LEGACY": "2d5bf95afc166369f97fe4fd4ce1c5572b0517ab0a8b2e3e450da43e21d5ee21",
 }
 
+_ORDER_AMOUNT_VERSION = 3
+_ORDER_AMOUNT_NAME = "exclusive-order-amount-v3"
+_ORDER_AMOUNT_SHA256 = hashlib.sha256(
+    b"sentinel.behavioral-schema/3;append-v2-ledger;exact-v2-core-and-stage4;"
+    b"fenced-no-live-current-leader;nullable-quantity-xor-notional;"
+    b"positive-finite-cent-notional-buy-market-day;preserve-historical-economics"
+).hexdigest()
+_ORDER_AMOUNT_DDL = (
+    "ALTER TABLE sentinel_commands ALTER COLUMN quantity DROP NOT NULL",
+    "ALTER TABLE sentinel_commands ADD COLUMN notional NUMERIC",
+    """ALTER TABLE sentinel_commands ADD CONSTRAINT sentinel_command_amount_ck CHECK ((
+        (quantity IS NOT NULL AND notional IS NULL AND quantity>0
+            AND quantity NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+            AND filled_quantity<=quantity)
+        OR (quantity IS NULL AND notional IS NOT NULL AND notional>0
+            AND notional NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+            AND notional=trunc(notional,2) AND side='BUY'
+            AND order_terms->>'order_type'='market')
+        ) IS TRUE AND filled_quantity>=0
+            AND filled_quantity NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric))""",
+)
+_ORDER_AMOUNT_TARGET_CATALOG_SHA256 = {
+    "NEW": "d1ca40596ded644321a01d371caa093b47eb59cd5e69cba5fad481b5caa30cb2",
+    "PR84_HEAD_BRIDGE": "d1ca40596ded644321a01d371caa093b47eb59cd5e69cba5fad481b5caa30cb2",
+    "LEGACY": "7751c5e5e4a30336df4bc979fdd6e758034851236da1fa0825e4b75d6534e95a",
+}
+
 _INITIAL_ROLLOUT_STATE = """INSERT INTO sentinel_rollout_state
     (id,mode,version) VALUES (1,'PINNED_1_00',1)"""
 
@@ -1624,8 +1651,10 @@ def _expected_current_columns(*, ledger: bool, version: int = 1) -> dict[str, fr
     expected = dict(_PRE_ROLLOUT_COLUMNS)
     expected["sentinel_commands"] = (
         expected["sentinel_commands"] | _COMMAND_AUTHORITY_COLUMNS)
-    if version == _ORDER_TERMS_VERSION:
+    if version >= _ORDER_TERMS_VERSION:
         expected["sentinel_commands"] |= {"order_terms"}
+    if version >= _ORDER_AMOUNT_VERSION:
+        expected["sentinel_commands"] |= {"notional"}
     expected["sentinel_execution_plans"] = (
         expected["sentinel_execution_plans"] | _ROLLOUT_PLAN_COLUMNS)
     expected.update(_ROLLOUT_COLUMNS)
@@ -1964,7 +1993,7 @@ def _read_and_validate_ledger(cur) -> tuple[str, int]:
         " FROM public.sentinel_behavioral_schema_migrations"
         " ORDER BY version")
     rows = cur.fetchall()
-    if [int(row[0]) for row in rows] not in ([1], [1, 2]):
+    if [int(row[0]) for row in rows] not in ([1], [1, 2], [1, 2, 3]):
         raise _operator_refusal(
             "behavioral migration authority is empty, gapped, future, or "
             f"duplicated (observed versions {[row[0] for row in rows]})")
@@ -1983,12 +2012,18 @@ def _read_and_validate_ledger(cur) -> tuple[str, int]:
             or (kind != "PR84_HEAD_BRIDGE" and source is not None)):
         raise _operator_refusal(
             "behavioral migration authority has an invalid source fingerprint")
-    if len(rows) == 2:
+    if len(rows) >= 2:
         version2, name2, sha2, kind2, source2 = rows[1]
         if (int(version2) != _ORDER_TERMS_VERSION
                 or name2 != _ORDER_TERMS_NAME or sha2 != _ORDER_TERMS_SHA256
                 or kind2 != kind or source2 != source_oid):
             raise _operator_refusal("behavioral v2 migration name, checksum or lineage is unknown")
+    if len(rows) == 3:
+        version3, name3, sha3, kind3, source3 = rows[2]
+        if (int(version3) != _ORDER_AMOUNT_VERSION
+                or name3 != _ORDER_AMOUNT_NAME or sha3 != _ORDER_AMOUNT_SHA256
+                or kind3 != kind or source3 != source_oid):
+            raise _operator_refusal("behavioral v3 migration name, checksum or lineage is unknown")
     return kind, int(rows[-1][0])
 
 
@@ -2075,17 +2110,20 @@ def _validate_ledgered(cur, catalog, *, allow_previous: bool = False) -> int:
         columns, constraints, indexes, bootstrap_kind=bootstrap_kind)
     catalog_sha = _semantic_catalog_sha256(
         relations, columns, constraints, indexes, triggers, _CURRENT_TABLES)
-    targets = (_TARGET_CATALOG_SHA256 if version == 1
-               else _ORDER_TERMS_TARGET_CATALOG_SHA256)
+    targets = {1: _TARGET_CATALOG_SHA256, 2: _ORDER_TERMS_TARGET_CATALOG_SHA256,
+               3: _ORDER_AMOUNT_TARGET_CATALOG_SHA256}[version]
     if catalog_sha != targets[bootstrap_kind]:
         raise _operator_refusal(
             "migration ledger and complete behavioral catalog fingerprint "
             f"disagree (observed {catalog_sha})")
     _validate_rollout_history(cur)
-    if version == _ORDER_TERMS_VERSION:
+    if version >= _ORDER_TERMS_VERSION:
         _validate_order_terms_catalog(columns, constraints)
+    if version == _ORDER_AMOUNT_VERSION:
+        _require_column(columns, "sentinel_commands", "quantity", "numeric", not_null=False)
+        _require_column(columns, "sentinel_commands", "notional", "numeric", not_null=False)
     elif not allow_previous:
-        raise _operator_refusal("behavioral v2 order-terms migration is required; runtime never migrates")
+        raise _operator_refusal("behavioral v3 order-amount migration is required; runtime never migrates")
     return version
 
 
@@ -2139,8 +2177,38 @@ def _finish_behavioral_version(cur) -> None:
     if version == 1:
         _migrate_order_terms(cur, catalog)
         catalog = _read_runtime_catalog(cur)
+        version = 2
+    if version == 2:
+        _migrate_order_amount(cur, catalog)
+        catalog = _read_runtime_catalog(cur)
     _validate_ledgered(cur, catalog)
     _validate_stage4_runtime(cur, catalog)
+
+
+def _migrate_order_amount(cur, catalog) -> None:
+    if _validate_ledgered(cur, catalog, allow_previous=True) != 2:
+        raise _operator_refusal("order-amount migration requires the exact v2 predecessor")
+    _validate_stage4_runtime(cur, catalog)
+    cur.execute(
+        "SELECT c.enabled,c.kill_switch_engaged,c.generation,"
+        " l.control_generation,l.holder_id,l.expires_at>clock_timestamp() "
+        "FROM sentinel_automation_control c JOIN sentinel_automation_lease l "
+        "ON l.id=c.id WHERE c.id=1 FOR UPDATE OF c,l")
+    row = cur.fetchone()
+    if row is None:
+        raise _operator_refusal("order-amount migration requires control and lease singletons")
+    enabled, killed, generation, lease_generation, holder, live = row
+    if ((enabled and not killed)
+            or (holder is not None and live and lease_generation == generation)):
+        raise _operator_refusal("order-amount migration requires fenced automation and no live current leader")
+    for statement in _ORDER_AMOUNT_DDL:
+        cur.execute(statement)
+    cur.execute(
+        "INSERT INTO sentinel_behavioral_schema_migrations"
+        " (version,name,migration_sha256,bootstrap_kind,source_git_oid)"
+        " SELECT %s,%s,%s,bootstrap_kind,source_git_oid"
+        " FROM sentinel_behavioral_schema_migrations WHERE version=1",
+        (_ORDER_AMOUNT_VERSION, _ORDER_AMOUNT_NAME, _ORDER_AMOUNT_SHA256))
 
 
 def _validate_stage4_runtime(cur, catalog, *, expected_catalog=None) -> None:

@@ -137,8 +137,9 @@ def _post_projection_action_multipliers(
         actions) -> dict[str, Decimal]:
     """Age only shares that survived the immutable execution projection."""
     result = {}
+    purchases = (projection.opening_sizing or {}).get("purchases", {})
     for security_id, target in sorted(projection.target_basket.items()):
-        if target == 0:
+        if target == 0 and security_id not in purchases:
             continue
         multiplier = actions(
             security_id, since=projection.through_session)
@@ -214,11 +215,16 @@ def _informational_active_symbols(
 def _plan_deltas(
         *, target_basket: Mapping[str, Decimal],
         observation: BrokerObservation,
-        minimum_quantity_increment: Decimal):
+        minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None):
     identities = set(target_basket)
     identities.update(observation.positions_by_security())
     identities.update(
         order.instrument.security_id for order in observation.orders)
+    from sentinel.execution import fractional_progress
+    if fractional_progress.is_fractional(projection):
+        return tuple(fractional_progress.delta(conn, projection=projection, deployment=deployment,
+            security_id=sid, observation=observation, min_increment=minimum_quantity_increment)
+            for sid in sorted(identities))
     return tuple(
         execution_commands.compute_delta(
             security_id=security_id,
@@ -367,7 +373,20 @@ def _target_projection_or_refuse(
         from sentinel.execution.market_buy_policy import MarketBuyPolicy
         market_policy = MarketBuyPolicy.from_env()
         policy = protected_limits.ProtectedLimitPolicy.from_env()
-        if market_policy is not None:
+        if market_policy is not None and market_policy.fractional:
+            from sentinel.execution import fractional_progress, fractional_sizing, held_targets
+            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
+            stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+            if stored is not None:
+                fractional_sizing.validate_projection(stored, require_current_policy=True, plan=plan)
+            basis = fractional_progress.baseline(conn, deployment=binding.identity, plan=plan,
+                actions=actions, saved=None if stored is None else stored.opening_sizing["baseline"])
+            references = protected_limits.build_references(conn, plan=plan, projection=projected)
+            projected = fractional_sizing.resolve(state, plan, projected, references, market_policy,
+                baseline=basis, retained_targets=retained,
+                carried_budgets=held_targets.plan_purchase_budgets(conn, plan.plan_id),
+                retry_openings=retries)
+        elif market_policy is not None:
             from sentinel.execution import held_targets
             retained = held_targets.plan_targets(conn, plan=plan, state=state)
             if opening_prices is None and plan.opening_intents and plan.target_exposure > 0:
@@ -379,11 +398,12 @@ def _target_projection_or_refuse(
                 state, plan, projected, opening_prices, market_policy, retained_targets=retained)
         elif policy is not None:
             from sentinel.execution import held_targets
-            retained = held_targets.plan_targets(conn, plan=plan, state=state)
+            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
             references = protected_limits.build_references(
                 conn, plan=plan, projection=projected, policy=policy)
             projected = protected_limits.resolve_protected(
-                state, plan, projected, references, policy, retained_targets=retained)
+                state, plan, projected, references, policy, retained_targets=retained,
+                **({"retry_openings": retries} if retries else {}))
         elif plan.opening_intents:
             from sentinel.execution import opening_sizing
             from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable
@@ -431,6 +451,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     opening_prices = None
     protected_references = None
     protected_projection = None
+    fractional_projection = None
     if not preparation:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
@@ -443,6 +464,12 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                     raise target_reprojection.TargetProjectionRefused(
                         "market instrument map differs from its retained projection")
                 opening_prices = market_buy_sizing.original_prices(projection)
+                from sentinel.execution.fractional_progress import is_fractional
+                if is_fractional(projection):
+                    fractional_projection = projection
+                    protected_references = protected_limits.PriorCloseReferences.from_dict(
+                        projection.opening_sizing["references"])
+                    symbols.update(protected_references.symbols)
             except target_reprojection.TargetProjectionRefused as exc:
                 raise PaperActivationRefused(str(exc)) from exc
             if opening_prices is not None:
@@ -492,10 +519,21 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     }
     if preparation and plan.target_exposure != 0:
         needed.update(item.security_id for item in plan.opening_intents)
+    dollar_increases = set()
+    if fractional_projection is not None:
+        from sentinel.execution.identity import DeploymentIdentity
+        identity = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
+        deltas = _plan_deltas(target_basket=desired, observation=observation,
+            minimum_quantity_increment=broker.capabilities.minimum_quantity_increment,
+            conn=conn, deployment=identity, projection=fractional_projection)
+        dollar_increases = {d.security_id for d in deltas if d.is_increase
+                            and d.classification is execution_commands.DeltaClass.ACTIONABLE}
+        needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE
+                  and d.security_id not in restricted_security_ids}
     unresolved = []
     for security_id in sorted(needed):
         current = instruments.get(security_id)
-        increasing = (desired.get(security_id, Decimal(0))
+        increasing = security_id in dollar_increases or (desired.get(security_id, Decimal(0))
                       > effective_current[security_id])
         if increasing and protected_projection is not None:
             try:

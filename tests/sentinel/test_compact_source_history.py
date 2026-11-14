@@ -81,9 +81,9 @@ def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(
     monkeypatch.setattr(basis, '_source_map', validated)
     monkeypatch.setattr(basis, '_validated_closure', hashed)
     profile = basis._profile()
-    assert maps == [len(wire['base_files']), len(wire['candidate_files']),
+    assert maps == [len(wire['base_files']), len(wire['candidate_files']), len(wire['retained_anchor_files']),
                     *(len(record['overrides']) for record in wire['retained_predecessors'].values())]
-    assert len(closures) == 1+len(profile['retained_predecessors'])
+    assert len(closures) == 2+len(profile['retained_predecessors'])
 
 
 def repin_wire(tmp_path, monkeypatch, value):
@@ -100,7 +100,7 @@ def test_repinning_compact_wire_cannot_admit_ambiguous_or_foreign_maps(tmp_path,
     value = json.loads(basis.PROFILE.read_bytes())
     revision = basis.RETAINED_REVISION
     record = value['retained_predecessors'][revision]
-    candidate = value['candidate_files']
+    candidate = value['retained_anchor_files']
     if fault == 'redundant':
         name = next(name for name in candidate if name not in record['overrides'] and name not in record['removed'])
         record['overrides'][name] = candidate[name]
@@ -132,7 +132,7 @@ def test_repinning_compact_wire_cannot_admit_ambiguous_or_foreign_maps(tmp_path,
 
 def test_redundant_delta_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
     source = inspect.getsource(basis._expand_retained)
-    guard = 'any(candidate.get(name) == digest for name, digest in overrides.items())'
+    guard = 'any(anchor.get(name) == digest for name, digest in overrides.items())'
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'False'), 'removed-canonical-delta-guard', 'exec'),
@@ -156,3 +156,46 @@ def test_complete_map_count_remains_independently_pinned(tmp_path, monkeypatch):
 def test_source_map_count_has_a_finite_bound():
     with pytest.raises(ValueError,match='SOURCE_MAP_CHANGED'):
         basis._source_map({f'module{n}.py':'a'*64 for n in range(1025)})
+
+
+def test_candidate_edits_do_not_rewrite_historical_deltas():
+    logical = expanded_profile()
+    before = json.loads(encoded(logical))['retained_predecessors']
+    logical['candidate_files'] = {name: 'f'*64 for name in logical['candidate_files']}
+    logical['candidate_files']['new_candidate_only.py'] = 'e'*64
+    assert json.loads(encoded(logical))['retained_predecessors'] == before
+
+
+def test_candidate_anchor_regression_has_an_executed_falsifier(monkeypatch):
+    from scripts import sentinel_source_history as serializer
+    source = inspect.getsource(serializer.compact)
+    guard = "value.get('retained_anchor_files', value['candidate_files'])"
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, "value['candidate_files']"),
+         'moving-anchor-falsifier', 'exec'), vars(serializer), namespace)
+    monkeypatch.setattr(serializer, 'compact', namespace['compact'])
+    with pytest.raises(AssertionError):
+        test_candidate_edits_do_not_rewrite_historical_deltas()
+
+
+def test_repinning_profile_cannot_change_the_fixed_anchor(tmp_path, monkeypatch):
+    logical = expanded_profile()
+    logical['retained_anchor_files']['execution/commands.py'] = 'f'*64
+    # Re-encode all deltas so the complete historical maps stay unchanged.
+    # Only the independent anchor pin can reject this redundant rebasing.
+    repin_wire(tmp_path, monkeypatch, json.loads(encoded(logical)))
+    with pytest.raises(ValueError, match='RETAINED_ANCHOR_CHANGED'):
+        basis._profile()
+
+
+def test_fixed_anchor_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
+    source = inspect.getsource(basis._profile)
+    guard = '(len(anchor), _validated_closure(anchor)) != RETAINED_PREDECESSORS[FRACTIONAL_PREDECESSOR_REVISION]'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'False'), 'fixed-anchor-falsifier', 'exec'),
+         vars(basis), namespace)
+    monkeypatch.setattr(basis, '_profile', namespace['_profile'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_repinning_profile_cannot_change_the_fixed_anchor(tmp_path, monkeypatch)

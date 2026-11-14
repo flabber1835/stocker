@@ -447,6 +447,8 @@ def test_mechanical_decision_edge_accepts_only_the_reviewed_complete_ast(handove
     scope = _scope(handover)
     old = handover.manifest['seam_sources']['core/decision.py'].encode()
     current = (handover.root / 'core/decision.py').read_bytes()
+    from sentinel.fractional_execution_source_basis import decision_predecessor
+    current = decision_predecessor(current)
     assert scope.decision_compatible(old, current)
     changes = [
         (b'if negative:', b'if False:'),
@@ -476,6 +478,8 @@ def test_isolated_mechanical_ast_reversal_keeps_every_other_statement(handover):
     # fences; they cannot serve as evidence that this AST comparison ran.
     old = handover.manifest['seam_sources']['core/decision.py'].encode()
     current = (handover.root / 'core/decision.py').read_bytes()
+    from sentinel.fractional_execution_source_basis import decision_predecessor
+    current = decision_predecessor(current)
     assert backed._reverse_decision(old, current)
     held_member = b'    "sentinel.execution.held_targets",\n'
     retained = b'        retained_targets: Mapping[str, Decimal] | None = None,\n'

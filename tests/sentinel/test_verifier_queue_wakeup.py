@@ -1,5 +1,6 @@
 """Resource admission and owner wakeups confer no financial authority."""
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 import inspect
 from threading import BoundedSemaphore, Event
 from types import SimpleNamespace
@@ -583,7 +584,8 @@ def close_scan(conn):
         execution_open_at timestamptz, execution_close_at timestamptz,
         updated_at timestamptz, created_at timestamptz, cycle_id text, last_fence_token bigint,
         control_generation int, deployment_id text, broker text, broker_account_id text,
-        takeover_epoch int, certificate_sha256 text, config_sha256 text)""")
+        takeover_epoch int, certificate_sha256 text, config_sha256 text,
+        plan_id text, failure_code text, diagnostic jsonb, next_wake_at timestamptz)""")
     conn.execute("""CREATE TEMP TABLE sentinel_automation_control (
         id int, generation int, enabled bool, kill_switch_engaged bool, authority_verdict text,
         certificate_sha256 text, config_sha256 text)""")
@@ -694,3 +696,69 @@ def test_optional_shadow_scan_respects_the_original_row_expiry():
     assert started.wait(2)
     if evidence.pending is not None:
         evidence.pending.join(2)
+
+
+def test_close_scan_reserves_only_the_exact_planless_publication_pin_retry(close_scan):
+    conn, now = close_scan
+    day = now.astimezone(ZoneInfo('America/New_York')).date()
+    deadline = now + timedelta(seconds=80)
+    conn.execute("""INSERT INTO sentinel_automation_cycles VALUES (
+        'RETRY_WAIT',%s,%s,%s,%s,%s,%s,%s,'next',8,5,'d','alpaca','fixture',2,'cert','config',
+        NULL,'PreflightPublicationPinUnavailable','{"retry_phase":"PREFLIGHT_RECOVER"}',%s)""",
+        (day, day + timedelta(days=1), now - timedelta(seconds=9), now + timedelta(hours=1),
+         now + timedelta(hours=2), now - timedelta(seconds=3), now - timedelta(seconds=9),
+         now - timedelta(seconds=2)))
+    conn.execute("""INSERT INTO sentinel_automation_service_instances
+        VALUES ('holder','PREFLIGHT_RECOVER_CALLBACK',%s,%s,%s)""",
+        (now, now - timedelta(seconds=1), deadline))
+    assert service._closing_scan_reserve(conn, now) == deadline
+    for change in (
+        "plan_id='already-prepared'",
+        "failure_code='DifferentFailure'",
+        "diagnostic='{\"retry_phase\":\"RECOVER\"}'",
+        "next_wake_at=next_wake_at+interval '2 sec'",
+    ):
+        with conn.transaction(force_rollback=True):
+            conn.execute(f'UPDATE sentinel_automation_cycles SET {change}')
+            assert service._closing_scan_reserve(conn, now) is None
+
+
+def test_close_scan_planless_guard_omission_admits_the_wrong_retry(close_scan, monkeypatch):
+    code = inspect.getsource(service._closing_scan_reserve)
+    guard = "c.state='RETRY_WAIT' AND c.plan_id IS NULL"
+    assert guard in code
+    scope = dict(vars(service))
+    exec(code.replace(guard, "c.state='RETRY_WAIT'"), scope)
+    monkeypatch.setattr(service, '_closing_scan_reserve', scope['_closing_scan_reserve'])
+    with pytest.raises(AssertionError):
+        test_close_scan_reserves_only_the_exact_planless_publication_pin_retry(close_scan)
+
+
+@pytest.mark.parametrize('proof', ['clean', 'scheduled_history', 'completed_history',
+                                   'short_expiry', 'changed_subject', 'unqualified', 'error'])
+def test_optional_paper_scan_requires_a_still_current_positive_close_receipt(proof):
+    case = Scenario()
+    case.tick = 301
+    case.value.configuration = case.key
+    row = model.Row('paper_reconciliation', 'Paper', 'recorded', model.OK, as_of=NOW)
+    if proof in {'scheduled_history', 'completed_history'}:
+        row = replace(row, status=model.WARN, required_current=True,
+            paper_alignment=f'{proof.split("_")[0].upper()}_WITH_HISTORY',
+            valid_until=NOW+timedelta(minutes=10))
+    elif proof == 'short_expiry':
+        row = replace(row, valid_until=NOW+timedelta(seconds=330))
+    elif proof == 'changed_subject':
+        case.key = 'b'*64
+    elif proof == 'unqualified':
+        row = replace(row, status=model.WARN)
+    errors = ['unreadable'] if proof == 'error' else []
+    case.value.completed = ([row], errors, NOW)
+    reserve = NOW+timedelta(minutes=10)
+    case.value.read('private', defer_refresh_until=reserve)
+    case.finish()
+    if proof in {'clean', 'scheduled_history', 'completed_history'}:
+        assert case.calls == []
+        case.tick = 450
+        case.value.read('private', defer_refresh_until=reserve)
+        case.finish()
+    assert case.calls == [(case.key, 300)]

@@ -44,6 +44,7 @@ from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.numeric import exact_decimal
+from sentinel.execution.order_amount import OrderAmount
 from sentinel.execution.states import (
     Action, CommandState, RuntimeState, assert_transition, blocks_overlapping,
     exposure_action, require)
@@ -58,6 +59,22 @@ LEGACY_MIGRATION_PLAN_PREFIX = "ADMIN-LEGACY-MIGRATION:"
 
 def is_legacy_migration(command: "Command") -> bool:
     return command.identity.plan_id.startswith(LEGACY_MIGRATION_PLAN_PREFIX)
+
+
+def filled_share_units(command: "Command", *, actions, multiplier: Decimal) -> Fraction:
+    """Exact owned shares using the same rational action evidence as targets."""
+    import os
+    factor = Fraction(multiplier)
+    if command.notional is not None or os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1":
+        reader = getattr(actions, "scalar_evidence_for", None)
+        since = command.created_at.date() if command.created_at is not None else getattr(actions, "start", None)
+        evidence = tuple(event.to_dict() for event in reader((command.security_id,))
+                         if since is None or event.session > since) if callable(reader) else ()
+        if evidence:
+            from sentinel.execution.target_reprojection import share_action_factor
+            factor = share_action_factor(security_id=command.security_id,
+                multiplier=multiplier, evidence=evidence)
+    return Fraction(command.filled_quantity) * factor
 
 
 class DeltaClass(str, Enum):
@@ -81,7 +98,7 @@ class Command:
     identity: CommandIdentity
     instrument: BrokerInstrument
     side: Side
-    quantity: Decimal
+    quantity: Decimal | None
     state: CommandState = CommandState.PLANNED
     broker_order_id: Optional[str] = None
     filled_quantity: Decimal = Decimal(0)
@@ -97,24 +114,21 @@ class Command:
     #: return a value the broker would not recognise.
     recovered_key: Optional[str] = None
     order_terms: OrderTerms = OrderTerms()
+    notional: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.order_terms, OrderTerms):
             raise TypeError("Command.order_terms must be OrderTerms")
         self.order_terms.require_owned_submission(self.side)
-        if not isinstance(self.quantity, Decimal):
-            raise TypeError("Command.quantity must be Decimal")
-        if not self.quantity.is_finite() or self.quantity <= 0:
-            raise ValueError(
-                f"Command.quantity must be finite and positive, got "
-                f"{self.quantity}. Direction is carried by `side`; a signed "
-                f"quantity would give two representations of one intent and "
-                f"let them disagree.")
+        amount = OrderAmount(quantity=self.quantity, notional=self.notional)
+        amount.require_notional_buy(self.side, self.order_terms)
+        if self.notional is not None:
+            amount.require_wire_precision()
         if not isinstance(self.filled_quantity, Decimal):
             raise TypeError("Command.filled_quantity must be Decimal")
         if (not self.filled_quantity.is_finite()
                 or self.filled_quantity < 0
-                or self.filled_quantity > self.quantity):
+                or (self.quantity is not None and self.filled_quantity > self.quantity)):
             raise ValueError(
                 "Command.filled_quantity must be finite and between zero and "
                 "Command.quantity")
@@ -140,6 +154,8 @@ class Command:
 
     @property
     def remaining(self) -> Decimal:
+        if self.quantity is None:
+            raise ValueError("notional command has no remaining share quantity")
         return exact_decimal(Fraction(self.quantity) - Fraction(self.filled_quantity))
 
     @property
@@ -164,6 +180,10 @@ def committed_quantity(orders: Iterable[BrokerOrder]) -> Decimal:
     for o in orders:
         if not o.is_working:
             continue
+        if o.quantity is None:
+            # Its unknown share remainder cannot enter share arithmetic. The
+            # working order remains an explicit conflict and overlap barrier.
+            continue
         remaining = Fraction(o.remaining)
         total += remaining if o.side is Side.BUY else -remaining
     return exact_decimal(total)
@@ -178,9 +198,13 @@ class Delta:
     remaining: Decimal
     classification: DeltaClass
     conflicting_orders: tuple = ()
+    notional: Decimal | None = None
+    detail: str = ""
 
     @property
     def side(self) -> Optional[Side]:
+        if self.notional is not None:
+            return Side.BUY
         if self.remaining == 0:
             return None
         return Side.BUY if self.remaining > 0 else Side.SELL
@@ -193,11 +217,11 @@ class Delta:
         equity" — because the permission asymmetry is about exposure, and for a
         defensive sleeve the two can differ.
         """
-        return self.remaining > 0
+        return self.notional is not None or self.remaining > 0
 
     @property
-    def quantity(self) -> Decimal:
-        return self.remaining.copy_abs()
+    def quantity(self) -> Decimal | None:
+        return None if self.notional is not None else self.remaining.copy_abs()
 
 
 def compute_delta(*, security_id: str, desired: Decimal,
@@ -245,8 +269,8 @@ def compute_delta(*, security_id: str, desired: Decimal,
     wanted_buy = remaining > 0
     conflicting = tuple(
         o for o in working
-        if remaining != 0 and ((o.side is Side.SELL) if wanted_buy
-                               else (o.side is Side.BUY)))
+        if o.notional is not None or (remaining != 0 and (
+            (o.side is Side.SELL) if wanted_buy else (o.side is Side.BUY))))
 
     return Delta(security_id=security_id, desired=desired, held=held,
                  committed=committed, remaining=remaining,
@@ -327,7 +351,9 @@ def authorize(*, delta: Delta, runtime: RuntimeState,
     #    degrades.
     if capabilities is not None:
         needed = ["stable_client_key", "single_order_cancel"]
-        if delta.quantity != delta.quantity.to_integral_value():
+        if delta.notional is not None:
+            needed.append("notional_market_buys")
+        elif delta.quantity != delta.quantity.to_integral_value():
             needed.append("fractional_quantities")
         capabilities.require(*needed)
 
@@ -349,4 +375,5 @@ def build(*, delta: Delta, identity: CommandIdentity,
         raise CommandRefused(f"{delta.security_id}: no side for a zero delta")
     return Command(identity=identity, instrument=instrument, side=side,
                    quantity=delta.quantity, state=CommandState.PLANNED,
-                   created_at=created_at, order_terms=order_terms)
+                   created_at=created_at, order_terms=order_terms,
+                   notional=delta.notional, detail=delta.detail)

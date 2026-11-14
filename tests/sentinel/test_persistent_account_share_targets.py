@@ -337,6 +337,160 @@ def test_unsized_missing_reference_does_not_freeze_an_unbound_zero():
     assert "SEC-AAA" not in carry(previous, before, after, projected)
 
 
+@pytest.mark.parametrize("switch_to_fractional", [False, True])
+def test_below_whole_share_retries_from_the_durable_original_reservation(
+        conn, monkeypatch, switch_to_fractional):
+    from sentinel.execution import fractional_sizing
+    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
+    sid = "SEC-AAA"
+    monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY", raising=False)
+    monkeypatch.delenv("SENTINEL_PAPER_BUY_CAP_BPS", raising=False)
+    before, first = case(entries=1, exposure="0.55")
+    rollout = replace(_controller_rollout(), version=first.rollout_version,
+        certificate_sha256=first.rollout_certificate_sha256)
+    policy = limits.ProtectedLimitPolicy(100)
+    account = _account(equity="100000")
+    observation = _observation()
+
+    def save_day(value, plan, price, *, basis=None, market_policy=None):
+        journal.adopt_current_plan(conn, plan)
+        shadow = SimpleNamespace(state=value, record_sha256="b" * 64, runtime_authority_sha256="c" * 64)
+        proof = authority.build_authority(plan=plan, shadow_result=shadow,
+            publication=replace(_publication(), window_end=value.last_processed_session),
+            account_snapshot=account, observation=observation, marks={sid: D(price)},
+            tickers={sid: "AAA"}, held_share_targets=basis,
+            market_buy_policy_sha256=market_policy.fingerprint() if market_policy else None)
+        authority.record_authority(conn, proof)
+        return shadow
+
+    def next_close(value, plan):
+        after = deepcopy(value)
+        after.last_processed_session = plan.effective_session.isoformat()
+        after.owned_impairment["last_session"] = after.last_processed_session
+        after.last_decision["session"] = after.last_processed_session
+        if after.pending:
+            portfolio = PortfolioState.from_dict(after.wealth_core)
+            episode = _episode(0, sid, "AAA", 1)
+            episode.signal_date = plan.decision_session.isoformat()
+            episode.entry_date = after.last_processed_session
+            portfolio.episodes[0] = episode
+            portfolio.slots[0].occupied_by = sid
+            portfolio.slots[0].release_reservation()
+            after.wealth_core = portfolio.to_dict()
+            after.pending = []
+        return after
+
+    def retry(value, previous, price, reference_price):
+        basis = held_targets.build_basis(conn, previous=previous, state=value,
+            binding=_binding(), rollout=rollout, retry_skipped=True)
+        assert basis["schema"] == held_targets.RETRY_SCHEMA
+        assert sid not in basis["targets"]
+        targets = {key: D(value) for key, value in basis["targets"].items()}
+        retries = held_targets.retry_openings(basis)
+        assert retries == first.opening_intents
+        decision_session = date.fromisoformat(value.last_processed_session)
+        args = dict(state=value, binding=_binding(),
+            publication=replace(_publication(), window_end=value.last_processed_session),
+            account_snapshot=account, observation=observation, marks={sid: D(price)},
+            tickers={sid: "AAA"}, decision_session=decision_session,
+            effective_session=date.fromisoformat(calendar.next_session(decision_session)),
+            rollout_state=rollout, retained_targets=targets, retry_openings=retries)
+        plan = held_targets.build_execution_plan(**args).plan
+        assert plan.plan_id == f"sentinel-{plan.fingerprint()}"
+        assert plan.target_basket[sid] == 0 and plan.opening_intents == retries
+        for held in (_observation(positions=[_position(sid, "AAA", "1")]),
+                     _observation(orders=[_working_order(sid, "AAA", side=Side.BUY, quantity="1", filled="0")])):
+            with pytest.raises(projections.TargetProjectionRefused, match="commitments"):
+                held_targets.build_execution_plan(**{**args, "observation": held})
+        shadow = save_day(value, plan, price, basis=basis)
+        with psycopg.connect(conn.info.dsn) as reopened:
+            proof = authority.rederive_plan(reopened, plan=plan, binding=_binding(),
+                rollout_state=rollout, expected_shadow_result=shadow)
+            assert proof["retry_openings"] == basis["retry_openings"]
+            assert held_targets.plan_sizing(reopened, plan=plan, state=value) == (targets, retries)
+            with pytest.raises(authority.DualPlanAuthorityRefused, match="require the protected PAPER"):
+                authority.require_current_buy_policy(reopened, plan=plan)
+            with monkeypatch.context() as env:
+                env.setenv("SENTINEL_PAPER_BUY_POLICY", limits.PROTECTED_MODE)
+                env.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
+                authority.require_current_buy_policy(reopened, plan=plan)
+        forged = deepcopy(basis)
+        forged["retry_openings"][0]["intended_dollars"] = "9000"
+        with pytest.raises(projections.TargetProjectionRefused, match="do not re-derive"):
+            held_targets.verify_basis(conn, basis=forged, state=value, binding=_binding(), rollout=rollout)
+        projected = base(value, plan)
+        marks = {} if reference_price is None else {sid: D(reference_price)}
+        refs = references(plan, projected, prices={**marks, "SENTINEL:BIL": D(100)})
+        final = limits.resolve_protected(value, plan, projected, refs, policy,
+            retained_targets=targets, retry_openings=retries)
+        projections.record_projection(conn, final)
+        return plan, final
+
+    save_day(before, first, "3500")
+    opening = base(before, first)
+    refs = references(first, opening, prices={sid: D(3500), "SENTINEL:BIL": D(100)})
+    prior = limits.resolve_protected(before, first, opening, refs, policy)
+    assert prior.opening_sizing["entries"][0]["status"] == "BELOW_WHOLE_SHARE"
+    projections.record_projection(conn, prior)
+
+    friday = next_close(before, first)
+    legacy = held_targets.build_basis(conn, previous=first, state=friday, binding=_binding(), rollout=rollout)
+    assert legacy["schema"] == held_targets.SCHEMA and legacy["targets"] == {sid: "0"}
+    assert held_targets.verify_basis(conn, basis=legacy, state=friday, binding=_binding(), rollout=rollout) == {sid: D(0)}
+
+    if switch_to_fractional:
+        # A previously saved whole-share skip retains the same dollar reservation.
+        basis = held_targets.build_basis(conn, previous=first, state=friday,
+            binding=_binding(), rollout=rollout, retry_skipped=True)
+        retries = held_targets.retry_openings(basis)
+        assert retries == first.opening_intents
+        policy = MarketBuyPolicy(fractional=True)
+        decision_date = date.fromisoformat(friday.last_processed_session)
+        plan = held_targets.build_execution_plan(
+            state=friday, binding=_binding(),
+            publication=replace(_publication(), window_end=friday.last_processed_session),
+            account_snapshot=account, observation=observation, marks={sid: D(3500)},
+            tickers={sid: "AAA"}, decision_session=decision_date,
+            effective_session=date.fromisoformat(calendar.next_session(decision_date)),
+            rollout_state=rollout, retained_targets={}, retry_openings=retries,
+            fractional_sizing=True).plan
+        shadow = save_day(friday, plan, "3500", basis=basis, market_policy=policy)
+        assert authority.rederive_plan(conn, plan=plan, binding=_binding(),
+            rollout_state=rollout, expected_shadow_result=shadow)["verdict"] == "MATCH"
+        monkeypatch.setattr(MarketBuyPolicy, "from_env", classmethod(lambda cls, env=None: policy))
+        authority.require_current_buy_policy(conn, plan=plan)
+        projected = base(friday, plan)
+        refs = references(plan, projected, prices={sid: D(3500), "SENTINEL:BIL": D(100)})
+        with pytest.raises(projections.TargetProjectionRefused, match="opening eligibility"):
+            fractional_sizing.resolve(friday, plan, projected, refs, policy,
+                baseline={"holdings": {}}, retained_targets={})
+        result = fractional_sizing.resolve(friday, plan, projected, refs, policy,
+            baseline={"holdings": {}}, retained_targets={}, retry_openings=retries)
+        assert result.opening_sizing["mode"] == FRACTIONAL_MODE
+        assert 0 < D(result.opening_sizing["purchases"][sid]["budget"]) < 3500
+        return
+
+    expensive, outcome = retry(friday, first, "3500", "3500")
+    assert outcome.target_basket[sid] == 0 and outcome.opening_sizing["entries"][0]["status"] == "BELOW_WHOLE_SHARE"
+    unavailable_state = next_close(friday, expensive)
+    unavailable, outcome = retry(unavailable_state, expensive, "3500", None)
+    assert outcome.target_basket[sid] == 0 and outcome.opening_sizing["entries"][0]["status"] == "REFERENCE_UNAVAILABLE"
+    affordable_state = next_close(unavailable_state, unavailable)
+    affordable, outcome = retry(affordable_state, unavailable, "2000", "2000")
+    assert outcome.target_basket[sid] == 1 and outcome.opening_sizing["entries"][0]["status"] == "SIZED"
+    later = next_close(affordable_state, affordable)
+    basis = held_targets.build_basis(conn, previous=affordable, state=later,
+        binding=_binding(), rollout=rollout, retry_skipped=True)
+    assert basis["schema"] == held_targets.SCHEMA and basis["targets"][sid] == "1"
+
+    exiting = deepcopy(friday)
+    exiting.pending = [PendingOrder(Operation.CLOSE_POSITION, sid, "AAA", 0, 1,
+        exiting.last_processed_session, "STOP").to_dict()]
+    ignored = held_targets.build_basis(conn, previous=first, state=exiting,
+        binding=_binding(), rollout=rollout, retry_skipped=True)
+    assert ignored["targets"] == {} and held_targets.retry_openings(ignored) == ()
+
+
 def test_presubmit_guard_binds_retention_to_verified_sizing(monkeypatch):
     from sentinel.paper import validation
     value, plan = case(entries=1, exposure="0.55")

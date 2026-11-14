@@ -591,7 +591,7 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
 
 
 def maximum_cost(command) -> Decimal:
-    if command.quantity != command.quantity.to_integral_value():
+    if command.quantity is None or command.quantity != command.quantity.to_integral_value():
         raise ProtectedFundingRefused("protected BUY requires whole-share quantity")
     terms = command.order_terms
     if (not isinstance(terms, OrderTerms) or terms.order_type != "limit"

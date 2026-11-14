@@ -8,7 +8,7 @@ import pytest
 
 from sentinel.panel import model, presentation
 from sentinel.execution.contract import OrderTerms
-from sentinel.paper_plan_preview import PlanPreview, PlannedLeg
+from sentinel.paper_plan_preview import OpeningEstimate, PlanPreview, PlannedLeg
 from test_panel_historical_mirror_schedule import healthy_history_panel, changed_history_panel
 
 NOW = datetime(2026, 11, 2, 15, tzinfo=timezone.utc)
@@ -67,6 +67,34 @@ def test_reproduced_owned_check_and_completed_history_do_not_flap_material_healt
         operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',state='CHECKING'))
     running=replace(page,rows=[checking if r.key=='paper_reconciliation' else r for r in page.rows])
     assert presentation.health_facts(page)==presentation.health_facts(running)=={'active':[],'warnings':[]}
+
+
+def test_zero_share_opening_can_complete_without_reporting_a_fill():
+    from sentinel.panel.overview import _run_html
+
+    page=completed_panel()
+    run=page.row('trading_run').trading_run
+    leg=PlannedLeg(security_id='mtd',ticker='MTD',current_quantity=0,
+        target_quantity=0,change_quantity=None,opening_dollars='2400.85',action='BUY')
+    intent=run.intent.model_copy(update={'legs':[leg]})
+    estimate=OpeningEstimate(account_budget='1339.716675',limit_price='1748.23',shares=0)
+    updates={'intent':intent,'orders':[]}
+    unknown=run.model_copy(update=updates)
+    skipped=model.TradingRun(**{**run.model_dump(),**updates,'below_whole_share':{'mtd':estimate}})
+    unsettled=changed_history_panel(page,'trading_run',trading_run=unknown)
+    completed=changed_history_panel(page,'trading_run',trading_run=skipped)
+    assert presentation.dashboard_health(unsettled)['color']=='amber'
+    completed_health=presentation.dashboard_health(completed)
+    assert completed_health['color']=='green'
+    assert completed_health['label']=='Healthy · Run complete · No orders placed'
+    html=_run_html(completed)
+    assert 'Today’s run · no orders placed' in html
+    assert 'MTD' in html and 'Skipped · budget below one share' in html
+    assert '$1,339.72 paper budget' in html and '$2,400.85' in html
+    assert 'filled' not in html
+    with pytest.raises(ValueError,match='matching unsubmitted opening intent'):
+        model.TradingRun(**{**run.model_dump(),**updates,
+                          'below_whole_share':{'other':estimate}})
 
 
 def test_completed_json_preserves_the_unverified_financial_verdict(monkeypatch):

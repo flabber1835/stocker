@@ -47,6 +47,7 @@ from sentinel.execution.contract import (
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
+from sentinel.execution.order_amount import optional_decimal_text
 
 
 # Re-read a small boundary on every closed-order recovery. Alpaca filters order
@@ -477,32 +478,33 @@ class CommandEconomicsChanged(RuntimeError):
 _IMMUTABLE = ("security_id", "side", "quantity", "symbol",
               "broker_instrument_id",
               "deployment_id", "broker", "broker_account_id",
-              "takeover_epoch", "order_terms")
+              "takeover_epoch", "order_terms", "notional")
 
 
 def _assert_economics_unchanged(cur, command: Command) -> None:
     cur.execute("SELECT security_id, side, quantity, symbol,"
                 " broker_instrument_id, deployment_id, broker,"
-                " broker_account_id, takeover_epoch, order_terms"
+                " broker_account_id, takeover_epoch, order_terms, notional"
                 " FROM sentinel_commands"
                 " WHERE client_key = %s", (command.client_key,))
     row = cur.fetchone()
     if row is None:
         return
     stored = {"security_id": str(row[0]), "side": str(row[1]),
-              "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
+              "quantity": None if row[2] is None else Decimal(str(row[2])), "symbol": str(row[3]),
               "broker_instrument_id": (
                   str(row[4]) if row[4] is not None else None),
               "deployment_id": str(row[5]), "broker": str(row[6]),
               "broker_account_id": str(row[7]),
               "takeover_epoch": int(row[8]),
-              "order_terms": OrderTerms.from_dict(row[9])}
+              "order_terms": OrderTerms.from_dict(row[9]),
+              "notional": None if row[10] is None else Decimal(str(row[10]))}
     incoming = {"security_id": command.security_id, "side": command.side.value,
                 "quantity": command.quantity,
                 "symbol": command.instrument.symbol,
                 "broker_instrument_id": command.instrument.broker_id,
                 **command.identity.deployment.to_dict(),
-                "order_terms": command.order_terms}
+                "order_terms": command.order_terms, "notional": command.notional}
     differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
                if stored[k] != incoming[k]}
     if differs:
@@ -533,8 +535,8 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
             " revision, deployment_id, broker, broker_account_id,"
             " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
-            " broker_order_id, filled_quantity, filled_average_price, detail, order_terms)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)"
+            " broker_order_id, filled_quantity, filled_average_price, detail, order_terms, notional)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)"
             " ON CONFLICT (client_key) DO UPDATE SET"
             " state = EXCLUDED.state,"
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
@@ -552,11 +554,12 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
              command.identity.deployment.takeover_epoch,
              command.instrument.symbol,
              command.instrument.broker_id, command.side.value,
-             str(command.quantity), command.state.value,
+             optional_decimal_text(command.quantity), command.state.value,
              command.broker_order_id, str(command.filled_quantity),
              (str(command.filled_average_price)
               if command.filled_average_price is not None else None),
-             command.detail, json.dumps(command.order_terms.to_dict(), sort_keys=True)))
+             command.detail, json.dumps(command.order_terms.to_dict(), sort_keys=True),
+             optional_decimal_text(command.notional)))
         cur.execute(
             "INSERT INTO sentinel_command_events (client_key, from_state,"
             " to_state, filled_quantity, detail) VALUES (%s,%s,%s,%s,%s)",
@@ -644,18 +647,20 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
         with conn.cursor() as cur:
             cur.execute("SAVEPOINT adopt_recovered")
             terms = _owned_order_terms(order)
-            cur.execute("SELECT order_terms FROM sentinel_commands WHERE client_key=%s", (order.client_key,))
+            cur.execute("SELECT order_terms,quantity,notional FROM sentinel_commands WHERE client_key=%s", (order.client_key,))
             existing = cur.fetchone()
-            if existing is not None and OrderTerms.from_dict(existing[0]) != terms:
-                raise ValueError("recovered client key contradicts immutable order terms")
+            if existing is not None and (
+                    OrderTerms.from_dict(existing[0]) != terms
+                    or existing[1] != order.quantity or existing[2] != order.notional):
+                raise ValueError("recovered client key contradicts immutable order terms or amount")
             cur.execute(
                 "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
                 " revision, deployment_id, broker, broker_account_id,"
                 " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
                 " broker_order_id, filled_quantity, filled_average_price, detail,"
-                " recovered, created_at, order_terms)"
+                " recovered, created_at, order_terms, notional)"
                 " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
-                " COALESCE(%s,NOW()),%s::jsonb)"
+                " COALESCE(%s,NOW()),%s::jsonb,%s)"
                 " ON CONFLICT (client_key) DO NOTHING",
                 (order.client_key, RECOVERED_PLAN_ID,
                  order.instrument.security_id, 0,
@@ -663,13 +668,13 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
                  deployment.broker_account_id, deployment.takeover_epoch,
                  order.instrument.symbol,
                  order.instrument.broker_id, order.side.value,
-                 str(order.quantity), order.state.value, order.broker_order_id,
+                 optional_decimal_text(order.quantity), order.state.value, order.broker_order_id,
                  str(order.filled_quantity),
                  (str(order.filled_average_price)
                   if order.filled_average_price is not None else None),
                  "adopted from the broker after a restore",
                  order.submitted_at,
-                 json.dumps(terms.to_dict(), sort_keys=True)))
+                 json.dumps(terms.to_dict(), sort_keys=True), optional_decimal_text(order.notional)))
             cur.execute(
                 "INSERT INTO sentinel_command_events (client_key, from_state,"
                 " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
@@ -702,7 +707,7 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
     (client_key, plan_id, security_id, revision, deployment_id, broker,
      broker_account_id, takeover_epoch, symbol, broker_instrument_id,
      side, quantity, state, broker_order_id, filled, filled_average_price,
-     detail, recovered, created_at, order_terms) = row
+     detail, recovered, created_at, order_terms, notional) = row
     stored_deployment = DeploymentIdentity(
         deployment_id=str(deployment_id), broker=str(broker),
         broker_account_id=str(broker_account_id),
@@ -727,7 +732,8 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
         instrument=BrokerInstrument(security_id=str(security_id),
                                     symbol=str(symbol),
                                     broker_id=broker_instrument_id),
-        side=Side(side), quantity=Decimal(str(quantity)),
+        side=Side(side), quantity=None if quantity is None else Decimal(str(quantity)),
+        notional=None if notional is None else Decimal(str(notional)),
         state=CommandState(state), broker_order_id=broker_order_id,
         filled_quantity=Decimal(str(filled)),
         filled_average_price=(Decimal(str(filled_average_price))
@@ -759,7 +765,7 @@ _COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, deployment_id,"
                     " broker, broker_account_id, takeover_epoch, symbol,"
                     " broker_instrument_id, side, quantity, state,"
                     " broker_order_id, filled_quantity, filled_average_price,"
-                    " detail, recovered, created_at, order_terms")
+                    " detail, recovered, created_at, order_terms, notional")
 
 
 def load_commands(conn, deployment: DeploymentIdentity, *,
@@ -984,8 +990,10 @@ LEGACY_OBSERVATION_PAYLOAD_KIND = 'broker-observation/v4'
 LEGACY_OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v5'
 OBSERVATION_PAYLOAD_KIND = 'broker-observation/v5'
 OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v6'
-_OBSERVATION_PAYLOAD_KINDS = frozenset({LEGACY_OBSERVATION_PAYLOAD_KIND, OBSERVATION_PAYLOAD_KIND})
-_OBSERVATION_WITNESS_KINDS = frozenset({LEGACY_OBSERVATION_WITNESS_KIND, OBSERVATION_WITNESS_KIND})
+AMOUNT_OBSERVATION_PAYLOAD_KIND = 'broker-observation/v6'
+AMOUNT_OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v7'
+_OBSERVATION_PAYLOAD_KINDS = frozenset({LEGACY_OBSERVATION_PAYLOAD_KIND, OBSERVATION_PAYLOAD_KIND, AMOUNT_OBSERVATION_PAYLOAD_KIND})
+_OBSERVATION_WITNESS_KINDS = frozenset({LEGACY_OBSERVATION_WITNESS_KIND, OBSERVATION_WITNESS_KIND, AMOUNT_OBSERVATION_WITNESS_KIND})
 
 
 def _reported_terms(terms):
@@ -1003,7 +1011,8 @@ def _valid_reported_terms(raw):
 
 def _observation_witness(payload: dict, digest: str) -> dict:
     return {
-        'kind': (LEGACY_OBSERVATION_WITNESS_KIND
+        'kind': (AMOUNT_OBSERVATION_WITNESS_KIND
+                 if payload['kind'] == AMOUNT_OBSERVATION_PAYLOAD_KIND else LEGACY_OBSERVATION_WITNESS_KIND
                  if payload['kind'] == LEGACY_OBSERVATION_PAYLOAD_KIND
                  else OBSERVATION_WITNESS_KIND),
         **{key: payload[key] for key in (
@@ -1076,7 +1085,8 @@ def record_observation(conn, observation: BrokerObservation,
         "broker_instrument_id": order.instrument.broker_id,
         "side": order.side.value,
         "state": order.state.value,
-        "qty": str(order.quantity),
+        "qty": optional_decimal_text(order.quantity),
+        **({"notional": str(order.notional)} if order.notional is not None else {}),
         "filled": str(order.filled_quantity),
         "filled_average_price": (
             str(order.filled_average_price)
@@ -1117,7 +1127,8 @@ def record_observation(conn, observation: BrokerObservation,
                 "broker_id": order.instrument.broker_id,
                 "side": order.side.value,
                 "state": order.state.value,
-                "quantity": str(order.quantity),
+                "quantity": optional_decimal_text(order.quantity),
+                **({"notional": str(order.notional)} if order.notional is not None else {}),
                 "filled_quantity": str(order.filled_quantity),
                 "filled_average_price": (
                     str(order.filled_average_price)
@@ -1162,6 +1173,7 @@ def record_observation(conn, observation: BrokerObservation,
                 "side": item["side"],
                 "state": item["state"],
                 "quantity": item["qty"],
+                **({"notional": item["notional"]} if "notional" in item else {}),
                 "filled_quantity": item["filled"],
                 "filled_average_price": item["filled_average_price"],
                 "submitted_at": item["submitted_at"],
@@ -1179,7 +1191,11 @@ def record_observation(conn, observation: BrokerObservation,
                     observation.terminal_recovery_through),
                 completeness=observation.completeness.value,
                 positions=canonical_positions, orders=canonical_orders,
-                exact_evidence=exact_evidence)
+                exact_evidence=exact_evidence,
+                kind=(AMOUNT_OBSERVATION_PAYLOAD_KIND if (
+                    any("notional" in item for item in canonical_orders)
+                    or any(item["order"] is not None and "notional" in item["order"] for item in exact_evidence))
+                    else OBSERVATION_PAYLOAD_KIND))
             payload_digest = _canonical_observation_digest(payload)
             cur.execute(
                 "INSERT INTO sentinel_observation_provenance"
@@ -1367,6 +1383,20 @@ def _observation_integrity_rows(conn, *, orphan_issues=None):
             'observation integrity account binding changed')
 
 
+def _valid_reported_amount(item, *, quantity_field, filled_field, allow_notional):
+    from sentinel.execution.order_amount import OrderAmount
+    try:
+        if not isinstance(item, dict) or ("notional" in item and not allow_notional):
+            return False
+        amount = OrderAmount(
+            quantity=None if item[quantity_field] is None else Decimal(item[quantity_field]),
+            notional=None if item.get("notional") is None else Decimal(item["notional"]))
+        filled = Decimal(item[filled_field])
+        return filled.is_finite() and filled >= 0 and (amount.quantity is None or filled <= amount.quantity)
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
 def _verify_observation_integrity_row(row):
     (seq, provenance_broker, provenance_account, provenance_observed_at,
      provenance_positions, payload_digest, processed_session, evidence,
@@ -1443,8 +1473,10 @@ def _verify_observation_integrity_row(row):
     expected_payload = None
     expected_digest = None
     evidence_kind = evidence.get('kind') if evidence is not None else None
-    with_terms = evidence_kind in {OBSERVATION_PAYLOAD_KIND, OBSERVATION_WITNESS_KIND}
-    payload_kind = (OBSERVATION_PAYLOAD_KIND if with_terms else LEGACY_OBSERVATION_PAYLOAD_KIND)
+    with_amount = evidence_kind in {AMOUNT_OBSERVATION_PAYLOAD_KIND, AMOUNT_OBSERVATION_WITNESS_KIND}
+    with_terms = with_amount or evidence_kind in {OBSERVATION_PAYLOAD_KIND, OBSERVATION_WITNESS_KIND}
+    payload_kind = (AMOUNT_OBSERVATION_PAYLOAD_KIND if with_amount else
+                    OBSERVATION_PAYLOAD_KIND if with_terms else LEGACY_OBSERVATION_PAYLOAD_KIND)
     position_fields = {
         "security_id", "symbol", "broker_instrument_id", "quantity"}
     order_fields = {
@@ -1475,8 +1507,12 @@ def _verify_observation_integrity_row(row):
                 and position_fields.issubset(item)
                 for item in provenance_positions)
         and all(isinstance(item, dict) and order_fields.issubset(item)
+                and _valid_reported_amount(item, quantity_field="qty", filled_field="filled", allow_notional=with_amount)
                 and (not with_terms or _valid_reported_terms(item["order_terms"]))
                 for item in normalized_orders)
+        and all(item.get("order") is None or _valid_reported_amount(item["order"],
+                quantity_field="quantity", filled_field="filled_quantity", allow_notional=with_amount)
+                for item in provenance_exact_evidence)
         and all(not with_terms or item.get("order") is None
                 or (isinstance(item["order"], dict) and "order_terms" in item["order"]
                     and _valid_reported_terms(item["order"]["order_terms"]))
@@ -1513,6 +1549,7 @@ def _verify_observation_integrity_row(row):
             "side": item["side"],
             "state": item["state"],
             "quantity": item["qty"],
+            **({"notional": item["notional"]} if "notional" in item else {}),
             "filled_quantity": item["filled"],
             "filled_average_price": item["filled_average_price"],
             "submitted_at": item["submitted_at"],

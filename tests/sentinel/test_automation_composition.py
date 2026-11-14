@@ -181,7 +181,8 @@ def test_real_callbacks_prepare_submit_restart_and_reconcile_once(assembly, faul
         assert commands[0].filled_quantity == plan.target_basket[fixture.AAA.security_id]
 
 
-def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(assembly, monkeypatch):
+@pytest.mark.parametrize("fractional", [False, True], ids=["whole", "fractional"])
+def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(assembly, monkeypatch, fractional):
     """Real scheduler, PAPER gateway, guard, journal and recovery over private PG."""
     from dataclasses import replace
     from datetime import timedelta
@@ -193,7 +194,7 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
     from sentinel.automation import store
     from sentinel.automation.model import CycleState, TickAction
     from sentinel.execution import feed_inputs, held_targets, target_reprojection
-    from sentinel.execution.market_buy_policy import MARKET_MODE, MarketBuyPolicy
+    from sentinel.execution.market_buy_policy import MARKET_MODE, FRACTIONAL_MODE, MarketBuyPolicy
     from sentinel.execution.opening_prices import QUOTE_SOURCE
     from sentinel.execution.simulator import SimulatedBroker
     from sentinel.execution.states import CommandState as S
@@ -208,8 +209,8 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
     monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY", raising=False)
     enabled = [False]
     monkeypatch.setattr(MarketBuyPolicy, "from_env",
-                        classmethod(lambda cls, values=None: cls() if enabled[0] else None))
-    profile = MarketBuyPolicy()
+                        classmethod(lambda cls, values=None: cls(fractional) if enabled[0] else None))
+    profile = MarketBuyPolicy(fractional)
     fixture_worker = assembly.create()
     config = fixture_worker.automation_config.model_copy(
         update={"market_buy_policy_sha256": profile.fingerprint()})
@@ -233,6 +234,39 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
     inner = SimulatedBroker(account=assembly.broker.account, cash=D(1000), equity=D(1000),
         capabilities=replace(assembly.broker.capabilities, regular_session_quote_prices=True,
                              regular_session_open_prices=True, pre_submit_instrument_revalidation=True))
+    if fractional:
+        from sentinel.execution.contract import BrokerAssetRules
+        from sentinel.execution import protected_limits
+        from test_limit_day_sizing import references
+        def simulated_references(conn, *, plan, projection):
+            refs = references(plan, projection)
+            return replace(refs, provider_asset_ids={sid: "sim-asset-" + sid
+                for sid in refs.symbols if sid != "SENTINEL:BIL"})
+        monkeypatch.setattr(protected_limits, "build_references", simulated_references)
+        inner.capabilities = replace(inner.capabilities, notional_market_buys=True,
+                                     minimum_quantity_increment=D("0.000000001"))
+        inner.dollars = {}
+        original_submit = SimulatedBroker.submit
+        original_orders = SimulatedBroker._snapshot_orders
+        original_exact = SimulatedBroker.find_by_client_key
+        def native_order(order):
+            return replace(order, quantity=None, notional=inner.dollars[order.client_key]) if (
+                order is not None and order.client_key in inner.dollars) else order
+        async def submit(self, *, client_key, instrument, side, quantity, notional=None):
+            if notional is not None:
+                assert quantity is None
+                self.dollars[client_key] = notional
+                quantity = notional / D(100)
+            return await original_submit(self, client_key=client_key, instrument=instrument, side=side, quantity=quantity)
+        async def exact(self, client_key):
+            result = await original_exact(self, client_key)
+            return replace(result, order=native_order(result.order))
+        async def asset_rules(self, *, instrument):
+            return BrokerAssetRules(instrument, self.now, True)
+        monkeypatch.setattr(SimulatedBroker, "submit", submit)
+        monkeypatch.setattr(SimulatedBroker, "_snapshot_orders", lambda self: (native_order(o) for o in original_orders(self)))
+        monkeypatch.setattr(SimulatedBroker, "find_by_client_key", exact)
+        monkeypatch.setattr(SimulatedBroker, "asset_rules", asset_rules)
     inner.ask = D(95)
     inner.missing_quote = False
     inner.quote_source = QUOTE_SOURCE
@@ -268,7 +302,7 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
             dual_plan_authority.record_authority(conn, authority)
 
     enabled[0] = True
-    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", MARKET_MODE)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", FRACTIONAL_MODE if fractional else MARKET_MODE)
     assembly.clock[0] = assembly.clock[0].replace(hour=13, minute=29)
     assert run_tick().action is TickAction.WAITING
     sent = run_tick(advance_seconds=120)
@@ -309,3 +343,6 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
     inner.fill(second.client_key)
     done = run_tick(advance_seconds=3)
     assert done.cycle.state is CycleState.SUCCEEDED and done.cycle.cycle_id == cycle_id, done
+    if fractional:
+        assert first.quantity is None and second.quantity is None
+        assert first.notional > 0 and second.notional > 0

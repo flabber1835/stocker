@@ -420,10 +420,12 @@ def _reconstruct_backup_renewal_warning(cur) -> None:
     if warning is not None:
         cur.execute("INSERT INTO sentinel_alert_outbox "
             "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
-            "VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp()) "
+            "SELECT %s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp() "
+            "WHERE NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox WHERE idempotency_key=%s) "
             "ON CONFLICT (idempotency_key) DO NOTHING",
             (_alert_id(warning["idempotency_key"]), warning["idempotency_key"],
-             warning["event_type"], warning["severity"], _json(warning["payload"])))
+             warning["event_type"], warning["severity"], _json(warning["payload"]),
+             warning["idempotency_key"]))
 
 
 def _reconstruct_missing_transition_alerts(conn) -> None:
@@ -441,11 +443,32 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             " e.fence_token,e.detail"
             " FROM sentinel_automation_cycle_events e"
             " CROSS JOIN sentinel_notification_policy p"
+            " CROSS JOIN LATERAL (SELECT"
+            " CASE WHEN e.detail->'diagnostic' ? 'retry_phase'"
+            " THEN e.detail->'diagnostic'->'retry_phase' ELSE e.detail->'retry_phase' END AS phase,"
+            " CASE WHEN e.detail->'diagnostic' ? 'exception_fingerprint'"
+            " THEN e.detail->'diagnostic'->'exception_fingerprint'"
+            " ELSE e.detail->'exception_fingerprint' END AS fingerprint"
+            " ) retry"
             " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
             " AND e.to_state = ANY(%s)"
             " AND (e.to_state <> 'RETRY_WAIT' OR"
             "      COALESCE(e.detail->'diagnostic'->>'notifier_action',"
             "               e.detail->>'notifier_action') = 'RETRY_SCHEDULED')"
+            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key ="
+            " CASE WHEN e.to_state <> 'RETRY_WAIT' THEN 'cycle-event:' || e.seq"
+            # Unexpected legacy shapes still pass through the authoritative decoder.
+            " WHEN COALESCE(jsonb_typeof(e.detail->'diagnostic'),'object')='object'"
+            " AND COALESCE(jsonb_typeof(retry.phase),'null') IN ('null','string')"
+            " AND COALESCE(jsonb_typeof(retry.fingerprint),'null') IN ('null','string')"
+            " AND COALESCE(jsonb_typeof(e.detail->'failure_code'),'null') IN ('null','string')"
+            " AND COALESCE(jsonb_typeof(e.detail->'failure_detail'),'null') IN ('null','string')"
+            " THEN 'cycle-recovery:' || e.cycle_id || ':' || e.control_generation || ':'"
+            " || COALESCE(NULLIF(retry.phase #>> '{}',''),'UNKNOWN') || ':'"
+            " || left(encode(sha256(convert_to(COALESCE("
+            " NULLIF(retry.fingerprint #>> '{}',''),NULLIF(e.detail->>'failure_code',''),"
+            " NULLIF(e.detail->>'failure_detail',''),'cycle entered RETRY_WAIT'),"
+            " 'UTF8')),'hex'),24) END)"
             " ORDER BY e.seq",
             (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
         events = list(cur.fetchall())
@@ -454,7 +477,9 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             " FROM sentinel_automation_events e"
             " CROSS JOIN sentinel_notification_policy p"
             " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
-            " AND e.action IN ('DEACTIVATED','KILL_ENGAGED') ORDER BY e.seq")
+            " AND e.action IN ('DEACTIVATED','KILL_ENGAGED')"
+            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a"
+            " WHERE a.idempotency_key = 'control-event:' || e.seq) ORDER BY e.seq")
         control_events = list(cur.fetchall())
         cur.execute(
             "SELECT f.broker_order_id,f.fill_key,f.client_key,c.client_key,"
@@ -472,6 +497,12 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             "   LIMIT 1"
             " ) c ON TRUE"
             " WHERE p.id=1 AND f.filled_at>=p.web_push_activated_at"
+            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key ="
+            " CASE WHEN c.identity_count=1 AND NULLIF(c.client_key,'') IS NOT NULL"
+            " AND (f.client_key IS NULL OR f.client_key=c.client_key)"
+            " AND NULLIF(c.side,'') IS NOT NULL AND NULLIF(c.security_id,'') IS NOT NULL"
+            " AND NULLIF(c.symbol,'') IS NOT NULL"
+            " THEN 'fill:' ELSE 'fill-integrity:' END || f.broker_order_id || ':' || f.fill_key)"
             " ORDER BY f.filled_at,f.broker_order_id,f.fill_key")
         fills = list(cur.fetchall())
 
@@ -518,13 +549,22 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             # Optional presentation corruption cannot strand critical delivery.
             # SQL/schema failures still fail the dispatcher through its owner.
             preview = None
-        if preview is not None and preview.trades and all(leg.action != 'UNAVAILABLE' for leg in preview.legs):
+        if (preview is not None and preview.observation_at is not None
+                and (preview.trades or preview.skips or any(leg.opening_dollars is not None for leg in preview.legs))
+                and all(leg.action != 'UNAVAILABLE' or leg.opening_dollars is not None
+                        for leg in preview.legs)):
             key = 'next-open-plan:' + preview.cycle_id + ':' + preview.plan_id
+            summary = f'{preview.buys} estimated buys, {preview.sells} estimated sells.'
+            if preview.skips:
+                summary += f' {preview.skips} opening proposals below one share.'
+            if any(leg.action == 'UNAVAILABLE' for leg in preview.legs):
+                summary += ' Some opening quantities are unavailable.'
             payload = dict(plan_id=preview.plan_id,cycle_id=preview.cycle_id,
                 effective_session=preview.effective_session.isoformat(),execute_at=preview.execute_at.isoformat(),
                 buys=preview.buys,sells=preview.sells,proposed_only=True,
+                below_whole_share=preview.skips,
                 observation_at=preview.observation_at.isoformat(),
-                reason=f'Paper plan for {preview.effective_session}: {preview.buys} proposed buys, {preview.sells} proposed sells. Final quantities are sized at open.')
+                reason=f'Paper plan for {preview.effective_session}. {summary} Final quantities are checked at the open.')
             cur.execute("INSERT INTO sentinel_alert_outbox "
                 "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
                 "VALUES (%s,%s,1,'PAPER_PLAN_READY','INFO',%s::jsonb,'PENDING',8,clock_timestamp()) "

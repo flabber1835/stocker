@@ -64,7 +64,16 @@ CASH_CORRECTION_PREDECESSOR_REVISION = '509b66c5f50ffbe4b22331a471c1d021c9dde99d
 OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION = '35761cbbb2232c0fcb51cd37c97cdf5c3851ca17'
 ROLLING_GO_INDEX_PREDECESSOR_REVISION = '5ebacfb46d8fbc15e3b698b11bb610d951565d92'
 NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION = 'e9ef8b51259898a84f4b2c21f8e601e9ed9a5922'
+OPENING_OUTCOMES_PREDECESSOR_REVISION = 'aed1a26c335281169c6d8067b1ce2e7de1632053'
+ZERO_SHARE_RETRY_PREDECESSOR_REVISION = '0ca281a0f7f8f03a02407b297e3d0383461bc1d3'
+NOV13_CLOSE_PREDECESSOR_REVISION = 'e8a51971a9e7479bdd6c9c5c66326f2397d9bab9'
+FRACTIONAL_PREDECESSOR_REVISION = 'aed1a26c335281169c6d8067b1ce2e7de1632053'
+NOV13_INSTALLED_REVISION = 'e6e1274d879103e9282c3ad2d7427560ca3b7290'
 RETAINED_PREDECESSORS = {
+    NOV13_INSTALLED_REVISION: (477, '57b631f4b8320a19c8efa6dbb99dfd15ff3a9852f7fc0f0b07565e353977af99'),
+    NOV13_CLOSE_PREDECESSOR_REVISION: (477, 'ee5019fc2738ed6d39b6cf5cdb63e7fdd8749177dff8ac525c2fe0ae47e87a70'),
+    ZERO_SHARE_RETRY_PREDECESSOR_REVISION: (477, 'f4debda5997d32763f75dec7b301391951d54ce600fdec9d59929b33245a762f'),
+    FRACTIONAL_PREDECESSOR_REVISION: (476, 'a765d57aaee204f0e5b734fd6d34ef8092ce4c4c4d0ca29b7f9fdf9b158551d2'),
     NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION: (475, '9b8784f7b1a97757c100fc3ece7fee0969712b8d5e4badd1bf726ff1cf345f28'),
     ROLLING_GO_INDEX_PREDECESSOR_REVISION: (475, 'a2b9ae096cb8bb52ea61491fc793cdabddf3d0a52b4b2a6ce42222b0b0d31e72'),
     OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION: (475, '5d85fbb62053aca94a44a3db971876efd826b6ed8027b98da14826e3b3f8100c'),
@@ -119,9 +128,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = 'c04667e17274527cc6146bd81e34be95f04e100703667c79f2adc9b5ef4c428c'
+PROFILE_SHA256 = '36c911d2d0ae1c93622aa00318c4512ef5e030da5a967fc4099fd2cf5d674a98'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/53'
+_SCHEMA = 'sentinel.url-selected-trading-transition/57'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -166,7 +175,7 @@ def _validated_closure(files: Mapping[str, str]) -> str:
     return result.hexdigest()
 
 
-def _expand_retained(candidate, records):
+def _expand_retained(anchor, records):
     """Single-level deltas share validated paths, never independent pins."""
     if not isinstance(records, dict) or set(records) != set(RETAINED_PREDECESSORS):
         raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
@@ -176,14 +185,14 @@ def _expand_retained(candidate, records):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         overrides = _source_map(record['overrides'])
         removed = record['removed']
-        if (not isinstance(removed, list) or len(removed) > len(candidate)
+        if (not isinstance(removed, list) or len(removed) > len(anchor)
                 or any(not isinstance(name, str) for name in removed)
-                or removed != sorted(set(removed)) or not set(removed) <= set(candidate)
+                or removed != sorted(set(removed)) or not set(removed) <= set(anchor)
                 or set(removed) & set(overrides)
-                or any(candidate.get(name) == digest for name, digest in overrides.items())):
+                or any(anchor.get(name) == digest for name, digest in overrides.items())):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         removed_names = set(removed)
-        files = {name: digest for name, digest in candidate.items() if name not in removed_names}
+        files = {name: digest for name, digest in anchor.items() if name not in removed_names}
         files.update(overrides)
         if len(files) > 1024:
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
@@ -210,7 +219,7 @@ def _profile() -> dict | None:
     if (not isinstance(value, dict) or set(value) != {
             'schema', 'authority_effect', 'base_revision', 'base_source_sha256',
             'base_files', 'candidate_files', 'module_sha256', 'structural_profile_sha256',
-            'retained_predecessors'}
+            'retained_predecessors', 'retained_anchor_files'}
             or value['schema'] != _SCHEMA or value['authority_effect'] != 'NONE'
             or value['base_revision'] != BASE_REVISION
             or value['base_source_sha256'] != BASE_SOURCE_SHA256
@@ -220,12 +229,15 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PROFILE_SHAPE_CHANGED')
     baseline = _source_map(value['base_files'])
     candidate = _source_map(value['candidate_files'])
+    anchor = _source_map(value['retained_anchor_files'])
+    if (len(anchor), _validated_closure(anchor)) != RETAINED_PREDECESSORS[FRACTIONAL_PREDECESSOR_REVISION]:
+        raise ValueError('URL_SOURCE_RETAINED_ANCHOR_CHANGED')
     sealed = structural._profile()
     if sealed is None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
-    retained = _expand_retained(candidate, value['retained_predecessors'])
+    retained = _expand_retained(anchor, value['retained_predecessors'])
     value = {**value, 'retained_predecessors': retained}
     for revision, (count, expected_sha) in RETAINED_PREDECESSORS.items():
         record = retained[revision]

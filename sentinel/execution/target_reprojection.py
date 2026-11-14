@@ -559,6 +559,10 @@ def assert_projection(
         if projection.opening_sizing.get("mode") == PROTECTED_MODE:
             validate_projection(projection)
             protected = True
+        elif projection.opening_sizing.get("mode") == "FRACTIONAL_MARKET_DAY_V1":
+            from sentinel.execution.fractional_sizing import validate_projection as validate_fractional
+            validate_fractional(projection, plan=plan)
+            protected = True  # This policy records allocation evidence even without a new entry.
     if not protected and bool(plan.opening_intents) != (projection.opening_sizing is not None):
         raise TargetProjectionRefused("opening intents require their durable sizing evidence")
     if projection.plan_fingerprint != plan.fingerprint():

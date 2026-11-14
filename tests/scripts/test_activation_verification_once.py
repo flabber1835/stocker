@@ -1,6 +1,7 @@
 """Installed activation parses once and reads financial lineage only fenced."""
 from contextlib import nullcontext
 import json
+from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 
@@ -91,3 +92,58 @@ def test_removed_final_fenced_guard_is_detected(monkeypatch,tmp_path):
     monkeypatch.setattr(core.AutonomousDeploy,'verify_reviewed_shadow_bindings_quiesced',lambda self:None)
     with pytest.raises(pytest.fail.Exception):
         test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,'publication')
+
+
+def test_attended_policy_replacement_queues_and_reaches_only_plan_preparation(monkeypatch, tmp_path):
+    env = tmp_path / '.env'
+    env.write_text('SENTINEL_PAPER_BUY_POLICY=FRACTIONAL_MARKET_DAY_V1\n')
+    receipt = tmp_path / 'installation-receipt.json'
+    receipt.write_text(json.dumps(dict(
+        schema='sentinel.installation-receipt/1', installation_state='INSTALLED',
+        activation_state='FENCED', git_commit=gate.COMMIT, runtime_image='sentinel@' + gate.RUNTIME,
+        automation_enabled=False, kill_switch_engaged=True)))
+    monkeypatch.setattr(core, 'ROOT', tmp_path)
+    monkeypatch.setattr(core, 'ENV_PATH', env)
+    queued = []
+
+    def handoff(path):
+        queued.append(Path(path))
+        request, _ = activate.validate_request(path)
+        assert request['schema'] == 'sentinel.activation-request/4'
+        return {'activation_state': 'QUEUED'}
+
+    monkeypatch.setattr(activate, 'handoff', handoff)
+    fingerprint = '1' * 64
+    flags = ['--replace-unsent-plan', 'sentinel-' + fingerprint,
+             '--replace-unsent-plan-fingerprint', fingerprint,
+             '--policy-replacement-actor', 'operator',
+             '--policy-replacement-reason', 'Monday fractional policy',
+             '--confirm-unsent-policy-replacement']
+    queue = ['--queue-from-installation', str(receipt), '--mode', 'dual']
+    with pytest.raises(SystemExit):
+        activate.main(queue + flags[:-1])
+    with pytest.raises(SystemExit):
+        activate.main(queue + flags + ['--unsent-blocked-cycle-id', '2'*64,
+            '--unsent-decision-session', '2026-11-13', '--unsent-recovery-actor', 'operator',
+            '--unsent-recovery-reason', 'other recovery', '--confirm-authorize-unsent-recovery'])
+    assert queued == []
+    assert activate.main(queue + flags) == 0
+    request, _ = activate.validate_request(queued[0])
+    obj = core.AutonomousDeploy(SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
+    obj.reviewed_validation = SimpleNamespace(mode='dual')
+    obj.requested_policy_replacement = request['policy_replacement']
+    base = ['prepare-paper-plan', '--through', '2026-11-13']
+    invoked = []
+
+    def prepare(args, **_kwargs):
+        invoked.append(args)
+        return subprocess.CompletedProcess(args, 0, '{}', '')
+
+    obj._authorized_cli = prepare
+    obj._load_native_fee_protocol = lambda: SimpleNamespace(
+        EXIT_NATIVE_FEE_WAIT=32, NATIVE_FEE_WAIT_MARKER='NATIVE_FEE_WAIT')
+    assert obj._prepare_activation_plan(base, 'certificate', '2026-11-13', None) == ({}, None)
+    assert invoked == [base + flags]
+    env.write_text('SENTINEL_PAPER_BUY_POLICY=MARKET_DAY_V1\n')
+    with pytest.raises(core.DeployRefused, match='configuration changed'):
+        activate.validate_request(queued[0])

@@ -251,6 +251,11 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument('--retirement-actor')
     prep.add_argument('--retirement-reason')
     prep.add_argument('--confirm-prospective-cash-retirement', action='store_true')
+    prep.add_argument('--replace-unsent-plan')
+    prep.add_argument('--replace-unsent-plan-fingerprint')
+    prep.add_argument('--policy-replacement-actor')
+    prep.add_argument('--policy-replacement-reason')
+    prep.add_argument('--confirm-unsent-policy-replacement', action='store_true')
     sub.add_parser(
         "current-paper-plan",
         help="inspect the durable current paper plan; contacts no broker")

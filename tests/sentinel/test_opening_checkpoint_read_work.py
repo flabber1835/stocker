@@ -350,10 +350,21 @@ def test_removed_read_reuse_is_detected_by_real_work_counts(conn, checkpoints, m
 def test_exact_wrapper_reconstructs_the_independently_archived_module(name):
     records = predecessors()
     raw = Path(importlib.import_module(name).__file__).read_bytes()
-    assert sha(raw) == basis.CANDIDATES[name]
+    expected = basis.CAS_CANDIDATE if name == 'sentinel.rolling_daily_checkpoint' else basis.CANDIDATES[name]
+    assert sha(raw) == expected
     before = basis.predecessor(name, raw)
     assert before == records[name]['source'].encode()
     assert semantic.canonical_contribution(name, raw) == semantic.canonical_contribution(name, before)
+
+
+def test_daily_source_compares_equal_across_independent_physical_row_witnesses(conn, checkpoints):
+    with reads.proof_connection(conn) as proof:
+        left = daily.read(proof)
+    with reads.proof_connection(conn) as proof:
+        right = daily.read(proof)
+    assert left._row_version != right._row_version
+    assert left == right == checkpoints[1]
+    assert left.model_copy(update={'history_anchor': {'changed': True}}) != right
 
 
 @pytest.mark.parametrize('name', sorted(basis.BASELINES))

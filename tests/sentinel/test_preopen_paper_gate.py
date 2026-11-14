@@ -338,7 +338,7 @@ def test_recovery_overlays_open_split_before_book_classification_and_evidence(
         projection_calls.append(kwargs)
         return SimpleNamespace(
             target_basket={"SEC-A": Decimal(20)},
-            through_session=effective)
+            through_session=effective, opening_sizing=None)
 
     monkeypatch.setattr(
         paper_recovery, "_target_projection_or_refuse", require_authority_projection)

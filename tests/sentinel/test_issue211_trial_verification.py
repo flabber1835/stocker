@@ -1118,6 +1118,17 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         fill_evidence["evidence_sha256"])
     assert defensive_calls[-1] == (
         effective_session, {"SEC-A": "20"}, [])
+    # A notional fulfillment witness cannot turn an absent account observation
+    # into success, or crash verification while trying to age its share units.
+    with monkeypatch.context() as missing:
+        missing.setattr(trial, "load_account_evidence", lambda *_: None)
+        missing.setattr(trial, "_fulfilled_projection", lambda *_args, **_kwargs:
+            (target_projection.target_basket, {"blocked": {}, "remaining_dollars": {}}))
+        incomplete = trial.build_cycle_verification(
+            VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+            observation_id=17, now=NOW)
+        assert incomplete["verdict"] == "NOT_VERIFIED"
+        assert "ACCOUNT_EVIDENCE_MISSING" in incomplete["reason_codes"]
     assert result["reconciliation"]["plan_target"] == {"SEC-A": "10"}
     assert result["reconciliation"]["target"] == {"SEC-A": "20"}
     assert result["reconciliation"]["observation_target"] == {"SEC-A": "20"}
@@ -1391,7 +1402,7 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
     command_rows = [(
         "client-late", "SEC-A", "BUY", Decimal("1"), "FILLED",
         "order-late", Decimal("1"), Decimal("5"), "late fill",
-        official_close + timedelta(seconds=2))]
+        official_close + timedelta(seconds=2), None)]
     fill_rows = [(
         "order-late", "fill-late", "client-late", Decimal("1"),
         Decimal("5"), official_close + timedelta(seconds=1))]

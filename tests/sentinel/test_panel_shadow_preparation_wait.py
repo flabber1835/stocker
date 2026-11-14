@@ -128,7 +128,7 @@ def test_changed_projection_subject_is_captured_as_superseded_without_a_payload(
     owned, calls = observer_setup(monkeypatch, proof(), subjects=subjects)
     monkeypatch.setattr(verification_service, '_observe_once',
                         lambda *args: pytest.fail('changed subject reached financial closure'))
-    result = verification_service.diagnosed_observe('private', paper, 'key')
+    result = observer_failure.capture(shadow_source_wait.observe_preparation, 'private', paper, 'key')
     failure = observer_failure.decode(result)
     assert failure.outcome == 'SUPERSEDED', f'subject change was classified as {failure.outcome}'
     assert failure.code == 'SUBJECT_CHANGED' and failure.phase == phase
@@ -172,7 +172,7 @@ def test_preparation_path_does_not_reclassify_unrelated_financial_validation(mon
     failure = observer_failure.decode(verification_service.diagnosed_observe('private', paper, 'key'))
     assert failure.outcome == 'FAILED' and failure.code == 'VALIDATION_REFUSED'
     assert failure.phase == 'OBSERVATION' and failure.exception_type == 'ValueError'
-    assert owned.rolled_back and owned.closed
+    assert owned.rolled_back is paper and owned.closed is paper
 
 
 def test_positive_background_proof_skips_expensive_financial_closure(monkeypatch):
@@ -180,7 +180,7 @@ def test_positive_background_proof_skips_expensive_financial_closure(monkeypatch
     monkeypatch.setattr(shadow_source_wait, 'observe_preparation', lambda *args: answer)
     monkeypatch.setattr(verification_service, '_observe_once',
                         lambda *args: pytest.fail('duplicate financial closure'))
-    assert verification_service.observe('private', False, 'key') is answer
+    assert verification_service.observe('private', True, 'key') is answer
 
 
 def test_unrelated_integrity_refusal_is_not_masked_when_preparation_proof_absent(monkeypatch):

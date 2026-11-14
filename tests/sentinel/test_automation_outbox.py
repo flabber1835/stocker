@@ -283,7 +283,7 @@ def test_alert_adapters_come_from_an_explicit_registry() -> None:
 
 
 @pytest.mark.parametrize("reconstruct", [False, True])
-def test_real_retry_transition_survives_live_notification_and_reconstruction(conn, reconstruct):
+def test_real_retry_transition_survives_live_notification_and_reconstruction(conn, reconstruct, monkeypatch):
     import asyncio
     from sentinel.automation.model import SourceDataPending, TickAction
     from sentinel.automation_resilience import RecoveryAutomationService
@@ -301,6 +301,14 @@ def test_real_retry_transition_survives_live_notification_and_reconstruction(con
     asyncio.run(service.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
     result = asyncio.run(service.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
     assert result.action is TickAction.RETRY_SCHEDULED
+    decoded = []
+    event_alert = outbox._cycle_event_alert
+
+    def record_event_alert(row):
+        decoded.append(row)
+        return event_alert(row)
+
+    monkeypatch.setattr(outbox, "_cycle_event_alert", record_event_alert)
     for _ in range(2):
         if reconstruct:
             outbox._reconstruct_missing_transition_alerts(conn)
@@ -310,6 +318,35 @@ def test_real_retry_transition_survives_live_notification_and_reconstruction(con
     row = conn.execute("SELECT payload FROM sentinel_alert_outbox WHERE event_type='AUTOMATION_RETRY_SCHEDULED'").fetchall()
     assert len(row) == 1
     assert row[0][0]["detail"]["retry_phase"] == "REFRESH"
+    assert len(decoded) == (1 if reconstruct else 2)
+
+
+def test_reconstruct_only_missing_control_alerts(conn, monkeypatch):
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO sentinel_automation_events
+            (generation,action,actor,reason,detail)
+            VALUES (1,'KILL_ENGAGED','operator','first','{}')""")
+    conn.commit()
+    first = outbox.enqueue_latest_kill_alert(conn)
+    decoded = []
+    rebuild = outbox._control_event_alert
+
+    def record_control_event(row):
+        decoded.append(row)
+        return rebuild(row)
+
+    monkeypatch.setattr(outbox, '_control_event_alert', record_control_event)
+    outbox._reconstruct_missing_transition_alerts(conn)
+    assert decoded == []
+    conn.execute("""INSERT INTO sentinel_automation_events
+        (generation,action,actor,reason,detail)
+        VALUES (2,'KILL_ENGAGED','operator','second','{}')""")
+    conn.commit()
+    outbox._reconstruct_missing_transition_alerts(conn)
+    outbox._reconstruct_missing_transition_alerts(conn)
+    assert [row[1] for row in decoded] == [2]
+    ids = conn.execute('SELECT alert_id FROM sentinel_alert_outbox ORDER BY created_at').fetchall()
+    assert len(ids) == 2 and ids[0] == (first.alert_id,)
 
 
 @pytest.mark.parametrize('reconstruct', [False, True])

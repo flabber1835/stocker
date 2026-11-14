@@ -479,7 +479,9 @@ def _completed_work_normal(panel) -> bool:
             or run.updated_at != run.completed_at
             or any(order.state != 'FILLED' for order in run.orders)
             or any(leg.action == 'UNAVAILABLE' for leg in run.intent.legs)
-            or (not run.orders and any(leg.action != 'HOLD' for leg in run.intent.legs))):
+            or any(leg.action != 'HOLD' and leg.security_id not in run.below_whole_share
+                   and not any(order.security_id == leg.security_id and order.side == leg.action
+                               for order in run.orders) for leg in run.intent.legs)):
         return False
     if (not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
             or not _enabled_policy(panel.row('automation'))
@@ -806,7 +808,8 @@ def preparation_stage(panel) -> str | None:
         return ('Checking paper account' if _paper_check_normal(panel, panel.row('paper_reconciliation'))
                 else 'Waiting for market open')
     if _completed_work_normal(panel):
-        return 'Today’s trading complete'
+        return ('Today’s trading complete' if panel.row('trading_run').trading_run.orders
+                else 'Run complete · No orders placed')
     cycle = panel.row('automation_cycle')
     if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
             and cycle.recovery is not None and cycle.recovery.phase == 'NATIVE_FEE_POSTING'

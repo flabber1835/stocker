@@ -210,7 +210,8 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
 
 
 def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
-                    unchanged_through=None, cached_only=False, historical_frontier=False):
+                    unchanged_through=None, cached_only=False, historical_frontier=False,
+                    observe_handoff=None):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
@@ -223,7 +224,13 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                                 "WHERE cursor_name=%s)", (origin.CURSOR,)).fetchone()[0]:
                 origin.require_fresh(conn)
                 return {"status": "NOT_STARTED"}
-            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True, cached_only=cached_only)
+            checkpoint, _, result, attested, previous = _closure(
+                conn, context, status_only=True, cached_only=cached_only)
+            if (observe_handoff is not None and historical_frontier and not structural_only
+                    and (checkpoint.publication != pub.to_dict() or attested is None)):
+                wait = observe_handoff(conn, pub, checkpoint, result, attested, previous)
+                if wait is not None:
+                    return {'status': 'PENDING_CLOSE_ATTESTATION', 'wait': wait}
             if attested is None:
                 if structural_only:
                     return {"status": "RECONSTRUCTION_REQUIRED", "latest_session": checkpoint.session}
@@ -272,11 +279,13 @@ def status(conn, *, observation_id, starting_cash):
                                      starting_cash=starting_cash))
 
 
-def observe_status(conn, *, observation_id, starting_cash):
+def observe_status(conn, *, observation_id, starting_cash, observe_handoff=None):
     """Display observation can retain the same proof's historical evidence."""
     classified = _committed_status(conn, _classify_owned,
         observation_id=observation_id, starting_cash=starting_cash,
-        historical_frontier=True)
+        historical_frontier=True, observe_handoff=observe_handoff)
+    if classified['status'] == 'PENDING_CLOSE_ATTESTATION':
+        return classified['wait']
     if classified['status'] == 'HISTORICAL_SOURCE_FRONTIER':
         return classified['history']
     return _verified_result(classified)

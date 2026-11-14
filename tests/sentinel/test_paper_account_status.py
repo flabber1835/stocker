@@ -35,6 +35,7 @@ def fixture(db, monkeypatch):
     calls = []
     change = []
     orders = []
+    positions = []
     account_calls = []
     def handler(request):
         calls.append((request.method, request.url.path))
@@ -43,6 +44,8 @@ def fixture(db, monkeypatch):
         if request.url.path == "/v2/orders":
             assert request.url.params["status"] == "open"
             return httpx.Response(200, json=deepcopy(orders))
+        if request.url.path == '/v2/positions':
+            return httpx.Response(200, json=deepcopy(positions))
         assert request.url.path == "/v2/account"
         account_calls.append(True)
         payload = deepcopy(account)
@@ -55,7 +58,7 @@ def fixture(db, monkeypatch):
         base_url="https://paper-api.alpaca.markets", http_provider=lambda: provider)
     config = SentinelConfig.from_env({})
     return SimpleNamespace(account=account, calls=calls, change=change,
-                           orders=orders, reader=reader, config=config)
+                           orders=orders, positions=positions, reader=reader, config=config)
 
 
 def collect(db, f):

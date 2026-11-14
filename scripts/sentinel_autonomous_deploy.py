@@ -2286,6 +2286,11 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
             decision_session: str, timing: Optional[Mapping],
     ) -> Tuple[Mapping, Optional[Tuple[datetime, float]]]:
         """Keep fee re-observation under the current owned and signed activation."""
+        requested = getattr(self, 'requested_policy_replacement', None)
+        if requested is not None:
+            from sentinel_activation_recovery import policy_replacement_args
+            prepare_args = [*prepare_args, *policy_replacement_args(
+                requested, getattr(self.reviewed_validation, 'mode', None))]
         protocol = self._load_native_fee_protocol()
         deadline = None
         while True:

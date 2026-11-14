@@ -297,7 +297,9 @@ def _reconciliation(binding, rec, now, *, clean=False):
         'positions': {sid: str(qty) for sid, qty in sorted(positions.items())},
         'orders': [{'key': order.client_key, 'id': order.broker_order_id,
                     'security_id': order.instrument.security_id, 'state': order.state.value,
-                    'quantity': str(order.quantity), 'filled': str(order.filled_quantity)}
+                    'quantity': None if order.quantity is None else str(order.quantity),
+                    **({'notional': str(order.notional)} if order.notional is not None else {}),
+                    'filled': str(order.filled_quantity)}
                    for order in observation.orders]}
     return observation, facts
 

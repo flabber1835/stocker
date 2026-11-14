@@ -65,7 +65,7 @@ class _Connection:
 
 @pytest.mark.parametrize('retirement_present', [False, True])
 def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirement_present):
-    from sentinel.paper import cash_retirement
+    from sentinel.paper import cash_retirement, policy_replacement
     account = SimpleNamespace(
         identity="deployment", takeover_epoch=4, broker="alpaca",
         broker_account_id="paper-account")
@@ -75,8 +75,11 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
         enabled=False, kill_switch_engaged=True, generation=12)
     cycles = []
     validated_retirements = []
+    validated_replacements = []
     monkeypatch.setattr(cash_retirement, 'verify_retirements',
         lambda connection: validated_retirements.append(connection))
+    monkeypatch.setattr(policy_replacement, 'verify_receipts',
+        lambda connection: validated_replacements.append(connection))
 
     monkeypatch.setattr(
         restore_validation.schema, "require_runtime_schema", lambda _c: None)
@@ -134,6 +137,7 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
     assert result["trial_verification_count"] == 2
     assert result["cash_baseline_count"] == 1
     assert validated_retirements == [conn]
+    assert validated_replacements == [conn]
     assert cycles == ["cycle-a", "cycle-b"]
     assert "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY" in (
         conn.statements)

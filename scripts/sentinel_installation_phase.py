@@ -158,7 +158,8 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
 
 
 def request_activation(installation, mode, *, bundle=None, confirmation=None,
-                       unsent_recovery=None, initial_paper_recovery=None):
+                       unsent_recovery=None, initial_paper_recovery=None,
+                       policy_replacement=None):
     """Seal a separate request after software success; never import financial admission."""
     from sentinel_activation_coordinator import handoff
     from sentinel_phase_records import write_document
@@ -185,6 +186,13 @@ def request_activation(installation, mode, *, bundle=None, confirmation=None,
         request.update(schema='sentinel.activation-request/3',
                        unsent_recovery=request.get('unsent_recovery'),
                        initial_paper_recovery=validate_initial(initial_paper_recovery))
+    if policy_replacement is not None:
+        from sentinel_activation_recovery import policy_replacement_args
+        if unsent_recovery is not None or initial_paper_recovery is not None:
+            raise core.DeployRefused('policy replacement cannot be combined with other recovery')
+        policy_replacement_args(policy_replacement, mode)
+        request.update(schema='sentinel.activation-request/4',
+                       policy_replacement=dict(policy_replacement))
     requests = receipt.parent / 'activation-requests'
     requests.mkdir(mode=0o700, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix='request-', dir=str(requests)))

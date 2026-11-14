@@ -6,12 +6,14 @@ from sentinel.panel import model
 from sentinel.paper_plan_preview import project_original_intent, quantity
 
 
-def project_run(plan, authority, commands):
+def project_run(plan, authority, commands, *, purchase_allocations=(), below_whole_share=None):
     """Recover original proposed deltas from their immutable sizing snapshot."""
     intent = project_original_intent(plan,authority)
     orders = [model.RunOrder(**item) for item in commands]
     return model.TradingRun(intent=intent, state=plan['state'],
-        updated_at=plan['updated_at'], completed_at=plan['completed_at'], orders=orders)
+        updated_at=plan['updated_at'], completed_at=plan['completed_at'], orders=orders,
+        purchase_allocations=list(purchase_allocations),
+        below_whole_share=below_whole_share or {})
 
 
 def moving_snapshot_recovery(*, run, observation, callback, first_inconsistent, now,
@@ -36,6 +38,8 @@ def moving_snapshot_recovery(*, run, observation, callback, first_inconsistent, 
             'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED'}
             or order.observed_at > now+model.MAXIMUM_FUTURE_SKEW for order in run.orders)):
         return None
+    if any(order.notional is not None for order in run.orders):
+        return None  # Dollars cannot establish a position-leading share envelope.
     by_key = {order.client_key: order for order in run.orders}
     legs = {leg.security_id: leg for leg in run.intent.legs}
     capacities = {}

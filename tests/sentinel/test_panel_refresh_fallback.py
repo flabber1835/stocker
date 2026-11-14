@@ -155,3 +155,39 @@ def test_actual_busy_http_response_retains_facts_without_inventing_failures(monk
                 owner.result(timeout=3)
     finally:
         app.last_known.clear()
+
+
+def test_database_timeout_uses_retained_http_and_preserves_a_real_schema_failure(monkeypatch):
+    from psycopg.errors import ConnectionTimeout, UndefinedTable
+
+    app = importlib.import_module('sentinel.panel.app')
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://private-isolated-fixture')
+    monkeypatch.setattr(app.projection_service, 'register_panel_incarnation', lambda *_: None)
+    monkeypatch.setattr(app, '_shadow_segment_disclosure', lambda value, _dsn: value)
+    failure = None
+    failure_latch = []
+
+    def read(*_args, **_kwargs):
+        if failure is not None:
+            raise failure
+        return healthy_panel()
+
+    monkeypatch.setattr(app.projection_service, 'read', read)
+    monkeypatch.setattr(app.recorder, 'read_failed', lambda: failure_latch.append(True))
+    app.last_known.clear()
+    try:
+        with TestClient(app.app, raise_server_exceptions=False) as client:
+            assert client.get('/?document=1').headers['x-sentinel-panel-status'] == 'CURRENT'
+            failure = ConnectionTimeout('private connection detail')
+            response = client.get('/?document=1')
+            assert response.headers['x-sentinel-panel-status'] == 'LAST_KNOWN'
+            assert_healthy_retained(response.text)
+            machine = client.get('/panel.json')
+            assert machine.status_code == 503 and machine.json()['status'] == 'UNKNOWN'
+            assert 'private connection detail' not in machine.text and not failure_latch
+
+            failure = UndefinedTable('missing required runtime relation')
+            assert client.get('/panel.json').status_code == 500
+            assert failure_latch == [True]
+    finally:
+        app.last_known.clear()

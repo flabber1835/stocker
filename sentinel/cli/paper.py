@@ -234,6 +234,19 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
         dual_kwargs = {}
+        replacement_fields = {
+            'plan_id': getattr(args, 'replace_unsent_plan', None),
+            'plan_fingerprint': getattr(args, 'replace_unsent_plan_fingerprint', None),
+            'actor': getattr(args, 'policy_replacement_actor', None),
+            'reason': getattr(args, 'policy_replacement_reason', None),
+        }
+        replacement_confirmed = getattr(args, 'confirm_unsent_policy_replacement', False)
+        if any(value is not None for value in replacement_fields.values()) or replacement_confirmed:
+            from sentinel.paper.policy_replacement import Request
+            if not getattr(args, 'reviewed_informational_dual', False):
+                raise paper.PaperActivationRefused('policy replacement requires explicit informational dual mode')
+            dual_kwargs['unsent_policy_replacement'] = Request.model_validate(dict(
+                replacement_fields, confirm_unsent_policy_replacement=replacement_confirmed)).model_dump()
         retirement_fields = {
             'plan_id': getattr(args, 'retire_legacy_cash_plan', None),
             'plan_fingerprint': getattr(args, 'retire_legacy_cash_plan_fingerprint', None),

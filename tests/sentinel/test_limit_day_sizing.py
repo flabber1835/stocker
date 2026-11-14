@@ -12,11 +12,12 @@ import pytest
 
 from sentinel.core import decision
 from sentinel.execution import opening_sizing, protected_limits as limits
+from sentinel.execution.plan import OpeningIntent
 from sentinel.execution import target_reprojection as projections
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from tests.v5.test_opening import case, base
 from tests.sentinel.test_production_decision import (
-    _account, _binding, _episode, _observation, _publication)
+    _account, _binding, _episode, _observation, _publication, _state)
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +103,73 @@ def test_empty_compose_policy_and_cap_preserve_legacy_mode(monkeypatch):
     monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "")
     monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "")
     assert limits.ProtectedLimitPolicy.from_env() is None
+
+
+def test_prior_close_preview_matches_protected_allocation_without_open_actions():
+    state,plan,projection,refs=protected_case()
+    refs=replace(refs,prices={**refs.prices,'SEC-AAA':D('1730.93')})
+    policy=limits.ProtectedLimitPolicy(100)
+    result=limits.resolve_protected(state,plan,projection,refs,policy)
+    estimates=limits.estimate_prior_close_openings(plan=plan,marks=refs.prices,
+        shadow_equity=decision._shadow_equity(state),policy=policy,retained_targets={})
+    assert estimates=={entry['security_id']:(Fraction(entry['budget']),
+        D(result.opening_sizing['limits'][entry['security_id']]),int(entry['account_shares']))
+        for entry in result.opening_sizing['entries']}
+    assert estimates['SEC-AAA'][1]==D('1748.23')
+
+
+def retry_case(*, held=True):
+    _, predecessor = case(entries=1, exposure="0.55")
+    intent, = predecessor.opening_intents
+    state = _state(episodes=(_episode(0, intent.security_id, "AAA", 2),) if held else (),
+        equity="100000")
+    plan = replace(predecessor, shadow_snapshot_hash=state.state_hash)
+    projection = base(state, plan)
+    return state, plan, projection, intent
+
+
+@pytest.mark.parametrize("price, shares, status", [
+    ("1730.93", 0, "BELOW_WHOLE_SHARE"), ("1200", 1, "SIZED"),
+    (None, 0, "REFERENCE_UNAVAILABLE"),
+])
+def test_certified_zero_share_retry_uses_protected_budget(price, shares, status):
+    state, plan, projection, _ = retry_case()
+    intent = OpeningIntent("SEC-AAA", 0, D("2400.85"))
+    plan = replace(plan, opening_intents=(intent,))
+    projection = base(state, plan)
+    refs = references(plan, projection,
+        prices={"SEC-AAA": D(price)} if price is not None else {})
+    policy = limits.ProtectedLimitPolicy(100)
+    result = limits.resolve_protected(state, plan, projection, refs, policy, retry_openings=(intent,))
+    row, = result.opening_sizing["entries"]
+    assert Fraction(row["budget"]) == Fraction(D("1320.4675"))
+    assert row["status"] == status and result.target_basket["SEC-AAA"] == shares
+    assert limits.validate_projection(result, plan=plan)[1] == refs
+    assert state.state_hash == plan.shadow_snapshot_hash
+
+
+@pytest.mark.parametrize("fault", ["unproved", "altered_dollars", "no_episode", "retained_target"])
+def test_retry_must_bind_exact_dollars_and_still_have_a_shadow_holding(fault):
+    state, plan, projection, intent = retry_case(held=fault != "no_episode")
+    refs = references(plan, projection)
+    verified = (() if fault == "unproved" else
+                (replace(intent, intended_dollars=D(1)),) if fault == "altered_dollars" else (intent,))
+    retained = {intent.security_id: D(0)} if fault == "retained_target" else {}
+    with pytest.raises(projections.TargetProjectionRefused,
+            match="canonical dollar reservations|continuing shadow holding"):
+        limits.resolve_protected(state, plan, projection, refs, limits.ProtectedLimitPolicy(100),
+            retained_targets=retained, retry_openings=verified)
+
+
+def test_retry_shadow_holding_guard_has_a_falsifier(monkeypatch):
+    source = inspect.getsource(limits.resolve_protected)
+    guard = "target.held_shares.get(sid, Decimal(0)) <= 0"
+    assert source.count(guard) == 1
+    namespace = dict(limits.__dict__)
+    exec(compile(source.replace(guard, "False"), "<retry holding guard removed>", "exec"), namespace)
+    monkeypatch.setattr(limits, "resolve_protected", namespace["resolve_protected"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_retry_must_bind_exact_dollars_and_still_have_a_shadow_holding("no_episode")
 
 
 @pytest.mark.parametrize("price,cap,expected", [
@@ -567,12 +635,12 @@ def test_core_envelope_falsifier_detects_removed_guard(monkeypatch):
 
 
 def test_priority_falsifier_detects_released_unavailable_budget(monkeypatch):
-    original = inspect.getsource(limits.resolve_protected)
-    target = 'available -= budget'
-    assert original.count(target) == 1
-    namespace = {}
-    exec(compile(original.replace(target, 'available -= 0'), '<released-priority>', 'exec'),
-         limits.resolve_protected.__globals__, namespace)
-    monkeypatch.setattr(limits, "resolve_protected", namespace["resolve_protected"])
+    original = limits._opening_budget
+
+    def release_budget(intent, scale, available):
+        budget, _ = original(intent, scale, available)
+        return budget, available
+
+    monkeypatch.setattr(limits, '_opening_budget', release_budget)
     with pytest.raises(AssertionError):
         test_unavailable_first_entry_reserves_full_priority_budget()

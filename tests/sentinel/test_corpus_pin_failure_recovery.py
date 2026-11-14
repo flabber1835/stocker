@@ -57,6 +57,10 @@ def _exclusive_available(pg):
     with psycopg.connect(pg.sync_dsn) as other:
         assert other.execute("SELECT pg_try_advisory_lock(%s)",
                              (publication.CORPUS_LOCK_KEY,)).fetchone()[0]
+        # Disconnect does not make the server release its session lock before
+        # the caller's next statement on a different connection.
+        assert other.execute("SELECT pg_advisory_unlock(%s)",
+                             (publication.CORPUS_LOCK_KEY,)).fetchone()[0]
 
 
 def _timeout(conn, errors):

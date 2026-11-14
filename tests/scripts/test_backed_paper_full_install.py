@@ -58,10 +58,26 @@ def owner_environment():
 
 
 @pytest.mark.parametrize('profile', ['compose', 'install', 'maintenance'])
-def test_host_parser_accepts_exact_backed_owner_context(profile):
+@pytest.mark.parametrize('policy,cap', [
+    ('PROTECTED_LIMIT_DAY_V1', '100'), ('MARKET_DAY_V1', ''), ('FRACTIONAL_MARKET_DAY_V1', ''),
+])
+def test_host_parser_accepts_exact_backed_owner_context(profile, policy, cap):
     env = owner_environment()
+    env.update(SENTINEL_PAPER_BUY_POLICY=policy, SENTINEL_PAPER_BUY_CAP_BPS=cap)
     env['SENTINEL_PUBLICATION_RECEIPT_KEY'] = 'generated-receipt-key-' + 'x' * 32
     host_env.validate(env, profile=profile)
+
+
+@pytest.mark.parametrize('change,reason', [
+    ({'SENTINEL_LOCAL_PAPER_BACKUP_POLICY': ''}, 'MARKET_DAY_REQUIRES_BACKED_OWNER_PAPER'),
+    ({'SENTINEL_PAPER_BUY_CAP_BPS': '100'}, 'INVALID_PAPER_BUY_CAP_BPS'),
+    ({'SENTINEL_PAPER_DEBUG_WINDOW': '{}'}, 'PAPER_DEBUG_WINDOW_REQUIRES_PROTECTED_100_BPS'),
+])
+def test_fractional_host_selection_retains_financial_policy_guards(change, reason):
+    env = dict(owner_environment(), SENTINEL_PAPER_BUY_POLICY='FRACTIONAL_MARKET_DAY_V1',
+               SENTINEL_PAPER_BUY_CAP_BPS='')
+    with pytest.raises(host_env.EnvRefused, match=reason):
+        host_env.validate({**env, **change}, profile='install')
 
 
 @pytest.mark.parametrize('change', [

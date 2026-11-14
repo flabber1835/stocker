@@ -268,7 +268,7 @@ def notification_payload(alert) -> dict:
         title = "Caesar's Palace notifications enabled"
         body = "Test notification requested from this device."
     elif alert.event_type == 'PAPER_PLAN_READY':
-        title = 'Paper trades planned for ' + str(details.get('effective_session') or 'next open')
+        title = 'Paper trading plan for ' + str(details.get('effective_session') or 'next open')
         body = str(details.get('reason') or 'Open the dashboard to review proposed trades.')[:240]
     elif (alert.event_type == "SHADOW_DEPENDENCY_UNAVAILABLE"
           and str(alert.severity).upper() == "WARN"):

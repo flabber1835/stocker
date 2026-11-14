@@ -1,4 +1,4 @@
-"""Explicit whole-share market BUY policy for backed owner PAPER."""
+"""Explicit whole-share and dollar market BUY policies for backed owner PAPER."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,16 +12,24 @@ from sentinel.execution.target_reprojection import TargetProjectionRefused
 
 
 MARKET_MODE = "MARKET_DAY_V1"
+FRACTIONAL_MODE = "FRACTIONAL_MARKET_DAY_V1"
 MARKET_BUY_BUFFER_BPS = 100
 MARKET_BUY_HEADROOM = Decimal("1.00")
 
 
 @dataclass(frozen=True)
 class MarketBuyPolicy:
+    fractional: bool = False
+
+    def __post_init__(self):
+        if type(self.fractional) is not bool:
+            raise TypeError("fractional policy selection must be boolean")
+
     @classmethod
     def from_env(cls, values: Mapping[str, str] | None = None) -> MarketBuyPolicy | None:
         values = os.environ if values is None else values
-        if values.get("SENTINEL_PAPER_BUY_POLICY", "").strip() != MARKET_MODE:
+        selected = values.get("SENTINEL_PAPER_BUY_POLICY", "").strip()
+        if selected not in {MARKET_MODE, FRACTIONAL_MODE}:
             return None
         if values.get("SENTINEL_PAPER_BUY_CAP_BPS", "").strip():
             raise TargetProjectionRefused("market DAY BUY policy cannot select a protected BUY cap")
@@ -41,9 +49,21 @@ class MarketBuyPolicy:
             raise TargetProjectionRefused("market DAY BUY policy requires backed owner PAPER") from exc
         if not backed_owner_paper:
             raise TargetProjectionRefused("market DAY BUY policy requires backed owner PAPER")
-        return cls()
+        return cls(fractional=selected == FRACTIONAL_MODE)
 
     def to_dict(self) -> dict[str, object]:
+        if self.fractional:
+            return {
+                **MarketBuyPolicy().to_dict(),
+                "schema": "sentinel.market-buy-policy/2",
+                "profile": FRACTIONAL_MODE,
+                "reference_recipe": "AUTHENTICATED_PRIOR_RAW_CLOSE_V1",
+                "fallback_reference_recipe": "FRESH_IEX_BID_ASK_V1",
+                "quantity_rounding": "NOTIONAL_CENTS_DOWN_OR_WHOLE_SHARES_DOWN",
+                "sell_quantity_increment": "0.000000001",
+                "notional_minimum": "1.00",
+                "hold_behavior": "OWNED_ACQUIRED_SHARES_AND_UNFINISHED_BUDGET",
+            }
         return {
             "schema": "sentinel.market-buy-policy/1",
             "profile": MARKET_MODE,
@@ -62,7 +82,7 @@ class MarketBuyPolicy:
 
     @classmethod
     def from_dict(cls, raw: object) -> MarketBuyPolicy:
-        policy = cls()
+        policy = cls(fractional=isinstance(raw, dict) and raw.get("profile") == FRACTIONAL_MODE)
         expected = policy.to_dict()
         if (not isinstance(raw, dict) or raw != expected
                 or any(type(raw[key]) is not type(value) for key, value in expected.items())):

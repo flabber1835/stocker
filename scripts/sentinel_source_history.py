@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def compact(value):
-    anchor = value['candidate_files']
+    anchor = value.get('retained_anchor_files', value['candidate_files'])
     records = {}
     for revision, record in value['retained_predecessors'].items():
         files = record['files']

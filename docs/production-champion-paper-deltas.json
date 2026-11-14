@@ -21,9 +21,16 @@
       "module": "cash"
     },
     "_account_endpoint_lag_is_live": {
-      "generated_ast_sha256": "fb38fa9d3d2ef9f4300909388cae1d99deeba1ce7f4a0fffe5b006d253e14065",
+      "generated_ast_sha256": "f87648cfcb101e05ffe95ffc6bdcb481c8e4d7f905acde2e92e88e135ac821b1",
       "historical_ast_sha256": "034396dee2a94ac4181707002ffbe40595ef949f12bccc10f7cbc9f75b857e4f",
-      "module": "cash"
+      "module": "cash",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "fb38fa9d3d2ef9f4300909388cae1d99deeba1ce7f4a0fffe5b006d253e14065"
     },
     "_action_lookup": {
       "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
@@ -119,7 +126,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "30e7ffa82984ca66cb93e0229f480d741a62f6913256c91ec848315f601444f3",
+      "generated_ast_sha256": "a8acffe08b3701cf2fa187149e96b40c5b0c23f541bfce8f4034c5e3cb7b852e",
       "market_buy_acceptance": [
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle",
         "tests/sentinel/test_market_day_execution.py"
@@ -171,10 +178,19 @@
         "tests/sentinel/test_automation_service.py",
         "tests/sentinel/test_activation_writer_handoff.py"
       ],
-      "native_fee_posting_delay_predecessor_ast_sha256": "a56bbc10396548feadae0e5e5a4f96f31bef212482b752a5f64a4a64506ba25c"
+      "native_fee_posting_delay_predecessor_ast_sha256": "a56bbc10396548feadae0e5e5a4f96f31bef212482b752a5f64a4a64506ba25c",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "30e7ffa82984ca66cb93e0229f480d741a62f6913256c91ec848315f601444f3"
     },
     "_fee_cash_continuation": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "289319bee5e9fc085f5f5422ca9c96fa06974efabb59f66b34f81fbf1a78d63e",
       "historical_ast_sha256": null,
@@ -248,7 +264,7 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "086cc53fddd05a37189503ba31d2ad0d544525a49a0a96547e53b420ee2dad11",
+      "generated_ast_sha256": "38f35ea03f5ff61372e6cd34079ad9c95590e068d031e35fd48db7ce2a9d8950",
       "market_buy_acceptance": [
         "tests/sentinel/test_market_day_sizing.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -270,7 +286,14 @@
         "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
-      "protected_buy_reason": "Bind protected instruments to retained plan/projection/source-native identities, defer unavailable BUYs only and retain exact observed reductions and pre-submit revalidation."
+      "protected_buy_reason": "Bind protected instruments to retained plan/projection/source-native identities, defer unavailable BUYs only and retain exact observed reductions and pre-submit revalidation.",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "086cc53fddd05a37189503ba31d2ad0d544525a49a0a96547e53b420ee2dad11"
     },
     "_latest_plan_or_refuse": {
       "generated_ast_sha256": "8ae8415d255fcca8a8010d0d175de6ff45cff00156424e22294fae8d4f9963c0",
@@ -294,7 +317,7 @@
       "reason": "Owner-PAPER same-decision recovered window renewal; explicit PREPARE/debug policy and terminal-command checks remain mandatory."
     },
     "_market_buy_candidate_or_refuse": {
-      "generated_ast_sha256": "64d16e03d49952510f9c4e612288b4de5355a72696504818570b4a29338b2d06",
+      "generated_ast_sha256": "804ed0e0139277fb9682c3f1060cbca2a472fb0d58841f9afdfd9dee160b3888",
       "historical_ast_sha256": null,
       "market_buy_acceptance": [
         "tests/sentinel/test_market_day_execution.py",
@@ -302,12 +325,26 @@
       ],
       "market_buy_design": "docs/paper-market-buys.md",
       "module": "validation",
-      "reason": "Verify the exact SEND_PENDING command, account-wide unresolved set, target share delta and saved allocation."
+      "reason": "Verify the exact SEND_PENDING command, account-wide unresolved set, target share delta and saved allocation.",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "64d16e03d49952510f9c4e612288b4de5355a72696504818570b4a29338b2d06"
     },
     "_observation_economics": {
-      "generated_ast_sha256": "704d528815498d84fff694dab9f84bf3d09888c3db9b5effe6e89cf08ab9c96e",
+      "generated_ast_sha256": "a7cf87469d2548800ec9b25251891847b09ca4d17d358593bbb07754cbab6b46",
       "historical_ast_sha256": "89ba97c041bdbc87f66dc3e63f5dcd2e02cd2c42b0858b565cd68969b60d96be",
-      "module": "cash"
+      "module": "cash",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "704d528815498d84fff694dab9f84bf3d09888c3db9b5effe6e89cf08ab9c96e"
     },
     "_opening_prices_or_retry": {
       "generated_ast_sha256": "85ee469fc0762fd92b851c5a189fdc8d842e6018a5724ad597bd4bf497a9e43d",
@@ -337,7 +374,9 @@
       "reason": "PR #480 uses the reviewed ten-minute regular-session quote window and refuses new sizing at its exact endpoint; an already retained projection remains recoverable. PR #537: For an explicitly selected protected 100-basis-point DAY paper window, require the plan effective session to match and use its exclusive cutoff for unresolved first sizing; preserve immutable retained projections and the ordinary ten-minute cutoff when no debug window is selected."
     },
     "_plan_fill_cash": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "274ef1500044d54caa5a358029c72f73a47ed4dab5514ca64ba894530cd988eb",
       "historical_ast_sha256": null,
@@ -392,7 +431,9 @@
       "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
     },
     "_require_exact_fee_cash": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "905c50715585d0d462a46a0e1241ba1c34644efab591fbca37cfdf61f4288a04",
       "historical_ast_sha256": null,
@@ -451,7 +492,7 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "generated_ast_sha256": "66f8f7f0ca6ceabbbd3cafdb41420f6e14d334012be311427e4c79f44e991f35",
       "market_buy_acceptance": [
         "tests/sentinel/test_market_day_sizing.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -474,7 +515,15 @@
         "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
-      "protected_buy_reason": "Resolve immutable protected terms from authenticated historical RAW/action evidence under explicit policy, retaining canonical quantities and legacy opening sizing."
+      "protected_buy_reason": "Resolve immutable protected terms from authenticated historical RAW/action evidence under explicit policy, retaining canonical quantities and legacy opening sizing.",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_execution.py",
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_automation_composition.py"
+      ],
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_predecessor_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "reason": " Retain authenticated protected retry intents during replacement and projection."
     },
     "_transport_observation_or_refuse": {
       "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
@@ -542,7 +591,9 @@
       "url_design": "docs/url-selected-trading.md"
     },
     "load_native_fee_plan_baseline": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "e56ea934c8c4effa9f6aea340adcd1504075556d02c502ea68432d9ddbce97b0",
       "historical_ast_sha256": null,
@@ -550,7 +601,9 @@
       "reason": "Load the original immutable account-qualified plan boundary with native ledger membership."
     },
     "native_fee_plan_continuation": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "0025e286eced38d3e302ad6bf73ba80d033e64be8dc888574ad5db612e31d85f",
       "historical_ast_sha256": null,
@@ -575,7 +628,15 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "generated_ast_sha256": "4e4c03bde9e5f92dda25efaa8f6c0a5cbd96fd2fe60e4318961b7f38096c55de",
+      "fractional_replacement_predecessor_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
+      "fractional_replacement_design": "docs/fractional-paper-execution.md#replacing-an-already-saved-next-session-plan",
+      "fractional_replacement_acceptance": [
+        "tests/sentinel/test_fractional_plan_replacement.py",
+        "tests/sentinel/test_paper_cli.py",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "fractional_replacement_reason": "Explicit attended pre-open conversion of a wholly unsent quantity plan under renewed same-mode PAPER authority. Retain the original holding basis and immutable predecessor, reconcile before adoption, and commit a signed replacement receipt atomically. Ordinary retry and historical transport policy checks remain strict.",
       "market_buy_acceptance": [
         "tests/sentinel/test_dual_plan_scalar_proof.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -609,7 +670,7 @@
         "tests/sentinel/test_rolling_paper_inputs.py"
       ],
       "production_path_design": "docs/production-path-qualification.md",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged. Add only attended informational PAPER unsent legacy cash retirement during a later closed decision, with an accepted native dividend, stable account/book bracket, killed writer, exact prospective baseline and atomic authenticated receipt. Ordinary execution/recovery still refuse a missing baseline; no historical finality is granted.",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged. Add only attended informational PAPER unsent legacy cash retirement during a later closed decision, with an accepted native dividend, stable account/book bracket, killed writer, exact prospective baseline and atomic authenticated receipt. Ordinary execution/recovery still refuse a missing baseline; no historical finality is granted. Retain authenticated protected retry intents during replacement and projection.",
       "renewal_acceptance": [
         "tests/sentinel/test_dual_plan_renewal.py",
         "tests/sentinel/test_dual_plan_renewal_upgrade.py"
@@ -660,12 +721,50 @@
       "native_fee_posting_delay_predecessor_ast_sha256": "1765a76cd540ac5d9d8569a7ac175e9604fb828087cc51f24ddc7d41830342f9"
     },
     "require_exact_native_fee_cash": {
-      "acceptance": ["tests/sentinel/test_native_fee_plan_continuation.py"],
+      "acceptance": [
+        "tests/sentinel/test_native_fee_plan_continuation.py"
+      ],
       "design": "docs/native-fee-plan-continuation.md",
       "generated_ast_sha256": "26b0b9894961a155785e91caaadf1171f9c100aff917f22e8b2445c2bfd2520a",
       "historical_ast_sha256": null,
       "module": "cash",
       "reason": "Check fresh actual cash against the immutable plan, current-plan fills and the native activity delta."
+    },
+    "PaperAccountInspection": {
+      "module": "model",
+      "historical_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
+      "generated_ast_sha256": "c4adfb1b514a387a490c9575076fae640dd3aabf2dc61c72288355322901ea30",
+      "fractional_predecessor_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_fractional_lifecycle.py",
+        "tests/sentinel/test_automation_composition.py"
+      ]
+    },
+    "_plan_deltas": {
+      "module": "targets",
+      "historical_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
+      "generated_ast_sha256": "896f24bfd6824dd2dd18434f9a3e0fb820f61c83dfab1cea531ce92902e03106",
+      "fractional_predecessor_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_fractional_lifecycle.py",
+        "tests/sentinel/test_automation_composition.py"
+      ]
+    },
+    "_post_projection_action_multipliers": {
+      "module": "targets",
+      "historical_ast_sha256": "49a0e1375499341f2f697bf649add054516b14b96259994bb4d0cfaf99ea1080",
+      "generated_ast_sha256": "a5c08ef18f7688d29926574ab981768a1ac4d89d64eb91946e88346123f787d4",
+      "fractional_predecessor_ast_sha256": "49a0e1375499341f2f697bf649add054516b14b96259994bb4d0cfaf99ea1080",
+      "fractional_design": "docs/fractional-paper-execution.md",
+      "fractional_acceptance": [
+        "tests/sentinel/test_fractional_flow.py",
+        "tests/sentinel/test_fractional_lifecycle.py",
+        "tests/sentinel/test_automation_composition.py"
+      ]
     }
   },
   "design": "docs/production-compact-champion.md",
@@ -688,5 +787,6 @@
     "tests/sentinel/test_automatic_share_units.py",
     "tests/sentinel/test_preopen_paper_gate.py"
   ],
-  "schema": "sentinel.production-champion-paper-deltas/1"
+  "schema": "sentinel.production-champion-paper-deltas/1",
+  "fractional_design": "docs/fractional-paper-execution.md"
 }

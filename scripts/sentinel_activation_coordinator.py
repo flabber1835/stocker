@@ -33,10 +33,13 @@ def validate_request(path):
     request = read_document(path)
     recovery = request.get('schema') == 'sentinel.activation-request/2'
     initial = request.get('schema') == 'sentinel.activation-request/3'
+    replacement = request.get('schema') == 'sentinel.activation-request/4'
     expected = (REQUEST_KEYS | {'unsent_recovery', 'initial_paper_recovery'} if initial else
-                REQUEST_KEYS | {'unsent_recovery'} if recovery else REQUEST_KEYS)
+                REQUEST_KEYS | {'unsent_recovery'} if recovery else
+                REQUEST_KEYS | {'policy_replacement'} if replacement else REQUEST_KEYS)
     if (set(request) != expected or request['schema'] not in {
-            'sentinel.activation-request/1', 'sentinel.activation-request/2', 'sentinel.activation-request/3'}
+            'sentinel.activation-request/1', 'sentinel.activation-request/2',
+            'sentinel.activation-request/3', 'sentinel.activation-request/4'}
             or not isinstance(request['mode'], str)
             or request['mode'] not in {'shadow', 'dual', 'paper'}
             or not isinstance(request['source_commit'], str)
@@ -52,6 +55,9 @@ def validate_request(path):
         if request['mode'] != 'dual':
             raise core.DeployRefused('initial paper recovery requires informational dual activation')
         validate_initial(request['initial_paper_recovery'])
+    if replacement:
+        from sentinel_activation_recovery import policy_replacement_args
+        policy_replacement_args(request['policy_replacement'], request['mode'])
     for key in ('installation_sha256', 'env_sha256'):
         if not isinstance(request[key], str) or re.fullmatch('[0-9a-f]{64}', request[key]) is None:
             raise core.DeployRefused('activation request digest is malformed')
@@ -240,6 +246,7 @@ def attempt(path, request, receipt, *, environment_writer=None):
                       environment_writer=environment_writer or roles._deploy_writer)
     obj.requested_unsent_recovery = request.get('unsent_recovery')
     obj.requested_initial_paper_recovery = request.get('initial_paper_recovery')
+    obj.requested_policy_replacement = request.get('policy_replacement')
     obj.git_preflight()
     if obj.commit != request['source_commit']:
         raise core.DeployRefused('activation checkout changed from installed software')
@@ -331,6 +338,11 @@ def main(argv=None):
     parser.add_argument('--initial-paper-recovery-reason')
     parser.add_argument('--confirm-initial-paper-recovery', action='store_true')
     parser.add_argument('--confirm-retain-current-paper-credentials', action='store_true')
+    parser.add_argument('--replace-unsent-plan')
+    parser.add_argument('--replace-unsent-plan-fingerprint')
+    parser.add_argument('--policy-replacement-actor')
+    parser.add_argument('--policy-replacement-reason')
+    parser.add_argument('--confirm-unsent-policy-replacement', action='store_true')
     args = parser.parse_args(argv)
     recovery_args = (args.unsent_blocked_cycle_id, args.unsent_decision_session,
                      args.unsent_recovery_actor, args.unsent_recovery_reason)
@@ -351,6 +363,17 @@ def main(argv=None):
             parser.error('unsent recovery requires queue mode, all scope fields and explicit confirmation')
         recovery = dict(zip(('blocked_cycle_id', 'decision_session', 'actor', 'reason'), recovery_args))
         recovery['confirmed'] = True
+    replacement_args = (args.replace_unsent_plan, args.replace_unsent_plan_fingerprint,
+                        args.policy_replacement_actor, args.policy_replacement_reason)
+    replacement = None
+    if any(v is not None for v in replacement_args) or args.confirm_unsent_policy_replacement:
+        if (args.queue_from_installation is None or not all(replacement_args)
+                or not args.confirm_unsent_policy_replacement or args.mode != 'dual'
+                or recovery is not None or initial is not None):
+            parser.error('unsent policy replacement requires dual queue mode, all scope fields, '
+                         'explicit confirmation and no other recovery request')
+        replacement = dict(zip(('plan_id', 'plan_fingerprint', 'actor', 'reason'), replacement_args),
+                           confirmed=True)
     if args.queue_from_installation is not None:
         if args.mode is None:
             parser.error('--queue-from-installation requires --mode')
@@ -363,6 +386,8 @@ def main(argv=None):
             options = {'unsent_recovery': recovery} if recovery is not None else {}
             if initial is not None:
                 options['initial_paper_recovery'] = initial
+            if replacement is not None:
+                options['policy_replacement'] = replacement
             request_activation(installation, args.mode, bundle=args.validation_bundle,
                                confirmation=args.confirm_reviewed_go, **options)
             return 0

@@ -36,7 +36,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sentinel.paper_plan_preview import PlanPreview
+from sentinel.paper_plan_preview import OpeningEstimate, PlanPreview
 from sentinel.panel.retry_status import (
     availability_label,
     protected_day_wait as _protected_day_wait,
@@ -282,23 +282,28 @@ class PaperOrderOutcome(BaseModel):
     client_key: str = Field(min_length=1, max_length=100)
     broker_order_id: str = Field(min_length=1, max_length=100)
     side: Literal['BUY', 'SELL']
-    quantity: Decimal = Field(gt=0, allow_inf_nan=False)
+    quantity: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    notional: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
     filled_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
     state: Literal['PLANNED', 'SEND_PENDING', 'ACKNOWLEDGED', 'UNKNOWN',
                    'PARTIALLY_FILLED', 'FILLED', 'CANCEL_PENDING', 'CANCELLED',
                    'REJECTED', 'SUPERSEDED']
     observed_at: datetime
-    _number_bound = field_validator('quantity', 'filled_quantity')(_bounded_display_decimal)
+    _number_bound = field_validator('quantity', 'notional', 'filled_quantity')(_bounded_display_decimal)
 
     @model_validator(mode='after')
     def coherent_order(self):
         if self.observed_at.utcoffset() is None:
             raise ValueError('order evidence has no timezone')
-        if self.filled_quantity > self.quantity:
+        if (self.quantity is None) == (self.notional is None) or (self.notional is not None and self.side != 'BUY'):
+            raise ValueError('order requires exactly one requested quantity or BUY notional')
+        if self.quantity is not None and self.filled_quantity > self.quantity:
             raise ValueError('order overfilled its quantity')
-        if self.state == 'FILLED' and self.filled_quantity != self.quantity:
+        if self.state == 'FILLED' and (self.filled_quantity == 0 or (
+                self.quantity is not None and self.filled_quantity != self.quantity)):
             raise ValueError('filled order quantity is incomplete')
-        if self.state == 'PARTIALLY_FILLED' and not 0 < self.filled_quantity < self.quantity:
+        if self.state == 'PARTIALLY_FILLED' and (self.filled_quantity <= 0 or (
+                self.quantity is not None and self.filled_quantity >= self.quantity)):
             raise ValueError('partial order lacks a partial fill')
         return self
 
@@ -321,6 +326,15 @@ class RunOrder(PaperOrderOutcome):
         return self
 
 
+class PurchaseAllocation(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    security_id: str
+    budget: Decimal = Field(ge=0, allow_inf_nan=False)
+    acquired_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
+    remaining_budget: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    status: str
+
+
 class TradingRun(BaseModel):
     """Dated intent and durable execution progress, never permission to trade."""
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -330,6 +344,8 @@ class TradingRun(BaseModel):
     updated_at: datetime
     completed_at: datetime | None = None
     orders: list[RunOrder] = Field(default_factory=list, max_length=100)
+    purchase_allocations: list[PurchaseAllocation] = Field(default_factory=list, max_length=100)
+    below_whole_share: dict[str, OpeningEstimate] = Field(default_factory=dict, max_length=100)
 
     @model_validator(mode='after')
     def coherent_progress(self):
@@ -344,6 +360,13 @@ class TradingRun(BaseModel):
         if not {order.security_id for order in self.orders} <= {
                 leg.security_id for leg in self.intent.legs}:
             raise ValueError('current-run command has no saved intent')
+        if self.below_whole_share:
+            openings = {leg.security_id for leg in self.intent.legs
+                        if leg.action == 'BUY' and leg.opening_dollars is not None}
+            if (self.state != 'SUCCEEDED' or not self.below_whole_share.keys() <= openings
+                    or self.below_whole_share.keys() & {order.security_id for order in self.orders}
+                    or any(item.shares != 0 for item in self.below_whole_share.values())):
+                raise ValueError('recorded skip lacks its matching unsubmitted opening intent')
         return self
 
 

@@ -187,7 +187,7 @@ class PaperIssuerAdmission:
             self.conn.commit()
         return decision
 
-    def final_check(self, *, client_key, instrument, side, quantity, order_terms):
+    def final_check(self, *, client_key, instrument, side, quantity, order_terms, notional=None):
         if side is Side.SELL or instrument.security_id == admission.DEFENSIVE_SECURITY_ID:
             return admission.Decision(allowed=True, reason='REDUCTION_OR_SLEEVE',
                                       security_id=instrument.security_id)
@@ -197,6 +197,7 @@ class PaperIssuerAdmission:
         matches = [command for command in commands if command.client_key == client_key]
         if (len(matches) != 1 or matches[0].instrument != instrument
                 or matches[0].side is not side or matches[0].quantity != quantity
+                or matches[0].notional != notional
                 or matches[0].order_terms != order_terms
                 or matches[0].state is not CommandState.SEND_PENDING
                 or matches[0].identity.plan_id != self.evidence.plan_id

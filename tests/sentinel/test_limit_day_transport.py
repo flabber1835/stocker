@@ -219,7 +219,7 @@ def _completion_fixture(monkeypatch, kind, *, durable=OrderTerms(), observed=Ord
         order['order_terms'] = None if observed is None else observed.to_dict()
     provenance = {'kind': kind, 'broker': 'alpaca', 'account_id': 'PA-1',
                   'terminal_recovery_through': now.isoformat(), 'completeness': 'COMPLETE', 'orders': [order]}
-    row = ('SEC-AAPL', 'AAPL', 'asset-aapl', 'BUY', D(2), 'FILLED', 'order-1', D(2), D(100), durable.to_dict())
+    row = ('SEC-AAPL', 'AAPL', 'asset-aapl', 'BUY', D(2), 'FILLED', 'order-1', D(2), D(100), durable.to_dict(), None)
 
     class Cursor:
         def __enter__(self): return self

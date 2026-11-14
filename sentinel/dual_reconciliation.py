@@ -250,15 +250,16 @@ def _observation_evidence(conn, *, seq: int | None = None):
                 'broker_id', 'side', 'state', 'quantity', 'filled_quantity',
                 'filled_average_price', 'submitted_at', 'external_replacement',
                 'replaced_by', 'replaces'}
-            if (not isinstance(order, Mapping) or set(order) != expected_fields
+            permitted = (expected_fields, expected_fields | {"order_terms"},
+                         expected_fields | {"order_terms", "notional"})
+            if (not isinstance(order, Mapping) or set(order) not in permitted
                     or not order['broker_order_id'] or order['client_key'] != exact['client_key']
                     or order['state'] not in {state.value for state in CommandState}
                     or order['side'] not in {'BUY', 'SELL'}
                     or type(order['external_replacement']) is not bool):
                 raise DualReconciliationRefused('broker exact-order provenance economics are invalid')
-            quantity = _decimal(order['quantity'], label='exact-order quantity')
-            filled = _decimal(order['filled_quantity'], label='exact-order fill')
-            if quantity <= 0 or not 0 <= filled <= quantity:
+            if not journal._valid_reported_amount(order, quantity_field="quantity",
+                    filled_field="filled_quantity", allow_notional=True):
                 raise DualReconciliationRefused('broker exact-order provenance quantity is invalid')
     valid_states = {state.value for state in CommandState}
     for index, order in enumerate(orders):
@@ -270,11 +271,12 @@ def _observation_evidence(conn, *, seq: int | None = None):
             "side", "state", "qty", "filled", "filled_average_price",
             "submitted_at", "external_replacement", "replaced_by", "replaces",
         }
-        if set(order) != expected or str(order.get("state") or "") not in valid_states:
+        permitted = (expected, expected | {"order_terms"}, expected | {"order_terms", "notional"})
+        if set(order) not in permitted or str(order.get("state") or "") not in valid_states:
             raise DualReconciliationRefused(
                 f"durable broker order {index} has an unknown shape/state")
-        _decimal(order.get("qty"), label=f"durable broker order {index} quantity")
-        _decimal(order.get("filled"), label=f"durable broker order {index} fill")
+        if not journal._valid_reported_amount(order, quantity_field="qty", filled_field="filled", allow_notional=True):
+            raise DualReconciliationRefused(f"durable broker order {index} amount is invalid")
         if type(order.get("external_replacement")) is not bool:
             raise DualReconciliationRefused(
                 f"durable broker order {index} replacement flag is malformed")

@@ -325,6 +325,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              dual_shadow_starting_cash: Decimal | str | None = None,
                              initial_paper_recovery: Mapping | None = None,
                              legacy_cash_retirement: Mapping | None = None,
+                             unsent_policy_replacement: Mapping | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
     _require_mutation_backup(conn, operation="paper plan preparation")
@@ -354,15 +355,25 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             "and starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
     from sentinel.execution.target_reprojection import TargetProjectionRefused
 
     try:
         market_policy = MarketBuyPolicy.from_env()
+        retry_skipped = dual_mode and market_policy is None and ProtectedLimitPolicy.from_env() is not None
     except TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
     if market_policy is not None and not dual_mode:
         raise PaperActivationRefused("market BUY policy requires backed dual PAPER preparation")
     retirement_request = None
+    replacement_request = None
+    if unsent_policy_replacement is not None:
+        if (not dual_mode or automation_grant is not None
+                or initial_paper_recovery is not None or legacy_cash_retirement is not None):
+            raise PaperActivationRefused(
+                'policy replacement requires a separate attended informational dual preparation')
+        from .policy_replacement import Request
+        replacement_request = Request.model_validate(unsent_policy_replacement)
     if legacy_cash_retirement is not None:
         if not dual_mode or automation_grant is not None:
             raise PaperActivationRefused(
@@ -461,6 +472,11 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn, required_operation='PREPARE_READ', **authority_kwargs).certificate_sha256)
 
             existing_plan = _latest_plan_or_refuse(conn)
+            if replacement_request is not None:
+                from .policy_replacement import pending_request
+                replacement_request = pending_request(conn, request=replacement_request,
+                    plan=existing_plan, decision_session=through_date,
+                    policy=market_policy, rollout=rollout, now=clock())
             if retirement_request is not None:
                 from .cash_retirement import pending_request
                 retirement_request = pending_request(
@@ -527,8 +543,12 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     and existing_plan.decision_session == through_date):
                 renewal_rollout = _dual_renewal_rollout(
                     conn, existing_plan, rollout)
+                if replacement_request is not None and renewal_rollout is None:
+                    raise PaperActivationRefused(
+                        'policy replacement requires a fresh same-mode controller certificate renewal')
                 try:
-                    dual_plan_authority.require_current_buy_policy(conn, plan=existing_plan)
+                    if replacement_request is None:
+                        dual_plan_authority.require_current_buy_policy(conn, plan=existing_plan)
                 except dual_plan_authority.DualPlanAuthorityRefused as exc:
                     operation = "renewal" if renewal_rollout is not None else "restart"
                     raise PaperActivationRefused(
@@ -795,6 +815,10 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             elif market_policy is not None and journal.in_flight_commands(conn, binding.identity):
                 raise PaperRetryableRefused(
                     "market plan preparation waits for unresolved durable commands")
+            if replacement_request is not None:
+                from .policy_replacement import require_quiescent, require_unsent
+                require_quiescent(conn, plan=existing_plan, now=clock())
+                require_unsent(conn, existing_plan)
 
             if dual_mode:
                 # The shadow record has already advanced the only strategy
@@ -806,9 +830,19 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 marks, tickers = _load_marks_and_tickers(
                     conn, state, through_text)
                 from sentinel.execution import held_targets
-                share_basis = held_targets.build_basis(conn, previous=existing_plan,
-                    state=state, binding=binding, rollout=rollout)
-                decision = build_execution_plan(
+                if replacement_request is not None:
+                    # Reuse the original continuing-holding basis. Unsent entry
+                    # quantities in the replaced plan must not survive the policy change.
+                    share_basis = dual_plan_authority.load_authority(
+                        conn, plan_id=existing_plan.plan_id)['held_share_targets']
+                    held_targets.verify_basis(conn, basis=share_basis, state=state,
+                                              binding=binding, rollout=rollout)
+                else:
+                    share_basis = held_targets.build_basis(conn, previous=existing_plan,
+                        state=state, binding=binding, rollout=rollout, retry_skipped=retry_skipped)
+                retries = held_targets.retry_openings(share_basis)
+                build = held_targets.build_execution_plan if retries else build_execution_plan
+                decision = build(
                     state=state, binding=binding, publication=pinned,
                     account_snapshot=account, observation=observation,
                     marks=marks, tickers=tickers,
@@ -816,7 +850,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     effective_session=date.fromisoformat(
                         calendar.next_session(through_text)),
                     rollout_state=rollout,
-                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()})
+                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()},
+                    **({"retry_openings": retries} if retries else {}))
                 if local_resizing and decision.plan.plan_id == existing_plan.plan_id:
                     raise PaperActivationRefused('local window resizing did not produce fresh plan economics')
                 authority = dual_plan_authority.build_authority(
@@ -856,6 +891,14 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     if fresh.certificate_sha256 != certificate.certificate_sha256:
                         raise PaperActivationRefused('cash retirement signed authority changed')
                     record(conn, prepared=prepared_retirement, successor=latest)
+                if replacement_request is not None:
+                    from .policy_replacement import record
+                    fresh = require_current_authority(
+                        conn, required_operation='PREPARE_READ', **authority_kwargs)
+                    if fresh.certificate_sha256 != certificate.certificate_sha256:
+                        raise PaperActivationRefused('policy replacement signed authority changed')
+                    record(conn, request=replacement_request, previous=existing_plan,
+                           successor=latest, now=clock())
                 conn.commit()
                 return PreparationResult(
                     plan=latest, sessions_replayed=0, warmup_sessions=0,

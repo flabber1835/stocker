@@ -54,7 +54,7 @@ def _observation_economics(observation: BrokerObservation) -> dict:
     positions = [{
         "security_id": item.instrument.security_id,
         "broker_id": item.instrument.broker_id,
-        "quantity": decimal_text(item.quantity),
+        "quantity": None if item.quantity is None else decimal_text(item.quantity),
     } for item in observation.positions]
     positions.sort(key=lambda item: (
         item["security_id"], item["broker_id"] or "", item["quantity"]))
@@ -65,7 +65,8 @@ def _observation_economics(observation: BrokerObservation) -> dict:
         "broker_id": item.instrument.broker_id,
         "side": item.side.value,
         "state": item.state.value,
-        "quantity": decimal_text(item.quantity),
+        "quantity": None if item.quantity is None else decimal_text(item.quantity),
+        **({"notional": decimal_text(item.notional)} if item.notional is not None else {}),
         "filled_quantity": decimal_text(item.filled_quantity),
         "filled_average_price": (
             None if item.filled_average_price is None
@@ -120,7 +121,8 @@ def _account_endpoint_lag_is_live(
         "broker_order_id": command.broker_order_id,
         "side": command.side.value,
         "state": command.state.value,
-        "quantity": decimal_text(command.quantity),
+        "quantity": None if command.quantity is None else decimal_text(command.quantity),
+        **({"notional": decimal_text(command.notional)} if command.notional is not None else {}),
         "filled_quantity": decimal_text(command.filled_quantity),
         "filled_average_price": (
             None if command.filled_average_price is None

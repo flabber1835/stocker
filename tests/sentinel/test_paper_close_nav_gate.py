@@ -418,7 +418,8 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         if security_id == "SEC-A" else None)
     target_projection = SimpleNamespace(
         action_multipliers={"SEC-A": Decimal(2)},
-        target_basket={"SEC-A": Decimal(10)}, through_session=SESSION)
+        target_basket={"SEC-A": Decimal(10)}, through_session=SESSION,
+        opening_sizing=None)
 
     def account_evidence(_conn, **kwargs):
         calls.append(("account", _conn, kwargs))

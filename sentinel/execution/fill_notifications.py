@@ -53,7 +53,7 @@ def _covered(payloads, client_key):
 def _candidates(conn, bound, since):
     rows = conn.execute(
         "SELECT client_key,broker_order_id,broker_instrument_id,symbol,security_id,side,"
-        " quantity,filled_quantity,order_terms FROM sentinel_commands"
+        " quantity,filled_quantity,order_terms,notional FROM sentinel_commands"
         " WHERE broker=%s AND broker_account_id=%s AND deployment_id=%s"
         " AND takeover_epoch=%s AND created_at>=%s AND filled_quantity>0"
         " AND broker_order_id IS NOT NULL ORDER BY updated_at DESC",
@@ -61,7 +61,7 @@ def _candidates(conn, bound, since):
     existing = _existing(conn)
     return [dict(zip(("client_key", "broker_order_id", "broker_id", "symbol",
                      "security_id", "side", "quantity", "filled_quantity",
-                     "order_terms"), row, strict=True)) for row in rows
+                     "order_terms", "notional"), row, strict=True)) for row in rows
             if _covered(existing, row[0]) < Fraction(row[7])][:3]
 
 
@@ -75,7 +75,9 @@ def _check_order(command, order):
                 "side": command["side"].lower()}
     if any(order.get(k) != v for k, v in expected.items()):
         raise FillNotificationRefused("COMMAND_ORDER_IDENTITY_CHANGED")
-    if (native_activity._decimal(order.get("qty"), positive=True) != command["quantity"]
+    native_qty = None if order.get("qty") is None else native_activity._decimal(order["qty"], positive=True)
+    native_notional = None if order.get("notional") is None else native_activity._decimal(order["notional"], positive=True)
+    if (native_qty != command["quantity"] or native_notional != command.get("notional")
             or native_activity._decimal(order.get("filled_qty"), positive=True)
             < command["filled_quantity"]
             or order.get("replaces") or order.get("replaced_by")):

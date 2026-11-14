@@ -1,5 +1,16 @@
 # Sentinel current operating contract
 
+[Fractional PAPER execution](fractional-paper-execution.md) records the
+owner-selected dollar-purchase policy, whole-share market fallback and unchanged
+hold behavior. Development and qualification do not select or activate it in the
+installed account.
+
+[November 13 close root fixes](nov13-close-root-fixes.md) records the PAPER
+close handoff, database and trace shutdown repairs.
+
+[Retrying zero-share PAPER entries](retry-zero-share-paper-entries.md) keeps a
+continuing shadow entry eligible for whole-share sizing at subsequent opens.
+
 [PAPER debit fee posting delay](native-fee-posting-delay.md) defines the
 safe re-observation of documented Alpaca cash propagation lag.
 
@@ -267,6 +278,10 @@ See [protected orders](free-data-execution-proposal.md),
 [share-unit actions](automatic-share-unit-reconciliation.md).
 
 ## Dashboard and notifications
+
+[Opening outcomes and evidence continuity](opening-outcomes-and-evidence-20261113.md)
+defines protected-limit previews, verified zero-share outcomes, and the
+read-only broker refresh used at the open.
 
 [Verifier identity availability](verifier-identity-read-availability.md) separates
 a failed current-identity read from the actual in-flight verification outcome.

@@ -490,14 +490,18 @@ class Reader:
                     self.failure_diagnostic = self.diagnostic
                     self.attempt_outcome = 'FAILED'
                     self.failure = 'financial observer failed: '+self.diagnostic.safe_detail()
-            if (defer_refresh_until is not None and fresh is not None
+            if (defer_refresh_until is not None and fresh is not None and not errors
                     and self.failure is None and self.identity_failure is None):
                 instant = self.wall_clock()
-                shadow = next((row for row in fresh[0] if row.key == 'shadow_verification'), None)
-                if shadow is not None and shadow.effective_status(instant) == model.OK:
+                proof_key = ('paper_reconciliation'
+                    if self.expected_keys == frozenset({'paper_reconciliation'}) else 'shadow_verification')
+                proof = next((row for row in rows if row.key == proof_key), None)
+                status = proof.effective_status(instant) if proof is not None else None
+                if status == model.OK or (status == model.WARN and proof.paper_alignment in {
+                        'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}):
                     proof_until = observed + timedelta(seconds=FRESH_SECONDS)
-                    if shadow.valid_until is not None:
-                        proof_until = min(proof_until, shadow.valid_until)
+                    if proof.valid_until is not None:
+                        proof_until = min(proof_until, proof.valid_until)
                     allow_start = allow_start and instant >= min(
                         defer_refresh_until,
                         proof_until - timedelta(seconds=RESERVED_REFRESH_LEAD_SECONDS))

@@ -84,7 +84,8 @@ def capture(conn, database_url, *, facts=None):
     return basis
 
 
-def valuation_only_advance(conn, database_url, before, after, *, facts=None):
+def valuation_only_advance(conn, database_url, before, after, *, facts=None,
+                           completed_now=None):
     """Prove one necessarily-bumping valuation append exhausts the guarded +1."""
     validate_basis(before); validate_basis(after)
     if not before or not after:
@@ -105,7 +106,7 @@ def valuation_only_advance(conn, database_url, before, after, *, facts=None):
         return False
     # The old anchor must still be exactly the signed physical row. The second
     # predicate is the installed trigger's skip predicate, evaluated by PostgreSQL.
-    proof = conn.execute("SELECT old.xmin::text,old.ctid::text,"
+    proof = conn.execute("SELECT old.xmin::text,old.ctid::text,new.xmin::text,new.ctid::text,"
         "NOT (new.observed_at>=old.observed_at "
         "AND new.observed_at-old.observed_at<=interval '10 minutes' "
         "AND (new.observed_at AT TIME ZONE 'America/New_York')::date="
@@ -114,11 +115,43 @@ def valuation_only_advance(conn, database_url, before, after, *, facts=None):
         "(to_jsonb(old)-'seq'-'observed_at')),"
         "(to_jsonb(new)-'seq'-'observed_at'-'equity') IS NOT DISTINCT FROM "
         "(to_jsonb(old)-'seq'-'observed_at'-'equity'),"
-        "new.observed_at>=old.observed_at "
+        "new.observed_at>=old.observed_at,new.observed_at,"
+        "new.observed_at-old.observed_at<=interval '10 minutes' "
+        "AND (new.observed_at AT TIME ZONE 'America/New_York')::date="
+        "(old.observed_at AT TIME ZONE 'America/New_York')::date,"
+        "CASE WHEN old.equity NOT IN ('NaN'::numeric,'Infinity'::numeric) "
+        "AND new.equity NOT IN ('NaN'::numeric,'Infinity'::numeric) "
+        "THEN old.equity>0 AND new.equity>0 ELSE false END "
         "FROM sentinel_broker_account_evidence old,sentinel_broker_account_evidence new "
         "WHERE old.seq=%s AND new.seq=%s", (int(anchor[0]), int(latest[0]))).fetchone()
+    if completed_now is not None and (proof is None or proof[8:] != (True, True)
+                                      or proof[7] > completed_now):
+        return False
     return (proof is not None and tuple(proof[:2]) == tuple(anchor[1:])
-            and proof[2:] == (True, True, True))
+            and tuple(proof[2:4]) == tuple(latest[1:])
+            and proof[4:7] == (True, True, True))
+
+
+def completed_account_row(conn, panel, *, now):
+    """Overlay the current valuation when an independently proved run completed."""
+    history, prior = panel.row('paper_reconciliation'), panel.row('alpaca_account')
+    if (history is None or history.paper_alignment != 'COMPLETED_WITH_HISTORY'
+            or history.effective_status(now) != model.WARN
+            or prior is None or prior.status != model.OK or prior.recovery is not None):
+        return None
+    from sentinel.panel import sources, overview_data
+    try:
+        account = sources._latest_account_evidence(conn)
+        bound = sources._bound_account_id(conn)
+        row = model.alpaca_account_row(available=account is not None,
+                                      expected_account_id=bound, **(account or {}))
+        if (row.effective_status(now) != model.OK or row.as_of is None or row.as_of > now
+                or prior.as_of is None or row.as_of < prior.as_of):
+            return None
+        overview = overview_data.account_overview(account, expected_account_id=bound)
+        return replace(row, paper_account=overview) if overview is not None else None
+    except (ValueError, TypeError, KeyError, InvalidOperation, OverflowError):
+        return None
 
 
 def native_reuse(conn, database_url, before, after, *, facts=None):

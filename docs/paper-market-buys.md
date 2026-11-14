@@ -17,7 +17,10 @@ and all historical command terms retain their existing decoding. Bind the market
 policy hash into the automation configuration and the plan's original dual
 sizing authority. A changed configuration requires an intentional fresh control
 binding and a new decision. A same-session plan with a different policy cannot
-be adopted for new transport. Historical read-only reconciliation keeps its
+be adopted for new transport. The narrowly attended unsent replacement in
+[fractional PAPER execution](fractional-paper-execution.md#replacing-an-already-saved-next-session-plan)
+creates a distinct successor under renewed authority; it does not change the
+old plan's policy. Historical read-only reconciliation keeps its
 original terms. The protected limit-cap and debug-window inputs are incompatible
 with this policy.
 

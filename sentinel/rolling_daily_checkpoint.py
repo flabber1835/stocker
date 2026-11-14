@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hmac
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from sentinel import rolling_checkpoint as origin, shadow_observation as shadow
 from sentinel.feed import publication, operational_snapshot
@@ -20,6 +20,14 @@ class Checkpoint(origin.Checkpoint):
     status: Literal["DAILY_CONTINUATION_COMMITTED"] = "DAILY_CONTINUATION_COMMITTED"
     origin_sha256: Digest
     history_anchor: dict
+    # Local to the transaction that authenticated the predecessor.
+    _row_version: tuple | None = PrivateAttr(default=None)
+
+    def __eq__(self, other):
+        # Physical metadata belongs to the write attempt, not the signed value.
+        if type(self) is type(other):
+            return self.__dict__ == other.__dict__
+        return NotImplemented
 
 
 class ReconstructionCheckpoint(Checkpoint):
@@ -59,7 +67,11 @@ def read(conn):
 
 
 def _read(conn):
-    row = conn.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s", (CURSOR,)).fetchone()
+    row = conn.execute(
+        "SELECT session,state,tableoid,pg_relation_filenode(tableoid),xmin::text,ctid::text,"
+        "pg_backend_pid(),transaction_timestamp(),"
+        "floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint"
+        " FROM sentinel_processed_sessions WHERE cursor_name=%s", (CURSOR,)).fetchone()
     if row is None:
         return None
     raw = row[1]
@@ -71,6 +83,7 @@ def _read(conn):
     checkpoint = model.model_validate(raw["checkpoint"])
     if str(row[0]) != checkpoint.session or raw["checkpoint"] != checkpoint.model_dump(by_alias=True):
         raise Refused("DAILY_CHECKPOINT_SHAPE_CHANGED")
+    checkpoint._row_version = (row[0], *row[2:])
     return checkpoint
 
 
@@ -78,11 +91,18 @@ def write(conn, checkpoint, *, previous):
     payload = checkpoint.model_dump(by_alias=True)
     raw = canonical_json({"checkpoint": payload, "hmac_sha256": signature(payload)})
     if isinstance(previous, Checkpoint):
+        witness = previous._row_version
+        if witness is None:
+            raise Refused("DAILY_CHECKPOINT_CAS_WITNESS_REQUIRED")
+        # An in-place VACUUM freeze preserves xmin. Relation rewrites and
+        # concurrent row replacements change the physical identity.
         result = conn.execute(
             "UPDATE sentinel_processed_sessions SET session=%s,state=%s::jsonb"
-            " WHERE cursor_name=%s AND state=%s::jsonb",
-            (checkpoint.session, raw, CURSOR, canonical_json({"checkpoint": previous.model_dump(by_alias=True),
-                                                           "hmac_sha256": signature(previous.model_dump(by_alias=True))})))
+            " WHERE cursor_name=%s AND session=%s AND tableoid=%s"
+            " AND pg_relation_filenode(tableoid)=%s AND xmin=%s::xid AND ctid=%s::tid"
+            " AND pg_backend_pid()=%s AND transaction_timestamp()=%s"
+            " AND floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint=%s",
+            (checkpoint.session, raw, CURSOR, *witness))
     else:
         result = conn.execute(
             "INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"

@@ -11,6 +11,6 @@
       "before": "0061e79de130e6c29f78b552a23322d77a7c9a9ce2ada56fa56dc12953cb07e2"
     }
   },
-  "module_sha256": "b958e87738469293376b3f0382a8b5d09eccc53596c80c053ed871c6a317fbe4",
+  "module_sha256": "0268cf313bd7b80c9f0ef991357791c25395a0cf686fd9f9d9d40e2742ef96fe",
   "schema": "sentinel.operation-read-source-transition/1"
 }

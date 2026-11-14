@@ -318,6 +318,8 @@ def _order_command_conflict(order, command) -> Optional[str]:
     if order.quantity != command.quantity:
         return (f"{prefix} changed durable quantity {command.quantity} to "
                 f"{order.quantity}")
+    if order.notional != command.notional:
+        return f"{prefix} changed durable notional"
     if order.order_terms != command.order_terms:
         return f"{prefix} changed durable order terms"
     if (command.order_terms.limit_price is not None
@@ -350,6 +352,7 @@ def _order_observation_fingerprint(order) -> tuple:
         order.broker_order_id, order.client_key,
         order.instrument.security_id, order.instrument.broker_id,
         order.side, order.quantity, order.order_terms,
+        order.notional,
         order.state, order.filled_quantity, order.filled_average_price,
         order.submitted_at, bool(order.external_replacement),
         order.replaced_by, order.replaces)
@@ -480,9 +483,11 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
     against the broker, and seeding that belief from the broker makes the
     comparison vacuous.
     """
+    from fractions import Fraction
+    from sentinel.execution.contract import exact_decimal
     book: dict = {}
     for command in commands:
-        from sentinel.execution.commands import is_legacy_migration
+        from sentinel.execution.commands import is_legacy_migration, filled_share_units
         if is_legacy_migration(command):
             # These SELLs removed the inherited pre-ownership book. Counting
             # them as ordinary fills reconstructs a negative Sentinel holding
@@ -490,12 +495,12 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
             continue
         if command.filled_quantity == 0:
             continue
-        quantity = command.filled_quantity * _command_action_multiplier(
-            command, actions)
+        quantity = filled_share_units(command, actions=actions,
+            multiplier=_command_action_multiplier(command, actions))
         signed = quantity if command.side.value == "BUY" else -quantity
         book[command.security_id] = book.get(command.security_id,
-                                             Decimal(0)) + signed
-    return {k: v for k, v in book.items() if v != 0}
+                                             Fraction(0)) + signed
+    return {k: exact_decimal(v) for k, v in book.items() if v != 0}
 
 
 async def reconcile(*, broker: ExecutionBroker, conn, binding,
@@ -506,6 +511,9 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                     ) -> ReconciliationResult:
     """The full sequence. Submits nothing; its output decides what may be."""
     from sentinel.execution import journal, recovery
+    import os
+    if os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1":
+        tolerance = Decimal(0)
     if type(informational_current_book) is not bool:
         raise TypeError("informational current-book scope must be boolean")
 
@@ -633,9 +641,9 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         prior = orders_by_broker_id.get(order.broker_order_id)
         if (prior is not None
                 and (prior.client_key, prior.instrument.security_id,
-                     prior.side, prior.quantity)
+                     prior.side, prior.quantity, prior.notional)
                 != (order.client_key, order.instrument.security_id,
-                    order.side, order.quantity)):
+                    order.side, order.quantity, order.notional)):
             return ReconciliationResult(
                 runtime_state=RuntimeState.BROKER_DEGRADED,
                 observation=observation,
@@ -1015,6 +1023,10 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         position_leading = []
         for command in resolved:
             if command.security_id != sid:
+                continue
+            if command.quantity is None:
+                # A dollar request does not bound a share quantity. Wait for
+                # positive order/fill evidence instead of inventing capacity.
                 continue
             broker_order = observation.by_client_key(command.client_key)
             if broker_order is None or not broker_order.is_working:

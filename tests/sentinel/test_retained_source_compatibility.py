@@ -24,7 +24,10 @@ def test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutat
     contribution = basis.canonical_contribution(module, raw)
     raw_hash = hashlib.sha256(raw).hexdigest()
     if module in checkpoint_source.CANDIDATES:
-        assert raw_hash == checkpoint_source.CANDIDATES[module]
+        expected_candidate = (checkpoint_source.CAS_CANDIDATE
+                              if module == 'sentinel.rolling_daily_checkpoint'
+                              else checkpoint_source.CANDIDATES[module])
+        assert raw_hash == expected_candidate
         assert contribution == checkpoint_source.BASELINES[module]
     else:
         assert contribution == raw_hash
