@@ -11,6 +11,7 @@ dependency path by construction: nothing under `sentinel/` imports `tests`.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import glob
 import os
 import shutil
@@ -209,3 +210,44 @@ def drop_public_tables(connection) -> None:
 
 
 # ── session-scoped fixtures ───────────────────────────────────────────────────
+
+
+@contextmanager
+def paused_physical_restore(pg, database):
+    """Start a privately restored PostgreSQL cluster paused in physical recovery."""
+    from pathlib import Path
+    import psycopg
+
+    restored = _EphemeralPostgres()
+    base = Path(tempfile.mkdtemp(prefix='sentinel_test_physical_', dir=Path(pg.datadir).parent))
+    try:
+        if os.geteuid() == 0:
+            shutil.chown(base, user='postgres', group='postgres')
+        result = _run(_as_pg_user([_find_pg_bin('pg_basebackup'), '-h', '127.0.0.1',
+            '-p', str(pg.port), '-U', pg.user, '-D', str(base), '-Fp', '-Xs', '-c', 'fast']))
+        assert result.returncode == 0, result.stderr
+        target = Path(restored.datadir)
+        shutil.copytree(base, target, dirs_exist_ok=True)
+        with (target / 'postgresql.auto.conf').open('a') as stream:
+            stream.write("\nrecovery_target='immediate'\nrecovery_target_action='pause'\nrestore_command='false'\n")
+        (target / 'recovery.signal').touch()
+        if os.geteuid() == 0:
+            for item in [target, *target.rglob('*')]:
+                shutil.chown(item, user='postgres', group='postgres')
+        result = _run(_as_pg_user([_find_pg_bin('pg_ctl'), '-D', str(target),
+            '-o', f'-p {restored.port} -h 127.0.0.1 -k {target}', '-l', str(target / 'restored.log'),
+            '-w', '-t', '30', 'start']))
+        assert result.returncode == 0, result.stderr
+        restored._started = True
+        dsn = restored.sync_dsn.rsplit('/', 1)[0] + '/' + database
+        with psycopg.connect(dsn, autocommit=True) as observed:
+            deadline = time.monotonic() + 15
+            while observed.execute('SELECT pg_get_wal_replay_pause_state()').fetchone()[0] != 'paused':
+                assert time.monotonic() < deadline
+                time.sleep(.1)
+        with psycopg.connect(dsn) as recovered:
+            yield recovered
+    finally:
+        restored.stop()
+        assert base.name.startswith('sentinel_test_physical_')
+        shutil.rmtree(base)

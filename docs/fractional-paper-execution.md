@@ -321,3 +321,42 @@ Provider references checked during planning:
 [order submission](https://docs.alpaca.markets/us/reference/postorder),
 [order lifecycle and replacement restrictions](https://docs.alpaca.markets/us/docs/orders-at-alpaca),
 [corporate actions](https://docs.alpaca.markets/us/docs/mandatory-corporate-actions).
+
+## Order-amount migration and interrupted installation recovery
+
+On the first PAPER install, the v2-to-v3 command migration and the repeat feed
+DDL advanced the independent DDL witness by 68 events. The unchanged
+OBSERVATION and MIRROR prefixes correctly refused the resulting inventory.
+The canonical installer now proves an already current feed schema by read only.
+It still installs a missing or older feed through the existing explicit path
+when operational evidence is absent. A v2 database with established coverage
+must already have the exact current feed catalog before changing command DDL.
+
+During v2-to-v3 command DDL, use the existing atomic operational coverage
+handoff. With operational evidence installed, require disabled and killed
+control, invalidated lease and the existing financial writer exclusion. Lock
+both inventories and validate the authenticated prefixes before the three exact
+ALTER statements. Validate the v3 catalog and ledger before transferring those
+prefixes. Preserve each prefix body and sequence boundary or roll the entire
+migration back. A current schema retry does not reseal stale evidence.
+
+For the earlier failed installation, use the separately namespaced order-amount
+witness from the paused pre-migration backup. Require the exact v2 behavioral
+and feed catalogs, installed operational schema, durable fence, and complete
+signed prefixes. Bind the existing streaming source-byte proof and additionally
+bind every historical command and its physical tuple. At the v3 successor,
+compare the same command bytes with only the new notional column projected out,
+and independently require that column to be NULL for all historical commands.
+Require the exact 68-event transition, unchanged source, authority and prefix
+coordinates, and lock the witness and watched sources through the coverage commit.
+Transfer only the two derived signatures and inventories. An extra DDL event,
+changed command or source, stale witness, or missing pre-install proof refuses.
+Use the existing supervised activation after recovery. Preserve the exact signed
+PR #588 executable as an additional retained predecessor in the source profile.
+Seal the full repaired executable and keep all previous source maps and the
+fixed compact anchor. This source proof grants no trading authority.
+
+```bash
+bash scripts/sentinel-restore-drill.sh --physical-only --backup EXACT_PRE_DDL_BASE --order-amount-witness ABSOLUTE_NEW_WITNESS
+python3 scripts/sentinel_order_amount_coverage_recovery.py --installation-receipt EXACT_RECEIPT --witness ABSOLUTE_NEW_WITNESS --confirm-witness-sha256 FILE_SHA256 --backup BASE_NAME --output ABSOLUTE_NEW_TRANSFER_RECEIPT
+```

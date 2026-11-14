@@ -24,7 +24,8 @@ COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'
 
 EXPECTED=""
 PHYSICAL_ONLY=0
-CHAIN_PROGRESS_WITNESS=""
+WITNESS_OUTPUT=""
+WITNESS_MODULE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --backup)
@@ -39,10 +40,14 @@ while [ "$#" -gt 0 ]; do
       PHYSICAL_ONLY=1
       shift
       ;;
-    --chain-progress-witness)
-      [ "$#" -ge 2 ] && [ -z "$CHAIN_PROGRESS_WITNESS" ] || {
+    --chain-progress-witness|--order-amount-witness)
+      [ "$#" -ge 2 ] && [ -z "$WITNESS_OUTPUT" ] || {
         echo 'REFUSED: witness requires one unique output path' >&2; exit 2; }
-      CHAIN_PROGRESS_WITNESS="$2"
+      case "$1" in
+        --chain-progress-witness) WITNESS_MODULE=sentinel.chain_progress_recovery ;;
+        --order-amount-witness) WITNESS_MODULE=sentinel.order_amount_coverage_recovery ;;
+      esac
+      WITNESS_OUTPUT="$2"
       shift 2
       ;;
     *)
@@ -51,9 +56,9 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-if [ -n "$CHAIN_PROGRESS_WITNESS" ]; then
+if [ -n "$WITNESS_OUTPUT" ]; then
   [ "$PHYSICAL_ONLY" -eq 1 ] && [ -n "$EXPECTED" ] && \
-    [[ "$CHAIN_PROGRESS_WITNESS" = /* ]] && [ ! -e "$CHAIN_PROGRESS_WITNESS" ] || {
+    [[ "$WITNESS_OUTPUT" = /* ]] && [ ! -e "$WITNESS_OUTPUT" ] || {
       echo 'REFUSED: witness requires physical-only, exact backup and a new absolute output path' >&2; exit 2; }
 fi
 if [ -n "$EXPECTED" ]; then
@@ -260,7 +265,7 @@ record_restore_evidence() {
 }
 
 if [ "$PHYSICAL_ONLY" -eq 1 ]; then
-  if [ -n "${CHAIN_PROGRESS_WITNESS:-}" ]; then
+  if [ -n "${WITNESS_OUTPUT:-}" ]; then
     RUNTIME_IMAGE="${SENTINEL_RUNTIME_IMAGE_REF:-}"
     [[ "$RUNTIME_IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*@sha256:[0-9a-f]{64}$ ]] && \
       [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
@@ -274,7 +279,7 @@ if [ "$PHYSICAL_ONLY" -eq 1 ]; then
       -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
       -e SENTINEL_RESTORE_DATABASE_PASSWORD -e SENTINEL_PUBLICATION_RECEIPT_KEY \
       --entrypoint timeout "$RUNTIME_IMAGE" --kill-after=5s 600s \
-      python -B -m sentinel.chain_progress_recovery --snapshot --backup "$NAME" \
+      python -B -m "$WITNESS_MODULE" --snapshot --backup "$NAME" \
       --marker "$MARKER" --metadata-sha256 "$METADATA_SHA256")"; then
       :
     else
@@ -294,8 +299,12 @@ value=_json_value(sys.stdin.buffer.read(),label="restored migration witness")
 if not isinstance(value,dict) or set(value)!={"witness","hmac_sha256"}:
     raise SystemExit("REFUSED: restored witness envelope is malformed")
 publish_immutable(Path(sys.argv[1]),value)
-' "$CHAIN_PROGRESS_WITNESS"
-    echo "chain_progress_witness_ready:$CHAIN_PROGRESS_WITNESS"
+' "$WITNESS_OUTPUT"
+    if [ "$WITNESS_MODULE" = sentinel.chain_progress_recovery ]; then
+      echo "chain_progress_witness_ready:$WITNESS_OUTPUT"
+    else
+      echo "order_amount_witness_ready:$WITNESS_OUTPUT"
+    fi
   fi
   exit 0
 fi
