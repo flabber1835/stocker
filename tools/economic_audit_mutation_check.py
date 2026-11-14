@@ -62,12 +62,12 @@ def case(name):
         module = importlib.import_module('sentinel_autonomous_deploy_bootstrap' if bootstrap
                                          else 'sentinel_autonomous_deploy')
         owner = module.BootstrapDeploy if bootstrap else module.AutonomousDeploy
-        attribute = '_quiesce_database' if name == 'migration-stop' else 'quiesce_backup_and_migrate'
-        old, new = {
-            'migration-stop': ('self._direct_stop_automation()', 'pass'),
-            'migration-replay': ('scripts/sentinel-restore-drill.sh', 'scripts/sentinel-backup-status.sh'),
-            'migration-feed-core': ('store.migrate_schema(c);', ''),
-            'migration-feed-bootstrap': ('store.migrate_schema(c);', ''),
+        attribute, old, new = {
+            'migration-stop': ('_quiesce_database', 'self._direct_stop_automation()', 'pass'),
+            'migration-replay': ('quiesce_backup_and_migrate', 'scripts/sentinel-restore-drill.sh',
+                                 'scripts/sentinel-backup-status.sh'),
+            'migration-feed-core': ('quiesce_backup_and_migrate', 'store.migrate_schema(c)', 'pass'),
+            'migration-feed-bootstrap': ('_migrate_schema', 'store.migrate_schema(c)', 'pass'),
         }[name]
         source = textwrap.dedent(inspect.getsource(getattr(owner, attribute)))
         assert source.count(old) == 1, 'mutation seam disappeared'
@@ -76,8 +76,8 @@ def case(name):
         compiled = namespace[attribute]
         mutant = types.FunctionType(compiled.__code__, module.__dict__, attribute, compiled.__defaults__)
         mutant.__kwdefaults__ = compiled.__kwdefaults__
-        selection = ('test_bootstrap_autonomous_deploy_cannot_skip_feed_migration' if bootstrap else
-                     'test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay')
+        owner_id = 'bootstrap' if bootstrap else 'core'
+        selection = f'test_autonomous_deploy_checks_feed_after_quiesce_and_replay[old-feed-{owner_id}]'
         return owner, attribute, mutant, 'tests/sentinel/test_issue_165_feed_schema.py::' + selection
 
     from sentinel.automation import outbox

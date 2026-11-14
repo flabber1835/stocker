@@ -108,7 +108,11 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     installed = profile['retained_predecessors'][runtime_basis.NOV13_INSTALLED_REVISION]['files']
     assert runtime_basis.predecessor_view(actual, previous=installed) == installed
     assert set(installed) - set(prior) == {'execution/opening_display.py'}
-    assert set(actual) - set(installed) == {
+    fractional_release = profile['retained_predecessors'][runtime_basis.ORDER_AMOUNT_INSTALL_PREDECESSOR]['files']
+    assert runtime_admission.source_closure(fractional_release) == (
+        '53e73eacb67b9c0ae18a264b8b4e3ce2b1b52e2d6ad210e5f736b1cf4a153a10')
+    assert runtime_basis.predecessor_view(actual, previous=fractional_release) == fractional_release
+    assert set(fractional_release) - set(installed) == {
         'execution/order_amount.py', 'execution/fractional_sizing.py',
         'execution/fractional_progress.py', 'execution/fractional_orders.py',
         'fractional_execution_source_basis.py',

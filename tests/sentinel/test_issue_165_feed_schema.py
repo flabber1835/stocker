@@ -291,7 +291,7 @@ def test_normal_cli_operations_never_name_the_feed_migration():
         assert "migrate_schema" not in inspect.getsource(function)
 
 
-def _migration_trace(monkeypatch, *, bootstrap=False):
+def _migration_trace(monkeypatch, *, bootstrap, feed_current):
     """Execute both migration owners and their generated Python, without I/O."""
     root = Path(os.environ.get("SENTINEL_REPO_ROOT")
                 or Path(__file__).resolve().parents[2])
@@ -314,6 +314,14 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
     monkeypatch.setattr(feed_store, "connect", lambda *_a, **_k: conn)
     monkeypatch.setattr(behavioral_schema, "ensure_schema", lambda _: trace.append("behavioral migration"))
     monkeypatch.setattr(feed_store, "migrate_schema", lambda _: trace.append("feed migration"))
+
+    def require_feed_schema(_conn):
+        trace.append("feed compatibility read")
+        if not feed_current:
+            raise runtime_schema.FeedSchemaRefused("fixture requires feed migration")
+
+    monkeypatch.setattr(feed_store, "require_feed_schema", require_feed_schema)
+
     def missing_schema(_conn):
         trace.append("compatibility read")
         raise behavioral_schema.SchemaMigrationRefused("fixture requires migration")
@@ -352,19 +360,15 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
     return trace
 
 
-def _require_migration_order(trace, *, compatibility_read=False):
+@pytest.mark.parametrize("bootstrap", [False, True], ids=["core", "bootstrap"])
+@pytest.mark.parametrize("feed_current", [False, True], ids=["old-feed", "current-feed"])
+def test_autonomous_deploy_checks_feed_after_quiesce_and_replay(monkeypatch, bootstrap, feed_current):
+    trace = _migration_trace(monkeypatch, bootstrap=bootstrap, feed_current=feed_current)
     assert trace == [
         "kill", "stop automation", "stop shadow", "stop observers", "postgres", "fence",
-        *(["compatibility read"] if compatibility_read else []),
+        *(["compatibility read"] if bootstrap else []),
         "base backup", "backup verification", "physical replay", "fence",
-        "behavioral migration", "feed migration", "kill",
+        "behavioral migration", "feed compatibility read",
+        *([] if feed_current else ["feed migration"]),
+        "kill",
     ]
-
-
-def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay(monkeypatch):
-    _require_migration_order(_migration_trace(monkeypatch))
-
-
-def test_bootstrap_autonomous_deploy_cannot_skip_feed_migration(monkeypatch):
-    _require_migration_order(_migration_trace(monkeypatch, bootstrap=True),
-                             compatibility_read=True)
