@@ -33,6 +33,9 @@ _VERIFICATION_SUBJECT_ENV = frozenset({
     'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY'})
 _PAPER_SUBJECT_ENV = frozenset({
     'SENTINEL_PAPER_BUY_POLICY', 'SENTINEL_PAPER_BUY_CAP_BPS', 'SENTINEL_PAPER_DEBUG_WINDOW'})
+_AUTOMATION_PAPER_ENV = _PAPER_SUBJECT_ENV | frozenset({
+    'ALPACA_BASE_URL', 'SENTINEL_LOCAL_PAPER_MODE', 'SENTINEL_LOCAL_PAPER_ACCOUNT_ID',
+    'SENTINEL_LOCAL_PAPER_BACKUP_POLICY'})
 _ROLE_AUTHORITY_ENV = frozenset({
     'SENTINEL_AUTHORIZED_RUNTIME', 'SENTINEL_RUNTIME_BACKUP_AUTHORITY',
     'SENTINEL_RECOVERED_ORDER_AUTHORITY'})
@@ -83,7 +86,7 @@ def compare_configuration(host, previous, candidate, state):
             _require_verification_subject(configuration)
         environment = configuration['services']['sentinel-automation']['environment']
         environments.append({key: value for key, value in environment.items()
-            if key.startswith('SENTINEL_AUTOMATION_') or key == 'SENTINEL_PAPER_DEBUG_WINDOW'})
+            if key.startswith('SENTINEL_AUTOMATION_') or key in _AUTOMATION_PAPER_ENV})
     require(environments[0] == environments[1], 'Automation configuration changed between images')
     for role in ('predecessor', 'candidate'):
         result = host.run(['docker', 'run', '--rm', '-i', '--pull=never', '--network', 'none',

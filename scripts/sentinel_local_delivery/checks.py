@@ -440,7 +440,6 @@ _CANONICAL_PLAN = r'''        plan=journal.load_plan(conn,expected['plan'])
             expected_shadow_result=result)
         assert proof['verdict']=='MATCH'
         saved=authority.load_authority(conn,plan_id=plan.plan_id)
-        assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
 '''
 
 _CANONICAL_SETTLED_POSITIONS = r'''            settled=journal.load_observation_payload(conn,expected['reconciliation_id'])
@@ -455,15 +454,27 @@ _CANONICAL_SETTLED_POSITIONS = r'''            settled=journal.load_observation_
 '''
 
 _CANONICAL_PRESERVATION = r'''        policy=protected_limits.ProtectedLimitPolicy.from_env()
-        assert policy is not None
-        assert policy.cap_bps==100 and policy.debug_window is None
+        market=policy is None
+        if market:
+            from sentinel.execution.market_buy_policy import MarketBuyPolicy
+            policy=MarketBuyPolicy.from_env()
+            assert policy is not None, 'current BUY policy is absent'
+            assert saved['schema']==authority.MARKET_SCHEMA
+            authority.require_current_buy_policy(conn,plan=plan)
+        else:
+            assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
+            assert policy.cap_bps==100 and policy.debug_window is None
         projection=target_reprojection.load_projection(conn,plan_id=plan.plan_id)
         # The existing execution contract creates this record at execution before
         # the first order. A future WAITING_OPEN plan legitimately has no projection;
         # preserve that absence rather than manufacturing a future opening state.
         if projection is not None:
             target_reprojection.assert_projection(conn,plan=plan,projection=projection,
-                through_session=projection.through_session)
+                through_session=plan.effective_session)
+        if market and projection is not None:
+            from sentinel.execution import market_buy_sizing
+            market_buy_sizing.validate_projection(projection,require_current_policy=True,plan=plan)
+        if not market and projection is not None:
             state=SessionState.from_dict(saved['shadow_state'])
             target=shadow_target(state)
             projected=target_reprojection.project_target(plan,through_session=projection.through_session,

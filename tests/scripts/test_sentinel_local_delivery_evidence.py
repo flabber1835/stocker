@@ -181,7 +181,7 @@ def test_canonical_adapter_passes_dynamic_authenticated_subject_and_keeps_full_p
     assert 'starting_cash=50000' not in checks.CANONICAL
 
 
-def configuration_host(*, failure=None, mutate=None):
+def configuration_host(*, failure=None, mutate=None, automation=None):
     host = Host()
     host.request.update(predecessor={'image': 'old-image'}, candidate={'image': 'new-image'})
     host.calls = []
@@ -190,6 +190,7 @@ def configuration_host(*, failure=None, mutate=None):
         assert args == ('config', '--format', 'json')
         role = values['role']
         environment = {'SENTINEL_AUTOMATION_RETRY_BASE_SECONDS': '5', 'SENTINEL_PAPER_DEBUG_WINDOW': ''}
+        environment.update(automation or {})
         if failure == 'semantic' and role == 'candidate':
             environment['SENTINEL_AUTOMATION_RETRY_BASE_SECONDS'] = '10'
         services = {name: {'image': host.request[role]['image'], 'environment': {}}
@@ -230,6 +231,53 @@ def test_configuration_comparison_uses_both_exact_offline_images_without_credent
     evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
     assert len(host.calls) == 2
     assert [argv[-4] for argv, _ in host.calls] == ['old-image', 'new-image']
+
+
+def test_fractional_policy_participates_in_offline_fingerprint_without_credentials():
+    from sentinel.automation_runtime import config_from_env
+    selected = {
+        'SENTINEL_AUTOMATION_RETRY_BASE_SECONDS': '5',
+        'SENTINEL_PAPER_DEBUG_WINDOW': '',
+        'SENTINEL_PAPER_BUY_POLICY': 'FRACTIONAL_MARKET_DAY_V1',
+        'SENTINEL_PAPER_BUY_CAP_BPS': '',
+        'ALPACA_BASE_URL': 'https://paper-api.alpaca.markets',
+        'SENTINEL_LOCAL_PAPER_MODE': 'OWNER_AUTHORIZED_FUNCTION_FIRST_V1',
+        'SENTINEL_LOCAL_PAPER_ACCOUNT_ID': 'PAFIXTURE',
+        'SENTINEL_LOCAL_PAPER_BACKUP_POLICY': 'REQUIRED_V1',
+    }
+    host = configuration_host(automation={**selected, 'ALPACA_SECRET_KEY': 'synthetic-secret',
+        'SENTINEL_DATABASE_URL': 'postgresql://synthetic'})
+    host.state['control']['config_sha256'] = config_from_env(selected).fingerprint
+    def fingerprint(argv, *, data, timeout):
+        assert argv[-1] == checks.AUTOMATION_CONFIG and '--network' in argv
+        environment = json.loads(data)
+        assert 'ALPACA_SECRET_KEY' not in environment and 'SENTINEL_DATABASE_URL' not in environment
+        return SimpleNamespace(stdout=(config_from_env(environment).fingerprint + '\n').encode())
+    host.run = fingerprint
+    evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+
+
+def test_readonly_canonical_probe_checks_current_fractional_plan_authority(monkeypatch):
+    import textwrap
+    from sentinel.execution import protected_limits, target_reprojection
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from tests.sentinel.test_market_buy_policy import MARKET_ENV
+    for key, value in dict(MARKET_ENV, SENTINEL_PAPER_BUY_POLICY='FRACTIONAL_MARKET_DAY_V1').items():
+        monkeypatch.setenv(key, value)
+    conn, plan, calls = object(), SimpleNamespace(plan_id='future'), []
+    monkeypatch.setattr(target_reprojection, 'load_projection', lambda *args, **kwargs: None)
+    schema = 'sentinel.dual-plan-sizing-authority/3'
+    authority = SimpleNamespace(MARKET_SCHEMA=schema,
+        require_current_buy_policy=lambda connection, *, plan: calls.append((connection, plan)))
+    scope = dict(conn=conn, plan=plan, authority=authority, saved={'schema': schema}, protected_limits=protected_limits,
+                 target_reprojection=target_reprojection)
+    policy_and_projection = checks._CANONICAL_PRESERVATION.split('        with readers.pinned')[0]
+    exec(textwrap.dedent(policy_and_projection), scope)
+    assert scope['policy'] == MarketBuyPolicy(True)
+    assert calls == [(conn, plan)]
+    scope['saved'] = {'schema': 'sentinel.dual-plan-sizing-authority/2'}
+    with pytest.raises(AssertionError):
+        exec(textwrap.dedent(policy_and_projection), scope)
 
 
 @pytest.mark.parametrize('failure', ['semantic', 'image', 'panel-secret', 'fingerprint'])
