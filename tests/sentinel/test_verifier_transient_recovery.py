@@ -24,8 +24,13 @@ class Connection:
     def __init__(self, outcomes=()):
         self.outcomes = iter(outcomes)
         self.executions = self.commits = self.rollbacks = 0
+        self.isolation_statements = 0
 
-    def execute(self, query, params):
+    def execute(self, query, params=None):
+        if params is None:
+            assert query == 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'
+            self.isolation_statements += 1
+            return SimpleNamespace()
         self.executions += 1
         answer = next(self.outcomes, (NOW+timedelta(seconds=610), NOW))
         if isinstance(answer, Exception):
@@ -222,7 +227,9 @@ def test_retry_preserves_original_receipt_and_existing_reader(loop, monkeypatch)
             raise QueryCanceled('temporary projection write refusal')
     monkeypatch.setattr(read_projection, 'publish', publish)
     previous = {}
-    run_loop(loop, Connection(), readers={'SHADOW': reader}, previous=previous)
+    connection = Connection()
+    run_loop(loop, connection, readers={'SHADOW': reader}, previous=previous)
+    assert connection.isolation_statements == 2
     assert len(published) == 2 and published[0] == published[1]
     assert published[1]['observed_at'] == observed.isoformat()
     assert published[1]['valid_until'] == (observed+timedelta(seconds=600)).isoformat()

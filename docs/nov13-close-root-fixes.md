@@ -26,6 +26,12 @@ bounded admission, verifier proofs and all trading gates. Measure the staging
 spill and suppress materialization only where order, snapshot, callback fencing
 and bounded memory can be preserved.
 
+The row witness is transaction metadata and does not participate in checkpoint
+equality or signed serialization. Seal the exact compare-and-swap change as a
+successor to the existing checkpoint reader witness. Reconstruct the previously
+approved reader before applying its original historical comparison, and retain
+the actual source hash for any unrecognized bytes.
+
 Stop a requested passive trace by recording an operator stop, giving its owner
 the time and process scope to clean up only its labeled helper, then verifying
 helper absence. Keep raw records and historic summary files intact.

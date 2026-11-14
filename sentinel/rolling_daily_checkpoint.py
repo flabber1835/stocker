@@ -23,6 +23,12 @@ class Checkpoint(origin.Checkpoint):
     # Local to the transaction that authenticated the predecessor.
     _row_version: tuple | None = PrivateAttr(default=None)
 
+    def __eq__(self, other):
+        # Physical metadata belongs to the write attempt, not the signed value.
+        if type(self) is type(other):
+            return self.__dict__ == other.__dict__
+        return NotImplemented
+
 
 class ReconstructionCheckpoint(Checkpoint):
     schema_id: Literal["sentinel.rolling-reconstruction-checkpoint/1"] = Field(

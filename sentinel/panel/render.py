@@ -263,8 +263,12 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
             change = (f'{number(estimate.shares)} estimated '+('share' if estimate.shares==1 else 'shares') if estimate.shares
                       else 'Budget below one share')
         elif leg.opening_dollars is not None:
-            target = '$'+number(leg.opening_dollars)+' strategy intent'
-            change = 'Estimate unavailable'
+            if leg.action == 'UNAVAILABLE':
+                target = '$'+number(leg.opening_dollars)+' strategy intent'
+                change = 'Estimate unavailable'
+            else:
+                target = '$'+number(leg.opening_dollars)+' budget'
+                change = 'Sized at execution'
         else:
             target, change = number(leg.target_quantity), number(leg.change_quantity)
         legacy_rows.append((leg.ticker,leg.action,number(leg.current_quantity),target,change))
