@@ -19,8 +19,9 @@ from sentinel.execution.target_reprojection import TargetProjectionRefused
 
 
 def is_market_projection(projection) -> bool:
+    from sentinel.execution.fractional_progress import is_fractional
     evidence = None if projection is None else projection.opening_sizing
-    return isinstance(evidence, Mapping) and evidence.get("mode") == MARKET_MODE
+    return is_fractional(projection) or isinstance(evidence, Mapping) and evidence.get("mode") == MARKET_MODE
 
 
 def _entry_shares(row, ask, scale):
@@ -35,6 +36,9 @@ def _entry_shares(row, ask, scale):
 def original_prices(projection):
     """Read the original quote snapshot, including explicit unavailability."""
     if not is_market_projection(projection):
+        return None
+    from sentinel.execution.fractional_progress import is_fractional
+    if is_fractional(projection):
         return None
     opening = projection.opening_sizing["opening"]
     if opening.get("prices") is None:
@@ -78,6 +82,10 @@ def resolve(state, plan, projection, prices, policy, *, retained_targets):
 
 
 def validate_projection(projection, *, require_current_policy=False, plan=None):
+    from sentinel.execution import fractional_sizing
+    if fractional_sizing.is_fractional(projection):
+        return fractional_sizing.validate_projection(projection,
+            require_current_policy=require_current_policy, plan=plan)
     from sentinel.execution.opening_sizing import FINAL_MODE, UNAVAILABLE_MODE, ZERO_MODE
 
     if not is_market_projection(projection):
@@ -159,6 +167,10 @@ def entry_budget(projection, security_id):
     """Return the account-unit budget for a new entry, or None for a fixed target."""
     if not is_market_projection(projection):
         return None
+    from sentinel.execution.fractional_progress import is_fractional
+    if is_fractional(projection):
+        row = projection.opening_sizing["purchases"].get(security_id)
+        return None if row is None else Fraction(row["budget"])
     evidence = projection.opening_sizing
     if security_id in evidence["retained_targets"] or evidence["account_scale"] is None:
         return None
@@ -170,6 +182,9 @@ def entry_budget(projection, security_id):
 
 def unavailable_opening_intents(projection):
     validate_projection(projection)
+    from sentinel.execution.fractional_progress import is_fractional
+    if is_fractional(projection):
+        return dict(projection.opening_sizing["blocked"])
     evidence = projection.opening_sizing
     opening = evidence["opening"]
     from sentinel.execution.opening_sizing import UNAVAILABLE_MODE

@@ -196,10 +196,13 @@ class BrokerCapabilities:
     regular_session_open_prices: bool = False
     regular_session_quote_prices: bool = False
     protected_limit_day: bool = False
+    notional_market_buys: bool = False
 
     def __post_init__(self) -> None:
         if type(self.protected_limit_day) is not bool:
             raise TypeError('protected_limit_day must be boolean')
+        if type(self.notional_market_buys) is not bool:
+            raise TypeError('notional_market_buys must be boolean')
         if (not isinstance(self.minimum_quantity_increment, Decimal)
                 or not self.minimum_quantity_increment.is_finite()
                 or self.minimum_quantity_increment <= 0):
@@ -229,8 +232,9 @@ class BrokerCapabilities:
 @runtime_checkable
 class OrderSubmitter(Protocol):
     async def submit(self, *, client_key: str, instrument: "BrokerInstrument",
-                     side: "Side", quantity: Decimal,
-                     order_terms: OrderTerms = OrderTerms()) -> "CommandOutcome": ...
+                     side: "Side", quantity: Decimal | None,
+                     order_terms: OrderTerms = OrderTerms(),
+                     notional: Decimal | None = None) -> "CommandOutcome": ...
 
 
 @runtime_checkable
@@ -489,6 +493,28 @@ class BrokerInstrument:
 
 
 @dataclass(frozen=True)
+class BrokerAssetRules:
+    """Current trading eligibility, separate from permanent asset identity."""
+
+    instrument: BrokerInstrument
+    observed_at: datetime
+    fractionable: bool
+
+    def __post_init__(self):
+        if not isinstance(self.instrument, BrokerInstrument) or not self.instrument.broker_id:
+            raise ValueError("asset rules require native identity")
+        if type(self.fractionable) is not bool:
+            raise TypeError("fractionable must be explicitly boolean")
+        if not isinstance(self.observed_at, datetime) or self.observed_at.tzinfo is None:
+            raise ValueError("asset rules require an aware observation time")
+
+    def require_current(self, instrument, now):
+        from datetime import timedelta
+        if self.instrument != instrument or not timedelta(0) <= now - self.observed_at <= timedelta(seconds=30):
+            raise ValueError("asset trading rules are stale or name another instrument")
+
+
+@dataclass(frozen=True)
 class BrokerPosition:
     instrument: BrokerInstrument
     quantity: Decimal
@@ -663,7 +689,7 @@ class BrokerOrder:
     instrument: BrokerInstrument
     side: Side
     state: CommandState
-    quantity: Decimal
+    quantity: Decimal | None
     filled_quantity: Decimal = Decimal(0)
     filled_average_price: Optional[Decimal] = None
     submitted_at: Optional[datetime] = None
@@ -674,6 +700,7 @@ class BrokerOrder:
     replaces: Optional[str] = None
     raw: dict = field(default_factory=dict)
     order_terms: OrderTerms | None = OrderTerms()
+    notional: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.order_terms is not None and not isinstance(self.order_terms, OrderTerms):
@@ -684,13 +711,12 @@ class BrokerOrder:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ValueError(f"BrokerOrder.{name} must be a non-empty string")
-        _require_decimal("BrokerOrder.quantity", self.quantity)
+        from sentinel.execution.order_amount import OrderAmount
+        OrderAmount(quantity=self.quantity, notional=self.notional)
         _require_decimal("BrokerOrder.filled_quantity", self.filled_quantity)
-        if not self.quantity.is_finite() or self.quantity <= 0:
-            raise ValueError("BrokerOrder.quantity must be finite and positive")
         if (not self.filled_quantity.is_finite()
                 or self.filled_quantity < 0
-                or self.filled_quantity > self.quantity):
+                or (self.quantity is not None and self.filled_quantity > self.quantity)):
             raise ValueError(
                 "BrokerOrder.filled_quantity must be finite and between zero "
                 "and quantity")
@@ -704,15 +730,19 @@ class BrokerOrder:
         if self.filled_quantity > 0 and self.filled_average_price is None:
             raise ValueError(
                 "BrokerOrder with a positive fill requires filled_average_price")
-        if (self.state is CommandState.FILLED
+        if (self.state is CommandState.FILLED and self.quantity is not None
                 and self.filled_quantity != self.quantity):
             raise ValueError(
                 "BrokerOrder in FILLED state must report its full quantity")
+        if self.state is CommandState.FILLED and self.notional is not None and self.filled_quantity == 0:
+            raise ValueError("filled notional order must report positive acquired shares")
         if self.submitted_at is not None and self.submitted_at.tzinfo is None:
             raise ValueError("BrokerOrder.submitted_at must be timezone-aware")
 
     @property
     def remaining(self) -> Decimal:
+        if self.quantity is None:
+            raise ValueError("notional order has no remaining share quantity")
         return exact_decimal(Fraction(self.quantity) - Fraction(self.filled_quantity))
 
     @property
@@ -1074,6 +1104,9 @@ class ExecutionBroker(abc.ABC):
         raise NotImplementedError(
             "this execution adapter does not expose a broker market clock")
 
+    async def asset_rules(self, *, instrument: BrokerInstrument) -> BrokerAssetRules:
+        raise NotImplementedError("this execution adapter has no current fractional eligibility")
+
     async def opening_prices(self, *, session: date, instruments: Mapping):
         """Execution-only raw opening prices for the named regular session."""
         raise NotImplementedError("this adapter has no regular-session opening prices")
@@ -1127,8 +1160,9 @@ class ExecutionBroker(abc.ABC):
 
     @abc.abstractmethod
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
-                     side: Side, quantity: Decimal,
-                     order_terms: OrderTerms = OrderTerms()) -> CommandOutcome:
+                     side: Side, quantity: Decimal | None,
+                     order_terms: OrderTerms = OrderTerms(),
+                     notional: Decimal | None = None) -> CommandOutcome:
         """Place an order under OUR identity. Never mints one of its own."""
 
     @abc.abstractmethod

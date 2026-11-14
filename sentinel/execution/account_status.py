@@ -43,11 +43,13 @@ def _bound(conn, *, config=None):
 def _fact(order):
     fact = dict(client_key=order.client_key, broker_order_id=order.broker_order_id,
         asset_id=order.instrument.broker_id, side=order.side.value,
-        state=order.state.value, quantity=decimal_text(order.quantity),
+        state=order.state.value, quantity=(None if order.quantity is None else decimal_text(order.quantity)),
         filled_quantity=decimal_text(order.filled_quantity), terms=order.order_terms.to_dict())
     if order.order_terms.order_type == "market":
         fact["filled_average_price"] = (decimal_text(order.filled_average_price)
             if order.filled_average_price is not None else None)
+    if order.notional is not None:
+        fact["notional"] = decimal_text(order.notional)
     return fact
 
 
@@ -61,13 +63,15 @@ def _commands(conn, bound, *, plan_id=None):
         t = c.order_terms
         if (c.state not in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}
                 or c.side.value != "BUY" or not c.broker_order_id
-                or not c.instrument.broker_id or not c.remaining.is_finite() or c.remaining <= 0
+                or not c.instrument.broker_id
+                or (c.quantity is not None and (not c.remaining.is_finite() or c.remaining <= 0))
                 or t.time_in_force != "day" or t.order_class != "simple" or t.extended_hours
                 or (plan_id is not None and c.identity.plan_id != plan_id)):
             return None
         if t.order_type == "market":
             from sentinel.execution.market_buy_policy import MarketBuyPolicy
-            if (MarketBuyPolicy.from_env() is None or c.quantity != c.quantity.to_integral_value()
+            if (MarketBuyPolicy.from_env() is None
+                    or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())
                     or (c.state is CommandState.ACKNOWLEDGED and c.filled_quantity != 0)
                     or (c.state is CommandState.PARTIALLY_FILLED
                         and (c.filled_quantity <= 0 or c.filled_average_price is None))):

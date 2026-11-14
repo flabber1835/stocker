@@ -181,7 +181,8 @@ def _observation_payload(observation: BrokerObservation) -> dict:
                 "instrument": _instrument(order.instrument),
                 "side": order.side.value,
                 "state": order.state.value,
-                "quantity": str(order.quantity),
+                "quantity": None if order.quantity is None else str(order.quantity),
+                **({"notional": str(order.notional)} if order.notional is not None else {}),
                 "filled_quantity": str(order.filled_quantity),
                 "filled_average_price": (
                     None if order.filled_average_price is None
@@ -314,6 +315,8 @@ def _decode_observation(value: Any) -> BrokerObservation:
             "submitted_at", "external_replacement",
             "replaced_by", "replaces",
         }
+        if "notional" in item:
+            fields.add("notional")
         if set(item) != fields:
             raise DualPlanAuthorityRefused(
                 f"retained order {index} has an unknown shape")
@@ -337,8 +340,10 @@ def _decode_observation(value: Any) -> BrokerObservation:
             instrument=_decode_instrument(
                 item["instrument"], where=f"retained order {index}"),
             side=side, state=state,
-            quantity=_decimal(
-                item["quantity"], where=f"retained order {index} quantity"),
+            quantity=(None if item["quantity"] is None else _decimal(
+                item["quantity"], where=f"retained order {index} quantity")),
+            notional=(None if item.get("notional") is None else _decimal(
+                item["notional"], where=f"retained order {index} notional")),
             filled_quantity=_decimal(
                 item["filled_quantity"],
                 where=f"retained order {index} filled quantity"),
@@ -419,7 +424,8 @@ def build_authority(
     if market_buy_policy_sha256 is not None:
         from sentinel.execution.market_buy_policy import MarketBuyPolicy
 
-        if held_share_targets is None or market_buy_policy_sha256 != MarketBuyPolicy().fingerprint():
+        if held_share_targets is None or market_buy_policy_sha256 not in {
+                MarketBuyPolicy().fingerprint(), MarketBuyPolicy(fractional=True).fingerprint()}:
             raise DualPlanAuthorityRefused("market sizing authority requires held targets and the reviewed policy")
         body["schema"] = MARKET_SCHEMA
         body["market_buy_policy_sha256"] = market_buy_policy_sha256
@@ -446,7 +452,8 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
     if schema == MARKET_SCHEMA:
         from sentinel.execution.market_buy_policy import MarketBuyPolicy
 
-        if raw["market_buy_policy_sha256"] != MarketBuyPolicy().fingerprint():
+        if raw["market_buy_policy_sha256"] not in {
+                MarketBuyPolicy().fingerprint(), MarketBuyPolicy(fractional=True).fingerprint()}:
             raise DualPlanAuthorityRefused("dual sizing authority has an unknown market BUY policy")
     digest = str(raw.get("authority_sha256") or "")
     unsigned = dict(raw)

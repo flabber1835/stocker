@@ -52,6 +52,9 @@ def requires_initial_projection(conn, *, plan, deployment):
     from sentinel.execution import market_buy_sizing
     if market_buy_sizing.is_market_projection(projection):
         market_buy_sizing.validate_projection(projection, plan=plan)
+        from sentinel.execution.fractional_progress import is_fractional
+        if is_fractional(projection):
+            return False  # Fixed dollar allocation needs no opening-price sizing.
         mode = projection.opening_sizing["opening"]["mode"]
     else:
         mode = projection.opening_sizing.get("mode")
@@ -91,6 +94,10 @@ def _unavailable(plan, instruments, exc):
 
 
 async def prices_for_plan(conn, *, state, plan, broker):
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    policy = MarketBuyPolicy.from_env()
+    if policy is not None and policy.fractional:
+        return None
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
     if ProtectedLimitPolicy.from_env() is not None:
         # Historical references are read by the action-bound target projection,

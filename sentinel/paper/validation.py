@@ -413,7 +413,7 @@ def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None, re
 
 def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
                                     observation, client_key, instrument,
-                                    quantity, order_terms, estimate, session):
+                                    quantity, order_terms, estimate, session, notional=None):
     """Bind a market BUY to the exact quiescent book and pending command."""
     from fractions import Fraction
     from sentinel.execution import commands, market_buy_sizing, target_reprojection
@@ -451,9 +451,31 @@ def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
             or candidate.identity.plan_id != plan.plan_id
             or candidate.side is not Side.BUY
             or candidate.instrument != instrument or candidate.quantity != quantity
+            or candidate.notional != notional
             or candidate.order_terms != order_terms or order_terms != OrderTerms()
             or candidate.broker_order_id is not None or candidate.filled_quantity != 0):
         raise PaperActivationRefused("pending market BUY differs from the exact durable command")
+    from sentinel.execution import fractional_progress
+    if fractional_progress.is_fractional(projection):
+        progress = fractional_progress.derive(conn, projection=projection,
+            deployment=deployment, ignore_key=client_key)
+        delta = fractional_progress.delta(conn, projection=projection, deployment=deployment,
+            security_id=instrument.security_id, observation=observation, ignore_key=client_key)
+        budget = progress.budgets.get(instrument.security_id)
+        if (budget is None or instrument.security_id in progress.blocked
+                or not delta.is_increase or Fraction(estimate) > Fraction(budget)):
+            raise OrderEvidenceNotReady("purchase exceeds its evidenced remaining allocation")
+        if notional is not None:
+            if delta.notional != notional or quantity is not None:
+                raise PaperActivationRefused("dollar BUY differs from its immutable remaining allocation")
+        elif delta.notional is None:
+            if quantity != delta.quantity:
+                raise PaperActivationRefused("fallback BUY differs from its original share remainder")
+        elif any(c.security_id == instrument.security_id and c.notional is not None
+                 and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}
+                 for c in progress.commands):
+            raise PaperActivationRefused("attempted dollar purchase cannot change denomination")
+        return
     delta = commands.compute_delta(
         security_id=instrument.security_id,
         desired=projection.target_basket.get(instrument.security_id, Decimal(0)),

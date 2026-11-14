@@ -401,13 +401,25 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     from sentinel.execution import market_buy_sizing
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
 
-    market = MarketBuyPolicy.from_env() is not None
+    selected_market = MarketBuyPolicy.from_env()
+    market = selected_market is not None
+    from sentinel.execution import fractional_progress
+    fractional = selected_market is not None and selected_market.fractional
     if market or (target_projection is not None
                   and market_buy_sizing.is_market_projection(target_projection)):
         market_buy_sizing.validate_projection(
             target_projection, require_current_policy=True, plan=plan)
     desired = (target_projection.target_basket
                if target_projection is not None else plan.target_basket)
+
+    def size(security_id, observation):
+        if fractional:
+            return fractional_progress.delta(conn, projection=target_projection,
+                deployment=deployment, security_id=security_id, observation=observation,
+                min_increment=min_increment)
+        return C.compute_delta(security_id=security_id,
+            desired=desired.get(security_id, Decimal(0)), observation=observation,
+            min_increment=min_increment)
 
     # 1. RECONCILE. Nothing is submitted before the broker's own state is
     #    established — including after a restart, where the journal may be
@@ -455,10 +467,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    the previous submission had already changed.
     deltas = []
     for security_id in sorted(_execution_universe(desired, observation)):
-        deltas.append(C.compute_delta(
-            security_id=security_id,
-            desired=desired.get(security_id, Decimal(0)),
-            observation=observation, min_increment=min_increment))
+        deltas.append(size(security_id, observation))
 
     submitted: list = []
     refused: dict = {}
@@ -476,6 +485,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         for sid in desired if desired[sid] != 0
         or any(item.security_id == sid for item in plan.opening_intents)}))
     restrictions.update(rec.restricted_securities)
+    if fractional:
+        progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
+        deferred.extend(progress.blocked)
+        deferral_reasons.update(progress.blocked)
     window_open = is_execution_window_open(plan, today)
 
     def issuer_admitted(delta, *, reserve=False):
@@ -559,6 +572,17 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             # preflight.
             await mutation_authority(rec)
         for index, delta in enumerate(authorized_candidates):
+            residual = None
+            if fractional:
+                from sentinel.execution.fractional_orders import choose
+                from sentinel.execution.guarded import OrderEvidenceNotReady
+                try:
+                    delta, residual = await choose(broker, conn=conn, deployment=deployment,
+                        projection=target_projection, delta=delta, instrument=instruments[delta.security_id])
+                except OrderEvidenceNotReady as exc:
+                    deferred.append(delta.security_id)
+                    deferral_reasons[delta.security_id] = str(exc)
+                    continue
             from sentinel.execution.contract import OrderTerms
             from sentinel.execution import protected_limits
             order_terms = OrderTerms()
@@ -603,6 +627,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                     break
                 continue
             submitted.append(sent)
+            if residual is not None:
+                deferred.append(delta.security_id)
+                deferral_reasons[delta.security_id] = residual
+                restrictions[delta.security_id] = residual
             commands = commands + (sent,)
             if sent.state is not CommandState.ACKNOWLEDGED:
                 # A basket is a sequence of independently acknowledged broker
@@ -730,10 +758,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 observation = rec.observation
                 open_commands = journal.in_flight_commands(conn, deployment)
                 increases = [
-                    C.compute_delta(security_id=d.security_id,
-                                    desired=desired.get(d.security_id, Decimal(0)),
-                                    observation=observation,
-                                    min_increment=min_increment)
+                    size(d.security_id, observation)
                     for d in increases]
                 # Only INCREASES may come out of the re-size. A reduction
                 # appearing here would be phase one's own fill read back as new
@@ -861,6 +886,7 @@ def _same_command_economics(left: C.Command, right: C.Command) -> bool:
         and left.instrument.broker_id == right.instrument.broker_id
         and left.side is right.side
         and left.quantity == right.quantity
+        and left.notional == right.notional
         and left.order_terms == right.order_terms
         and left.filled_quantity == right.filled_quantity == Decimal(0)
         and left.broker_order_id is None

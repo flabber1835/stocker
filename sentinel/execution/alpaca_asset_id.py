@@ -37,7 +37,8 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
             # Current owned-account cash only. The independent fill-interval,
             # historical close and finality capabilities remain quarantined.
             self.capabilities = replace(
-                self.capabilities, account_cash_activity_evidence=True)
+                self.capabilities, account_cash_activity_evidence=True,
+                notional_market_buys=True)
             self.financial_activity_sse = True
 
     async def submit(
@@ -46,8 +47,9 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
         client_key: str,
         instrument: BrokerInstrument,
         side: Side,
-        quantity: Decimal,
+        quantity: Decimal | None,
         order_terms: OrderTerms = OrderTerms(),
+        notional: Decimal | None = None,
     ) -> CommandOutcome:
         asset_id = str(instrument.broker_id or "").strip()
         if not asset_id:
@@ -58,7 +60,8 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
             )
 
         return await self._submit_order(symbol=asset_id, client_key=client_key,
-            instrument=instrument, side=side, quantity=quantity, order_terms=order_terms)
+            instrument=instrument, side=side, quantity=quantity,
+            order_terms=order_terms, notional=notional)
 
 
 __all__ = ["AssetIdAlpacaExecutionBroker"]

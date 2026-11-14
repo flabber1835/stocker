@@ -1,5 +1,10 @@
 # Sentinel — the execution and recovery contract
 
+[Fractional PAPER execution](fractional-paper-execution.md) defines the distinct
+prospective dollar-purchase policy and its amount-aware fulfillment contract.
+Its explicit selection supersedes quantity-only purchase assumptions for new
+commands; historical commands retain their original economics and recovery.
+
 [Persistent account share targets](persistent-account-share-targets.md) supersede
 daily resizing for continuing episodes at unchanged controller exposure. The
 account target remains durable through partial fills and restarts.

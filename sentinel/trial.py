@@ -129,6 +129,17 @@ def _insert_immutable(conn, *, name: str, session: date,
     return candidate
 
 
+def _fulfilled_projection(conn, *, projection, deployment):
+    from sentinel.execution import fractional_progress, target_reprojection
+    if not fractional_progress.is_fractional(projection):
+        return projection.target_basket, None
+    try:
+        witness = fractional_progress.evidence(conn, projection=projection, deployment=deployment)
+    except target_reprojection.TargetProjectionRefused as exc:
+        raise TrialEvidenceRefused(str(exc)) from exc
+    return {sid: Decimal(qty) for sid, qty in witness["targets"].items()}, witness
+
+
 def record_account_evidence(
         conn, *, session: date, observation_id: int,
         observed_at: datetime, snapshot: "BrokerAccountSnapshot",
@@ -179,8 +190,10 @@ def record_account_evidence(
             "account evidence target projection is not the plan's effective "
             "session projection")
     durable_target = _quantity_map(plan.target_basket, where="plan target")
+    fulfilled, fulfillment = _fulfilled_projection(
+        conn, projection=target_projection, deployment=deployment)
     effective_target = _quantity_map(
-        target_projection.target_basket, where="durable target projection")
+        fulfilled, where="durable target projection")
     exact_target_actions = _quantity_map(
         target_projection.action_multipliers,
         where="target-projection corporate-action multiplier")
@@ -189,6 +202,15 @@ def record_account_evidence(
         where="post-projection corporate-action multiplier")
     observation_target = _age_plan_target(
         effective_target, exact_observation_target_actions)
+    if fulfillment is not None:
+        from sentinel.execution import fractional_progress
+        try:
+            observation_target, action_evidence = fractional_progress.age_targets(
+                conn, projection=target_projection, targets=effective_target,
+                through=reconciliation.observation.observed_at.date(),
+                multipliers=exact_observation_target_actions)
+        except (target_reprojection.TargetProjectionRefused, ArithmeticError) as exc:
+            raise TrialEvidenceRefused(str(exc)) from exc
     projection_payload = target_projection.payload()
     activity = None
     if activity_state is not None:
@@ -260,6 +282,9 @@ def record_account_evidence(
         },
         "cash_activity": activity,
     }
+    if fulfillment is not None:
+        evidence["reconciliation"]["purchase_fulfillment"] = fulfillment
+        evidence["reconciliation"]["post_projection_action_evidence"] = action_evidence
     evidence["evidence_sha256"] = _sha(evidence)
     return _insert_immutable(
         conn, name=f"{ACCOUNT_PREFIX}{observation_id}", session=session,
@@ -1501,9 +1526,19 @@ def build_cycle_verification(conn, *, cycle_id: str,
         _reason(
             reasons, retained_projection == target_projection.payload(),
             "ACCOUNT_TARGET_PROJECTION_MISMATCH")
-        effective_target = _quantity_map(
-            target_projection.target_basket,
-            where="durable target projection")
+        from sentinel.execution.identity import DeploymentIdentity
+        fulfilled, fulfillment = _fulfilled_projection(conn, projection=target_projection,
+            deployment=DeploymentIdentity(plan.deployment_id, plan.broker,
+                plan.broker_account_id, plan.takeover_epoch))
+        effective_target = _quantity_map(fulfilled, where="durable target projection")
+        if fulfillment is not None:
+            _reason(reasons, account_reconciliation.get("purchase_fulfillment") == fulfillment,
+                    "ACCOUNT_PURCHASE_FULFILLMENT_MISMATCH")
+            from sentinel.execution import fractional_progress
+            try:
+                fractional_progress.require_completed(fulfillment)
+            except target_reprojection.TargetProjectionRefused:
+                reasons.append("PURCHASE_OBLIGATION_UNFULFILLED")
         retained_close_actions = _quantity_map(
             close_corporate_actions,
             where="account-evidence target-projection actions")
@@ -1520,6 +1555,16 @@ def build_cycle_verification(conn, *, cycle_id: str,
         target = {key: str(value) for key, value in effective_target.items()}
         observation_target = _age_plan_target(
             effective_target, observation_corporate_actions)
+        if fulfillment is not None:
+            try:
+                observation_target, action_evidence = fractional_progress.age_targets(
+                    conn, projection=target_projection, targets=effective_target,
+                    through=_utc((account or {}).get("reconciliation_observed_at"), where="bound reconciliation completion").date(),
+                    multipliers=observation_corporate_actions)
+            except (target_reprojection.TargetProjectionRefused, ArithmeticError) as exc:
+                raise TrialEvidenceRefused(str(exc)) from exc
+            _reason(reasons, account_reconciliation.get("post_projection_action_evidence") == action_evidence,
+                    "ACCOUNT_POST_PROJECTION_ACTION_EVIDENCE_MISMATCH")
         retained_observation_target = _quantity_map(
             account_reconciliation.get("observation_target") or {},
             where="account-evidence observation target")
@@ -1546,8 +1591,10 @@ def build_cycle_verification(conn, *, cycle_id: str,
                            comparison_target.get(key, 0),
                            where=f"observation target {key}"))
               for key in sorted(all_securities)}
+    from sentinel.execution.fractional_progress import is_fractional
+    share_tolerance = Decimal(0) if is_fractional(target_projection) else SHARE_TOLERANCE
     _reason(reasons, all(abs(_decimal(v, where="position delta"))
-                         <= SHARE_TOLERANCE
+                         <= share_tolerance
                          for v in deltas.values()), "POSITION_MISMATCH")
     working = []
     for raw in (observation or {}).get("orders", []):
@@ -1563,13 +1610,14 @@ def build_cycle_verification(conn, *, cycle_id: str,
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT client_key,security_id,side,quantity,state,broker_order_id,"
-                " filled_quantity,filled_average_price,detail,updated_at"
+                " filled_quantity,filled_average_price,detail,updated_at,notional"
                 " FROM sentinel_commands WHERE plan_id=%s ORDER BY client_key",
                 (plan.plan_id,))
             command_rows = cur.fetchall()
         for row in command_rows:
             commands.append({"client_key": str(row[0]), "security_id": str(row[1]),
-                             "side": str(row[2]), "quantity": str(row[3]),
+                             "side": str(row[2]), "quantity": None if row[3] is None else str(row[3]),
+                             **({"notional": str(row[10])} if row[10] is not None else {}),
                              "state": str(row[4]), "broker_order_id": row[5],
                              "filled_quantity": str(row[6]),
                              "filled_average_price": (str(row[7]) if row[7] is not None else None),
@@ -1580,6 +1628,10 @@ def build_cycle_verification(conn, *, cycle_id: str,
             for row in commands), "COMMAND_TIMESTAMP_FUTURE")
         bad_states = {"PLANNED", "SEND_PENDING", "ACKNOWLEDGED", "UNKNOWN",
                       "PARTIALLY_FILLED", "CANCEL_PENDING", "REJECTED", "CANCELLED"}
+        if is_fractional(target_projection):
+            # Fulfillment above proves the remaining dollars and owned shares;
+            # a settled canceled revision does not undo a completed purchase.
+            bad_states.discard("CANCELLED")
         _reason(reasons, not any(row["state"] in bad_states for row in commands),
                 "COMMAND_JOURNAL_NOT_CLEAN")
 

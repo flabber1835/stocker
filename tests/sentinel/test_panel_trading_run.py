@@ -164,6 +164,24 @@ def test_full_execution_sequence_keeps_intent_and_displays_recorded_fills():
             assert 'avg $354.52' in html and 'Limit $354.58' in html
 
 
+def test_dollar_buy_displays_requested_money_and_actual_shares_separately():
+    original = run()
+    buy = model.RunOrder(security_id='PANW', ticker='PANW', client_key='dollar-PANW',
+        broker_order_id='native-dollar', side='BUY', quantity=None, notional='999',
+        filled_quantity='2.817845255', state='PARTIALLY_FILLED', observed_at=NOW,
+        filled_average_price='354.52', order_terms=TERMS)
+    allocation = model.PurchaseAllocation(security_id='PANW', budget='1000',
+        acquired_quantity=buy.filled_quantity, remaining_budget=None,
+        status='PURCHASE_COMMAND_UNRESOLVED')
+    current = original.model_copy(update={'orders':[buy], 'purchase_allocations':[allocation]})
+    row = model.Row('trading_run', 'Run', current.state, model.WARN,
+        as_of=NOW, valid_until=NOW+timedelta(hours=8), trading_run=current)
+    html = overview.overview_html(model.Panel(now=NOW, rows=[row]))
+    assert 'Budget $1,000.00' in html and '$999.00 requested' in html
+    assert 'Remaining budget pending evidence' in html and 'shares filled' in html
+    assert '2.817845255/0' not in html and 'None' not in html
+
+
 @pytest.mark.parametrize('state',['UNKNOWN','REJECTED','CANCELLED','CANCEL_PENDING'])
 def test_uncertain_and_unfilled_outcomes_are_not_rendered_as_success(state):
     current=run()

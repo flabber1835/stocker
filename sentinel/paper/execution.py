@@ -521,7 +521,8 @@ async def _execute_current_paper_plan(
             projected_deltas = _plan_deltas(
                 target_basket=target_projection.target_basket,
                 observation=observation,
-                minimum_quantity_increment=minimum_increment)
+                minimum_quantity_increment=minimum_increment,
+                conn=conn, deployment=binding.identity, projection=target_projection)
             if issuer_admission is not None and any(
                     delta.is_increase and delta.security_id != 'SENTINEL:BIL'
                     for delta in projected_deltas):
@@ -540,7 +541,10 @@ async def _execute_current_paper_plan(
             restrictions.update(preflight.restricted_securities)
 
             from sentinel.execution.protected_limits import unavailable_opening_intents
-            if (not restrictions and not unavailable_opening_intents(target_projection)
+            from sentinel.execution import fractional_progress
+            unfinished = (fractional_progress.derive(conn, projection=target_projection,
+                deployment=binding.identity).blocked if fractional_progress.is_fractional(target_projection) else {})
+            if (not restrictions and not unfinished and not unavailable_opening_intents(target_projection)
                     and all(delta.classification is execution_commands.DeltaClass.NONE
                             for delta in projected_deltas)):
                 session = executor.SessionResult(

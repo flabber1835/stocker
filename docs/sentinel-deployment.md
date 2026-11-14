@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Fractional PAPER execution](fractional-paper-execution.md) records the
+owner-selected dollar-purchase policy, whole-share market fallback and unchanged
+hold behavior. Development and qualification do not select or activate it in the
+installed account.
+
 [PAPER debit fee posting delay](native-fee-posting-delay.md) defines the
 safe re-observation of documented Alpaca cash propagation lag.
 

@@ -646,10 +646,13 @@ def build_execution_plan(
         canonical, account_snapshot, observation, current_marks)
     weights = _shadow_notionals(canonical, target, current_marks)
 
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    market_policy = MarketBuyPolicy.from_env()
+    lot = Decimal("0.000000001") if market_policy is not None and market_policy.fractional else Decimal(1)
     sized = project(
         shadow_weights=weights, exposure=exposure, nav=nav,
         marks=current_marks, defensive_security=defensive_security,
-        defensive_weight=defensive_weight, weight_denominator=shadow_equity)
+        defensive_weight=defensive_weight, weight_denominator=shadow_equity, lot=lot)
     if nav_unpriced:
         sized = replace(
             sized,
@@ -657,10 +660,10 @@ def build_execution_plan(
     sized = _cap_unpriced_increases(
         sized, target, observation, shadow_equity=shadow_equity, nav=nav,
         exposure=exposure, defensive_weight=defensive_weight,
-        defensive_security=defensive_security)
+        defensive_security=defensive_security, lot=lot)
     from sentinel.execution import held_targets
     sized = held_targets.apply(sized, targets=retained_targets,
-        canonical_target=target, marks=current_marks)
+        canonical_target=target, marks=current_marks, lot=lot)
     basket = desired_basket(sized)
     for entry in target.opening_intents:
         basket[entry.security_id] = Decimal(0)

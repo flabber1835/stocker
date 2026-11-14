@@ -443,7 +443,7 @@ def _previous_buy_outcomes(conn, *, preview):
     with conn.cursor() as cur:
         cur.execute("""SELECT DISTINCT ON (c.security_id)
             c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,
-            c.quantity,c.filled_quantity,c.state,c.updated_at
+            c.quantity,c.filled_quantity,c.state,c.updated_at,c.notional
             FROM sentinel_commands c
             JOIN sentinel_account_binding b ON b.id=1
               AND b.ownership_state='SENTINEL_OWNED'
@@ -569,17 +569,33 @@ def _trading_run_row(conn, row, *, completed_history=False):
                 raise ValueError('current trading opening intent identity changed')
             plan['opening_intents'] = raw['intents']
         cur.execute("""SELECT c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,c.quantity,
-            c.filled_quantity,c.state,c.updated_at,c.filled_average_price,c.order_terms
+            c.filled_quantity,c.state,c.updated_at,c.filled_average_price,c.order_terms,c.notional
             FROM sentinel_commands c JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
               AND c.deployment_id=p.deployment_id AND c.broker=p.broker
               AND c.broker_account_id=p.broker_account_id AND c.takeover_epoch=p.takeover_epoch
             WHERE c.plan_id=%s ORDER BY c.created_at,c.client_key LIMIT 101""",
             (plan['plan_id'],))
         commands = [dict(zip(('security_id','ticker','client_key','broker_order_id','side',
-            'quantity','filled_quantity','state','observed_at','filled_average_price','order_terms'),
+            'quantity','filled_quantity','state','observed_at','filled_average_price','order_terms','notional'),
             row, strict=True)) for row in cur.fetchall()]
     from sentinel.panel.run_progress import project_run
-    run = project_run(plan, authority, commands)
+    from sentinel.execution import fractional_progress, target_reprojection
+    projection = target_reprojection.load_projection(conn, plan_id=plan['plan_id'])
+    allocations = []
+    if fractional_progress.is_fractional(projection):
+        from sentinel.execution.identity import DeploymentIdentity
+        identity = DeploymentIdentity(stored.deployment_id, stored.broker,
+            stored.broker_account_id, stored.takeover_epoch)
+        progress = fractional_progress.derive(conn, projection=projection, deployment=identity)
+        for sid, allocation in projection.opening_sizing['purchases'].items():
+            remaining = progress.budgets.get(sid, Decimal(0))
+            blocked = progress.blocked.get(sid)
+            allocations.append(dict(security_id=sid, budget=allocation['budget'],
+                acquired_quantity=sum((c.filled_quantity for c in progress.commands
+                    if c.security_id == sid and c.side.value == 'BUY'), Decimal(0)),
+                remaining_budget=None if blocked else remaining,
+                status=blocked or ('CASH_RESIDUAL' if 0 < remaining < 2 else 'PENDING' if remaining else 'COMPLETE')))
+    run = project_run(plan, authority, commands, purchase_allocations=allocations)
     failed = run.state in {'FAILED','ABANDONED','SUPERSEDED'} or any(
         item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
     status = model.FAIL if failed else model.WARN if run.state in {
@@ -1619,6 +1635,7 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
                 or command.security_id != fact.security_id or order["security_id"] != fact.security_id
                 or command.order_terms.to_dict() != fact.order_terms
                 or order.get("order_terms") != fact.order_terms
+                or command.quantity is None
                 or not 0 <= command.quantity - command.filled_quantity <= fact.remaining_quantity
                 or Decimal(order["filled_quantity"]) != command.filled_quantity
                 or Decimal(order["quantity"]) != command.quantity
@@ -1683,7 +1700,9 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
     recorded = next((item for item in run.orders if item.client_key == order["client_key"]), None)
     if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
             or recorded.state != order["state"] or recorded.order_terms != order["terms"]
-            or recorded.side != order["side"] or recorded.quantity != Decimal(order["quantity"])
+            or recorded.side != order["side"]
+            or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
+            or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
             or recorded.filled_quantity != Decimal(order["filled_quantity"])
             or recorded.filled_average_price != (
                 Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):

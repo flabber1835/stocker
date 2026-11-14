@@ -423,9 +423,11 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
         prior_bytes = manifest.seam_sources.get(name, '').encode()
         current_bytes = (current/name).read_bytes()
-        if (name == 'core/decision.py' and backed is not None
-                and backed.decision_compatible(prior_bytes, current_bytes)):
-            continue
+        if name == 'core/decision.py' and backed is not None:
+            from sentinel.fractional_execution_source_basis import decision_comparison_scope
+            comparison_scope, comparison_bytes = decision_comparison_scope(backed, current_bytes)
+            if comparison_scope.decision_compatible(prior_bytes, comparison_bytes):
+                continue
         contribution = basis.canonical_contribution(module, current_bytes)
         if previous != contribution:
             if (hashlib.sha256(prior_bytes).hexdigest() != previous

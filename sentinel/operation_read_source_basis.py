@@ -15,7 +15,7 @@ CANDIDATES = {
     'sentinel.execution.reconcile': '0a49d779f60888ff1d0e79d532f857e528789b7c17feeb8ac7816cba231693d9',
     'sentinel.execution.feed_actions': '02fb6675efe5f1abce06a864b98d3cfa5423c8bda112762708626d516b17a1d5',
 }
-PROFILE_SHA256 = 'e9a1e5e74e634fc1e61ed85b15cb25b4312b8010e6304e2ae1ca831980106a36'
+PROFILE_SHA256 = 'a6f7fd89ae3d7be3fa6a38e5d4e36a4fe1a2c1540dc5c3e2bfda5b20613ec282'
 PROFILE = Path(__file__).with_name('operation-read-source-transition.json')
 
 
@@ -68,7 +68,10 @@ def contribution(module, raw):
     actual = _sha(raw)
     if module not in BASELINES:
         return actual
+    from sentinel import fractional_execution_source_basis
+    qualified = fractional_execution_source_basis.contribution(module, raw)
     value = _profile()
+    actual = qualified
     if value is not None and actual == value['compilers'][module]['after']:
         return value['compilers'][module]['before']
-    return actual
+    return _sha(raw)

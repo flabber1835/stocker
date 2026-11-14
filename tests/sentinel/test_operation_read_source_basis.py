@@ -41,6 +41,8 @@ def current(module):
 
 def reconstruct(module, raw):
     """Reverse only the exact reviewed read-elision/routing source edits."""
+    from tests.sentinel.test_fractional_source_basis import qualified_predecessor
+    raw = qualified_predecessor(module, raw)
     if module=='sentinel.execution.reconcile':
         change=(b'        elif _safe_non_book_action(verb):\n'
                 b'            # These rows remain source/cash evidence, but supply no scalar or\n'
@@ -69,7 +71,8 @@ def reconstruct(module, raw):
 def test_full_reviewed_compiler_reconstructs_actual_independent_predecessor(module):
     raw=current(module)
     reconstruct(module,raw)
-    assert sha(raw)==basis.CANDIDATES[module]!=basis.BASELINES[module]
+    from tests.sentinel.test_fractional_source_basis import qualified_predecessor
+    assert sha(qualified_predecessor(module,raw))==basis.CANDIDATES[module]!=basis.BASELINES[module]
     assert basis.contribution(module,raw)==basis.BASELINES[module]
 
 

@@ -129,18 +129,22 @@ def _native_order_terms(payload: dict, *, required: bool) -> OrderTerms | None:
         raise MalformedOrderTerms(f'native order terms are invalid: {exc}') from exc
 
 
-def _submit_body(*, symbol: str, client_key: str, side: Side, quantity: Decimal,
-                 order_terms: OrderTerms, capabilities: BrokerCapabilities) -> dict:
+def _submit_body(*, symbol: str, client_key: str, side: Side, quantity: Decimal | None,
+                 order_terms: OrderTerms, capabilities: BrokerCapabilities,
+                 notional: Decimal | None = None) -> dict:
     if not isinstance(order_terms, OrderTerms):
         raise TypeError('submit requires typed OrderTerms')
     order_terms.require_owned_submission(side)
-    if not isinstance(quantity, Decimal) or not quantity.is_finite() or quantity <= 0:
-        raise ValueError('submit quantity must be a positive finite Decimal')
+    from sentinel.execution.order_amount import OrderAmount
+    amount = OrderAmount(quantity=quantity, notional=notional)
+    amount.require_notional_buy(side, order_terms)
+    if notional is not None:
+        capabilities.require('notional_market_buys')
     if order_terms.order_type == 'limit':
         capabilities.require('protected_limit_day')
         if quantity != quantity.to_integral_value():
             raise ValueError('protected LIMIT/DAY requires whole quantity')
-    body = {'symbol': symbol, 'qty': str(quantity),
+    body = {'symbol': symbol, **amount.wire(),
             'side': 'buy' if side is Side.BUY else 'sell',
             'type': order_terms.order_type, 'time_in_force': order_terms.time_in_force,
             'client_order_id': client_key, 'order_class': order_terms.order_class,
@@ -854,6 +858,20 @@ class AlpacaExecutionBroker(ExecutionBroker):
             next_close=_required_aware_ts(
                 payload.get("next_close"), where="market clock next_close"))
 
+    async def asset_rules(self, *, instrument: BrokerInstrument):
+        from sentinel.execution.contract import BrokerAssetRules
+        if not instrument.broker_id:
+            raise MalformedBrokerPayload("asset rules require a native asset id")
+        payload = await self._get(f"/v2/assets/{quote(instrument.broker_id, safe='')}")
+        if (not isinstance(payload, dict) or payload.get("id") != instrument.broker_id
+                or payload.get("tradable") is not True or payload.get("status") != "active"
+                or type(payload.get("fractionable")) is not bool):
+            raise MalformedBrokerPayload("current asset trading rules are absent or malformed")
+        current = self._instrument(str(payload.get("symbol") or ""), payload["id"])
+        if current != instrument:
+            raise MalformedBrokerPayload("asset rules changed native or permanent identity")
+        return BrokerAssetRules(current, self._now(), payload["fractionable"])
+
     async def account_cash_activities(
             self, *, after: datetime,
             through: datetime) -> BrokerCashActivityBatch:
@@ -1200,8 +1218,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
             side=_side(
                 payload.get("side"), where=f"order {payload.get('id')} side"),
             state=map_status(raw_status),
-            quantity=_required_dec(
-                payload.get("qty"), where=f"order {payload.get('id')} qty"),
+            quantity=(_required_dec(payload.get("qty"), where=f"order {payload.get('id')} qty")
+                      if payload.get("qty") is not None or payload.get("notional") is None else None),
+            notional=(_required_dec(payload.get("notional"), where=f"order {payload.get('id')} notional")
+                      if payload.get("notional") is not None else None),
             filled_quantity=_required_dec(
                 payload.get("filled_qty"),
                 where=f"order {payload.get('id')} filled_qty"),
@@ -1249,13 +1269,15 @@ class AlpacaExecutionBroker(ExecutionBroker):
     def _validate_submit_response(
             self, payload, *, client_key: str,
             instrument: BrokerInstrument, side: Side,
-            quantity: Decimal, order_terms: OrderTerms = OrderTerms()) -> BrokerOrder:
+            quantity: Decimal | None, order_terms: OrderTerms = OrderTerms(),
+            notional: Decimal | None = None) -> BrokerOrder:
         """A 2xx may acknowledge only the exact economics Sentinel sent."""
         if not isinstance(payload, dict):
             raise IncompleteBrokerPayload(
                 "successful submit response must be an order object")
         required = (
-            "id", "client_order_id", "symbol", "side", "status", "qty",
+            "id", "client_order_id", "symbol", "side", "status",
+            "qty" if notional is None else "notional",
             "filled_qty", "type", "time_in_force", "order_class",
             "extended_hours")
         missing = [
@@ -1283,6 +1305,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise MalformedBrokerPayload(
                 f"successful submit returned quantity {order.quantity}, "
                 f"expected {quantity}")
+        if order.notional != notional:
+            raise MalformedBrokerPayload("successful submit returned different notional")
         if order.instrument.security_id != instrument.security_id:
             raise MalformedBrokerPayload(
                 "successful submit returned a different permanent security: "
@@ -1307,18 +1331,20 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return order
 
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
-                     side: Side, quantity: Decimal,
-                     order_terms: OrderTerms = OrderTerms()) -> CommandOutcome:
+                     side: Side, quantity: Decimal | None,
+                     order_terms: OrderTerms = OrderTerms(),
+                     notional: Decimal | None = None) -> CommandOutcome:
         return await self._submit_order(symbol=self._to_symbol(instrument.symbol),
             client_key=client_key, instrument=instrument, side=side,
-            quantity=quantity, order_terms=order_terms)
+            quantity=quantity, order_terms=order_terms, notional=notional)
 
     async def _submit_order(self, *, symbol: str, client_key: str,
                             instrument: BrokerInstrument, side: Side,
-                            quantity: Decimal, order_terms: OrderTerms) -> CommandOutcome:
+                            quantity: Decimal | None, order_terms: OrderTerms,
+                            notional: Decimal | None = None) -> CommandOutcome:
         """Submit once using the adapter's already validated address."""
         body = _submit_body(symbol=symbol, client_key=client_key, side=side, quantity=quantity,
-            order_terms=order_terms, capabilities=self.capabilities)
+            order_terms=order_terms, capabilities=self.capabilities, notional=notional)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
                 self._require_transport_authority(
@@ -1343,7 +1369,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
             try:
                 order = self._validate_submit_response(
                     payload, client_key=client_key, instrument=instrument,
-                    side=side, quantity=quantity, order_terms=order_terms)
+                    side=side, quantity=quantity, order_terms=order_terms, notional=notional)
             except (IncompleteBrokerPayload, MalformedOrderTerms) as exc:
                 broker_order_id = (
                     str(payload.get("id") or "")
@@ -1406,7 +1432,7 @@ def _fingerprint(orders) -> tuple:
     return tuple(sorted((
         order.broker_order_id, order.client_key or "",
         order.instrument.security_id, order.instrument.broker_id or "",
-        order.side.value, str(order.quantity),
+        order.side.value, str(order.quantity), str(order.notional),
         order.state.value, str(order.filled_quantity),
         (str(order.filled_average_price)
          if order.filled_average_price is not None else ""),
@@ -1580,8 +1606,8 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
     def _validate_submit_response(
             self, payload, *, client_key: str,
             instrument: contract.BrokerInstrument,
-            side: contract.Side, quantity: Decimal,
-            order_terms: OrderTerms = OrderTerms()):
+            side: contract.Side, quantity: Decimal | None,
+            order_terms: OrderTerms = OrderTerms(), notional: Decimal | None = None):
         # Alpaca represents a simple order as either "" or "simple".  PR
         # #184's validator accepted only the latter, turning a valid 2xx into
         # false uncertainty.  Normalize only this documented equivalence;
@@ -1591,7 +1617,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
             payload["order_class"] = "simple"
         return super()._validate_submit_response(
             payload, client_key=client_key, instrument=instrument,
-            side=side, quantity=quantity, order_terms=order_terms)
+            side=side, quantity=quantity, order_terms=order_terms, notional=notional)
 
     async def account_cash_activities(
             self, *, after: datetime,
@@ -1873,8 +1899,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             self, *, client_key: str,
             instrument: contract.BrokerInstrument,
             side: contract.Side,
-            quantity: Decimal,
-            order_terms: OrderTerms = OrderTerms()) -> contract.CommandOutcome:
+            quantity: Decimal | None,
+            order_terms: OrderTerms = OrderTerms(), notional: Decimal | None = None) -> contract.CommandOutcome:
         if not instrument.broker_id:
             raise BrokerAuthorityRefused(
                 "Alpaca submit requires the durable broker asset_id; "
@@ -1884,7 +1910,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         # mutation between the final identity read and POST.
         return await self._submit_order(symbol=str(instrument.broker_id),
             client_key=client_key, instrument=instrument, side=side,
-            quantity=quantity, order_terms=order_terms)
+            quantity=quantity, order_terms=order_terms, notional=notional)
 
     async def _bounded_activity_events(
             self, *, after: datetime,
@@ -2648,7 +2674,7 @@ def completion_proof(conn, through: datetime):
                 cur.execute(
                     "SELECT security_id,symbol,broker_instrument_id,side,"
                     " quantity,state,broker_order_id,filled_quantity,"
-                    " filled_average_price,order_terms FROM sentinel_commands"
+                    " filled_average_price,order_terms,notional FROM sentinel_commands"
                     " WHERE client_key=%s",
                     (key,),
                 )
@@ -2662,7 +2688,8 @@ def completion_proof(conn, through: datetime):
                 "symbol": str(command[1]),
                 "broker_id": None if command[2] is None else str(command[2]),
                 "side": str(command[3]),
-                "quantity": decimal_text(command[4]),
+                "quantity": None if command[4] is None else decimal_text(command[4]),
+                **({"notional": decimal_text(command[10])} if command[10] is not None else {}),
                 "broker_order_id": (
                     None if command[6] is None else str(command[6])),
             }
@@ -2672,7 +2699,8 @@ def completion_proof(conn, through: datetime):
                 "symbol": str(order.get("symbol")),
                 "broker_id": order.get("broker_id"),
                 "side": str(order.get("side")),
-                "quantity": decimal_text(order.get("quantity")),
+                "quantity": None if order.get("quantity") is None else decimal_text(order["quantity"]),
+                **({"notional": decimal_text(order["notional"])} if order.get("notional") is not None else {}),
                 "broker_order_id": str(order.get("broker_order_id")),
             }
             if not historical_terms:

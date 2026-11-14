@@ -156,7 +156,8 @@ class PaperAccountInspection:
                     "broker_instrument_id": order.instrument.broker_id,
                     "side": order.side.value,
                     "state": order.state.value,
-                    "quantity": str(order.quantity),
+                    "quantity": None if order.quantity is None else str(order.quantity),
+                    **({"notional": str(order.notional)} if order.notional is not None else {}),
                     "filled_quantity": str(order.filled_quantity),
                     "remaining_quantity": str(order.remaining),
                     "submitted_at": (

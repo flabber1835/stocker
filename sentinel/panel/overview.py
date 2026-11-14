@@ -39,7 +39,8 @@ def _stamp(value: datetime | None, *, label: str) -> str:
 
 
 def _outcome_text(outcome: PaperOrderOutcome) -> str:
-    filled, total = _quantity(outcome.filled_quantity), _quantity(outcome.quantity)
+    filled = _quantity(outcome.filled_quantity)
+    total = _quantity(outcome.quantity) if outcome.quantity is not None else None
     if outcome.state == 'FILLED':
         state = 'filled'
     elif outcome.state == 'CANCELLED':
@@ -60,6 +61,8 @@ def _outcome_text(outcome: PaperOrderOutcome) -> str:
         state = 'submission not confirmed'
     else:
         state = 'superseded; final broker outcome not established'
+    if outcome.notional is not None:
+        return f'Previous buy {state} · ${outcome.notional:,.2f} requested · {filled} shares filled'
     return f'Previous {outcome.side.lower()} {state} · {filled}/{total} shares filled'
 
 
@@ -215,11 +218,14 @@ def _run_html(panel: Panel) -> str:
              'PLAN_READY':'Plan ready','WAITING_OPEN':'Waiting for market open'}[run.state]
     rows = []
     for leg in run.intent.legs:
-        if leg.action == 'HOLD':
+        allocation = next((item for item in run.purchase_allocations if item.security_id == leg.security_id), None)
+        action = 'BUY' if allocation is not None else leg.action
+        if action == 'HOLD':
             continue
         orders = [item for item in run.orders if item.security_id == leg.security_id]
         filled = sum((item.filled_quantity for item in orders),Decimal(0))
-        submitted = sum((item.quantity for item in orders),Decimal(0))
+        submitted = sum((item.quantity for item in orders if item.quantity is not None),Decimal(0))
+        submitted_dollars = sum((item.notional for item in orders if item.notional is not None),Decimal(0))
         value = sum((item.filled_quantity*(item.filled_average_price or Decimal(0))
                      for item in orders),Decimal(0))
         states = {item.state for item in orders}
@@ -234,18 +240,27 @@ def _run_html(panel: Panel) -> str:
                   else _quantity(abs(leg.change_quantity))+' shares')
         progress = (state+' · '+_quantity(filled)+'/'+_quantity(submitted)+' submitted shares filled'
                     if orders else state)
+        if submitted_dollars:
+            progress = state+f' · ${submitted_dollars:,.2f} requested · '+_quantity(filled)+' shares filled'
+        if allocation is not None:
+            amount = f'Budget ${allocation.budget:,.2f}'
+            progress += (' · Remaining budget pending evidence' if allocation.remaining_budget is None
+                         else f' · ${allocation.remaining_budget:,.2f} remaining allocation')
+            if allocation.status not in {'COMPLETE', 'PENDING'}:
+                progress += ' · '+allocation.status.replace('_', ' ').lower()
         if filled:
             progress += ' · avg $'+f'{value/filled:,.2f}'
-        detail = ''.join('<p>'+_esc(item.state)+' · '+_quantity(item.filled_quantity)+'/'
-            +_quantity(item.quantity)+' shares · '+_esc(_clock(item.observed_at))
+        detail = ''.join('<p>'+_esc(item.state)+' · '+_quantity(item.filled_quantity)
+            +(f' shares / ${item.notional:,.2f} requested' if item.notional is not None
+              else '/'+_quantity(item.quantity)+' shares')+' · '+_esc(_clock(item.observed_at))
             +'<br>'+_esc(item.order_terms['order_type'].title())
             +(' $'+_esc(item.order_terms['limit_price']) if item.order_terms['limit_price'] is not None else '')
             +' · '+_esc(item.order_terms['time_in_force'].upper())
             +'<br>Client order: '+_esc(item.client_key)+'<br>Broker order: '
             +_esc(item.broker_order_id or 'Not confirmed')+'</p>' for item in orders)
-        rows.append('<li class="plan-leg '+leg.action.lower()+'"><div class="plan-leg-main">'
+        rows.append('<li class="plan-leg '+action.lower()+'"><div class="plan-leg-main">'
             '<strong class="plan-ticker">'+_esc(leg.ticker)+'</strong><span class="plan-action">'
-            +_esc(leg.action.title())+'</span><strong class="plan-quantity">'+_esc(amount)
+            +_esc(action.title())+'</span><strong class="plan-quantity">'+_esc(amount)
             +'</strong></div><p class="run-progress">'+_esc(progress)+'</p>'
             +('<details class="overview-inline-details" data-detail-key="run-'+_esc(leg.security_id)
               +'"><summary>Order details</summary><div class="detail-body">'+detail+'</div></details>' if orders else '')+'</li>')

@@ -215,7 +215,8 @@ def test_brand_new_behavioral_database_seeds_once(database, feed_only):
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
         (1, MIGRATION_NAME, "NEW", None),
-        (2, schema._ORDER_TERMS_NAME, "NEW", None)]
+        (2, schema._ORDER_TERMS_NAME, "NEW", None),
+        (3, schema._ORDER_AMOUNT_NAME, "NEW", None)]
     assert _plan_rollout_columns(database) == [
         ("rollout_certificate_sha256", "YES", None),
         ("rollout_mode", "NO", None),
@@ -322,7 +323,8 @@ def test_real_pre_rollout_upgrade_seeds_but_leaves_old_plan_unstamped(database):
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
         (1, MIGRATION_NAME, "LEGACY", None),
-        (2, schema._ORDER_TERMS_NAME, "LEGACY", None)]
+        (2, schema._ORDER_TERMS_NAME, "LEGACY", None),
+        (3, schema._ORDER_AMOUNT_NAME, "LEGACY", None)]
     with database.cursor() as cur:
         cur.execute(
             "SELECT rollout_mode,rollout_version,"
@@ -427,7 +429,8 @@ def test_exact_fb97372_upgrade_backfills_command_identity_without_rewrite(
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
         (1, MIGRATION_NAME, "LEGACY", None),
-        (2, schema._ORDER_TERMS_NAME, "LEGACY", None)]
+        (2, schema._ORDER_TERMS_NAME, "LEGACY", None),
+        (3, schema._ORDER_AMOUNT_NAME, "LEGACY", None)]
     with database.cursor() as cur:
         cur.execute(legacy_command)
         assert cur.fetchall() == command_before
@@ -600,7 +603,8 @@ def test_exact_6113_bridge_preserves_all_durable_operational_intent(database):
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
         (1, MIGRATION_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD),
-        (2, schema._ORDER_TERMS_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD)]
+        (2, schema._ORDER_TERMS_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD),
+        (3, schema._ORDER_AMOUNT_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD)]
     assert _plan_rollout_columns(database) == [
         ("rollout_certificate_sha256", "YES", None),
         ("rollout_mode", "NO", None),
@@ -920,11 +924,11 @@ def test_missing_or_corrupt_migration_authority_refuses_without_repair(
                 cur.execute(
                     "DELETE FROM sentinel_behavioral_schema_migrations WHERE version=1")
             else:
-                # Contiguous, but this binary knows no behavioral version 3.
+                # Contiguous, but this binary knows no behavioral version 4.
                 cur.execute(
                     "INSERT INTO sentinel_behavioral_schema_migrations"
                     " (version,name,migration_sha256,bootstrap_kind,source_git_oid)"
-                    " SELECT 3,'unsupported-authority-v3',migration_sha256,"
+                    " SELECT 4,'unsupported-authority-v4',migration_sha256,"
                     "        bootstrap_kind,source_git_oid"
                     " FROM sentinel_behavioral_schema_migrations"
                     " WHERE version=1")
@@ -973,7 +977,7 @@ def test_four_concurrent_first_initializers_serialize_to_one_seed(database, pg):
     assert _rollout_rows(database) == [(1, "PINNED_1_00", 1, None)]
     ledger = _ledger_rows(database)
     assert [(row[0], row[1]) for row in ledger] == [
-        (1, MIGRATION_NAME), (2, schema._ORDER_TERMS_NAME)]
+        (1, MIGRATION_NAME), (2, schema._ORDER_TERMS_NAME), (3, schema._ORDER_AMOUNT_NAME)]
     with database.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM sentinel_rollout_events")
         assert cur.fetchone()[0] == 0

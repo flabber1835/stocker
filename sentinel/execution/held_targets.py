@@ -10,6 +10,7 @@ from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.target_reprojection import TargetProjectionRefused, share_action_factor
 
 SCHEMA = "sentinel.held-share-targets/1"
+FRACTIONAL_SCHEMA = "sentinel.held-share-targets/2"
 
 
 def ownership(state):
@@ -128,19 +129,35 @@ def build_basis(conn, *, previous, state, binding, rollout):
     actions = (feed_actions.action_lookup(conn, start=through, end=decision)
                if through < decision and previous.target_exposure == effective_exposure(state, rollout)
                else None)
+    from sentinel.execution import fractional_progress
+    progress = None
+    carry_projection = projection
+    if fractional_progress.is_fractional(projection):
+        progress = fractional_progress.derive(conn, projection=projection,
+            deployment=binding.identity, require_terminal=True)
+        carry_projection = replace(projection, target_basket=progress.targets)
     targets = carry_quantities(previous=previous, previous_state=prior_state,
-        projection=projection, state=state, exposure=effective_exposure(state, rollout), actions=actions)
+        projection=carry_projection, state=state, exposure=effective_exposure(state, rollout), actions=actions)
     body.update(previous_plan_id=previous.plan_id,
         previous_plan_fingerprint=previous.fingerprint(),
         previous_authority_sha256=authority["authority_sha256"],
         previous_projection_fingerprint=None if projection is None else projection.fingerprint(),
         targets={sid: decimal_text(qty) for sid, qty in sorted(targets.items())})
+    if progress is not None:
+        whole = {c.security_id for c in progress.commands if c.quantity is not None
+                 and c.side.value == "BUY" and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}}
+        body.update(schema=FRACTIONAL_SCHEMA,
+            purchase_budgets={sid: decimal_text(qty) for sid, qty in sorted(progress.budgets.items())
+                              if sid in targets and sid not in whole},
+            fulfillment_commands=[fractional_progress._witness(c) for c in sorted(
+                progress.commands, key=lambda c: c.client_key)
+                if c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}])
     return body
 
 
 def verify_basis(conn, *, basis, state, binding, rollout):
     from sentinel.execution import journal, target_reprojection
-    if not isinstance(basis, dict) or basis.get("schema") != SCHEMA:
+    if not isinstance(basis, dict) or basis.get("schema") not in {SCHEMA, FRACTIONAL_SCHEMA}:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
@@ -182,6 +199,11 @@ def _basis_for_plan(conn, plan_id):
         load=load) if structural_verification.active() else load()
 
 
+def plan_purchase_budgets(conn, plan_id):
+    basis = _basis_for_plan(conn, plan_id)
+    return dict((basis or {}).get("purchase_budgets", {}))
+
+
 def verified_targets(conn, *, plan, basis, state, binding, rollout):
     from sentinel import structural_verification
     def load():
@@ -197,15 +219,22 @@ def predecessor_version(conn, plan_id):
     basis = _basis_for_plan(conn, plan_id)
     if basis is None or basis.get("previous_plan_id") is None:
         return None
-    return conn.execute(
+    projection_version = conn.execute(
         "SELECT p.tableoid,p.xmin::text,p.ctid::text,r.tableoid,r.xmin::text,r.ctid::text "
         "FROM sentinel_execution_plans p "
         "LEFT JOIN sentinel_processed_sessions r ON r.cursor_name=%s || p.plan_id "
         "WHERE p.plan_id=%s",
         (target_reprojection.CURSOR_PREFIX, basis["previous_plan_id"])).fetchone()
+    if basis.get("schema") != FRACTIONAL_SCHEMA:
+        return projection_version
+    command_versions = conn.execute(
+        "SELECT client_key,tableoid,xmin::text,ctid::text FROM sentinel_commands "
+        "WHERE plan_id=%s AND state NOT IN ('PLANNED','SUPERSEDED') ORDER BY client_key",
+        (basis["previous_plan_id"],)).fetchall()
+    return projection_version, command_versions
 
 
-def apply(projection, *, targets, canonical_target, marks):
+def apply(projection, *, targets, canonical_target, marks, lot=Decimal(1)):
     """Preserve continuing quantities and fund only genuinely new positions."""
     if targets is None:
         return projection
@@ -231,7 +260,8 @@ def apply(projection, *, targets, canonical_target, marks):
     for sid in sorted(set(quantities) - set(targets)):
         price = marks.get(sid)
         if price is not None and price.is_finite() and price > 0:
-            quantities[sid] = min(quantities[sid], Decimal(available // Fraction(price)))
+            quantities[sid] = min(quantities[sid], exact_decimal(
+                (available // (Fraction(price) * Fraction(lot))) * Fraction(lot)))
             notional[sid] = exact_decimal(Fraction(quantities[sid]) * Fraction(price))
             available -= Fraction(notional[sid])
     defensive_mark = marks.get(projection.defensive_security, Decimal(0))

@@ -73,9 +73,10 @@ def order_outcomes(rows):
         raise ValueError('previous paper order outcomes exceed display bounds')
     outcomes = []
     for raw in rows:
+        fields = ('security_id', 'ticker', 'client_key', 'broker_order_id', 'side',
+                  'quantity', 'filled_quantity', 'state', 'observed_at')
         value = model.PaperOrderOutcome(**dict(zip(
-            ('security_id', 'ticker', 'client_key', 'broker_order_id', 'side',
-             'quantity', 'filled_quantity', 'state', 'observed_at'), raw, strict=True)))
+            fields + (('notional',) if len(raw) == 10 else ()), raw, strict=True)))
         outcomes.append(value)
     if len({item.security_id for item in outcomes}) != len(outcomes):
         raise ValueError('previous paper order outcomes duplicate a security')

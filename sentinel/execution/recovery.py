@@ -66,6 +66,8 @@ def _assert_order_matches_command(command: Command, found: BrokerOrder,
     if found.quantity != command.quantity:
         mismatches.append(
             f"quantity={found.quantity} expected={command.quantity}")
+    if found.notional != command.notional:
+        mismatches.append(f"notional={found.notional} expected={command.notional}")
     if found.order_terms != command.order_terms:
         mismatches.append("order_terms differ from the immutable command")
     if (command.order_terms.limit_price is not None
@@ -197,8 +199,10 @@ def _submit_terms(command: Command) -> dict:
     # Existing simulator/custom adapters may retain the original MARKET/DAY
     # signature. A protected order always carries its exact terms; it can never
     # be retried by dropping an unsupported keyword and becoming a market order.
-    return ({} if command.order_terms == OrderTerms()
-            else {"order_terms": command.order_terms})
+    return {
+        **({} if command.order_terms == OrderTerms() else {"order_terms": command.order_terms}),
+        **({} if command.notional is None else {"notional": command.notional}),
+    }
 
 
 def _command_from_submit_outcome(command: Command, outcome: CommandOutcome,
@@ -245,7 +249,9 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
     # Snapshot the selection before POST. The guarded adapter validates the
     # signed policy and the exact command before allowing actual transport.
     market_buy = (command.side is Side.BUY and command.order_terms == OrderTerms()
-                  and os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == MARKET_MODE)
+                  and (command.notional is not None or os.environ.get(
+                      "SENTINEL_PAPER_BUY_POLICY", "").strip() in
+                      {MARKET_MODE, "FRACTIONAL_MARKET_DAY_V1"}))
     try:
         outcome: CommandOutcome = await broker.submit(
             client_key=command.client_key, instrument=command.instrument,

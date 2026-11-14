@@ -610,6 +610,20 @@ def _actionable_projection_deltas(
         raise protected_limits.ProtectedReferenceUnavailable(
             "opening reference calculations remain unavailable: "
             + ", ".join(sorted(unavailable)))
+    from sentinel.execution import fractional_progress
+    if fractional_progress.is_fractional(projection):
+        from sentinel.execution.identity import DeploymentIdentity
+        deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
+            plan.broker_account_id, plan.takeover_epoch)
+        progress = fractional_progress.derive(conn, projection=projection, deployment=deployment)
+        if progress.blocked:
+            raise target_reprojection.TargetProjectionRefused(str(progress.blocked))
+        from sentinel.paper.targets import _plan_deltas
+        return tuple(delta for delta in _plan_deltas(
+            conn=conn, deployment=deployment, projection=projection,
+            target_basket=projection.target_basket, observation=observation,
+            minimum_quantity_increment=minimum_quantity_increment)
+            if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
     return _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)

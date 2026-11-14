@@ -88,7 +88,7 @@ def test_v2_catalog_matches_reviewed_migration(database, kind):
                     after_stage4_sha256=schema._semantic_catalog_sha256(*catalog, schema._STAGE4_TABLES)), stream, indent=2, default=str)
         print("CATALOG_DERIVATION", kind, observed, flush=True)
         assert observed == schema._ORDER_TERMS_TARGET_CATALOG_SHA256[kind], (kind, observed)
-        assert schema._validate_ledgered(cur, catalog) == 2
+        assert schema._validate_ledgered(cur, catalog, allow_previous=True) == 2
 
 
 @pytest.mark.parametrize('operational_current', [False, True],
@@ -106,15 +106,16 @@ def test_v1_runtime_refuses_but_explicit_upgrade_preserves_rows_and_ledger(
     before = database.execute("SELECT * FROM sentinel_commands").fetchall()
     events = database.execute("SELECT * FROM sentinel_command_events").fetchall()
     ledger = _ledger_rows(database)
-    with pytest.raises(schema.SchemaMigrationRefused, match="v2.*required"):
+    with pytest.raises(schema.SchemaMigrationRefused, match="v3.*required"):
         schema.require_runtime_schema(database)
     schema.ensure_schema(database)
     row = database.execute("SELECT * FROM sentinel_commands").fetchone()
-    assert row[:-1] == before[0]
-    assert row[-1] == schema._LEGACY_ORDER_TERMS
+    assert row[:-2] == before[0]
+    assert row[-2] == schema._LEGACY_ORDER_TERMS
+    assert row[-1] is None
     assert database.execute("SELECT * FROM sentinel_command_events").fetchall() == events
     assert _ledger_rows(database)[0] == ledger[0]
-    assert [row[0] for row in _ledger_rows(database)] == [1, 2]
+    assert [row[0] for row in _ledger_rows(database)] == [1, 2, 3]
     schema.require_runtime_schema(database)
     snapshot = _ledger_rows(database)
     schema.ensure_schema(database)
@@ -134,7 +135,8 @@ def test_v1_upgrade_requires_fenced_automation(database, fence):
             "expires_at=clock_timestamp()+interval '1 minute'")
     database.commit()
     with pytest.raises(schema.SchemaMigrationRefused, match="fenced.*no live"):
-        schema.ensure_schema(database)
+        with database.transaction(), database.cursor() as cur:
+            schema._migrate_order_terms(cur, schema._read_catalog(cur))
     assert [row[0] for row in _ledger_rows(database)] == [1]
     assert not database.execute("SELECT 1 FROM information_schema.columns WHERE "
         "table_name='sentinel_commands' AND column_name='order_terms'").fetchall()
@@ -193,7 +195,7 @@ def _compiled(function, before, after):
     return namespace[function.__name__]
 
 
-def test_runtime_version_falsifier_detects_removed_v2_requirement(database, monkeypatch):
+def test_runtime_version_falsifier_detects_removed_current_requirement(database, monkeypatch):
     monkeypatch.setattr(schema, "_validate_ledgered", _compiled(schema._validate_ledgered,
         "elif not allow_previous:", "elif False:"))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):

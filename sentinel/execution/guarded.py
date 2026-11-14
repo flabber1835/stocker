@@ -513,27 +513,30 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def submit(
             self, *, client_key: str, instrument: BrokerInstrument,
-            side: Side, quantity: Decimal,
-            order_terms: OrderTerms = OrderTerms()) -> CommandOutcome:
+            side: Side, quantity: Decimal | None,
+            order_terms: OrderTerms = OrderTerms(),
+            notional: Decimal | None = None) -> CommandOutcome:
         # A proof is valid only for the immediately preceding guarded attempt.
         # It cannot survive a later attempt that might cross transport.
         self._unsent_proofs.clear()
         try:
             live_permit = await self._prepare_submit(client_key=client_key,
                                        instrument=instrument, side=side,
-                                       quantity=quantity, order_terms=order_terms)
+                                       quantity=quantity, order_terms=order_terms, notional=notional)
         except PreTransportAuthorityRefused as exc:
             # Issued only before the inner submit call. An inner transport
             # exception, even one with the same class, cannot acquire a proof.
             nonce = object()
             self._unsent_proofs[nonce] = (client_key, instrument, side, quantity,
-                                         order_terms)
+                                         order_terms, notional)
             exc._not_transported = nonce
             raise
         kwargs = dict(client_key=client_key, instrument=instrument,
                       side=side, quantity=quantity)
         if order_terms != OrderTerms():
             kwargs["order_terms"] = order_terms
+        if notional is not None:
+            kwargs["notional"] = notional
         if self._live:
             from sentinel.execution.live_transport import _mutation_scope, _transport_prevented
             try:
@@ -542,7 +545,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             except PreTransportAuthorityRefused as exc:
                 if _transport_prevented(live_permit, exc):
                     nonce = object()
-                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms)
+                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms, notional)
                     exc._not_transported = nonce
                 raise
         return await self._inner.submit(**kwargs)
@@ -552,7 +555,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         nonce = getattr(exc, '_not_transported', None)
         actual = self._unsent_proofs.pop(nonce, None)
         expected = (command.client_key, command.instrument, command.side,
-                    command.quantity, command.order_terms)
+                    command.quantity, command.order_terms, command.notional)
         if (not isinstance(exc, PreTransportAuthorityRefused)
                 or actual is None or actual != expected):
             raise ValueError('no matching unused pre-transport submission proof')
@@ -578,7 +581,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         return market
 
     def _require_issuer_admission(self, *, client_key, instrument, side,
-                                  quantity, order_terms) -> None:
+                                  quantity, order_terms, notional=None) -> None:
         if side is not Side.BUY or instrument.security_id == 'SENTINEL:BIL':
             return
         try:
@@ -591,7 +594,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise OrderEvidenceNotReady('issuer admission authority is absent')
             result = self._issuer_admission_check(client_key=client_key,
                 instrument=instrument, side=side, quantity=quantity,
-                order_terms=order_terms)
+                order_terms=order_terms, **({"notional": notional} if notional is not None else {}))
             if inspect.isawaitable(result):
                 if inspect.iscoroutine(result):
                     result.close()
@@ -607,15 +610,27 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def _prepare_submit(self, *, client_key: str,
                               instrument: BrokerInstrument, side: Side,
-                              quantity: Decimal, order_terms: OrderTerms):
+                              quantity: Decimal | None, order_terms: OrderTerms,
+                              notional: Decimal | None = None):
         live_permit = None
         try:
             if not isinstance(order_terms, OrderTerms):
                 raise TypeError("submission requires typed immutable order terms")
             order_terms.require_owned_submission(side)
+            from sentinel.execution.order_amount import OrderAmount
+            amount = OrderAmount(quantity=quantity, notional=notional)
+            amount.require_notional_buy(side, order_terms)
+            amount.require_wire_precision()
         except (TypeError, ValueError) as exc:
             raise PreTransportAuthorityRefused(str(exc)) from exc
         market = self._require_selected_buy_terms(side=side, order_terms=order_terms)
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        selected_policy = MarketBuyPolicy.from_env()
+        fractional = selected_policy is not None and selected_policy.fractional
+        if notional is not None and (not fractional or self._live):
+            raise PreTransportAuthorityRefused("notional BUY requires the selected PAPER fractional policy")
+        if notional is not None and (not self.capabilities.notional_market_buys or notional < Decimal(1)):
+            raise PreTransportAuthorityRefused("notional BUY requires certified support and the one-dollar minimum")
         protected = order_terms.order_type == "limit"
         if side is Side.BUY and (market is not None) != (self._market_buy_funding is not None):
             raise PreTransportAuthorityRefused("market BUY policy differs from its funding authority")
@@ -629,7 +644,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise PreTransportAuthorityRefused(
                     "market BUY requires the PAPER execution grant, clock, quote, "
                     "instrument and funding authority")
-            if (not isinstance(quantity, Decimal) or not quantity.is_finite()
+            if notional is None and (not isinstance(quantity, Decimal) or not quantity.is_finite()
                     or quantity <= 0 or quantity != quantity.to_integral_value()):
                 raise OrderEvidenceNotReady("market BUY requires a positive whole-share quantity")
         if self._live and side is Side.BUY and not protected:
@@ -655,7 +670,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         # race where account/instrument/authority I/O begins inside the opening
         # window but reaches POST after the certified next-open deadline.
         clock = None
-        if side is Side.BUY and self.supports_market_clock:
+        if (side is Side.BUY or fractional) and self.supports_market_clock:
             try:
                 clock = await self.market_clock()
             except BrokerAuthorityRefused as exc:
@@ -692,9 +707,37 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
+        rules = None
+        if fractional:
+            try:
+                rules = await self.asset_rules(instrument=instrument)
+                rules.require_current(instrument, self._inner._now())
+                if (notional is not None or (quantity is not None and quantity != quantity.to_integral_value())) and not rules.fractionable:
+                    raise ValueError("asset is not currently fractionable; unresolved fractional amount retained")
+            except Exception as exc:
+                raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
+
         from sentinel.execution.opening_prices import OpeningPriceNotReady, QUOTE_SOURCE, RegularQuotes
         quote = None
-        if protected and not self._live:
+        if notional is not None:
+            from sentinel.execution.contract import available_purchase_cash
+            from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
+            from sentinel.execution.numeric import exact_decimal
+            from fractions import Fraction
+            try:
+                account = await self.account_snapshot()
+                estimate = exact_decimal(Fraction(notional) + Fraction(MARKET_BUY_HEADROOM))
+                if estimate > available_purchase_cash(account):
+                    raise OrderEvidenceNotReady("notional plus fee headroom exceeds available cash")
+                await self._market_buy_funding(client_key=client_key, instrument=instrument,
+                    quantity=None, notional=notional, order_terms=order_terms, account=account,
+                    estimate=estimate, session=clock.timestamp.date())
+            except PreTransportAuthorityRefused:
+                raise
+            except Exception as exc:
+                raise PreTransportAuthorityRefused(
+                    f"notional funding unavailable before transport: {type(exc).__name__}: {exc}") from exc
+        elif protected and not self._live:
             try:
                 account = await self.account_snapshot()
                 await self._protected_funding(
@@ -748,7 +791,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise PreTransportAuthorityRefused(
                     'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
         self._require_issuer_admission(client_key=client_key,
-            instrument=instrument, side=side, quantity=quantity, order_terms=order_terms)
+            instrument=instrument, side=side, quantity=quantity, order_terms=order_terms, notional=notional)
         if self._live:
             try:
                 live_permit = await self._live_policy.authorize_submit(self._inner,
@@ -769,6 +812,17 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise PreTransportAuthorityRefused(
                     "LIVE original order authority refused: " + type(exc).__name__) from exc
         await self._authorize_mutation(BrokerOperation.SUBMIT)
+        if rules is not None:
+            try:
+                rules.require_current(instrument, self._inner._now())
+            except ValueError as exc:
+                raise OrderEvidenceNotReady(str(exc)) from exc
+        if fractional and side is Side.SELL:
+            from sentinel.feed import calendar
+            now = self._inner._now()
+            opened, closed = calendar.session_window(now.date())
+            if not opened <= now < closed:
+                raise OrderEvidenceNotReady("fractional market reductions require the regular session")
         if side is Side.BUY and self.supports_market_clock:
             try:
                 now_reader = getattr(self._inner, "_now", None)
@@ -800,7 +854,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     else:
                         earliest = opened + timedelta(seconds=60 if protected or market is not None else 0)
                         latest = min(closed, opened + timedelta(seconds=600))
-                if market is not None and (quote is None or now.date() != quote.session):
+                if market is not None and notional is None and (quote is None or now.date() != quote.session):
                     raise ValueError("market BUY quote is outside the final regular session")
                 if not earliest <= now < latest:
                     detail = (f"increase freshness expired at {latest.isoformat()}; "
@@ -836,6 +890,11 @@ class GuardedExecutionBroker(ExecutionBroker):
             except TargetProjectionRefused as exc:
                 raise PreTransportAuthorityRefused("market BUY policy became invalid") from exc
         return live_permit
+
+    async def asset_rules(self, *, instrument):
+        async def read():
+            return await self._inner.asset_rules(instrument=instrument)
+        return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)
