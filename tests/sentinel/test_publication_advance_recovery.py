@@ -8,7 +8,7 @@ from sentinel.automation import store, unsent_recovery as recovery
 from sentinel.automation.model import AutomationRefused, CycleState
 from sentinel import backup_runtime_authority
 from tests.sentinel.test_automation_service import (pg, conn, config, enable, recovery_success,
-    refresh_result, service_for)
+    refresh_result, service_for, frozen_clock_sample)
 from tests.sentinel.test_automation_generation import future_friday
 from tests.sentinel.test_unsent_cycle_recovery import authorize, release
 
@@ -165,7 +165,8 @@ def test_removed_prepare_cash_correction_signature_guard_is_detected(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_prepare_cash_correction_block_replays_latest_close_under_new_authority(conn, monkeypatch):
+async def test_prepare_cash_correction_block_replays_latest_close_under_new_authority(
+        conn, monkeypatch, frozen_clock_sample):
     cfg = config()
     enable(conn, cfg)
     timing, now = future_friday(conn, cfg)

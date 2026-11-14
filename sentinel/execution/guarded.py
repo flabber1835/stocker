@@ -82,6 +82,7 @@ class BrokerOperation(str, Enum):
     ACCOUNT_CLOSE_VALUATION = "account_close_valuation"
     ACCOUNT_FILL_INTERVAL_EVIDENCE = "account_fill_interval_evidence"
     RESOLVE_INSTRUMENT = "resolve_instrument"
+    ASSET_RULES = "asset_rules"
     MARKET_CLOCK = "market_clock"
     OPENING_PRICES = "opening_prices"
     ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
@@ -894,7 +895,7 @@ class GuardedExecutionBroker(ExecutionBroker):
     async def asset_rules(self, *, instrument):
         async def read():
             return await self._inner.asset_rules(instrument=instrument)
-        return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+        return await self._read(BrokerOperation.ASSET_RULES, read)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)

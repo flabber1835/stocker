@@ -83,7 +83,7 @@ class _Cursor:
     def fetchone(self):
         return (
             "SEC-AAA", "BUY", Decimal("2"), "AAA", "asset-a",
-            "deploy", "alpaca", "paper-1", 1, OrderTerms().to_dict())
+            "deploy", "alpaca", "paper-1", 1, OrderTerms().to_dict(), None)
 
 
 def test_command_client_key_economics_include_asset_id():

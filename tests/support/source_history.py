@@ -62,7 +62,7 @@ def pre_market_history(profile):
 
 def expanded_profile():
     value = json.loads(basis.PROFILE.read_bytes())
-    anchor = value['candidate_files']
+    anchor = value['retained_anchor_files']
     records = {}
     for revision, record in value['retained_predecessors'].items():
         files = dict(anchor)

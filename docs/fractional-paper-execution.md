@@ -6,6 +6,31 @@ market purchases as the fallback and preservation of existing hold behavior.
 This document does not activate trading. Deliver through a reviewed PR, required
 CI, backed PAPER installation and a separate fresh-plan financial activation.
 
+## Qualification of the execution successor
+
+Fractional eligibility is a distinct guarded broker read (`asset_rules`), with
+fresh authority checks before and after the read. Revocation must prevent its
+result from authorizing a submission. The broker protocol, wrapper and operation
+inventory must remain complete and agree on that operation.
+
+The changed held-target and target-reprojection modules have new execution
+semantics. Their current bytes must not inherit the old structural-extraction
+economic identity. Retain the earlier source bytes as qualification fixtures,
+authenticated against the existing structural transition and original Git
+witnesses, so the historical extraction proof remains independently testable.
+Preserve every historical source-map digest; test historical prefixes without
+including the newly retained fractional predecessor in those older prefixes.
+
+The retained-inventory serializer must not repeat every changed candidate file
+in every historical release. Source profile schema 55 uses one fixed complete
+anchor: the independently pinned `aed1a26c335281169c6d8067b1ce2e7de1632053`
+predecessor. Store that anchor once and retain single-level override/removal
+records. Authenticate the anchor's count and closure before expansion, then
+validate every complete historical map against its unchanged independent pins.
+There are no recursive references or new compatibility authority. Preserve the
+existing fourfold whole-profile compression check and one-million-byte bound;
+new candidate edits must not rewrite the historical delta records.
+
 ## Authority and scope
 
 Preserve the canonical Wealth Core book, its selection, pending-entry eligibility,

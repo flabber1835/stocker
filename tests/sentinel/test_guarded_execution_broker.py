@@ -219,6 +219,57 @@ def test_protocol_introspection_forces_every_broker_method_through_guard():
     assert protocol_methods == guarded_methods == operation_names
 
 
+@pytest.mark.parametrize("revocation", [None, "before", "after"])
+def test_fractional_eligibility_uses_its_own_fresh_read_authority(revocation):
+    from types import SimpleNamespace
+    from sentinel.execution.contract import BrokerCapabilities
+    recorder = Recorder()
+    calls = []
+    result = object()
+
+    async def asset_rules(*, instrument):
+        calls.append(instrument)
+        if revocation == "after":
+            recorder.authorized = False
+        return result
+
+    broker = recorder.wrap(SimpleNamespace(
+        asset_rules=asset_rules, capabilities=BrokerCapabilities()))
+    if revocation == "before":
+        recorder.authorized = False
+    if revocation:
+        with pytest.raises(PreTransportAuthorityRefused, match="read authority revoked"):
+            run(broker.asset_rules(instrument=INSTRUMENT))
+    else:
+        assert run(broker.asset_rules(instrument=INSTRUMENT)) is result
+        assert recorder.before_reads == [(broker.grant, BrokerOperation.ASSET_RULES)]
+        assert recorder.after_reads == [(broker.grant, BrokerOperation.ASSET_RULES, result)]
+    assert calls == ([] if revocation == "before" else [INSTRUMENT])
+    assert recorder.before_mutations == []
+
+
+@pytest.mark.parametrize("broken", ["operation", "guard"])
+def test_fractional_eligibility_guard_has_an_executed_falsifier(monkeypatch, broken):
+    import textwrap
+    from sentinel.execution import guarded
+    source = textwrap.dedent(inspect.getsource(GuardedExecutionBroker.asset_rules))
+    old, new = (("BrokerOperation.ASSET_RULES", "BrokerOperation.RESOLVE_INSTRUMENT")
+                if broken == "operation" else
+                ("self._read(BrokerOperation.ASSET_RULES, read)", "read()"))
+    assert source.count(old) == 1
+    namespace = {}
+    exec(compile(source.replace(old, new), 'fractional-read-falsifier', 'exec'),
+         vars(guarded), namespace)
+    monkeypatch.setattr(GuardedExecutionBroker, 'asset_rules', namespace['asset_rules'])
+    if broken == "operation":
+        with pytest.raises(AssertionError):
+            test_fractional_eligibility_uses_its_own_fresh_read_authority(None)
+    else:
+        for phase in ("before", "after"):
+            with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+                test_fractional_eligibility_uses_its_own_fresh_read_authority(phase)
+
+
 def test_grants_are_typed_identity_only_and_cannot_carry_plan_economics():
     manual = manual_grant()
     automated = automation_grant()

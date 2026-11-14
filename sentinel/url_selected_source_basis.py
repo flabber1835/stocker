@@ -121,9 +121,9 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = 'c574a2a43993b4ad84eb039822b0bbafb41e974b9a63f6d9d83717c313db09d0'
+PROFILE_SHA256 = 'af946eb817d7ab1b0e1e06b261450a848386d44f32ec0e2df37fb6b40a693e08'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/54'
+_SCHEMA = 'sentinel.url-selected-trading-transition/55'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -168,7 +168,7 @@ def _validated_closure(files: Mapping[str, str]) -> str:
     return result.hexdigest()
 
 
-def _expand_retained(candidate, records):
+def _expand_retained(anchor, records):
     """Single-level deltas share validated paths, never independent pins."""
     if not isinstance(records, dict) or set(records) != set(RETAINED_PREDECESSORS):
         raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
@@ -178,14 +178,14 @@ def _expand_retained(candidate, records):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         overrides = _source_map(record['overrides'])
         removed = record['removed']
-        if (not isinstance(removed, list) or len(removed) > len(candidate)
+        if (not isinstance(removed, list) or len(removed) > len(anchor)
                 or any(not isinstance(name, str) for name in removed)
-                or removed != sorted(set(removed)) or not set(removed) <= set(candidate)
+                or removed != sorted(set(removed)) or not set(removed) <= set(anchor)
                 or set(removed) & set(overrides)
-                or any(candidate.get(name) == digest for name, digest in overrides.items())):
+                or any(anchor.get(name) == digest for name, digest in overrides.items())):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         removed_names = set(removed)
-        files = {name: digest for name, digest in candidate.items() if name not in removed_names}
+        files = {name: digest for name, digest in anchor.items() if name not in removed_names}
         files.update(overrides)
         if len(files) > 1024:
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
@@ -212,7 +212,7 @@ def _profile() -> dict | None:
     if (not isinstance(value, dict) or set(value) != {
             'schema', 'authority_effect', 'base_revision', 'base_source_sha256',
             'base_files', 'candidate_files', 'module_sha256', 'structural_profile_sha256',
-            'retained_predecessors'}
+            'retained_predecessors', 'retained_anchor_files'}
             or value['schema'] != _SCHEMA or value['authority_effect'] != 'NONE'
             or value['base_revision'] != BASE_REVISION
             or value['base_source_sha256'] != BASE_SOURCE_SHA256
@@ -222,12 +222,15 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PROFILE_SHAPE_CHANGED')
     baseline = _source_map(value['base_files'])
     candidate = _source_map(value['candidate_files'])
+    anchor = _source_map(value['retained_anchor_files'])
+    if (len(anchor), _validated_closure(anchor)) != RETAINED_PREDECESSORS[FRACTIONAL_PREDECESSOR_REVISION]:
+        raise ValueError('URL_SOURCE_RETAINED_ANCHOR_CHANGED')
     sealed = structural._profile()
     if sealed is None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
-    retained = _expand_retained(candidate, value['retained_predecessors'])
+    retained = _expand_retained(anchor, value['retained_predecessors'])
     value = {**value, 'retained_predecessors': retained}
     for revision, (count, expected_sha) in RETAINED_PREDECESSORS.items():
         record = retained[revision]

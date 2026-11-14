@@ -49,7 +49,7 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
     from sentinel.execution.guarded import PreTransportAuthorityRefused
     instrument=BrokerInstrument('security','SPY','asset')
     command=SimpleNamespace(client_key='owned',state=CommandState.SEND_PENDING,
-        instrument=instrument,side=Side.BUY,quantity=Decimal(1),order_terms=OrderTerms())
+        instrument=instrument,side=Side.BUY,quantity=Decimal(1),notional=None,order_terms=OrderTerms())
     run=object.__new__(NativeRun)
     from datetime import datetime,timedelta,timezone
     instant=datetime(2026,10,15,17,30,tzinfo=timezone.utc)

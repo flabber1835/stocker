@@ -9,7 +9,7 @@ from sentinel import semantic_source_basis as semantics
 from sentinel import structural_refactor_source_basis as basis
 from sentinel.execution import held_targets, target_reprojection
 from tests.support.financial_source_proofs import prove_factor_body, prove_full_reconstruction
-from tests.support.publisher_source_proofs import baseline_catalog
+from tests.support.publisher_source_proofs import BASELINE_ROOT, baseline_catalog
 
 MODULES = (
     ('sentinel.execution.held_targets', 'execution/held_targets.py', held_targets),
@@ -18,12 +18,24 @@ MODULES = (
 
 
 @pytest.mark.parametrize('module,path,implementation', MODULES)
-def test_complete_current_module_mechanically_reconstructs_authenticated_git_baseline(module, path, implementation):
-    raw = Path(implementation.__file__).read_bytes()
+def test_retained_structural_module_mechanically_reconstructs_authenticated_git_baseline(module, path, implementation):
+    raw = (BASELINE_ROOT / ('structural_' + path.replace('/', '_'))).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == basis._profile()['candidate_files'][path]
     prove_full_reconstruction(path, raw)
     assert basis.economic_contribution(module, raw) == baseline_catalog()['files'][path]
-    value = semantics.economic_sources([module], schema='exact-financial-extraction-test')
-    assert value['files'] == [{'module': module, 'sha256': baseline_catalog()['files'][path]}]
+
+
+@pytest.mark.parametrize('module,path,implementation', MODULES)
+def test_fractional_execution_changes_do_not_inherit_old_structural_economic_identity(module, path, implementation):
+    raw = Path(implementation.__file__).read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    assert actual != basis._profile()['candidate_files'][path]
+    assert actual != baseline_catalog()['files'][path]
+    with pytest.raises((AssertionError, ValueError)):
+        prove_full_reconstruction(path, raw)
+    assert basis.economic_contribution(module, raw) == actual
+    value = semantics.economic_sources([module], schema='fractional-execution-identity-test')
+    assert value['files'] == [{'module': module, 'sha256': actual}]
 
 
 def test_extracted_public_factor_has_the_complete_original_exact_arithmetic_body():

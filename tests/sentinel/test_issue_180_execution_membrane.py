@@ -49,10 +49,13 @@ def test_execution_plan_rejects_nonfinite_target_quantities(bad):
 
 @pytest.mark.parametrize(
     "bad", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
-def test_command_rejects_nonfinite_quantities(bad):
-    with pytest.raises(ValueError, match="finite and positive"):
+@pytest.mark.parametrize("denomination", ["quantity", "notional"])
+def test_command_rejects_nonfinite_quantities(bad, denomination):
+    # Both denominations now use the shared typed OrderAmount schema.
+    with pytest.raises(ValueError, match="finite"):
         C.Command(
-            identity=IDENT, instrument=INSTR, side=Side.BUY, quantity=bad)
+            identity=IDENT, instrument=INSTR, side=Side.BUY,
+            **{"quantity": None, denomination: bad})
 
 
 @pytest.mark.parametrize(

@@ -66,6 +66,7 @@ def test_opening_recovery_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.FRACTIONAL_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
@@ -89,6 +90,7 @@ def test_cash_correction_preserves_installed_source_and_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.FRACTIONAL_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     history.pop(basis.OPEN_CLOSE_DASHBOARD_PREDECESSOR_REVISION)
@@ -111,6 +113,7 @@ def test_dashboard_handoff_preserves_installed_source_and_all_earlier_maps():
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.FRACTIONAL_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     history.pop(basis.ROLLING_GO_INDEX_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
@@ -132,6 +135,7 @@ def test_rolling_index_proof_preserves_the_certified_source_and_all_earlier_maps
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.FRACTIONAL_PREDECESSOR_REVISION)
     history.pop(basis.NATIVE_FEE_POSTING_DELAY_PREDECESSOR_REVISION)
     installed = history.pop(revision)['files']
     assert len(installed) == 475
@@ -152,6 +156,7 @@ def test_native_fee_posting_delay_retains_certified_source_and_all_earlier_maps(
     profile = basis._profile()
     assert profile['authority_effect'] == 'NONE'
     history = dict(profile['retained_predecessors'])
+    history.pop(basis.FRACTIONAL_PREDECESSOR_REVISION)
     certified = history.pop(revision)['files']
     assert len(certified) == 475
     assert admission.source_closure(certified) == (
