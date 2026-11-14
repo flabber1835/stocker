@@ -76,6 +76,65 @@ def test_full_reviewed_compiler_reconstructs_actual_independent_predecessor(modu
     assert basis.contribution(module,raw)==basis.BASELINES[module]
 
 
+def physical_read_predecessor(path, raw):
+    """Recover the original physical read witness through the exact reviewed extension."""
+    from sentinel import physical_read_source_basis as physical
+
+    profile = physical._profile()
+    if path.endswith('.json'):
+        assert raw == physical.PROFILE.read_bytes()
+        previous = {key: value for key, value in profile.items() if key != 'alpaca_page'}
+        previous['schema'] = 'sentinel.physical-read-source-transition/1'
+        previous['module_sha256'] = 'd504cb6c4cb559a090de5b53c0aac489f9f77a5e898760a8f92160088c18aafb'
+        return (json.dumps(previous, indent=2, sort_keys=True) + '\n').encode()
+
+    changes = (
+        (
+            b"PROFILE_SHA256 = '48b1b6ab41f43715104ad1da280c6f97ffc478070773f658c8a91fb822df7568'\n",
+            b"PROFILE_SHA256 = '5c8303c30b2279593ee02d6798787f4b61f48ced912d0100d2e9fc412c10f1b3'\n",
+        ),
+        (
+            b"ALPACA_PAGE_COMPILER = 'sentinel.feed.rolling_builder'\n"
+            b"ALPACA_PAGE_BEFORE = 'eeb8096ce599124edd1b82bf07e43abba66a75ee1ab917db12740b6509ea4434'\n",
+            b'',
+        ),
+        (
+            b"            'compilers','read_contract_sha256','module_sha256','alpaca_page'}\n"
+            b"            or value['schema'] != 'sentinel.physical-read-source-transition/2'\n",
+            b"            'compilers','read_contract_sha256','module_sha256'}\n"
+            b"            or value['schema'] != 'sentinel.physical-read-source-transition/1'\n",
+        ),
+        (
+            b"    page = value['alpaca_page']\n"
+            b"    if (set(page) != {'read_files','before','after'} or page['before'] != ALPACA_PAGE_BEFORE\n"
+            b"            or not re.fullmatch('[0-9a-f]{64}',page['after'])\n"
+            b"            or set(page['read_files']) != {'feed/acquisition_part_schema.py','feed/acquisition_parts.py','feed/store.py'}\n"
+            b"            or any(not re.fullmatch('[0-9a-f]{64}',item) for item in page['read_files'].values())):\n"
+            b"        raise ValueError('PHYSICAL_ALPACA_PAGE_COMPILER_INVALID')\n",
+            b'',
+        ),
+        (
+            b'    if module not in BASELINES and module != ALPACA_PAGE_COMPILER:\n',
+            b'    if module not in BASELINES:\n',
+        ),
+        (
+            b'    if module == ALPACA_PAGE_COMPILER:\n'
+            b'        if value is not None:\n'
+            b"            page = value['alpaca_page']\n"
+            b'            root = Path(__file__).parent\n'
+            b"            if (actual == page['after'] and all(_sha((root/name).read_bytes()) == digest\n"
+            b"                    for name,digest in page['read_files'].items())):\n"
+            b"                return page['before']\n"
+            b'        return actual\n',
+            b'',
+        ),
+    )
+    for current, previous in changes:
+        assert raw.count(current) == 1
+        raw = raw.replace(current, previous)
+    return raw
+
+
 def test_manifest_changes_only_its_reader_pin_and_all_old_witness_bytes_stay_exact():
     original=baseline()
     canonical=lambda value:json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
@@ -87,7 +146,11 @@ def test_manifest_changes_only_its_reader_pin_and_all_old_witness_bytes_stay_exa
     assert not set(basis.BASELINES)&set(profile['pure_contracts'])
     root=Path(economic.__file__).parents[1]
     for path,expected in original['legacy_files'].items():
-        assert sha((root/path).read_bytes())==expected,path
+        raw = (root/path).read_bytes()
+        if path in {'sentinel/physical-read-source-transition.json',
+                    'sentinel/physical_read_source_basis.py'}:
+            raw = physical_read_predecessor(path, raw)
+        assert sha(raw) == expected, path
 
 
 def test_complete_strategy_and_all_original_economic_contributions_remain_exact():

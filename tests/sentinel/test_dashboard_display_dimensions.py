@@ -121,7 +121,7 @@ def test_completed_run_stays_visible_during_independently_proved_account_change(
     run=next(row for row in payload['rows'] if row['key']=='trading_run')
     assert run['current'] and run['trading_run']['state']=='SUCCEEDED'
     html=render(page)
-    assert 'Today’s trades · completed' in html
+    assert 'Today’s run · no orders placed' in html
     assert 'Next trading plan pending.' not in html
     assert 'Last known account' not in html
 

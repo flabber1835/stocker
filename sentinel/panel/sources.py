@@ -3796,7 +3796,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 if observed_at is None:
                     raise ValueError('broker observation clock is missing')
                 confirmed = None
-                if (recovery_cycle is not None and recovery_cycle['state'] in {'WAITING_OPEN', 'EXECUTING'}
+                if (recovery_cycle is not None and recovery_cycle.get('state') in {'WAITING_OPEN', 'EXECUTING'}
                         and recovery_cycle.get('plan_id') and recovery_cycle.get('execute_at')
                         and not (working_orders or active or uncertain)
                         and observation['completeness'] == 'COMPLETE'
