@@ -206,6 +206,7 @@ def command(state=CommandState.PLANNED) -> Command:
 
 def test_protocol_introspection_forces_every_broker_method_through_guard():
     """Adding any protocol coroutine without a wrapper/operation breaks CI."""
+    from sentinel.execution import authority_gate
     protocol_methods = {
         name for name, value in ExecutionBroker.__dict__.items()
         if not name.startswith("_") and inspect.iscoroutinefunction(value)
@@ -217,6 +218,29 @@ def test_protocol_introspection_forces_every_broker_method_through_guard():
     operation_names = {operation.value for operation in BrokerOperation}
 
     assert protocol_methods == guarded_methods == operation_names
+    assert authority_gate._READ_OPERATIONS == set(BrokerOperation) - {
+        BrokerOperation.SUBMIT, BrokerOperation.CANCEL}
+
+
+@pytest.mark.parametrize("grant,expected", [
+    (manual_grant(), "EXECUTE_READ"),
+    (preparation_grant(), "PREPARE_READ"),
+    (automation_grant(), "EXECUTE_READ"),
+    (replace(automation_grant(), operation_scope="PREPARE"), "PREPARE_READ"),
+    (replace(automation_grant(), operation_scope="RECOVER"), "SAFETY_READ"),
+])
+def test_production_authority_classifies_every_broker_read(grant, expected):
+    from sentinel.execution import authority_gate
+    for operation in set(BrokerOperation) - {BrokerOperation.SUBMIT, BrokerOperation.CANCEL}:
+        assert authority_gate._authority_operation(grant, operation) == expected
+
+
+def test_production_read_inventory_has_an_executed_falsifier(monkeypatch):
+    from sentinel.execution import authority_gate
+    monkeypatch.setattr(authority_gate, '_READ_OPERATIONS',
+        authority_gate._READ_OPERATIONS - {BrokerOperation.ASSET_RULES})
+    with pytest.raises(AssertionError):
+        test_protocol_introspection_forces_every_broker_method_through_guard()
 
 
 @pytest.mark.parametrize("revocation", [None, "before", "after"])

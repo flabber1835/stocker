@@ -12,6 +12,9 @@ Fractional eligibility is a distinct guarded broker read (`asset_rules`), with
 fresh authority checks before and after the read. Revocation must prevent its
 result from authorizing a submission. The broker protocol, wrapper and operation
 inventory must remain complete and agree on that operation.
+The production authority gate must classify every protocol read for preparation,
+execution and recovery; wrapper callbacks alone do not prove that the complete
+automation path accepts the operation under the correct signed authority.
 
 The changed held-target and target-reprojection modules have new execution
 semantics. Their current bytes must not inherit the old structural-extraction
