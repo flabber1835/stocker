@@ -37,6 +37,7 @@ from sentinel.automation.model import (
     ExecuteResult,
     LeaderPermit,
     NonRetryableCallbackRefused,
+    PreflightPublicationPinUnavailable,
     StaleLeaderRefused,
     TickAction,
     TickResult,
@@ -55,6 +56,7 @@ from sentinel.execution.contract import (
 from sentinel.execution.executor import SessionResult
 from sentinel.execution.guarded import (
     AutomationExecutionGrant,
+    BrokerAuthorityCheckFailed,
     BrokerAuthorityRefused,
     ExecutionBrokerGuard,
     GuardedExecutionBroker,
@@ -65,6 +67,7 @@ from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.simulator import FaultKind, SimulatedBroker
 from sentinel.execution.states import CommandState, RuntimeState
+from tests.sentinel.test_corpus_publication import pg  # noqa: F401
 
 
 UTC = timezone.utc
@@ -755,6 +758,143 @@ async def test_only_preflight_identity_horizon_is_typed_availability(monkeypatch
         await runtime.recover(ctx)
     assert sessions == [str(EFFECTIVE)]
     assert conn.closed == 1
+
+
+@async_test
+@pytest.mark.parametrize('kind,typed', [
+    ('planless', True), ('before_authority', True), ('bound_plan', False),
+    ('live', False), ('other_db_failure', False), ('unreviewed', False),
+])
+async def test_preflight_preserves_exact_guarded_read_corpus_pin(monkeypatch, kind, typed):
+    from contextlib import nullcontext
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    cfg = config()
+    state = CycleState.RECONCILING if kind == 'bound_plan' else CycleState.DISCOVERED
+    ctx = context(cfg, state=state, plan=plan() if kind == 'bound_plan' else None)
+    runtime = production(cfg)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    runtime._operational_source_only = True
+    runtime._live_run_enabled = kind == 'live'
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'pinned',
+                        lambda *_a, **_k: nullcontext())
+    native = (ConnectionError('database unavailable') if kind == 'other_db_failure'
+              else CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement'))
+    wrapper_type = BrokerAuthorityCheckFailed
+    if kind == 'unreviewed':
+        class UnknownGuardFailure(BrokerAuthorityCheckFailed):
+            pass
+        wrapper_type = UnknownGuardFailure
+
+    def guard(*_a, **_k):
+        raise wrapper_type('fixture guarded broker check failed') from native
+
+    if kind == 'before_authority':
+        monkeypatch.setattr(runtime, '_assert_cycle_authority', guard)
+
+    async def recover(**_kw):
+        guard()
+
+    from sentinel import trading
+    monkeypatch.setattr(trading, 'recover_trading_account', recover)
+    monkeypatch.setattr(paper, 'recover_automated_paper_cycle', recover)
+    expected = PreflightPublicationPinUnavailable if typed else TransientInfrastructureFailure
+    with pytest.raises(expected) as caught:
+        await runtime.recover(ctx)
+    assert type(caught.value) is expected
+    assert broker.calls == [] and conn.closed == 1
+
+
+def test_unrelated_outer_failure_cannot_claim_a_guarded_pin():
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    native = CorpusLockUnavailable('busy')
+    wrapper = BrokerAuthorityCheckFailed('fixture guarded broker check failed')
+    wrapper.__cause__ = native
+    wrong = TransientInfrastructureFailure('unexpected outer failure')
+    wrong.__cause__ = wrapper
+    assert automation_runtime._native_publication_pin(wrong, broker_read=True) is None
+    assert automation_runtime._native_publication_pin(wrapper) is None
+
+
+@async_test
+@pytest.mark.parametrize('guard_removed', [False, True])
+async def test_preflight_reader_pin_retry_under_real_writer_queue(monkeypatch, pg, guard_removed):
+    from contextlib import contextmanager
+
+    import psycopg
+
+    from sentinel.feed import publication, rolling_store
+    from tests.sentinel.test_corpus_writer_scheduling import _queued, _spawn
+
+    cfg = config()
+    ctx = context(cfg, state=CycleState.DISCOVERED)
+    runtime = production(cfg)
+    runtime._operational_source_only = True
+    broker = SimulatedBroker()
+    key = publication.CORPUS_LOCK_KEY
+    with (psycopg.connect(pg.sync_dsn) as owner,
+          psycopg.connect(pg.sync_dsn) as writer,
+          psycopg.connect(pg.sync_dsn) as inspector):
+        install_runtime_seams(monkeypatch, runtime, owner, ctx, broker)
+        # The setup seams grant no simulated broker permission. The leaf still
+        # attempts a real same-corpus pin from a separate guard connection.
+        monkeypatch.setattr(automation_runtime.schema, 'require_runtime_schema', lambda _c: None)
+        monkeypatch.setattr(automation_runtime, 'require_observation_integrity', lambda _c: None)
+        thread = None
+        outcome = None
+
+        @contextmanager
+        def pinned(conn, *, commit):
+            nonlocal thread, outcome
+            assert conn is owner and not commit
+            assert owner.execute('SELECT pg_try_advisory_lock_shared(%s)', (key,)).fetchone()[0]
+            try:
+                def exclusive_turn():
+                    writer.execute('SELECT pg_advisory_xact_lock(%s)', (key,))
+                    writer.rollback()
+
+                thread, outcome = _spawn(exclusive_turn)
+                _queued(inspector, writer.info.backend_pid, outcome)
+                yield object()
+            finally:
+                owner.execute('SELECT pg_advisory_unlock_shared(%s)', (key,))
+                owner.rollback()
+
+        async def guarded_read(grant, operation):
+            with psycopg.connect(pg.sync_dsn) as fresh:
+                rolling_store._pin_reader(fresh)
+
+        async def unexpected(*_a, **_k):
+            pytest.fail('this preflight performed a post-read check or attempted a mutation')
+
+        async def recovering(*, conn, broker, grant, **_kw):
+            wrapped = GuardedExecutionBroker(inner=broker, grant=grant,
+                guard=ExecutionBrokerGuard(guarded_read, unexpected, unexpected))
+            await wrapped.account_snapshot()
+            pytest.fail('the reader entered ahead of a queued exclusive writer')
+
+        monkeypatch.setattr(automation_runtime.feed_inputs, 'pinned', pinned)
+        monkeypatch.setattr(paper, 'recover_automated_paper_cycle', recovering)
+        if guard_removed:
+            classifier = automation_runtime._native_publication_pin
+            monkeypatch.setattr(automation_runtime, '_native_publication_pin',
+                                lambda exc, **_kw: classifier(exc))
+        try:
+            with pytest.raises(TransientInfrastructureFailure) as caught:
+                await runtime.recover(ctx)
+            assert type(caught.value) is (TransientInfrastructureFailure if guard_removed
+                                          else PreflightPublicationPinUnavailable)
+            mapped = caught.value if guard_removed else caught.value.__cause__
+            assert type(mapped.__cause__) is BrokerAuthorityCheckFailed
+            assert type(mapped.__cause__.__cause__) is publication.CorpusLockUnavailable
+            assert not broker.calls and owner.closed
+        finally:
+            if thread is not None:
+                thread.join(8)
+                assert not thread.is_alive() and not outcome.get('error')
 
 
 def test_removing_preflight_date_guard_is_detected(monkeypatch):

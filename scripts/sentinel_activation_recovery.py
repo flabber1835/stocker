@@ -3,6 +3,28 @@ from datetime import date
 import re
 
 
+def policy_replacement_args(value, mode):
+    """Validate the host request before forwarding it to the runtime CLI."""
+    import sentinel_autonomous_deploy as core
+    fields = {
+        "plan_id": "--replace-unsent-plan",
+        "plan_fingerprint": "--replace-unsent-plan-fingerprint",
+        "actor": "--policy-replacement-actor",
+        "reason": "--policy-replacement-reason",
+    }
+    if (mode != 'dual' or not isinstance(value, dict)
+            or set(value) != set(fields) | {'confirmed'}
+            or value['confirmed'] is not True
+            or any(not isinstance(value[key], str) or not value[key].strip()
+                   or value[key] != value[key].strip() for key in fields)
+            or re.fullmatch('[0-9a-f]{64}', value['plan_fingerprint']) is None
+            or value['plan_id'] != 'sentinel-' + value['plan_fingerprint']
+            or len(value['actor']) > 200 or len(value['reason']) > 1000):
+        raise core.DeployRefused('unsent policy replacement confirmation is malformed')
+    return [part for key, flag in fields.items() for part in (flag, value[key])] + [
+        '--confirm-unsent-policy-replacement']
+
+
 def validate_initial(value):
     import sentinel_autonomous_deploy as core
     if (not isinstance(value, dict) or set(value) != {'system_identifier', 'actor',

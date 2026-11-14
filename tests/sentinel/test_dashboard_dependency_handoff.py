@@ -4,6 +4,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import inspect
 import textwrap
+from threading import Event
+import time
 import uuid
 from types import SimpleNamespace
 
@@ -325,7 +327,7 @@ def test_serialization_conflict_is_superseded_without_recording_failure(monkeypa
 
 
 @pytest.mark.parametrize('guard,change',[('counter','current[1] != prior[1] + 1'),
-    ('cause','and proof[2:] == (True, True, True)')])
+    ('cause','and proof[4:7] == (True, True, True)')])
 def test_executed_counter_and_cause_omission_falsifiers(operational,monkeypatch,guard,change):
     source=textwrap.dedent(inspect.getsource(deps.valuation_only_advance));assert change in source
     scope=dict(vars(deps));exec(source.replace(change,'False' if guard=='counter' else ''),scope)
@@ -333,3 +335,104 @@ def test_executed_counter_and_cause_omission_falsifiers(operational,monkeypatch,
     with pytest.raises(AssertionError):
         test_counterproof_refuses_every_unproved_native_change(operational,monkeypatch,
             'mixed' if guard=='counter' else 'identical_mixed')
+
+
+def completed_reader(operational):
+    from sentinel.panel import authority_reader, verification_service
+    c, owner, _ = operational
+    instant = datetime.now(timezone.utc)
+    account(c, observed_at=instant)
+    result = replace(model.paper_reconciliation_row(state='PENDING', cycle_state='SUCCEEDED'),
+                     as_of=instant, valid_until=instant+timedelta(minutes=10),
+                     required_current=True, paper_alignment='COMPLETED_WITH_HISTORY')
+    reader = authority_reader.Reader(expected_keys=read_projection.PAPER_KEYS)
+    key = read_projection.subject_for(c.info.dsn, True)
+    reader.configuration = key
+    reader.completed = ([result], [], instant)
+    previous = {}
+    verification_service._refresh_readers(
+        c, {'PAPER':reader}, c.info.dsn, owner, previous, Event(), time.monotonic()+5)
+    assert previous['PAPER'][0]['valuation_basis']
+    return c, owner, reader, previous, result
+
+
+def test_valuation_only_rebind_refreshes_neither_observation_nor_reader(operational, monkeypatch):
+    from sentinel.panel import verification_service
+    c, owner, reader, previous, result = completed_reader(operational)
+    first = previous['PAPER'][0]
+
+    def require_no_work(*args, **kwargs):
+        pytest.fail('valuation-only append scheduled a redundant PAPER observation')
+    monkeypatch.setattr(reader, 'read', require_no_work)
+    for equity in ('102', '103', '105', '106'):
+        account(c, equity=equity)
+        rows, _, _, errors = read_projection.read(c.info.dsn, only_scope='PAPER')
+        assert rows == [result] and not errors
+        old = previous['PAPER'][0]['subject_sha256']
+        verification_service._refresh_readers(
+            c, {'PAPER':reader}, c.info.dsn, owner, previous, Event(), time.monotonic()+5)
+        rebound = previous['PAPER'][0]
+        assert rebound['subject_sha256'] == read_projection.subject_for(c.info.dsn, True)
+        assert rebound['subject_sha256'] != old
+        assert rebound['observed_at'] == first['observed_at']
+        assert rebound['valid_until'] == first['valid_until']
+        assert rebound['rows'] == first['rows']
+
+
+def test_periodic_observer_does_not_displace_still_proved_completion(operational):
+    from sentinel.panel import verification_monitor, verification_service
+    c, _, _, previous, result = completed_reader(operational)
+    original, signature = previous['PAPER']
+    account(c, equity='103')
+    latest = read_projection.subject_for(c.info.dsn, True)
+    now = datetime.now(timezone.utc)
+    waiting, _, _, errors = verification_monitor.paper_unknown(
+        True, 'refresh running', checking_until=now+timedelta(minutes=2))
+    candidate = read_projection.make('PAPER', latest, waiting, errors, observed_at=now)
+    retained = verification_service._financial_publication(
+        c, c.info.dsn, 'PAPER', candidate, (original, signature), now=now)
+    assert retained[0]['subject_sha256'] == latest
+    assert retained[0]['observed_at'] == original['observed_at']
+    assert retained[0]['valid_until'] == original['valid_until']
+    assert read_projection.decode(retained[0], retained[1], current_subject=latest,
+                                  scope='PAPER', now=now)[0] == [result]
+    negative = read_projection.make('PAPER', latest, [model.paper_reconciliation_row(
+        state='MISMATCH', detail='Current authoritative mismatch')], [], observed_at=now)
+    assert verification_service._financial_publication(
+        c, c.info.dsn, 'PAPER', negative, retained, now=now) == negative
+    c.rollback()
+
+
+@pytest.mark.parametrize('change', ['cash-admission', 'account-block', 'nonpositive', 'nan',
+                                    'future', 'two-unseen', 'order-dependency', 'expired'])
+def test_completed_rebind_refuses_a_valuation_without_a_complete_witness(operational, change):
+    from sentinel.panel import verification_service
+    c, owner, reader, previous, result = completed_reader(operational)
+    old = previous['PAPER']
+    if change == 'order-dependency':
+        c.execute('UPDATE sentinel_automation_control SET generation=generation+1 WHERE id=1')
+        c.commit()
+    if change == 'two-unseen':
+        account(c, equity='102')
+    account(c, equity={'nonpositive':'0', 'nan':'NaN'}.get(change, '103'),
+            flags={'account_blocked':True} if change == 'account-block' else None,
+            buying_power='49' if change == 'cash-admission' else '50',
+            observed_at=datetime.now(timezone.utc)+timedelta(seconds=30) if change == 'future' else None)
+    instant = result.valid_until if change == 'expired' else datetime.now(timezone.utc)
+    assert read_projection.rebase_completed_paper(c, c.info.dsn, old, now=instant) is None
+    c.rollback()
+    if change != 'expired':
+        assert not verification_service._renew_completed_paper_subject(
+            c, reader, c.info.dsn, owner, previous, time.monotonic()+5)
+        assert previous['PAPER'] == old
+
+
+def test_removing_positive_equity_check_reuses_negative_valuation(operational, monkeypatch):
+    code = textwrap.dedent(inspect.getsource(deps.valuation_only_advance))
+    check = 'proof[8:] != (True, True)'
+    assert code.count(check) == 1
+    scope = dict(vars(deps))
+    exec(code.replace(check, 'proof[8] is not True'), scope)
+    monkeypatch.setattr(deps, 'valuation_only_advance', scope['valuation_only_advance'])
+    with pytest.raises(AssertionError):
+        test_completed_rebind_refuses_a_valuation_without_a_complete_witness(operational, 'nonpositive')

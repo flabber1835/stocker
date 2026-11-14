@@ -179,26 +179,38 @@ def require_alpaca_population(*, selected: int, admitted: int,
 
 
 def _alpaca_rows(conn, lease, *, verifier=None):
-    """Stream retained paired bars in global key order, with optional byte proof."""
+    """Read one session at a time in the original global bytewise key order."""
     import json
     from sentinel.feed import store
     from sentinel.feed.acquisition_parts import PartCorrupt
 
-    query = ("SELECT b.part_id,p.session,p.ticker,p.payload "
-             "FROM sentinel_acquisition_bindings b "
-             "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
-             "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
-             "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
-             'ORDER BY p.session,p.ticker COLLATE "C"')
+    bindings_sql = ("SELECT b.part_id,COALESCE(l.payload_part_id,b.part_id) "
+        "FROM sentinel_acquisition_bindings b LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+        "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' ORDER BY b.component")
+    bindings = conn.execute(bindings_sql, (lease.job_id,)).fetchall()
+    base_ids = [bound for bound, _ in bindings]
+    payload_ids = [payload for _, payload in bindings]
+    next_session_sql = ("SELECT min(next.session) FROM unnest(%s::text[]) AS refs(part_id) "
+        "CROSS JOIN LATERAL (SELECT p.session FROM sentinel_acquisition_prices p "
+        "WHERE p.part_id=refs.part_id {after} ORDER BY p.session LIMIT 1) next")
+    query = ("SELECT refs.bound,p.session,p.ticker,p.payload "
+        "FROM unnest(%s::text[],%s::text[]) AS refs(bound,payload) "
+        "JOIN sentinel_acquisition_prices p ON p.part_id=refs.payload WHERE p.session=%s "
+        'ORDER BY p.ticker COLLATE "C"')
     previous = None
-    with store.streaming_cursor(conn, query, (lease.job_id,), batch=5000, withhold=True) as cur:
-        for part_id, day, ticker, encoded in cur:
-            row = verifier.add(part_id, encoded, day, ticker) if verifier else json.loads(encoded)
-            key = (row["date"], row["ticker"])
-            if (key <= previous if previous is not None else False) or key != (str(day), ticker):
-                raise PartCorrupt("Alpaca retained price key is duplicate or corrupt")
-            previous = key
-            yield row
+    day = conn.execute(next_session_sql.format(after=""), (payload_ids,)).fetchone()[0]
+    while day is not None:
+        with store.streaming_cursor(conn, query, (base_ids, payload_ids, day), batch=5000) as cur:
+            for part_id, session, ticker, encoded in cur:
+                row = verifier.add(part_id, encoded, session, ticker) if verifier else json.loads(encoded)
+                key = (row["date"], row["ticker"])
+                if (previous is not None and key <= previous) or key != (str(session), ticker):
+                    raise PartCorrupt("Alpaca retained price key is duplicate or corrupt")
+                previous = key
+                yield row
+        day = conn.execute(next_session_sql.format(after="AND p.session>%s"), (payload_ids, day)).fetchone()[0]
+    if conn.execute(bindings_sql, (lease.job_id,)).fetchall() != bindings:
+        raise PartCorrupt("Alpaca retained price bindings changed during traversal")
     if verifier:
         verifier.finish()
 

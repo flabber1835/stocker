@@ -7,10 +7,12 @@ from decimal import Decimal
 from fractions import Fraction
 
 from sentinel.execution.numeric import decimal_text, exact_decimal
+from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.target_reprojection import TargetProjectionRefused, share_action_factor
 
 SCHEMA = "sentinel.held-share-targets/1"
-FRACTIONAL_SCHEMA = "sentinel.held-share-targets/2"
+RETRY_SCHEMA = "sentinel.held-share-targets/2"
+FRACTIONAL_SCHEMA = "sentinel.held-share-targets/3"
 
 
 def ownership(state):
@@ -94,7 +96,74 @@ def carry_quantities(*, previous, previous_state, projection, state,
     return result
 
 
-def build_basis(conn, *, previous, state, binding, rollout):
+def retry_openings(basis):
+    if basis is None:
+        return ()
+    if isinstance(basis, dict) and basis.get("schema") in {SCHEMA, FRACTIONAL_SCHEMA}:
+        return ()
+    if (not isinstance(basis, dict) or basis.get("schema") != RETRY_SCHEMA
+            or not isinstance(basis.get("retry_openings"), list)):
+        raise TargetProjectionRefused("retry opening basis is absent or unsupported")
+    return tuple(OpeningIntent.from_dict(row) for row in basis["retry_openings"])
+
+
+def _retry_openings(previous, previous_state, projection, state, basis):
+    """Carry the original dollar reservation for the same unsized episode."""
+    from sentinel.execution.protected_limits import PROTECTED_MODE, validate_projection
+
+    if not previous.opening_intents:
+        return ()
+    old, current = ownership(previous_state), ownership(state)
+    prior_retries = set(retry_openings(basis))
+    if not prior_retries.issubset(previous.opening_intents):
+        raise TargetProjectionRefused("predecessor retry openings differ from its immutable plan")
+    later_decision = previous.decision_session < date.fromisoformat(state.last_processed_session)
+    sizing = {} if projection is None else projection.opening_sizing or {}
+    if sizing.get("mode") == PROTECTED_MODE:
+        validate_projection(projection, plan=previous)
+    elif projection is not None:
+        return ()
+    status = {row["security_id"]: row["status"] for row in sizing.get("entries", ())}
+    basket = previous.target_basket if projection is None else projection.target_basket
+    episodes = state.wealth_core["episodes"]
+    result = []
+    for intent in previous.opening_intents:
+        sid = intent.security_id
+        ownership_key = current.get(sid, ())
+        episode = episodes.get(str(intent.slot_id))
+        still_owned = (len(ownership_key) == 1 and old.get(sid) == ownership_key
+                       and ownership_key[0][0] == intent.slot_id and episode is not None
+                       and str(episode["security_id"]) == sid)
+        if not still_owned or basket.get(sid) != 0:
+            continue
+        outcome = status.get(sid)
+        skipped = later_decision and outcome == "BELOW_WHOLE_SHARE"
+        retry_pending = intent in prior_retries and (projection is None or outcome in {
+            "BELOW_WHOLE_SHARE", "CORE_REFERENCE_UNAVAILABLE", "REFERENCE_UNAVAILABLE"})
+        if skipped or retry_pending:
+            result.append(intent)
+    return tuple(result)
+
+
+def build_execution_plan(*, retained_targets, retry_openings, **kwargs):
+    """Preserve canonical allocation and add authenticated PAPER retry intents."""
+    from sentinel.core.decision import build_execution_plan
+
+    observation = kwargs["observation"]
+    positions = observation.positions_by_security()
+    placeholders = {intent.security_id: Decimal(0) for intent in retry_openings}
+    if (set(placeholders) & retained_targets.keys()
+            or any(positions.get(sid, Decimal(0)) != 0 or observation.working_orders_for(sid)
+                   for sid in placeholders)):
+        raise TargetProjectionRefused("retry opening requires zero account shares and commitments")
+    decision = build_execution_plan(**kwargs, retained_targets={**retained_targets, **placeholders})
+    plan = decision.plan
+    openings = tuple(sorted((*plan.opening_intents, *retry_openings), key=lambda intent: intent.slot_id))
+    plan = replace(plan, opening_intents=openings)
+    return replace(decision, plan=replace(plan, plan_id=f"sentinel-{plan.fingerprint()}"))
+
+
+def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False):
     """Freeze the immediate predecessor and the derived continuing targets."""
     from sentinel import dual_plan_authority
     from sentinel.core.production import SessionState
@@ -138,6 +207,12 @@ def build_basis(conn, *, previous, state, binding, rollout):
         carry_projection = replace(projection, target_basket=progress.targets)
     targets = carry_quantities(previous=previous, previous_state=prior_state,
         projection=carry_projection, state=state, exposure=effective_exposure(state, rollout), actions=actions)
+    if retry_skipped and binding.broker == "alpaca" and progress is None:
+        retries = _retry_openings(previous, prior_state, projection, state, authority.get("held_share_targets"))
+        if retries:
+            body.update(schema=RETRY_SCHEMA, retry_openings=[item.to_dict() for item in retries])
+            for intent in retries:
+                targets.pop(intent.security_id, None)
     body.update(previous_plan_id=previous.plan_id,
         previous_plan_fingerprint=previous.fingerprint(),
         previous_authority_sha256=authority["authority_sha256"],
@@ -157,7 +232,7 @@ def build_basis(conn, *, previous, state, binding, rollout):
 
 def verify_basis(conn, *, basis, state, binding, rollout):
     from sentinel.execution import journal, target_reprojection
-    if not isinstance(basis, dict) or basis.get("schema") not in {SCHEMA, FRACTIONAL_SCHEMA}:
+    if not isinstance(basis, dict) or basis.get("schema") not in {SCHEMA, RETRY_SCHEMA, FRACTIONAL_SCHEMA}:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
@@ -169,24 +244,31 @@ def verify_basis(conn, *, basis, state, binding, rollout):
                 or basis.get("previous_projection_fingerprint") != (
                     None if projection is None else projection.fingerprint())):
             raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
-    expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout)
+    expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout,
+        retry_skipped=basis["schema"] == RETRY_SCHEMA)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     return {sid: Decimal(qty) for sid, qty in expected["targets"].items()}
 
 
 def plan_targets(conn, *, plan, state):
+    """Return continuing positive and historical share targets."""
+    return plan_sizing(conn, plan=plan, state=state)[0]
+
+
+def plan_sizing(conn, *, plan, state):
     """Read only the small current basis; full authority is verified separately."""
     from sentinel.authority import RolloutMode, RolloutState
     from sentinel.binding import AccountBinding
     basis = _basis_for_plan(conn, plan.plan_id)
     if basis is None:
-        return None  # Historical plans keep their original exact arithmetic.
+        return None, ()  # Historical plans keep their original exact arithmetic.
     binding = AccountBinding(deployment_id=plan.deployment_id, broker=plan.broker,
         broker_account_id=plan.broker_account_id, takeover_epoch=plan.takeover_epoch)
     rollout = RolloutState(mode=RolloutMode(plan.rollout_mode), version=plan.rollout_version,
         certificate_sha256=plan.rollout_certificate_sha256)
-    return verified_targets(conn, plan=plan, basis=basis, state=state, binding=binding, rollout=rollout)
+    targets = verified_targets(conn, plan=plan, basis=basis, state=state, binding=binding, rollout=rollout)
+    return targets, retry_openings(basis)
 
 
 def _basis_for_plan(conn, plan_id):
@@ -214,17 +296,21 @@ def verified_targets(conn, *, plan, basis, state, binding, rollout):
 
 
 def predecessor_version(conn, plan_id):
-    """Bind callback reuse to the parent projection, including absent rows."""
+    """Bind callback reuse to the parent authority and projection row versions."""
+    from sentinel import dual_plan_authority
     from sentinel.execution import target_reprojection
     basis = _basis_for_plan(conn, plan_id)
     if basis is None or basis.get("previous_plan_id") is None:
         return None
     projection_version = conn.execute(
-        "SELECT p.tableoid,p.xmin::text,p.ctid::text,r.tableoid,r.xmin::text,r.ctid::text "
+        "SELECT p.tableoid,p.xmin::text,p.ctid::text,r.tableoid,r.xmin::text,r.ctid::text,"
+        "a.tableoid,a.xmin::text,a.ctid::text "
         "FROM sentinel_execution_plans p "
         "LEFT JOIN sentinel_processed_sessions r ON r.cursor_name=%s || p.plan_id "
+        "LEFT JOIN sentinel_processed_sessions a ON a.cursor_name=%s || p.plan_id "
         "WHERE p.plan_id=%s",
-        (target_reprojection.CURSOR_PREFIX, basis["previous_plan_id"])).fetchone()
+        (target_reprojection.CURSOR_PREFIX, dual_plan_authority.CURSOR_PREFIX,
+         basis["previous_plan_id"])).fetchone()
     if basis.get("schema") != FRACTIONAL_SCHEMA:
         return projection_version
     command_versions = conn.execute(

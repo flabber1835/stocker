@@ -255,7 +255,20 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
         return ''
     def number(value):
         return 'Unavailable' if value is None else format(value,'f')
-    rows = [(leg.ticker,leg.action,number(leg.current_quantity),
+    legacy_rows = []
+    for leg in plan.legs:
+        estimate = leg.opening_estimate
+        if estimate is not None:
+            target = f'${estimate.account_budget:,.2f} paper budget · ${estimate.limit_price:,.2f} limit'
+            change = (f'{number(estimate.shares)} estimated '+('share' if estimate.shares==1 else 'shares') if estimate.shares
+                      else 'Budget below one share')
+        elif leg.opening_dollars is not None:
+            target = '$'+number(leg.opening_dollars)+' strategy intent'
+            change = 'Estimate unavailable'
+        else:
+            target, change = number(leg.target_quantity), number(leg.change_quantity)
+        legacy_rows.append((leg.ticker,leg.action,number(leg.current_quantity),target,change))
+    rows = legacy_rows if plan.buy_policy is None else [(leg.ticker,leg.action,number(leg.current_quantity),
              '$'+number(leg.opening_dollars)+' budget' if leg.opening_dollars is not None else number(leg.target_quantity),
              '$'+number(leg.purchase_notional)+' market order' if leg.purchase_notional is not None
              else 'Budget below minimum order' if leg.action == 'SKIP'

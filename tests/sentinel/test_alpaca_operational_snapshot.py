@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from contextlib import contextmanager
+from types import SimpleNamespace
 import json
 
 import pytest
@@ -86,22 +86,40 @@ class FakeClassifier:
             for asset in assets], {'observed_at':'2026-09-15T00:00:00+00:00'}
 
 
-def test_retained_class_symbols_use_bytewise_order_across_database_locales(monkeypatch):
-    """A locale may sort BFAM before BF.B, opposite canonical ticker order."""
-    day = "2026-09-14"
-    values = {
-        symbol: ("part", day, symbol, json.dumps({"date": day, "ticker": symbol}))
-        for symbol in ("BF.B", "BFAM")
-    }
+def test_retained_price_pages_match_the_global_order_and_refuse_duplicates(conn):
+    from sentinel.feed.acquisition_parts import PartCorrupt
 
-    @contextmanager
-    def locale_cursor(_conn, query, _params, **_kwargs):
-        order = ("BF.B", "BFAM") if 'COLLATE "C"' in query else ("BFAM", "BF.B")
-        yield iter(values[symbol] for symbol in order)
+    conn.execute('CREATE TEMP TABLE sentinel_acquisition_bindings (job_id text, component text, part_id text)')
+    conn.execute('CREATE TEMP TABLE sentinel_acquisition_price_links (part_id text, payload_part_id text)')
+    conn.execute('CREATE TEMP TABLE sentinel_acquisition_prices (part_id text, session date, '
+        'ticker text, payload text, PRIMARY KEY(part_id,session,ticker))')
+    conn.execute("INSERT INTO sentinel_acquisition_bindings VALUES "
+        "('fixture','SEP.two','same-two'),('fixture','SEP.one','bound-one'),"
+        "('fixture','TICKERS','ignore')")
+    conn.execute("INSERT INTO sentinel_acquisition_price_links VALUES ('bound-one','payload-one')")
+    for part, day, symbol in [('same-two','2026-09-14','BFAM'), ('payload-one','2026-09-14','BF.B'),
+            ('same-two','2026-09-17','ZZ'),('payload-one','2026-09-15','BB'),('ignore','2026-09-01','AAA')]:
+        conn.execute('INSERT INTO sentinel_acquisition_prices VALUES (%s,%s,%s,%s)',
+            (part,day,symbol,json.dumps(dict(date=day,ticker=symbol))))
+    original = ('SELECT b.part_id,p.session,p.ticker,p.payload FROM sentinel_acquisition_bindings b '
+        'LEFT JOIN sentinel_acquisition_price_links l USING(part_id) '
+        'JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) '
+        'WHERE b.job_id=%s AND b.component LIKE \'SEP.%%\' ORDER BY p.session,p.ticker COLLATE "C"')
+    expected = conn.execute(original, ('fixture',)).fetchall()
+    seen = []
+    def add(part, raw, session, ticker):
+        seen.append((part,session,ticker,raw))
+        return json.loads(raw)
+    lease = SimpleNamespace(job_id='fixture')
+    verifier = SimpleNamespace(add=add, finish=lambda: seen.append('finished'))
+    assert list(rolling_builder._alpaca_rows(conn, lease, verifier=verifier)) == [json.loads(row[3]) for row in expected]
+    assert seen == [*expected, 'finished']
+    assert [row[2] for row in expected] == ['BF.B','BFAM','BB','ZZ']
 
-    monkeypatch.setattr(store, "streaming_cursor", locale_cursor)
-    assert [row["ticker"] for row in rolling_builder._alpaca_rows(None, type(
-        "Lease", (), {"job_id": "fixture"})())] == ["BF.B", "BFAM"]
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES ('same-two','2026-09-14','BF.B',%s)",
+        (json.dumps(dict(date='2026-09-14',ticker='BF.B')),))
+    with pytest.raises(PartCorrupt, match='duplicate'):
+        list(rolling_builder._alpaca_rows(conn, lease))
 
 
 def test_current_universe_collapse_refuses_before_publication():

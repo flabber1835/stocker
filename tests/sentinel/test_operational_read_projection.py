@@ -603,7 +603,7 @@ def test_http_snapshot_reuses_common_subject_facts_without_changing_either_diges
         assert not errors and all(row.status==model.OK for row in rows)
         assert calls==['installation','epoch']*(iteration+1)
         assert sum('FROM pg_control_system()' in item for item in connection.statements)==iteration+1
-    assert connection.statements[0]=='BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
+    assert connection.statements[0]=='SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
 
 
 def test_same_snapshot_fact_reuse_does_not_couple_independent_revision_failure(monkeypatch):

@@ -492,7 +492,7 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "20f626446b999ad723629a0ff600ba972e10bef80a188f31bb721462d71a592d",
+      "generated_ast_sha256": "66f8f7f0ca6ceabbbd3cafdb41420f6e14d334012be311427e4c79f44e991f35",
       "market_buy_acceptance": [
         "tests/sentinel/test_market_day_sizing.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"
@@ -522,7 +522,8 @@
         "tests/sentinel/test_automation_composition.py"
       ],
       "fractional_design": "docs/fractional-paper-execution.md",
-      "fractional_predecessor_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0"
+      "fractional_predecessor_ast_sha256": "f20ae2ef403dcb834aa24fc4789fbf57e83e48bb9ff6bcc312bf3bbbd88830f0",
+      "reason": " Retain authenticated protected retry intents during replacement and projection."
     },
     "_transport_observation_or_refuse": {
       "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
@@ -627,7 +628,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "59b9b25784a1b528d9024fc38bb93f9e574d24e069409f747223f3a2e9a6fdcc",
+      "generated_ast_sha256": "4e4c03bde9e5f92dda25efaa8f6c0a5cbd96fd2fe60e4318961b7f38096c55de",
       "fractional_replacement_predecessor_ast_sha256": "7f934bd0f37db48256a50268b36fc2da2f041da544964b5cebdfebd275f33de2",
       "fractional_replacement_design": "docs/fractional-paper-execution.md#replacing-an-already-saved-next-session-plan",
       "fractional_replacement_acceptance": [
@@ -669,7 +670,7 @@
         "tests/sentinel/test_rolling_paper_inputs.py"
       ],
       "production_path_design": "docs/production-path-qualification.md",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged. Add only attended informational PAPER unsent legacy cash retirement during a later closed decision, with an accepted native dividend, stable account/book bracket, killed writer, exact prospective baseline and atomic authenticated receipt. Ordinary execution/recovery still refuse a missing baseline; no historical finality is granted.",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged. Add only attended informational PAPER unsent legacy cash retirement during a later closed decision, with an accepted native dividend, stable account/book bracket, killed writer, exact prospective baseline and atomic authenticated receipt. Ordinary execution/recovery still refuse a missing baseline; no historical finality is granted. Retain authenticated protected retry intents during replacement and projection.",
       "renewal_acceptance": [
         "tests/sentinel/test_dual_plan_renewal.py",
         "tests/sentinel/test_dual_plan_renewal_upgrade.py"

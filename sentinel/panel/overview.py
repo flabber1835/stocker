@@ -78,10 +78,18 @@ def _outcome_html(outcome: PaperOrderOutcome) -> str:
 
 
 def _leg_html(leg, outcomes) -> str:
-    if leg.action == 'UNAVAILABLE':
-        action, quantity = 'Change unavailable', (
-            'Sizing evidence unavailable' if leg.reason == 'REFERENCE_UNAVAILABLE'
-            else 'Recorded shares unavailable')
+    estimate = leg.opening_estimate
+    if estimate is not None:
+        action = 'Buy' if estimate.shares else 'Skip'
+        quantity = (_quantity(estimate.shares)+(' estimated share' if estimate.shares==1 else ' estimated shares') if estimate.shares
+                    else 'Budget below one share')
+    elif leg.action == 'UNAVAILABLE':
+        if leg.opening_dollars is not None and leg.reason is None:
+            action, quantity = 'Estimate unavailable', 'Quantity pending'
+        else:
+            action, quantity = 'Change unavailable', (
+                'Sizing evidence unavailable' if leg.reason == 'REFERENCE_UNAVAILABLE'
+                else 'Recorded shares unavailable')
     elif leg.action == 'SKIP':
         action, quantity = 'Skip', 'Budget below minimum order'
     elif leg.purchase_notional is not None:
@@ -94,7 +102,11 @@ def _leg_html(leg, outcomes) -> str:
         quantity = _quantity(amount)+' '+('share' if amount == 1 else 'shares')
     else:
         action, quantity = 'Keep', _quantity(leg.target_quantity)+' shares'
-    target = ('$'+f'{leg.opening_dollars:,.2f}'+' budget · shares determined at execution'
+    target = (f'${estimate.account_budget:,.2f} paper budget · ${estimate.limit_price:,.2f} limit'
+              if estimate is not None else
+              f'${leg.opening_dollars:,.2f} strategy intent · sizing unavailable'
+              if leg.opening_dollars is not None and leg.action == 'UNAVAILABLE' else
+              f'${leg.opening_dollars:,.2f} budget · shares determined at execution'
               if leg.opening_dollars is not None else _quantity(leg.target_quantity)+' target')
     prior = ''.join(_outcome_html(outcome) for outcome in outcomes
                     if outcome.security_id == leg.security_id and outcome.side == leg.action)
@@ -145,7 +157,9 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
     targets = ''.join(
         '<tr><th scope="row">'+_esc(leg.ticker)+'</th><td>'+_esc(leg.action.title())+'</td><td>'
         +_esc(_quantity(leg.current_quantity))+'</td><td>'
-        +_esc(('$'+f'{leg.opening_dollars:,.2f}'+' budget') if leg.opening_dollars is not None
+        +_esc(f'${leg.opening_estimate.account_budget:,.2f} paper budget'
+               if leg.opening_estimate is not None else
+               f'${leg.opening_dollars:,.2f} strategy intent' if leg.opening_dollars is not None
                else _quantity(leg.target_quantity))+'</td></tr>' for leg in plan.legs)
     note = ('Dollar purchases assume fractional eligibility; otherwise whole-share market orders apply. '
             'Amounts reserve $1 per purchase. Eligibility and funding are checked at execution.'
@@ -220,7 +234,9 @@ def _run_html(panel: Panel) -> str:
     if row is None or not row.can_show_trading_run(panel.now):
         return ''
     run = row.trading_run
-    heading = ('Today’s trades · completed' if run.state == 'SUCCEEDED'
+    no_orders = run.state == 'SUCCEEDED' and not run.orders
+    heading = ('Today’s run · no orders placed' if no_orders else
+               'Today’s trades · completed' if run.state == 'SUCCEEDED'
                else 'Today’s trading plan')
     stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
              'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
@@ -239,15 +255,18 @@ def _run_html(panel: Panel) -> str:
         value = sum((item.filled_quantity*(item.filled_average_price or Decimal(0))
                      for item in orders),Decimal(0))
         states = {item.state for item in orders}
-        state = ('Outcome uncertain' if 'UNKNOWN' in states else 'Cancellation pending'
+        skipped = run.below_whole_share.get(leg.security_id)
+        state = ('Skipped · budget below one share' if skipped is not None else
+                 'Outcome uncertain' if 'UNKNOWN' in states else 'Cancellation pending'
                  if 'CANCEL_PENDING' in states else 'Submission not confirmed'
                  if 'SEND_PENDING' in states else 'Filled' if orders and states=={'FILLED'}
                  else 'Partly filled' if filled>0 else 'Rejected' if 'REJECTED' in states
                  else 'Ended unfilled' if states and states<={'CANCELLED','REJECTED','SUPERSEDED'}
                  else 'Working' if states & {'ACKNOWLEDGED','PARTIALLY_FILLED'}
                  else 'Awaiting submission' if run.state!='SUCCEEDED' else 'No order recorded')
-        amount = ('Budget $'+f'{leg.opening_dollars:,.2f}' if leg.opening_dollars is not None
-                  else _quantity(abs(leg.change_quantity))+' shares')
+        amount = (f'${skipped.account_budget:,.2f} paper budget' if skipped is not None else
+                  f'${leg.opening_dollars:,.2f} strategy intent' if leg.opening_dollars is not None
+                  else _quantity(abs(leg.change_quantity) if leg.change_quantity is not None else None)+' shares')
         progress = (state+' · '+_quantity(filled)+'/'+_quantity(submitted)+' submitted shares filled'
                     if orders else state)
         if submitted_dollars:
@@ -268,12 +287,16 @@ def _run_html(panel: Panel) -> str:
             +' · '+_esc(item.order_terms['time_in_force'].upper())
             +'<br>Client order: '+_esc(item.client_key)+'<br>Broker order: '
             +_esc(item.broker_order_id or 'Not confirmed')+'</p>' for item in orders)
-        rows.append('<li class="plan-leg '+action.lower()+'"><div class="plan-leg-main">'
+        if skipped is not None:
+            detail = (f'<p>${skipped.limit_price:,.2f} limit · '
+                      f'Original strategy intent ${leg.opening_dollars:,.2f}</p>')
+        rows.append('<li class="plan-leg '+('skip' if skipped is not None else action.lower())+'"><div class="plan-leg-main">'
             '<strong class="plan-ticker">'+_esc(leg.ticker)+'</strong><span class="plan-action">'
-            +_esc(action.title())+'</span><strong class="plan-quantity">'+_esc(amount)
+            +_esc('Skip' if skipped is not None else action.title())+'</span><strong class="plan-quantity">'+_esc(amount)
             +'</strong></div><p class="run-progress">'+_esc(progress)+'</p>'
             +('<details class="overview-inline-details" data-detail-key="run-'+_esc(leg.security_id)
-              +'"><summary>Order details</summary><div class="detail-body">'+detail+'</div></details>' if orders else '')+'</li>')
+              +'"><summary>'+('Order details' if orders else 'Execution details')
+              +'</summary><div class="detail-body">'+detail+'</div></details>' if detail else '')+'</li>')
     recorded_note = ''
     if historical:
         future = panel.row('paper_plan')

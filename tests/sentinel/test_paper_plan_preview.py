@@ -231,11 +231,66 @@ def test_opening_dollars_do_not_become_invented_share_orders():
     value=project(selected=selected,positions={})
     leg=next(x for x in value.legs if x.security_id=='one')
     assert leg.action=='BUY' and leg.opening_dollars==2000 and leg.change_quantity is None
+    value=preview._with_opening_estimates(value,{})
+    assert value.legs[0].action=='UNAVAILABLE' and value.buys==1
     row=model.Row('paper_plan','Next paper plan','ready',paper_plan=value,valid_until=value.execute_at)
     html=render._paper_plan_html(row,NOW)
     assert '2026-10-14' in html and '06:31 AM Pacific' in html
-    assert 'Sized at execution' in html and '$2000 budget' in html
+    assert 'Estimate unavailable' in html and '$2000 strategy intent' in html
     assert render._paper_plan_html(row,value.execute_at+timedelta(seconds=1))==''
+
+
+def test_protected_estimate_reports_quantity_without_counting_below_one_share():
+    selected=plan()
+    selected['target_basket']={'one':'0','two':'0'}
+    selected['opening_intents']=dict(kind='plan-opening-intents/v1',plan_id=selected['plan_id'],
+        plan_fingerprint='a'*64,intents=[dict(security_id=sid,slot_id=i,intended_dollars='2400.85')
+                                         for i,sid in enumerate(('one','two'))])
+    original=project(selected=selected,positions={})
+    estimates={'one':preview.protected_estimate('1339716675/1000000','1748.23','0'),
+               'two':preview.protected_estimate('1339716675/1000000','1248.23','1')}
+    value=preview._with_opening_estimates(original,estimates)
+    assert (original.buys,value.buys,value.skips)==(2,1,1)
+    assert (value.legs[0].action,value.legs[0].opening_estimate.shares)==('SKIP',0)
+    assert (value.legs[1].action,value.legs[1].opening_estimate.shares)==('BUY',1)
+    html=render._paper_plan_html(model.Row('paper_plan','Next paper plan','ready',paper_plan=value),NOW)
+    assert '$1,339.72 paper budget' in html and '$1,748.23 limit' in html
+    assert 'Budget below one share' in html and '1 estimated share' in html
+
+
+@pytest.mark.parametrize('price, action', [('1730.93', 'SKIP'), ('1200', 'BUY')])
+def test_retry_without_shadow_pending_open_uses_compact_sizing_basis(monkeypatch, price, action):
+    from dataclasses import replace
+
+    from sentinel.execution import held_targets, journal, protected_limits
+    from sentinel.execution.plan import OpeningIntent
+    from sentinel.panel.intent_memo import projection
+    from tests.sentinel.test_production_decision import _episode, _publication, _state
+    from tests.v5.test_opening import case
+
+    _, original = case(exposure='0.55')
+    intent = OpeningIntent('SEC-AAA', 0, Decimal('2400.85'))
+    state = _state(episodes=(_episode(0, intent.security_id, 'MTD', 2),), equity='100000')
+    stored = replace(original, shadow_snapshot_hash=state.state_hash, opening_intents=(intent,))
+    selected, authority = original_authority()
+    selected.update(plan_id=stored.plan_id, plan_fingerprint=stored.fingerprint(),
+                    target_basket={'SEC-AAA': '0'}, opening_intents=[intent.to_dict()])
+    authority.update(plan_id=stored.plan_id, plan_fingerprint=stored.fingerprint(),
+        decision_session=str(stored.decision_session), shadow_state=state.to_dict(),
+        publication=_publication().to_dict(), marks={'SEC-AAA': price}, tickers={'SEC-AAA': 'MTD'},
+        held_share_targets=dict(schema=held_targets.RETRY_SCHEMA, targets={}, retry_openings=[intent.to_dict()]))
+    authority['broker_observation']['positions'] = []
+    assert not state.pending
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', protected_limits.PROTECTED_MODE)
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_CAP_BPS', '100')
+    monkeypatch.setattr(journal, 'load_plan', lambda *_a, **_k: stored)
+    compact = projection(authority)
+    assert compact['opening_sizing_basis'] == preview.opening_sizing_basis(authority)
+    assert 'shadow_state' not in compact
+    initial = preview.project_original_intent(selected, compact)
+    estimates = preview._opening_estimates(None, initial, stored.fingerprint(), compact)
+    leg, = preview._with_opening_estimates(initial, estimates).legs
+    assert (leg.ticker, leg.action, leg.opening_estimate.shares) == ('MTD', action, int(action == 'BUY'))
 
 
 def test_duplicate_opening_slots_cannot_announce_two_buys():
@@ -260,6 +315,6 @@ def test_plan_notification_is_distinct_from_a_fill_and_payload_is_bounded():
     alert=SimpleNamespace(event_type='PAPER_PLAN_READY',severity='INFO',alert_id='a'*64,
         payload={'effective_session':'2026-10-14','reason':'2 proposed buys; no orders submitted'})
     value=web_push.notification_payload(alert)
-    assert value['title']=='Paper trades planned for 2026-10-14'
+    assert value['title']=='Paper trading plan for 2026-10-14'
     assert 'proposed' in value['body'] and 'filled' not in value['title']
     assert value['url']=='/' and value['tag']==alert.alert_id

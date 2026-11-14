@@ -355,10 +355,12 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             "and starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
     from sentinel.execution.target_reprojection import TargetProjectionRefused
 
     try:
         market_policy = MarketBuyPolicy.from_env()
+        retry_skipped = dual_mode and market_policy is None and ProtectedLimitPolicy.from_env() is not None
     except TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
     if market_policy is not None and not dual_mode:
@@ -828,8 +830,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 marks, tickers = _load_marks_and_tickers(
                     conn, state, through_text)
                 from sentinel.execution import held_targets
-                share_basis = held_targets.build_basis(conn, previous=existing_plan,
-                    state=state, binding=binding, rollout=rollout)
                 if replacement_request is not None:
                     # Reuse the original continuing-holding basis. Unsent entry
                     # quantities in the replaced plan must not survive the policy change.
@@ -837,7 +837,12 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn, plan_id=existing_plan.plan_id)['held_share_targets']
                     held_targets.verify_basis(conn, basis=share_basis, state=state,
                                               binding=binding, rollout=rollout)
-                decision = build_execution_plan(
+                else:
+                    share_basis = held_targets.build_basis(conn, previous=existing_plan,
+                        state=state, binding=binding, rollout=rollout, retry_skipped=retry_skipped)
+                retries = held_targets.retry_openings(share_basis)
+                build = held_targets.build_execution_plan if retries else build_execution_plan
+                decision = build(
                     state=state, binding=binding, publication=pinned,
                     account_snapshot=account, observation=observation,
                     marks=marks, tickers=tickers,
@@ -845,7 +850,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     effective_session=date.fromisoformat(
                         calendar.next_session(through_text)),
                     rollout_state=rollout,
-                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()})
+                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()},
+                    **({"retry_openings": retries} if retries else {}))
                 if local_resizing and decision.plan.plan_id == existing_plan.plan_id:
                     raise PaperActivationRefused('local window resizing did not produce fresh plan economics')
                 authority = dual_plan_authority.build_authority(

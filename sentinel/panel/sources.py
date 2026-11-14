@@ -399,7 +399,7 @@ def _rollout_state(conn):
 def _latest_observation(conn):
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT observed_at, completeness, positions, orders, runtime_state"
+            "SELECT observed_at, completeness, positions, orders, runtime_state, seq"
             " FROM sentinel_observations ORDER BY seq DESC LIMIT 1")
         rows = cur.fetchall()
     if not rows:
@@ -411,6 +411,7 @@ def _latest_observation(conn):
         "positions": _json_mapping(row[2], label="broker observation positions"),
         "orders": _json_list(row[3], label="broker observation orders"),
         "runtime_state": str(row[4] or ""),
+        "sequence": int(row[5]),
     }
 
 
@@ -595,7 +596,9 @@ def _trading_run_row(conn, row, *, completed_history=False):
                     if c.security_id == sid and c.side.value == 'BUY'), Decimal(0)),
                 remaining_budget=None if blocked else remaining,
                 status=blocked or ('CASH_RESIDUAL' if 0 < remaining < 2 else 'PENDING' if remaining else 'COMPLETE')))
-    run = project_run(plan, authority, commands, purchase_allocations=allocations)
+    skipped = (_completed_opening_skips(conn, plan, stored, commands)
+               if plan['state'] == 'SUCCEEDED' and stored.opening_intents else {})
+    run = project_run(plan, authority, commands, purchase_allocations=allocations, below_whole_share=skipped)
     failed = run.state in {'FAILED','ABANDONED','SUPERSEDED'} or any(
         item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
     status = model.FAIL if failed else model.WARN if run.state in {
@@ -604,7 +607,8 @@ def _trading_run_row(conn, row, *, completed_history=False):
                   if not completed_history and len(row) == 17 else None)
     return model.Row('completed_trading_run' if completed_history else 'trading_run',
         'Today’s recorded completed run' if completed_history else 'Today’s paper trading',
-        'SKIPPED · CASH ACTIVITY RECONCILED' if retirement else run.state,
+        ('SKIPPED · CASH ACTIVITY RECONCILED' if retirement else
+         'SUCCEEDED · NO ORDERS PLACED' if skipped and not run.orders else run.state),
         model.WARN if retirement else status,
         detail=('Recorded completed run from before the current software activation; '
                 if completed_history else '')
@@ -612,6 +616,58 @@ def _trading_run_row(conn, row, *, completed_history=False):
         as_of=_utc(max([run.updated_at]+[item.observed_at for item in run.orders])),
         valid_until=_utc(plan['valid_until'])-timedelta(microseconds=1), trading_run=run,
         operational_fact=retirement)
+
+
+def _completed_opening_skips(conn, run_plan, plan, commands):
+    """Match a zero-share outcome to its retained protected plan and broker proof."""
+    from sentinel.execution import journal, protected_limits, target_reprojection
+    from sentinel.execution.states import CommandState, TERMINAL
+    from sentinel.paper_plan_preview import protected_estimate, quantity
+
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    sizing = projection.opening_sizing if projection is not None else None
+    if not sizing or sizing.get('mode') != protected_limits.PROTECTED_MODE:
+        return {}
+    if projection.plan_fingerprint != plan.fingerprint() or projection.through_session != plan.effective_session:
+        raise ValueError('completed opening sizing names another plan or session')
+    protected_limits.validate_projection(projection, plan=plan)
+    submitted = {order['security_id'] for order in commands}
+    candidates = {entry['security_id']: protected_estimate(
+                      entry['budget'], sizing['limits'][entry['security_id']], entry['account_shares'])
+                  for entry in sizing['entries'] if entry['status'] == 'BELOW_WHOLE_SHARE'
+                  and entry['security_id'] not in submitted}
+    if not candidates:
+        return {}
+    result = conn.execute("""SELECT c.last_clean_reconciliation_id,c.diagnostic->'execution',
+        o.observed_at,o.runtime_state
+        FROM sentinel_automation_cycles c
+        JOIN sentinel_observations o ON o.seq::text=c.last_clean_reconciliation_id
+        WHERE c.cycle_id=%s AND c.plan_id=%s AND c.state='SUCCEEDED' AND c.failure_code IS NULL
+        AND c.completed_at=%s AND NOT c.historical_state_only""",
+        (run_plan['cycle_id'], plan.plan_id, run_plan['completed_at'])).fetchone()
+    if result is None:
+        return {}
+    clean, execution, observed_at, runtime = result
+    reconciliation = (execution or {}).get('reconciliation') or {}
+    if (runtime != 'RUNNING' or not run_plan['execute_at'] <= observed_at <= run_plan['completed_at']
+            or reconciliation.get('clean') is not True or reconciliation.get('runtime_state') != 'RUNNING'
+            or reconciliation.get('observation_id') != int(clean)
+            or any(reconciliation.get(key) != [] for key in ('unresolved','foreign_orders','foreign_positions'))
+            or reconciliation.get('restricted_securities') != {}
+            or reconciliation.get('expected') != reconciliation.get('observed')
+            or execution.get('refused') != {} or execution.get('deferred') != []):
+        return {}
+    payload = journal.load_observation_payload(conn, int(clean))
+    if (payload.get('completeness') != 'COMPLETE'
+            or (payload.get('broker'),payload.get('account_id')) != (plan.broker,plan.broker_account_id)
+            or any(CommandState(order['state']) not in TERMINAL for order in payload['orders'])):
+        return {}
+    positions = {item['security_id']: quantity(item['quantity']) for item in payload['positions']}
+    expected = {sid: quantity(qty) for sid,qty in reconciliation['expected'].items()}
+    if {sid:qty for sid,qty in positions.items() if qty} != {sid:qty for sid,qty in expected.items() if qty}:
+        return {}
+    return {sid:estimate for sid,estimate in candidates.items()
+            if projection.target_basket.get(sid) == 0 and positions.get(sid, 0) == 0}
 
 
 def _historical_cash_skip_fact(conn, plan, run, terminal):
@@ -3195,12 +3251,19 @@ def _dual_authority_rows(
         shadow_error = None
         source_wait = None
         from sentinel.panel import shadow_source_wait
+        options = {}
+        if not project_execution_context:
+            options['historical_frontier'] = True
+            if not include_paper:
+                options['observe_handoff'] = shadow_source_wait.close_handoff_observer(database_url)
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
-                starting_cash=starting_cash,
-                **({'historical_frontier':True} if not project_execution_context else {}))
+                starting_cash=starting_cash, **options)
             if not project_execution_context:
+                from sentinel.prepare_shadow_wait import ShadowPreparationWait
+                if isinstance(result, ShadowPreparationWait):
+                    return shadow_source_wait.preparation_rows(result, include_paper=False), {}, [], []
                 from sentinel.rolling_runtime import HistoricalSourceFrontier
                 if isinstance(result, HistoricalSourceFrontier):
                     source_wait = shadow_source_wait.from_history(result, now=now)
@@ -3568,9 +3631,9 @@ def _runtime_projection(database_url: str, *, include_book=True,
                         now: datetime | None = None) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
-    This is a PostgreSQL projection only. In particular, the newest
-    `sentinel_observations` row is shown as what the broker said when an explicit
-    command last observed it; rendering this page never asks the broker again.
+    This is a PostgreSQL projection only. The newest journal observation is
+    shown with its original clock, or with the independently recorded clock
+    that confirmed those same positions and zero working orders at the open.
     """
     if not database_url:
         detail = "SENTINEL_DATABASE_URL is unset"
@@ -3732,6 +3795,21 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 observed_at = observation['observed_at']
                 if observed_at is None:
                     raise ValueError('broker observation clock is missing')
+                confirmed = None
+                if (recovery_cycle is not None and recovery_cycle['state'] in {'WAITING_OPEN', 'EXECUTING'}
+                        and recovery_cycle.get('plan_id') and recovery_cycle.get('execute_at')
+                        and not (working_orders or active or uncertain)
+                        and observation['completeness'] == 'COMPLETE'
+                        and observation['runtime_state'] == 'RUNNING'):
+                    from sentinel.execution import opening_display
+                    confirmed, _ = _read(conn,
+                        lambda c: opening_display.observed_at(
+                            c, cycle_id=recovery_cycle['cycle_id'], plan_id=recovery_cycle['plan_id'],
+                            reconciliation=observation.get('sequence')),
+                        STATEMENT_TIMEOUT_MS, default=None)
+                journal_observed_at = observed_at
+                if confirmed is not None and confirmed > observed_at:
+                    observed_at = confirmed
                 broker_valid_until = _runtime_valid_until(
                     recovery_cycle, observed_at, broker_fact=True)
                 if working_orders or active or uncertain:
@@ -3745,9 +3823,12 @@ def _runtime_projection(database_url: str, *, include_book=True,
                     uncertain_commands=uncertain,
                     command_counts=counts,
                     command_as_of=commands["updated_at"],
-                    as_of=observation["observed_at"],
+                    as_of=observed_at,
                     recovery=broker_recovery,
                     valid_until=broker_valid_until)
+                if observed_at != journal_observed_at:
+                    broker = replace(broker, detail=broker.detail
+                        + ' · native positions and working orders independently refreshed before open')
                 if (trading_row is not None and observation['completeness']=='INCONSISTENT'
                         and recovery_cycle and recovery_cycle.get('observation_callback')
                         and recovery_cycle.get('cycle_id') == trading_row.trading_run.intent.cycle_id

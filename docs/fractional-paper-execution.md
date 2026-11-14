@@ -201,6 +201,14 @@ new generation's future plan; it never relabels the old cycle. If any requiremen
 refuses, leave the plan history intact and diagnose that evidence. These flags
 are not an account reset, a certificate issuer, or permission to submit orders.
 
+The installed host may queue this attended replacement with
+`sentinel_activation_coordinator.py --queue-from-installation <receipt> --mode
+dual` and the same five replacement flags. Seal the exact request in the
+activation record and forward it only through the fenced preparation step after
+signed authority renewal. Reject combinations with other recovery requests.
+The coordinator must stop for operator review if the named replacement has
+already completed under a different authority.
+
 ## Current asset eligibility
 
 Permanent security identity and native asset identity stay separate from current
@@ -243,6 +251,18 @@ do not justify synthetic fills, shares or cash. Current provider capability and
 accepted evidence, not generic documentation alone, govern financial admission.
 
 ## Qualification, presentation and transition
+
+The backed release includes the already deployed November 13 close, opening
+evidence and zero-share retry fixes. Retain their original whole-share display
+and authority rules for saved protected-limit plans. Their held-share retry
+basis keeps schema version 2. New fractional fulfillment evidence uses version
+3 so that the historical retry payload retains its meaning. When replacing an
+unsent plan, keep its authenticated retry intents and original holding basis,
+then size those openings under the successor's selected policy.
+
+Admit the exact installed November 13 source as a retained predecessor. Keep
+the existing verified source maps from both branches and the compact inventory's
+fixed anchor. Only the combined release's exact source may use that admission.
 
 Reconciliation also houses the historical action-input decoder. Qualify the
 exact before/after reconciliation module as an execution-only source transition:

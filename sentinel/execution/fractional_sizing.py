@@ -87,11 +87,13 @@ def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
 
 
 def resolve(state, plan, projection, references, policy, *, baseline,
-            retained_targets, carried_budgets=None):
+            retained_targets, carried_budgets=None, retry_openings=()):
     from sentinel.core.decision import _shadow_equity, shadow_target
     if not policy.fractional or state.state_hash != plan.shadow_snapshot_hash:
         raise TargetProjectionRefused("fractional allocation requires the selected canonical plan")
-    if shadow_target(state).opening_intents != plan.opening_intents:
+    target = shadow_target(state)
+    expected = tuple(sorted((*target.opening_intents, *retry_openings), key=lambda item: item.slot_id))
+    if expected != plan.opening_intents:
         raise TargetProjectionRefused("fractional allocation changed canonical opening eligibility")
     retained = _retained_quantities(projection, retained_targets)
     evidence = {

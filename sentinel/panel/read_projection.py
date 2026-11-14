@@ -112,7 +112,7 @@ def subject_for(database_url, include_paper):
     from sentinel.feed import store
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         return subject(conn, database_url, 'PAPER' if include_paper else 'SHADOW')
     finally:
         conn.rollback(); conn.close()
@@ -149,11 +149,14 @@ def _decode_row(value):
     return observer_codec.row_from_observation(raw)
 
 
-def make(scope, current_subject, rows, errors, *, observed_at, valid_until=None):
+def make(scope, current_subject, rows, errors, *, observed_at, valid_until=None,
+         valuation_basis=None):
     expiry = valid_until or observed_at+timedelta(seconds=financial.FRESH_SECONDS)
     value = {'schema':SCHEMA,'scope':scope,'subject_sha256':current_subject,
              'observed_at':observed_at.isoformat(),'valid_until':expiry.isoformat(),
              'rows':[_json_row(row) for row in rows],'errors':list(errors)}
+    if valuation_basis is not None:
+        value['valuation_basis'] = valuation_basis
     if len(json.dumps(value, allow_nan=False).encode()) > observer_codec.MAX_BYTES:
         raise ValueError('verification receipt exceeds bound')
     signature = receipt_authentication.sign(value)
@@ -163,8 +166,8 @@ def make(scope, current_subject, rows, errors, *, observed_at, valid_until=None)
 
 
 def decode(value, signature, *, current_subject, scope, now):
-    if (not isinstance(value,dict) or set(value) != {
-            'schema','scope','subject_sha256','observed_at','valid_until','rows','errors'}
+    fields = {'schema','scope','subject_sha256','observed_at','valid_until','rows','errors'}
+    if (not isinstance(value,dict) or set(value) not in (fields, fields | {'valuation_basis'})
             or value['schema'] != SCHEMA or value['scope'] != scope or scope not in SCOPES
             or value['subject_sha256'] != current_subject or not isinstance(signature,str)
             or len(json.dumps(value, allow_nan=False).encode()) > observer_codec.MAX_BYTES
@@ -181,7 +184,50 @@ def decode(value, signature, *, current_subject, scope, now):
     rows = [_decode_row(row) for row in value['rows']]
     if any(row.is_future(observed) for row in rows):
         raise ValueError('verification receipt fact is future dated')
+    if 'valuation_basis' in value:
+        from sentinel.panel import display_dependencies
+        basis = value['valuation_basis']
+        display_dependencies.validate_basis(basis)
+        if (scope != 'PAPER' or not basis or basis['native']['PAPER'] != current_subject
+                or basis['account_anchor'] is None or value['errors']
+                or not completed_history(rows, now=observed)):
+            raise ValueError('verification valuation basis is not completed PAPER evidence')
     return rows, {}, [], list(value['errors'])
+
+
+def completed_history(rows, *, now):
+    return (len(rows) == 1 and rows[0].key == 'paper_reconciliation'
+            and rows[0].paper_alignment == 'COMPLETED_WITH_HISTORY'
+            and rows[0].effective_status(now) == model.WARN)
+
+
+def rebase_completed_paper(conn, database_url, stored, *, now, facts=None,
+                           current_basis=None):
+    """Revalidate a finished read across one positively proved valuation append."""
+    from sentinel.panel import display_dependencies
+    value, signature = stored
+    before = value.get('valuation_basis')
+    if not before:
+        return None
+    try:
+        rows, _, _, _ = decode(value, signature, current_subject=value['subject_sha256'],
+                               scope='PAPER', now=now)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return None
+    if not completed_history(rows, now=now):
+        return None
+    current = (display_dependencies.capture(conn, database_url, facts=facts)
+               if current_basis is None else current_basis)
+    if current['native']['PAPER'] == value['subject_sha256']:
+        return value, rows
+    if (before['native']['SHADOW'] != current['native']['SHADOW']
+            or not display_dependencies.valuation_only_advance(
+                conn, database_url, before, current, facts=facts, completed_now=now)):
+        return None
+    # Only the subject advances. Original evidence clocks and rows stay signed.
+    next_value = {**value, 'subject_sha256': current['native']['PAPER'],
+                  'valuation_basis': current}
+    return next_value, rows
 
 
 def publish(conn, *, owner_id, value, signature):
@@ -257,7 +303,7 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
     instant = now or datetime.now(timezone.utc)
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         return read_owned(conn,database_url,include_paper=include_paper,
                           now=instant,only_scope=only_scope)
     finally:
@@ -265,10 +311,10 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
 
 
 def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
-               native_subjects=None):
+               native_subjects=None, display_basis=None):
     """Read through the caller's snapshot without owning its transaction.
 
-    Optional facts and native subjects come from this same transaction's
+    Optional facts, native subjects and display basis come from this same transaction's
     coordinate capture. No connection, observer, commit, rollback or isolation change.
     """
     scopes=_selected_scopes(include_paper,only_scope)
@@ -293,6 +339,13 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                     or row[2].isoformat() != row[3].get('valid_until')):
                 raise ValueError('current verification receipt unavailable')
             if row[0] != key:
+                advanced = (rebase_completed_paper(
+                    conn, database_url, (row[3], row[4]), now=instant, facts=facts,
+                    current_basis=display_basis)
+                    if scope == 'PAPER' else None)
+                if advanced is not None and advanced[0]['subject_sha256'] == key:
+                    results.append((advanced[1], {}, [], []))
+                    continue
                 waiting = changed_subject_wait(conn,row,scope=scope,now=instant)
                 if waiting is not None:
                     results.append(waiting)

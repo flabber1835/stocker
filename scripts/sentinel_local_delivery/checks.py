@@ -472,8 +472,12 @@ _CANONICAL_PRESERVATION = r'''        policy=protected_limits.ProtectedLimitPoli
                 held_shares=target.held_shares,pending_close_shares=target.pending_close_shares)
             retained_policy,refs=protected_limits.validate_projection(projection)
             assert retained_policy==policy
+            retry_args={}
+            if proof.get('retry_openings'):
+                from sentinel.execution.plan import OpeningIntent
+                retry_args['retry_openings']=tuple(OpeningIntent.from_dict(item) for item in proof['retry_openings'])
             replay=protected_limits.resolve_protected(state,plan,projected,refs,policy,
-                retained_targets={k:Decimal(v) for k,v in proof['retained_targets'].items()})
+                retained_targets={k:Decimal(v) for k,v in proof['retained_targets'].items()},**retry_args)
             assert replay==projection
         with readers.pinned(conn,commit=False) as pub:
             assert str(readers.frontier(conn,pub))==expected['decision']

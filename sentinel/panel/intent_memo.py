@@ -42,10 +42,12 @@ def _reusable(version):
 
 
 def projection(value):
-    from sentinel.paper_plan_preview import sizing_display_inputs
+    from sentinel.paper_plan_preview import opening_sizing_basis, sizing_display_inputs
+
     observation = value['broker_observation']
     return dict(plan_id=value['plan_id'], plan_fingerprint=value['plan_fingerprint'],
         decision_session=value['decision_session'], tickers=dict(value['tickers']),
+        opening_sizing_basis=opening_sizing_basis(value),
         sizing_display=sizing_display_inputs(value),
         broker_observation=dict(completeness=observation['completeness'],
             account_identity=observation['account_identity'], observed_at=observation['observed_at'],
