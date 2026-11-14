@@ -73,12 +73,12 @@ async def permit_funding(**kwargs):
     return None
 
 
-def wrapper(inner, *, before_mutation=permit_read_or_mutation, funding=permit_funding):
+def wrapper(inner, *, before_mutation=permit_read_or_mutation, funding=permit_funding, issuer_check=None):
     return GuardedExecutionBroker(
         inner=inner, grant=ManualExecutionGrant(
             "SIM-ACCOUNT", "test-plan", inner.now.date(), True),
         guard=ExecutionBrokerGuard(permit_read_or_mutation, permit_read_or_mutation, before_mutation),
-        issuer_admission_check=lambda **kwargs: SimpleNamespace(allowed=True),
+        issuer_admission_check=issuer_check or (lambda **kwargs: SimpleNamespace(allowed=True)),
         market_buy_funding=funding)
 
 

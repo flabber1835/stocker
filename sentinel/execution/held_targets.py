@@ -40,13 +40,16 @@ def effective_exposure(state, rollout):
 
 
 def carry_quantities(*, previous, previous_state, projection, state,
-                     exposure, actions=None):
+                     exposure, actions=None, fulfilled_targets=None):
     """Use retained intent, never the observed partially filled broker book."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     if previous.target_exposure != exposure:
         return {}
     old, current = ownership(previous_state), ownership(state)
-    basket = previous.target_basket if projection is None else projection.target_basket
+    basket = (fulfilled_targets if fulfilled_targets is not None else
+              previous.target_basket if projection is None else projection.target_basket)
+    if projection is not None and projection.pending_share_targets:
+        basket = {**basket, **{sid: Fraction(qty) for sid, qty in projection.pending_share_targets.items()}}
     through = previous.decision_session if projection is None else projection.through_session
     decision = date.fromisoformat(state.last_processed_session)
     result = {}
@@ -90,9 +93,14 @@ def carry_quantities(*, previous, previous_state, projection, state,
             events = tuple(item.to_dict() for item in actions.scalar_evidence_for((sid,)))
             factor *= share_action_factor(security_id=sid, multiplier=multiplier,
                                           evidence=events)
-        if not isinstance(quantity, Decimal) or not quantity.is_finite() or quantity < 0:
+        if (not isinstance(quantity, (Decimal, Fraction))
+                or isinstance(quantity, Decimal) and not quantity.is_finite() or quantity < 0):
             raise TargetProjectionRefused("retained account share quantity is invalid")
-        result[sid] = exact_decimal(Fraction(quantity) * factor)
+        units = Fraction(quantity) * factor
+        if fulfilled_targets is not None and (units / Fraction("0.000000001")).denominator != 1:
+            result[sid] = units
+        else:
+            result[sid] = exact_decimal(units)
     return result
 
 
@@ -200,13 +208,12 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
                else None)
     from sentinel.execution import fractional_progress
     progress = None
-    carry_projection = projection
     if fractional_progress.is_fractional(projection):
         progress = fractional_progress.derive(conn, projection=projection,
             deployment=binding.identity, require_terminal=True)
-        carry_projection = replace(projection, target_basket=progress.targets)
     targets = carry_quantities(previous=previous, previous_state=prior_state,
-        projection=carry_projection, state=state, exposure=effective_exposure(state, rollout), actions=actions)
+        projection=projection, state=state, exposure=effective_exposure(state, rollout),
+        actions=actions, fulfilled_targets=None if progress is None else progress.targets)
     if retry_skipped and binding.broker == "alpaca" and progress is None:
         retries = _retry_openings(previous, prior_state, projection, state, authority.get("held_share_targets"))
         if retries:
@@ -217,7 +224,8 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
         previous_plan_fingerprint=previous.fingerprint(),
         previous_authority_sha256=authority["authority_sha256"],
         previous_projection_fingerprint=None if projection is None else projection.fingerprint(),
-        targets={sid: decimal_text(qty) for sid, qty in sorted(targets.items())})
+        targets={sid: decimal_text(qty) if isinstance(qty, Decimal) else "0"
+                 for sid, qty in sorted(targets.items())})
     if progress is not None:
         whole = {c.security_id for c in progress.commands if c.quantity is not None
                  and c.side.value == "BUY" and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}}
@@ -227,6 +235,9 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
             fulfillment_commands=[fractional_progress._witness(c) for c in sorted(
                 progress.commands, key=lambda c: c.client_key)
                 if c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}])
+        pending = {sid: str(qty) for sid, qty in sorted(targets.items()) if isinstance(qty, Fraction)}
+        if pending:
+            body["pending_share_targets"] = pending
     return body
 
 
@@ -284,6 +295,11 @@ def _basis_for_plan(conn, plan_id):
 def plan_purchase_budgets(conn, plan_id):
     basis = _basis_for_plan(conn, plan_id)
     return dict((basis or {}).get("purchase_budgets", {}))
+
+
+def plan_pending_share_targets(conn, plan_id):
+    basis = _basis_for_plan(conn, plan_id)
+    return {sid: Fraction(qty) for sid, qty in (basis or {}).get("pending_share_targets", {}).items()}
 
 
 def verified_targets(conn, *, plan, basis, state, binding, rollout):

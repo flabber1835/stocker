@@ -92,7 +92,7 @@ _POSITION_LAG_PREFIX = "broker-position-lag:v2:"
 class ReconciliationResult:
     runtime_state: RuntimeState
     observation: Optional[BrokerObservation] = None
-    expected: Mapping[str, Decimal] = field(default_factory=dict)
+    expected: Mapping[str, Decimal | Fraction] = field(default_factory=dict)
     observed: Mapping[str, Decimal] = field(default_factory=dict)
     corporate_actions: Mapping[str, Decimal] = field(default_factory=dict)
     recovered_orders: tuple = ()
@@ -484,7 +484,7 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
     comparison vacuous.
     """
     from fractions import Fraction
-    from sentinel.execution.contract import exact_decimal
+    from sentinel.execution.share_units import decimal_or_rational
     book: dict = {}
     for command in commands:
         from sentinel.execution.commands import is_legacy_migration, filled_share_units
@@ -500,7 +500,7 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
         signed = quantity if command.side.value == "BUY" else -quantity
         book[command.security_id] = book.get(command.security_id,
                                              Fraction(0)) + signed
-    return {k: exact_decimal(v) for k, v in book.items() if v != 0}
+    return {k: decimal_or_rational(v) for k, v in book.items() if v != 0}
 
 
 async def reconcile(*, broker: ExecutionBroker, conn, binding,
@@ -993,21 +993,27 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     expected_raw = expected_book_from_commands(resolved)
     lookup = actions or (lambda _sid: Decimal(1))
     expected = expected_book_from_commands(resolved, actions=lookup)
+    increment = broker.capabilities.minimum_quantity_increment
+    pending_entitlements = {
+        sid: Fraction(qty) for sid, qty in expected.items()
+        if isinstance(qty, Fraction) or (tolerance == 0 and qty != expected_raw.get(sid, 0)
+            and (Fraction(qty) / Fraction(increment)).denominator != 1)}
     applied = {
         sid: (expected[sid] / raw)
         for sid, raw in expected_raw.items()
-        if raw != 0 and sid in expected and expected[sid] != raw
+        if raw != 0 and sid in expected and sid not in pending_entitlements
+        and expected[sid] != raw
     }
 
     # 6. CLASSIFY WHAT SURVIVES.
     observed = observation.positions_by_security()
     mismatched_positions = {
         sid for sid in set(expected) | set(observed)
-        if abs(observed.get(sid, Decimal(0))
-               - expected.get(sid, Decimal(0))) > tolerance
+        if abs(Fraction(observed.get(sid, 0))
+               - Fraction(expected.get(sid, 0))) > (0 if sid in pending_entitlements else Fraction(tolerance))
     }
     lagging_fill_positions_list: list[str] = []
-    for sid in sorted(mismatched_positions):
+    for sid in sorted(mismatched_positions - pending_entitlements.keys()):
         expected_quantity = expected.get(sid, Decimal(0))
         observed_quantity = observed.get(sid, Decimal(0))
         gap = expected_quantity - observed_quantity
@@ -1066,7 +1072,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         if abs(gap) <= available + tolerance:
             lagging_fill_positions_list.append(sid)
     lagging_fill_positions = tuple(lagging_fill_positions_list)
-    from sentinel.execution.share_units import position_restrictions
+    from sentinel.execution.share_units import entitlement_matches_observation, position_restrictions
     restrictions = position_restrictions(
         actions=actions, commands=resolved, observation=observation,
         expected_raw=expected_raw, expected=expected)
@@ -1074,6 +1080,13 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # ownership of an otherwise unattributed position that shares its ticker.
     explained_action_positions = {
         sid for sid in restrictions if expected_raw.get(sid, Decimal(0)) > 0}
+    for sid, entitlement in pending_entitlements.items():
+        restrictions[sid] = f"CORPORATE_ACTION_PENDING: exact entitlement {entitlement} shares"
+        explained_action_positions.discard(sid)
+        if entitlement_matches_observation(
+                entitlement, observed.get(sid, Decimal(0)), expected_raw.get(sid, Decimal(0)),
+                increment):
+            explained_action_positions.add(sid)
     foreign_positions = tuple(sorted(
         mismatched_positions - set(lagging_fill_positions) - explained_action_positions))
     foreign_orders = tuple(o for o in observation.orders

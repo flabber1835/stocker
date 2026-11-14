@@ -5,8 +5,19 @@ are recomputed, never acknowledged away or latched from historical incidents.
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, Inexact
+from fractions import Fraction
 from typing import Mapping
+
+from sentinel.execution.numeric import exact_decimal
+
+
+def decimal_or_rational(value: Fraction) -> Decimal | Fraction:
+    """Preserve a share entitlement even when it has no finite decimal form."""
+    try:
+        return exact_decimal(value)
+    except Inexact:
+        return value
 
 
 def material_restrictions(actions, symbols: Mapping[str, str]) -> dict[str, str]:
@@ -48,3 +59,14 @@ def position_restrictions(*, actions, commands, observation,
         if raw > 0 and aged != raw and held.get(sid, Decimal(0)) == raw:
             result[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
     return dict(sorted(result.items()))
+
+
+def entitlement_matches_observation(entitlement, held, prior, increment):
+    """Recognize plausible unit-transition evidence without assigning it as shares."""
+    if entitlement <= 0 or held < 0:
+        return False
+    if prior > 0 and held == prior:
+        return True
+    lot = Fraction(increment)
+    floor = (entitlement // lot) * lot
+    return Fraction(held) in {floor, floor + lot}

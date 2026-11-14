@@ -291,7 +291,7 @@ async def recover_automated_paper_cycle(
                 conn, plan, clock().date())
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
-                plan=plan, commands=commands, actions=actions)
+                plan=plan, commands=commands, actions=actions, conn=conn)
             if active_security_ids and (not dual_mode or plan.opening_intents):
                 official_open = _official_preopen_cutoff(plan)
                 authority, actions, target_actions = _preopen_views_or_none(
@@ -318,7 +318,7 @@ async def recover_automated_paper_cycle(
                     authority=authority, plan=plan,
                     commands=current_commands, actions=actions,
                     required_cutoff_at=_official_preopen_cutoff(plan),
-                    evaluated_at=clock())
+                    evaluated_at=clock(), conn=conn)
                 if state is None:
                     raise PaperActivationRefused(
                         "current-generation recovery cannot revalidate its "
@@ -344,6 +344,11 @@ async def recover_automated_paper_cycle(
                     target_reprojection.assert_projection(
                         conn, plan=plan, projection=target_projection,
                         through_session=plan.effective_session)
+
+        from sentinel.execution.fractional_progress import share_restrictions
+        pending_share_targets = share_restrictions(target_projection)
+        if pending_share_targets:
+            result.restricted_securities = dict(result.restricted_securities) | pending_share_targets
 
         if dual_mode:
             _dual_mutation_observation_or_refuse(result)

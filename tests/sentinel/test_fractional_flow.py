@@ -1,16 +1,15 @@
 """Exercise the existing journal/reconciler/executor with native dollar orders."""
 import asyncio
 from dataclasses import replace
-from datetime import timedelta
+from datetime import timedelta, timezone
 from decimal import Decimal as D
 import inspect
 import textwrap
-from types import SimpleNamespace
 
 import pytest
 
 from sentinel import binding, schema
-from sentinel.execution import executor, fractional_progress, fractional_sizing, journal, recovery, target_reprojection
+from sentinel.execution import executor, fractional_progress, fractional_sizing, issuer_admission, issuer_runtime, journal, recovery, target_reprojection
 from sentinel.execution.contract import BrokerAssetRules, Side
 from sentinel.execution.guarded import GuardedExecutionBroker, OrderEvidenceNotReady, PreTransportAuthorityRefused
 from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
@@ -139,7 +138,7 @@ def test_native_accept_then_timeout_stays_unknown_and_recovers_same_dollars(data
     assert inner.calls.count("submit:" + command.client_key) == 1
 
 
-async def serial_flow(database):
+async def serial_flow(database, monkeypatch):
     schema.ensure_schema(database)
     binding.bind(database, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
                  broker_account_id=DEPLOYMENT.broker_account_id)
@@ -154,19 +153,41 @@ async def serial_flow(database):
     target_reprojection.record_projection(database, projection)
     inner = DollarBroker()
     opened, _ = calendar.session_window(plan.effective_session)
-    inner.now = opened + timedelta(seconds=60)
+    inner.now = opened.astimezone(timezone.utc) + timedelta(seconds=60)
     database.execute("UPDATE sentinel_account_binding SET established_at=%s", (opened,))
     database.commit()
-    broker = wrapper(inner)
+    from sentinel.execution import reconcile
+    from sentinel.feed import issuer_reference
+    instruments = market_instruments()
+    source = issuer_reference.IssuerReferenceSnapshot.create(observed_at_utc=inner.now,
+        associations=[{'cik': str(i).zfill(10), 'ticker': asset.symbol, 'exchange': 'NYSE'}
+                      for i, asset in enumerate(instruments.values(), 1)],
+        coverage='PARTIAL', source_method='WEB_EXTRACTED_REPRESENTATION')
+    descriptors = {sid: issuer_admission.Instrument(security_id=sid,
+        provider_asset_id=asset.broker_id, symbol=asset.symbol, exchange='NYSE',
+        security_type='Common Stock', security_type2='Common Stock')
+        for sid, asset in instruments.items()}
+    monkeypatch.setattr(issuer_reference, 'load_snapshot', lambda: source)
+    monkeypatch.setattr(issuer_runtime, 'reference_instruments', lambda *_: descriptors)
+    admission = issuer_runtime.PaperIssuerAdmission(conn=database, binding=DEPLOYMENT,
+                                                    clock=lambda: inner.now)
+    broker = wrapper(inner, issuer_check=admission.final_check)
     with journal.writer_lock(database, recovery_only=True):
         from sentinel.automation_runtime import _actionable_projection_deltas
         from sentinel import trial
+        rec = await reconcile.reconcile(broker=broker, conn=database,
+            binding=None, deployment=DEPLOYMENT)
+        issuer_admission.enroll(database, binding=DEPLOYMENT, state=state,
+            reconciliation=rec, snapshot=source, instruments=descriptors, now=inner.now)
+        admission.prepare_for_transport(publication=object(), state=state, plan=plan,
+            projection=projection, reconciliation=rec)
+        assert admission.evidence is not None, admission.error
         async def tick():
             return await executor._execute_session_locked(broker=broker, conn=database,
-                deployment=DEPLOYMENT, plan=plan, instruments=market_instruments(),
+                deployment=DEPLOYMENT, plan=plan, instruments=instruments,
                 today=plan.effective_session, actions=lambda *args: D(1),
                 target_projection=projection, min_increment=D("0.000000001"),
-                buy_admission=lambda **kwargs: SimpleNamespace(allowed=True))
+                buy_admission=admission.check_buy)
         first = await tick()
         assert len(first.submitted) == 1, first.to_dict()
         command = first.submitted[0]
@@ -193,12 +214,80 @@ async def serial_flow(database):
         assert all(c.side is Side.BUY for c in journal.load_commands(database, DEPLOYMENT))
 
 
-def test_real_reconciliation_keeps_partial_shares_and_serializes_two_dollar_buys(database):
-    asyncio.run(serial_flow(database))
+def test_real_reconciliation_keeps_partial_shares_and_serializes_two_dollar_buys(database, monkeypatch):
+    asyncio.run(serial_flow(database, monkeypatch))
 
 
 def test_serial_buy_guard_falsifier(database, monkeypatch):
     monkeypatch.setattr(executor, "_execute_session_locked", _compiled(
         executor._execute_session_locked, "if market and delta.is_increase:", "if False:"))
     with pytest.raises(AssertionError):
-        asyncio.run(serial_flow(database))
+        asyncio.run(serial_flow(database, monkeypatch))
+
+
+def test_real_issuer_guard_falsifier(database, monkeypatch):
+    monkeypatch.setattr(issuer_admission, "check_buy", _compiled(
+        issuer_admission.check_buy, "or Decimal(purchases.get(sid, {}).get('budget', '0')) > 0", "or False"))
+    with pytest.raises(AssertionError, match="ISSUER_POSITIVE_TARGET_REQUIRED"):
+        asyncio.run(serial_flow(database, monkeypatch))
+
+
+@pytest.mark.parametrize("fractionable", [False, True])
+def test_sale_settlement_checks_the_original_share_target(database, fractionable):
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+    from sentinel.execution.commands import Command
+    from sentinel.execution.contract import BrokerInstrument
+    from sentinel.execution.identity import CommandIdentity
+
+    class FillSales(DollarBroker):
+        async def asset_rules(self, *, instrument):
+            return BrokerAssetRules(instrument, self.now,
+                self.fractionable or instrument.security_id == DEFENSIVE_SECURITY_ID)
+
+        async def submit(self, **kwargs):
+            outcome = await super().submit(**kwargs)
+            if kwargs["side"] is Side.SELL:
+                self.fill(kwargs["client_key"])
+            return outcome
+
+    async def run():
+        schema.ensure_schema(database)
+        binding.bind(database, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                     broker_account_id=DEPLOYMENT.broker_account_id)
+        state, original = case(entries=0, sale=True)
+        plan = replace(original, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                       broker_account_id=DEPLOYMENT.broker_account_id, takeover_epoch=1,
+                       target_basket={"SEC-X": D(0), DEFENSIVE_SECURITY_ID: D(1)})
+        plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
+        raw = base(state, plan)
+        sale = BrokerInstrument("SEC-X", "X", "sim-asset-SEC-X")
+        sleeve = BrokerInstrument(DEFENSIVE_SECURITY_ID, "BIL", "sim-asset-" + DEFENSIVE_SECURITY_ID)
+        projection = fractional_sizing.resolve(state, plan, raw, references(plan, raw), MarketBuyPolicy(True),
+            baseline={"through_event_seq": 0, "commands": [], "holdings": {"SEC-X": "2.5"}},
+            retained_targets={})
+        journal.save_plan(database, plan)
+        target_reprojection.record_projection(database, projection)
+        journal.save_command(database, Command(CommandIdentity(DEPLOYMENT, "prior", sale.security_id),
+            sale, Side.BUY, D("2.5"), filled_quantity=D("2.5"), filled_average_price=D(100),
+            state=S.FILLED, broker_order_id="prior-buy"))
+        inner = FillSales()
+        opened, _ = calendar.session_window(plan.effective_session)
+        inner.now = opened + timedelta(seconds=60)
+        inner.fractionable = fractionable
+        inner.seed_position(sale, "2.5")
+        database.execute("UPDATE sentinel_account_binding SET established_at=%s", (opened,))
+        database.commit()
+        with journal.writer_lock(database, recovery_only=True):
+            return await executor._execute_session_locked(broker=wrapper(inner), conn=database,
+                deployment=DEPLOYMENT, plan=plan, instruments={sale.security_id: sale, sleeve.security_id: sleeve},
+                today=plan.effective_session, actions=None, target_projection=projection,
+                min_increment=D("0.000000001"))
+
+    result = asyncio.run(run())
+    if fractionable:
+        assert [command.side for command in result.submitted] == [Side.SELL, Side.BUY]
+        assert result.submitted[0].quantity == D("2.5")
+    else:
+        assert [command.side for command in result.submitted] == [Side.SELL]
+        assert result.submitted[0].quantity == 2
+        assert result.restricted_securities["SEC-X"].endswith("0.5")

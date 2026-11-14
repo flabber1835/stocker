@@ -222,12 +222,12 @@ def _wanted(plan, projection):
             | {item.security_id for item in plan.opening_intents} | {DEFENSIVE_SECURITY_ID})
 
 
-def build_references(conn, *, plan, projection, policy=None):
+def build_references(conn, *, plan, projection, policy=None, additional_security_ids=()):
     """Read exact RAW rows again, after authenticating the plan publication."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID, publication_fingerprint
     from sentinel.execution import feed_inputs
     from sentinel.feed.rolling_contract import digest
-    wanted = _wanted(plan, projection)
+    wanted = _wanted(plan, projection) | set(additional_security_ids)
     with feed_inputs.pinned(conn, commit=False) as pub:
         if (not feed_inputs.is_rolling(pub) or pub.version != plan.data_version
                 or publication_fingerprint(pub) != plan.publication_fingerprint

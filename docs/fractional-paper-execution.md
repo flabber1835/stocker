@@ -36,6 +36,46 @@ new candidate edits must not rewrite the historical delta records.
 
 ## Authority and scope
 
+### Execution invariants across account plans
+
+Issuer admission and same-issuer priority use positive authenticated purchase
+dollars or a positive share target. The issuer record binds the immutable
+projection fingerprint. The checks read the dollar obligations from that
+projection and keep the same ownership, native identity and reservation gates.
+Pre-open coverage and RAW reference collection include carried purchase
+obligations even when a security has zero shares and no new opening intent.
+
+Carry acquired quantities separately from the original allocation. Validate the
+original allocation before deriving which purchases are unavailable. A later
+plan can therefore carry a filled leg alongside a leg with zero fills.
+
+For fractional plans, derive trade cash and reusable purchase principal from
+the same exact durable fills matched to the command and native order. The
+serialized average checks fill coverage and consistency. It cannot supply exact
+cash. Missing fills defer financial authority and contradictory fills refuse it.
+Keep the exact native fee cash equality.
+
+Keep scalar-action entitlements as rational share quantities until they can be
+expressed exactly. The account may contain a restricted holding alongside
+ordinary holdings. Compare an unrepresentable holding against the exact
+entitlement. An unchanged pre-action balance or adjacent quantity at the broker
+increment can remain a scoped restriction. A different balance still needs
+independent reconciliation. Carry the exact pending target separately from the
+executable share basket and age it through later authenticated events. A
+restricted quantity may never authorize a compensating order or count as flat.
+
+Recheck the original reduction against the fresh reconciled position after
+settlement. A filled whole-share reduction can leave a fractional remainder
+that still blocks dependent buys. Automation and close verification require
+completion of the underlying share and dollar obligations, including dust.
+
+The backed local patch retains the exact installed PR #589 runtime inventory as
+an additional predecessor. Its reconciliation change is limited to execution
+and result interpretation. Preserve the earlier complete action compiler
+witness and verify the economic input definitions and dependencies against it.
+The local receipt records the actual source and image and preserves the existing
+scheduled PAPER plan.
+
 Preserve the canonical Wealth Core book, its selection, pending-entry eligibility,
 slot priority, stops, cooldowns and cash semantics. Preserve the Sentinel
 controller and its inputs. Broker observations remain execution inputs only.

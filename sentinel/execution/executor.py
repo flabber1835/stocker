@@ -489,6 +489,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
         deferred.extend(progress.blocked)
         deferral_reasons.update(progress.blocked)
+        restrictions.update(fractional_progress.share_restrictions(target_projection))
     window_open = is_execution_window_open(plan, today)
 
     def issuer_admitted(delta, *, reserve=False):
@@ -757,6 +758,14 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 assert rec.observation is not None            # pragma: no cover
                 observation = rec.observation
                 open_commands = journal.in_flight_commands(conn, deployment)
+                remaining_reductions = [
+                    d.security_id for d in reductions
+                    if size(d.security_id, observation).remaining < 0]
+                if remaining_reductions:
+                    deferred.extend(d.security_id for d in increases)
+                    increases = []
+                    settle_note = (
+                        f"increases deferred with unsettled reduction targets: {remaining_reductions}")
                 increases = [
                     size(d.security_id, observation)
                     for d in increases]
@@ -769,6 +778,16 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # The strict paper gateway supplies its account-cash authority here, at the
     # last read-only boundary before any increase. It runs for pure buys too;
     # cash can change after preflight even when there was no sale to settle.
+    if fractional and increases:
+        from fractions import Fraction
+        pending = target_projection.pending_share_targets
+        restricted_reductions = [
+            sid for sid in fractional_progress.share_restrictions(target_projection)
+            if Fraction(pending.get(sid, progress.targets.get(sid, 0))) < Fraction(rec.expected.get(sid, 0))]
+        if restricted_reductions:
+            deferred.extend(d.security_id for d in increases)
+            increases = []
+            settle_note = f"increases deferred with restricted reductions: {sorted(restricted_reductions)}"
     if market and increases and (open_commands or any(order.is_working for order in observation.orders)):
         deferred.extend(delta.security_id for delta in increases)
         increases = []

@@ -17,7 +17,7 @@ from sentinel import binding
 from sentinel.execution import broker_cash, journal, protected_funding, protected_limits, target_reprojection
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerInstrument,
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerFill, BrokerInstrument,
     BrokerObservation, BrokerOrder, Completeness, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.plan import ExecutionPlan
@@ -25,7 +25,7 @@ from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store
 from sentinel.paper import cash
-from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused
+from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused, PaperRetryableRefused
 from tests.sentinel.test_alpaca_boundary_overlay import Response, activity_event, sse
 from tests.sentinel.test_paper_current_cash_acceptance import (
     ACCOUNT_NUMBER, NOW, PATH, conn, pg, selected)  # noqa: F401
@@ -87,6 +87,24 @@ def baseline_json(conn, case):
 
 def fee_state(conn, case):
     return ingest(conn, [case['old'], event(2, 'FEE', '-0.04')], hours=1)
+
+
+def test_fractional_fee_cash_uses_exact_native_fills(conn, case):
+    command = Command(CommandIdentity(case['deployment'], case['plan'].plan_id, 'SEC-A'),
+        BrokerInstrument('SEC-A', 'AAA', 'native-a'), Side.BUY, None, notional=D('150.50'),
+        state=CommandState.FILLED, broker_order_id='dollar-buy', filled_quantity=D('1.5'),
+        filled_average_price=D('100.333333333'))
+    journal.save_command(conn, command)
+    journal.record_fills(conn, (BrokerFill(command.client_key, command.broker_order_id,
+        D('0.5'), D('100'), NOW),))
+    state = fee_state(conn, case)
+    with pytest.raises(PaperRetryableRefused, match='FILL_PRINCIPAL_PENDING'):
+        check(conn, case, state, actual=D('849.46'))
+    journal.record_fills(conn, (BrokerFill(command.client_key, command.broker_order_id,
+        D(1), D('100.50'), NOW + timedelta(seconds=1)),))
+    assert check(conn, case, state, actual=D('849.46')) is False
+    with pytest.raises(PaperActivationRefused, match='exact fresh cash equation'):
+        check(conn, case, state, actual=D('849.47'))
 
 
 def test_multiple_fees_continue_exact_intents_and_survive_restart(conn, pg, case):

@@ -214,9 +214,14 @@ async def _broker_cash_state_or_refuse(
 
 def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> Fraction:
     """The one immutable-plan plus durable-fill cash equation."""
+    from sentinel.execution.fractional_progress import is_fractional
+    from sentinel.execution.target_reprojection import load_projection
+    from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_principal
+
     expected_without_activity = Fraction(plan.account_cash)
     if commands is None:
         commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
+    fractional = None
     for command in commands:
         if command.identity.plan_id != plan.plan_id:
             continue
@@ -227,7 +232,19 @@ def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> 
                 f"cannot reconcile account cash for filled command "
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
-        notional = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
+        try:
+            notional = exact_fill_principal(conn, command)
+        except FillHistoryIncomplete as exc:
+            if fractional is None:
+                fractional = is_fractional(load_projection(conn, plan_id=plan.plan_id))
+            if command.notional is not None or fractional:
+                raise PaperRetryableRefused(
+                    f"FILL_PRINCIPAL_PENDING for {command.client_key}: {exc}") from exc
+            # Older quantity plans can predate durable per-fill cash evidence.
+            notional = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
+        except ValueError as exc:
+            raise PaperActivationRefused(
+                f"FILL_PRINCIPAL_CONTRADICTORY for {command.client_key}: {exc}") from exc
         expected_without_activity += (
             notional if command.side.value == "SELL" else -notional)
     return expected_without_activity

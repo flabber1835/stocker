@@ -273,9 +273,11 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
             target, change = number(leg.target_quantity), number(leg.change_quantity)
         legacy_rows.append((leg.ticker,leg.action,number(leg.current_quantity),target,change))
     rows = legacy_rows if plan.buy_policy is None else [(leg.ticker,leg.action,number(leg.current_quantity),
+             'Pending' if leg.reason == 'CORPORATE_ACTION_PENDING' else
              '$'+number(leg.opening_dollars)+' budget' if leg.opening_dollars is not None else number(leg.target_quantity),
              '$'+number(leg.purchase_notional)+' market order' if leg.purchase_notional is not None
              else 'Budget below minimum order' if leg.action == 'SKIP'
+             else 'Corporate action pending' if leg.reason == 'CORPORATE_ACTION_PENDING'
              else 'Sizing evidence unavailable' if leg.reason == 'REFERENCE_UNAVAILABLE'
              else 'Sized at execution' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
     policy_note = (' Dollar purchases assume fractional eligibility and reserve $1 per purchase. '

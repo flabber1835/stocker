@@ -434,7 +434,7 @@ async def _execute_current_paper_plan(
                     f"corporate-action authority is ambiguous or invalid: {exc}") from exc
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
-                plan=plan, commands=commands, actions=actions)
+                plan=plan, commands=commands, actions=actions, conn=conn)
             official_open = _official_preopen_cutoff(plan)
             authority, actions, target_actions = _preopen_views_or_none(
                 conn, plan=plan,
@@ -484,14 +484,14 @@ async def _execute_current_paper_plan(
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
                 actions=actions, required_cutoff_at=official_open,
-                evaluated_at=clock())
+                evaluated_at=clock(), conn=conn)
             minimum_increment = (
                 broker.capabilities.minimum_quantity_increment)
             if authority is None and dual_mode:
                 # Retain the informational audit stamp; current reconciliation
                 # decides transport and historical checks remain reporting.
                 pending_ids = _preopen_active_security_ids(
-                    plan=plan, commands=current_commands, actions=actions)
+                    plan=plan, commands=current_commands, actions=actions, conn=conn)
                 pending_symbols = _informational_active_symbols(
                     active_security_ids=pending_ids,
                     commands=current_commands, observation=observation,
@@ -536,12 +536,14 @@ async def _execute_current_paper_plan(
             symbols[DEFENSIVE_SECURITY_ID] = "BIL"
             target_symbols = {sid: symbols.get(sid, sid) for sid in plan.target_basket
                               if plan.target_basket[sid] != 0
-                              or any(item.security_id == sid for item in plan.opening_intents)}
+                              or any(item.security_id == sid for item in plan.opening_intents)
+                              or sid in (target_projection.opening_sizing or {}).get("purchases", {})}
             restrictions = material_restrictions(target_actions, target_symbols)
             restrictions.update(preflight.restricted_securities)
 
             from sentinel.execution.protected_limits import unavailable_opening_intents
             from sentinel.execution import fractional_progress
+            restrictions.update(fractional_progress.share_restrictions(target_projection))
             unfinished = (fractional_progress.derive(conn, projection=target_projection,
                 deployment=binding.identity).blocked if fractional_progress.is_fractional(target_projection) else {})
             if (not restrictions and not unfinished and not unavailable_opening_intents(target_projection)

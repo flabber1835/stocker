@@ -719,7 +719,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, existing_plan, through_date)
                 commands = journal.load_commands(conn, binding.identity)
                 active_security_ids = _preopen_active_security_ids(
-                    plan=existing_plan, commands=commands, actions=actions)
+                    plan=existing_plan, commands=commands, actions=actions, conn=conn)
                 if active_security_ids and not dual_mode:
                     official_open = _official_preopen_cutoff(existing_plan)
                     due_authority, actions, due_target_actions = (
@@ -748,7 +748,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         authority=due_authority, plan=existing_plan,
                         commands=current_commands, actions=actions,
                         required_cutoff_at=_official_preopen_cutoff(
-                            existing_plan), evaluated_at=clock())
+                            existing_plan), evaluated_at=clock(), conn=conn)
             observation = _clean_or_refuse(rec, purpose="paper preparation")
             account_observation_started_at = clock()
             account = await broker.account_snapshot()

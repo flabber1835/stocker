@@ -29,6 +29,30 @@ def gross_matches_serialized_average(quantity, gross, average):
     return interval is not None and interval[0] <= Fraction(gross) <= interval[1]
 
 
+def exact_fill_principal(conn, command) -> Fraction:
+    """Return monetary authority only for a complete, consistent owned fill set."""
+    if command.filled_quantity == 0:
+        return Fraction(0)
+    if not command.broker_order_id:
+        raise ValueError("filled command has no native order identity")
+    quantity, gross = conn.execute(
+        "SELECT COALESCE(SUM(quantity),0),COALESCE(SUM(quantity*price),0)"
+        " FROM sentinel_fills WHERE client_key=%s AND broker_order_id=%s",
+        (command.client_key, command.broker_order_id)).fetchone()
+    expected = command.filled_quantity
+    average = command.filled_average_price
+    if (average is None or quantity > expected or gross < 0
+            or (quantity > 0 and gross == 0)):
+        raise ValueError("native fill principal contradicts the durable command")
+    if quantity < expected:
+        if not partial_gross_leaves_positive_notional(expected, gross, average):
+            raise ValueError("native fills leave no positive principal for missing shares")
+        raise FillHistoryIncomplete("exact native fill coverage is required")
+    if not gross_matches_serialized_average(expected, gross, average):
+        raise ValueError("native fill principal contradicts the durable order average")
+    return Fraction(gross)
+
+
 def partial_gross_leaves_positive_notional(quantity, gross, average):
     interval = _serialized_average_gross_interval(quantity, average)
     return interval is not None and Fraction(gross) < interval[1]

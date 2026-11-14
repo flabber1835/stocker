@@ -624,11 +624,21 @@ def _actionable_projection_deltas(
         if progress.blocked:
             raise target_reprojection.TargetProjectionRefused(str(progress.blocked))
         from sentinel.paper.targets import _plan_deltas
-        return tuple(delta for delta in _plan_deltas(
+        deltas = _plan_deltas(
             conn=conn, deployment=deployment, projection=projection,
             target_basket=projection.target_basket, observation=observation,
             minimum_quantity_increment=minimum_quantity_increment)
-            if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
+        actionable = tuple(delta for delta in deltas
+                           if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
+        if not actionable:
+            dust = {delta.security_id: str(delta.remaining) for delta in deltas
+                    if delta.classification is execution_commands.DeltaClass.DUST}
+            if dust:
+                raise target_reprojection.TargetProjectionRefused(f"DUST_RESIDUAL: {dust}")
+            fractional_progress.require_completed({
+                "blocked": fractional_progress.share_restrictions(projection),
+                "remaining_dollars": progress.budgets})
+        return actionable
     return _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)

@@ -9,12 +9,13 @@ from sentinel.execution import commands as C, journal, reconcile
 from sentinel.execution.contract import Side
 from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MARKET_BUY_HEADROOM
 from sentinel.execution.numeric import decimal_text, exact_decimal
+from sentinel.execution.share_units import decimal_or_rational
 from sentinel.execution.states import IN_FLIGHT, CommandState as S
 from sentinel.execution.target_reprojection import TargetProjectionRefused
 
 
 def is_fractional(projection):
-    return projection is not None and (projection.opening_sizing or {}).get("mode") == FRACTIONAL_MODE
+    return (getattr(projection, "opening_sizing", None) or {}).get("mode") == FRACTIONAL_MODE
 
 
 def _witness(command):
@@ -59,7 +60,11 @@ def baseline(conn, *, deployment, plan, actions, saved=None):
         raise TargetProjectionRefused("purchase baseline would be short")
     result = {"through_event_seq": boundary,
               "commands": [_witness(c) for c in sorted(selected, key=lambda c: c.client_key)],
-              "holdings": {sid: decimal_text(qty) for sid, qty in sorted(holdings.items())}}
+              "holdings": {sid: decimal_text(qty) for sid, qty in sorted(holdings.items())
+                           if isinstance(qty, Decimal)}}
+    pending = {sid: str(qty) for sid, qty in sorted(holdings.items()) if isinstance(qty, Fraction)}
+    if pending:
+        result["pending_entitlements"] = pending
     if saved is not None and saved != result:
         raise TargetProjectionRefused("purchase baseline command evidence changed")
     return result
@@ -67,17 +72,13 @@ def baseline(conn, *, deployment, plan, actions, saved=None):
 
 def _exact_principal(conn, command):
     """Native fills must cover the cumulative share counter before re-spending."""
-    from sentinel.execution.fill_integrity import gross_matches_serialized_average
-    rows = conn.execute(
-        "SELECT quantity,price FROM sentinel_fills WHERE client_key=%s AND broker_order_id=%s",
-        (command.client_key, command.broker_order_id)).fetchall()
-    qty = sum((Fraction(row[0]) for row in rows), Fraction(0))
-    gross = sum((Fraction(row[0]) * Fraction(row[1]) for row in rows), Fraction(0))
-    if (qty != Fraction(command.filled_quantity)
-            or (qty > 0 and (command.filled_average_price is None
-                or not gross_matches_serialized_average(exact_decimal(qty), exact_decimal(gross), command.filled_average_price)))):
-        raise TargetProjectionRefused("FILL_PRINCIPAL_PENDING: exact native fill coverage is required")
-    return gross
+    from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_principal
+    try:
+        return exact_fill_principal(conn, command)
+    except FillHistoryIncomplete as exc:
+        raise TargetProjectionRefused(f"FILL_PRINCIPAL_PENDING: {exc}") from exc
+    except ValueError as exc:
+        raise TargetProjectionRefused(f"FILL_PRINCIPAL_CONTRADICTORY: {exc}") from exc
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,15 @@ class Fulfillment:
     budgets: dict[str, Decimal]
     blocked: dict[str, str]
     commands: tuple
+
+
+def share_restrictions(projection):
+    if not is_fractional(projection):
+        return {}
+    pending = (projection.opening_sizing.get("baseline", {}).get("pending_entitlements", {})
+               | projection.pending_share_targets)
+    return {sid: f"CORPORATE_ACTION_PENDING: exact share units {qty}"
+            for sid, qty in pending.items()}
 
 
 def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=False):
@@ -146,7 +156,7 @@ def evidence(conn, *, projection, deployment):
     return {
         "targets": {sid: decimal_text(qty) for sid, qty in sorted(progress.targets.items())},
         "remaining_dollars": {sid: decimal_text(qty) for sid, qty in sorted(progress.budgets.items())},
-        "blocked": dict(sorted(progress.blocked.items())),
+        "blocked": dict(sorted((share_restrictions(projection) | progress.blocked).items())),
         "commands": [_witness(c) for c in sorted(progress.commands, key=lambda c: c.client_key)],
     }
 
@@ -170,7 +180,10 @@ def age_targets(conn, *, projection, targets, through, multipliers):
     aged = {}
     for sid, qty in targets.items():
         factor = share_action_factor(security_id=sid, multiplier=expected.get(sid, Decimal(1)), evidence=events)
-        aged[sid] = exact_decimal(Fraction(qty) * factor)
+        quantity = decimal_or_rational(Fraction(qty) * factor)
+        if isinstance(quantity, Fraction):
+            raise TargetProjectionRefused(f"CORPORATE_ACTION_PENDING: {sid} {quantity} shares")
+        aged[sid] = quantity
     return aged, list(events)
 
 
@@ -186,7 +199,7 @@ def delta(conn, *, projection, deployment, security_id, observation,
     result = C.compute_delta(security_id=security_id,
         desired=progress.targets.get(security_id, Decimal(0)), observation=observation,
         min_increment=min_increment)
-    if security_id in progress.blocked:
+    if security_id in progress.blocked or security_id in share_restrictions(projection):
         # Keep its shares visible, but a pending dollar remainder cannot be
         # sized as shares or submitted beside an unresolved command.
         from dataclasses import replace

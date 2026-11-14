@@ -148,7 +148,7 @@ def _post_projection_action_multipliers(
     return result
 
 def _preopen_active_security_ids(
-        *, plan: ExecutionPlan, commands, actions) -> tuple[str, ...]:
+        *, plan: ExecutionPlan, commands, actions, conn=None) -> tuple[str, ...]:
     """Return every identity that can affect this execution boundary.
 
     A recovered command identity remains authority-relevant even when terminal
@@ -170,6 +170,13 @@ def _preopen_active_security_ids(
     identities.update(
         str(command.security_id) for command in commands
         if blocks_overlapping(command.state) or command.is_recovered)
+    if conn is not None:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        policy = MarketBuyPolicy.from_env()
+        if policy is not None and policy.fractional:
+            from sentinel.execution import held_targets
+            identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))
+            identities.update(held_targets.plan_pending_share_targets(conn, plan.plan_id))
     return tuple(sorted(identities))
 
 def _informational_active_symbols(
@@ -276,12 +283,12 @@ def _preopen_views_or_none(
 
 def _revalidate_preopen_authority_or_refuse(
         *, authority, plan: ExecutionPlan, commands, actions,
-        required_cutoff_at: datetime, evaluated_at: datetime) -> None:
+        required_cutoff_at: datetime, evaluated_at: datetime, conn=None) -> None:
     """Recheck exact coverage after reconciliation may have adopted commands."""
     if authority is None:
         return
     active_security_ids = _preopen_active_security_ids(
-        plan=plan, commands=commands, actions=actions)
+        plan=plan, commands=commands, actions=actions, conn=conn)
     try:
         preopen_authority.validate_for_plan(
             authority, plan=plan,
@@ -310,6 +317,16 @@ def _target_projection_or_refuse(
             "target projection canonical state differs from the immutable "
             "plan snapshot")
     target = shadow_target(state)
+    from sentinel.execution import market_buy_sizing, protected_limits
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    market_policy = MarketBuyPolicy.from_env()
+    fractional = market_policy is not None and market_policy.fractional
+    carried_budgets, pending_targets = {}, None
+    if fractional:
+        from sentinel.execution import fractional_progress, fractional_sizing, held_targets
+        carried_budgets = held_targets.plan_purchase_budgets(conn, plan.plan_id)
+        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)
+    additional_ids = carried_budgets.keys() | (pending_targets or {}).keys()
     commands = journal.load_commands(conn, binding.identity)
     expected_book = reconciliation.expected_book_from_commands(
         commands, actions=actions)
@@ -318,7 +335,7 @@ def _target_projection_or_refuse(
          if quantity != 0 or plan.opening_intents}
         | {security_id for security_id, quantity in target.shares.items()
            if quantity != 0}
-        | set(expected_book))
+        | set(expected_book) | additional_ids)
     symbols = (
         {target.tickers[security_id] for security_id in security_ids
          if target.tickers.get(security_id)}
@@ -349,7 +366,8 @@ def _target_projection_or_refuse(
 
     target_security_ids = tuple(
         security_id for security_id, quantity
-        in sorted(plan.target_basket.items()) if quantity != 0 or plan.opening_intents)
+        in sorted(plan.target_basket.items())
+        if quantity != 0 or plan.opening_intents or security_id in additional_ids)
     multipliers = {
         security_id: target_actions(security_id)
         for security_id in target_security_ids
@@ -368,23 +386,22 @@ def _target_projection_or_refuse(
             held_shares=target.held_shares,
             pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
-                broker.capabilities.minimum_quantity_increment))
-        from sentinel.execution import market_buy_sizing, protected_limits
-        from sentinel.execution.market_buy_policy import MarketBuyPolicy
-        market_policy = MarketBuyPolicy.from_env()
+                broker.capabilities.minimum_quantity_increment),
+            fractional_entitlements=pending_targets)
         policy = protected_limits.ProtectedLimitPolicy.from_env()
-        if market_policy is not None and market_policy.fractional:
-            from sentinel.execution import fractional_progress, fractional_sizing, held_targets
+        if fractional:
             retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
             stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
             if stored is not None:
                 fractional_sizing.validate_projection(stored, require_current_policy=True, plan=plan)
             basis = fractional_progress.baseline(conn, deployment=binding.identity, plan=plan,
                 actions=actions, saved=None if stored is None else stored.opening_sizing["baseline"])
-            references = protected_limits.build_references(conn, plan=plan, projection=projected)
+            references = protected_limits.build_references(conn, plan=plan, projection=projected,
+                additional_security_ids=(additional_ids | projected.pending_share_targets.keys()
+                                         | basis.get("pending_entitlements", {}).keys()))
             projected = fractional_sizing.resolve(state, plan, projected, references, market_policy,
                 baseline=basis, retained_targets=retained,
-                carried_budgets=held_targets.plan_purchase_budgets(conn, plan.plan_id),
+                carried_budgets=carried_budgets, pending_retained=pending_targets,
                 retry_openings=retries)
         elif market_policy is not None:
             from sentinel.execution import held_targets

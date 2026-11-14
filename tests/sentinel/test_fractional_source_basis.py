@@ -14,20 +14,22 @@ PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt
 
 
 def qualified_predecessor(module, raw):
-    if module != basis.MODULE or hashlib.sha256(raw).hexdigest() != basis._profile()['after']:
+    profile = basis._profile()
+    if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
+            profile['after'], profile['entitlements_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
     return prior
 
 
-def test_only_the_four_execution_functions_change_and_action_input_bytes_stay_exact():
+def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
     current = Path(reconcile.__file__).read_bytes()
     prior = qualified_predecessor(basis.MODULE, current)
     assert prior != current
     before, after = ast.parse(prior), ast.parse(current)
     assert len(before.body) == len(after.body)
-    allowed = {'_order_command_conflict', '_order_observation_fingerprint',
+    allowed = {'ReconciliationResult', '_order_command_conflict', '_order_observation_fingerprint',
                'expected_book_from_commands', 'reconcile'}
     changed = set()
     for left, right in zip(before.body, after.body):
@@ -120,3 +122,9 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     }
     edited = {**actual, 'execution/fractional_progress.py': 'f' * 64}
     assert runtime_basis.predecessor_view(edited, previous=prior) is edited
+    installed_fractional = profile['retained_predecessors'][runtime_basis.FRACTIONAL_INSTALLED_REVISION]['files']
+    assert runtime_admission.source_closure(installed_fractional) == (
+        'da2df8d1d087682342464e8a9f2c5553fcd987c37d99c889c8e5506ef2d14eee')
+    assert installed_fractional['execution/reconcile.py'] == basis._profile()['after']
+    assert runtime_basis.predecessor_view(actual, previous=installed_fractional) == installed_fractional
+    assert runtime_basis.predecessor_view(edited, previous=installed_fractional) is edited

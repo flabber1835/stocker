@@ -19,26 +19,32 @@ def cents(value):
 
 
 def _allocate(*, raw_targets, retained, baseline, carry, references, intents,
-              nav, exposure, shadow_equity):
+              nav, exposure, shadow_equity, pending_targets=None):
     prices = {sid: Fraction(price) / Fraction(references.unit_factors[sid])
               for sid, price in references.prices.items()}
     return allocate(raw_targets=raw_targets, retained=retained, baseline=baseline,
         carry=carry, prices=prices, intents=intents, nav=nav, exposure=exposure,
-        shadow_equity=shadow_equity)
+        shadow_equity=shadow_equity, pending_targets=pending_targets)
 
 
 def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
-             nav, exposure, shadow_equity):
+             nav, exposure, shadow_equity, pending_targets=None):
     """Pure allocation in one share/price domain, shared with the dated preview."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     prices = {sid: Fraction(price) for sid, price in prices.items()}
     desired = {**raw_targets, **retained}
     holdings = {sid: Decimal(qty) for sid, qty in baseline["holdings"].items()}
+    pending_holdings = {sid: Fraction(qty) for sid, qty in baseline.get("pending_entitlements", {}).items()}
+    pending_targets = {sid: Fraction(qty) for sid, qty in (pending_targets or {}).items()}
+    restricted = pending_targets.keys() | pending_holdings.keys()
+    valuation_targets = {**desired, **pending_targets}
+    for sid, qty in pending_holdings.items():
+        valuation_targets[sid] = max(Fraction(valuation_targets.get(sid, 0)), qty)
     opening = {item["security_id"] for item in intents}
     core_budget = Fraction(nav) * Fraction(exposure)
-    missing = [sid for sid, qty in desired.items() if qty > 0 and sid not in opening
+    missing = [sid for sid, qty in valuation_targets.items() if qty > 0 and sid not in opening
                and sid != DEFENSIVE_SECURITY_ID and sid not in prices]
-    held_value = sum((Fraction(qty) * prices[sid] for sid, qty in desired.items()
+    held_value = sum((Fraction(qty) * prices[sid] for sid, qty in valuation_targets.items()
                       if sid not in opening and sid != DEFENSIVE_SECURITY_ID and sid in prices), Fraction(0))
     available = max(Fraction(0), core_budget - held_value)
     purchases, blocked = {}, {}
@@ -50,9 +56,10 @@ def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
             raise TargetProjectionRefused("unfinished dollar allocation is malformed")
         purchases[sid] = {"budget": decimal_text(budget), "origin": "CONTINUING"}
         available = max(Fraction(0), available - Fraction(budget))
-        desired[sid] = holdings.get(sid, Decimal(0))
+        if sid not in restricted:
+            desired[sid] = holdings.get(sid, Decimal(0))
     for sid, qty in sorted(desired.copy().items()):
-        if sid in opening or sid in purchases:
+        if sid in opening or sid in purchases or sid in restricted:
             continue
         held = holdings.get(sid, Decimal(0))
         if qty <= held:
@@ -67,7 +74,7 @@ def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
     scale = core_budget / Fraction(shadow_equity)
     for item in intents:
         sid = item["security_id"]
-        if sid in retained or sid in purchases:
+        if sid in retained or sid in purchases or sid in restricted:
             continue
         if holdings.get(sid, Decimal(0)) != 0:
             raise TargetProjectionRefused("new dollar entry intersects an existing owned holding")
@@ -87,7 +94,7 @@ def allocate(*, raw_targets, retained, baseline, carry, prices, intents,
 
 
 def resolve(state, plan, projection, references, policy, *, baseline,
-            retained_targets, carried_budgets=None, retry_openings=()):
+            retained_targets, carried_budgets=None, pending_retained=None, retry_openings=()):
     from sentinel.core.decision import _shadow_equity, shadow_target
     if not policy.fractional or state.state_hash != plan.shadow_snapshot_hash:
         raise TargetProjectionRefused("fractional allocation requires the selected canonical plan")
@@ -95,7 +102,11 @@ def resolve(state, plan, projection, references, policy, *, baseline,
     expected = tuple(sorted((*target.opening_intents, *retry_openings), key=lambda item: item.slot_id))
     if expected != plan.opening_intents:
         raise TargetProjectionRefused("fractional allocation changed canonical opening eligibility")
-    retained = _retained_quantities(projection, retained_targets)
+    projected_ids = projection.pending_share_targets.keys() | (pending_retained or {}).keys()
+    retained = _retained_quantities(projection, {
+        sid: qty for sid, qty in (retained_targets or {}).items() if sid not in projected_ids})
+    retained.update({sid: projection.target_basket[sid] for sid in projected_ids
+                     if sid in (retained_targets or {})})
     evidence = {
         "mode": FRACTIONAL_MODE, "policy": policy.to_dict(), "policy_sha256": policy.fingerprint(),
         "references": references.to_dict(), "baseline": baseline,
@@ -109,7 +120,8 @@ def resolve(state, plan, projection, references, policy, *, baseline,
     basket, purchases, blocked = _allocate(
         raw_targets=projection.target_basket, retained=retained, baseline=baseline,
         carry=evidence["carried_budgets"], references=references, intents=evidence["intents"],
-        nav=plan.account_nav, exposure=plan.target_exposure, shadow_equity=_shadow_equity(state))
+        nav=plan.account_nav, exposure=plan.target_exposure, shadow_equity=_shadow_equity(state),
+        pending_targets=projection.pending_share_targets)
     result = replace(projection, target_basket=basket,
         opening_sizing={**evidence, "purchases": purchases, "blocked": blocked})
     validate_projection(result, plan=plan)
@@ -147,7 +159,8 @@ def validate_projection(projection, *, require_current_policy=False, plan=None):
             retained={sid: Decimal(qty) for sid, qty in evidence["retained_targets"].items()},
             baseline=evidence["baseline"], carry=evidence["carried_budgets"], references=refs,
             intents=evidence["intents"], nav=Decimal(evidence["nav"]),
-            exposure=Decimal(evidence["exposure"]), shadow_equity=Decimal(evidence["shadow_equity"]))
+            exposure=Decimal(evidence["exposure"]), shadow_equity=Decimal(evidence["shadow_equity"]),
+            pending_targets=projection.pending_share_targets)
         if (targets != projection.target_basket or purchases != evidence["purchases"]
                 or blocked != evidence["blocked"]):
             raise ValueError("fractional budget does not rederive")
