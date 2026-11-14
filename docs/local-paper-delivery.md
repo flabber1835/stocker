@@ -25,6 +25,13 @@ does not merge a PR or grant financial authority. See the
 
 ## Required inputs
 
+The backed adapter accepts the same market BUY policy names as the canonical
+host environment validator. A market policy requires `REQUIRED_V1`, the PAPER
+endpoint and owner account, and no protected buy cap or debug window. The
+ordinary protected-limit envelope and archive-off delivery keep their original
+requirements. Installation compares and preserves the already selected policy
+and the saved plan's authority.
+
 - A clean, committed feature checkout descended from the installed predecessor.
 - Its completed predecessor installation receipt. The first generic delivery
   accepts the retained completed installer receipt; later deliveries consume a

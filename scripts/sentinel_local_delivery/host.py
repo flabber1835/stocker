@@ -186,13 +186,16 @@ class Host:
             self._image_metadata_facts={**facts,reference:deepcopy(value),value['Id']:deepcopy(value)}
         return deepcopy(value)
 
+    def _paper_buy_policy_allowed(self, values):
+        return (values.get('SENTINEL_PAPER_BUY_POLICY') == 'PROTECTED_LIMIT_DAY_V1'
+                and values.get('SENTINEL_PAPER_BUY_CAP_BPS') == '100')
+
     def load_values(self):
         values = self.literal.operational_values(self.literal.load(self.deployment/'.env', required=True))
         require(values.get('ALPACA_BASE_URL') == 'https://paper-api.alpaca.markets'
             and values.get('SENTINEL_LOCAL_PAPER_MODE') == 'OWNER_AUTHORIZED_FUNCTION_FIRST_V1'
             and re.fullmatch(r'PA[A-Za-z0-9]+', values.get('SENTINEL_LOCAL_PAPER_ACCOUNT_ID',''))
-            and values.get('SENTINEL_PAPER_BUY_POLICY') == 'PROTECTED_LIMIT_DAY_V1'
-            and values.get('SENTINEL_PAPER_BUY_CAP_BPS') == '100'
+            and self._paper_buy_policy_allowed(values)
             and not values.get('SENTINEL_PAPER_DEBUG_WINDOW'), 'LOCAL_PAPER_ENVELOPE_CHANGED')
         return values
 

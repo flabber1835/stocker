@@ -280,6 +280,12 @@ class BackedHost(Host):
     def preflight_environment(self, values):
         environment.install(self, values)
 
+    def _paper_buy_policy_allowed(self, values):
+        return (super()._paper_buy_policy_allowed(values)
+                or (values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY') == 'REQUIRED_V1'
+                    and values.get('SENTINEL_PAPER_BUY_POLICY') in self.literal.PAPER_MARKET_BUY_POLICIES
+                    and not values.get('SENTINEL_PAPER_BUY_CAP_BPS')))
+
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         present = any((self.operation_dir/name).exists() or (self.operation_dir/name).is_symlink()

@@ -193,6 +193,30 @@ def test_image_cache_cannot_hide_changed_paper_envelope(tmp_path,monkeypatch):
     assert len(calls)==1
 
 
+@pytest.mark.parametrize('policy', ['MARKET_DAY_V1', 'FRACTIONAL_MARKET_DAY_V1'])
+def test_backed_handoff_preserves_current_market_policy(tmp_path, monkeypatch, policy):
+    host, values, write, calls = immutable_values_host(tmp_path, monkeypatch)
+    values.update(SENTINEL_PAPER_BUY_POLICY=policy, SENTINEL_PAPER_BUY_CAP_BPS='')
+    write()
+    assert host.load_values()['SENTINEL_PAPER_BUY_POLICY'] == policy
+    from sentinel_local_delivery.host import Host
+    archive_off = object.__new__(Host)
+    archive_off.deployment, archive_off.literal = host.deployment, host.literal
+    with pytest.raises(patch.DeliveryRefused, match='LOCAL_PAPER_ENVELOPE_CHANGED'):
+        archive_off.load_values()
+    for key, bad in (('SENTINEL_PAPER_BUY_CAP_BPS', '100'),
+                     ('SENTINEL_PAPER_DEBUG_WINDOW', 'debug-window'),
+                     ('SENTINEL_LOCAL_PAPER_BACKUP_POLICY', ''),
+                     ('ALPACA_BASE_URL', 'https://api.alpaca.markets')):
+        old = values.get(key, '')
+        values[key] = bad
+        write()
+        with pytest.raises(patch.DeliveryRefused, match='LOCAL_PAPER_ENVELOPE_CHANGED'):
+            host.load_values()
+        values[key] = old
+    assert len(calls) == 1
+
+
 def test_cached_reference_cannot_accept_changed_runtime_digest(tmp_path,monkeypatch):
     host,values,write,calls=immutable_values_host(tmp_path,monkeypatch)
     host.load_values()
