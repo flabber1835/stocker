@@ -23,14 +23,20 @@ the actual TID range scan for each extent over the original relation identity
 and heap boundary. This avoids the random heap access seen when retiring an
 entire part by its index. Keep the installed statement
 trigger enabled so it checks the deleted part IDs against the current pin
-lineage and requires both locks on every batch. Materialize the distinct part
-IDs from its transition table before running the pin predicate. Otherwise
-PostgreSQL may push the pin filter below DISTINCT and re-run the lineage
-check for every price row. The per-extent maintenance transaction uses that
-equivalent function body with the original trigger, locks and pin predicate,
-then restores the installed body before committing. An aborted transaction
-restores the installed body automatically. Subsequent installations can use
-the materialized guard through the ordinary qualified PR path.
+lineage and requires both locks on every batch. Use the guard installed
+through the qualified release. It materializes the distinct part IDs from
+its transition table before running the pin predicate. PostgreSQL can
+otherwise push the pin filter below DISTINCT and re-run the lineage check
+for every price row.
+
+The November 15 operation temporarily used the equivalent function body
+inside each extent transaction and restored the installed definition before
+each commit. The operational DDL audit correctly recorded both changes for
+each extent. The MIRROR and OBSERVATION coverage records still authenticated,
+and their heads and account binding matched. Both inventories matched the
+original DDL epoch of 142. The 268 recorded function replacements advanced
+the epoch to 410 and invalidated the old operational proof. Future maintenance
+should use the already installed guard and avoid transaction-local replacement.
 
 Keep acquisition manifests,
 bindings, current normalized input, historical evidence and the financial
