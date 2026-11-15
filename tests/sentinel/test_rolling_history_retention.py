@@ -114,6 +114,8 @@ def test_pinned_action_history_reuses_one_authenticated_window(conn, aged, monke
             action_reads.lookup(conn, history=history, start=end, end=begin)
         assert conn.execute("SELECT pg_advisory_unlock_shared(%s)",
                             (publication.CORPUS_LOCK_KEY,)).fetchone()[0]
+        # The manifest reader also holds a transaction-level share lock.
+        conn.rollback()
         with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
             action_reads.lookup(conn, history=history, start=begin, end=end)
         # Negative control for a cached result which ignores the active pin.
