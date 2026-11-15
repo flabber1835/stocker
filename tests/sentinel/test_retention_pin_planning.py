@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from sentinel.feed import acquisition_part_schema, normalized_layout, retention, retention_schema
+from sentinel.feed.schema import DDL as FEED_DDL
 from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
 
 
@@ -37,10 +38,11 @@ def pin_sql(pg):
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_part_pinned(',acquisition_part_schema.DDL),
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_delete_guard()',acquisition_part_schema.DDL),
         ('CREATE TRIGGER acquisition_delete_guard BEFORE DELETE ON sentinel_acquisition_parts',acquisition_part_schema.DDL),
-        ('CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()',acquisition_part_schema.DDL),
+        ('CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()',FEED_DDL),
         ('CREATE TRIGGER acquisition_delete_guard AFTER DELETE ON sentinel_acquisition_prices',acquisition_part_schema.DDL),
     ):
-        conn.execute(next(query for query in statements if query.startswith(prefix)))
+        (statement,) = (query for query in statements if query.startswith(prefix))
+        conn.execute(statement)
     conn.commit()
     try:
         yield conn,Path(pg.datadir,'server.log')
@@ -165,6 +167,52 @@ def test_real_acquisition_disposal_and_final_guard_run_inside_scope(pin_sql):
     _,result=retention._run_class(Actual(),5,progress,batch_rows=7)
     assert result['deleted_acquisition_rows']==1 and result['deleted_acquisition_parts']==1
     assert observed and conn.execute('SHOW jit').fetchone()==('on',)
+
+
+def test_bulk_delete_checks_each_distinct_part_once(pin_sql):
+    conn, log = pin_sql
+    conn.execute('SET LOCAL jit=off')
+    for key in (1579621904, 1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    conn.execute("""
+        INSERT INTO sentinel_acquisition_prices
+        SELECT part, DATE '2026-09-14' + day, 'AAA', '{}'
+        FROM unnest(ARRAY['first','second']) AS parts(part)
+        CROSS JOIN generate_series(0, 49) AS days(day)
+    """)
+    conn.execute("LOAD 'auto_explain'")
+    conn.execute("SET auto_explain.log_min_duration='0'")
+    conn.execute("SET auto_explain.log_nested_statements='on'")
+    conn.execute("SET auto_explain.log_format='json'")
+    before = log.stat().st_size
+    assert conn.execute('DELETE FROM sentinel_acquisition_prices').rowcount == 100
+    plans = _records(log.read_text()[before:])
+    checks = [plan for plan in plans if 'WITH RECURSIVE live(job_id)' in plan.get('Query Text', '')]
+    assert len(checks) == 2
+
+
+def test_bulk_delete_refuses_a_statement_containing_a_pinned_part(pin_sql):
+    import psycopg
+
+    conn, _ = pin_sql
+    job_id = uuid.uuid4()
+    conn.execute("INSERT INTO sentinel_snapshot_jobs(job_id,state) VALUES(%s,'ACQUIRING')", (job_id,))
+    conn.execute(
+        "INSERT INTO sentinel_acquisition_bindings VALUES(%s,'SEP.first','pinned')",
+        (job_id,),
+    )
+    conn.execute("""
+        INSERT INTO sentinel_acquisition_prices VALUES
+        ('pinned','2026-09-14','AAA','{}'), ('retired','2026-09-14','AAA','{}')
+    """)
+    for key in (1579621904, 1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    with pytest.raises(psycopg.errors.RaiseException, match='active acquisition part'):
+        with conn.transaction():
+            conn.execute('DELETE FROM sentinel_acquisition_prices')
+    assert conn.execute(
+        'SELECT part_id FROM sentinel_acquisition_prices ORDER BY part_id'
+    ).fetchall() == [('pinned',), ('retired',)]
 
 
 def test_acquisition_hint_is_scoped_and_restored(pin_sql,monkeypatch):

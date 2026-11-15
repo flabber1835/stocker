@@ -1050,11 +1050,22 @@ DDL.extend(_OPERATIONAL_SNAPSHOT_DDL)
 
 from sentinel.feed.action_history_schema import DDL as _ACTION_HISTORY_DDL
 DDL.extend(_ACTION_HISTORY_DDL)
+from sentinel.feed.retention_schema import ACQUISITION_PRICE_DELETE_GUARD as _PRICE_DELETE_GUARD
 from sentinel.feed.retention_schema import DDL as _RETENTION_DDL
 DDL.extend(_RETENTION_DDL)
 
 from sentinel.feed.acquisition_part_schema import DDL as _ACQUISITION_PART_DDL
-DDL.extend(_ACQUISITION_PART_DDL)
+
+# Install the retention-owned successor at the original function's migration position.
+(_legacy_price_delete_guard,) = (
+    statement for statement in _ACQUISITION_PART_DDL
+    if statement.startswith("CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()")
+)
+ACQUISITION_DDL = tuple(
+    _PRICE_DELETE_GUARD if statement == _legacy_price_delete_guard else statement
+    for statement in _ACQUISITION_PART_DDL
+)
+DDL.extend(ACQUISITION_DDL)
 
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 

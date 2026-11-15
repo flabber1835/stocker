@@ -357,6 +357,9 @@ qualification inputs, durable stages and supported recovery boundaries.
 
 ## Restored durability and protected workloads
 
+[PAPER backup compaction](paper-backup-compaction.md) records the November 15
+maintenance for retired acquisition prices and the archived predecessor database.
+
 Backups, WAL archiving, maintenance, backup verification and private restore
 qualification are authorized again. Backed-up owner PAPER operation explicitly
 selects `SENTINEL_LOCAL_PAPER_BACKUP_POLICY=REQUIRED_V1`; its ordinary real guards

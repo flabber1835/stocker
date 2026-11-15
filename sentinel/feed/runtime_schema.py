@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from sentinel import schema as behavioral_schema
 from sentinel.feed.domains import SEP_FORBIDDEN_COLUMNS
+from sentinel.feed.schema import ACQUISITION_DDL
 from sentinel.feed.schema import DDL as _BASE_DDL
 from sentinel.feed.universe_projection import DDL as _UNIVERSE_PROJECTION_DDL
 
@@ -601,7 +602,7 @@ def _validate_catalog(catalog) -> None:
 def _validate_views(cur) -> None:
     from sentinel.feed.history_retention_catalog import require_recovery_pin
     require_recovery_pin(cur)
-    for statement in _acquisition_part_catalog.DDL:
+    for statement in ACQUISITION_DDL:
         if statement.startswith("CREATE OR REPLACE FUNCTION"):
             function = statement.split("FUNCTION ")[1].split("(")[0]
             signature = "text" if function.endswith("part_pinned") else ""
