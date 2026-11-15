@@ -61,9 +61,12 @@ function reconcileDocument(next) {
       document.body.setAttribute(attr.name, attr.value);
     }
   });
-  var oldStyle = document.querySelector('head style');
-  var newStyle = next.querySelector('head style');
-  if (oldStyle && newStyle && oldStyle.textContent !== newStyle.textContent) { oldStyle.textContent = newStyle.textContent; }
+  var oldStyle = document.getElementById('dashboard-stylesheet');
+  var newStyle = next.getElementById('dashboard-stylesheet');
+  var stylesheet = newStyle && newStyle.getAttribute('href');
+  if (oldStyle && stylesheet && oldStyle.getAttribute('href') !== stylesheet) {
+    oldStyle.setAttribute('href', stylesheet);
+  }
   if (document.title !== next.title) { document.title = next.title; }
 }
 '''.strip()

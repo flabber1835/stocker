@@ -76,6 +76,14 @@ class OrderEvidenceNotReady(PreTransportAuthorityRefused):
     """This security lacks a fresh quote/funding; its transport was prevented."""
 
 
+class InsufficientPurchaseCash(OrderEvidenceNotReady):
+    """A fresh native balance cannot fund this exact market purchase."""
+
+
+class PurchaseInstrumentUnavailable(OrderEvidenceNotReady):
+    """A fresh lookup confirms this exact purchase cannot presently trade."""
+
+
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
@@ -92,6 +100,7 @@ class BrokerOperation(str, Enum):
     SUBMIT = "submit"
     CANCEL = "cancel"
     RECENT_FILLS = "recent_fills"
+    OWNED_ORDER_FILLS = "owned_order_fills"
 
 
 def _required_text(name: str, value: str) -> None:
@@ -373,6 +382,11 @@ class GuardedExecutionBroker(ExecutionBroker):
     def financial_activity_sse(self) -> bool:
         return getattr(self._inner, "financial_activity_sse", False) is True
 
+    @property
+    def supports_owned_order_fills(self) -> bool:
+        return (not self._live and getattr(self._inner, "supports_owned_order_fills", False) is True
+                and self._has_optional_override(self._inner, "owned_order_fills"))
+
     async def _read(self, operation: BrokerOperation, call):
         try:
             if isinstance(self._grant, AutomationExecutionGrant):
@@ -455,11 +469,19 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def resolve_instrument(
             self, *, security_id: str, symbol: str) -> BrokerInstrument:
-        async def read():
-            return await self._inner.resolve_instrument(
-                security_id=security_id, symbol=symbol)
+        from sentinel.execution.contract import BrokerInstrumentUnavailable
 
-        return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+        async def read():
+            try:
+                return await self._inner.resolve_instrument(
+                    security_id=security_id, symbol=symbol)
+            except BrokerInstrumentUnavailable as exc:
+                return exc
+
+        result = await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+        if isinstance(result, BrokerInstrumentUnavailable):
+            raise result
+        return result
 
     async def market_clock(self):
         if not self.supports_market_clock:
@@ -613,6 +635,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                               instrument: BrokerInstrument, side: Side,
                               quantity: Decimal | None, order_terms: OrderTerms,
                               notional: Decimal | None = None):
+        from sentinel.execution.contract import BrokerInstrumentUnavailable
+
         live_permit = None
         try:
             if not isinstance(order_terms, OrderTerms):
@@ -694,6 +718,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                 current = await self.resolve_instrument(
                     security_id=instrument.security_id,
                     symbol=instrument.symbol)
+            except BrokerInstrumentUnavailable as exc:
+                if fractional and side is Side.BUY and exc.instrument == instrument:
+                    raise PurchaseInstrumentUnavailable(
+                        f"BUY_INSTRUMENT_UNAVAILABLE: {exc}") from exc
+                raise PreTransportAuthorityRefused(
+                    f"instrument availability/identity refused before submit: {exc}") from exc
             except BrokerAuthorityRefused as exc:
                 raise PreTransportAuthorityRefused(
                     f"instrument identity unavailable before submit: {exc}") from exc
@@ -728,8 +758,12 @@ class GuardedExecutionBroker(ExecutionBroker):
             try:
                 account = await self.account_snapshot()
                 estimate = exact_decimal(Fraction(notional) + Fraction(MARKET_BUY_HEADROOM))
-                if estimate > available_purchase_cash(account):
-                    raise OrderEvidenceNotReady("notional plus fee headroom exceeds available cash")
+                spendable = available_purchase_cash(account)
+                if (account.status.upper() != "ACTIVE" or account.trading_blocked
+                        or account.account_blocked or account.trade_suspended_by_user):
+                    raise PreTransportAuthorityRefused("account does not admit purchases")
+                if estimate > spendable:
+                    raise InsufficientPurchaseCash("notional plus fee headroom exceeds available cash")
                 await self._market_buy_funding(client_key=client_key, instrument=instrument,
                     quantity=None, notional=notional, order_terms=order_terms, account=account,
                     estimate=estimate, session=clock.timestamp.date())
@@ -774,10 +808,13 @@ class GuardedExecutionBroker(ExecutionBroker):
                     if (quote.session != clock.timestamp.date()
                             or quote.symbols.get(instrument.security_id) != instrument.symbol):
                         raise PreTransportAuthorityRefused("market BUY quote names another session or symbol")
+                    if (account.status.upper() != "ACTIVE" or account.trading_blocked
+                            or account.account_blocked or account.trade_suspended_by_user):
+                        raise PreTransportAuthorityRefused("account does not admit purchases")
                     estimate = estimated_market_buy_cost(quantity, ask)
                     if estimate > available:
-                        raise OrderFundingNotReady(
-                            "estimated market BUY cost exceeds native cash or buying power")
+                        raise InsufficientPurchaseCash(
+                            f"{instrument.symbol}: estimated market BUY cost exceeds native cash or buying power")
                     await self._market_buy_funding(client_key=client_key, instrument=instrument,
                         quantity=quantity, order_terms=order_terms, account=account,
                         estimate=estimate, session=quote.session)
@@ -927,6 +964,17 @@ class GuardedExecutionBroker(ExecutionBroker):
             return await self._inner.recent_fills(since)
 
         return await self._read(BrokerOperation.RECENT_FILLS, read)
+
+    async def owned_order_fills(
+            self, *, orders: Sequence[BrokerOrder], identity: BrokerAccountIdentity,
+            through: datetime) -> Sequence[BrokerFill]:
+        if not self.supports_owned_order_fills:
+            raise BrokerAuthorityRefused("owned order fill evidence is unavailable")
+
+        async def read():
+            return await self._inner.owned_order_fills(orders=orders, identity=identity, through=through)
+
+        return await self._read(BrokerOperation.OWNED_ORDER_FILLS, read)
 
 
 __all__ = [

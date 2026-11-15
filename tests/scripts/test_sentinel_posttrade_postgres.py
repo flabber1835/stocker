@@ -90,6 +90,34 @@ def test_removing_mvcc_fields_has_a_real_postgres_falsifier(conn):
         assert_checkpoint_update_detected(conn,query)
 
 
+@pytest.mark.parametrize('prefix', [checks.FILL_CASH_PREFIX, checks.LEGACY_FILL_CASH_PREFIX,
+                                   checks.NOTIONAL_POSITION_LEAD_PREFIX])
+def test_recovery_handoff_witness_detects_content_change_and_loss(conn, prefix):
+    from sentinel.execution.fill_integrity import NOTIONAL_POSITION_LEAD_PREFIX
+    from sentinel.execution.journal import FILL_CASH_PREFIX, LEGACY_FILL_CASH_PREFIX
+    from sentinel.retained_input_namespaces import PAPER_CURSOR_PREFIXES
+
+    assert checks.FILL_CASH_PREFIX == FILL_CASH_PREFIX
+    assert checks.LEGACY_FILL_CASH_PREFIX == LEGACY_FILL_CASH_PREFIX
+    assert checks.NOTIONAL_POSITION_LEAD_PREFIX == NOTIONAL_POSITION_LEAD_PREFIX
+    assert any(NOTIONAL_POSITION_LEAD_PREFIX.startswith(parent) for parent in PAPER_CURSOR_PREFIXES)
+    query = re.search(r"'execution_recovery_evidence',\((SELECT.*?)\),\s*'book_cursors_md5'",
+                      checks.SNAPSHOT_SQL, re.S).group(1)
+    conn.execute("CREATE TEMP TABLE sentinel_processed_sessions ("
+                 "cursor_name text PRIMARY KEY, session date NOT NULL, state jsonb NOT NULL)")
+    key = prefix + 'a' * 64
+    conn.execute("INSERT INTO sentinel_processed_sessions VALUES "
+                 "(%s, '2026-11-16', jsonb_build_object('amount', '12.35'))", (key,))
+    before = conn.execute(query).fetchone()[0]
+    assert before['count'] == 1
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_build_object('amount', '12.34')")
+    changed = conn.execute(query).fetchone()[0]
+    assert changed['count'] == 1 and changed['md5'] != before['md5']
+    conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s", (key,))
+    vanished = conn.execute(query).fetchone()[0]
+    assert vanished['count'] == 0 and vanished['md5'] != changed['md5']
+
+
 @pytest.mark.parametrize('state,overlap', [
     ('{"body":{"strategy_identity":"nested"}}',False),
     ('{"wealth_core":null}',True), ('{"strategy_identity":false}',True),

@@ -674,6 +674,11 @@ def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
         row = cur.fetchone()
     if row is None:
         return None
+    return decode_plan_baseline(plan_id, row)
+
+
+def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
+    """Validate the stored (session, state) row against its exact plan key."""
     session = row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
     state = _read_json_state(row[1], where=f"plan cash baseline {plan_id}")
     v1 = {"kind", "plan_id", "broker", "account_id",

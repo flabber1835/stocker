@@ -27,7 +27,8 @@ COMPONENTS = (
 )
 # Presentation metadata is not part of the immutable financial installation
 # marker. Its exact catalog is recognized when present, never silently hidden.
-PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)
+PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',
+                           'sentinel.automation.notification_completion')
 # Access paths have independent installation witnesses; never re-sign the
 # original immutable operational contracts map to add one.
 ACCESS_PATH_COMPONENTS = ('sentinel.checkpoint_lineage_access',)
@@ -286,6 +287,18 @@ def _install_access_paths(conn, original, *, quiescent=False):
              'OPERATIONAL_INSTALLATION_CHANGED_DURING_ACCESS_PATH_INSTALL')
 
 
+def _install_notification_completion(conn, original, *, quiescent=False):
+    from sentinel.automation import notification_completion
+
+    if notification_completion.require_schema(conn, allow_absent=True):
+        return
+    if not quiescent:
+        _require_quiescence(conn)
+    notification_completion.install(conn)
+    _require(installation(conn, required=True) == original,
+             'OPERATIONAL_INSTALLATION_CHANGED_DURING_NOTIFICATION_INSTALL')
+
+
 def install_quiescent(conn):
     """Explicit additive extension install under the existing single writer.
 
@@ -299,6 +312,7 @@ def install_quiescent(conn):
             if current is not None:
                 require_schema(conn)
                 _install_access_paths(conn, current)
+                _install_notification_completion(conn, current)
                 return current
             _require_quiescence(conn)
             for module in components():
@@ -316,4 +330,5 @@ def install_quiescent(conn):
                     'hmac_sha256': _signature(value)}).decode('ascii')))
             require_schema(conn)
             _install_access_paths(conn, value, quiescent=True)
+            _install_notification_completion(conn, value, quiescent=True)
             return value

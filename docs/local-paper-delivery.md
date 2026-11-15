@@ -25,6 +25,21 @@ does not merge a PR or grant financial authority. See the
 
 ## Required inputs
 
+The backed adapter accepts the same market BUY policy names as the canonical
+host environment validator. A market policy requires `REQUIRED_V1`, the PAPER
+endpoint and owner account, and no protected buy cap or debug window. The
+ordinary protected-limit envelope and archive-off delivery keep their original
+requirements. Installation compares and preserves the already selected policy
+and the saved plan's authority.
+
+The offline automation fingerprint probe receives the rendered BUY policy and
+the noncredential PAPER subject fields needed to interpret it. It compares both
+images against the existing durable control fingerprint. The probe retains its
+network isolation and receives neither credentials nor a database connection.
+The read-only canonical check verifies the saved plan's market policy under
+its current authority, and validates any durable market projection as that
+policy's projection. Protected-limit handoffs retain their original replay.
+
 - A clean, committed feature checkout descended from the installed predecessor.
 - Its completed predecessor installation receipt. The first generic delivery
   accepts the retained completed installer receipt; later deliveries consume a

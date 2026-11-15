@@ -92,7 +92,7 @@ _POSITION_LAG_PREFIX = "broker-position-lag:v2:"
 class ReconciliationResult:
     runtime_state: RuntimeState
     observation: Optional[BrokerObservation] = None
-    expected: Mapping[str, Decimal] = field(default_factory=dict)
+    expected: Mapping[str, Decimal | Fraction] = field(default_factory=dict)
     observed: Mapping[str, Decimal] = field(default_factory=dict)
     corporate_actions: Mapping[str, Decimal] = field(default_factory=dict)
     recovered_orders: tuple = ()
@@ -106,8 +106,7 @@ class ReconciliationResult:
 
     @property
     def clean(self) -> bool:
-        return (not self.foreign_positions and not self.foreign_orders
-                and not self.unresolved and not self.restricted_securities)
+        return self.transport_ready and not self.restricted_securities
 
     @property
     def transport_ready(self) -> bool:
@@ -341,7 +340,8 @@ def _order_command_conflict(order, command) -> Optional[str]:
     if (command.state not in (
             CommandState.SEND_PENDING, CommandState.UNKNOWN)
             and order.state is not command.state
-            and not can_transition(command.state, order.state)):
+            and not can_transition(command.state, order.state)
+            and not (command.state is CommandState.CANCEL_PENDING and order.is_working)):
         return (f"{prefix} regressed/incompatibly changed lifecycle "
                 f"{command.state.value} to {order.state.value}")
     return None
@@ -410,8 +410,11 @@ def _keys_requiring_exact_evidence(observation, stored) -> tuple[str, ...]:
 
 def _position_identity_conflicts(
         observation: BrokerObservation, stored, *,
-        provider_asset_ids: Mapping[str, str] | None = None) -> tuple[str, ...]:
+        provider_asset_ids: Mapping[str, str] | None = None,
+        actions: Optional[ActionLookup] = None) -> tuple[str, ...]:
     """Refuse a held Alpaca asset that no longer matches durable command identity."""
+    from sentinel.execution.states import IN_FLIGHT
+
     expected: dict[str, set[str]] = {}
     conflicts: list[str] = []
     for command in stored:
@@ -419,8 +422,16 @@ def _position_identity_conflicts(
         if broker_id:
             expected.setdefault(command.security_id, set()).add(str(broker_id))
     current_ids = provider_asset_ids or {}
+    unbound_multiples = {sid for sid, ids in expected.items()
+                        if len(ids) > 1 and sid not in current_ids}
+    active = set()
+    if unbound_multiples:
+        active.update(expected_book_from_commands(stored, actions=actions))
+        active.update(command.security_id for command in stored if command.state in IN_FLIGHT)
+        active.update(order.instrument.security_id for order in observation.orders if order.is_working)
+        active.update(sid for sid, qty in observation.positions_by_security().items() if qty != 0)
     for security_id, broker_ids in sorted(expected.items()):
-        if len(broker_ids) > 1 and security_id not in current_ids:
+        if security_id in unbound_multiples and security_id in active:
             conflicts.append(
                 f"durable commands for {security_id} carry multiple broker "
                 f"instrument ids {sorted(broker_ids)}")
@@ -484,7 +495,7 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
     comparison vacuous.
     """
     from fractions import Fraction
-    from sentinel.execution.contract import exact_decimal
+    from sentinel.execution.share_units import decimal_or_rational
     book: dict = {}
     for command in commands:
         from sentinel.execution.commands import is_legacy_migration, filled_share_units
@@ -500,7 +511,7 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
         signed = quantity if command.side.value == "BUY" else -quantity
         book[command.security_id] = book.get(command.security_id,
                                              Fraction(0)) + signed
-    return {k: exact_decimal(v) for k, v in book.items() if v != 0}
+    return {k: decimal_or_rational(v) for k, v in book.items() if v != 0}
 
 
 async def reconcile(*, broker: ExecutionBroker, conn, binding,
@@ -600,8 +611,39 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # journal or command mutation. The resulting single observation is the
     # complete durable authority for this reconciliation cycle.
     stored = journal.load_commands(conn, deployment)
+    from sentinel.execution import fill_integrity
+    owned_coverage = (fill_integrity.owned_fill_coverage(conn, stored)
+                      if informational_current_book and observation.is_complete
+                      and getattr(broker, "supports_owned_order_fills", False) is True else {})
+    needs_exact_fill_read = {key for key, coverage in owned_coverage.items()
+                             if observation.by_client_key(key) is None
+                             and (coverage.quantity < coverage.command.filled_quantity
+                                  or coverage.cash_missing)}
+    notional_lead_orders = {}
+    positions = observation.positions_by_security()
+    durable_holdings = None
+    for key, coverage in owned_coverage.items():
+        command = coverage.command
+        order = observation.by_client_key(key)
+        if (command.notional is None
+                or (command.broker_order_id is None and command.state not in (
+                    CommandState.SEND_PENDING, CommandState.UNKNOWN))
+                or command.instrument.broker_id is None or order is None
+                or not order.is_working or _order_command_conflict(order, command)):
+            continue
+        if durable_holdings is None:
+            durable_holdings = expected_book_from_commands(stored, actions=actions)
+        progress = Fraction(order.filled_quantity - command.filled_quantity) * Fraction(
+            _command_action_multiplier(command, actions))
+        sid = command.security_id
+        gap = Fraction(positions.get(sid, 0)) - Fraction(durable_holdings.get(sid, 0))
+        if gap > progress + Fraction(tolerance):
+            notional_lead_orders[key] = order
     exact_evidence: list[BrokerExactOrderEvidence] = []
-    for client_key in _keys_requiring_exact_evidence(observation, stored):
+    lookup_keys = (set(_keys_requiring_exact_evidence(observation, stored))
+                   | needs_exact_fill_read | notional_lead_orders.keys())
+    live_notional_leads = set()
+    for client_key in sorted(lookup_keys):
         initial = observation.by_client_key(client_key)
         try:
             lookup = await broker.find_by_client_key(client_key)
@@ -632,6 +674,29 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             initial_order_id=(
                 initial.broker_order_id if initial is not None else None),
             order=lookup.order))
+        if client_key not in notional_lead_orders:
+            continue
+        sid = initial.instrument.security_id
+        command = owned_coverage[client_key].command
+        conflict = _order_command_conflict(lookup.order, command) if lookup.order is not None else None
+        if lookup.order is not None and lookup.order.broker_order_id != initial.broker_order_id:
+            conflict = "position-leading notional BUY has contradictory open and exact broker order IDs"
+        lead_live = True
+        if command.broker_order_id is not None or (lookup.order is not None and not conflict):
+            lead_live = fill_integrity.live_notional_position_lead(conn, deployment=deployment,
+                order=initial, observed_at=observation.observed_at, grace=POSITION_LAG_GRACE)
+        if (conflict or lookup.order is None or _order_observation_fingerprint(lookup.order)
+                != _order_observation_fingerprint(initial)):
+            state = (RuntimeState.RECONCILING if lead_live or conflict else RuntimeState.FOREIGN_ACTIVITY)
+            inconsistent = replace(observation, completeness=Completeness.INCONSISTENT,
+                terminal_recovery_through=None, exact_order_evidence=tuple(exact_evidence), fills=())
+            return ReconciliationResult(
+                runtime_state=state, observation=inconsistent,
+                observation_id=journal.record_observation(conn, inconsistent, state.value),
+                foreign_positions=() if lead_live or conflict else (sid,),
+                detail=conflict or "position-leading notional BUY needs agreeing exact and open order evidence")
+        if lead_live:
+            live_notional_leads.add(sid)
     joined_orders = list(observation.orders)
     joined_orders.extend(
         evidence.order for evidence in exact_evidence
@@ -650,12 +715,41 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 detail="fill recovery order identity is contradictory")
         orders_by_broker_id[order.broker_order_id] = order
     sentinel_fills = []
-    from sentinel.execution import fill_integrity
     try:
-        fill_integrity.validate(observation, orders_by_broker_id)
-        fill_integrity.validate_durable(conn, observation, orders_by_broker_id)
-    except ValueError as exc:
-        fill_integrity.retain_refusal(conn, observation, exc)
+        fill_orders = []
+        for order in orders_by_broker_id.values():
+            candidate = owned_coverage.get(order.client_key)
+            if candidate is None or _has_external_replacement(order):
+                continue
+            if (candidate.quantity >= order.filled_quantity and not candidate.cash_missing
+                    and order.client_key not in notional_lead_orders):
+                continue
+            recovery._assert_order_matches_command(candidate.command, order,
+                where="owned fill read", allow_symbol_change=True)
+            fill_orders.append(order)
+        if fill_orders:
+            fills = await broker.owned_order_fills(orders=fill_orders,
+                identity=observation.account_identity, through=observation.observed_at)
+            observation = replace(observation, fills=tuple(fills))
+        position_leading_ids = {order.broker_order_id for order in notional_lead_orders.values()}
+        fill_integrity.validate(observation, orders_by_broker_id,
+                                position_leading_order_ids=position_leading_ids)
+        ahead = fill_integrity.validate_durable(conn, observation, orders_by_broker_id,
+                                               position_leading_order_ids=position_leading_ids)
+        if ahead:
+            # SSE evidence ahead of the cumulative counter is provisional.
+            # Keep any independently agreeing orders in the durable fill set.
+            observation = replace(observation, fills=tuple(fill for fill in observation.fills
+                                                            if fill.broker_order_id not in ahead))
+    except BrokerAuthorityRefused:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        if (isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,
+                             alpaca_adapter.ActivityCorrectionRequiresRecovery))
+                and exc.raw_event is not None):
+            fill_integrity.retain_native_refusal(conn, identity, exc)
+        elif isinstance(exc, ValueError):
+            fill_integrity.retain_refusal(conn, observation, exc)
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=replace(observation, completeness=Completeness.INCONSISTENT,
@@ -775,7 +869,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 
     from sentinel.execution.feed_inputs import source_bound_provider_asset_ids
     identity_conflicts = _position_identity_conflicts(
-        observation, stored, provider_asset_ids=source_bound_provider_asset_ids(broker))
+        observation, stored, provider_asset_ids=source_bound_provider_asset_ids(broker), actions=actions)
     if identity_conflicts:
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
@@ -993,21 +1087,27 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     expected_raw = expected_book_from_commands(resolved)
     lookup = actions or (lambda _sid: Decimal(1))
     expected = expected_book_from_commands(resolved, actions=lookup)
+    increment = broker.capabilities.minimum_quantity_increment
+    pending_entitlements = {
+        sid: Fraction(qty) for sid, qty in expected.items()
+        if isinstance(qty, Fraction) or (tolerance == 0 and qty != expected_raw.get(sid, 0)
+            and (Fraction(qty) / Fraction(increment)).denominator != 1)}
     applied = {
         sid: (expected[sid] / raw)
         for sid, raw in expected_raw.items()
-        if raw != 0 and sid in expected and expected[sid] != raw
+        if raw != 0 and sid in expected and sid not in pending_entitlements
+        and expected[sid] != raw
     }
 
     # 6. CLASSIFY WHAT SURVIVES.
     observed = observation.positions_by_security()
     mismatched_positions = {
         sid for sid in set(expected) | set(observed)
-        if abs(observed.get(sid, Decimal(0))
-               - expected.get(sid, Decimal(0))) > tolerance
+        if abs(Fraction(observed.get(sid, 0))
+               - Fraction(expected.get(sid, 0))) > (0 if sid in pending_entitlements else Fraction(tolerance))
     }
     lagging_fill_positions_list: list[str] = []
-    for sid in sorted(mismatched_positions):
+    for sid in sorted(mismatched_positions - pending_entitlements.keys()):
         expected_quantity = expected.get(sid, Decimal(0))
         observed_quantity = observed.get(sid, Decimal(0))
         gap = expected_quantity - observed_quantity
@@ -1025,8 +1125,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             if command.security_id != sid:
                 continue
             if command.quantity is None:
-                # A dollar request does not bound a share quantity. Wait for
-                # positive order/fill evidence instead of inventing capacity.
+                # Dollar requests do not contribute a share envelope.
                 continue
             broker_order = observation.by_client_key(command.client_key)
             if broker_order is None or not broker_order.is_working:
@@ -1063,17 +1162,32 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         available = sum(
             (abs(capacity) for capacity in live_capacities
              if gap * capacity > 0), Decimal(0))
-        if abs(gap) <= available + tolerance:
+        if abs(gap) <= available + tolerance or (gap < 0 and sid in live_notional_leads):
             lagging_fill_positions_list.append(sid)
     lagging_fill_positions = tuple(lagging_fill_positions_list)
-    from sentinel.execution.share_units import position_restrictions
+    from sentinel.execution.share_units import (
+        entitlement_matches_observation, matches_intermediate_split_units, position_restrictions)
     restrictions = position_restrictions(
         actions=actions, commands=resolved, observation=observation,
-        expected_raw=expected_raw, expected=expected)
-    # An event can explain changed units of an owned holding, but cannot prove
-    # ownership of an otherwise unattributed position that shares its ticker.
-    explained_action_positions = {
-        sid for sid in restrictions if expected_raw.get(sid, Decimal(0)) > 0}
+        expected=expected)
+    # Only the known pre-action quantity proves a scalar posting lag. A
+    # material-action marker alone cannot explain a changed share balance.
+    explained_action_positions = set()
+    for sid, raw in expected_raw.items():
+        if raw > 0 and expected.get(sid, 0) != raw and observed.get(sid, 0) == raw:
+            restrictions[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
+            explained_action_positions.add(sid)
+    for sid, entitlement in pending_entitlements.items():
+        restrictions[sid] = f"CORPORATE_ACTION_PENDING: exact entitlement {entitlement} shares"
+        explained_action_positions.discard(sid)
+        if entitlement_matches_observation(
+                entitlement, observed.get(sid, Decimal(0)), expected_raw.get(sid, Decimal(0)),
+                increment):
+            explained_action_positions.add(sid)
+    for sid in mismatched_positions - explained_action_positions:
+        if matches_intermediate_split_units(actions, resolved, sid, observed.get(sid, 0)):
+            restrictions.setdefault(sid, "CORPORATE_ACTION_PENDING: broker quantity is in intermediate share units")
+            explained_action_positions.add(sid)
     foreign_positions = tuple(sorted(
         mismatched_positions - set(lagging_fill_positions) - explained_action_positions))
     foreign_orders = tuple(o for o in observation.orders

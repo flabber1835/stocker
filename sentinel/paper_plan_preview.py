@@ -58,7 +58,7 @@ class PlannedLeg(BaseModel):
     opening_dollars: Decimal | None = None
     purchase_notional: Decimal | None = None
     action: Literal['BUY','SELL','HOLD','SKIP','UNAVAILABLE']
-    reason: Literal['BUDGET_BELOW_MINIMUM','REFERENCE_UNAVAILABLE'] | None = None
+    reason: Literal['BUDGET_BELOW_MINIMUM','REFERENCE_UNAVAILABLE','CORPORATE_ACTION_PENDING'] | None = None
     opening_estimate: OpeningEstimate | None = None
 
     @model_validator(mode='after')
@@ -166,10 +166,11 @@ def _project(*, plan, positions, observation_at, tickers, fractional_inputs=None
                 raise ValueError('paper opening intent is contradictory')
             slots.add(item['slot_id'])
             openings[sid] = dollars
-    purchases, blocked = {}, {}
+    purchases, blocked, pending_targets = {}, {}, {}
     if fractional_inputs is not None and current is not None:
         from sentinel.execution.fractional_sizing import allocate
         basis = fractional_inputs['held_share_targets']
+        pending_targets = basis.get('pending_share_targets', {})
         equity = quantity(fractional_inputs['shadow_equity'])
         exposure = quantity(plan['target_exposure'])
         if equity <= 0 or exposure > 1:
@@ -179,7 +180,8 @@ def _project(*, plan, positions, observation_at, tickers, fractional_inputs=None
             baseline={'holdings':current}, carry=basis.get('purchase_budgets',{}),
             prices={sid:quantity(price) for sid,price in fractional_inputs['marks'].items()
                     if quantity(price)>0}, intents=plan.get('opening_intents',{}).get('intents',[]),
-            nav=quantity(plan['account_nav']), exposure=exposure, shadow_equity=equity)
+            nav=quantity(plan['account_nav']), exposure=exposure, shadow_equity=equity,
+            pending_targets=pending_targets)
     legs = []
     for sid in sorted(set(targets) | set(current or {})):
         if not sid.strip():
@@ -194,7 +196,9 @@ def _project(*, plan, positions, observation_at, tickers, fractional_inputs=None
                   else 'SELL' if delta < 0 else 'HOLD')
         if fractional_inputs is not None:
             dollars = None
-            if held is None or sid in blocked:
+            if sid in pending_targets:
+                action, reason, delta = 'UNAVAILABLE', 'CORPORATE_ACTION_PENDING', None
+            elif held is None or sid in blocked:
                 action, reason = 'UNAVAILABLE', 'REFERENCE_UNAVAILABLE'
             elif sid in purchases:
                 from sentinel.execution.fractional_sizing import cents
@@ -231,7 +235,9 @@ def sizing_display_inputs(authority):
     return dict(buy_policy=FRACTIONAL_MODE, fractional_inputs=dict(
         marks=authority['marks'], held_share_targets={
             'targets':authority['held_share_targets']['targets'],
-            'purchase_budgets':authority['held_share_targets'].get('purchase_budgets',{})},
+            'purchase_budgets':authority['held_share_targets'].get('purchase_budgets',{}),
+            **({'pending_share_targets': authority['held_share_targets']['pending_share_targets']}
+               if 'pending_share_targets' in authority['held_share_targets'] else {})},
         shadow_equity=authority['shadow_state']['last_evidence']['wealth_core']['estimated_equity']))
 
 

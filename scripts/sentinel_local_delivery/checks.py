@@ -11,12 +11,14 @@ print(config_from_env(json.load(sys.stdin)).fingerprint)
 
 INSTALL_OPERATIONAL_SCHEMA = r'''import json,time
 from sentinel import operational_schema,mirror_projection
+from sentinel.automation import notification_completion
 from sentinel.execution import journal,evidence_projection
 from sentinel.feed import store
 import os
 c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
 try:
     installation=operational_schema.install_quiescent(c)
+    assert notification_completion.require_schema(c)
     for component in operational_schema.access_path_components():
         assert component.require_schema(c)
     c.rollback()
@@ -58,11 +60,13 @@ finally:
 
 READ_OPERATIONAL_SCHEMA = r'''import json,os
 from sentinel import operational_schema
+from sentinel.automation import notification_completion
 from sentinel.feed import store
 c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
 try:
     c.execute('BEGIN TRANSACTION READ ONLY')
     assert operational_schema.require_schema(c)
+    notification_completion.require_schema(c, allow_absent=True)
     for component in operational_schema.access_path_components():
         assert component.require_schema(c)
     installation=operational_schema.installation(c,required=True)
@@ -89,6 +93,9 @@ ISSUER_EVIDENCE_PREFIXES = (
     'protected-buy-funding:v1:issuer-policy:v1:shortfall:',
 )
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
+FILL_CASH_PREFIX = 'broker-cash-activity:v1:fill-cash:'
+LEGACY_FILL_CASH_PREFIX = 'broker-fill-cash/v1:'
+NOTIONAL_POSITION_LEAD_PREFIX = 'broker-cash-activity:v1:notional-position-lead:v1:'
 PUBLICATION_CHANGED_KIND = 'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
 PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
@@ -156,9 +163,12 @@ _CLEAN_CASH_RETIRED_SQL = ("s.state='SUPERSEDED' "
 _ISSUER_EVIDENCE_FILTER = ' OR '.join(
     "x.cursor_name LIKE '"+prefix+"%'"
     for prefix in ISSUER_EVIDENCE_PREFIXES)
-_ISSUER_EVIDENCE_FIELDS = ("'count',count(*),"
+_EXECUTION_RECOVERY_FILTER = ' OR '.join(
+    "x.cursor_name LIKE '"+prefix+"%'"
+    for prefix in (FILL_CASH_PREFIX, LEGACY_FILL_CASH_PREFIX, NOTIONAL_POSITION_LEAD_PREFIX))
+_CURSOR_EVIDENCE_FIELDS = ("'count',count(*),"
     "'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),''))")
-ISSUER_LINEAGE_SQL = (f'SELECT json_build_object({_ISSUER_EVIDENCE_FIELDS},'
+ISSUER_LINEAGE_SQL = (f'SELECT json_build_object({_CURSOR_EVIDENCE_FIELDS},'
     "'lineage_overlap',coalesce(bool_or(x.state ?| ARRAY['wealth_core','strategy_identity']),false)) "
     'FROM sentinel_processed_sessions x WHERE '+_ISSUER_EVIDENCE_FILTER)
 
@@ -212,13 +222,15 @@ SELECT json_build_object(
  'fills_count',(SELECT count(*) FROM sentinel_fills),
  'fills_md5',(SELECT md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.broker_order_id,x.fill_key),''))
    FROM sentinel_fills x),
+ 'execution_recovery_evidence',(SELECT json_build_object({cursor_fields})
+   FROM sentinel_processed_sessions x WHERE {execution_recovery_filter}),
  'book_cursors_md5',(SELECT md5(coalesce(string_agg(md5(jsonb_build_array(
    x.cursor_name,x.session,x.xmin::text,x.ctid::text)::text),'' ORDER BY x.cursor_name),''))
    FROM sentinel_processed_sessions x WHERE x.cursor_name IN
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
      OR x.cursor_name LIKE 'shadow-observation:v1:%'),
- 'issuer_evidence',(SELECT json_build_object({issuer_fields})
+ 'issuer_evidence',(SELECT json_build_object({cursor_fields})
    FROM sentinel_processed_sessions x WHERE {issuer_filter}),
  'push_subscriptions',(SELECT json_build_object(
    'active',count(*) FILTER (WHERE x.retired_at IS NULL),
@@ -348,7 +360,8 @@ def snapshot_sql(mode='PRE_OPEN'):
         plan_ready = _SUCCESSOR_READY
         facts += '\n '+_SUCCESSOR_FACTS
     return _SNAPSHOT_SQL.format(candidate=candidate, ready=ready, facts=facts,
-        issuer_fields=_ISSUER_EVIDENCE_FIELDS, issuer_filter=_ISSUER_EVIDENCE_FILTER,
+        cursor_fields=_CURSOR_EVIDENCE_FIELDS, issuer_filter=_ISSUER_EVIDENCE_FILTER,
+        execution_recovery_filter=_EXECUTION_RECOVERY_FILTER,
         cycle_generation=generation, plan_value=plan_value, plan_join=plan_join,
         plan_ready=plan_ready)
 
@@ -440,7 +453,6 @@ _CANONICAL_PLAN = r'''        plan=journal.load_plan(conn,expected['plan'])
             expected_shadow_result=result)
         assert proof['verdict']=='MATCH'
         saved=authority.load_authority(conn,plan_id=plan.plan_id)
-        assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
 '''
 
 _CANONICAL_SETTLED_POSITIONS = r'''            settled=journal.load_observation_payload(conn,expected['reconciliation_id'])
@@ -455,15 +467,27 @@ _CANONICAL_SETTLED_POSITIONS = r'''            settled=journal.load_observation_
 '''
 
 _CANONICAL_PRESERVATION = r'''        policy=protected_limits.ProtectedLimitPolicy.from_env()
-        assert policy is not None
-        assert policy.cap_bps==100 and policy.debug_window is None
+        market=policy is None
+        if market:
+            from sentinel.execution.market_buy_policy import MarketBuyPolicy
+            policy=MarketBuyPolicy.from_env()
+            assert policy is not None, 'current BUY policy is absent'
+            assert saved['schema']==authority.MARKET_SCHEMA
+            authority.require_current_buy_policy(conn,plan=plan)
+        else:
+            assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
+            assert policy.cap_bps==100 and policy.debug_window is None
         projection=target_reprojection.load_projection(conn,plan_id=plan.plan_id)
         # The existing execution contract creates this record at execution before
         # the first order. A future WAITING_OPEN plan legitimately has no projection;
         # preserve that absence rather than manufacturing a future opening state.
         if projection is not None:
             target_reprojection.assert_projection(conn,plan=plan,projection=projection,
-                through_session=projection.through_session)
+                through_session=plan.effective_session)
+        if market and projection is not None:
+            from sentinel.execution import market_buy_sizing
+            market_buy_sizing.validate_projection(projection,require_current_policy=True,plan=plan)
+        if not market and projection is not None:
             state=SessionState.from_dict(saved['shadow_state'])
             target=shadow_target(state)
             projected=target_reprojection.project_target(plan,through_session=projection.through_session,

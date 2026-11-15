@@ -72,7 +72,7 @@ from .model import (
 
 from .inspection import DEFENSIVE_SYMBOL
 
-def _action_lookup(conn, state: SessionState | None, through: date):
+def _action_lookup(conn, state: SessionState | None, through: date, history=None):
     """Corporate-action quantity changes since the last durable decision.
 
     The plan/current state session is the earliest trustworthy boundary this
@@ -80,7 +80,7 @@ def _action_lookup(conn, state: SessionState | None, through: date):
     ticker reuse out of the lookup; unsupported merger/spinoff shapes remain
     foreign activity and therefore block increases.
     """
-    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
+    from sentinel.execution import action_reads
 
     start = date.fromisoformat(
         (state.last_processed_session if state is not None else None) or through.isoformat())
@@ -89,11 +89,9 @@ def _action_lookup(conn, state: SessionState | None, through: date):
         row = cur.fetchone()
     if row and row[0] is not None:
         start = min(start, row[0])
-    from sentinel.execution.cash_corrections import action_view
-    actions = corpus_action_lookup(conn, start=start, end=through)
-    return action_view(conn, actions, start=start, end=through)
+    return action_reads.lookup(conn, start=start, end=through, history=history)
 
-def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
+def _target_action_lookup(conn, plan: ExecutionPlan, through: date, history=None):
     """Share-count changes strictly after this immutable decision.
 
     Reconciliation needs enough history to age old filled commands into the
@@ -102,11 +100,9 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
     an action in ``(decision_session, execution_session]`` can change shares
     after this plan fixed its basket.
     """
-    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
+    from sentinel.execution import action_reads
 
-    from sentinel.execution.cash_corrections import action_view
-    actions = corpus_action_lookup(conn, start=plan.decision_session, end=through)
-    return action_view(conn, actions, start=plan.decision_session, end=through)
+    return action_reads.lookup(conn, start=plan.decision_session, end=through, history=history)
 
 def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
     """Supported share changes in the exact target-validity window.
@@ -148,7 +144,7 @@ def _post_projection_action_multipliers(
     return result
 
 def _preopen_active_security_ids(
-        *, plan: ExecutionPlan, commands, actions) -> tuple[str, ...]:
+        *, plan: ExecutionPlan, commands, actions, conn=None) -> tuple[str, ...]:
     """Return every identity that can affect this execution boundary.
 
     A recovered command identity remains authority-relevant even when terminal
@@ -170,6 +166,13 @@ def _preopen_active_security_ids(
     identities.update(
         str(command.security_id) for command in commands
         if blocks_overlapping(command.state) or command.is_recovered)
+    if conn is not None:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        policy = MarketBuyPolicy.from_env()
+        if policy is not None and policy.fractional:
+            from sentinel.execution import held_targets
+            identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))
+            identities.update(held_targets.plan_pending_share_targets(conn, plan.plan_id))
     return tuple(sorted(identities))
 
 def _informational_active_symbols(
@@ -215,15 +218,19 @@ def _informational_active_symbols(
 def _plan_deltas(
         *, target_basket: Mapping[str, Decimal],
         observation: BrokerObservation,
-        minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None):
+        minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None,
+        restricted_security_ids=(), fulfillment=None):
     identities = set(target_basket)
     identities.update(observation.positions_by_security())
     identities.update(
         order.instrument.security_id for order in observation.orders)
     from sentinel.execution import fractional_progress
     if fractional_progress.is_fractional(projection):
-        return tuple(fractional_progress.delta(conn, projection=projection, deployment=deployment,
-            security_id=sid, observation=observation, min_increment=minimum_quantity_increment)
+        if fulfillment is None:
+            fulfillment = fractional_progress.derive(conn, projection=projection, deployment=deployment)
+        return tuple(fractional_progress.delta_from_fulfillment(fulfillment,
+            security_id=sid, observation=observation, min_increment=minimum_quantity_increment,
+            restricted=sid in restricted_security_ids)
             for sid in sorted(identities))
     return tuple(
         execution_commands.compute_delta(
@@ -276,12 +283,12 @@ def _preopen_views_or_none(
 
 def _revalidate_preopen_authority_or_refuse(
         *, authority, plan: ExecutionPlan, commands, actions,
-        required_cutoff_at: datetime, evaluated_at: datetime) -> None:
+        required_cutoff_at: datetime, evaluated_at: datetime, conn=None) -> None:
     """Recheck exact coverage after reconciliation may have adopted commands."""
     if authority is None:
         return
     active_security_ids = _preopen_active_security_ids(
-        plan=plan, commands=commands, actions=actions)
+        plan=plan, commands=commands, actions=actions, conn=conn)
     try:
         preopen_authority.validate_for_plan(
             authority, plan=plan,
@@ -310,6 +317,16 @@ def _target_projection_or_refuse(
             "target projection canonical state differs from the immutable "
             "plan snapshot")
     target = shadow_target(state)
+    from sentinel.execution import market_buy_sizing, protected_limits
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    market_policy = MarketBuyPolicy.from_env()
+    fractional = market_policy is not None and market_policy.fractional
+    carried_budgets, pending_targets = {}, None
+    if fractional:
+        from sentinel.execution import fractional_progress, fractional_sizing, held_targets
+        carried_budgets = held_targets.plan_purchase_budgets(conn, plan.plan_id)
+        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)
+    additional_ids = carried_budgets.keys() | (pending_targets or {}).keys()
     commands = journal.load_commands(conn, binding.identity)
     expected_book = reconciliation.expected_book_from_commands(
         commands, actions=actions)
@@ -318,38 +335,37 @@ def _target_projection_or_refuse(
          if quantity != 0 or plan.opening_intents}
         | {security_id for security_id, quantity in target.shares.items()
            if quantity != 0}
-        | set(expected_book))
-    symbols = (
-        {target.tickers[security_id] for security_id in security_ids
-         if target.tickers.get(security_id)}
-        | {command.instrument.symbol for command in commands
-           if (command.security_id in security_ids
-               and command.instrument.symbol)})
+        | set(expected_book) | additional_ids)
+    symbols = {sid: {target.tickers[sid]} if target.tickers.get(sid) else set()
+               for sid in security_ids}
+    for command in commands:
+        if command.security_id in symbols:
+            symbols[command.security_id].add(command.instrument.symbol)
     if DEFENSIVE_SECURITY_ID in security_ids:
         # BIL is a fixed execution identity outside the Wealth Core shadow, so
         # ``target.tickers`` cannot supply it.  Unmapped corporate-action rows
         # are ticker-bound; omitting this symbol would let an unresolved BIL
         # action miss a fresh defensive target with no prior command/position.
-        symbols.add(DEFENSIVE_SYMBOL)
-    material = []
-    for lookup in (actions, target_actions):
-        finder = getattr(lookup, "material_events_for", None)
-        if callable(finder):
-            material.extend(finder(
-                security_ids=security_ids, symbols=symbols))
-    unique = {
-        (event.source_row_id, event.reason): event for event in material}
-    if unique and not allow_restrictions:
-        detail = [event.to_dict() for event in unique.values()]
-        raise PaperActivationRefused(
-            "corporate action intersects the executable book but has no "
-            f"certified scalar projection: {detail}. Sentinel will not invent "
-            "cash, positions, fills, or corrective orders for an Alpaca paper "
-            "limitation")
+        symbols[DEFENSIVE_SECURITY_ID].add(DEFENSIVE_SYMBOL)
+    if not allow_restrictions:
+        from sentinel.execution.share_units import material_events_for_security
+        material = {event.source_row_id: event
+                    for lookup in (actions, target_actions)
+                    for sid, tickers in sorted(symbols.items())
+                    for event in material_events_for_security(
+                        lookup, sid, tickers, after=plan.decision_session)}
+        if material:
+            detail = [event.to_dict() for event in material.values()]
+            raise PaperActivationRefused(
+                "corporate action intersects the executable book but has no "
+                f"certified scalar projection: {detail}. Sentinel will not invent "
+                "cash, positions, fills, or corrective orders for an Alpaca paper "
+                "limitation")
 
     target_security_ids = tuple(
         security_id for security_id, quantity
-        in sorted(plan.target_basket.items()) if quantity != 0 or plan.opening_intents)
+        in sorted(plan.target_basket.items())
+        if quantity != 0 or plan.opening_intents or security_id in additional_ids)
     multipliers = {
         security_id: target_actions(security_id)
         for security_id in target_security_ids
@@ -368,23 +384,22 @@ def _target_projection_or_refuse(
             held_shares=target.held_shares,
             pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
-                broker.capabilities.minimum_quantity_increment))
-        from sentinel.execution import market_buy_sizing, protected_limits
-        from sentinel.execution.market_buy_policy import MarketBuyPolicy
-        market_policy = MarketBuyPolicy.from_env()
+                broker.capabilities.minimum_quantity_increment),
+            fractional_entitlements=pending_targets)
         policy = protected_limits.ProtectedLimitPolicy.from_env()
-        if market_policy is not None and market_policy.fractional:
-            from sentinel.execution import fractional_progress, fractional_sizing, held_targets
+        if fractional:
             retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
             stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
             if stored is not None:
                 fractional_sizing.validate_projection(stored, require_current_policy=True, plan=plan)
             basis = fractional_progress.baseline(conn, deployment=binding.identity, plan=plan,
                 actions=actions, saved=None if stored is None else stored.opening_sizing["baseline"])
-            references = protected_limits.build_references(conn, plan=plan, projection=projected)
+            references = protected_limits.build_references(conn, plan=plan, projection=projected,
+                additional_security_ids=(additional_ids | projected.pending_share_targets.keys()
+                                         | basis.get("pending_entitlements", {}).keys()))
             projected = fractional_sizing.resolve(state, plan, projected, references, market_policy,
                 baseline=basis, retained_targets=retained,
-                carried_budgets=held_targets.plan_purchase_budgets(conn, plan.plan_id),
+                carried_budgets=carried_budgets, pending_retained=pending_targets,
                 retry_openings=retries)
         elif market_policy is not None:
             from sentinel.execution import held_targets
@@ -443,7 +458,11 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           target_basket: Mapping[str, Decimal] | None = None,
                           restricted_security_ids=(),
                           preparation: bool = False,
+                          buy_deferrals: dict[str, str] | None = None,
                           ) -> dict[str, BrokerInstrument]:
+    from sentinel.execution.contract import BrokerInstrumentUnavailable
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
     desired = plan.target_basket if target_basket is None else target_basket
     target = shadow_target(state)
     symbols = dict(target.tickers)
@@ -452,12 +471,12 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     protected_references = None
     protected_projection = None
     fractional_projection = None
+    market_policy = MarketBuyPolicy.from_env()
     if not preparation:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
         from sentinel.execution import market_buy_sizing, protected_limits
-        from sentinel.execution.market_buy_policy import MarketBuyPolicy
-        if MarketBuyPolicy.from_env() is not None:
+        if market_policy is not None:
             try:
                 market_buy_sizing.validate_projection(projection, require_current_policy=True, plan=plan)
                 if projection.target_basket != desired:
@@ -496,10 +515,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if security_id in meta:
             symbols.setdefault(security_id, meta[security_id].ticker)
     instruments: dict[str, BrokerInstrument] = {}
-    for position in observation.positions:
-        instruments[position.instrument.security_id] = position.instrument
-    for order in observation.orders:
-        instruments[order.instrument.security_id] = order.instrument
+    for item in (*observation.positions, *(order for order in observation.orders if order.is_working)):
+        instrument = item.instrument
+        sid = instrument.security_id
+        previous = instruments.get(sid)
+        if (previous is not None and previous.broker_id and instrument.broker_id
+                and previous.broker_id != instrument.broker_id):
+            raise PaperActivationRefused(
+                f"live positions and working orders disagree on the native asset for {sid}")
+        if previous is None or not previous.broker_id:
+            instruments[sid] = instrument
     # Resolve only securities that can produce an actionable command. The
     # desired basket always names the defensive sleeve, including BIL:0; an
     # irrelevant zero leg must not block a pure Core reduction on a needless
@@ -517,15 +542,17 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         and desired.get(security_id, Decimal(0))
         != effective_current[security_id]
     }
-    if preparation and plan.target_exposure != 0:
-        needed.update(item.security_id for item in plan.opening_intents)
     dollar_increases = set()
+    if preparation and plan.target_exposure != 0:
+        dollar_increases = {item.security_id for item in plan.opening_intents}
+        needed.update(dollar_increases)
     if fractional_projection is not None:
         from sentinel.execution.identity import DeploymentIdentity
         identity = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
         deltas = _plan_deltas(target_basket=desired, observation=observation,
             minimum_quantity_increment=broker.capabilities.minimum_quantity_increment,
-            conn=conn, deployment=identity, projection=fractional_projection)
+            conn=conn, deployment=identity, projection=fractional_projection,
+            restricted_security_ids=restricted_security_ids)
         dollar_increases = {d.security_id for d in deltas if d.is_increase
                             and d.classification is execution_commands.DeltaClass.ACTIONABLE}
         needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE
@@ -556,11 +583,15 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if not symbol:
             unresolved.append(security_id)
             continue
+        unavailable = None
         try:
             resolved = await broker.resolve_instrument(
                 security_id=security_id, symbol=str(symbol))
         except BrokerAuthorityRefused:
             raise
+        except BrokerInstrumentUnavailable as exc:
+            resolved = exc.instrument
+            unavailable = exc
         except MalformedBrokerEvidence as exc:
             raise PaperActivationRefused(
                 f"invalid broker instrument identity {security_id}/{symbol}: {exc}") from exc
@@ -568,13 +599,15 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             raise PaperRetryableRefused(
                 f"cannot resolve broker instrument {security_id}/{symbol}: "
                 f"{type(exc).__name__}: {exc}") from exc
-        if (resolved.security_id != security_id
+        if (not isinstance(resolved, BrokerInstrument) or resolved.security_id != security_id
                 or not resolved.broker_id or not resolved.symbol):
             raise PaperActivationRefused(
                 f"broker instrument resolution for {security_id}/{symbol} "
                 "did not return the requested permanent identity, symbol and "
                 "stable broker asset id")
-        instruments[security_id] = resolved
+        if current is not None and current.broker_id and resolved.broker_id != current.broker_id:
+            raise PaperActivationRefused(
+                f"resolved instrument differs from the observed native asset for {security_id}")
         if protected_references is not None:
             source_asset = protected_references.provider_asset_ids.get(security_id)
             if (resolved.symbol != protected_references.symbols.get(security_id)
@@ -583,6 +616,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if (opening_prices is not None and security_id in opening_prices.broker_ids
                 and resolved.broker_id != opening_prices.broker_ids[security_id]):
             raise PaperActivationRefused("submission instrument differs from opening broker asset identity")
+        if unavailable is not None:
+            if (market_policy is None or not market_policy.fractional or not increasing
+                    or (not preparation and buy_deferrals is None)
+                    or resolved.symbol != symbol):
+                raise PaperActivationRefused(
+                    f"invalid broker instrument identity {security_id}/{symbol}: {unavailable}") from unavailable
+            if buy_deferrals is not None:
+                buy_deferrals[security_id] = f"BUY_INSTRUMENT_UNAVAILABLE: {unavailable}"
+            continue
+        instruments[security_id] = resolved
     if unresolved:
         raise PaperActivationRefused(
             "no certified broker instrument mapping for: "

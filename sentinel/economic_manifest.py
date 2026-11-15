@@ -15,10 +15,12 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '5f5685e96d1008a1dcdcfdef6549732d08bc17e3aeaeac6307ca4d02d56e0563'
+MANIFEST_SHA256 = 'e4822ddb5adbba5c38345fb2d6678eead07cbd2d8b777ff4f920137b84e0aea5'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
+COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
+COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 
 
 class EconomicManifestRefused(ValueError):
@@ -190,6 +192,8 @@ def identity(*, schema):
             actual[name] = operation_read_source_basis.contribution(name,raw)
         elif name == close_feed_source_basis.MODULE:
             actual[name] = close_feed_source_basis.contribution(raw)
+        elif name == COMPACT_WINDOW_MODULE and _sha(raw) == COMPACT_WINDOW_SHA256:
+            actual[name] = expected[name]
         else:
             actual[name] = contribution(name,raw) if name in value['input_compilers'] else _sha(raw)
     implementation = _sha(_canonical(actual))

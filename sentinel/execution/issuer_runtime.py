@@ -115,6 +115,7 @@ class PaperIssuerAdmission:
     def __init__(self, *, conn, binding, clock):
         self.conn, self.binding, self.clock = conn, binding, clock
         self.evidence = None
+        self.purchase_projection = None
         self.reconciliation = None
         self.error = 'ISSUER_ADMISSION_CONTEXT_NOT_PREPARED'
 
@@ -129,12 +130,14 @@ class PaperIssuerAdmission:
         self.conn.commit()
 
     def prepare(self, *, publication, state, plan, projection, reconciliation):
+        from sentinel.execution.fractional_progress import is_fractional
         from sentinel.feed.alpaca_transport import AlpacaTransportRefused
         from sentinel.feed.issuer_reference import load_snapshot
         from sentinel.feed.operational_snapshot import OperationalSnapshotRefused
         from sentinel.feed.rolling_store import SnapshotStorageRefused
 
         self.reconciliation = reconciliation
+        self.purchase_projection = projection if is_fractional(projection) else None
         try:
             commands = tuple(journal.load_commands(self.conn, self.binding))
             # A retained plan keeps its original authenticated reference version.
@@ -180,7 +183,8 @@ class PaperIssuerAdmission:
                 reason='ISSUER_ADMISSION_NATIVE_IDENTITY_CHANGED', security_id=security_id)
         decision = admission.check_buy(
             self.conn, evidence=self.evidence, security_id=security_id,
-            reconciliation=reconciliation, now=self.clock(), reserve=reserve)
+            reconciliation=reconciliation, now=self.clock(), reserve=reserve,
+            projection=self.purchase_projection)
         if decision.allowed is not True:
             # A shortfall is independent metadata. An admitted reservation
             # stays uncommitted until the executor saves its durable command.
@@ -205,7 +209,8 @@ class PaperIssuerAdmission:
             raise admission.IssuerAdmissionRefused('ISSUER_ADMISSION_DURABLE_COMMAND_CHANGED')
         decision = admission.final_command_check(
             self.conn, evidence=self.evidence, command=matches[0],
-            reconciliation=self.reconciliation, now=self.clock(), commands=commands)
+            reconciliation=self.reconciliation, now=self.clock(), commands=commands,
+            projection=self.purchase_projection)
         if decision.allowed is not True:
             raise OrderEvidenceNotReady(decision.reason)
         return decision

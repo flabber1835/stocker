@@ -91,6 +91,7 @@ def _subject_for_revision(conn, database_url, scope, row, *, facts=None):
 
 
 def _shadow_inventory(conn):
+    from sentinel.execution.journal import LEGACY_FILL_CASH_PREFIX
     from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
     relation = conn.execute("SELECT 'sentinel_processed_sessions'::regclass::oid::text,"
         "pg_relation_filenode('sentinel_processed_sessions')::text,"
@@ -100,7 +101,8 @@ def _shadow_inventory(conn):
     cursors = conn.execute('SELECT cursor_name,session::text,tableoid::text,xmin::text,ctid::text '
         'FROM sentinel_processed_sessions WHERE cursor_name<>ALL(%s) AND NOT (cursor_name LIKE ANY(%s)) '
         'ORDER BY cursor_name LIMIT 10001',
-        (list(PAPER_CURSOR_NAMES), [prefix+'%' for prefix in PAPER_CURSOR_PREFIXES])).fetchall()
+        (list(PAPER_CURSOR_NAMES),
+         [prefix+'%' for prefix in (*PAPER_CURSOR_PREFIXES, LEGACY_FILL_CASH_PREFIX)])).fetchall()
     publications = conn.execute('SELECT version,tableoid::text,xmin::text,ctid::text '
         'FROM sentinel_corpus_publications ORDER BY version LIMIT 10001').fetchall()
     if len(cursors) > 10000 or len(publications) > 10000:

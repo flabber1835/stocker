@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+import re
 from time import perf_counter_ns
 from zoneinfo import ZoneInfo
 
@@ -52,6 +53,27 @@ def _merged(pages, *, symbols):
                 raise AlpacaTransportRefused("unexpected symbol in Alpaca bars")
             result.setdefault(symbol, []).extend(records)
     return result, proofs
+
+
+def _unchanged_stock_merger_acquirer(record, current_assets, prior_assets):
+    """Identify the receiving listing when the two economic roles are explicit."""
+    acquirer = record.get('acquirer_symbol')
+    acquiree = record.get('acquiree_symbol')
+    if (not isinstance(acquirer, str) or not isinstance(acquiree, str)
+            or acquirer == acquiree or action_participants(record) != {acquirer, acquiree}):
+        return None
+    cusips = (record.get('acquirer_cusip'), record.get('acquiree_cusip'))
+    if (cusips[0] == cusips[1] or not all(isinstance(cusip, str)
+            and re.fullmatch(r'[A-Z0-9]{9}', cusip) for cusip in cusips)):
+        return None
+    try:
+        rates = tuple(Decimal(str(record[key])) for key in ('acquirer_rate', 'acquiree_rate'))
+    except (KeyError, InvalidOperation):
+        return None
+    if not all(rate.is_finite() and rate > 0 for rate in rates):
+        return None
+    current = current_assets.get(acquirer)
+    return acquirer if current and current == prior_assets.get(acquirer) else None
 
 
 class AlpacaSource:
@@ -216,7 +238,10 @@ class AlpacaSource:
         splits = {}
         by_type = Counter()
         structural, resets = [], []
-        selected = {row["ticker"] for row in self.selected} | {'BIL'}
+        current_assets = {row['ticker']: row.get('asset_id') for row in self.selected}
+        selected = current_assets.keys() | {'BIL'}
+        previous = self._previous_identity()
+        prior_assets = {row['ticker']: row['asset_id'] for row in previous['previous_selected']} if previous else {}
         axis = {str(day) for day in self.window.sessions}
         for page, proof in self.client.pages(ACTION_URL, params, key="corporate_actions"):
             proofs.append(proof)
@@ -246,6 +271,10 @@ class AlpacaSource:
                             structural.append((kind, record))
                             involved = alpaca_identity.action_sources(kind, record) & selected
                             economic_date = structural_action_date(kind, record)
+                            if kind == 'stock_mergers' and economic_date is not None:
+                                acquirer = _unchanged_stock_merger_acquirer(record, current_assets, prior_assets)
+                                if acquirer is not None:
+                                    involved = involved - {acquirer}
                             if economic_date is None or economic_date > str(self.window.end):
                                 affected.update(involved)
                             elif economic_date >= str(self.window.start):
@@ -263,7 +292,6 @@ class AlpacaSource:
                                         pass
                                 for symbol in involved:
                                     resets.append((symbol, economic_date, record['id']))
-        previous = self._previous_identity()
         identity_bindings = alpaca_identity.bind(selected=self.selected, records=structural,
             target_session=str(self.window.end), **previous) if previous is not None else []
         exemptions = {item['event']['id'] for item in identity_bindings}
@@ -367,6 +395,7 @@ class AlpacaSource:
         refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
         actions = self._part("ACTIONS", {**base, "component": "actions",
+                                          'stock_merger_roles': 1,
                                           'prior_identity_sha256': digest(self._previous_identity()),
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
                              self._action_rows, checkpoint)
@@ -382,6 +411,13 @@ class AlpacaSource:
                               self._benchmark_rows, checkpoint)
 
     def acquire_prices(self, checkpoint, pulse):
+        from contextlib import nullcontext
+
+        scope = self.client.pooled() if isinstance(self.client, Client) else nullcontext()
+        with scope:
+            self._acquire_prices(checkpoint, pulse)
+
+    def _acquire_prices(self, checkpoint, pulse):
         safe_symbols = {row["ticker"] for row in self.selected} - self.action_affected
         if not safe_symbols:
             raise AlpacaTransportRefused("no candidate securities remain after action quarantine")

@@ -16,6 +16,7 @@ from sentinel.execution import held_targets, journal, protected_limits as limits
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.commands import compute_delta, DeltaClass
 from sentinel.execution.contract import Side
+from sentinel.execution.reconcile import CorporateActionEvent
 from sentinel.feed import calendar
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation
@@ -130,7 +131,11 @@ def test_split_ages_frozen_quantity_without_rebalancing():
             return (SimpleNamespace(to_dict=lambda: dict(event)),)
     assert carry(previous, before, after, actions=Evidenced())[SID] == 144
     class Unsupported(Evidenced):
-        def material_events_for(self, **kwargs): return ("MERGER",)
+        def material_events_for(self, **kwargs):
+            return (CorporateActionEvent(
+                security_id=SID, ticker="PBR.A", session=date.fromisoformat(event["session"]),
+                action="merger", value=None, contraticker=None,
+                source_row_id="merger-1", reason="unsupported share action"),)
     with pytest.raises(projections.TargetProjectionRefused, match="unsupported action"):
         carry(previous, before, after, actions=Unsupported())
 

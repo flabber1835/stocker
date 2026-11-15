@@ -1,6 +1,6 @@
 """Health hints stay bounded, freshly bound, and outside financial admission."""
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 import os
@@ -110,6 +110,82 @@ def test_reader_never_constructs_calendar(projection, monkeypatch):
     assert health.health(projection,fallback=forbidden)['service_health']=='HEALTHY_ATTESTED'
     assert health.health(projection,fallback=forbidden,
         now=datetime(2026,9,16,12,tzinfo=timezone.utc))['service_health']=='HEALTHY_WAITING'
+
+
+@pytest.mark.parametrize('case', ['same', 'changed', 'failed', 'close', 'clock_reversal'])
+def test_unchanged_poll_uses_original_proof_deadline(monkeypatch, case):
+    from types import SimpleNamespace
+    from sentinel import shadow_supervisor as supervisor
+
+    started_at = datetime(2026, 9, 14, 21, tzinfo=timezone.utc)
+    elapsed = 40.
+    observed_at = lambda: started_at + timedelta(seconds=elapsed)
+    monkeypatch.setattr(supervisor, 'time', SimpleNamespace(monotonic=lambda: elapsed))
+    monkeypatch.setattr(supervisor.shadow_budget, 'now', observed_at)
+    before = ('same source', (10, started_at-timedelta(seconds=10), True))
+    measured = ('same source', (11, observed_at(), True))
+    hint = supervisor._earned_schedule(before, measured, started=0., started_at=started_at)
+    assert hint is not None
+    assert supervisor._earned_schedule(before, before, started=0., started_at=started_at) is None
+    assert supervisor._earned_schedule(before, ('changed', measured[1]),
+                                      started=0., started_at=started_at) is None
+    deadlines = []
+
+    def wait(**poll):
+        nonlocal elapsed
+        deadline = (poll['close_at'] - started_at).total_seconds()
+        elapsed = min(poll['deadline'], deadline)
+        deadlines.append(elapsed)
+
+    def observe(*_):
+        if case == 'failed':
+            return None
+        if case == 'changed':
+            return ('changed', measured[1])
+        if case == 'clock_reversal':
+            monkeypatch.setattr(supervisor.shadow_budget, 'now',
+                                lambda: started_at + timedelta(seconds=200))
+        return measured
+
+    monkeypatch.setattr(supervisor, '_poll_after_worker', wait)
+    monkeypatch.setattr(supervisor, '_observe_schedule', observe)
+    close_at = started_at + timedelta(seconds=300 if case == 'close' else 86_400)
+    supervisor._wait_for_next_attempt(dict(deadline=340., close_at=close_at,
+        stopping=lambda: False), hint, SimpleNamespace(poll_seconds=300))
+    expected = {'same': [340., 600.], 'close': [300.]}.get(case, [340.])
+    assert deadlines == expected
+
+
+def test_unchanged_poll_subject_has_real_storage_binding(conn, provider, projection, monkeypatch):
+    from sentinel import operational_ddl_epoch
+    _prices, publish = provider
+    publish()
+    operational_ddl_epoch.install(conn)
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                 "VALUES ('operational-schema:v1','2026-09-14','{}')")
+    conn.execute("INSERT INTO sentinel_readiness_snapshots(ready,checks_passed,checks_total,checks) "
+                 "VALUES (true,1,1,'[]')")
+    conn.commit()
+    inventory, present = health._inventory(conn)
+    assert present
+    conn.rollback()
+    wrapped = json.loads(health.path().read_text())
+    wrapped['projection']['inventory_sha256'] = inventory
+    wrapped['hmac_sha256'] = health._signature(wrapped['projection'])
+    health._write(wrapped, health.path())
+
+    observed = health.scheduling_subject(projection, health.path())
+    assert observed is not None and observed[1][2]
+    assert health.scheduling_subject(projection, health.path()) == observed
+
+    conn.execute("CREATE TABLE public.shadow_unchanged_other_schema_subject(id int)")
+    conn.commit()
+    changed_ddl = health.scheduling_subject(projection, health.path())
+    assert changed_ddl is not None and changed_ddl[0] != observed[0]
+
+    instant = datetime.fromisoformat(wrapped['projection']['current_until'])
+    monkeypatch.setattr(health, '_now', lambda: instant)
+    assert health.scheduling_subject(projection, health.path()) is None
 
 
 @pytest.mark.parametrize('cursor', [

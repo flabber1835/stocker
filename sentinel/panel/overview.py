@@ -88,6 +88,7 @@ def _leg_html(leg, outcomes) -> str:
             action, quantity = 'Estimate unavailable', 'Quantity pending'
         else:
             action, quantity = 'Change unavailable', (
+                'Corporate action pending' if leg.reason == 'CORPORATE_ACTION_PENDING' else
                 'Sizing evidence unavailable' if leg.reason == 'REFERENCE_UNAVAILABLE'
                 else 'Recorded shares unavailable')
     elif leg.action == 'SKIP':
@@ -104,6 +105,7 @@ def _leg_html(leg, outcomes) -> str:
         action, quantity = 'Keep', _quantity(leg.target_quantity)+' shares'
     target = (f'${estimate.account_budget:,.2f} paper budget · ${estimate.limit_price:,.2f} limit'
               if estimate is not None else
+              'Target pending' if leg.reason == 'CORPORATE_ACTION_PENDING' else
               f'${leg.opening_dollars:,.2f} strategy intent · sizing unavailable'
               if leg.opening_dollars is not None and leg.action == 'UNAVAILABLE' else
               f'${leg.opening_dollars:,.2f} budget · shares determined at execution'

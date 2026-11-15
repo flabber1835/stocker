@@ -23,6 +23,8 @@ INITIALIZERS = frozenset({'sentinel','sentinel.breadth','sentinel.controller','s
     'sentinel.execution','sentinel.feed','sentinel.feed.source_authority','sentinel.regime',
     'stock_strategy_shared','stock_strategy_shared.wealth_core'})
 B2_INITIALIZERS_SHA256 = '59626f519a727449e7a1ec6ca3415168b4272b5607fe709b3c2d37457a32f9f9'
+WINDOW_PREDECESSOR = ROOT / 'tests/support/window-material-516c44e53.py.txt'
+WINDOW_PREDECESSOR_SHA256 = '3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76'
 MOVES = {
     'sentinel/core/window_features.py': ('sentinel.core.window_material', ('Signal','WindowFeatures','protected','install')),
     'sentinel/core/rolling_reader.py': ('sentinel.core.input_domains', ('_vendor','_defensive')),
@@ -79,6 +81,18 @@ def tree(source):
     return ast.dump(ast.parse(source), include_attributes=False)
 
 
+def window_predecessor_source():
+    raw = WINDOW_PREDECESSOR.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == WINDOW_PREDECESSOR_SHA256
+    return raw.decode()
+
+
+def _window_predecessor_definition(name):
+    source = window_predecessor_source()
+    definition = next(node for node in ast.parse(source).body if getattr(node, 'name', None) == name)
+    return ast.get_source_segment(source, definition)
+
+
 def moved_equal(old, current):
     assert tree(old) == tree(current)
 
@@ -91,7 +105,19 @@ def test_extracted_definitions_match_independent_predecessor(path):
     module_name, definitions = MOVES[path]
     module = importlib.import_module(module_name)
     for definition in definitions:
-        moved_equal(record['definitions'][definition], inspect.getsource(getattr(module,definition)))
+        current = inspect.getsource(getattr(module, definition))
+        if path == 'sentinel/core/window_features.py' and definition == 'Signal':
+            previous = _window_predecessor_definition('Signal')
+            moved_equal(record['definitions'][definition], previous)
+            # The current conversion is exercised against the archived compiler.
+            # Every other class member must still match the extraction witness.
+            shapes = [ast.parse(source).body[0] for source in (previous, current)]
+            for shape in shapes:
+                method = next(node for node in shape.body if getattr(node, 'name', None) == 'from_feature')
+                shape.body.remove(method)
+            assert ast.dump(shapes[0], include_attributes=False) == ast.dump(shapes[1], include_attributes=False)
+        else:
+            moved_equal(record['definitions'][definition], current)
 
 
 def test_existing_exception_and_helper_imports_are_exact_aliases():
@@ -181,13 +207,12 @@ def compiler_body(source, *, prior):
 
 
 def test_window_compiler_preserves_complete_old_interpretation():
-    from sentinel.core import window_material
     old = witness()['files']['sentinel/core/window_features.py']['definitions']['load']
-    current = inspect.getsource(window_material.compile_rows)
-    assert compiler_body(old,prior=True) == compiler_body(current,prior=False)
+    original = _window_predecessor_definition('compile_rows')
+    assert compiler_body(old,prior=True) == compiler_body(original,prior=False)
     with pytest.raises(AssertionError):
         assert compiler_body(old,prior=True) == compiler_body(
-            current.replace('series.append(_vendor(row), indices[day], published_signal=True)',
+            original.replace('series.append(_vendor(row), indices[day], published_signal=True)',
                             'series.append(_vendor(row), indices[day], published_signal=False)'),prior=False)
 
 

@@ -459,8 +459,8 @@ def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
     if fractional_progress.is_fractional(projection):
         progress = fractional_progress.derive(conn, projection=projection,
             deployment=deployment, ignore_key=client_key)
-        delta = fractional_progress.delta(conn, projection=projection, deployment=deployment,
-            security_id=instrument.security_id, observation=observation, ignore_key=client_key)
+        delta = fractional_progress.delta_from_fulfillment(progress,
+            security_id=instrument.security_id, observation=observation)
         budget = progress.budgets.get(instrument.security_id)
         if (budget is None or instrument.security_id in progress.blocked
                 or not delta.is_increase or Fraction(estimate) > Fraction(budget)):

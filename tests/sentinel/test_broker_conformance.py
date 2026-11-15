@@ -231,7 +231,7 @@ class TestCancellation:
         cmd = cmd.transition(S.CANCEL_PENDING)
         b.fill(cmd.client_key, "4")             # the fill wins
         cmd = recovery.confirm_cancellation(cmd, run(b.observe()))
-        assert cmd.state is S.PARTIALLY_FILLED and cmd.filled_quantity == Decimal(4)
+        assert cmd.state is S.CANCEL_PENDING and cmd.filled_quantity == Decimal(4)
 
 
 class TestFillBetweenObservationReads:

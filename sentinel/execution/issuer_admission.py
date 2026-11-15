@@ -13,10 +13,11 @@ from typing import Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from sentinel.execution import journal
+from sentinel.execution.commands import Command
 from sentinel.execution.contract import Side
 from sentinel.execution.identity import DeploymentIdentity
 from sentinel.execution.protected_funding import ISSUER_POLICY_PREFIX
-from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
+from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState, is_terminal
 from sentinel.feed.issuer_reference import IssuerReferenceSnapshot
 from sentinel.feed.rolling_contract import Digest, digest
 
@@ -164,6 +165,7 @@ class Shortfall(_Typed):
     held: str
     committed: str
     unmet_quantity: str
+    purchase_budget_usd: str | None = None
 
 
 def _binding(binding):
@@ -521,16 +523,30 @@ def _validate_evidence(conn, evidence):
     return value, enrollment
 
 
-def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None, reserve=False):
+def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None,
+              reserve=False, projection=None):
     """Check a BUY; ``reserve=True`` writes its episode claim before transport."""
     _lock(conn)
     now = _now(now)
     value, enrollment = _validate_evidence(conn, evidence)
+    purchases = {}
+    if projection is not None:
+        from sentinel.execution import fractional_sizing
+        if (projection.plan_id != value.plan_id
+                or projection.fingerprint() != value.projection_fingerprint):
+            raise IssuerAdmissionRefused('ISSUER_ADMISSION_PLAN_BINDING_CHANGED')
+        fractional_sizing.validate_projection(projection)
+        purchases = projection.opening_sizing['purchases']
+
+    def positive_target(sid):
+        return (Decimal(value.target_basket.get(sid, '0')) > 0
+                or Decimal(purchases.get(sid, {}).get('budget', '0')) > 0)
+
     observation, facts = _reconciliation(value.binding, reconciliation, now)
     commands = _commands(conn, value.binding, commands)
     if security_id == DEFENSIVE_SECURITY_ID:
         return Decision(allowed=True, reason='DEFENSIVE_SLEEVE', security_id=security_id)
-    if Decimal(value.target_basket.get(security_id, '0')) <= 0:
+    if not positive_target(security_id):
         return Decision(allowed=False, reason='ISSUER_POSITIVE_TARGET_REQUIRED', security_id=security_id)
     own = tuple(ep for ep in value.episodes if ep.security_id == security_id)
     keys = tuple(ep.key for ep in own)
@@ -566,17 +582,24 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
     incumbents.update(order.instrument.security_id for order in possible_orders)
     approved = bool(own) and all(key in claims for key in keys)
     changed_native = set()
+    confirmed_positions = set()
     for position in observation.positions:
         descriptor = value.instruments.get(position.instrument.security_id)
-        if position.quantity > 0 and (descriptor is None
+        if position.quantity <= 0:
+            continue
+        if (descriptor is None
                 or descriptor.provider_asset_id != position.instrument.broker_id
                 or descriptor.symbol != position.instrument.symbol):
             changed_native.add(position.instrument.security_id)
+        else:
+            confirmed_positions.add(position.instrument.security_id)
     for item in (*possible_commands, *possible_orders):
         native = item.instrument
         descriptor = value.instruments.get(native.security_id)
+        historical_alias = (isinstance(item, Command) and is_terminal(item.state)
+                            and native.security_id in confirmed_positions)
         if (descriptor is None or descriptor.provider_asset_id != native.broker_id
-                or descriptor.symbol != native.symbol):
+                or (descriptor.symbol != native.symbol and not historical_alias)):
             changed_native.add(native.security_id)
     for sid in sorted(incumbents - {DEFENSIVE_SECURITY_ID}):
         current_issuer = None if sid in changed_native else _resolve(source, value.instruments, sid, now)
@@ -602,7 +625,7 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
     if reason is None and not approved:
         entry_slots = {item['security_id']: item['slot_id'] for item in value.opening_intents}
         competitors = {ep.security_id for ep in value.episodes
-            if Decimal(value.target_basket.get(ep.security_id, '0')) > 0
+            if positive_target(ep.security_id)
             and _resolve(source, value.instruments, ep.security_id, now) == issuer}
         winner = min(competitors, key=lambda sid: (entry_slots.get(sid, 20), sid))
         if winner != security_id:
@@ -619,7 +642,9 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
         shortfall = Shortfall(binding=value.binding, policy_sha256=policy_sha256(value.binding), plan_evidence_sha256=value.sha256,
             plan_id=value.plan_id, security_id=security_id, decision=decision,
             observation_sha256=digest(facts), desired=str(target), held=str(held),
-            committed=str(committed), unmet_quantity=str(max(Decimal(0), target-held-committed))).model_dump(mode='json')
+            committed=str(committed), unmet_quantity=str(max(Decimal(0), target-held-committed)),
+            purchase_budget_usd=purchases.get(security_id, {}).get('budget')).model_dump(
+                mode='json', exclude=None if security_id in purchases else {'purchase_budget_usd'})
         _append(conn, SHORTFALL_PREFIX + value.plan_id + ':' + digest(shortfall), value.effective_session,
                 'shortfall', shortfall)
     elif reserve:
@@ -634,7 +659,8 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
     return decision
 
 
-def final_command_check(conn, *, evidence, command, reconciliation, now, commands=None):
+def final_command_check(conn, *, evidence, command, reconciliation, now, commands=None,
+                        projection=None):
     """Repeat the BUY policy at the last membrane boundary; reductions are free."""
     if command.side is Side.SELL:
         return Decision(allowed=True, reason='REDUCTION', security_id=command.security_id)
@@ -647,7 +673,8 @@ def final_command_check(conn, *, evidence, command, reconciliation, now, command
             or descriptor.provider_asset_id != command.instrument.broker_id):
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_COMMAND_NATIVE_IDENTITY_CHANGED')
     decision = check_buy(conn, evidence=value, security_id=command.security_id,
-        reconciliation=reconciliation, now=now, commands=commands, reserve=False)
+        reconciliation=reconciliation, now=now, commands=commands, reserve=False,
+        projection=projection)
     if decision.allowed and decision.reason not in {'GRANDFATHERED_EPISODE', 'DEFENSIVE_SLEEVE', 'ADMITTED_EPISODE'}:
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_RESERVATION_REQUIRED_BEFORE_TRANSPORT')
     return decision

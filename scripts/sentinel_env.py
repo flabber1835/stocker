@@ -32,6 +32,7 @@ KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 PLACEHOLDER = re.compile(
     r"(?:replace-with-.*|your_.*_here|changeme|xxx+|todo|<.*>|\.\.\.)\Z", re.I)
 PAPER_URL = "https://paper-api.alpaca.markets"
+PAPER_MARKET_BUY_POLICIES = frozenset({"MARKET_DAY_V1", "FRACTIONAL_MARKET_DAY_V1"})
 RECEIPT_KEY = "SENTINEL_PUBLICATION_RECEIPT_KEY"
 TARGETS = ("SHADOW", "DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION")
 UNSAFE_KEYS = frozenset({
@@ -447,7 +448,7 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
         _fail('BACKUP_TRANSPORT_REQUIRES_CONTINUITY_POLICY')
     buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
     buy_cap = str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip()
-    market_policies = {"MARKET_DAY_V1", "FRACTIONAL_MARKET_DAY_V1"}
+    market_policies = PAPER_MARKET_BUY_POLICIES
     if local_mode or local_account or backup_policy:
         if (not local_mode or re.fullmatch(r"PA[A-Za-z0-9]+", local_account) is None):
             _fail("LOCAL_PAPER_ACCOUNT_MODE_REQUIRED")

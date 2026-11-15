@@ -122,6 +122,51 @@ async def test_sequential_slow_idle_stages_keep_one_live_permit(conn, pg, monkey
     assert store.require_leader(conn, prepared.permit).fence_token == prepared.permit.fence_token
 
 
+@pytest.mark.parametrize('case, expected', [('same', 9), ('replaced', 7), ('slow', 10)])
+@pytest.mark.asyncio
+async def test_waiting_open_tick_reuses_only_recent_fenced_progress(conn, pg, monkeypatch, case, expected):
+    from types import SimpleNamespace
+    from sentinel.automation import service as module
+
+    cfg = small_config()
+    service, prepared = await waiting_service(conn, cfg)
+    real_heartbeat = store.heartbeat_lease
+    pulse_count = 0
+    checks = 0
+    monotonic = 0.
+
+    def heartbeat(connection, **kwargs):
+        nonlocal pulse_count
+        observed = real_heartbeat(connection, **kwargs)
+        pulse_count += 1
+        return observed
+
+    def sample(**kwargs):
+        nonlocal checks, monotonic
+        checks += 1
+        if checks == 3 and case == 'replaced':
+            conn.execute("UPDATE sentinel_automation_lease SET holder_id='replacement',"
+                         'fence_token=fence_token+1 WHERE id=1')
+            conn.commit()
+        if checks == 3 and case == 'slow':
+            monotonic += cfg.heartbeat_seconds
+        return kwargs['now']
+
+    async def immediate(_):
+        pass
+
+    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=lambda: monotonic))
+    monkeypatch.setattr(service, '_assert_clock_skew', sample)
+    monkeypatch.setattr(store, 'heartbeat_lease', heartbeat)
+    await service.run(lambda: feed_store.connect(pg.sync_dsn), stop=asyncio.Event(),
+                      clock=lambda: THURSDAY_BEFORE_OPEN, sleep=immediate,
+                      control_wake=immediate, max_ticks=3)
+    assert pulse_count == expected
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    assert store.load_cycle(conn, prepared.cycle.cycle_id).state is CycleState.WAITING_OPEN
+    conn.rollback()
+
+
 @pytest.mark.asyncio
 async def test_blocked_idle_stage_receives_no_independent_renewal(conn, pg, monkeypatch):
     service, prepared = await waiting_service(conn, small_config())

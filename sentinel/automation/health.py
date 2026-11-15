@@ -139,7 +139,7 @@ class AutomationHealth(BaseModel):
     observation_diagnostic: ObservationDiagnostic | None = None
 
 
-def read_health(conn) -> AutomationHealth:
+def read_health(conn, *, include_alert_counts=True) -> AutomationHealth:
     """Read policy and service state without constructing any broker client.
 
     Correctly disabled or killed is supervisor-healthy but not operationally
@@ -208,13 +208,15 @@ def read_health(conn) -> AutomationHealth:
             "('SEND_PENDING','ACKNOWLEDGED','UNKNOWN','PARTIALLY_FILLED',"
             " 'CANCEL_PENDING')")
         broker_outcome_unresolved = int(cur.fetchone()[0])
-        cur.execute(
-            "SELECT"
-            " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')),"
-            " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
-            " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
-            f" FROM sentinel_alert_outbox a WHERE NOT {CANCELLED_TEST_SQL}")
-        pending, dead, unacknowledged = cur.fetchone()
+        pending = dead = unacknowledged = 0
+        if include_alert_counts:
+            cur.execute(
+                "SELECT"
+                " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')),"
+                " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
+                " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
+                f" FROM sentinel_alert_outbox a WHERE NOT {CANCELLED_TEST_SQL}")
+            pending, dead, unacknowledged = cur.fetchone()
         # Slow integrity/history work precedes this one temporal observation.
         # The lease, its exact holder and their clock must share an MVCC snapshot.
         columns = ",".join("c." + name for name in store._CONTROL_COLUMNS.split(","))

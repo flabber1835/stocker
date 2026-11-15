@@ -270,7 +270,7 @@ def _observe_health_recovery(conn, *, health, maximum_observation_gap_seconds,
     raw, _occurrence, cursor_now = _health_cursor(conn)
     episode = _leadership_episode(raw)
     if episode is None:
-        if health.healthy and not reset_only:
+        if raw is not None and health.healthy and not reset_only:
             conn.execute(
                 "UPDATE sentinel_alert_health_cursor SET active_identity=NULL WHERE id=1")
             conn.commit()
@@ -561,7 +561,7 @@ async def run() -> int:
             else:
                 alert_health.register(conn, dispatcher_id=dispatcher_id)
                 registered = True
-            health = read_health(conn)
+            health = read_health(conn, include_alert_counts=False)
         except Exception as exc:  # noqa: BLE001
             health_observation_interrupted = True
             report_database_failure(

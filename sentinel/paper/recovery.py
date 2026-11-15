@@ -279,20 +279,24 @@ async def recover_automated_paper_cycle(
                 raise PaperActivationRefused(
                     f"informational PAPER recovery is blocked: {exc}") from exc
 
-        actions = _action_lookup(conn, state, clock().date())
+        from sentinel.execution import action_reads
+        with action_reads.read_scope(conn, recovery_pin) as history:
+            actions = _action_lookup(conn, state, clock().date(), history)
+            target_actions = None
+            observation_target_actions = None
+            if plan is not None:
+                target_actions = _target_action_lookup(
+                    conn, plan, plan.effective_session, history)
+                observation_target_actions = _target_action_lookup(
+                    conn, plan, clock().date(), history)
         authority = None
         target_projection = None
-        target_actions = None
-        observation_target_actions = None
         if plan is not None:
-            target_actions = _target_action_lookup(
-                conn, plan, plan.effective_session)
-            observation_target_actions = _target_action_lookup(
-                conn, plan, clock().date())
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
-                plan=plan, commands=commands, actions=actions)
-            if active_security_ids and (not dual_mode or plan.opening_intents):
+                plan=plan, commands=commands, actions=actions, conn=conn)
+            if active_security_ids and (not dual_mode or plan.opening_intents
+                    or opening_sizing.fractional_plan_authority(conn, plan=plan) is not None):
                 official_open = _official_preopen_cutoff(plan)
                 authority, actions, target_actions = _preopen_views_or_none(
                     conn, plan=plan,
@@ -318,14 +322,15 @@ async def recover_automated_paper_cycle(
                     authority=authority, plan=plan,
                     commands=current_commands, actions=actions,
                     required_cutoff_at=_official_preopen_cutoff(plan),
-                    evaluated_at=clock())
+                    evaluated_at=clock(), conn=conn)
                 if state is None:
                     raise PaperActivationRefused(
                         "current-generation recovery cannot revalidate its "
                         "target projection without canonical strategy state")
                 try:
                     unsized = opening_sizing.requires_initial_projection(
-                        conn, plan=plan, deployment=binding.identity)
+                        conn, plan=plan, deployment=binding.identity,
+                        active_security_ids=active_security_ids)
                 except target_reprojection.TargetProjectionRefused as exc:
                     raise PaperActivationRefused(str(exc)) from exc
                 if not unsized:
@@ -344,6 +349,11 @@ async def recover_automated_paper_cycle(
                     target_reprojection.assert_projection(
                         conn, plan=plan, projection=target_projection,
                         through_session=plan.effective_session)
+
+        from sentinel.execution.fractional_progress import share_restrictions
+        pending_share_targets = share_restrictions(target_projection)
+        if pending_share_targets:
+            result.restricted_securities = dict(result.restricted_securities) | pending_share_targets
 
         if dual_mode:
             _dual_mutation_observation_or_refuse(result)

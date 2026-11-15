@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
@@ -235,12 +235,15 @@ class TargetProjection:
     cancelled_pending_opens: Mapping[str, tuple[Decimal, ...]]
     target_basket: Mapping[str, Decimal]
     opening_sizing: Mapping[str, object] | None = None
+    pending_share_targets: Mapping[str, str] = field(default_factory=dict)
 
     def _content_payload(self) -> dict:
         return {
             "kind": OPENING_KIND if self.opening_sizing is not None else KIND,
             **({"opening_sizing": dict(self.opening_sizing)}
                if self.opening_sizing is not None else {}),
+            **({"pending_share_targets": dict(self.pending_share_targets)}
+               if self.pending_share_targets else {}),
             "plan_id": self.plan_id,
             "plan_fingerprint": self.plan_fingerprint,
             "through_session": self.through_session.isoformat(),
@@ -279,7 +282,8 @@ def project_target(
         pending_open_shares: Mapping[str, tuple[Decimal, ...]] | None = None,
         held_shares: Mapping[str, Decimal] | None = None,
         pending_close_shares: Mapping[str, tuple[Decimal, ...]] | None = None,
-        minimum_quantity_increment: Decimal = Decimal(1)) -> TargetProjection:
+        minimum_quantity_increment: Decimal = Decimal(1),
+        fractional_entitlements: Mapping[str, Fraction] | None = None) -> TargetProjection:
     """Re-express a plan after actions without flattening order provenance.
 
     The canonical/held/open/close component maps come from the exact
@@ -375,6 +379,11 @@ def project_target(
     multipliers: dict[str, Decimal] = {}
     target: dict[str, Decimal] = {}
     cancelled: dict[str, tuple[Decimal, ...]] = {}
+    pending_share_targets: dict[str, str] = {}
+    entitlements = fractional_entitlements or {}
+    if any(plan.target_basket.get(sid) != 0 or not isinstance(qty, Fraction) or qty <= 0
+           for sid, qty in entitlements.items()):
+        raise TargetProjectionRefused("pending entitlement differs from its plan placeholder")
     for security_id, raw_quantity in sorted(plan.target_basket.items()):
         quantity = _decimal(
             raw_quantity, where=f"plan target {security_id}")
@@ -405,23 +414,31 @@ def project_target(
                 projected_multiplier = (
                     sum(map(Fraction, surviving), Fraction(0))
                     / Fraction(canonical_targets[str(security_id)]))
-        projected = Fraction(quantity) * projected_multiplier
+        exact_action = (fractional_entitlements is not None
+                        and (security_id in entitlements or multiplier != 1 or security_id in evidence_ids)
+                        and security_id not in cancelled)
+        if exact_action:
+            projected_multiplier = share_action_factor(security_id=security_id,
+                multiplier=multiplier, evidence=normalized_evidence)
+        projected = entitlements.get(security_id, Fraction(quantity)) * projected_multiplier
         if projected < 0:
             raise TargetProjectionRefused(
                 f"projected target {security_id} would be short")
         if (projected / Fraction(increment)).denominator != 1:
-            exact = (
-                _exact_evidenced_projection(
+            if exact_action:
+                pending_share_targets[security_id] = str(projected)
+                projected = Fraction(0)
+            else:
+                exact = _exact_evidenced_projection(
                     security_id=str(security_id), quantity=quantity,
                     multiplier=multiplier, increment=increment,
-                    projected=projected, evidence=normalized_evidence)
-                if projected_multiplier == multiplier else None)
-            if exact is None:
-                raise TargetProjectionRefused(
-                    f"projected target {security_id}={projected} is not a "
-                    f"multiple of the certified broker increment {increment}; "
-                    "refusing instead of rounding economic intent")
-            projected = Fraction(exact)
+                    projected=projected, evidence=normalized_evidence) if projected_multiplier == multiplier else None
+                if exact is None:
+                    raise TargetProjectionRefused(
+                        f"projected target {security_id}={projected} is not a "
+                        f"multiple of the certified broker increment {increment}; "
+                        "refusing instead of rounding economic intent")
+                projected = Fraction(exact)
         target[str(security_id)] = exact_decimal(projected)
         # A sequence of individually material actions can have a net multiplier
         # of one.  Keep that sequence bound to the projection: an entry may
@@ -440,7 +457,7 @@ def project_target(
         through_session=through_session, action_multipliers=multipliers,
         action_evidence=normalized_evidence,
         cancelled_pending_opens=cancelled,
-        target_basket=target)
+        target_basket=target, pending_share_targets=pending_share_targets)
     return projection
 
 
@@ -461,6 +478,10 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
         "projection_fingerprint"}
     if isinstance(state, dict) and state.get("kind") == OPENING_KIND:
         expected.add("opening_sizing")
+        if (isinstance(state.get("opening_sizing"), dict)
+                and state["opening_sizing"].get("mode") == "FRACTIONAL_MARKET_DAY_V1"
+                and "pending_share_targets" in state):
+            expected.add("pending_share_targets")
     if (not isinstance(state, dict) or set(state) != expected
             or state.get("kind") not in (KIND, OPENING_KIND) or state.get("plan_id") != plan_id
             or (state.get("kind") == OPENING_KIND and not isinstance(state.get("opening_sizing"), dict))):
@@ -486,6 +507,15 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
             or not isinstance(state["target_basket"], dict)):
         raise TargetProjectionRefused(
             f"target projection for {plan_id} mappings are corrupt")
+    pending = state.get("pending_share_targets", {})
+    try:
+        if not isinstance(pending, dict) or any(
+                type(qty) is not str or Fraction(qty) <= 0 or str(Fraction(qty)) != qty
+                or _decimal(state["target_basket"].get(sid), where=sid) != 0
+                for sid, qty in pending.items()):
+            raise ValueError("invalid rational target")
+    except (ValueError, ZeroDivisionError) as exc:
+        raise TargetProjectionRefused("pending share target evidence is corrupt") from exc
     projection = TargetProjection(
         plan_id=plan_id, plan_fingerprint=str(state["plan_fingerprint"]),
         through_session=through,
@@ -501,7 +531,7 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
         target_basket={
             str(key): _decimal(value, where=f"stored target {key}")
             for key, value in state["target_basket"].items()},
-        opening_sizing=state.get("opening_sizing"))
+        opening_sizing=state.get("opening_sizing"), pending_share_targets=pending)
     if state["projection_fingerprint"] != projection.fingerprint():
         raise TargetProjectionRefused(
             f"target projection for {plan_id} has a corrupt fingerprint")

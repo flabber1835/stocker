@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import io
 import json
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from urllib.error import HTTPError
 
 import pytest
@@ -50,6 +53,52 @@ def test_restricts_transport_to_fixed_get_only_data_endpoints():
     assert proof["params"] == {"status": "active"}
     assert opener.methods == ["GET"]
     assert "test-key" not in repr(proof) and "test-secret" not in repr(proof)
+
+
+def test_owned_pool_reuses_connection_and_preserves_raw_proof_and_redirect_refusal(monkeypatch):
+    from sentinel.feed import alpaca_transport
+
+    requests = []
+    raw = b'{"bars": {}}\n'
+
+    class Provider(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def do_GET(self):
+            requests.append((self.client_address[1], self.path, self.headers['Accept-Encoding']))
+            redirect = self.path.endswith('redirect=1')
+            self.send_response(302 if redirect else 200)
+            if redirect:
+                self.send_header('Location', '/unauthorized-target')
+            self.send_header('Content-Length', str(0 if redirect else len(raw)))
+            self.end_headers()
+            if not redirect:
+                self.wfile.write(raw)
+
+        def log_message(self, *args):
+            pass
+
+    with ThreadingHTTPServer(('127.0.0.1', 0), Provider) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        endpoint = f'http://127.0.0.1:{server.server_port}/bars'
+        monkeypatch.setattr(alpaca_transport, 'BAR_URL', endpoint)
+        try:
+            client = Client(interval=0)
+            with client.pooled():
+                for page in ('a', 'b'):
+                    value, proof = client.get(endpoint, {'page': page})
+                    assert value == {'bars': {}}
+                    assert proof['bytes'] == len(raw)
+                    assert proof['sha256'] == hashlib.sha256(raw).hexdigest()
+                with pytest.raises(AlpacaTransportRefused, match='HTTP 302'):
+                    client.get(endpoint, {'redirect': 1})
+            assert len({entry[0] for entry in requests}) == 1
+            assert [entry[1] for entry in requests] == ['/bars?page=a', '/bars?page=b', '/bars?redirect=1']
+            assert all(entry[2] == 'identity' for entry in requests)
+        finally:
+            server.shutdown()
+            worker.join()
 
 
 def test_live_source_assets_endpoint_is_exact_get_only_and_environment_bound(monkeypatch):

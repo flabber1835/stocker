@@ -519,19 +519,17 @@ def test_cancel_outage_ignored_cancel_and_fill_race_converge_after_restart(pg):
 
         broker.fill(cancelling.client_key, "4")
         partial = recovery.confirm_cancellation(cancelling, run(broker.observe()))
-        assert partial.state is CommandState.PARTIALLY_FILLED
+        assert partial.state is CommandState.CANCEL_PENDING and partial.filled_quantity == D(4)
         journal.save_command(conn, partial, previous=cancelling.state)
 
-        cancelling_again = partial.transition(CommandState.CANCEL_PENDING)
-        journal.save_command(conn, cancelling_again, previous=partial.state)
         broker.schedule_cancel(FaultKind.CANCEL_ACCEPTED_BUT_IGNORED)
-        run(broker.cancel(cancelling_again.broker_order_id))
-        broker.fill(cancelling_again.client_key)
+        run(broker.cancel(partial.broker_order_id))
+        broker.fill(partial.client_key)
         filled = recovery.confirm_cancellation(
-            cancelling_again, run(broker.observe()))
+            partial, run(broker.observe()))
         assert filled.state is CommandState.FILLED
         assert filled.filled_quantity == D(10)
-        journal.save_command(conn, filled, previous=cancelling_again.state)
+        journal.save_command(conn, filled, previous=partial.state)
 
         conn.close()
         conn = feed_store.connect(pg.sync_dsn)

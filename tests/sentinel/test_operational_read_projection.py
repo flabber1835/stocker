@@ -150,6 +150,23 @@ def test_revision_projects_control_fields_and_partitions_broker_cursors(conn):
     assert all(a!=b for a,b in zip(broker,unknown))
 
 
+def test_current_and_legacy_fill_cash_stay_out_of_shadow_inputs(conn):
+    from sentinel import structural_verification
+    from sentinel.execution.journal import FILL_CASH_PREFIXES
+
+    install_projection(conn)
+    for prefix in FILL_CASH_PREFIXES:
+        before = subjects(conn)
+        inventory_before = structural_verification._inventory(conn, 'rolling-checkpoint')
+        conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                     "VALUES (%s,'2031-04-21','{}')", (prefix + 'a' * 64,))
+        conn.commit()
+        after = subjects(conn)
+        assert after[0] == before[0] and after[1] != before[1]
+        assert structural_verification._inventory(conn, 'rolling-checkpoint') == inventory_before
+        conn.rollback()
+
+
 def insert_account(conn, *, observed_at=NOW, **changes):
     row=dict(broker='alpaca',broker_account_id='PAqualification',status='ACTIVE',flags={},
              equity='50000',cash='10000',buying_power='10000',multiplier='1')

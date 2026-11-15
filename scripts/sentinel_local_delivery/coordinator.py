@@ -66,7 +66,8 @@ class Delivery:
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
     def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False):
-        require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
+        require(evidence.same_preserved_state(evidence.snapshot(self.host), artifacts['preserved']),
+                'PRESERVED_STATE_CHANGED')
         if allow_restart and hasattr(self.host, 'postgres_after_restart'):
             postgres = self.host.postgres_after_restart(artifacts['postgres'])
         else:
@@ -332,9 +333,12 @@ class Delivery:
             return self.journal.advance(stage,'SHADOW_STARTED')
         require(current==candidate,'SUCCESSOR_CONFIGURATION_CHANGED')
         if stage=='SHADOW_STARTED':
+            started_at = time.monotonic_ns()
             self._wait_shadow()
+            shadow_health_wait_ms = (time.monotonic_ns() - started_at) // 1_000_000
             self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'SHADOW_VERIFIED',successor_verified_at=utcnow().isoformat(),
+                shadow_health_wait_ms=shadow_health_wait_ms,
                 successor_proof_sha256=digest(artifacts['canonical_proof']),
                 successor_verification='EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT')
         if stage=='SHADOW_VERIFIED':
@@ -381,15 +385,19 @@ class Delivery:
                 State={'StartedAt':item['State']['StartedAt']}) for service,item in applications.items()}
             return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started)
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
+        stage_started = time.monotonic_ns()
         leader,end,deadline,applications=self._readiness(receipt)
+        readiness_done = time.monotonic_ns()
         repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
         postgres,appends=self._unchanged(artifacts,allow_restart=not repair,observation=True)
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
+        preservation_done = time.monotonic_ns()
         panel_scope={'native_positions_count':len(artifacts['native_positions'])} if repair else {}
         panel=evidence.panel(self.host,artifacts['preserved'],
             wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())),**panel_scope)
+        publication_done = time.monotonic_ns()
         leader=self._readiness_unchanged(applications,leader)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
@@ -400,6 +408,11 @@ class Delivery:
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
                                     verified_postgres=postgres,
+                                    final_waits_ms={
+                                        'applications_and_leader': (readiness_done-stage_started)//1_000_000,
+                                        'preservation_observation': (preservation_done-readiness_done)//1_000_000,
+                                        'panel_publication': (publication_done-preservation_done)//1_000_000,
+                                    },
                                     **({'operational_ready':False,'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
                                        if repair else
                                       {'operational_ready':False,

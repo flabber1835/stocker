@@ -317,7 +317,7 @@ def owner_loop(monkeypatch, *, during='refresh'):
 @pytest.mark.parametrize('during',['before','refresh','heartbeat','wait'])
 def test_completion_before_during_or_after_refresh_is_not_lost_and_bursts_coalesce(monkeypatch,during):
     clock,consumed,iterations,wake,deadlines=owner_loop(monkeypatch,during=during)
-    assert consumed==[0.0]
+    assert consumed == [0.0], 'completion was missed before the periodic fallback'
     assert len(iterations)==(1 if during=='before' else 2)
     assert all(seconds==15 for seconds in wake.waits) and clock[0]==15
     assert len(deadlines)==len(iterations) and wake.clears==len(iterations)
@@ -407,9 +407,11 @@ def test_restoring_clear_after_observe_loses_the_completion_and_is_detected(monk
     refresh='            _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)\n'
     assert source.count(clear)==source.count(refresh)==1
     source=source.replace(clear,'').replace(refresh,refresh+'            if wakeup is not None:wakeup.clear()\n')
-    namespace=dict(vars(service));exec(source,namespace)
+    # The mutated loop must see the same clock, reader and heartbeat fixtures.
+    namespace = {}
+    exec(compile(source, '<clear-after-observe-falsifier>', 'exec'), vars(service), namespace)
     monkeypatch.setattr(service,'_run_owned_loop',namespace['_run_owned_loop'])
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match='completion was missed before the periodic fallback'):
         test_completion_before_during_or_after_refresh_is_not_lost_and_bursts_coalesce(monkeypatch,'refresh')
 
 

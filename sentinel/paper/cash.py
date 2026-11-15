@@ -214,22 +214,41 @@ async def _broker_cash_state_or_refuse(
 
 def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> Fraction:
     """The one immutable-plan plus durable-fill cash equation."""
+    from sentinel.execution.fractional_progress import is_fractional
+    from sentinel.execution.target_reprojection import load_projection
+    from sentinel.execution.fill_integrity import (
+        FillHistoryIncomplete, PostedFillCashIncomplete, fill_economics, load_exact_fill_rows)
+
     expected_without_activity = Fraction(plan.account_cash)
     if commands is None:
         commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
-    for command in commands:
-        if command.identity.plan_id != plan.plan_id:
-            continue
-        if command.filled_quantity == 0:
-            continue
+    filled_commands = tuple(command for command in commands
+                            if command.identity.plan_id == plan.plan_id and command.filled_quantity != 0)
+    rows = load_exact_fill_rows(conn, filled_commands)
+    fractional = None
+    for command in filled_commands:
         if command.filled_average_price is None:
             raise PaperActivationRefused(
                 f"cannot reconcile account cash for filled command "
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
-        notional = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
-        expected_without_activity += (
-            notional if command.side.value == "SELL" else -notional)
+        try:
+            expected_without_activity += fill_economics(command, rows).cash
+        except PostedFillCashIncomplete as exc:
+            raise PaperRetryableRefused(
+                f"FILL_CASH_PENDING for {command.client_key}: {exc}") from exc
+        except FillHistoryIncomplete as exc:
+            if fractional is None:
+                fractional = is_fractional(load_projection(conn, plan_id=plan.plan_id))
+            if command.notional is not None or fractional:
+                raise PaperRetryableRefused(
+                    f"FILL_PRINCIPAL_PENDING for {command.client_key}: {exc}") from exc
+            # Older quantity plans can predate durable per-fill cash evidence.
+            gross = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
+            expected_without_activity += gross if command.side.value == "SELL" else -gross
+        except ValueError as exc:
+            raise PaperActivationRefused(
+                f"FILL_PRINCIPAL_CONTRADICTORY for {command.client_key}: {exc}") from exc
     return expected_without_activity
 
 

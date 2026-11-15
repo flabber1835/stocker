@@ -57,11 +57,13 @@ def test_permission_only_reobservation_does_not_invent_a_source_revision():
 @pytest.mark.parametrize('permission',[False,None,'true'])
 def test_listed_data_does_not_grant_execution_permission(permission):
     from sentinel.execution.alpaca import MalformedBrokerPayload
+    from sentinel.execution.contract import BrokerInstrumentUnavailable
     from tests.sentinel.test_issue_183_alpaca_hardening import adapter,run
     raw=asset(tradable=permission)
     assert openfigi.inventory([raw])
     broker,http=adapter(routes={'/v2/assets/AAA':raw})
-    with pytest.raises(MalformedBrokerPayload,match='not tradable'):
+    refusal = BrokerInstrumentUnavailable if permission is False else MalformedBrokerPayload
+    with pytest.raises(refusal, match='not tradable'):
         run(broker.resolve_instrument(security_id='SEC-AAA',symbol='AAA'))
     assert http.calls==[('GET','/v2/assets/AAA',{})]
 

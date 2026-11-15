@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[PAPER performance consolidation](paper-performance-consolidation.md) records
+how the runtime reuses verified work during idle scheduling, order preparation,
+delivery, and recovery while preserving the existing authority boundaries.
+
 [Fractional PAPER execution](fractional-paper-execution.md) records the
 owner-selected dollar-purchase policy, whole-share market fallback and unchanged
 hold behavior. Development and qualification do not select or activate it in the

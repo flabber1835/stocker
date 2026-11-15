@@ -9,6 +9,7 @@ import pytest
 from sentinel import dual_reconciliation
 from sentinel.execution import fill_integrity, reconcile
 from sentinel.execution import feed_inputs, journal
+from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, BrokerOrder,
     BrokerPosition, Completeness, Side,
@@ -27,20 +28,30 @@ NOW = datetime(2026, 10, 16, 14, tzinfo=timezone.utc)
 def test_authenticated_current_uuid_can_follow_multiple_historical_uuids():
     old = BrokerInstrument('canonical', 'AAA', 'old-uuid')
     current = replace(old, broker_id='current-uuid')
-    commands = [SimpleNamespace(security_id='canonical', instrument=item)
-                for item in (old, current)]
+    deployment = DeploymentIdentity('d', 'alpaca', 'a', 1)
+    commands = [
+        Command(CommandIdentity(deployment, plan_id, 'canonical'), item, side, D(10),
+                state=CommandState.FILLED, broker_order_id=f'order-{plan_id}',
+                filled_quantity=D(10), filled_average_price=D(20))
+        for plan_id, item, side in (
+            ('old-buy', old, Side.BUY), ('old-sell', old, Side.SELL),
+            ('current-buy', current, Side.BUY), ('current-sell', current, Side.SELL))
+    ]
+    active = commands[:-1]
     observed = BrokerObservation(observed_at=NOW,
         positions=(BrokerPosition(current, D(10)),))
-    assert reconcile._position_identity_conflicts(observed, commands,
+    flat = replace(observed, positions=())
+    assert reconcile._position_identity_conflicts(observed, active,
         provider_asset_ids={'canonical': 'current-uuid'}) == ()
-    assert reconcile._position_identity_conflicts(
-        replace(observed, positions=()), commands,
-        provider_asset_ids={'canonical': 'current-uuid'}) == ()
+    assert reconcile._position_identity_conflicts(flat, commands) == ()
     wrong = replace(observed, positions=(BrokerPosition(
         replace(current, broker_id='unproven-uuid'), D(10)),))
-    assert reconcile._position_identity_conflicts(wrong, commands,
+    conflicts = reconcile._position_identity_conflicts(wrong, active,
         provider_asset_ids={'canonical': 'current-uuid'})
-    assert reconcile._position_identity_conflicts(observed, commands)
+    assert len(conflicts) == 1 and 'unproven-uuid' in conflicts[0]
+    for observation in (observed, flat):
+        conflicts = reconcile._position_identity_conflicts(observation, active)
+        assert len(conflicts) == 1 and 'multiple broker instrument ids' in conflicts[0]
 
 
 def test_fresh_reserved_buying_power_defers_without_transport():

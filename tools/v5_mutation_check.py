@@ -207,7 +207,9 @@ def run():
          lambda: checked(review_checks.test_lost_opening_projection_with_any_plan_command_refuses, "UNKNOWN"),
          opening_sizing, "requires_initial_projection",
          rewritten(opening_sizing.requires_initial_projection,
-                   "if commands:", "if False:")),
+                   'raise TargetProjectionRefused(\n'
+                   '                "opening projection is absent for a plan with durable commands")',
+                   'pass')),
         ("opening_entry_split_evidence_dropped",
          review_checks.test_finalization_preserves_split_authority_for_opening_entry,
          targets, "_target_action_multipliers",

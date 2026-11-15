@@ -238,8 +238,8 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
         from sentinel.execution.contract import BrokerAssetRules
         from sentinel.execution import protected_limits
         from test_limit_day_sizing import references
-        def simulated_references(conn, *, plan, projection):
-            refs = references(plan, projection)
+        def simulated_references(conn, *, plan, projection, additional_security_ids=()):
+            refs = references(plan, projection, additional_security_ids=additional_security_ids)
             return replace(refs, provider_asset_ids={sid: "sim-asset-" + sid
                 for sid in refs.symbols if sid != "SENTINEL:BIL"})
         monkeypatch.setattr(protected_limits, "build_references", simulated_references)
@@ -249,6 +249,7 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
         original_submit = SimulatedBroker.submit
         original_orders = SimulatedBroker._snapshot_orders
         original_exact = SimulatedBroker.find_by_client_key
+        original_observe = SimulatedBroker.observe
         def native_order(order):
             return replace(order, quantity=None, notional=inner.dollars[order.client_key]) if (
                 order is not None and order.client_key in inner.dollars) else order
@@ -261,11 +262,16 @@ def test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle(asse
         async def exact(self, client_key):
             result = await original_exact(self, client_key)
             return replace(result, order=native_order(result.order))
+        async def observe(self):
+            result = await original_observe(self)
+            opened, _ = calendar.session_window(self.now.date())
+            return replace(result, fills=await self.recent_fills(opened))
         async def asset_rules(self, *, instrument):
             return BrokerAssetRules(instrument, self.now, True)
         monkeypatch.setattr(SimulatedBroker, "submit", submit)
         monkeypatch.setattr(SimulatedBroker, "_snapshot_orders", lambda self: (native_order(o) for o in original_orders(self)))
         monkeypatch.setattr(SimulatedBroker, "find_by_client_key", exact)
+        monkeypatch.setattr(SimulatedBroker, "observe", observe)
         monkeypatch.setattr(SimulatedBroker, "asset_rules", asset_rules)
     inner.ask = D(95)
     inner.missing_quote = False

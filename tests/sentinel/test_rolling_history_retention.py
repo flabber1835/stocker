@@ -83,6 +83,51 @@ def publish(conn):
     return op.prepare(conn, enqueue(conn))
 
 
+def test_pinned_action_history_reuses_one_authenticated_window(conn, aged, monkeypatch):
+    from sentinel.execution import action_reads
+    from sentinel.feed import publication
+    from sentinel.feed import readiness_scope
+
+    begin, later, end = date(2024, 12, 13), date(2024, 12, 16), date(2026, 9, 14)
+    reads = []
+    verify = action_history.verify_coverage_chain
+    records = action_history.records
+
+    def counted_verify(*args, **kwargs):
+        reads.append("chain")
+        return verify(*args, **kwargs)
+
+    def counted_records(*args, **kwargs):
+        reads.append("rows")
+        return records(*args, **kwargs)
+
+    monkeypatch.setattr(action_history, "verify_coverage_chain", counted_verify)
+    monkeypatch.setattr(action_history, "records", counted_records)
+    with feed_inputs.pinned(conn, commit=False) as pub, action_reads.read_scope(conn, pub) as history:
+        whole = action_reads.lookup(conn, history=history, start=begin, end=end)
+        narrow = action_reads.lookup(conn, history=history, start=later, end=end)
+        assert whole('1') == Decimal(6) and narrow('1') == Decimal(3)
+        assert all(event.session > later for event in narrow.scalar_events)
+        # The frozen retained reader owns two checks for its first lookup.
+        assert reads == ["chain", "rows", "chain"]
+        with pytest.raises(feed_inputs.ExecutionInputsRefused, match="HISTORY_UNAVAILABLE"):
+            action_reads.lookup(conn, history=history, start=end, end=begin)
+        assert conn.execute("SELECT pg_advisory_unlock_shared(%s)",
+                            (publication.CORPUS_LOCK_KEY,)).fetchone()[0]
+        # The manifest reader also holds a transaction-level share lock.
+        conn.rollback()
+        with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+            action_reads.lookup(conn, history=history, start=begin, end=end)
+        # Negative control for a cached result which ignores the active pin.
+        with monkeypatch.context() as patch:
+            patch.setattr(readiness_scope, "require_token", lambda *_: None)
+            assert action_reads.lookup(conn, history=history, start=begin, end=end) == whole
+    with pytest.raises(publication.CorpusIncoherent, match="SCOPE_EXPIRED"):
+        action_reads.lookup(conn, history=history, start=begin, end=end)
+    assert action_history.lookup(conn, pub, start=begin, end=end) == whole
+    assert reads == ["chain", "rows", "chain", "chain", "chain", "rows", "chain"]
+
+
 def test_old_reference_does_not_block_initial_or_repeated_publication(conn, operational_source):
     operational_source['ACTIONS'].append(dict(ticker='AAA', date='1960-01-01',
         action='dividend', name='old reference', value='0.125', contraticker=None, contraname=None))

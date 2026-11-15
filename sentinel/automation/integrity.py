@@ -141,7 +141,7 @@ def _recovered_preflight_observation(conn, cycle: CycleRecord) -> bool:
         return cur.fetchone() == ("RUNNING",)
 
 
-def predecessors_reached_transport(conn, cycles: list[CycleRecord]) -> bool:
+def predecessors_reached_transport(conn, cycles: list[CycleRecord], *, _events=None) -> bool:
     """Classify validated event histories, not the overloaded state name alone.
 
     Callers validate complete predecessor lineage first. A RECONCILING edge is
@@ -152,11 +152,8 @@ def predecessors_reached_transport(conn, cycles: list[CycleRecord]) -> bool:
         preflight = cycle.failure_code == "STALE_PREFLIGHT_RECOVERED"
         if preflight and not _recovered_preflight_observation(conn, cycle):
             return True
-        with conn.cursor() as cur:
-            cur.execute("SELECT from_state,to_state,control_generation,detail "
-                        "FROM sentinel_automation_cycle_events "
-                        "WHERE cycle_id=%s ORDER BY seq", (cycle.cycle_id,))
-            events = cur.fetchall()
+        events = [(source, target, generation, detail)
+                  for _, source, target, generation, _, detail in _cycle_events(conn, cycle.cycle_id, _events)]
         diagnostic, plan_id, plan_fingerprint = {}, None, None
         if preflight:
             source, target, generation, raw_final = events[-1]
@@ -192,7 +189,30 @@ def predecessors_reached_transport(conn, cycles: list[CycleRecord]) -> bool:
     return False
 
 
-def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None) -> CycleRecord:
+def _cycle_events(conn, cycle_id, batch):
+    if batch is not None and cycle_id in batch:
+        return batch[cycle_id]
+    with conn.cursor() as cur:
+        cur.execute("SELECT seq,from_state,to_state,control_generation,fence_token,"
+                    " detail FROM sentinel_automation_cycle_events"
+                    " WHERE cycle_id=%s ORDER BY seq", (cycle_id,))
+        return cur.fetchall()
+
+
+def verify_restored_cycle_batch(conn, cycles: list[CycleRecord], validated: dict) -> None:
+    """Read one bounded event batch in an isolated, read-only restored database."""
+    events = {cycle.cycle_id: [] for cycle in cycles}
+    with conn.cursor() as cur:
+        cur.execute("SELECT cycle_id,seq,from_state,to_state,control_generation,fence_token,"
+                    " detail FROM sentinel_automation_cycle_events"
+                    " WHERE cycle_id=ANY(%s) ORDER BY cycle_id,seq", (list(events),))
+        for cycle_id, *event in cur:
+            events[str(cycle_id)].append(event)
+    for cycle in cycles:
+        validate_cycle_lineage(conn, cycle, _validated=validated, _events=events)
+
+
+def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events=None) -> CycleRecord:
     """Require the materialized cycle to be explained by immutable events.
 
     Validation includes deterministic identity, genesis, legal/continuous edges,
@@ -228,14 +248,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None) -> Cycl
             "automation cycle identity does not match its immutable schedule")
 
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT seq,from_state,to_state,control_generation,fence_token,"
-                " detail FROM sentinel_automation_cycle_events"
-                " WHERE cycle_id=%s ORDER BY seq",
-                (cycle.cycle_id,),
-            )
-            events = cur.fetchall()
+        events = _cycle_events(conn, cycle.cycle_id, _events)
         conn.rollback()
     except BaseException:
         conn.rollback()
@@ -329,15 +342,21 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None) -> Cycl
                         from sentinel.automation import store
                         prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
                         for predecessor in prior:
-                            validate_cycle_lineage(conn, predecessor, _validated=validated)
+                            if _events is None:
+                                validate_cycle_lineage(conn, predecessor, _validated=validated)
+                            else:
+                                validate_cycle_lineage(conn, predecessor, _validated=validated, _events=_events)
                         eligible = all(store._unsent_retirement(
                             cycle, spec, debug=debug, recovered_preflight=True) for cycle in prior)
                         if not eligible:
                             raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
                     from sentinel.automation import store
                     prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                    if not continuation and predecessors_reached_transport(conn, prior):
-                        raise AutomationRefused('prospective cycle predecessor reached transport')
+                    if not continuation:
+                        reached = (predecessors_reached_transport(conn, prior) if _events is None
+                                   else predecessors_reached_transport(conn, prior, _events=_events))
+                        if reached:
+                            raise AutomationRefused('prospective cycle predecessor reached transport')
                 conn.rollback()
                 if known != predecessors:
                     raise AutomationRefused("prospective cycle predecessor identity changed")

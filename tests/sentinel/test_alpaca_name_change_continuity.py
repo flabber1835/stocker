@@ -71,6 +71,47 @@ def test_unit_delivery_does_not_reset_a_common_stock_recipient():
         identity.bind(**args)
 
 
+@pytest.mark.parametrize('fault', ['', 'changed_asset', 'unproved_asset', 'ambiguous_cusip', 'missing_rate'])
+def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fault):
+    from sentinel.feed.alpaca_observation import admissible_history
+    from sentinel.feed.alpaca_source import AlpacaSource
+
+    window = PriceWindow.through('2026-09-15')
+    session = str(window.end)
+    record = dict(id='merger', acquiree_symbol='LSI', acquiree_cusip='53223X107', acquiree_rate=1,
+                  acquirer_symbol='EXR', acquirer_cusip='30225T102', acquirer_rate='0.895',
+                  effective_date=session, process_date=session)
+    if fault == 'ambiguous_cusip':
+        record['acquirer_cusip'] = record['acquiree_cusip']
+    if fault == 'missing_rate':
+        del record['acquirer_rate']
+
+    class RecordedPages:
+        def pages(self, endpoint, params, *, key):
+            assert endpoint == ACTION_URL
+            yield {'stock_mergers': [record]}, {}
+
+    source = object.__new__(AlpacaSource)
+    source.window = window
+    source.client = RecordedPages()
+    source.selected = [dict(ticker='LSI', asset_id='lsi-id'), dict(ticker='EXR', asset_id='exr-id')]
+    prior = None if fault == 'unproved_asset' else {
+        'previous_selected': [dict(ticker='EXR', asset_id='old-id' if fault == 'changed_asset' else 'exr-id'),
+                              dict(ticker='LSI', asset_id='lsi-id')],
+        'previous_bindings': [], 'previous_session': '2026-09-14',
+        'previous_snapshot_id': digest('accepted predecessor'),
+    }
+    monkeypatch.setattr(source, '_previous_identity', lambda: prior)
+    action_data, *_ = source._action_rows()
+    assert action_data['reset_after']['LSI'] == session
+    assert ('EXR' in action_data['reset_after']) is bool(fault)
+    axis = [str(day) for day in window.sessions[-2:]]
+    rows = [dict(ticker='EXR', date=day, adjusted_close=100, closeunadj=100) for day in axis]
+    admitted, _ = admissible_history(rows, axis=axis, symbols={'EXR'}, action_affected=frozenset(),
+                                     pair_absent=set(), reset_after=action_data['reset_after'])
+    assert admitted == ({} if fault else {'EXR': axis[0]})
+
+
 def test_binding_collision_and_symbol_mismatch_refuse():
     value=identity.bind(**inputs())
     with pytest.raises(AlpacaTransportRefused,match='duplicate'):

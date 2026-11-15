@@ -84,8 +84,11 @@ def test_whole_market_fallback_uses_quote_and_later_eligibility_does_not_top_up(
     outcome = asyncio.run(wrapper(inner).submit(client_key="fallback", instrument=security,
         side=Side.BUY, quantity=chosen.quantity))
     assert outcome.state is S.ACKNOWLEDGED and not inner.dollars
-    journal.save_command(database, replace(cmd(qty="9", filled="9", state=S.FILLED),
-        filled_average_price=D(100)))
+    from tests.sentinel.test_fractional_execution import native_fills
+    whole = replace(cmd(qty="9", filled="9", state=S.FILLED),
+                    broker_order_id="whole-native", filled_average_price=D(100))
+    journal.save_command(database, whole)
+    native_fills(database, whole)
     inner.fractionable = True
     completed = fractional_progress.derive(database, projection=allocation, deployment=DEPLOY)
     assert completed.targets[AAA.security_id] == 9 and not completed.budgets

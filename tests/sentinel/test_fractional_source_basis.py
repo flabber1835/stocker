@@ -14,21 +14,24 @@ PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt
 
 
 def qualified_predecessor(module, raw):
-    if module != basis.MODULE or hashlib.sha256(raw).hexdigest() != basis._profile()['after']:
+    profile = basis._profile()
+    if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
+            profile['after'], profile['entitlements_after'], profile['settlement_after'],
+            profile['recovery_after'], profile['replay_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
     return prior
 
 
-def test_only_the_four_execution_functions_change_and_action_input_bytes_stay_exact():
+def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
     current = Path(reconcile.__file__).read_bytes()
     prior = qualified_predecessor(basis.MODULE, current)
     assert prior != current
     before, after = ast.parse(prior), ast.parse(current)
     assert len(before.body) == len(after.body)
-    allowed = {'_order_command_conflict', '_order_observation_fingerprint',
-               'expected_book_from_commands', 'reconcile'}
+    allowed = {'ReconciliationResult', '_order_command_conflict', '_order_observation_fingerprint',
+               '_position_identity_conflicts', 'expected_book_from_commands', 'reconcile'}
     changed = set()
     for left, right in zip(before.body, after.body):
         if ast.dump(left) != ast.dump(right):
@@ -88,9 +91,9 @@ def test_decision_predecessor_guard_falsifier(monkeypatch):
 
 def test_exact_source_guard_falsifier(monkeypatch):
     raw = textwrap.dedent(inspect.getsource(basis.contribution))
-    assert raw.count('actual == value["after"]') == 1
+    assert raw.count('actual in after') == 1
     scope = {}
-    exec(raw.replace('actual == value["after"]', 'True'), vars(basis), scope)
+    exec(raw.replace('actual in after', 'True'), vars(basis), scope)
     monkeypatch.setattr(basis, 'contribution', scope['contribution'])
     with pytest.raises(AssertionError):
         test_unknown_execution_or_action_source_never_inherits_qualified_identity()
@@ -120,3 +123,22 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     }
     edited = {**actual, 'execution/fractional_progress.py': 'f' * 64}
     assert runtime_basis.predecessor_view(edited, previous=prior) is edited
+    installed_fractional = profile['retained_predecessors'][runtime_basis.FRACTIONAL_INSTALLED_REVISION]['files']
+    assert runtime_admission.source_closure(installed_fractional) == (
+        'da2df8d1d087682342464e8a9f2c5553fcd987c37d99c889c8e5506ef2d14eee')
+    assert installed_fractional['execution/reconcile.py'] == basis._profile()['after']
+    assert runtime_basis.predecessor_view(actual, previous=installed_fractional) == installed_fractional
+    assert runtime_basis.predecessor_view(edited, previous=installed_fractional) is edited
+    local_patch = profile["retained_predecessors"][runtime_basis.FRACTIONAL_LOCAL_PREDECESSOR]["files"]
+    assert local_patch["execution/reconcile.py"] == basis._profile()["entitlements_after"]
+    assert runtime_basis.predecessor_view(actual, previous=local_patch) == local_patch
+    assert runtime_basis.predecessor_view(edited, previous=local_patch) is edited
+    settlement = profile["retained_predecessors"][runtime_basis.FRACTIONAL_SETTLEMENT_PREDECESSOR]["files"]
+    assert settlement["execution/reconcile.py"] == basis._profile()["settlement_after"]
+    assert runtime_basis.predecessor_view(actual, previous=settlement) == settlement
+    assert runtime_basis.predecessor_view(edited, previous=settlement) is edited
+    recovery = profile["retained_predecessors"][runtime_basis.FRACTIONAL_RECOVERY_PREDECESSOR]["files"]
+    assert recovery["execution/reconcile.py"] == basis._profile()["recovery_after"]
+    assert actual["execution/reconcile.py"] == basis._profile()["replay_after"]
+    assert runtime_basis.predecessor_view(actual, previous=recovery) == recovery
+    assert runtime_basis.predecessor_view(edited, previous=recovery) is edited

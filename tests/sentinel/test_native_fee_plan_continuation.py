@@ -17,7 +17,7 @@ from sentinel import binding
 from sentinel.execution import broker_cash, journal, protected_funding, protected_limits, target_reprojection
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerInstrument,
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerFill, BrokerInstrument,
     BrokerObservation, BrokerOrder, Completeness, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.plan import ExecutionPlan
@@ -25,7 +25,7 @@ from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store
 from sentinel.paper import cash
-from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused
+from sentinel.paper.model import NativeFeePostingPending, PaperActivationRefused, PaperRetryableRefused
 from tests.sentinel.test_alpaca_boundary_overlay import Response, activity_event, sse
 from tests.sentinel.test_paper_current_cash_acceptance import (
     ACCOUNT_NUMBER, NOW, PATH, conn, pg, selected)  # noqa: F401
@@ -87,6 +87,45 @@ def baseline_json(conn, case):
 
 def fee_state(conn, case):
     return ingest(conn, [case['old'], event(2, 'FEE', '-0.04')], hours=1)
+
+
+def test_fractional_fee_cash_uses_exact_native_fills(conn, case):
+    command = Command(CommandIdentity(case['deployment'], case['plan'].plan_id, 'SEC-A'),
+        BrokerInstrument('SEC-A', 'AAA', 'native-a'), Side.BUY, None, notional=D('150.50'),
+        state=CommandState.FILLED, broker_order_id='dollar-buy', filled_quantity=D('1.5'),
+        filled_average_price=D('100.333333333'))
+    journal.save_command(conn, command)
+    journal.record_fills(conn, (BrokerFill(command.client_key, command.broker_order_id,
+        D('0.5'), D('100'), NOW),))
+    state = fee_state(conn, case)
+    with pytest.raises(PaperRetryableRefused, match='FILL_PRINCIPAL_PENDING'):
+        check(conn, case, state, actual=D('849.46'))
+    journal.record_fills(conn, (BrokerFill(command.client_key, command.broker_order_id,
+        D(1), D('100.50'), NOW + timedelta(seconds=1)),))
+    assert check(conn, case, state, actual=D('849.46')) is False
+    with pytest.raises(PaperActivationRefused, match='exact fresh cash equation'):
+        check(conn, case, state, actual=D('849.47'))
+
+
+def test_fractional_sale_uses_posted_proceeds_and_fees_once(conn, case):
+    from sentinel.execution.alpaca import FinancialGradeAlpacaExecutionBroker
+    qty = D("1.234567891")
+    command = Command(CommandIdentity(case["deployment"], case["plan"].plan_id, "SEC-A"),
+        BrokerInstrument("SEC-A", "AAA", "native-a"), Side.SELL, qty, state=CommandState.FILLED,
+        broker_order_id="native-sell", filled_quantity=qty, filled_average_price=D("10"))
+    journal.save_command(conn, command)
+    trade = event(2, "TRD", "12.35")
+    trade.update(qty=str(qty), price="10", details=dict(execution_type="fill",
+        order_id=command.broker_order_id, client_order_id=command.client_key, asset_id="native-a", side="sell"))
+    fill = FinancialGradeAlpacaExecutionBroker._activity_execution_fill(trade)
+    journal.record_fills(conn, (fill,))
+    journal.record_fills(conn, (fill,))
+    state = ingest(conn, [case["old"], trade, event(3, "FEE", "-0.04")], hours=1)
+    assert check(conn, case, state, actual=D("1012.31")) is False
+    with pytest.raises(PaperActivationRefused, match="exact fresh cash equation"):
+        check(conn, case, state, actual=D("1012.30567891"))
+    with pytest.raises(journal.FillEconomicsChanged, match="changed cash impact"):
+        journal.record_fills(conn, (replace(fill, cash_amount=D("12.34567891")),))
 
 
 def test_multiple_fees_continue_exact_intents_and_survive_restart(conn, pg, case):
@@ -606,11 +645,9 @@ def test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn,
 @pytest.mark.parametrize('guard', ['command_reuse', 'cash_plan_filter', 'promise_account_scope'])
 def test_command_reuse_and_scope_omission_falsifiers(conn, case, monkeypatch, guard):
     if guard == 'cash_plan_filter':
-        mutant(monkeypatch, cash, '_plan_fill_cash', 'command.identity.plan_id != plan.plan_id')
-        with pytest.raises(pytest.fail.Exception):
-            test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn, case, monkeypatch, True)
-        return
-    if guard == 'command_reuse':
+        module, function = cash, '_plan_fill_cash'
+        needle, replacement = 'command.identity.plan_id == plan.plan_id and ', ''
+    elif guard == 'command_reuse':
         module, function = protected_funding, '_assert_native_fee_evidence'
         needle, replacement = ('baseline=plan_boundary, commands=commands',
                                'baseline=plan_boundary, commands=None')
@@ -621,10 +658,13 @@ def test_command_reuse_and_scope_omission_falsifiers(conn, case, monkeypatch, gu
     original = inspect.getsource(getattr(module, function))
     assert original.count(needle) == 1
     namespace = {}
-    exec(compile(original.replace(needle, replacement), '<removed-owned-journal-reuse>', 'exec'),
+    exec(compile(original.replace(needle, replacement), '<removed-command-journal-guard>', 'exec'),
         vars(module), namespace)
     monkeypatch.setattr(module, function, namespace[function])
-    if guard == 'command_reuse':
+    if guard == 'cash_plan_filter':
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn, case, monkeypatch, True)
+    elif guard == 'command_reuse':
         with pytest.raises(AssertionError):
             test_one_funding_admission_reads_current_native_ledger_once(conn, case, monkeypatch, True)
     else:

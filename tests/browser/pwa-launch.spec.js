@@ -1,6 +1,7 @@
 'use strict';
 const {test,expect}=require('@playwright/test');
 const http=require('node:http');
+const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 
 async function fixture(request,{workerOnly=false,legacyWorker=false,partial=false}={}) {
   let source=await (await request.get('/service-worker.js')).text();
@@ -13,6 +14,7 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
     expect(source).not.toBe(current);
   }
   const template=await (await request.get('/?document=1')).text();
+  const assets=await panelAssets(request,template);
   const pending=new Set(),sockets=new Set(),requests=[];
   let held=true;
   function current(response) {
@@ -27,6 +29,9 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
   }
   const server=http.createServer((req,res)=>{
     const path=new URL(req.url,'http://fixture.invalid').pathname;
+    if(assets.has(path)) {
+      servePanelAsset(res,assets.get(path));return;
+    }
     if(path==='/service-worker.js') {
       res.writeHead(200,{'Content-Type':'application/javascript','Cache-Control':'no-store'});
       res.end(source);return;

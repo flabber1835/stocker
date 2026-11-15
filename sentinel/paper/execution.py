@@ -382,7 +382,10 @@ async def _execute_current_paper_plan(
             async def authorize_market_funding(*, account, **candidate):
                 if market_settled is None:
                     raise OrderEvidenceNotReady("market BUY lacks settled account evidence")
-                settled_observation, settled_account = market_settled
+                settled_reconciliation, settled_account = market_settled
+                settled_observation = settled_reconciliation.observation
+                if candidate["instrument"].security_id in settled_reconciliation.restricted_securities:
+                    raise OrderEvidenceNotReady("market BUY is restricted by the settled reconciliation")
                 try:
                     _account_or_refuse(account, binding, confirmed_account)
                     if _account_economics(account) != _account_economics(settled_account):
@@ -427,14 +430,16 @@ async def _execute_current_paper_plan(
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding, through=clock())
             try:
-                actions = _action_lookup(conn, state, today)
-                target_actions = _target_action_lookup(conn, plan, today)
+                from sentinel.execution import action_reads
+                with action_reads.read_scope(conn, pinned) as history:
+                    actions = _action_lookup(conn, state, today, history)
+                    target_actions = _target_action_lookup(conn, plan, today, history)
             except ValueError as exc:
                 raise PaperActivationRefused(
                     f"corporate-action authority is ambiguous or invalid: {exc}") from exc
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
-                plan=plan, commands=commands, actions=actions)
+                plan=plan, commands=commands, actions=actions, conn=conn)
             official_open = _official_preopen_cutoff(plan)
             authority, actions, target_actions = _preopen_views_or_none(
                 conn, plan=plan,
@@ -484,14 +489,14 @@ async def _execute_current_paper_plan(
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
                 actions=actions, required_cutoff_at=official_open,
-                evaluated_at=clock())
+                evaluated_at=clock(), conn=conn)
             minimum_increment = (
                 broker.capabilities.minimum_quantity_increment)
             if authority is None and dual_mode:
                 # Retain the informational audit stamp; current reconciliation
                 # decides transport and historical checks remain reporting.
                 pending_ids = _preopen_active_security_ids(
-                    plan=plan, commands=current_commands, actions=actions)
+                    plan=plan, commands=current_commands, actions=actions, conn=conn)
                 pending_symbols = _informational_active_symbols(
                     active_security_ids=pending_ids,
                     commands=current_commands, observation=observation,
@@ -518,32 +523,37 @@ async def _execute_current_paper_plan(
                 target_actions=target_actions,
                 expected_projection=target_projection, opening_prices=opening_prices,
                 allow_restrictions=True)
-            projected_deltas = _plan_deltas(
-                target_basket=target_projection.target_basket,
-                observation=observation,
-                minimum_quantity_increment=minimum_increment,
-                conn=conn, deployment=binding.identity, projection=target_projection)
-            if issuer_admission is not None and any(
-                    delta.is_increase and delta.security_id != 'SENTINEL:BIL'
-                    for delta in projected_deltas):
-                issuer_admission.prepare_for_transport(
-                    publication=pinned, state=state, plan=plan,
-                    projection=target_projection, reconciliation=preflight)
-
             from sentinel.execution.share_units import material_restrictions
             from sentinel.core.decision import shadow_target, DEFENSIVE_SECURITY_ID
             symbols = dict(shadow_target(state).tickers)
             symbols[DEFENSIVE_SECURITY_ID] = "BIL"
             target_symbols = {sid: symbols.get(sid, sid) for sid in plan.target_basket
                               if plan.target_basket[sid] != 0
-                              or any(item.security_id == sid for item in plan.opening_intents)}
-            restrictions = material_restrictions(target_actions, target_symbols)
+                              or any(item.security_id == sid for item in plan.opening_intents)
+                              or sid in (target_projection.opening_sizing or {}).get("purchases", {})}
+            restrictions = material_restrictions(target_actions, target_symbols,
+                                                 after=plan.decision_session)
             restrictions.update(preflight.restricted_securities)
 
             from sentinel.execution.protected_limits import unavailable_opening_intents
             from sentinel.execution import fractional_progress
-            unfinished = (fractional_progress.derive(conn, projection=target_projection,
-                deployment=binding.identity).blocked if fractional_progress.is_fractional(target_projection) else {})
+            restrictions.update(fractional_progress.share_restrictions(target_projection))
+            fulfillment = (fractional_progress.derive(conn, projection=target_projection,
+                deployment=binding.identity) if fractional_progress.is_fractional(target_projection) else None)
+            projected_deltas = _plan_deltas(
+                target_basket=target_projection.target_basket,
+                observation=observation,
+                minimum_quantity_increment=minimum_increment,
+                conn=conn, deployment=binding.identity, projection=target_projection,
+                restricted_security_ids=restrictions,
+                fulfillment=fulfillment)
+            if issuer_admission is not None and any(
+                    delta.is_increase and delta.classification is not execution_commands.DeltaClass.NONE
+                    and delta.security_id != DEFENSIVE_SECURITY_ID for delta in projected_deltas):
+                issuer_admission.prepare_for_transport(
+                    publication=pinned, state=state, plan=plan,
+                    projection=target_projection, reconciliation=preflight)
+            unfinished = fulfillment.blocked if fulfillment is not None else {}
             if (not restrictions and not unfinished and not unavailable_opening_intents(target_projection)
                     and all(delta.classification is execution_commands.DeltaClass.NONE
                             for delta in projected_deltas)):
@@ -552,12 +562,13 @@ async def _execute_current_paper_plan(
                     reconciliation=preflight,
                     detail="reconciled target already held; no command transport")
             else:
+                buy_deferrals: dict[str, str] = {}
                 instruments = await _instrument_map(
                     conn, broker, state, plan, observation,
                     target_basket=(
                         plan.target_basket if target_projection is None
                         else target_projection.target_basket),
-                    restricted_security_ids=restrictions)
+                    restricted_security_ids=restrictions, buy_deferrals=buy_deferrals)
 
                 async def authorize_increases(fresh_observation, fresh_reconciliation=None):
                     nonlocal market_settled
@@ -569,12 +580,13 @@ async def _execute_current_paper_plan(
                             conn=conn, broker=broker, binding=binding,
                             expected_account=confirmed_account, deployment=binding.identity,
                             initial_result=fresh_reconciliation, actions=actions,
-                            dual_mode=dual_mode, clock=clock)
+                            dual_mode=dual_mode, clock=clock,
+                            allow_restrictions=market_policy.fractional)
                         _cash_authority_or_refuse(
                             conn, plan=plan, deployment=binding.identity, account=cash,
                             observation=confirmed.observation, activity_state=activity,
                             endpoint_lag_observed_at=observed_at, allow_native_fee_wait=True)
-                        market_settled = (confirmed.observation, cash)
+                        market_settled = (confirmed, cash)
                         return
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
@@ -641,6 +653,7 @@ async def _execute_current_paper_plan(
                         authorize_dual_mutations
                         if dual_mode else None),
                     security_restrictions=restrictions,
+                    buy_deferrals=buy_deferrals,
                     buy_admission=(issuer_admission.check_buy if issuer_admission else None),
                     informational_current_book=dual_mode)
             final_reconciliation = session.reconciliation

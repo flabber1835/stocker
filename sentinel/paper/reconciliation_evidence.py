@@ -70,9 +70,13 @@ def _dual_mutation_observation_or_refuse(result) -> BrokerObservation:
 
 async def _settled_account_evidence_bracket(
         *, conn, broker: ExecutionBroker, binding, expected_account: str,
-        deployment, initial_result, actions, dual_mode: bool, clock):
+        deployment, initial_result, actions, dual_mode: bool, clock,
+        allow_restrictions: bool = False):
     """Bracket a second complete book read with stable account snapshots."""
     initial_observation = initial_result.observation
+    if allow_restrictions:
+        _clean_or_refuse(initial_result, purpose="initial market funding evidence",
+                         allow_restrictions=True)
     if not _account_evidence_is_quiescent(
             conn, deployment=deployment, observation=initial_observation):
         raise PaperRetryableRefused(
@@ -85,7 +89,13 @@ async def _settled_account_evidence_bracket(
         deployment=deployment, actions=actions,
         informational_current_book=dual_mode)
     confirmed_observation = _clean_or_refuse(
-        confirmation, purpose="settled account evidence bracket")
+        confirmation, purpose="settled account evidence bracket",
+        allow_restrictions=allow_restrictions)
+    if allow_restrictions and (
+            initial_result.expected != confirmation.expected
+            or initial_result.restricted_securities != confirmation.restricted_securities):
+        raise PaperRetryableRefused(
+            "owned share units or restrictions changed inside the market funding bracket")
     if not _account_evidence_is_quiescent(
             conn, deployment=deployment,
             observation=confirmed_observation):

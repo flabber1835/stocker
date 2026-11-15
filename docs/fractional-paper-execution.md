@@ -36,6 +36,46 @@ new candidate edits must not rewrite the historical delta records.
 
 ## Authority and scope
 
+### Execution invariants across account plans
+
+Issuer admission and same-issuer priority use positive authenticated purchase
+dollars or a positive share target. The issuer record binds the immutable
+projection fingerprint. The checks read the dollar obligations from that
+projection and keep the same ownership, native identity and reservation gates.
+Pre-open coverage and RAW reference collection include carried purchase
+obligations even when a security has zero shares and no new opening intent.
+
+Carry acquired quantities separately from the original allocation. Validate the
+original allocation before deriving which purchases are unavailable. A later
+plan can therefore carry a filled leg alongside a leg with zero fills.
+
+For fractional plans, derive trade cash and reusable purchase principal from
+the same exact durable fills matched to the command and native order. The
+serialized average checks fill coverage and consistency. It cannot supply exact
+cash. Missing fills defer financial authority and contradictory fills refuse it.
+Keep the exact native fee cash equality.
+
+Keep scalar-action entitlements as rational share quantities until they can be
+expressed exactly. The account may contain a restricted holding alongside
+ordinary holdings. Compare an unrepresentable holding against the exact
+entitlement. An unchanged pre-action balance or adjacent quantity at the broker
+increment can remain a scoped restriction. A different balance still needs
+independent reconciliation. Carry the exact pending target separately from the
+executable share basket and age it through later authenticated events. A
+restricted quantity may never authorize a compensating order or count as flat.
+
+Recheck the original reduction against the fresh reconciled position after
+settlement. A filled whole-share reduction can leave a fractional remainder
+that still blocks dependent buys. Automation and close verification require
+completion of the underlying share and dollar obligations, including dust.
+
+The backed local patch retains the exact installed PR #589 runtime inventory as
+an additional predecessor. Its reconciliation change is limited to execution
+and result interpretation. Preserve the earlier complete action compiler
+witness and verify the economic input definitions and dependencies against it.
+The local receipt records the actual source and image and preserves the existing
+scheduled PAPER plan.
+
 Preserve the canonical Wealth Core book, its selection, pending-entry eligibility,
 slot priority, stops, cooldowns and cash semantics. Preserve the Sentinel
 controller and its inputs. Broker observations remain execution inputs only.
@@ -254,6 +294,192 @@ a sale, dividend or cash-in-lieu event. Unsupported non-scalar actions restrict
 the affected security without inventing successor ownership. PAPER limitations
 do not justify synthetic fills, shares or cash. Current provider capability and
 accepted evidence, not generic documentation alone, govern financial admission.
+
+## Current PAPER fill settlement and cancelled purchases
+
+The dual PAPER current-book path reconciles shares from account-bound order
+and position evidence. When a fractional plan's owned command reports shares
+that its durable fills do not yet cover, reconcile that command against the
+accepted PAPER Activity SSE. Restrict the read to the candidate orders' trading
+days and exact native identities. Bracket it with the selected account and
+validate the order, side, asset, execution time, idempotent execution identity
+and cumulative shares before journal publication. This supplies positive fill
+facts to the existing observation transaction. Missing publication waits
+through the cash guard. The broader historical fill and close capabilities
+keep their existing qualification boundaries.
+
+Store a trade's native USD cash impact alongside its immutable fill identity
+in the existing journal transaction. Replays must agree with that impact.
+Compute the cash equation with the posted amount when supplied and signed
+exact gross for fills without that field. Principal for fulfillment is still
+the gross executed amount. Use the greater of posted debit and gross when
+computing a cancelled buy's reusable budget. The cash activity cursor still
+excludes trades from non-trade cash. This charges each trade and any
+independently posted fees once. Corrections and busts still require explicit
+recovery.
+
+Before completing a notional buy, require the native fill total to cover its
+cumulative shares and agree with the requested dollars within the supported
+rounding bound. For a complete order the bound is one USD cent plus one
+share increment at each reported fill price. A partial or cancelled order
+can spend less. A spend above the bound at any stage, or a material shortfall
+on a claimed full fill, is contradictory and fences continuation.
+
+After a positively resolved cancellation, the normal scheduler may continue
+the current fractional plan inside its execution window. It uses actual
+fulfilled shares, exact spent cash, current funding and a new command revision
+for the remainder. The rejected purchase itself waits for a new plan. An
+unrelated purchase may proceed after reconciliation proves its own authority.
+Legacy scheduler refusal rules continue to apply to legacy plans.
+
+A same-plan retry of a cancelled whole-share fallback retains its original
+share remainder and evidenced funding ceiling. On a successor with unchanged
+ownership and exposure, carry the acquired shares and the unchanged unspent
+dollar ceiling. Evaluate eligibility again for a prospective order under that
+ceiling. A filled whole-share fallback carries its acquired shares alone,
+including when fractional eligibility later becomes available. The new
+retained-target basis has a distinct version so existing proofs remain
+reproducible.
+
+Qualify the retained source with its exact installed predecessor. Exercise
+the production PAPER adapter, ordinary current-book reconciliation, the
+cash guard, and sequential submission together with an isolated Alpaca
+fixture. Cover delayed and contradictory fill evidence, posted cash rounding,
+cancelled revisions, and the unchanged-exposure successor plan.
+
+## Recovery boundaries for fractional PAPER plans
+
+When a positively identified working dollar BUY can explain the direction
+and instrument of a position lead, hold transport for the existing bounded
+endpoint-lag window and seek the exact order and its native executions.
+The notional does not create a guessed share ceiling or owned position.
+Require cumulative order and fill agreement before publication, and preserve
+the original nonrenewable lag clock across polls, even when the position
+quantity moves. An unexplained instrument, direction or expired bound refuses.
+Keep the deadline in the existing PAPER-only broker cash activity namespace
+so a broker lag does not invalidate the SHADOW input inventory.
+Use permanent security and native asset IDs for an exact late fill across
+a ticker rename. Retain side, order ID, key, amount, terms and time checks.
+Expose the exact owned-fill reader as an optional execution-protocol read
+with its own guarded operation. Require explicit PAPER support and a concrete
+adapter implementation. Simulators and legacy adapters can omit the reader.
+
+Share coverage and posted cash coverage are separate. An omitted optional
+USD trade cash field can be enriched by replaying the same native fill
+identity. A supplied amount is immutable. Where posted dollars are omitted,
+accept only cash arithmetic proved by exact execution values and the applicable
+Alpaca USD posting precision. For a terminal fractional sale, accept derived
+cash only when rounding each fill and rounding the order give the same cent
+amount without a half-cent tie. An omitted amount on a completed dollar BUY
+must also agree with the requested dollars. Never use the account balance
+to invent a ledger entry. Keep cash and separately posted fees single-counted
+and keep complete posted cash verification exact. See [Alpaca activity events](https://docs.alpaca.markets/us/docs/activity-sse)
+and the [Alpaca Customer Agreement](https://files.alpaca.markets/disclosures/library/AcctAppMarginAndCustAgmt.pdf).
+
+Corporate-action restrictions must bind to the relevant owned position or
+attempt interval. Match a resolved event by permanent security ID. Use a
+ticker only where the event lacks that identity, and preserve the distinction
+between a transport restriction and a proved explanation for a changed
+quantity. An arbitrary quantity mismatch cannot be cleared by a material
+action marker. The cash bracket for market funding can accept a stable
+scoped restriction after checking both observations, reconciling cash against
+the immutable plan baseline, and checking reduction dependencies. Account-wide
+integrity and close verification keep their full clean-book requirements.
+
+An exact, terminal share-denominated market fill can exceed its buffered
+budget. Preserve the acquired shares and record the overrun as explicit
+execution evidence with zero remaining spending authority. The overrun
+does not invalidate confirmed owned fills or prevent an authorized successor
+from reducing its target. Notional contradictions and UNKNOWN outcomes
+continue to fence transport.
+
+A current plan with authenticated continuing purchase dollars requires a
+projection even with no new opening intents. This includes unfinished BIL
+allocations when Core exposure is zero. Reconcile and request ordinary
+execution inside the original window when that projection is absent and no
+command ever crossed transport. An already attempted plan missing its
+projection refuses. Raw share equality cannot complete the dollar obligation.
+If the original window elapses before projection, retain its authenticated
+continuing budgets only when ownership and exposure permit ordinary carry.
+On recovery, a symbol's unavailable RAW reference must leave independently
+actionable legs eligible. If all actionable work is exhausted, the remaining
+unavailable legs stay explicit and the cycle follows its ordinary retirement
+rules. Account-wide evidence still governs every send.
+
+At a confirmed cash shortfall, keep a proven unsent order and its allocation.
+Other independently affordable candidates may proceed under their own fresh
+funding and issuer checks within the original deadline. Preserve the priority
+of candidates that can be funded, the writer lock and one unresolved market
+BUY. Generic authority failures and indeterminate sends cannot use this path.
+
+The backed application handoff fingerprints the persisted posted fill-cash
+records and the durable position-leading order deadlines. Previously issued
+receipts keep their encoding and are interpreted with their original scope.
+Qualify the exact successor against the installed source with composed
+endpoint lag, restart, affordability, corporate identity and accounting
+falsifiers before the backed PAPER handoff.
+
+## Recovery across transport, share units, and provider identity
+
+An order remains uncertain after any indeterminate transport attempt. A refusal
+before a later retry proves only that retry did not reach transport. Record the
+first uncertain outcome and let exact, account-bound recovery decide it.
+Positive exact and open order evidence can identify a pending notional command
+whose own native order ID has yet to be recorded. Recognize a matching,
+position-leading observation under the same nonrenewable grace clock. Do not
+derive ownership or authorize transport until order and fill evidence agree.
+Use the native fill identity when validating the union of new and durable
+executions. Equal price, quantity and time can belong to distinct fills.
+Advance verified fills while cancellation is pending, preserving the
+cancellation fence until a terminal broker state. A still-working native
+status with a positive cumulative counter retains the corresponding partial
+progress rather than returning the command to zero-fill acknowledgement.
+
+Share-only fractional execution needs the same verified next-open actions and
+effective-session target projection as an opening purchase. Re-enter the
+original execution window for a provably unsent plan with no projection,
+including a pure reduction. A missing projection after transport refuses.
+Reserve raw convergence compatibility for historical plans that were governed by
+that contract. A current plan can certify convergence only in its verified
+share units, including when no dollar obligation exists.
+
+Resolve instrument identity separately from current trading availability. A
+positively identified inactive, unavailable or nontradable BUY is an explicit
+security-level deferral. Preserve its obligation and let independently authorized
+orders reach the executor, including reductions. Account, source, authority or
+contradictory native identity failures still refuse. For a reduction, use the
+current position's native instrument ahead of terminal order history. Preserve
+the final fresh eligibility, issuer, cash and clock checks.
+
+Treat historical order symbols as aliases only after permanent security and
+native asset IDs agree with current authenticated reference evidence. Require
+the current issuer relationship and any standing issuer reservation to agree.
+Check conflicting historical native asset IDs when the security has a current
+position, open obligation or nonzero attributed balance. A closed position's
+journal is retained even if the security is no longer selected. For supported
+sequential scalar events, recognize the exact book after any applicable prefix
+of the actions as an intermediate posting restriction. Preserve the final
+entitlement and continue refusing unexplained differences. A reconciliation is
+clean only when it has a complete RUNNING account result and no restrictions,
+foreign activity or unresolved work.
+
+For a supported, directional merger action, reset the acquired security's
+economic history. Preserve the existing acquirer's price history when the
+provider identifies it as the receiving instrument and independent current
+asset identity corroborates continuity. Ambiguous parties and changed or
+unresolved native identities keep the conservative quarantine. Correct the
+prospective input publication path without rewriting retained generations or
+changing Wealth Core or controller rules.
+
+Store new posted fill cash inside the existing PAPER cash-activity namespace.
+Resolve the historical fill-cash namespace as an immutable compatibility read,
+exclude its rows from SHADOW proof inputs, and preserve the installed
+operational SQL contract. Keep one record per fill, including on replay.
+Backed handoff fingerprints both encodings. Semantic restore validates every
+retained posted amount against its exact fill, owned command, order, side and
+price. Missing optional cash fields remain governed by the existing runtime
+coverage rules. An orphan, duplicate, or contradictory sidecar fails restore
+qualification. The validation is read-only.
 
 ## Qualification, presentation and transition
 

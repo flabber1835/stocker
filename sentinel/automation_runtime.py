@@ -580,7 +580,7 @@ def _all_target_deltas(
 
 def _actionable_projection_deltas(
         conn, *, plan, effective_session, observation,
-        minimum_quantity_increment) -> tuple:
+        minimum_quantity_increment, restricted_security_ids=()) -> tuple:
     """Validate and use the durable execution-session unit projection.
 
     The immutable plan basket is decision-close intent.  It is not necessarily
@@ -609,33 +609,59 @@ def _actionable_projection_deltas(
     target_reprojection.assert_projection(
         conn, plan=plan, projection=projection,
         through_session=effective_session)
-    from sentinel.execution import protected_limits
+    from sentinel.execution import fractional_progress, protected_limits
     unavailable = protected_limits.unavailable_opening_intents(projection)
-    if unavailable:
-        raise protected_limits.ProtectedReferenceUnavailable(
-            "opening reference calculations remain unavailable: "
-            + ", ".join(sorted(unavailable)))
-    from sentinel.execution import fractional_progress
     if fractional_progress.is_fractional(projection):
         from sentinel.execution.identity import DeploymentIdentity
         deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
             plan.broker_account_id, plan.takeover_epoch)
         progress = fractional_progress.derive(conn, projection=projection, deployment=deployment)
-        if progress.blocked:
-            raise target_reprojection.TargetProjectionRefused(str(progress.blocked))
+        unsettled = {sid: reason for sid, reason in progress.blocked.items()
+                     if reason != fractional_progress.REJECTED_FOR_PLAN}
+        if unsettled:
+            raise target_reprojection.TargetProjectionRefused(str(unsettled))
         from sentinel.paper.targets import _plan_deltas
-        return tuple(delta for delta in _plan_deltas(
+        deltas = _plan_deltas(
             conn=conn, deployment=deployment, projection=projection,
             target_basket=projection.target_basket, observation=observation,
-            minimum_quantity_increment=minimum_quantity_increment)
-            if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
+            minimum_quantity_increment=minimum_quantity_increment,
+            restricted_security_ids=restricted_security_ids, fulfillment=progress)
+        actionable = tuple(delta for delta in deltas
+                           if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
+        if not actionable:
+            dust = {delta.security_id: str(delta.remaining) for delta in deltas
+                    if delta.classification is execution_commands.DeltaClass.DUST}
+            if dust:
+                raise target_reprojection.TargetProjectionRefused(f"DUST_RESIDUAL: {dust}")
+            if progress.blocked:
+                raise fractional_progress.PurchaseRejectedForPlan(str(progress.blocked))
+            fractional_progress.require_completed({
+                "blocked": {sid: reason for sid, reason in
+                            fractional_progress.share_restrictions(projection).items()
+                            if sid not in restricted_security_ids},
+                "remaining_dollars": {sid: amount for sid, amount in progress.budgets.items()
+                                      if sid not in restricted_security_ids}})
+        if actionable or not unavailable:
+            return actionable
+    if unavailable:
+        raise protected_limits.ProtectedReferenceUnavailable(
+            "opening reference calculations remain unavailable: "
+            + ", ".join(sorted(unavailable)))
     return _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)
 
 
 def _projection_refusal_result(*, result, observation_id, exc) -> ExecuteResult:
+    from sentinel.execution.fractional_progress import PurchaseRejectedForPlan
     from sentinel.execution.protected_limits import ProtectedReferenceUnavailable
+    if isinstance(exc, PurchaseRejectedForPlan):
+        return ExecuteResult(
+            disposition=ExecuteDisposition.SUPERSEDED,
+            last_clean_reconciliation_id=str(observation_id),
+            failure_code="PURCHASE_REJECTED_REQUIRES_NEW_PLAN",
+            failure_detail=str(exc),
+            diagnostic=result.to_dict())
     if isinstance(exc, ProtectedReferenceUnavailable):
         return ExecuteResult(
             disposition=ExecuteDisposition.SUPERSEDED,
@@ -1027,22 +1053,27 @@ class ProductionAutomation:
             self, conn, *, plan, effective_session, observation,
             minimum_quantity_increment, reconciliation=None) -> tuple:
         """Use retained projections; support older stamped raw dual plans."""
+        restricted = getattr(reconciliation, "restricted_securities", ())
         if not self._dual_run_enabled:
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
-                minimum_quantity_increment=minimum_quantity_increment)
+                minimum_quantity_increment=minimum_quantity_increment,
+                restricted_security_ids=restricted)
 
         from sentinel import informational_paper_mirror
+        from sentinel.execution import opening_sizing
 
         proof = self._require_dual_plan_shadow_match(
             conn, plan, pending_is_retryable=False)
-        if plan.opening_intents or target_reprojection.load_projection(
-                conn, plan_id=plan.plan_id) is not None:
+        if (plan.opening_intents or target_reprojection.load_projection(
+                conn, plan_id=plan.plan_id) is not None
+                or opening_sizing.fractional_plan_authority(conn, plan=plan) is not None):
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
-                minimum_quantity_increment=minimum_quantity_increment)
+                minimum_quantity_increment=minimum_quantity_increment,
+                restricted_security_ids=restricted)
         current = feed_inputs.require_current(conn)
         frontier = feed_inputs.frontier(conn)
         try:
@@ -1580,7 +1611,8 @@ class ProductionAutomation:
                     try:
                         from sentinel.execution import opening_sizing
                         if opening_sizing.requires_initial_projection(
-                                conn, plan=plan, deployment=deployment):
+                                conn, plan=plan, deployment=deployment,
+                                active_security_ids=result.observation.positions_by_security()):
                             closed = _now_utc() >= cycle.execution_close_at
                             return ExecuteResult(
                                 disposition=(ExecuteDisposition.SUPERSEDED if closed
@@ -1608,6 +1640,14 @@ class ProductionAutomation:
                             conn, deployment, plan_id=cycle.plan_id,
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
+                        from sentinel.execution.fractional_progress import is_fractional
+                        if terminal_refusals and is_fractional(target_reprojection.load_projection(
+                                conn, plan_id=cycle.plan_id)):
+                            from sentinel.execution.contract import Side
+                            pending_reductions = {delta.security_id for delta in actionable
+                                                  if delta.side is Side.SELL}
+                            terminal_refusals = tuple(c for c in terminal_refusals
+                                if c.side is Side.SELL and c.security_id in pending_reductions)
                         if terminal_refusals:
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.SUPERSEDED,

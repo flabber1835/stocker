@@ -41,7 +41,7 @@ def prepare_send(command: Command) -> Command:
 
 
 def _assert_order_matches_command(command: Command, found: BrokerOrder,
-                                  *, where: str) -> None:
+                                  *, where: str, allow_symbol_change: bool = False) -> None:
     """A matching client key is necessary but not sufficient evidence."""
     mismatches: list[str] = []
     if found.client_key != command.client_key:
@@ -51,10 +51,16 @@ def _assert_order_matches_command(command: Command, found: BrokerOrder,
         mismatches.append(
             f"security_id={found.instrument.security_id!r} "
             f"expected={command.instrument.security_id!r}")
-    if found.instrument.symbol != command.instrument.symbol:
+    same_native_asset = (command.instrument.broker_id is not None
+                         and found.instrument.broker_id == command.instrument.broker_id)
+    if (found.instrument.symbol != command.instrument.symbol
+            and not (allow_symbol_change and same_native_asset)):
         mismatches.append(
             f"symbol={found.instrument.symbol!r} "
             f"expected={command.instrument.symbol!r}")
+    if (command.broker_order_id is not None
+            and found.broker_order_id != command.broker_order_id):
+        mismatches.append("broker order ID differs from the durable receipt")
     if (command.instrument.broker_id is not None
             and found.instrument.broker_id != command.instrument.broker_id):
         mismatches.append(
@@ -148,8 +154,9 @@ async def _retry_rate_limited_submit(
                 broker_order_id=observed.broker_order_id,
                 detail=("exact client-key lookup reported absence while the "
                         "COMPLETE observation contained that key; no retry"))
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; retry proof was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -167,8 +174,9 @@ async def _retry_rate_limited_submit(
         if exact is not None:
             return _receipt_from_positive(
                 command, exact, where="post-backoff exact lookup")
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; retry lookup was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -180,8 +188,10 @@ async def _retry_rate_limited_submit(
             client_key=command.client_key, instrument=command.instrument,
             side=command.side, quantity=command.quantity,
             **_submit_terms(command))
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        # A no-transport proof issued here can only describe the retry.
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; same-key retry was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -191,6 +201,9 @@ async def _retry_rate_limited_submit(
     # A second 429 remains UNKNOWN.  One bounded retry is enough to distinguish
     # a transient throttle from a persistent broker condition without building
     # an unbounded submit loop inside the financial state machine.
+    if retried.state is S.REJECTED:
+        return command.transition(S.UNKNOWN,
+            detail=f"{outcome.detail}; retry rejection cannot settle the first POST: {retried.detail}")
     return _command_from_submit_outcome(command, retried,
         detail="same-key retry after proven absence: " + retried.detail)
 
@@ -305,7 +318,7 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
         await broker.find_by_client_key(command.client_key), observation)
     if found is not None:
         _assert_order_matches_command(
-            command, found, where="exact client-key lookup")
+            command, found, where="exact client-key lookup", allow_symbol_change=True)
         return command.transition(
             found.state, broker_order_id=found.broker_order_id,
             filled_quantity=found.filled_quantity,
@@ -319,7 +332,7 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
     observed = observation.by_client_key(command.client_key)
     if observed is not None:
         _assert_order_matches_command(
-            command, observed, where="account-bound observation")
+            command, observed, where="account-bound observation", allow_symbol_change=True)
         return command.transition(
             observed.state, broker_order_id=observed.broker_order_id,
             filled_quantity=observed.filled_quantity,
@@ -341,10 +354,14 @@ def confirm_cancellation(command: Command,
     still_there = observation.by_client_key(command.client_key)
     if still_there is not None:
         _assert_order_matches_command(
-            command, still_there, where="cancellation observation")
-        if still_there.state in (S.FILLED, S.PARTIALLY_FILLED):
+            command, still_there, where="cancellation observation", allow_symbol_change=True)
+        if (still_there.filled_quantity < command.filled_quantity
+                or (still_there.filled_quantity == command.filled_quantity
+                    and still_there.filled_average_price != command.filled_average_price)):
+            raise BrokerAuthorityRefused("cancel observation regressed or changed existing fill economics")
+        if still_there.state is S.FILLED:
             return command.transition(
-                still_there.state,
+                S.FILLED,
                 filled_quantity=still_there.filled_quantity,
                 filled_average_price=still_there.filled_average_price,
                 detail="cancel lost the race to a fill")
@@ -354,6 +371,11 @@ def confirm_cancellation(command: Command,
                 filled_quantity=still_there.filled_quantity,
                 filled_average_price=still_there.filled_average_price,
                 detail="observed CANCELLED at the broker")
+        if still_there.is_working and still_there.filled_quantity > command.filled_quantity:
+            return command.transition(S.CANCEL_PENDING,
+                filled_quantity=still_there.filled_quantity,
+                filled_average_price=still_there.filled_average_price,
+                detail="broker filled shares while cancellation remains pending")
         return command
 
     observation.require_complete(
@@ -372,7 +394,7 @@ def apply_observation(command: Command,
     if found is None:
         return command
     _assert_order_matches_command(
-        command, found, where="broker observation")
+        command, found, where="broker observation", allow_symbol_change=True)
     if (found.state is command.state
             and found.filled_quantity == command.filled_quantity
             and found.filled_average_price == command.filled_average_price

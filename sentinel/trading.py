@@ -401,7 +401,7 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
             account = await guarded.account_snapshot()
             _account_or_refuse(account, bound, confirm_account)
             active_ids = _preopen_active_security_ids(plan=plan,
-                commands=journal.load_commands(conn, bound.identity), actions=actions)
+                commands=journal.load_commands(conn, bound.identity), actions=actions, conn=conn)
             _authority, actions, target_actions = _preopen_views_or_none(conn,
                 plan=plan, active_security_ids=active_ids,
                 required_cutoff_at=_official_preopen_cutoff(plan), evaluated_at=_clock(),
