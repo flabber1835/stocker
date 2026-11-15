@@ -14,12 +14,12 @@ class RecoveryDeadlines(unittest.TestCase):
         import sentinel_backup_maintenance as maintenance
         import sentinel_install_backup as installation
         import sentinel_maintenance_process as process
-        self.assertEqual(installation.BASE_COMMAND_SECONDS, 900)
-        self.assertEqual(maintenance.BASE_COMMAND_SECONDS, 900)
-        self.assertEqual(installation.INVOCATION_SECONDS, 3600)
+        self.assertEqual(installation.BASE_COMMAND_SECONDS, 1500)
+        self.assertEqual(maintenance.BASE_COMMAND_SECONDS, 1500)
+        self.assertEqual(installation.INSTALLATION_INVOCATION_SECONDS, 4200)
         self.assertEqual(process.INVOCATION_SECONDS, 3600)
         self.assertGreater(budgets.RESTORE_WORKER_SECONDS, installation.RESTORE_COMMAND_SECONDS)
-        self.assertLess(budgets.RESTORE_WORKER_SECONDS, installation.INVOCATION_SECONDS)
+        self.assertLess(budgets.RESTORE_WORKER_SECONDS, installation.INSTALLATION_INVOCATION_SECONDS)
 
     def test_shell_budget_is_one_integer_and_unknown_budget_refuses(self):
         argv = [sys.executable, str(SCRIPTS / 'sentinel_backup_deadlines.py')]

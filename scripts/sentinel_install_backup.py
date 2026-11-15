@@ -7,7 +7,7 @@ import time
 
 from sentinel_backup_lock import lock_is_held, LOCK_ROOT_ENV
 from sentinel_backup_deadlines import (BASE_COMMAND_SECONDS, CHAIN_STATUS_SECONDS,
-                                      INVOCATION_SECONDS, RESTORE_COMMAND_SECONDS)
+                                      INSTALLATION_INVOCATION_SECONDS, RESTORE_COMMAND_SECONDS)
 from sentinel_maintenance_process import run_bounded
 
 
@@ -15,7 +15,7 @@ def milestone(mode, runner=run_bounded, *, reuse_current=False):
     if mode not in {'full', 'physical'} or not lock_is_held():
         raise RuntimeError('installation backup requires the verified target owner and restore mode')
     root = Path(os.environ[LOCK_ROOT_ENV])
-    deadline = time.monotonic() + INVOCATION_SECONDS
+    deadline = time.monotonic() + INSTALLATION_INVOCATION_SECONDS
     def command(argv, timeout):
         remaining = deadline - time.monotonic()
         if remaining <= 0:

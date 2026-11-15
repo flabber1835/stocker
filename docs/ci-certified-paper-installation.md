@@ -367,6 +367,23 @@ No data, identity, media-lock, exact-base, full-semantic-proof or broker guard i
 relaxed. Qualify slow successful children, whole-deadline exhaustion, partial
 stdout/stderr, late descendant writes, both restore modes and recurring renewal.
 
+#### Physical verification headroom
+
+Decision, 2026-11-15. Two native PAPER renewals of an approximately 22 GB base
+completed streaming to the independent media, then the disposable client exited
+124 before publishing a verified base. The 840-second worker budget covers
+streaming, synchronization and the subsequent full `pg_verifybackup` on the
+same capped client. Give the combined worker 1,440 seconds inside a 1,500-second
+base command. The host retains 60 seconds for termination, marker and receipt
+work. The client CPU, memory, media ownership and verification requirements
+remain as specified.
+
+Installation reserves 4,200 seconds for the complete recovery milestone after
+acquiring the existing target lock. Each phase receives the lesser of its cap
+and the remaining monotonic budget. Recurring maintenance retains its separate
+3,600-second invocation cap. Exercise verified completion after the old
+base-command budget and refusal at the new whole deadline.
+
 Decision: 2026-10-04. Pre-migration and final deployment base backups wait for
 the existing canonical target lock for at most 3,660 seconds. This covers the
 maintenance invocation's 3,600-second outer deadline and 60 seconds for process

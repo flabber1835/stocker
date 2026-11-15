@@ -23,15 +23,15 @@ def owner(monkeypatch):
 
 @pytest.mark.parametrize('mode', ['full', 'physical'])
 def test_slow_copy_then_publication_fits_host_budget(owner, monkeypatch, mode):
-    # Scale seconds, preserving the real 600/900-second relationship. The
-    # verified child still needs time to publish its exact path afterward.
+    # Scale seconds. The worker completes verification past the old cap and
+    # still needs time to publish its exact path afterward.
     monkeypatch.setattr(install, 'BASE_COMMAND_SECONDS', install.BASE_COMMAND_SECONDS * .004)
     calls = []
 
     def run(argv, **kwargs):
         calls.append(argv)
         if 'base-backup' in argv[1]:
-            code = ("import time,sys; time.sleep(2.1); "
+            code = ("import time,sys; time.sleep(4.0); "
                     "print('copy verified',file=sys.stderr,flush=True); "
                     "time.sleep(.5); print(%r,flush=True)" % ('verified_base_backup:' + owner))
         else:
@@ -50,17 +50,17 @@ def test_every_phase_receives_only_remaining_whole_budget(owner, monkeypatch):
 
     def run(argv, **kwargs):
         calls.append(kwargs['timeout'])
-        clock[0] += [800, 500, 100][len(calls) - 1]
+        clock[0] += [1400, 550, 100][len(calls) - 1]
         return SimpleNamespace(returncode=0, stderr='', stdout='verified_base_backup:' + owner)
 
     assert install.milestone('full', runner=run) == owner
-    assert calls == [900, 600, 2100]
+    assert calls == [1500, 600, 2100]
 
     clock[0], calls[:] = 0, []
-    monkeypatch.setattr(install, 'INVOCATION_SECONDS', 1400)
+    monkeypatch.setattr(install, 'INSTALLATION_INVOCATION_SECONDS', 2050)
     with pytest.raises(RuntimeError, match='deadline exhausted'):
         install.milestone('full', runner=run)
-    assert calls == [900, 600, 100]
+    assert calls == [1500, 600, 100]
 
 
 @pytest.mark.parametrize('expire_at', [1, 3])
@@ -72,7 +72,7 @@ def test_exhaustion_cannot_publish_receipt_or_start_later_phase(owner, monkeypat
     def run(argv, **kwargs):
         calls.append(argv)
         if len(calls) == expire_at:
-            clock[0] = budgets.INVOCATION_SECONDS
+            clock[0] = budgets.INSTALLATION_INVOCATION_SECONDS
         return SimpleNamespace(returncode=0, stderr='', stdout='verified_base_backup:' + owner)
 
     with pytest.raises(RuntimeError, match='deadline exhausted'):
