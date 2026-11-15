@@ -186,6 +186,53 @@ def _require_unsent_renewal(conn, plan):
             "wait for the next decision after dispatched intent")
 
 
+def _fractional_renewal_retry_basis(conn, plan, policy):
+    """Recover the original retry basis through wholly unsent same-session renewals."""
+    from sentinel.execution import held_targets, target_reprojection
+    from sentinel.execution.identity import DeploymentIdentity
+    from .policy_replacement import Refused, _require_unsent_history
+
+    policy_hash = policy.fingerprint()
+    deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
+                                    plan.broker_account_id, plan.takeover_epoch)
+    subject_fields = ("decision_session", "effective_session", "publication_fingerprint",
+        "data_version", "shadow_snapshot_hash", "sentinel_transition_hash",
+        "strategy_fingerprint", "target_exposure", "rollout_mode", "deployment_id",
+        "broker", "broker_account_id", "takeover_epoch")
+    authority = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
+    while authority is not None and authority.get("market_buy_policy_sha256") == policy_hash:
+        basis = authority.get("held_share_targets")
+        if (not isinstance(basis, dict)
+                or target_reprojection.load_projection(conn, plan_id=plan.plan_id) is not None):
+            return None
+        try:
+            _require_unsent_history(conn, plan, deployment, retired=plan.superseded_by is not None)
+        except Refused:
+            return None
+        if held_targets.retry_openings(basis):
+            return basis
+
+        previous_id = basis.get("previous_plan_id")
+        if basis["schema"] != held_targets.SCHEMA or previous_id is None:
+            return None
+        previous = journal.load_plan(conn, previous_id)
+        if (previous is None or previous.superseded_by != plan.plan_id
+                or previous.rollout_version >= plan.rollout_version
+                or previous.rollout_certificate_sha256 == plan.rollout_certificate_sha256
+                or any(getattr(previous, field) != getattr(plan, field) for field in subject_fields)):
+            return None
+        previous_authority = dual_plan_authority.load_authority(conn, plan_id=previous_id)
+        previous_fingerprint = previous.fingerprint()
+        if (previous_authority is None
+                or previous_fingerprint != basis["previous_plan_fingerprint"]
+                or previous_fingerprint != previous_authority["plan_fingerprint"]
+                or previous_authority["authority_sha256"] != basis["previous_authority_sha256"]
+                or previous_authority["shadow_record_sha256"] != authority["shadow_record_sha256"]):
+            return None
+        plan, authority = previous, previous_authority
+    return None
+
+
 def _local_window_resizing(conn, plan, grant, *, decision_session=None):
     from sentinel import local_paper
     if plan is None or (decision_session is not None and plan.decision_session != decision_session):
@@ -833,11 +880,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 marks, tickers = _load_marks_and_tickers(
                     conn, state, through_text)
                 from sentinel.execution import held_targets
+                share_basis = None
                 if replacement_request is not None:
-                    # Reuse the original continuing-holding basis. Unsent entry
-                    # quantities in the replaced plan must not survive the policy change.
                     share_basis = dual_plan_authority.load_authority(
                         conn, plan_id=existing_plan.plan_id)['held_share_targets']
+                elif renewal_rollout is not None and market_policy is not None and market_policy.fractional:
+                    share_basis = _fractional_renewal_retry_basis(conn, existing_plan, market_policy)
+                if share_basis is not None:
                     held_targets.verify_basis(conn, basis=share_basis, state=state,
                                               binding=binding, rollout=rollout)
                 else:
