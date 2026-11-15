@@ -57,6 +57,13 @@ Keep current dynamic dashboard responses uncached. Reuse versioned immutable
 static assets and compress supported dynamic responses. Preserve freshness,
 review authentication, machine versus human health, and installation consumers.
 
+Browser fixtures that serve a rendered document from their own loopback origin
+also serve the exact versioned resources that document declares. Fetch their
+bytes and MIME types from the same isolated ASGI app that produced the document
+and verify its fingerprint. Keep selective PNG interruption, virtual clocks,
+partial documents and offline service worker cases in the existing fixtures.
+The harness continues exercising the production renderer and asset routes.
+
 ## Execution and market data
 
 Load commands and matching fills once per coherent execution or verification

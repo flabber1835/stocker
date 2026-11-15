@@ -133,16 +133,30 @@ def test_missing_current_profile_module_refuses_its_worker(module):
         shards.current_modules(modules,next(iter(shards.CURRENT_LANES)))
 
 
+def _spread_lower_bound(module_weights: list[int], lane_count: int) -> int:
+    heaviest = sorted(module_weights, reverse=True)[:lane_count - 1]
+    remaining = sum(module_weights)
+    lightest_ceiling = remaining // lane_count
+    for excluded, weight in enumerate(heaviest, 1):
+        remaining -= weight
+        # At least lane_count - excluded lanes contain none of these modules.
+        lightest_ceiling = min(lightest_ceiling, remaining // (lane_count - excluded))
+    return max(0, heaviest[0] - lightest_ceiling)
+
+
+def test_balance_bound_accounts_for_two_oversized_modules():
+    # The optimum is one lane at 12, one at 9, and one with the remaining 3.
+    assert _spread_lower_bound([12, 9, 1, 1, 1], 3) == 9
+
+
 def test_measured_costs_balance_both_existing_families_without_dropping_modules():
     groups = shards.plan(_inventory())
     weights, default = shards.load_durations()
     for family, count, allowed_spread in (("general", 8, 1000), ("rolling", 5, 5000)):
         lanes = [groups[f"sentinel-{family}-{i}"] for i in range(count)]
         costs = [sum(weights.get(name, default) for name in lane) for lane in lanes]
-        # An indivisible module larger than the mean sets a lower bound on spread.
-        heaviest_module = max(weights.get(name, default) for lane in lanes for name in lane)
-        remaining_mean = (sum(costs) - heaviest_module) // (count - 1)
-        unavoidable_spread = max(0, heaviest_module - remaining_mean)
+        module_weights = [weights.get(name, default) for lane in lanes for name in lane]
+        unavoidable_spread = _spread_lower_bound(module_weights, count)
         assert max(costs) - min(costs) <= unavoidable_spread + allowed_spread
 
 

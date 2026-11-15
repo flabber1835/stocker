@@ -250,6 +250,9 @@ def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monk
     monkeypatch.setattr(supervisor, '_Heartbeat', lambda: lambda: None)
     monkeypatch.setattr(supervisor, '_diagnostic', lambda *a, **kw: None)
     monkeypatch.setattr(supervisor, '_latch_exists', lambda: False)
+    # This clock/launcher fixture has no retained publication or database.
+    # A successful synthetic child therefore earns no unchanged-poll hint.
+    monkeypatch.setattr(supervisor, '_scheduling_subject', lambda _cfg: None)
     monkeypatch.setattr(supervisor, '_arm_worker', lambda _pid: 'same-owner')
     monkeypatch.setattr(supervisor, '_clear_worker', lambda: None)
     monkeypatch.setattr(supervisor, '_dependency_retry_alert', lambda: None)

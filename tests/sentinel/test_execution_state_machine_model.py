@@ -48,7 +48,8 @@ D = Decimal
 QUANTITY = D("100")
 DEPLOYMENT = DeploymentIdentity("model-nas", "sim", "MODEL-ACCOUNT", 1)
 
-# Independent transcription of docs/sentinel-execution-contract.md section 3.
+# Independent transcription of docs/sentinel-execution-contract.md section 3
+# and the pending-cancellation fill rule in docs/fractional-paper-execution.md.
 # Strings keep this oracle structurally separate from the production table.
 MODEL_TRANSITIONS = {
     "PLANNED": {"SEND_PENDING", "SUPERSEDED"},
@@ -66,7 +67,7 @@ MODEL_TRANSITIONS = {
         "UNKNOWN",
     },
     "CANCEL_PENDING": {
-        "CANCELLED", "FILLED", "PARTIALLY_FILLED", "UNKNOWN",
+        "CANCEL_PENDING", "CANCELLED", "FILLED", "PARTIALLY_FILLED", "UNKNOWN",
     },
     "FILLED": set(),
     "CANCELLED": set(),
@@ -118,8 +119,14 @@ def _new_command(lifecycle: int, *, security_id: str = "SEC-MODEL") -> Command:
     )
 
 
+def _reports_partial_fill(previous: CommandState, nxt: CommandState) -> bool:
+    # A broker can report additional fills while its cancellation is still pending.
+    return (nxt is CommandState.PARTIALLY_FILLED
+            or previous is nxt is CommandState.CANCEL_PENDING)
+
+
 def _changes(command: Command, nxt: CommandState) -> dict[str, object]:
-    if nxt is CommandState.PARTIALLY_FILLED:
+    if _reports_partial_fill(command.state, nxt):
         filled = min(command.quantity - D(1), command.filled_quantity + D(1))
         return {
             "filled_quantity": filled,
@@ -203,7 +210,7 @@ def test_generated_valid_and_invalid_command_paths_preserve_the_model(seed):
         else:
             command = command.transition(candidate, **_changes(command, candidate))
             model_state = candidate.value
-            if candidate is CommandState.PARTIALLY_FILLED:
+            if _reports_partial_fill(before.state, candidate):
                 model_filled = min(QUANTITY - D(1), model_filled + D(1))
             elif candidate is CommandState.FILLED:
                 model_filled = QUANTITY
@@ -282,7 +289,7 @@ def test_every_legal_edge_survives_persistence_and_connection_restart(pg):
                 command = loaded[0]
 
                 expected_states.append(target_name)
-                if target is CommandState.PARTIALLY_FILLED:
+                if _reports_partial_fill(previous, target):
                     expected_filled = min(QUANTITY - D(1), expected_filled + D(1))
                 elif target is CommandState.FILLED:
                     expected_filled = QUANTITY

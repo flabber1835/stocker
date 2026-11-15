@@ -30,6 +30,14 @@ uses longest estimated work first, stable path ties and least-loaded-lane ties.
 Unmeasured future modules receive a positive 60-second estimate and enter the
 plan automatically. A weight changes scheduling, never test inclusion.
 
+The balance test compares the observed spread with a lower bound that accounts
+for multiple indivisible heavy modules. For each number `k` of the largest
+modules, at least `n - k` of the `n` lanes contain none of them. Their remaining
+weight bounds the lightest lane from above. The largest module bounds the
+heaviest lane from below. Use the strongest resulting lower bound and keep the
+same general and rolling tolerances on top of it. This keeps the same test of
+avoidable imbalance when a timing refresh introduces a second oversized module.
+
 Decision: 2026-11-11. PR581's rolling-2 worker reached the 60-minute job
 limit. The corresponding PR582 worker finished in 59 minutes and 30 seconds.
 Use five rolling workers with the same 60-minute deadline. The unchanged

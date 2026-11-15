@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 
 test.describe('Banner resource recovery', () => {
   // Image-resource behavior is independent of push/navigation worker behavior.
@@ -15,9 +16,9 @@ test.describe('Banner resource recovery', () => {
     const documentResponse=await page.request.get('/');
     expect(documentResponse.status()).toBe(200);
     const html=await documentResponse.text();
-    const imageResponse=await page.request.get(assetPath);
-    expect(imageResponse.status()).toBe(200);
-    const png=await imageResponse.body();
+    const assets=await panelAssets(page.request,html);
+    expect(assets.has(assetPath)).toBe(true);
+    const {body:png}=assets.get(assetPath);
     expect(crypto.createHash('sha256').update(png).digest('hex')).toBe(assetSha256);
     expect([png.readUInt32BE(16),png.readUInt32BE(20)]).toEqual([512,512]);
     const requests=[],pending=new Set(),sockets=new Set(),timers=new Set();
@@ -47,6 +48,8 @@ test.describe('Banner resource recovery', () => {
           timers.add(timer);
           response.once('close',()=>{clearTimeout(timer);timers.delete(timer);});
         } else image(response,png);
+      } else if (assets.has(url.pathname)) {
+        servePanelAsset(response,assets.get(url.pathname));
       } else if (url.pathname==='/') {
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
           'Cache-Control':'no-store','X-Sentinel-Panel-Status':'CURRENT'});

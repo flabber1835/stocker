@@ -1,15 +1,18 @@
 const {test,expect}=require('@playwright/test');
 const fs=require('node:fs');
+const {panelAssets}=require('./panel-assets.cjs');
 
 test.use({serviceWorkers:'block'});
-test('refresh preserves the live document, scroll, focus and details while border follows evidence',async({page})=>{
+test('refresh preserves the live document, scroll, focus and details while border follows evidence',async({page,request})=>{
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
+  const assets=await panelAssets(request,fixture.green,fixture.red);
   let html=fixture.green,release=null,held=false,requests=0;
   let serverNow=fixture.now;
   await page.clock.install({time:new Date(fixture.now)});
   await page.route('**/*',async route=>{
-    if(new URL(route.request().url()).pathname.startsWith('/static/'))return route.fulfill({status:200,contentType:'image/png',body:Buffer.from(fixture.png,'base64')});
-    if(new URL(route.request().url()).pathname!=='/')return route.fulfill({status:404,body:''});
+    const path=new URL(route.request().url()).pathname;
+    if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
+    if(path!=='/')return route.fulfill({status:404,body:''});
     requests++;
     if(held)await new Promise(resolve=>{release=resolve;});
     await route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT'},body:html.replace(/data-generated-at="[^"]+"/,'data-generated-at="'+serverNow+'"')});

@@ -3,12 +3,10 @@
 Run through stdin in the same runtime image that serves the browser fixture.
 No database, credentials, filesystem state or broker observations are consumed.
 """
-import base64
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
-from pathlib import Path
 
 from sentinel.panel import model
 from sentinel.panel.render import render
@@ -40,5 +38,4 @@ negative = replace(page, rows=[*rows, model.Row('broker', 'Browser negative fixt
     'UNAVAILABLE', model.FAIL, as_of=now, required_current=True)])
 assert dashboard_health(page)['color'] == 'green' and dashboard_health(negative)['color'] == 'red'
 print(json.dumps(dict(now=now.isoformat(),
-    png=base64.b64encode(Path('sentinel/panel/static/caesars-palace-512.png').read_bytes()).decode(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5))))
