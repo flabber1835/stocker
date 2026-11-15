@@ -17,7 +17,7 @@ def qualified_predecessor(module, raw):
     profile = basis._profile()
     if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
             profile['after'], profile['entitlements_after'], profile['settlement_after'],
-            profile['recovery_after']):
+            profile['recovery_after'], profile['replay_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
@@ -31,7 +31,7 @@ def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
     before, after = ast.parse(prior), ast.parse(current)
     assert len(before.body) == len(after.body)
     allowed = {'ReconciliationResult', '_order_command_conflict', '_order_observation_fingerprint',
-               'expected_book_from_commands', 'reconcile'}
+               '_position_identity_conflicts', 'expected_book_from_commands', 'reconcile'}
     changed = set()
     for left, right in zip(before.body, after.body):
         if ast.dump(left) != ast.dump(right):
@@ -135,6 +135,10 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert runtime_basis.predecessor_view(edited, previous=local_patch) is edited
     settlement = profile["retained_predecessors"][runtime_basis.FRACTIONAL_SETTLEMENT_PREDECESSOR]["files"]
     assert settlement["execution/reconcile.py"] == basis._profile()["settlement_after"]
-    assert actual["execution/reconcile.py"] == basis._profile()["recovery_after"]
     assert runtime_basis.predecessor_view(actual, previous=settlement) == settlement
     assert runtime_basis.predecessor_view(edited, previous=settlement) is edited
+    recovery = profile["retained_predecessors"][runtime_basis.FRACTIONAL_RECOVERY_PREDECESSOR]["files"]
+    assert recovery["execution/reconcile.py"] == basis._profile()["recovery_after"]
+    assert actual["execution/reconcile.py"] == basis._profile()["replay_after"]
+    assert runtime_basis.predecessor_view(actual, previous=recovery) == recovery
+    assert runtime_basis.predecessor_view(edited, previous=recovery) is edited

@@ -106,3 +106,26 @@ def entitlement_matches_observation(entitlement, held, prior, increment):
     lot = Fraction(increment)
     floor = (entitlement // lot) * lot
     return Fraction(held) in {floor, floor + lot}
+
+
+def matches_intermediate_split_units(actions, commands, security_id, observed) -> bool:
+    """Recognize only an exact position produced by a dated scalar prefix."""
+    from sentinel.execution.reconcile import CorpusActionLookup, expected_book_from_commands
+
+    reader = getattr(actions, "scalar_evidence_for", None)
+    start = getattr(actions, "start", None)
+    if observed <= 0 or start is None or not callable(reader):
+        return False
+    evidence = tuple(event for event in reader((security_id,)) if event.session > start)
+    sessions = sorted({event.session for event in evidence})
+    if len(sessions) < 2:
+        return False
+    ratios = getattr(actions, "events", {}).get(security_id, ())
+    owned = tuple(command for command in commands if command.security_id == security_id)
+    for through in sessions[:-1]:
+        prefix = CorpusActionLookup(start=start,
+            events={security_id: tuple(item for item in ratios if item[0] <= through)},
+            scalar_events=tuple(event for event in evidence if event.session <= through))
+        if expected_book_from_commands(owned, actions=prefix).get(security_id, 0) == observed:
+            return True
+    return False

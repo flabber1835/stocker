@@ -292,7 +292,8 @@ async def recover_automated_paper_cycle(
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=commands, actions=actions, conn=conn)
-            if active_security_ids and (not dual_mode or plan.opening_intents):
+            if active_security_ids and (not dual_mode or plan.opening_intents
+                    or opening_sizing.fractional_plan_authority(conn, plan=plan) is not None):
                 official_open = _official_preopen_cutoff(plan)
                 authority, actions, target_actions = _preopen_views_or_none(
                     conn, plan=plan,
@@ -325,7 +326,8 @@ async def recover_automated_paper_cycle(
                         "target projection without canonical strategy state")
                 try:
                     unsized = opening_sizing.requires_initial_projection(
-                        conn, plan=plan, deployment=binding.identity)
+                        conn, plan=plan, deployment=binding.identity,
+                        active_security_ids=active_security_ids)
                 except target_reprojection.TargetProjectionRefused as exc:
                     raise PaperActivationRefused(str(exc)) from exc
                 if not unsized:

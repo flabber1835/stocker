@@ -23,6 +23,7 @@ from sentinel.execution.broker_cash import (
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities,
     BrokerCloseValuation, BrokerExactOrderLookup, BrokerFill, BrokerInstrument,
+    BrokerInstrumentUnavailable,
     BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, OrderTerms, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused
@@ -830,18 +831,21 @@ class AlpacaExecutionBroker(ExecutionBroker):
         if not returned_symbol or not asset_id:
             raise MalformedBrokerPayload(
                 f"asset lookup for {symbol!r} omitted symbol or stable asset id")
-        if str(payload.get("status") or "").lower() != "active":
-            raise MalformedBrokerPayload(
-                f"asset {returned_symbol!r} is not active")
-        if payload.get("tradable") is not True:
-            raise MalformedBrokerPayload(
-                f"asset {returned_symbol!r} is not tradable")
         instrument = self._instrument(returned_symbol, asset_id)
         if instrument.security_id != str(security_id):
             raise MalformedBrokerPayload(
                 f"asset {returned_symbol!r}/{asset_id} resolves to permanent "
                 f"security {instrument.security_id!r}, not requested "
                 f"{security_id!r}")
+        status = str(payload.get("status") or "").lower()
+        tradable = payload.get("tradable")
+        if status != "active" or tradable is not True:
+            issue = "not active" if status != "active" else "not tradable"
+            detail = f"asset {returned_symbol!r} is {issue}"
+            if (self.broker_namespace == "alpaca" and status in {"active", "inactive"}
+                    and type(tradable) is bool):
+                raise BrokerInstrumentUnavailable(instrument, detail)
+            raise MalformedBrokerPayload(detail)
         return instrument
 
     async def market_clock(self) -> AlpacaMarketClock:
@@ -1209,6 +1213,11 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 "sentinel: order %s reports %r; Sentinel never replaces "
                 "orders, so external replacement remains blocking",
                 payload.get("id"), raw_status)
+        filled_quantity = _required_dec(
+            payload.get("filled_qty"), where=f"order {payload.get('id')} filled_qty")
+        state = map_status(raw_status)
+        if state is S.ACKNOWLEDGED and filled_quantity > 0:
+            state = S.PARTIALLY_FILLED
         return BrokerOrder(
             broker_order_id=str(payload.get("id") or ""),
             client_key=payload.get("client_order_id") or None,
@@ -1217,14 +1226,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 as_of=str(payload.get("submitted_at") or "")[:10] or None),
             side=_side(
                 payload.get("side"), where=f"order {payload.get('id')} side"),
-            state=map_status(raw_status),
+            state=state,
             quantity=(_required_dec(payload.get("qty"), where=f"order {payload.get('id')} qty")
                       if payload.get("qty") is not None or payload.get("notional") is None else None),
             notional=(_required_dec(payload.get("notional"), where=f"order {payload.get('id')} notional")
                       if payload.get("notional") is not None else None),
-            filled_quantity=_required_dec(
-                payload.get("filled_qty"),
-                where=f"order {payload.get('id')} filled_qty"),
+            filled_quantity=filled_quantity,
             filled_average_price=(
                 _required_dec(
                     payload.get("filled_avg_price"),

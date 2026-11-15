@@ -419,6 +419,68 @@ Qualify the exact successor against the installed source with composed
 endpoint lag, restart, affordability, corporate identity and accounting
 falsifiers before the backed PAPER handoff.
 
+## Recovery across transport, share units, and provider identity
+
+An order remains uncertain after any indeterminate transport attempt. A refusal
+before a later retry proves only that retry did not reach transport. Record the
+first uncertain outcome and let exact, account-bound recovery decide it.
+Positive exact and open order evidence can identify a pending notional command
+whose own native order ID has yet to be recorded. Recognize a matching,
+position-leading observation under the same nonrenewable grace clock. Do not
+derive ownership or authorize transport until order and fill evidence agree.
+Use the native fill identity when validating the union of new and durable
+executions. Equal price, quantity and time can belong to distinct fills.
+Advance verified fills while cancellation is pending, preserving the
+cancellation fence until a terminal broker state. A still-working native
+status with a positive cumulative counter retains the corresponding partial
+progress rather than returning the command to zero-fill acknowledgement.
+
+Share-only fractional execution needs the same verified next-open actions and
+effective-session target projection as an opening purchase. Re-enter the
+original execution window for a provably unsent plan with no projection,
+including a pure reduction. A missing projection after transport refuses.
+Reserve raw convergence compatibility for historical plans that were governed by
+that contract. A current plan can certify convergence only in its verified
+share units, including when no dollar obligation exists.
+
+Resolve instrument identity separately from current trading availability. A
+positively identified inactive, unavailable or nontradable BUY is an explicit
+security-level deferral. Preserve its obligation and let independently authorized
+orders reach the executor, including reductions. Account, source, authority or
+contradictory native identity failures still refuse. For a reduction, use the
+current position's native instrument ahead of terminal order history. Preserve
+the final fresh eligibility, issuer, cash and clock checks.
+
+Treat historical order symbols as aliases only after permanent security and
+native asset IDs agree with current authenticated reference evidence. Require
+the current issuer relationship and any standing issuer reservation to agree.
+Check conflicting historical native asset IDs when the security has a current
+position, open obligation or nonzero attributed balance. A closed position's
+journal is retained even if the security is no longer selected. For supported
+sequential scalar events, recognize the exact book after any applicable prefix
+of the actions as an intermediate posting restriction. Preserve the final
+entitlement and continue refusing unexplained differences. A reconciliation is
+clean only when it has a complete RUNNING account result and no restrictions,
+foreign activity or unresolved work.
+
+For a supported, directional merger action, reset the acquired security's
+economic history. Preserve the existing acquirer's price history when the
+provider identifies it as the receiving instrument and independent current
+asset identity corroborates continuity. Ambiguous parties and changed or
+unresolved native identities keep the conservative quarantine. Correct the
+prospective input publication path without rewriting retained generations or
+changing Wealth Core or controller rules.
+
+Store new posted fill cash inside the existing PAPER cash-activity namespace.
+Resolve the historical fill-cash namespace as an immutable compatibility read,
+exclude its rows from SHADOW proof inputs, and preserve the installed
+operational SQL contract. Keep one record per fill, including on replay.
+Backed handoff fingerprints both encodings. Semantic restore validates every
+retained posted amount against its exact fill, owned command, order, side and
+price. Missing optional cash fields remain governed by the existing runtime
+coverage rules. An orphan, duplicate, or contradictory sidecar fails restore
+qualification. The validation is read-only.
+
 ## Qualification, presentation and transition
 
 The backed release includes the already deployed November 13 close, opening

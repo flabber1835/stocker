@@ -24,7 +24,22 @@ FINAL_MODE = "V5_OPEN_WHOLE_SHARES"
 ZERO_MODE = "ZERO_EXPOSURE"
 
 
-def requires_initial_projection(conn, *, plan, deployment):
+def fractional_plan_authority(conn, *, plan):
+    """Identify an active fractional plan from its own immutable authority."""
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+    policy = MarketBuyPolicy.from_env()
+    if policy is None or not policy.fractional:
+        return None
+    from sentinel import dual_plan_authority
+    authority = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
+    if authority is None or authority.get("market_buy_policy_sha256") != policy.fingerprint():
+        return None
+    if authority["plan_fingerprint"] != plan.fingerprint():
+        raise TargetProjectionRefused("stored fractional authority names a different plan")
+    return authority
+
+
+def requires_initial_projection(conn, *, plan, deployment, active_security_ids=()):
     """True when safe execution still needs a share or dollar projection.
 
     A durable sizing projection alone does not prove execution started.  This
@@ -36,41 +51,35 @@ def requires_initial_projection(conn, *, plan, deployment):
     from sentinel.execution.states import CommandState
 
     sizes_core_openings = bool(plan.opening_intents) and plan.target_exposure > 0
-    carries_purchases = False
-    if not sizes_core_openings:
-        from sentinel.execution.market_buy_policy import MarketBuyPolicy, MARKET_BUY_HEADROOM
-        policy = MarketBuyPolicy.from_env()
-        if policy is None or not policy.fractional:
-            return False
-        from sentinel import dual_plan_authority
-        authority = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
-        if authority is None:
-            return False
-        if authority["plan_fingerprint"] != plan.fingerprint():
-            raise TargetProjectionRefused("stored purchase authority names a different plan")
-        basis = authority.get("held_share_targets") or {}
-        carries_purchases = any(Decimal(amount) >= Decimal(1) + MARKET_BUY_HEADROOM
-                                for amount in basis.get("purchase_budgets", {}).values())
-        if not carries_purchases:
-            return False
+    fractional_authority = fractional_plan_authority(conn, plan=plan)
+    if not sizes_core_openings and fractional_authority is None:
+        return False
     projection = target_reprojection.load_projection(
         conn, plan_id=plan.plan_id)
     commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
     if projection is None:
-        if any(not carries_purchases or command.state not in {
+        if any(fractional_authority is None or command.state not in {
                 CommandState.PLANNED, CommandState.SUPERSEDED} for command in commands):
             raise TargetProjectionRefused(
                 "opening projection is absent for a plan with durable commands")
-        return True
+        if sizes_core_openings:
+            return True
+        from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
+        basis = fractional_authority["held_share_targets"]
+        return (bool(active_security_ids or any(plan.target_basket.values())
+                     or basis.get("pending_share_targets"))
+                or any(Decimal(amount) >= Decimal(1) + MARKET_BUY_HEADROOM
+                       for amount in basis.get("purchase_budgets", {}).values()))
     if (projection.plan_fingerprint != plan.fingerprint()
             or projection.opening_sizing is None):
         raise TargetProjectionRefused(
             "stored opening projection differs from plan authority")
-    from sentinel.execution import market_buy_sizing
+    from sentinel.execution import fractional_progress, market_buy_sizing
+    if fractional_authority is not None and not fractional_progress.is_fractional(projection):
+        raise TargetProjectionRefused("stored projection differs from fractional plan policy")
     if market_buy_sizing.is_market_projection(projection):
         market_buy_sizing.validate_projection(projection, plan=plan)
-        from sentinel.execution.fractional_progress import is_fractional
-        if is_fractional(projection):
+        if fractional_progress.is_fractional(projection):
             return False  # Fixed dollar allocation needs no opening-price sizing.
         mode = projection.opening_sizing["opening"]["mode"]
     else:

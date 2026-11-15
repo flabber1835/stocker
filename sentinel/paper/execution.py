@@ -558,12 +558,13 @@ async def _execute_current_paper_plan(
                     reconciliation=preflight,
                     detail="reconciled target already held; no command transport")
             else:
+                buy_deferrals: dict[str, str] = {}
                 instruments = await _instrument_map(
                     conn, broker, state, plan, observation,
                     target_basket=(
                         plan.target_basket if target_projection is None
                         else target_projection.target_basket),
-                    restricted_security_ids=restrictions)
+                    restricted_security_ids=restrictions, buy_deferrals=buy_deferrals)
 
                 async def authorize_increases(fresh_observation, fresh_reconciliation=None):
                     nonlocal market_settled
@@ -648,6 +649,7 @@ async def _execute_current_paper_plan(
                         authorize_dual_mutations
                         if dual_mode else None),
                     security_restrictions=restrictions,
+                    buy_deferrals=buy_deferrals,
                     buy_admission=(issuer_admission.check_buy if issuer_admission else None),
                     informational_current_book=dual_mode)
             final_reconciliation = session.reconciliation

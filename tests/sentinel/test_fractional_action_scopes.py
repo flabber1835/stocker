@@ -9,7 +9,7 @@ import pytest
 
 from sentinel import binding, schema
 from sentinel.core.decision import DEFENSIVE_SECURITY_ID
-from sentinel.execution import executor, fractional_sizing, journal, reconcile, target_reprojection
+from sentinel.execution import executor, feed_inputs, fractional_sizing, journal, reconcile, target_reprojection
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, Side
 from sentinel.execution.identity import CommandIdentity
@@ -62,6 +62,65 @@ def test_material_action_needs_owned_identity_and_does_not_explain_quantity(
     else:
         assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
         assert result.foreign_positions == (AAA.security_id,) and not result.transport_ready
+
+
+@pytest.mark.parametrize('observed,state,restricted', [
+    ('1', RuntimeState.RUNNING, True), ('2', RuntimeState.RUNNING, True),
+    ('6', RuntimeState.RUNNING, False), ('7', RuntimeState.FOREIGN_ACTIVITY, False),
+])
+def test_two_authenticated_splits_recognize_only_exact_intermediate_units(conn, observed, state, restricted):
+    first, second = (NOW.date() + timedelta(days=offset) for offset in (1, 2))
+    events = (split_event(AAA.security_id, AAA.symbol, first, 2, 1),
+              split_event(AAA.security_id, AAA.symbol, second, 3, 1))
+    actions = reconcile.CorpusActionLookup(NOW.date(),
+        {AAA.security_id: tuple((event.session, event.canonical_multiplier) for event in events)},
+        scalar_events=events)
+    purchase = dollars(filled='1', state=S.FILLED)
+    journal.save_command(conn, purchase)
+    conn.execute('UPDATE sentinel_commands SET created_at=%s WHERE client_key=%s', (NOW, purchase.client_key))
+    conn.commit()
+    broker = DollarBroker()
+    broker.now = calendar.session_window(second)[0] + timedelta(minutes=1)
+    broker.seed_position(AAA, observed)
+    result = asyncio.run(reconcile.reconcile(broker=broker, conn=conn, binding=None,
+        deployment=DEPLOY, actions=actions))
+    assert result.expected == {AAA.security_id: D(6)}
+    assert result.runtime_state is state
+    assert bool(result.restricted_securities) is restricted
+    assert result.clean == (observed == '6')
+
+
+def test_closed_native_id_lineage_outlives_current_publication_selection(conn):
+    old = dollars(filled='1', state=S.FILLED)
+    current = replace(old.instrument, broker_id='replacement-provider-id')
+    buy = replace(old, filled_average_price=D(100))
+    sell = Command(replace(old.identity, plan_id='sale-after-cusip-change'), current,
+        Side.SELL, D(1), state=S.FILLED, broker_order_id='new-native-order',
+        filled_quantity=D(1), filled_average_price=D(100))
+    broker = DollarBroker()
+    journal.save_command(conn, buy)
+    broker.seed_position(current, '1')
+
+    def observe(ids):
+        broker._resolve = feed_inputs.BrokerSecurityResolver('ALPACA_OPENFIGI', lambda *_: None, ids)
+        return asyncio.run(reconcile.reconcile(broker=broker, conn=conn, binding=None,
+            deployment=DEPLOY, informational_current_book=True))
+
+    partial_sale = replace(sell, quantity=D('0.5'), filled_quantity=D('0.5'))
+    journal.save_command(conn, partial_sale)
+    broker.seed_position(current, '0.5')
+    unresolved_identity = observe({})
+    assert unresolved_identity.runtime_state is RuntimeState.RECONCILING
+    assert not unresolved_identity.clean and not unresolved_identity.transport_ready
+    assert observe({AAA.security_id: current.broker_id}).clean
+
+    remainder = replace(partial_sale, identity=replace(partial_sale.identity, revision=1),
+                        broker_order_id='new-native-order-2')
+    journal.save_command(conn, remainder)
+    broker._positions.pop(current.security_id)
+    flat = observe({})
+    assert flat.clean and flat.transport_ready
+    assert not flat.expected and not flat.observation.positions
 
 
 @pytest.mark.parametrize("exit_position,fail_cash", [(False, False), (True, False), (False, True)])

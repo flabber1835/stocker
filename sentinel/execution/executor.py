@@ -86,7 +86,7 @@ class StalePlanRefused(RuntimeError):
     """The plan handed in is not the current authoritative intent."""
 
 
-class _ProvenUnsentCashShortfall(RuntimeError):
+class _ProvenUnsentPurchaseDeferral(RuntimeError):
     """The writer restored the exact order after consuming no-transport proof."""
 
 
@@ -264,6 +264,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           mutation_authority=None,
                           buy_admission=None,
                           security_restrictions: Optional[Mapping[str, str]] = None,
+                          buy_deferrals: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
@@ -383,6 +384,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             mutation_authority=mutation_authority,
             buy_admission=buy_admission,
             security_restrictions=security_restrictions,
+            buy_deferrals=buy_deferrals,
             informational_current_book=informational_current_book)
 
 
@@ -400,6 +402,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   mutation_authority=None,
                                   buy_admission=None,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
+                                  buy_deferrals: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
                                   ) -> SessionResult:
     from sentinel.execution import market_buy_sizing
@@ -475,6 +478,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     deferred: list = []
     deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
+    buy_deferrals = buy_deferrals or {}
     from sentinel.execution import protected_limits
     if target_projection is not None:
         unavailable = protected_limits.unavailable_opening_intents(target_projection)
@@ -540,6 +544,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         observed_account = unread
         restrictions.update(rec.restricted_securities)
         for delta in candidates:
+            if delta.is_increase and delta.security_id in buy_deferrals:
+                if delta.security_id not in deferred:
+                    deferred.append(delta.security_id)
+                deferral_reasons[delta.security_id] = buy_deferrals[delta.security_id]
+                continue
             if delta.security_id in restrictions:
                 if delta.security_id not in deferred:
                     deferred.append(delta.security_id)
@@ -620,8 +629,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             try:
                 sent = await _persist_and_send(
                     conn, broker, command, already_planned=already_planned,
-                    report_cash_shortfall=fractional and delta.is_increase)
-            except _ProvenUnsentCashShortfall as exc:
+                    report_scoped_buy_deferral=fractional and delta.is_increase)
+            except _ProvenUnsentPurchaseDeferral as exc:
                 deferred.append(delta.security_id)
                 deferral_reasons[delta.security_id] = str(exc)
                 continue
@@ -986,7 +995,7 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
 
 async def _persist_and_send(conn, broker, command: C.Command, *,
                             already_planned: bool = False,
-                            report_cash_shortfall: bool = False) -> C.Command:
+                            report_scoped_buy_deferral: bool = False) -> C.Command:
     """The three writes, in the order that makes a crash survivable.
 
     ```text
@@ -1012,13 +1021,14 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     except Exception as exc:
         from sentinel.execution.guarded import (
             GuardedExecutionBroker, InsufficientPurchaseCash,
-            OrderEvidenceNotReady, PreTransportAuthorityRefused)
+            OrderEvidenceNotReady, PreTransportAuthorityRefused, PurchaseInstrumentUnavailable)
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
             journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
-            if report_cash_shortfall and isinstance(exc, InsufficientPurchaseCash):
-                raise _ProvenUnsentCashShortfall(str(exc)) from exc
+            if report_scoped_buy_deferral and isinstance(
+                    exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable)):
+                raise _ProvenUnsentPurchaseDeferral(str(exc)) from exc
             if isinstance(exc, OrderEvidenceNotReady):
                 from dataclasses import replace
                 return replace(command, detail=str(exc))

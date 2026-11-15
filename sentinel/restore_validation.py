@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from urllib.parse import quote
 
@@ -104,6 +105,37 @@ def _rolling_closure(conn):
     return result
 
 
+def _verify_posted_fill_cash(conn) -> None:
+    from sentinel.execution.contract import Side
+    from sentinel.execution.fill_integrity import _posted_cash
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.cursor_name,s.state,f.fill_key,f.client_key,f.broker_order_id,"
+            " f.quantity,f.price,c.side FROM sentinel_processed_sessions s"
+            " LEFT JOIN sentinel_fills f ON f.broker_order_id=s.state->>'order_id'"
+            " AND f.fill_key=right(s.cursor_name,64)"
+            " LEFT JOIN sentinel_commands c ON c.client_key=f.client_key"
+            " AND c.broker_order_id=f.broker_order_id"
+            " WHERE s.cursor_name LIKE ANY(%s) ORDER BY s.cursor_name",
+            ([prefix + "%" for prefix in journal.FILL_CASH_PREFIXES],))
+        seen = set()
+        for name, state, key, client_key, order_id, quantity, price, side in cur.fetchall():
+            if (key is None or re.fullmatch(r"[0-9a-f]{64}", key) is None
+                    or name not in {prefix + key for prefix in journal.FILL_CASH_PREFIXES}
+                    or key in seen or side is None or not client_key
+                    or not quantity.is_finite() or quantity <= 0
+                    or not price.is_finite() or price <= 0):
+                raise RestoreValidationRefused(
+                    "posted fill cash has an orphan, duplicate, or invalid native fill binding")
+            try:
+                _posted_cash(state, order_id=order_id, client_key=client_key,
+                             side=Side(side), qty=quantity, price=price)
+            except ValueError as exc:
+                raise RestoreValidationRefused(f"posted fill cash is invalid: {exc}") from exc
+            seen.add(key)
+
+
 def validate_restored_database(conn) -> dict:
     """Validate schemas and durable economic chains without writing a row."""
     _force_session_read_only(conn)
@@ -131,6 +163,7 @@ def validate_restored_database(conn) -> dict:
     if len(commands) != command_count:
         raise RestoreValidationRefused(
             "not every restored command could be reconstructed")
+    _verify_posted_fill_cash(conn)
 
     terminal_checkpoint = None
     cash_activity = None

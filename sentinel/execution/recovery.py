@@ -154,8 +154,9 @@ async def _retry_rate_limited_submit(
                 broker_order_id=observed.broker_order_id,
                 detail=("exact client-key lookup reported absence while the "
                         "COMPLETE observation contained that key; no retry"))
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; retry proof was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -173,8 +174,9 @@ async def _retry_rate_limited_submit(
         if exact is not None:
             return _receipt_from_positive(
                 command, exact, where="post-backoff exact lookup")
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; retry lookup was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -186,8 +188,10 @@ async def _retry_rate_limited_submit(
             client_key=command.client_key, instrument=command.instrument,
             side=command.side, quantity=command.quantity,
             **_submit_terms(command))
-    except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
-        raise
+    except (BrokerAuthorityRefused, PreTransportAuthorityRefused) as exc:
+        # A no-transport proof issued here can only describe the retry.
+        return command.transition(
+            S.UNKNOWN, detail=f"{outcome.detail}; same-key retry was refused: {exc}")
     except Exception as exc:  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,
@@ -197,6 +201,9 @@ async def _retry_rate_limited_submit(
     # A second 429 remains UNKNOWN.  One bounded retry is enough to distinguish
     # a transient throttle from a persistent broker condition without building
     # an unbounded submit loop inside the financial state machine.
+    if retried.state is S.REJECTED:
+        return command.transition(S.UNKNOWN,
+            detail=f"{outcome.detail}; retry rejection cannot settle the first POST: {retried.detail}")
     return _command_from_submit_outcome(command, retried,
         detail="same-key retry after proven absence: " + retried.detail)
 
@@ -348,9 +355,13 @@ def confirm_cancellation(command: Command,
     if still_there is not None:
         _assert_order_matches_command(
             command, still_there, where="cancellation observation", allow_symbol_change=True)
-        if still_there.state in (S.FILLED, S.PARTIALLY_FILLED):
+        if (still_there.filled_quantity < command.filled_quantity
+                or (still_there.filled_quantity == command.filled_quantity
+                    and still_there.filled_average_price != command.filled_average_price)):
+            raise BrokerAuthorityRefused("cancel observation regressed or changed existing fill economics")
+        if still_there.state is S.FILLED:
             return command.transition(
-                still_there.state,
+                S.FILLED,
                 filled_quantity=still_there.filled_quantity,
                 filled_average_price=still_there.filled_average_price,
                 detail="cancel lost the race to a fill")
@@ -360,6 +371,11 @@ def confirm_cancellation(command: Command,
                 filled_quantity=still_there.filled_quantity,
                 filled_average_price=still_there.filled_average_price,
                 detail="observed CANCELLED at the broker")
+        if still_there.is_working and still_there.filled_quantity > command.filled_quantity:
+            return command.transition(S.CANCEL_PENDING,
+                filled_quantity=still_there.filled_quantity,
+                filled_average_price=still_there.filled_average_price,
+                detail="broker filled shares while cancellation remains pending")
         return command
 
     observation.require_complete(

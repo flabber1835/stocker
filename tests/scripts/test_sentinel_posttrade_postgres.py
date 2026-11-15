@@ -90,13 +90,15 @@ def test_removing_mvcc_fields_has_a_real_postgres_falsifier(conn):
         assert_checkpoint_update_detected(conn,query)
 
 
-@pytest.mark.parametrize('prefix', [checks.FILL_CASH_PREFIX, checks.NOTIONAL_POSITION_LEAD_PREFIX])
+@pytest.mark.parametrize('prefix', [checks.FILL_CASH_PREFIX, checks.LEGACY_FILL_CASH_PREFIX,
+                                   checks.NOTIONAL_POSITION_LEAD_PREFIX])
 def test_recovery_handoff_witness_detects_content_change_and_loss(conn, prefix):
     from sentinel.execution.fill_integrity import NOTIONAL_POSITION_LEAD_PREFIX
-    from sentinel.execution.journal import FILL_CASH_PREFIX
+    from sentinel.execution.journal import FILL_CASH_PREFIX, LEGACY_FILL_CASH_PREFIX
     from sentinel.retained_input_namespaces import PAPER_CURSOR_PREFIXES
 
     assert checks.FILL_CASH_PREFIX == FILL_CASH_PREFIX
+    assert checks.LEGACY_FILL_CASH_PREFIX == LEGACY_FILL_CASH_PREFIX
     assert checks.NOTIONAL_POSITION_LEAD_PREFIX == NOTIONAL_POSITION_LEAD_PREFIX
     assert any(NOTIONAL_POSITION_LEAD_PREFIX.startswith(parent) for parent in PAPER_CURSOR_PREFIXES)
     query = re.search(r"'execution_recovery_evidence',\((SELECT.*?)\),\s*'book_cursors_md5'",

@@ -92,8 +92,8 @@ _TRANSITIONS: Mapping[CommandState, frozenset] = {
 
     # A cancel request races the fill it is trying to prevent, and the fill can
     # win. Both outcomes are legal from here.
-    S.CANCEL_PENDING: frozenset({S.CANCELLED, S.FILLED, S.PARTIALLY_FILLED,
-                                 S.UNKNOWN}),
+    S.CANCEL_PENDING: frozenset({S.CANCEL_PENDING, S.CANCELLED, S.FILLED,
+                                 S.PARTIALLY_FILLED, S.UNKNOWN}),
 
     S.FILLED: frozenset(),
     S.CANCELLED: frozenset(),

@@ -80,6 +80,10 @@ class InsufficientPurchaseCash(OrderEvidenceNotReady):
     """A fresh native balance cannot fund this exact market purchase."""
 
 
+class PurchaseInstrumentUnavailable(OrderEvidenceNotReady):
+    """A fresh lookup confirms this exact purchase cannot presently trade."""
+
+
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
@@ -465,11 +469,19 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def resolve_instrument(
             self, *, security_id: str, symbol: str) -> BrokerInstrument:
-        async def read():
-            return await self._inner.resolve_instrument(
-                security_id=security_id, symbol=symbol)
+        from sentinel.execution.contract import BrokerInstrumentUnavailable
 
-        return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+        async def read():
+            try:
+                return await self._inner.resolve_instrument(
+                    security_id=security_id, symbol=symbol)
+            except BrokerInstrumentUnavailable as exc:
+                return exc
+
+        result = await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+        if isinstance(result, BrokerInstrumentUnavailable):
+            raise result
+        return result
 
     async def market_clock(self):
         if not self.supports_market_clock:
@@ -623,6 +635,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                               instrument: BrokerInstrument, side: Side,
                               quantity: Decimal | None, order_terms: OrderTerms,
                               notional: Decimal | None = None):
+        from sentinel.execution.contract import BrokerInstrumentUnavailable
+
         live_permit = None
         try:
             if not isinstance(order_terms, OrderTerms):
@@ -704,6 +718,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                 current = await self.resolve_instrument(
                     security_id=instrument.security_id,
                     symbol=instrument.symbol)
+            except BrokerInstrumentUnavailable as exc:
+                if fractional and side is Side.BUY and exc.instrument == instrument:
+                    raise PurchaseInstrumentUnavailable(
+                        f"BUY_INSTRUMENT_UNAVAILABLE: {exc}") from exc
+                raise PreTransportAuthorityRefused(
+                    f"instrument availability/identity refused before submit: {exc}") from exc
             except BrokerAuthorityRefused as exc:
                 raise PreTransportAuthorityRefused(
                     f"instrument identity unavailable before submit: {exc}") from exc

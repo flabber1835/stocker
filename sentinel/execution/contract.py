@@ -492,6 +492,14 @@ class BrokerInstrument:
     broker_id: Optional[str] = None
 
 
+class BrokerInstrumentUnavailable(RuntimeError):
+    """The broker resolves the instrument but reports it cannot trade."""
+
+    def __init__(self, instrument: BrokerInstrument, detail: str):
+        super().__init__(detail)
+        self.instrument = instrument
+
+
 @dataclass(frozen=True)
 class BrokerAssetRules:
     """Current trading eligibility, separate from permanent asset identity."""

@@ -13,10 +13,11 @@ from typing import Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from sentinel.execution import journal
+from sentinel.execution.commands import Command
 from sentinel.execution.contract import Side
 from sentinel.execution.identity import DeploymentIdentity
 from sentinel.execution.protected_funding import ISSUER_POLICY_PREFIX
-from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
+from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState, is_terminal
 from sentinel.feed.issuer_reference import IssuerReferenceSnapshot
 from sentinel.feed.rolling_contract import Digest, digest
 
@@ -581,17 +582,24 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
     incumbents.update(order.instrument.security_id for order in possible_orders)
     approved = bool(own) and all(key in claims for key in keys)
     changed_native = set()
+    confirmed_positions = set()
     for position in observation.positions:
         descriptor = value.instruments.get(position.instrument.security_id)
-        if position.quantity > 0 and (descriptor is None
+        if position.quantity <= 0:
+            continue
+        if (descriptor is None
                 or descriptor.provider_asset_id != position.instrument.broker_id
                 or descriptor.symbol != position.instrument.symbol):
             changed_native.add(position.instrument.security_id)
+        else:
+            confirmed_positions.add(position.instrument.security_id)
     for item in (*possible_commands, *possible_orders):
         native = item.instrument
         descriptor = value.instruments.get(native.security_id)
+        historical_alias = (isinstance(item, Command) and is_terminal(item.state)
+                            and native.security_id in confirmed_positions)
         if (descriptor is None or descriptor.provider_asset_id != native.broker_id
-                or descriptor.symbol != native.symbol):
+                or (descriptor.symbol != native.symbol and not historical_alias)):
             changed_native.add(native.security_id)
     for sid in sorted(incumbents - {DEFENSIVE_SECURITY_ID}):
         current_issuer = None if sid in changed_native else _resolve(source, value.instruments, sid, now)

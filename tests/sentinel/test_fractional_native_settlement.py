@@ -1,7 +1,7 @@
 """Two ordinary PAPER orders through the selected Alpaca adapter and cash guard."""
 import asyncio
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal as D, ROUND_DOWN
 from types import SimpleNamespace
 from uuid import UUID
@@ -15,9 +15,11 @@ from sentinel.execution import (
 from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, Side
-from sentinel.execution.guarded import ExecutionBrokerGuard, GuardedExecutionBroker, ManualExecutionGrant
+from sentinel.execution.guarded import (
+    ExecutionBrokerGuard, GuardedExecutionBroker, ManualExecutionGrant, OrderEvidenceNotReady)
 from sentinel.execution.identity import CommandIdentity
-from sentinel.execution.market_buy_policy import MarketBuyPolicy
+from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
+from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.simulator import SimulatedBroker
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import calendar
@@ -92,6 +94,20 @@ class FractionalVenue(NativeWorkflowAlpaca):
         self.events.extend(self.unpublished)
         self.unpublished.clear()
 
+    def publish_partial(self, order, *parts):
+        fill = self.unpublished.pop()
+        price = D(fill["price"])
+        quantity = sum(parts, D(0))
+        order.update(status="partially_filled", filled_qty=str(quantity), filled_at=None)
+        self.cash += D(order["notional"]) - price * quantity
+        self.positions[order["asset_id"]] = quantity
+        for index, part in enumerate(parts, 1):
+            # Distinct native nanosecond clocks can serialize to the same Python/Postgres clock.
+            raw_time = fill["executed_at"].replace("+00:00", f".00000000{index}Z")
+            self.events.append(dict(fill, event_id=f"01J5R00000000000000000{index:03d}",
+                ref_id=str(UUID(int=100+index)), qty=str(part), net_amount=str(-part*price),
+                executed_at=raw_time))
+
 
 @pytest.fixture
 def fractional_recovery_case(database, monkeypatch, fractional_environment):
@@ -100,19 +116,16 @@ def fractional_recovery_case(database, monkeypatch, fractional_environment):
                          broker_account_id="PA-fractional-fixture")
     database.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z'")
     database.commit()
-    state, raw = case(entries=1)
-    plan = replace(raw, **bound.identity.to_dict(), account_nav=D(20000), account_cash=D(20000))
-    plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
-    initial = base(state, plan)
-    projection = fractional_sizing.resolve(state, plan, initial, references(plan, initial),
-        MarketBuyPolicy(True), baseline={"through_event_seq": 0, "commands": [], "holdings": {}},
-        retained_targets={})
+    sid = "SEC-AAA"
+    plan = ExecutionPlan("native-fill-recovery", date(2026, 8, 11), date(2026, 8, 12), D(1),
+        {sid: D(0)}, **bound.identity.to_dict(), account_nav=D(20000), account_cash=D(20000))
+    projection = target_reprojection.TargetProjection(plan.plan_id, plan.fingerprint(),
+        plan.effective_session, {}, (), {}, plan.target_basket, opening_sizing={"mode": FRACTIONAL_MODE})
     journal.save_plan(database, plan)
     target_reprojection.record_projection(database, projection)
     window = calendar.session_window(plan.effective_session)
     clock = BusinessClock(window[0] + timedelta(seconds=61))
     clock.install(monkeypatch)
-    sid, = projection.opening_sizing["purchases"]
     instrument = BrokerInstrument(sid, sid.removeprefix("SEC-"), "asset-" + sid)
     assets = {instrument.symbol: {"id": instrument.broker_id, "symbol": instrument.symbol,
                                  "price": D("30.07")}}
@@ -133,8 +146,8 @@ def fractional_recovery_case(database, monkeypatch, fractional_environment):
     command = Command(CommandIdentity(bound.identity, plan.plan_id, sid), instrument, Side.BUY,
         None, notional=D("999"), state=CommandState.ACKNOWLEDGED, broker_order_id=str(UUID(int=1)))
 
-    def buy():
-        journal.save_command(database, command)
+    def buy(durable=command):
+        journal.save_command(database, durable)
         return venue.post("https://paper-api.alpaca.markets/v2/orders", dict(type="market",
             time_in_force="day", side="buy", symbol=instrument.broker_id, notional="999",
             client_order_id=command.client_key, order_class="simple", extended_hours=False)).payload
@@ -144,14 +157,18 @@ def fractional_recovery_case(database, monkeypatch, fractional_environment):
 
 
 @pytest.mark.parametrize("expires", [True, False])
-def test_notional_position_lead_only_waits_for_agreeing_native_fills(database, fractional_recovery_case, expires):
+@pytest.mark.parametrize("state", [CommandState.ACKNOWLEDGED, CommandState.SEND_PENDING, CommandState.UNKNOWN])
+def test_notional_position_lead_only_waits_for_agreeing_native_fills(
+        database, fractional_recovery_case, expires, state):
     f = fractional_recovery_case
     order_id = f.command.broker_order_id
     asset_id = f.command.instrument.broker_id
 
     async def run():
         with journal.writer_lock(database, recovery_only=True):
-            filled = f.buy()
+            durable = f.command if state is CommandState.ACKNOWLEDGED else replace(
+                f.command, state=state, broker_order_id=None)
+            filled = f.buy(durable)
             f.venue.orders[order_id] = dict(filled, status="new", filled_qty="0",
                                           filled_avg_price=None, filled_at=None)
             f.venue.publish()
@@ -176,6 +193,108 @@ def test_notional_position_lead_only_waits_for_agreeing_native_fills(database, f
             reconciled = await f.poll()
             assert reconciled.transport_ready and reconciled.expected == reconciled.observed
             assert database.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 1
+    asyncio.run(run())
+
+
+def test_durable_replay_preserves_identical_economics_under_distinct_native_ids(database, fractional_recovery_case):
+    f = fractional_recovery_case
+
+    async def run():
+        with journal.writer_lock(database, recovery_only=True):
+            order = f.buy()
+            f.venue.publish_partial(order, D(4), D(4))
+            first = await f.poll()
+            assert first.transport_ready
+            fills = first.observation.fills
+            assert len(fills) == 2 and fills[0].activity_id != fills[1].activity_id
+            assert fills[0].filled_at == fills[1].filled_at
+            reads = f.venue.requests["GET /v2beta1/events/activities"]
+
+            f.clock.instant += timedelta(seconds=1)
+            replay = await f.poll()
+            assert replay.transport_ready
+            assert f.venue.requests["GET /v2beta1/events/activities"] == reads
+            assert database.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 2
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("raw_status", ["pending_cancel", "partially_filled", "done_for_day", "calculated"])
+def test_notional_fill_advances_without_releasing_a_pending_cancel(database, fractional_recovery_case, raw_status):
+    f = fractional_recovery_case
+
+    async def run():
+        with journal.writer_lock(database, recovery_only=True):
+            order = f.buy(replace(f.command, state=CommandState.CANCEL_PENDING))
+            f.venue.publish_partial(order, D(8))
+            order["status"] = raw_status
+            result = await f.poll()
+            assert result.transport_ready and result.expected == result.observed == {f.command.security_id: D(8)}
+            saved, = journal.in_flight_commands(database, f.bound.identity)
+            assert saved.state is CommandState.CANCEL_PENDING and saved.filled_quantity == D(8)
+            assert database.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 1
+            before = result.observation.by_client_key(saved.client_key)
+            assert before.state is (CommandState.CANCEL_PENDING if raw_status == "pending_cancel"
+                                    else CommandState.PARTIALLY_FILLED)
+
+            get = f.venue.get
+
+            def terminal_get(url, params):
+                if f.venue.path(url) == "/v2/orders" and params.get("status") == "open":
+                    return Response([])
+                return get(url, params)
+
+            order["status"] = "canceled"
+            f.venue.get = terminal_get
+            f.clock.instant += timedelta(seconds=1)
+            terminal = await f.poll()
+            assert terminal.transport_ready and terminal.expected == result.expected
+            settled, = journal.load_commands(database, f.bound.identity)
+            assert settled.state is CommandState.CANCELLED and settled.filled_quantity == D(8)
+            assert not journal.in_flight_commands(database, f.bound.identity)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("retry_blocked_before_transport", [True, False])
+def test_later_refusal_cannot_mark_a_throttled_fractional_sale_unsent(
+        database, fractional_recovery_case, retry_blocked_before_transport):
+    f = fractional_recovery_case
+    posts = []
+    preparations = []
+
+    def post(url, body):
+        assert f.venue.path(url) == "/v2/orders"
+        posts.append(body["client_order_id"])
+        if len(posts) == 1:
+            response = Response(status=429, text="rate limited")
+            response.headers = {"Retry-After": "0"}
+            return response
+        response = Response(status=422, text="sale refused on retry")
+        response.headers = {"X-Request-ID": "native-retry-422"}
+        return response
+
+    async def read(*_args):
+        pass
+
+    async def authorize(*args):
+        preparations.append(args)
+        if len(preparations) == 2 and retry_blocked_before_transport:
+            raise OrderEvidenceNotReady("second sale preparation was refused")
+
+    f.venue.post = post
+    broker = GuardedExecutionBroker(inner=f.broker,
+        grant=ManualExecutionGrant(f.bound.broker_account_id, f.plan.plan_id, f.plan.effective_session, True),
+        guard=ExecutionBrokerGuard(read, read, authorize))
+    sale = replace(f.command, side=Side.SELL, quantity=D("0.5"), notional=None,
+                   state=CommandState.PLANNED, broker_order_id=None)
+
+    async def run():
+        with journal.writer_lock(database, recovery_only=True):
+            result = await executor._persist_and_send(database, broker, sale)
+            assert result.state is CommandState.UNKNOWN and "HTTP 429" in result.detail
+            assert len(preparations) == 2
+            assert posts == [sale.client_key] * (1 if retry_blocked_before_transport else 2)
+            assert [entry["to"] for entry in journal.command_history(database, sale.client_key)] == [
+                "PLANNED", "SEND_PENDING", "UNKNOWN"]
     asyncio.run(run())
 
 

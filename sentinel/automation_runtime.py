@@ -1062,11 +1062,13 @@ class ProductionAutomation:
                 restricted_security_ids=restricted)
 
         from sentinel import informational_paper_mirror
+        from sentinel.execution import opening_sizing
 
         proof = self._require_dual_plan_shadow_match(
             conn, plan, pending_is_retryable=False)
-        if plan.opening_intents or target_reprojection.load_projection(
-                conn, plan_id=plan.plan_id) is not None:
+        if (plan.opening_intents or target_reprojection.load_projection(
+                conn, plan_id=plan.plan_id) is not None
+                or opening_sizing.fractional_plan_authority(conn, plan=plan) is not None):
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
@@ -1609,7 +1611,8 @@ class ProductionAutomation:
                     try:
                         from sentinel.execution import opening_sizing
                         if opening_sizing.requires_initial_projection(
-                                conn, plan=plan, deployment=deployment):
+                                conn, plan=plan, deployment=deployment,
+                                active_security_ids=result.observation.positions_by_security()):
                             closed = _now_utc() >= cycle.execution_close_at
                             return ExecuteResult(
                                 disposition=(ExecuteDisposition.SUPERSEDED if closed

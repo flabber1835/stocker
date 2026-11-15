@@ -9,7 +9,7 @@ from copy import deepcopy
 import pickle
 from typing import Literal
 
-from sentinel.execution.journal import WRITER_LOCK_KEY
+from sentinel.execution.journal import LEGACY_FILL_CASH_PREFIX, WRITER_LOCK_KEY
 from sentinel.feed import readiness_scope
 from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
@@ -54,7 +54,7 @@ def _inventory(conn, slot):
         "WHERE %s OR (cursor_name <> ALL(%s) AND NOT (cursor_name LIKE ANY(%s))) "
         "ORDER BY cursor_name",
         (slot not in _ECONOMIC_INPUT_SLOTS, list(PAPER_CURSOR_NAMES),
-         [prefix + '%' for prefix in PAPER_CURSOR_PREFIXES]),
+         [prefix + '%' for prefix in (*PAPER_CURSOR_PREFIXES, LEGACY_FILL_CASH_PREFIX)]),
     ).fetchall()
     return relation, rows
 

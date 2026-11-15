@@ -460,7 +460,11 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           target_basket: Mapping[str, Decimal] | None = None,
                           restricted_security_ids=(),
                           preparation: bool = False,
+                          buy_deferrals: dict[str, str] | None = None,
                           ) -> dict[str, BrokerInstrument]:
+    from sentinel.execution.contract import BrokerInstrumentUnavailable
+    from sentinel.execution.market_buy_policy import MarketBuyPolicy
+
     desired = plan.target_basket if target_basket is None else target_basket
     target = shadow_target(state)
     symbols = dict(target.tickers)
@@ -469,12 +473,12 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     protected_references = None
     protected_projection = None
     fractional_projection = None
+    market_policy = MarketBuyPolicy.from_env()
     if not preparation:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
         from sentinel.execution import market_buy_sizing, protected_limits
-        from sentinel.execution.market_buy_policy import MarketBuyPolicy
-        if MarketBuyPolicy.from_env() is not None:
+        if market_policy is not None:
             try:
                 market_buy_sizing.validate_projection(projection, require_current_policy=True, plan=plan)
                 if projection.target_basket != desired:
@@ -513,10 +517,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if security_id in meta:
             symbols.setdefault(security_id, meta[security_id].ticker)
     instruments: dict[str, BrokerInstrument] = {}
-    for position in observation.positions:
-        instruments[position.instrument.security_id] = position.instrument
-    for order in observation.orders:
-        instruments[order.instrument.security_id] = order.instrument
+    for item in (*observation.positions, *(order for order in observation.orders if order.is_working)):
+        instrument = item.instrument
+        sid = instrument.security_id
+        previous = instruments.get(sid)
+        if (previous is not None and previous.broker_id and instrument.broker_id
+                and previous.broker_id != instrument.broker_id):
+            raise PaperActivationRefused(
+                f"live positions and working orders disagree on the native asset for {sid}")
+        if previous is None or not previous.broker_id:
+            instruments[sid] = instrument
     # Resolve only securities that can produce an actionable command. The
     # desired basket always names the defensive sleeve, including BIL:0; an
     # irrelevant zero leg must not block a pure Core reduction on a needless
@@ -534,9 +544,10 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         and desired.get(security_id, Decimal(0))
         != effective_current[security_id]
     }
-    if preparation and plan.target_exposure != 0:
-        needed.update(item.security_id for item in plan.opening_intents)
     dollar_increases = set()
+    if preparation and plan.target_exposure != 0:
+        dollar_increases = {item.security_id for item in plan.opening_intents}
+        needed.update(dollar_increases)
     if fractional_projection is not None:
         from sentinel.execution.identity import DeploymentIdentity
         identity = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
@@ -574,11 +585,15 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if not symbol:
             unresolved.append(security_id)
             continue
+        unavailable = None
         try:
             resolved = await broker.resolve_instrument(
                 security_id=security_id, symbol=str(symbol))
         except BrokerAuthorityRefused:
             raise
+        except BrokerInstrumentUnavailable as exc:
+            resolved = exc.instrument
+            unavailable = exc
         except MalformedBrokerEvidence as exc:
             raise PaperActivationRefused(
                 f"invalid broker instrument identity {security_id}/{symbol}: {exc}") from exc
@@ -586,13 +601,15 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             raise PaperRetryableRefused(
                 f"cannot resolve broker instrument {security_id}/{symbol}: "
                 f"{type(exc).__name__}: {exc}") from exc
-        if (resolved.security_id != security_id
+        if (not isinstance(resolved, BrokerInstrument) or resolved.security_id != security_id
                 or not resolved.broker_id or not resolved.symbol):
             raise PaperActivationRefused(
                 f"broker instrument resolution for {security_id}/{symbol} "
                 "did not return the requested permanent identity, symbol and "
                 "stable broker asset id")
-        instruments[security_id] = resolved
+        if current is not None and current.broker_id and resolved.broker_id != current.broker_id:
+            raise PaperActivationRefused(
+                f"resolved instrument differs from the observed native asset for {security_id}")
         if protected_references is not None:
             source_asset = protected_references.provider_asset_ids.get(security_id)
             if (resolved.symbol != protected_references.symbols.get(security_id)
@@ -601,6 +618,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if (opening_prices is not None and security_id in opening_prices.broker_ids
                 and resolved.broker_id != opening_prices.broker_ids[security_id]):
             raise PaperActivationRefused("submission instrument differs from opening broker asset identity")
+        if unavailable is not None:
+            if (market_policy is None or not market_policy.fractional or not increasing
+                    or (not preparation and buy_deferrals is None)
+                    or resolved.symbol != symbol):
+                raise PaperActivationRefused(
+                    f"invalid broker instrument identity {security_id}/{symbol}: {unavailable}") from unavailable
+            if buy_deferrals is not None:
+                buy_deferrals[security_id] = f"BUY_INSTRUMENT_UNAVAILABLE: {unavailable}"
+            continue
+        instruments[security_id] = resolved
     if unresolved:
         raise PaperActivationRefused(
             "no certified broker instrument mapping for: "

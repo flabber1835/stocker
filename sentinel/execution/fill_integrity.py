@@ -102,11 +102,11 @@ def owned_fill_coverage(conn, commands):
         return {}
     rows = conn.execute(
         "SELECT f.client_key,SUM(f.quantity),"
-        " BOOL_OR(LENGTH(f.fill_key)=64 AND cash.cursor_name IS NULL) FROM sentinel_fills f"
+        " BOOL_OR(LENGTH(f.fill_key)=64 AND cash.state IS NULL) FROM sentinel_fills f"
         " JOIN sentinel_commands c ON c.client_key=f.client_key AND c.broker_order_id=f.broker_order_id"
-        " LEFT JOIN sentinel_processed_sessions cash ON cash.cursor_name=%s || f.fill_key"
+        + journal.FILL_CASH_JOIN_SQL +
         " WHERE f.client_key=ANY(%s) GROUP BY f.client_key",
-        (journal.FILL_CASH_PREFIX, list(owned))).fetchall()
+        (*journal.FILL_CASH_PREFIXES, list(owned))).fetchall()
     covered = {key: (quantity, missing) for key, quantity, missing in rows}
     return {key: OwnedFillCoverage(command, *covered.get(key, (Decimal(0), False)))
             for key, command in owned.items()}
@@ -168,16 +168,16 @@ def _native_cash_with_omissions(command, *, gross, known, missing):
 
 def exact_fill_economics(conn, command, *, verify_notional=True, require_cash=True) -> FillEconomics:
     """Verify executed principal and signed cash from the same owned fill set."""
-    from sentinel.execution.journal import FILL_CASH_PREFIX
+    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES
     if command.filled_quantity == 0:
         return FillEconomics(Fraction(0), Fraction(0))
     if not command.broker_order_id:
         raise ValueError("filled command has no native order identity")
     rows = conn.execute(
         "SELECT f.fill_key,f.quantity,f.price,cash.state FROM sentinel_fills f"
-        " LEFT JOIN sentinel_processed_sessions cash ON cash.cursor_name=%s || f.fill_key"
+        + FILL_CASH_JOIN_SQL +
         " WHERE f.client_key=%s AND f.broker_order_id=%s",
-        (FILL_CASH_PREFIX, command.client_key, command.broker_order_id)).fetchall()
+        (*FILL_CASH_PREFIXES, command.client_key, command.broker_order_id)).fetchall()
     quantity, gross, cash = Fraction(0), Fraction(0), Fraction(0)
     missing = []
     for key, qty, price, posted in rows:
@@ -226,8 +226,14 @@ def partial_gross_leaves_positive_notional(quantity, gross, average):
 
 
 def validate(observation, orders, *, position_leading_order_ids=()):
+    return _validate_fill_set(observation.fills, orders, observed_at=observation.observed_at,
+        history_complete=observation.fill_history_complete,
+        position_leading_order_ids=position_leading_order_ids)
+
+
+def _validate_fill_set(fills, orders, *, observed_at, history_complete, position_leading_order_ids):
     totals, gross, prices, posted_debits, seen = {}, {}, {}, {}, set()
-    for fill in observation.fills:
+    for fill in fills:
         order = orders.get(fill.broker_order_id)
         if order is None:
             raise ValueError('native fill omitted exact order')
@@ -245,7 +251,7 @@ def validate(observation, orders, *, position_leading_order_ids=()):
             raise ValueError('native fill client key contradicts order')
         if (fill.filled_at is None or order.submitted_at is None
                 or fill.filled_at < order.submitted_at
-                or fill.filled_at > observation.observed_at):
+                or fill.filled_at > observed_at):
             raise ValueError('native fill time is outside order observation lifetime')
         # Sentinel issues ordinary DAY orders. Publication may be late; the
         # execution itself cannot move into a later session.
@@ -283,7 +289,7 @@ def validate(observation, orders, *, position_leading_order_ids=()):
             if not gross_matches_serialized_average(
                     quantity, gross[key], order.filled_average_price):
                 raise ValueError('native fill gross notional contradicts cumulative order')
-    if observation.fill_history_complete:
+    if history_complete:
         for key, order in orders.items():
             if is_sentinel_key(order.client_key) and totals.get(key, 0) != Fraction(order.filled_quantity):
                 raise FillHistoryIncomplete('native fill history does not cover cumulative order fills')
@@ -307,15 +313,15 @@ def validate_durable(conn, observation, orders, *, position_leading_order_ids=()
     Reconciliation holds the account's single-writer lock until publication.
     Rows from a previous accepted read cannot disappear or acquire a second ID.
     """
-    from sentinel.execution.journal import FILL_CASH_PREFIX, fill_fingerprint
+    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES, fill_fingerprint
 
     incoming = {fill_fingerprint(f): f for f in observation.fills}
     merged = dict(incoming)
     rows = conn.execute(
         'SELECT f.fill_key,f.broker_order_id,f.client_key,f.quantity,f.price,f.filled_at,cash.state '
-        'FROM sentinel_fills f LEFT JOIN sentinel_processed_sessions cash '
-        'ON cash.cursor_name=%s || f.fill_key WHERE f.broker_order_id=ANY(%s) OR f.fill_key=ANY(%s)',
-        (FILL_CASH_PREFIX, list(orders), list(incoming))).fetchall()
+        'FROM sentinel_fills f' + FILL_CASH_JOIN_SQL +
+        ' WHERE f.broker_order_id=ANY(%s) OR f.fill_key=ANY(%s)',
+        (*FILL_CASH_PREFIXES, list(orders), list(incoming))).fetchall()
     for key, order_id, client_key, quantity, price, filled_at, state in rows:
         current = incoming.get(key)
         order = orders.get(order_id)
@@ -338,8 +344,12 @@ def validate_durable(conn, observation, orders, *, position_leading_order_ids=()
         else:
             merged[key] = _DurableCashFill(broker_order_id=order_id, client_key=client_key,
                 quantity=quantity, price=price, filled_at=filled_at, cash_amount=posted)
-    return validate(replace(observation, fills=tuple(merged.values())), orders,
-                    position_leading_order_ids=position_leading_order_ids)
+    # The union is keyed by the immutable journal fingerprint. Rebuilding an
+    # observation would deduplicate reconstructed rows by their economics and
+    # clock alone, discarding the distinction between separate native fills.
+    return _validate_fill_set(merged.values(), orders, observed_at=observation.observed_at,
+        history_complete=observation.fill_history_complete,
+        position_leading_order_ids=position_leading_order_ids)
 
 
 def retain_native_refusal(conn, identity, reason):

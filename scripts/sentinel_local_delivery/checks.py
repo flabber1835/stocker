@@ -89,7 +89,8 @@ ISSUER_EVIDENCE_PREFIXES = (
     'protected-buy-funding:v1:issuer-policy:v1:shortfall:',
 )
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
-FILL_CASH_PREFIX = 'broker-fill-cash/v1:'
+FILL_CASH_PREFIX = 'broker-cash-activity:v1:fill-cash:'
+LEGACY_FILL_CASH_PREFIX = 'broker-fill-cash/v1:'
 NOTIONAL_POSITION_LEAD_PREFIX = 'broker-cash-activity:v1:notional-position-lead:v1:'
 PUBLICATION_CHANGED_KIND = 'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
 PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
@@ -160,7 +161,7 @@ _ISSUER_EVIDENCE_FILTER = ' OR '.join(
     for prefix in ISSUER_EVIDENCE_PREFIXES)
 _EXECUTION_RECOVERY_FILTER = ' OR '.join(
     "x.cursor_name LIKE '"+prefix+"%'"
-    for prefix in (FILL_CASH_PREFIX, NOTIONAL_POSITION_LEAD_PREFIX))
+    for prefix in (FILL_CASH_PREFIX, LEGACY_FILL_CASH_PREFIX, NOTIONAL_POSITION_LEAD_PREFIX))
 _CURSOR_EVIDENCE_FIELDS = ("'count',count(*),"
     "'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),''))")
 ISSUER_LINEAGE_SQL = (f'SELECT json_build_object({_CURSOR_EVIDENCE_FIELDS},'

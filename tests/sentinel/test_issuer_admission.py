@@ -119,7 +119,7 @@ def enroll(store, source, *held):
         instruments=instruments(*held), now=NOW)
 
 
-def prepare(store, source, *, held=(), pending=(), signal='2026-10-26', rec=None, suffix='1', extra=()):
+def prepare(store, source, *, held=(), pending=(), signal='2026-10-26', rec=None, suffix='1', extra=(), descriptors=None):
     value = state(held=held, pending=pending, signal=signal)
     opening = tuple(SimpleNamespace(to_dict=lambda sid=sid, slot=slot: {
         'security_id': sid, 'slot_id': slot, 'intended_dollars': '1000'})
@@ -133,7 +133,7 @@ def prepare(store, source, *, held=(), pending=(), signal='2026-10-26', rec=None
     projection.fingerprint = lambda: digest({'plan': plan.fingerprint(), 'targets': sorted(projection.target_basket)})
     evidence = guard.prepare_plan_evidence(store, binding=BINDING, state=value, plan=plan,
         projection=projection, reconciliation=rec or reconciliation(), snapshot=source,
-        instruments=instruments(*(set(held + pending + extra))), now=NOW)
+        instruments=descriptors if descriptors is not None else instruments(*(set(held + pending + extra))), now=NOW)
     return value, plan, projection, evidence
 
 
@@ -171,6 +171,35 @@ def test_same_issuer_class_loses_before_reservation_even_if_called_first(store, 
     assert buy(store, evidence, 'A', reserve=True).allowed
     assert not buy(store, evidence, 'A2', reserve=True).allowed
     assert len(guard._claims(store, guard._binding(BINDING))) == 1
+
+
+@pytest.mark.parametrize('current_cik,native_id,status,allowed', [
+    ('0000000001', 'native-A', S.FILLED, True),
+    ('0000000009', 'native-A', S.FILLED, False),
+    ('0000000001', 'replacement-id', S.FILLED, False),
+    ('0000000001', 'native-A', S.ACKNOWLEDGED, False),
+])
+def test_historical_symbol_requires_current_native_position_and_unchanged_issuer(
+        store, source, current_cik, native_id, status, allowed):
+    enroll(store, source)
+    _, _, _, previous = prepare(store, source, pending=('A',), suffix='before-rename')
+    assert buy(store, previous, 'A', reserve=True).allowed
+    store.commands = [command('A', status, filled='10' if status is S.FILLED else '0')]
+    renamed = IssuerReferenceSnapshot.create(observed_at_utc=NOW,
+        associations=[row.model_dump(mode='json') for row in source.associations]
+        + [{'cik': current_cik, 'ticker': 'RENAMED', 'exchange': 'NYSE'}],
+        coverage='PARTIAL', source_method='WEB_EXTRACTED_REPRESENTATION')
+    rec = reconciliation('A')
+    position = BrokerPosition(BrokerInstrument('A', 'RENAMED', native_id), D(10))
+    rec = replace(rec, observation=replace(rec.observation, positions=(position,)))
+    descriptors = instruments('A', 'B')
+    descriptors['A'].update(symbol='RENAMED', asset_id=native_id)
+    _, _, _, evidence = prepare(store, renamed, held=('A',), pending=('B',),
+                                 rec=rec, descriptors=descriptors)
+    decision = buy(store, evidence, 'B', rec=rec)
+    assert decision.allowed is allowed
+    if not allowed:
+        assert decision.reason == 'ISSUER_INCUMBENT_UNRESOLVED'
 
 
 def test_distinct_issuers_admit_and_same_episode_reservation_is_idempotent(store, source):
