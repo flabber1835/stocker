@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import inspect
 import json
@@ -182,6 +183,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     revisions = delta["definitions"]
     expected = set(manifest["definitions"]) | set(revisions) | {"_require_mutation_backup"}
     actual = set()
+    unreviewed = []
     for module_name in MODULES:
         tree = ast.parse(
             (PACKAGE / f"{module_name}.py").read_text(encoding="utf-8"))
@@ -204,10 +206,12 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
-                assert record["generated_ast_sha256"] == __import__(
-                    "hashlib").sha256(normalized.encode()).hexdigest(), (
+                digest = hashlib.sha256(normalized.encode()).hexdigest()
+                if record["generated_ast_sha256"] != digest:
+                    unreviewed.append(
                         f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
+    assert not unreviewed, "\n".join(unreviewed)
 
 
 @pytest.mark.parametrize('definition,owner', [
@@ -218,6 +222,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     ('current_paper_plan', 'preparation'),
     ('_target_projection_or_refuse', 'targets'),
     ('_instrument_map', 'targets'),
+    ('_revalidate_preopen_authority_or_refuse', 'targets'),
     ('_guard_broker', 'validation'),
     ('_market_buy_candidate_or_refuse', 'validation'),
     ('_execute_current_paper_plan', 'execution'),

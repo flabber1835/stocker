@@ -40,7 +40,8 @@ from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.alpaca import (  # noqa: E402
     AlpacaExecutionBroker, UnmappedBrokerStatus, map_status)
 from sentinel.execution.contract import (  # noqa: E402
-    BrokerAccountIdentity, BrokerInstrument, Completeness, Side)
+    BrokerAccountIdentity, BrokerInstrument, BrokerInstrumentUnavailable,
+    Completeness, Side)
 from sentinel.execution.identity import (  # noqa: E402
     CommandIdentity, DeploymentIdentity)
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
@@ -651,18 +652,30 @@ class TestAlpacaInstrumentResolution:
             run(broker.resolve_instrument(
                 security_id="SEC-AAA", symbol="AAA"))
 
-    @pytest.mark.parametrize("payload", [
-        {"id": "asset-aaa", "symbol": "AAA", "status": "inactive",
-         "tradable": True},
-        {"id": "asset-aaa", "symbol": "AAA", "status": "active",
-         "tradable": False},
-        {"symbol": "AAA", "status": "active", "tradable": True},
+    @pytest.mark.parametrize("status,tradable,reason", [
+        ("inactive", True, "not active"),
+        ("active", False, "not tradable"),
     ])
-    def test_an_unusable_or_unidentified_asset_is_refused(self, payload):
-        broker, _ = alpaca({"/v2/assets/AAA": payload})
-        with pytest.raises(A.MalformedBrokerPayload):
+    def test_unavailable_asset_refusal_preserves_resolved_identity(
+            self, status, tradable, reason):
+        broker, http = alpaca({"/v2/assets/AAA": {
+            "id": "asset-aaa", "symbol": "AAA", "status": status,
+            "tradable": tradable}})
+
+        with pytest.raises(BrokerInstrumentUnavailable, match=reason) as refused:
             run(broker.resolve_instrument(
                 security_id="SEC-AAA", symbol="AAA"))
+
+        assert refused.value.instrument == BrokerInstrument(
+            security_id="SEC-AAA", symbol="AAA", broker_id="asset-aaa")
+        assert http.calls == [("GET", "/v2/assets/AAA")]
+
+    def test_unavailable_asset_without_stable_identity_is_malformed(self):
+        broker, _ = alpaca({"/v2/assets/AAA": {
+            "symbol": "AAA", "status": "inactive", "tradable": False}})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="omitted symbol or stable asset id"):
+            run(broker.resolve_instrument(security_id="SEC-AAA", symbol="AAA"))
 
 
 class TestAlpacaSubmit:
