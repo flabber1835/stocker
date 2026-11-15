@@ -217,7 +217,7 @@ def fill_economics(command, by_order, *, verify_notional=True, require_cash=True
         else:
             cash += Fraction(_posted_cash(posted, order_id=command.broker_order_id,
                 client_key=command.client_key, side=command.side, qty=qty, price=price))
-    expected = command.filled_quantity
+    expected = Fraction(command.filled_quantity)
     average = command.filled_average_price
     if (average is None or quantity > expected or gross < 0
             or (quantity > 0 and gross == 0)):
@@ -296,18 +296,19 @@ def _validate_fill_set(fills, orders, *, observed_at, history_complete, position
     ahead = set()
     for key, quantity in totals.items():
         order = orders[key]
+        expected = Fraction(order.filled_quantity)
         _validate_notional(order.notional, gross=gross[key], prices=prices[key],
-                           complete=quantity == order.filled_quantity and order.state is CommandState.FILLED)
+                           complete=quantity == expected and order.state is CommandState.FILLED)
         _validate_notional(order.notional, gross=posted_debits[key], prices=prices[key], complete=False)
-        if quantity > order.filled_quantity:
+        if quantity > expected:
             if key not in position_leading_order_ids:
                 raise ValueError('native fill quantity exceeds cumulative order fills')
             ahead.add(key)
-        if (quantity < Fraction(order.filled_quantity)
+        if (quantity < expected
                 and not partial_gross_leaves_positive_notional(
-                    order.filled_quantity, gross[key], order.filled_average_price)):
+                    expected, gross[key], order.filled_average_price)):
             raise ValueError('native partial fill gross leaves no positive notional for missing fills')
-        if quantity == Fraction(order.filled_quantity):
+        if quantity == expected:
             if not gross_matches_serialized_average(
                     quantity, gross[key], order.filled_average_price):
                 raise ValueError('native fill gross notional contradicts cumulative order')
