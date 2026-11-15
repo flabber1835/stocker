@@ -199,3 +199,16 @@ Result: **69 passed**. A deliberate upward-rounding replacement of
 replacement that ignored the resume binding failed the changed-binding
 falsifier. Both mutations ran in separate disposable processes; source files
 were unchanged. `git diff --check` also passed.
+
+The local real-data pilot completed 299 warmup and 126 formation sessions,
+then 24 measurement closes through August 31, 2006. Independent daily-NAV,
+monthly-export and terminal-audit verification reported PASS (two monthly rows,
+including the July 31 baseline). The first twenty formation purchases all had
+fractional quantities. A separately loaded formation checkpoint restored the
+same canonical state hash under the same research identity.
+
+The August 31 cumulative row is strategy CAGR 3.8488%, multiple 1.00321049,
+MaxDD 0.086432%; SPY CAGR 28.9491%, multiple 1.02181383, MaxDD 1.120738%.
+These annualized one-month values do not establish a twenty-year result. The
+continuation through July 2026 runs locally from that checkpoint and executes
+the independent full-history verifier on successful completion.
