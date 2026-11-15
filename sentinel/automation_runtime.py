@@ -621,8 +621,10 @@ def _actionable_projection_deltas(
         deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
             plan.broker_account_id, plan.takeover_epoch)
         progress = fractional_progress.derive(conn, projection=projection, deployment=deployment)
-        if progress.blocked:
-            raise target_reprojection.TargetProjectionRefused(str(progress.blocked))
+        unsettled = {sid: reason for sid, reason in progress.blocked.items()
+                     if reason != fractional_progress.REJECTED_FOR_PLAN}
+        if unsettled:
+            raise target_reprojection.TargetProjectionRefused(str(unsettled))
         from sentinel.paper.targets import _plan_deltas
         deltas = _plan_deltas(
             conn=conn, deployment=deployment, projection=projection,
@@ -635,6 +637,8 @@ def _actionable_projection_deltas(
                     if delta.classification is execution_commands.DeltaClass.DUST}
             if dust:
                 raise target_reprojection.TargetProjectionRefused(f"DUST_RESIDUAL: {dust}")
+            if progress.blocked:
+                raise fractional_progress.PurchaseRejectedForPlan(str(progress.blocked))
             fractional_progress.require_completed({
                 "blocked": fractional_progress.share_restrictions(projection),
                 "remaining_dollars": progress.budgets})
@@ -645,7 +649,15 @@ def _actionable_projection_deltas(
 
 
 def _projection_refusal_result(*, result, observation_id, exc) -> ExecuteResult:
+    from sentinel.execution.fractional_progress import PurchaseRejectedForPlan
     from sentinel.execution.protected_limits import ProtectedReferenceUnavailable
+    if isinstance(exc, PurchaseRejectedForPlan):
+        return ExecuteResult(
+            disposition=ExecuteDisposition.SUPERSEDED,
+            last_clean_reconciliation_id=str(observation_id),
+            failure_code="PURCHASE_REJECTED_REQUIRES_NEW_PLAN",
+            failure_detail=str(exc),
+            diagnostic=result.to_dict())
     if isinstance(exc, ProtectedReferenceUnavailable):
         return ExecuteResult(
             disposition=ExecuteDisposition.SUPERSEDED,
@@ -1618,6 +1630,14 @@ class ProductionAutomation:
                             conn, deployment, plan_id=cycle.plan_id,
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
+                        from sentinel.execution.fractional_progress import is_fractional
+                        if terminal_refusals and is_fractional(target_reprojection.load_projection(
+                                conn, plan_id=cycle.plan_id)):
+                            from sentinel.execution.contract import Side
+                            pending_reductions = {delta.security_id for delta in actionable
+                                                  if delta.side is Side.SELL}
+                            terminal_refusals = tuple(c for c in terminal_refusals
+                                if c.side is Side.SELL and c.security_id in pending_reductions)
                         if terminal_refusals:
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.SUPERSEDED,

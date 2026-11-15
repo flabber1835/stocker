@@ -373,6 +373,10 @@ class GuardedExecutionBroker(ExecutionBroker):
     def financial_activity_sse(self) -> bool:
         return getattr(self._inner, "financial_activity_sse", False) is True
 
+    @property
+    def supports_owned_order_fills(self) -> bool:
+        return not self._live and getattr(self._inner, "supports_owned_order_fills", False) is True
+
     async def _read(self, operation: BrokerOperation, call):
         try:
             if isinstance(self._grant, AutomationExecutionGrant):
@@ -926,6 +930,13 @@ class GuardedExecutionBroker(ExecutionBroker):
         async def read():
             return await self._inner.recent_fills(since)
 
+        return await self._read(BrokerOperation.RECENT_FILLS, read)
+
+    async def owned_order_fills(self, *, orders, identity, through) -> Sequence[BrokerFill]:
+        if not self.supports_owned_order_fills:
+            raise BrokerAuthorityRefused("owned order fill evidence is unavailable")
+        async def read():
+            return await self._inner.owned_order_fills(orders=orders, identity=identity, through=through)
         return await self._read(BrokerOperation.RECENT_FILLS, read)
 
 

@@ -12,7 +12,8 @@ from sentinel.execution.target_reprojection import TargetProjectionRefused, shar
 
 SCHEMA = "sentinel.held-share-targets/1"
 RETRY_SCHEMA = "sentinel.held-share-targets/2"
-FRACTIONAL_SCHEMA = "sentinel.held-share-targets/3"
+LEGACY_FRACTIONAL_SCHEMA = "sentinel.held-share-targets/3"
+FRACTIONAL_SCHEMA = "sentinel.held-share-targets/4"
 
 
 def ownership(state):
@@ -107,7 +108,7 @@ def carry_quantities(*, previous, previous_state, projection, state,
 def retry_openings(basis):
     if basis is None:
         return ()
-    if isinstance(basis, dict) and basis.get("schema") in {SCHEMA, FRACTIONAL_SCHEMA}:
+    if isinstance(basis, dict) and basis.get("schema") in {SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
         return ()
     if (not isinstance(basis, dict) or basis.get("schema") != RETRY_SCHEMA
             or not isinstance(basis.get("retry_openings"), list)):
@@ -171,7 +172,8 @@ def build_execution_plan(*, retained_targets, retry_openings, **kwargs):
     return replace(decision, plan=replace(plan, plan_id=f"sentinel-{plan.fingerprint()}"))
 
 
-def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False):
+def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
+                legacy_fractional=False):
     """Freeze the immediate predecessor and the derived continuing targets."""
     from sentinel import dual_plan_authority
     from sentinel.core.production import SessionState
@@ -208,12 +210,20 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
                else None)
     from sentinel.execution import fractional_progress
     progress = None
+    fulfilled_targets = None
+    whole = set()
     if fractional_progress.is_fractional(projection):
         progress = fractional_progress.derive(conn, projection=projection,
-            deployment=binding.identity, require_terminal=True)
+            deployment=binding.identity, require_terminal=True, historical=legacy_fractional)
+        fulfilled_targets = progress.targets.copy()
+        whole = {c.security_id for c in progress.commands if c.quantity is not None
+                 and c.side.value == "BUY" and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}}
+        if not legacy_fractional:
+            for sid in whole & progress.budgets.keys():
+                fulfilled_targets[sid] = progress.acquired_targets[sid]
     targets = carry_quantities(previous=previous, previous_state=prior_state,
         projection=projection, state=state, exposure=effective_exposure(state, rollout),
-        actions=actions, fulfilled_targets=None if progress is None else progress.targets)
+        actions=actions, fulfilled_targets=fulfilled_targets)
     if retry_skipped and binding.broker == "alpaca" and progress is None:
         retries = _retry_openings(previous, prior_state, projection, state, authority.get("held_share_targets"))
         if retries:
@@ -227,11 +237,9 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
         targets={sid: decimal_text(qty) if isinstance(qty, Decimal) else "0"
                  for sid, qty in sorted(targets.items())})
     if progress is not None:
-        whole = {c.security_id for c in progress.commands if c.quantity is not None
-                 and c.side.value == "BUY" and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}}
-        body.update(schema=FRACTIONAL_SCHEMA,
+        body.update(schema=LEGACY_FRACTIONAL_SCHEMA if legacy_fractional else FRACTIONAL_SCHEMA,
             purchase_budgets={sid: decimal_text(qty) for sid, qty in sorted(progress.budgets.items())
-                              if sid in targets and sid not in whole},
+                              if sid in targets and (not legacy_fractional or sid not in whole)},
             fulfillment_commands=[fractional_progress._witness(c) for c in sorted(
                 progress.commands, key=lambda c: c.client_key)
                 if c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}])
@@ -243,7 +251,8 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False)
 
 def verify_basis(conn, *, basis, state, binding, rollout):
     from sentinel.execution import journal, target_reprojection
-    if not isinstance(basis, dict) or basis.get("schema") not in {SCHEMA, RETRY_SCHEMA, FRACTIONAL_SCHEMA}:
+    if not isinstance(basis, dict) or basis.get("schema") not in {
+            SCHEMA, RETRY_SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
@@ -256,7 +265,8 @@ def verify_basis(conn, *, basis, state, binding, rollout):
                     None if projection is None else projection.fingerprint())):
             raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout,
-        retry_skipped=basis["schema"] == RETRY_SCHEMA)
+        retry_skipped=basis["schema"] == RETRY_SCHEMA,
+        legacy_fractional=basis["schema"] == LEGACY_FRACTIONAL_SCHEMA)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     return {sid: Decimal(qty) for sid, qty in expected["targets"].items()}
@@ -327,13 +337,20 @@ def predecessor_version(conn, plan_id):
         "WHERE p.plan_id=%s",
         (target_reprojection.CURSOR_PREFIX, dual_plan_authority.CURSOR_PREFIX,
          basis["previous_plan_id"])).fetchone()
-    if basis.get("schema") != FRACTIONAL_SCHEMA:
+    if basis.get("schema") not in {LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
         return projection_version
     command_versions = conn.execute(
         "SELECT client_key,tableoid,xmin::text,ctid::text FROM sentinel_commands "
         "WHERE plan_id=%s AND state NOT IN ('PLANNED','SUPERSEDED') ORDER BY client_key",
         (basis["previous_plan_id"],)).fetchall()
-    return projection_version, command_versions
+    from sentinel.execution.journal import FILL_CASH_PREFIX
+    fill_versions = conn.execute(
+        "SELECT f.fill_key,f.tableoid,f.xmin::text,f.ctid::text,cash.tableoid,cash.xmin::text,cash.ctid::text "
+        "FROM sentinel_commands c JOIN sentinel_fills f ON f.client_key=c.client_key "
+        "AND f.broker_order_id=c.broker_order_id "
+        "LEFT JOIN sentinel_processed_sessions cash ON cash.cursor_name=%s || f.fill_key "
+        "WHERE c.plan_id=%s ORDER BY f.fill_key", (FILL_CASH_PREFIX, basis["previous_plan_id"])).fetchall()
+    return projection_version, command_versions, fill_versions
 
 
 def apply(projection, *, targets, canonical_target, marks, lot=Decimal(1)):

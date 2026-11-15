@@ -48,6 +48,7 @@ from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
 from sentinel.execution.order_amount import optional_decimal_text
+from sentinel.execution.numeric import decimal_text
 
 
 # Re-read a small boundary on every closed-order recovery. Alpaca filters order
@@ -847,6 +848,29 @@ class FillEconomicsChanged(RuntimeError):
     """A broker-native fill identity was reused with different economics."""
 
 
+FILL_CASH_PREFIX = "broker-fill-cash/v1:"
+
+
+def _write_fill_cash(cur, fill, key):
+    amount = getattr(fill, "cash_amount", None)
+    if amount is None:
+        return
+    from sentinel.execution.fill_integrity import validate_posted_cash
+    if not getattr(fill, "activity_id", None) or fill.client_key is None or fill.filled_at is None:
+        raise FillEconomicsChanged("native cash impact requires an identified, owned fill")
+    validate_posted_cash(fill.side, fill.quantity, fill.price, amount)
+    cursor_name = FILL_CASH_PREFIX + key
+    state = {"order_id": fill.broker_order_id, "client_key": fill.client_key,
+             "amount": decimal_text(amount)}
+    cur.execute(
+        "INSERT INTO sentinel_processed_sessions(cursor_name,session,state)"
+        " VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO NOTHING",
+        (cursor_name, fill.filled_at.date(), json.dumps(state)))
+    cur.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s", (cursor_name,))
+    if cur.fetchone()[0] != state:
+        raise FillEconomicsChanged("broker fill identity was reused with changed cash impact")
+
+
 def _write_fills(cur, fills: Sequence[BrokerFill]) -> int:
     written = 0
     for fill in fills:
@@ -884,6 +908,7 @@ def _write_fills(cur, fills: Sequence[BrokerFill]) -> int:
                     and stored_client != fill.client_key)):
             raise FillEconomicsChanged(
                 "broker fill identity was reused with different economics")
+        _write_fill_cash(cur, fill, key)
     return written
 
 def record_fills(conn, fills: Sequence[BrokerFill]) -> int:

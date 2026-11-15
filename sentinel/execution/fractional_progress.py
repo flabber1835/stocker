@@ -14,6 +14,13 @@ from sentinel.execution.states import IN_FLIGHT, CommandState as S
 from sentinel.execution.target_reprojection import TargetProjectionRefused
 
 
+REJECTED_FOR_PLAN = "PURCHASE_REJECTED_REQUIRES_NEW_PLAN"
+
+
+class PurchaseRejectedForPlan(TargetProjectionRefused):
+    """Only the positively rejected purchase must wait for a new plan."""
+
+
 def is_fractional(projection):
     return (getattr(projection, "opening_sizing", None) or {}).get("mode") == FRACTIONAL_MODE
 
@@ -70,11 +77,12 @@ def baseline(conn, *, deployment, plan, actions, saved=None):
     return result
 
 
-def _exact_principal(conn, command):
+def _exact_debit(conn, command, *, historical):
     """Native fills must cover the cumulative share counter before re-spending."""
-    from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_principal
+    from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_economics
     try:
-        return exact_fill_principal(conn, command)
+        fills = exact_fill_economics(conn, command, verify_notional=not historical)
+        return fills.gross if historical else max(fills.gross, -fills.cash)
     except FillHistoryIncomplete as exc:
         raise TargetProjectionRefused(f"FILL_PRINCIPAL_PENDING: {exc}") from exc
     except ValueError as exc:
@@ -84,6 +92,7 @@ def _exact_principal(conn, command):
 @dataclass(frozen=True)
 class Fulfillment:
     targets: dict[str, Decimal]
+    acquired_targets: dict[str, Decimal]
     budgets: dict[str, Decimal]
     blocked: dict[str, str]
     commands: tuple
@@ -98,13 +107,15 @@ def share_restrictions(projection):
             for sid, qty in pending.items()}
 
 
-def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=False):
+def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=False,
+           historical=False):
     """Share targets and unspent dollars; neither is reconstructed from price drift."""
     if not is_fractional(projection):
         raise TargetProjectionRefused("fractional fulfillment requires its immutable projection")
     all_commands = journal.load_commands(conn, deployment, plan_id=projection.plan_id)
     commands = tuple(c for c in all_commands if c.client_key != ignore_key)
-    targets, budgets, blocked = dict(projection.target_basket), {}, {}
+    targets, acquired = dict(projection.target_basket), dict(projection.target_basket)
+    budgets, blocked = {}, {}
     for sid, row in projection.opening_sizing["purchases"].items():
         buys = sorted((c for c in commands if c.security_id == sid and c.side is Side.BUY
                        and c.state not in {S.PLANNED, S.SUPERSEDED}),
@@ -112,7 +123,7 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
         if any(c.side is Side.SELL and c.security_id == sid and c.filled_quantity for c in commands):
             raise TargetProjectionRefused("purchase allocation contains contradictory owned reductions")
         qty = sum((Fraction(c.filled_quantity) for c in buys), Fraction(0))
-        targets[sid] = exact_decimal(Fraction(projection.target_basket[sid]) + qty)
+        acquired[sid] = targets[sid] = exact_decimal(Fraction(projection.target_basket[sid]) + qty)
         if buys and any((c.notional is None) != (buys[0].notional is None) for c in buys):
             raise TargetProjectionRefused("an attempted purchase changed denomination")
         working = any(c.state in IN_FLIGHT for c in buys)
@@ -125,29 +136,39 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             if Fraction(targets[sid]) > target:
                 raise TargetProjectionRefused("fallback fills exceed the original share intent")
             targets[sid] = exact_decimal(target)
-        if any(c.state is S.FILLED for c in buys):
+        filled = any(c.state is S.FILLED for c in buys)
+        if filled and historical:
             continue
         if working:
             blocked[sid] = "PURCHASE_COMMAND_UNRESOLVED"
             continue
         try:
-            spent = sum((_exact_principal(conn, c) + (Fraction(MARKET_BUY_HEADROOM)
-                         if c.filled_quantity else Fraction(0)) for c in buys), Fraction(0))
+            debit = sum((_exact_debit(conn, c, historical=historical) for c in buys), Fraction(0))
         except TargetProjectionRefused as exc:
             blocked[sid] = str(exc)
             continue
-        available = Fraction(row["budget"]) - spent
+        available = Fraction(row["budget"]) - debit
         if available < 0:
             blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
             continue
+        if filled or (not historical and buys and buys[0].quantity is not None and acquired[sid] == targets[sid]):
+            if acquired[sid] != targets[sid]:
+                blocked[sid] = "FALLBACK_SHARE_OBLIGATION_UNFULFILLED"
+            continue
+        reserves = Fraction(MARKET_BUY_HEADROOM) * sum(c.filled_quantity != 0 for c in buys)
+        available -= reserves
+        if historical and available < 0:
+            blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
+            continue
+        available = max(Fraction(0), available)
         budgets[sid] = exact_decimal(Fraction(available // Fraction("0.01"), 100))
         if buys and buys[-1].state is S.REJECTED:
-            blocked[sid] = "PURCHASE_REJECTED_REQUIRES_NEW_PLAN"
+            blocked[sid] = REJECTED_FOR_PLAN
     unsettled = {sid: reason for sid, reason in blocked.items()
-                 if reason != "PURCHASE_REJECTED_REQUIRES_NEW_PLAN"}
+                 if reason != REJECTED_FOR_PLAN}
     if require_terminal and unsettled:
         raise TargetProjectionRefused("purchase fulfillment is not settled: " + str(unsettled))
-    return Fulfillment(targets, budgets, blocked, commands)
+    return Fulfillment(targets, acquired, budgets, blocked, commands)
 
 
 def evidence(conn, *, projection, deployment):

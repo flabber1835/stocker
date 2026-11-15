@@ -295,6 +295,58 @@ the affected security without inventing successor ownership. PAPER limitations
 do not justify synthetic fills, shares or cash. Current provider capability and
 accepted evidence, not generic documentation alone, govern financial admission.
 
+## Current PAPER fill settlement and cancelled purchases
+
+The dual PAPER current-book path reconciles shares from account-bound order
+and position evidence. When a fractional plan's owned command reports shares
+that its durable fills do not yet cover, reconcile that command against the
+accepted PAPER Activity SSE. Restrict the read to the candidate orders' trading
+days and exact native identities. Bracket it with the selected account and
+validate the order, side, asset, execution time, idempotent execution identity
+and cumulative shares before journal publication. This supplies positive fill
+facts to the existing observation transaction. Missing publication waits
+through the cash guard. The broader historical fill and close capabilities
+keep their existing qualification boundaries.
+
+Store a trade's native USD cash impact alongside its immutable fill identity
+in the existing journal transaction. Replays must agree with that impact.
+Compute the cash equation with the posted amount when supplied and signed
+exact gross for fills without that field. Principal for fulfillment is still
+the gross executed amount. Use the greater of posted debit and gross when
+computing a cancelled buy's reusable budget. The cash activity cursor still
+excludes trades from non-trade cash. This charges each trade and any
+independently posted fees once. Corrections and busts still require explicit
+recovery.
+
+Before completing a notional buy, require the native fill total to cover its
+cumulative shares and agree with the requested dollars within the supported
+rounding bound. For a complete order the bound is one USD cent plus one
+share increment at each reported fill price. A partial or cancelled order
+can spend less. A spend above the bound at any stage, or a material shortfall
+on a claimed full fill, is contradictory and fences continuation.
+
+After a positively resolved cancellation, the normal scheduler may continue
+the current fractional plan inside its execution window. It uses actual
+fulfilled shares, exact spent cash, current funding and a new command revision
+for the remainder. The rejected purchase itself waits for a new plan. An
+unrelated purchase may proceed after reconciliation proves its own authority.
+Legacy scheduler refusal rules continue to apply to legacy plans.
+
+A same-plan retry of a cancelled whole-share fallback retains its original
+share remainder and evidenced funding ceiling. On a successor with unchanged
+ownership and exposure, carry the acquired shares and the unchanged unspent
+dollar ceiling. Evaluate eligibility again for a prospective order under that
+ceiling. A filled whole-share fallback carries its acquired shares alone,
+including when fractional eligibility later becomes available. The new
+retained-target basis has a distinct version so existing proofs remain
+reproducible.
+
+Qualify the retained source with its exact installed predecessor. Exercise
+the production PAPER adapter, ordinary current-book reconciliation, the
+cash guard, and sequential submission together with an isolated Alpaca
+fixture. Cover delayed and contradictory fill evidence, posted cash rounding,
+cancelled revisions, and the unchanged-exposure successor plan.
+
 ## Qualification, presentation and transition
 
 The backed release includes the already deployed November 13 close, opening

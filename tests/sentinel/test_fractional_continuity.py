@@ -19,7 +19,7 @@ from sentinel.execution.market_buy_policy import MarketBuyPolicy
 from sentinel.execution.states import CommandState as S
 from sentinel.feed import calendar
 from sentinel.paper import targets
-from tests.sentinel.test_fractional_execution import dollars, observation, AAA, DEPLOY, NOW
+from tests.sentinel.test_fractional_execution import cmd, dollars, native_fills, observation, AAA, DEPLOY, NOW
 from tests.sentinel.test_fractional_flow import DollarBroker, fractional_environment
 from tests.sentinel.test_journal_and_reconcile import conn
 from tests.sentinel.test_limit_day_sizing import ReferenceConnection, references, source_fixture
@@ -47,6 +47,7 @@ def test_filled_and_zero_fill_legs_carry_without_changing_their_projection(datab
     filled = replace(purchase, identity=replace(purchase.identity, plan_id=plan.plan_id),
         filled_average_price=D(1000))
     journal.save_command(database, filled)
+    native_fills(database, filled)
     monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *_args, **_kwargs: {
         "plan_fingerprint": plan.fingerprint(), "shadow_state": before.to_dict(),
         "authority_sha256": "a" * 64})
@@ -58,6 +59,40 @@ def test_filled_and_zero_fill_legs_carry_without_changing_their_projection(datab
     assert result["targets"] == {"SEC-AAA": "4.999", "SEC-BBB": "0"}
     assert result["purchase_budgets"] == {"SEC-BBB": "5000"}
     assert target_reprojection.load_projection(database, plan_id=plan.plan_id) == projection
+
+
+def test_partial_whole_fallback_carries_acquired_shares_and_original_dollars(database, monkeypatch):
+    schema.ensure_schema(database)
+    before, raw = case(entries=1)
+    plan = owned_plan(raw, account_nav=D("20000"))
+    initial = base(before, plan)
+    projection = fractional_sizing.resolve(before, plan, initial, references(plan, initial),
+        MarketBuyPolicy(True), baseline={"through_event_seq": 0, "commands": [], "holdings": {}},
+        retained_targets={})
+    journal.save_plan(database, plan)
+    target_reprojection.record_projection(database, projection)
+    partial = cmd(qty="9", filled="4", state=S.CANCELLED)
+    partial = replace(partial, identity=replace(partial.identity, plan_id=plan.plan_id),
+                      broker_order_id="whole-native", filled_average_price=D("120"))
+    journal.save_command(database, partial)
+    native_fills(database, partial)
+    monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *_args, **_kwargs: {
+        "plan_fingerprint": plan.fingerprint(), "shadow_state": before.to_dict(),
+        "authority_sha256": "a" * 64})
+    after, _ = case(entries=1)
+    after.last_processed_session = plan.effective_session.isoformat()
+    authority = dict(state=after, binding=SimpleNamespace(**DEPLOY.to_dict(), identity=DEPLOY),
+                     rollout=RolloutState(RolloutMode.CONTROLLER, 1, "a" * 64))
+    archived = held_targets.build_basis(database, previous=plan, legacy_fractional=True, **authority)
+    assert archived["targets"] == {AAA.security_id: "9"} and not archived["purchase_budgets"]
+    assert held_targets.verify_basis(database, basis=archived, **authority) == {AAA.security_id: D(9)}
+    current = held_targets.build_basis(database, previous=plan, **authority)
+    retained = held_targets.verify_basis(database, basis=current, **authority)
+    assert retained == {AAA.security_id: D(4)}
+    successor = fractional_sizing.allocate(raw_targets={}, retained=retained,
+        baseline={"holdings": {AAA.security_id: "4"}}, carry=current["purchase_budgets"],
+        prices={AAA.security_id: D(150)}, intents=[], nav=D(20000), exposure=D(1), shadow_equity=D(100000))
+    assert successor[1] == {AAA.security_id: {"budget": "519", "origin": "CONTINUING"}}
 
 
 def test_zero_share_continuation_includes_native_reference_and_can_resolve(database, monkeypatch):

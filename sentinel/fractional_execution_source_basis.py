@@ -9,7 +9,7 @@ import re
 BASE_REVISION = "aed1a26c335281169c6d8067b1ce2e7de1632053"
 MODULE = "sentinel.execution.reconcile"
 BEFORE = "0a49d779f60888ff1d0e79d532f857e528789b7c17feeb8ac7816cba231693d9"
-PROFILE_SHA256 = 'c605614e62e524f88d46f73e3208c62c0e3de5b3b330c71e9fb0c665bdb55f1d'
+PROFILE_SHA256 = '5604e6f615846b3906f1d3d40ebed662c51dca37ffa2f3eb3cc558984f626842'
 PROFILE = Path(__file__).with_name("fractional-execution-source-transition.json")
 
 
@@ -34,13 +34,13 @@ def _profile():
     own, count = re.subn(rb"^PROFILE_SHA256 = '[a-f0-9]{64}'$",
         b"PROFILE_SHA256 = '" + b"0" * 64 + b"'", Path(__file__).read_bytes(), flags=re.M)
     if (count != 1 or set(value) != {"schema", "authority_effect", "base_revision",
-                                   "module", "before", "after", "entitlements_after",
+                                   "module", "before", "after", "entitlements_after", "settlement_after",
                                    "module_sha256", "decision"}
-            or value["schema"] != "sentinel.fractional-execution-source-transition/2"
+            or value["schema"] != "sentinel.fractional-execution-source-transition/3"
             or value["authority_effect"] != "NONE" or value["base_revision"] != BASE_REVISION
             or value["module"] != MODULE or value["before"] != BEFORE
             or any(not re.fullmatch("[a-f0-9]{64}", value[key])
-                   for key in ("after", "entitlements_after"))
+                   for key in ("after", "entitlements_after", "settlement_after"))
             or set(value["decision"]) != {"before", "after"}
             or any(not re.fullmatch("[a-f0-9]{64}", item) for item in value["decision"].values())
             or value["module_sha256"] != _sha(own)):
@@ -53,7 +53,8 @@ def contribution(module, raw):
     if module != MODULE:
         return actual
     value = _profile()
-    return value["before"] if actual == value["after"] or actual == value["entitlements_after"] else actual
+    after = (value["after"], value["entitlements_after"], value["settlement_after"])
+    return value["before"] if actual in after else actual
 
 
 def decision_predecessor(raw):

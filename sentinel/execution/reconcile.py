@@ -600,8 +600,16 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # journal or command mutation. The resulting single observation is the
     # complete durable authority for this reconciliation cycle.
     stored = journal.load_commands(conn, deployment)
+    from sentinel.execution import fill_integrity
+    owned_coverage = (fill_integrity.owned_fill_coverage(conn, stored)
+                      if informational_current_book and observation.is_complete
+                      and getattr(broker, "supports_owned_order_fills", False) is True else {})
+    needs_exact_fill_read = {key for key, (command, covered) in owned_coverage.items()
+                             if covered < command.filled_quantity
+                             and observation.by_client_key(key) is None}
     exact_evidence: list[BrokerExactOrderEvidence] = []
-    for client_key in _keys_requiring_exact_evidence(observation, stored):
+    lookup_keys = set(_keys_requiring_exact_evidence(observation, stored)) | needs_exact_fill_read
+    for client_key in sorted(lookup_keys):
         initial = observation.by_client_key(client_key)
         try:
             lookup = await broker.find_by_client_key(client_key)
@@ -650,12 +658,32 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 detail="fill recovery order identity is contradictory")
         orders_by_broker_id[order.broker_order_id] = order
     sentinel_fills = []
-    from sentinel.execution import fill_integrity
     try:
+        fill_orders = []
+        for order in orders_by_broker_id.values():
+            candidate = owned_coverage.get(order.client_key)
+            if candidate is None or candidate[1] >= order.filled_quantity or _has_external_replacement(order):
+                continue
+            command = candidate[0]
+            recovery._assert_order_matches_command(command, order, where="owned fill read")
+            if command.broker_order_id not in (None, order.broker_order_id):
+                raise ValueError("owned fill read changed the native order identity")
+            fill_orders.append(order)
+        if fill_orders:
+            fills = await broker.owned_order_fills(orders=fill_orders,
+                identity=observation.account_identity, through=observation.observed_at)
+            observation = replace(observation, fills=tuple(fills))
         fill_integrity.validate(observation, orders_by_broker_id)
         fill_integrity.validate_durable(conn, observation, orders_by_broker_id)
-    except ValueError as exc:
-        fill_integrity.retain_refusal(conn, observation, exc)
+    except BrokerAuthorityRefused:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        if (isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,
+                             alpaca_adapter.ActivityCorrectionRequiresRecovery))
+                and exc.raw_event is not None):
+            fill_integrity.retain_native_refusal(conn, identity, exc)
+        elif isinstance(exc, ValueError):
+            fill_integrity.retain_refusal(conn, observation, exc)
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=replace(observation, completeness=Completeness.INCONSISTENT,

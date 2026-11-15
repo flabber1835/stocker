@@ -154,6 +154,13 @@ async def serial_flow(database, monkeypatch):
     inner = DollarBroker()
     opened, _ = calendar.session_window(plan.effective_session)
     inner.now = opened.astimezone(timezone.utc) + timedelta(seconds=60)
+    observe_orders = inner.observe
+
+    async def observe_fills():
+        snapshot = await observe_orders()
+        return replace(snapshot, fills=await inner.recent_fills(opened))
+
+    monkeypatch.setattr(inner, "observe", observe_fills)
     database.execute("UPDATE sentinel_account_binding SET established_at=%s", (opened,))
     database.commit()
     from sentinel.execution import reconcile

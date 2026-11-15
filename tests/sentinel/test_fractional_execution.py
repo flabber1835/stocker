@@ -130,12 +130,27 @@ def test_filled_purchase_retains_actual_shares_and_no_topup(database):
     schema.ensure_schema(database)
     command = dollars(filled="9.99", state=S.FILLED)
     journal.save_command(database, command)
+    pending = progress.derive(database, projection=projection(), deployment=DEPLOY)
+    assert "FILL_PRINCIPAL_PENDING" in pending.blocked[AAA.security_id]
+    native_fills(database, command)
     result = progress.derive(database, projection=projection(), deployment=DEPLOY, require_terminal=True)
     assert result.targets[AAA.security_id] == D("9.99") and not result.budgets
     delta = progress.delta(database, projection=projection(), deployment=DEPLOY,
         security_id=AAA.security_id, observation=observation("9.99"))
     from sentinel.execution.commands import DeltaClass
     assert delta.classification is DeltaClass.NONE
+
+
+@pytest.mark.parametrize("shares", ["2", "10.5"])
+def test_filled_notional_refuses_material_overfill_and_shortfall(database, shares):
+    schema.ensure_schema(database)
+    command = replace(dollars(filled="2", state=S.FILLED), filled_quantity=D(shares))
+    journal.save_command(database, command)
+    native_fills(database, command)
+    witness = progress.evidence(database, projection=projection(), deployment=DEPLOY)
+    assert "FILL_PRINCIPAL_CONTRADICTORY" in witness["blocked"][AAA.security_id]
+    with pytest.raises(TargetProjectionRefused, match="obligations"):
+        progress.require_completed(witness)
 
 
 def test_unknown_has_no_reusable_dollars_or_guessed_share_remainder(database):

@@ -16,7 +16,7 @@ PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt
 def qualified_predecessor(module, raw):
     profile = basis._profile()
     if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
-            profile['after'], profile['entitlements_after']):
+            profile['after'], profile['entitlements_after'], profile['settlement_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
@@ -90,9 +90,9 @@ def test_decision_predecessor_guard_falsifier(monkeypatch):
 
 def test_exact_source_guard_falsifier(monkeypatch):
     raw = textwrap.dedent(inspect.getsource(basis.contribution))
-    assert raw.count('actual == value["after"]') == 1
+    assert raw.count('actual in after') == 1
     scope = {}
-    exec(raw.replace('actual == value["after"]', 'True'), vars(basis), scope)
+    exec(raw.replace('actual in after', 'True'), vars(basis), scope)
     monkeypatch.setattr(basis, 'contribution', scope['contribution'])
     with pytest.raises(AssertionError):
         test_unknown_execution_or_action_source_never_inherits_qualified_identity()
@@ -128,3 +128,7 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert installed_fractional['execution/reconcile.py'] == basis._profile()['after']
     assert runtime_basis.predecessor_view(actual, previous=installed_fractional) == installed_fractional
     assert runtime_basis.predecessor_view(edited, previous=installed_fractional) is edited
+    local_patch = profile["retained_predecessors"][runtime_basis.FRACTIONAL_LOCAL_PREDECESSOR]["files"]
+    assert local_patch["execution/reconcile.py"] == basis._profile()["entitlements_after"]
+    assert runtime_basis.predecessor_view(actual, previous=local_patch) == local_patch
+    assert runtime_basis.predecessor_view(edited, previous=local_patch) is edited

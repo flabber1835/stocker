@@ -1592,11 +1592,15 @@ class NativeBrokerFill(contract.BrokerFill):
     asset_id: Optional[str] = None
     side: Optional[Side] = None
     raw: dict = field(default_factory=dict)
+    cash_amount: Optional[Decimal] = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.activity_id is not None and not str(self.activity_id).strip():
             raise ValueError("native fill activity id must be non-empty")
+        if self.cash_amount is not None and (
+                not isinstance(self.cash_amount, Decimal) or not self.cash_amount.is_finite()):
+            raise ValueError("native fill cash impact must be a finite Decimal")
 
 OriginalAlpaca = AlpacaExecutionBroker
 
@@ -1917,7 +1921,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             through: datetime,
             since_event_id: Optional[str] = None,
             verify_snapshot_replay: bool = False,
-            require_account_history: bool = False) -> tuple[dict, ...]:
+            require_account_history: bool = False,
+            expected_identity: Optional[contract.BrokerAccountIdentity] = None,
+            ) -> tuple[dict, ...]:
         floor = _required_aware_ts(
             after, where="Activity SSE lower boundary")
         upper = _required_aware_ts(
@@ -1930,6 +1936,11 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if not account_uuid:
             raise MalformedBrokerPayload(
                 "Alpaca account payload has no UUID for Activity SSE binding")
+        if expected_identity is not None and (
+                (account.broker, account.account_id, account_uuid) != (
+                    expected_identity.broker, expected_identity.account_id,
+                    expected_identity.raw.get("id"))):
+            raise MalformedBrokerPayload("Activity SSE account differs from the order observation")
         if require_account_history:
             created_at = _required_aware_ts(
                 account.raw.get("created_at"),
@@ -2126,9 +2137,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             activity_subtype = str(
                 event.get("activity_subtype") or "").upper()
             if activity_type == "TRD":
-                # Sentinel's exact durable fill ledger already applies
-                # trade notional to plan cash. Adding the Activity-SSE TRD
-                # net_amount here would book the same purchase/sale twice.
+                # An owned fill supplies trade cash through the fill journal.
+                # This cursor owns only the separate non-trade cash ledger.
                 # The enclosing batch still advances its event_id cursor;
                 # corrections/busts were refused above.
                 continue
@@ -2360,6 +2370,57 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         return await self.account_fill_interval_evidence(
             session=session, interval_start=interval_start)
 
+    @property
+    def supports_owned_order_fills(self) -> bool:
+        from sentinel.trading_environment import TradingEnvironment
+        return self.financial_activity_sse and self.environment is TradingEnvironment.PAPER
+
+    async def owned_order_fills(self, *, orders, identity, through):
+        """Read positive executions for exact current PAPER orders."""
+        if not self.supports_owned_order_fills:
+            raise BrokerAuthorityRefused("owned order fill evidence is PAPER-only")
+        orders = tuple(orders)
+        if not orders or any(order.submitted_at is None for order in orders):
+            raise MalformedBrokerPayload("owned fill read requires exact order submission clocks")
+        first = min(order.submitted_at for order in orders).astimezone(timezone.utc)
+        after = first.replace(hour=0, minute=0, second=0, microsecond=0)
+        events = await self._bounded_activity_events(
+            after=after, through=through, expected_identity=identity)
+        order_ids = {order.broker_order_id for order in orders}
+        client_keys = {order.client_key for order in orders}
+        return tuple(self._activity_execution_fill(event) for event in events
+                     if str(event.get("activity_type") or "").upper() == "TRD"
+                     and (str(event["details"].get("order_id") or "").strip() in order_ids
+                          or str(event["details"].get("client_order_id") or "").strip() in client_keys))
+
+    @staticmethod
+    def _activity_execution_fill(event):
+        details = event["details"]
+        execution_type = str(details.get("execution_type") or "").lower()
+        if event.get("previous_id") or execution_type in {"trade_correct", "trade_bust"}:
+            raise ActivityCorrectionRequiresRecovery(
+                "trade correction/bust cannot be flattened into an append-only fill history",
+                raw_event=event)
+        order_id = str(details.get("order_id") or "").strip()
+        asset_id = str(details.get("asset_id") or "").strip()
+        side = str(details.get("side") or "").lower()
+        if execution_type != "fill" or not order_id or not asset_id or side not in {"buy", "sell"}:
+            raise MalformedBrokerPayload(
+                "TRD native order/asset/side/execution type is missing or unsupported", raw_event=event)
+        try:
+            raw_cash = event.get("net_amount")
+            return NativeBrokerFill(
+                activity_id=str(event["ref_id"]), asset_id=asset_id,
+                side=Side.BUY if side == "buy" else Side.SELL, raw=dict(event),
+                client_key=(str(details["client_order_id"]) if details.get("client_order_id") else None),
+                broker_order_id=order_id, quantity=_required_dec(event.get("qty"), where="TRD qty"),
+                price=_required_dec(event.get("price"), where="TRD price"),
+                filled_at=_required_aware_ts(event.get("executed_at"), where="TRD execution time"),
+                cash_amount=(None if raw_cash is None else
+                             _required_dec(raw_cash, allow_negative=True, where="TRD net_amount")))
+        except (MalformedBrokerPayload, ValueError) as exc:
+            raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
+
     async def _recent_fills_bounded(
             self, since: datetime,
             through: Optional[datetime]) -> Sequence[contract.BrokerFill]:
@@ -2380,47 +2441,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             if through is not None else requested_floor)
         events = await self._bounded_activity_events(
             after=event_floor, through=upper)
-        fills: list[contract.BrokerFill] = []
-        for event in events:
-            if str(event.get("activity_type") or "").upper() != "TRD":
-                continue
-            details = event["details"]
-            execution_type = str(details.get("execution_type") or "").lower()
-            if (event.get("previous_id")
-                    or execution_type in {"trade_correct", "trade_bust"}):
-                raise ActivityCorrectionRequiresRecovery(
-                    "trade correction/bust cannot be flattened into an "
-                    "append-only fill history", raw_event=event)
-            order_id = str(details.get("order_id") or "").strip()
-            if not order_id:
-                raise MalformedBrokerPayload(
-                    "TRD Activity SSE event omitted details.order_id", raw_event=event)
-            asset_id = str(details.get('asset_id') or '').strip()
-            side = str(details.get('side') or '').lower()
-            if execution_type != 'fill' or not asset_id or side not in {'buy', 'sell'}:
-                raise MalformedBrokerPayload(
-                    'TRD native asset/side/execution type missing or unsupported', raw_event=event)
-            try:
-                fills.append(NativeBrokerFill(
-                    activity_id=str(event["ref_id"]),
-                    asset_id=asset_id, side=Side.BUY if side == 'buy' else Side.SELL,
-                    raw=dict(event),
-                    client_key=(str(details.get("client_order_id"))
-                                if details.get("client_order_id") else None),
-                    broker_order_id=order_id,
-                    quantity=_required_dec(
-                        event.get("qty"),
-                        where=f"TRD {event.get('event_id')} qty"),
-                    price=_required_dec(
-                        event.get("price"),
-                        where=f"TRD {event.get('event_id')} price"),
-                    filled_at=_required_aware_ts(
-                        event.get("executed_at"),
-                        where=f"TRD {event.get('event_id')} executed_at"),
-                ))
-            except (MalformedBrokerPayload, ValueError) as exc:
-                raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
-        return tuple(fills)
+        return tuple(self._activity_execution_fill(event) for event in events
+                     if str(event.get("activity_type") or "").upper() == "TRD")
 
     async def recent_fills(
             self, since: datetime) -> Sequence[contract.BrokerFill]:

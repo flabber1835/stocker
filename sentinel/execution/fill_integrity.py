@@ -1,15 +1,73 @@
 """Validate native execution history before it becomes economic authority."""
-from dataclasses import asdict, replace
-from decimal import Decimal
+from dataclasses import asdict, dataclass, replace
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import hashlib
 import json
 
 from sentinel.execution.identity import is_sentinel_key
+from sentinel.execution.contract import Side
+from sentinel.execution.states import CommandState
 
 
 class FillHistoryIncomplete(ValueError):
     pass
+
+
+_CENT = Fraction("0.01")
+_SHARE_INCREMENT = Fraction("0.000000001")
+
+
+def _signed_gross(side, gross):
+    if side is Side.BUY:
+        return -gross
+    if side is Side.SELL:
+        return gross
+    raise ValueError("fill cash impact is missing its native side")
+
+
+def validate_posted_cash(side, qty, price, cash_amount):
+    price = Fraction(price)
+    reported = Fraction(cash_amount)
+    signed = _signed_gross(side, Fraction(qty) * price)
+    if reported * signed < 0 or abs(reported - signed) > _CENT / 2 + _SHARE_INCREMENT * price:
+        raise ValueError("posted trade cash contradicts its native shares, side or price")
+
+
+def _validate_notional(notional, *, gross, prices, complete):
+    if notional is None:
+        return
+    tolerance = _CENT + _SHARE_INCREMENT * sum((Fraction(price) for price in prices), Fraction(0))
+    requested = Fraction(notional)
+    if gross > requested + tolerance or (complete and gross < requested - tolerance):
+        raise ValueError("native executions contradict the requested order notional")
+
+
+@dataclass(frozen=True)
+class FillEconomics:
+    gross: Fraction
+    cash: Fraction
+
+
+def owned_fill_coverage(conn, commands):
+    """Find current fractional orders whose fill facts are needed by plan cash."""
+    from sentinel.execution import fractional_progress, journal, target_reprojection
+    if not commands:
+        return {}
+    plan = journal.latest_plan(conn)
+    if plan is None:
+        return {}
+    owned = {c.client_key: c for c in commands if c.identity.plan_id == plan.plan_id
+             and c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}}
+    if not owned or not fractional_progress.is_fractional(
+            target_reprojection.load_projection(conn, plan_id=plan.plan_id)):
+        return {}
+    rows = conn.execute(
+        "SELECT f.client_key,SUM(f.quantity) FROM sentinel_fills f"
+        " JOIN sentinel_commands c ON c.client_key=f.client_key AND c.broker_order_id=f.broker_order_id"
+        " WHERE f.client_key=ANY(%s) GROUP BY f.client_key", (list(owned),)).fetchall()
+    covered = dict(rows)
+    return {key: (command, covered.get(key, Decimal(0))) for key, command in owned.items()}
 
 
 def _serialized_average_gross_interval(quantity, average):
@@ -29,28 +87,55 @@ def gross_matches_serialized_average(quantity, gross, average):
     return interval is not None and interval[0] <= Fraction(gross) <= interval[1]
 
 
-def exact_fill_principal(conn, command) -> Fraction:
-    """Return monetary authority only for a complete, consistent owned fill set."""
+def exact_fill_economics(conn, command, *, verify_notional=True) -> FillEconomics:
+    """Verify executed principal and signed cash from the same owned fill set."""
+    from sentinel.execution.journal import FILL_CASH_PREFIX
     if command.filled_quantity == 0:
-        return Fraction(0)
+        return FillEconomics(Fraction(0), Fraction(0))
     if not command.broker_order_id:
         raise ValueError("filled command has no native order identity")
-    quantity, gross = conn.execute(
-        "SELECT COALESCE(SUM(quantity),0),COALESCE(SUM(quantity*price),0)"
-        " FROM sentinel_fills WHERE client_key=%s AND broker_order_id=%s",
-        (command.client_key, command.broker_order_id)).fetchone()
+    rows = conn.execute(
+        "SELECT f.quantity,f.price,cash.state FROM sentinel_fills f"
+        " LEFT JOIN sentinel_processed_sessions cash ON cash.cursor_name=%s || f.fill_key"
+        " WHERE f.client_key=%s AND f.broker_order_id=%s",
+        (FILL_CASH_PREFIX, command.client_key, command.broker_order_id)).fetchall()
+    quantity, gross, cash = Fraction(0), Fraction(0), Fraction(0)
+    for qty, price, posted in rows:
+        principal = Fraction(qty) * Fraction(price)
+        quantity += Fraction(qty)
+        gross += principal
+        if posted is None:
+            cash += _signed_gross(command.side, principal)
+        else:
+            if (not isinstance(posted, dict) or set(posted) != {"order_id", "client_key", "amount"}
+                    or posted["order_id"] != command.broker_order_id or posted["client_key"] != command.client_key):
+                raise ValueError("posted trade cash is not bound to the owned fill")
+            try:
+                amount = Decimal(posted["amount"])
+                if not amount.is_finite():
+                    raise InvalidOperation
+            except (InvalidOperation, TypeError) as exc:
+                raise ValueError("posted trade cash must be a finite decimal") from exc
+            validate_posted_cash(command.side, qty, price, amount)
+            cash += Fraction(amount)
     expected = command.filled_quantity
     average = command.filled_average_price
     if (average is None or quantity > expected or gross < 0
             or (quantity > 0 and gross == 0)):
         raise ValueError("native fill principal contradicts the durable command")
-    if quantity < expected:
+    complete = quantity == expected
+    if verify_notional and command.notional is not None:
+        prices = [price for _, price, _ in rows]
+        _validate_notional(command.notional, gross=gross, prices=prices,
+                           complete=complete and command.state is CommandState.FILLED)
+        _validate_notional(command.notional, gross=-cash, prices=prices, complete=False)
+    if not complete:
         if not partial_gross_leaves_positive_notional(expected, gross, average):
             raise ValueError("native fills leave no positive principal for missing shares")
         raise FillHistoryIncomplete("exact native fill coverage is required")
     if not gross_matches_serialized_average(expected, gross, average):
         raise ValueError("native fill principal contradicts the durable order average")
-    return Fraction(gross)
+    return FillEconomics(gross, cash)
 
 
 def partial_gross_leaves_positive_notional(quantity, gross, average):
@@ -59,7 +144,7 @@ def partial_gross_leaves_positive_notional(quantity, gross, average):
 
 
 def validate(observation, orders):
-    totals, gross, seen = {}, {}, set()
+    totals, gross, prices, posted_debits, seen = {}, {}, {}, {}, set()
     for fill in observation.fills:
         order = orders.get(fill.broker_order_id)
         if order is None:
@@ -89,12 +174,22 @@ def validate(observation, orders):
         if fill.filled_at > closed:
             raise ValueError('native fill executes after the DAY order session')
         key = order.broker_order_id
+        principal = Fraction(fill.quantity) * Fraction(fill.price)
+        posted = getattr(fill, 'cash_amount', None)
+        if posted is not None:
+            validate_posted_cash(order.side, fill.quantity, fill.price, posted)
         totals[key] = totals.get(key, Fraction(0)) + Fraction(fill.quantity)
-        gross[key] = gross.get(key, Fraction(0)) + Fraction(fill.quantity) * Fraction(fill.price)
+        gross[key] = gross.get(key, Fraction(0)) + principal
+        prices.setdefault(key, []).append(fill.price)
+        posted_debits[key] = posted_debits.get(key, Fraction(0)) + (
+            principal if posted is None else -Fraction(posted))
         if totals[key] > Fraction(order.filled_quantity):
             raise ValueError('native fill quantity exceeds cumulative order fills')
     for key, quantity in totals.items():
         order = orders[key]
+        _validate_notional(order.notional, gross=gross[key], prices=prices[key],
+                           complete=quantity == order.filled_quantity and order.state is CommandState.FILLED)
+        _validate_notional(order.notional, gross=posted_debits[key], prices=prices[key], complete=False)
         if (quantity < Fraction(order.filled_quantity)
                 and not partial_gross_leaves_positive_notional(
                     order.filled_quantity, gross[key], order.filled_average_price)):
