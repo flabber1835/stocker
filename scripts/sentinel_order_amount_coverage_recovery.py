@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply one restored order-amount-migration witness under the canonical host lock."""
+"""Apply an exact order-amount or backup-compaction witness under the host lock."""
 import argparse
 import hashlib
 import json
@@ -17,7 +17,11 @@ from sentinel_phase_records import publish_immutable, read_document
 from sentinel_runtime_selection import _pointer_digest
 
 
-def execute(args):
+def execute(args, *, backup_compaction=False):
+    kind = 'backup-compaction' if backup_compaction else 'order-amount'
+    module = ('sentinel.backup_compaction_coverage_recovery' if backup_compaction
+              else 'sentinel.order_amount_coverage_recovery')
+    witness_path = '/' + kind + '-ddl-witness.json'
     root=Path(__file__).resolve().parents[1]
     ambient={key:value for key,value in os.environ.items() if key in {
         'PATH','HOME','USER','LOGNAME','LANG','XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS'}}
@@ -65,7 +69,7 @@ def execute(args):
     authority = core._resolve_repo_path(env.get('SENTINEL_AUTHORITY_ARTIFACTS_DIR',
         'artifacts/sentinel/authority'))
     with host_lifecycle_lock(), core.DeploymentLock(authority / 'autonomous-deploy.lock'), \
-            tempfile.TemporaryDirectory(prefix='sentinel-order-amount-ddl-witness-') as private:
+            tempfile.TemporaryDirectory(prefix='sentinel-' + kind + '-ddl-witness-') as private:
         if _pointer_digest() != receipt['runtime_image']:
             raise core.DeployRefused('validated runtime changed before coverage recovery')
         runtime_witness=Path(private)/'witness.json'
@@ -83,17 +87,17 @@ def execute(args):
         compose=['docker','compose',*graph_args]
         result=core._json_output(runner.run(compose+[
             '--profile','cli','run','--rm','-T','--no-deps',
-            '--volume',str(runtime_witness)+':/order-amount-ddl-witness.json:ro',
+            '--volume',str(runtime_witness)+':'+witness_path+':ro',
             '--entrypoint','timeout','sentinel','--kill-after=5s','600s',
-            'python','-B','-m','sentinel.order_amount_coverage_recovery',
-            '--apply','/order-amount-ddl-witness.json','--backup',args.backup,
+            'python','-B','-m',module,
+            '--apply',witness_path,'--backup',args.backup,
             '--confirm-witness-sha256',args.confirm_witness_sha256,
             '--expect-account',receipt['paper_account_id'],
             '--deployment-id',receipt['deployment_id']],capture=True,timeout=660),
-            label='order-amount DDL coverage transfer')
+            label=kind+' DDL coverage transfer')
         if (set(result)!={'schema','witness_content_sha256','backup','prefixes',
                          'operational_ready','broker_contacted'}
-                or result.get('schema')!='sentinel.order-amount-coverage-transfer/1'
+                or result.get('schema')!='sentinel.'+kind+'-coverage-transfer/1'
                 or result.get('witness_content_sha256')!=content_sha
                 or result.get('backup')!=args.backup
                 or not isinstance(result.get('prefixes'),dict)
@@ -117,9 +121,10 @@ def main(argv=None):
     parser.add_argument('--confirm-witness-sha256',required=True)
     parser.add_argument('--backup',required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--backup-compaction', action='store_true')
     args=parser.parse_args(argv)
     try:
-        execute(args);return 0
+        execute(args, backup_compaction=args.backup_compaction);return 0
     except (OSError,ValueError,core.DeployRefused,certification.CertificationVerificationRefused) as exc:
         print('REFUSED: '+str(exc),file=sys.stderr);return 2
 

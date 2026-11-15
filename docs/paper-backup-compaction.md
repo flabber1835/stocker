@@ -66,3 +66,51 @@ with its original source inventory. The source transition carries no new
 financial authority. Qualify the current candidate against both that installed
 inventory and the existing historical witnesses, including the unknown-source
 refusals.
+
+## Recovering the invalidated execution evidence
+
+The November 15 incident advanced the operational DDL epoch from 142 to 410.
+The subsequent PR #593 installation ran the full feed migration and advanced
+it by another 65 events to 475. The two complete authenticated execution
+prefixes still name epoch 142. The runtime must continue to refuse them
+until the operator proves that the data those prefixes certify survived.
+
+Use a one-time coverage transfer for this exact maintenance and installation
+sequence. Capture a signed witness from a verified, isolated, paused physical
+restore taken before compaction. The retained base at 09:45 UTC predates
+normal observation and plan writes. Use base `base-20261115T094526Z` and
+replay through the commit at `45/62381E78` (15:12:06 UTC), after those writes
+and before compaction. Verify the contiguous archived WAL and its SHA-256
+sidecars through the selected segment. Require the restore to pause at the
+exact commit end, `45/62381EA0`. The restored database is read-only and in
+recovery. Its historical automation control need not have been fenced.
+Require the original acquisition delete
+function, the exact old epoch, the physical database and PAPER account binding,
+both current authenticated prefixes, and streaming binary digests of their
+watched source rows and change histories. Bind the witness to the selected
+backup, recovery marker, backup metadata digest, and exact replay end.
+
+Apply the witness under the existing lifecycle and journal writer locks while
+automation is disabled and killed. Lock the watched relations, require the
+installed successor schema and exact epoch 475 in the same audit incarnation,
+and independently compare the account binding, source relations, source bytes,
+tracking coordinates, and original authenticated prefixes. Market acquisition
+payload retired by the documented operation is outside the two coverage
+inventories. Normal activation still independently qualifies retained market
+inputs. Write both prefixes atomically with their original bodies and
+boundaries and the current inventory. Additional DDL, changed bytes, ambiguous
+proof or a replayed witness must refuse. This operation issues no broker
+command, grants no authority and cannot enable automation.
+
+After installing the signed recovery release while fenced, run both steps
+through the native systemd user manager so they see the canonical USB mount.
+Use the verified pre-compaction backup and the successful installation receipt
+for that release.
+
+```sh
+bash scripts/sentinel-restore-drill.sh --physical-only --backup EXACT_PRE_COMPACTION_BASE --backup-compaction-witness ABSOLUTE_NEW_WITNESS_PATH
+python3 scripts/sentinel_order_amount_coverage_recovery.py --backup-compaction --installation-receipt EXACT_RECEIPT --witness EXACT_WITNESS --confirm-witness-sha256 FILE_SHA256 --backup BASE_NAME --output ABSOLUTE_NEW_TRANSFER_RECEIPT
+```
+
+The transfer receipt records evidence recovery only. Run normal PAPER
+activation after the transfer has passed.

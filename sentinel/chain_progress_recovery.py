@@ -80,14 +80,14 @@ def _sources(conn):
     return names
 
 
-def _source_digests(conn):
+def _source_digests(conn, names=None):
     """Stream deterministic binary tuples without a full-history result buffer."""
     for setting,value in {'max_parallel_workers_per_gather':'0','synchronize_seqscans':'off',
             'enable_indexscan':'off','enable_indexonlyscan':'off','enable_bitmapscan':'off',
             'enable_seqscan':'on','statement_timeout':'600000'}.items():
         conn.execute(sql.SQL('SET LOCAL {} TO {}').format(sql.Identifier(setting),sql.Literal(value)))
     result={}
-    for name in sorted(_sources(conn)):
+    for name in sorted(_sources(conn) if names is None else names):
         if name=='sentinel_sep_staging':
             # Physical recovery deliberately has no rows for UNLOGGED scratch.
             # Retain its identity in the witness and require empty scratch on

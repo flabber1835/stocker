@@ -1,4 +1,5 @@
 """Native recovery host owner with external Git, CI and Docker responses only."""
+from functools import partial
 import hashlib
 import json
 import os
@@ -18,10 +19,13 @@ SHA='a'*40
 IMAGE='ghcr.io/flabber1835/stocker/sentinel@sha256:'+'b'*64
 
 
-@pytest.fixture(params=[progress_owner, order_amount_owner], ids=["progress", "order-amount"])
+@pytest.fixture(params=["progress", "order-amount", "backup-compaction"])
 def operation(monkeypatch,tmp_path,request):
-    owner = request.param
-    order_amount = owner is order_amount_owner
+    kind = request.param
+    owner = progress_owner if kind == 'progress' else order_amount_owner
+    uses_signed_pointer = owner is order_amount_owner
+    if kind == 'backup-compaction':
+        monkeypatch.setattr(owner, 'execute', partial(owner.execute, backup_compaction=True))
     root=tmp_path/'checkout';(root/'scripts').mkdir(parents=True)
     monkeypatch.setattr(owner,'__file__',str(root/'scripts'/Path(owner.__file__).name))
     (root/'.env').write_text('SENTINEL_BACKUP_DIR=/backup\nSENTINEL_POSTGRES_PASSWORD=synthetic\n'
@@ -45,7 +49,7 @@ def operation(monkeypatch,tmp_path,request):
     content_sha=hashlib.sha256(json.dumps(json.loads(witness.read_text()),sort_keys=True,
         separators=(',',':')).encode()).hexdigest()
     state=dict(dirty=False,head=SHA,proof_image=IMAGE,graph='-f docker-compose.sentinel.yml',
-        command_failed=False,result=dict(schema=('sentinel.order-amount-coverage-transfer/1' if order_amount
+        command_failed=False,result=dict(schema=('sentinel.'+kind+'-coverage-transfer/1' if uses_signed_pointer
             else 'sentinel.chain-progress-coverage-transfer/1'),
             witness_content_sha256=content_sha,backup=args.backup,
             prefixes={'OBSERVATION':'c'*64,'MIRROR':'d'*64},operational_ready=False,broker_contacted=False))
@@ -55,9 +59,9 @@ def operation(monkeypatch,tmp_path,request):
         return ('dirty' if state['dirty'] else '') if 'status' in argv else state['head']
     monkeypatch.setattr(owner.subprocess,'check_output',git)
     monkeypatch.setattr(owner.certification,'verify_current',lambda **kwargs:{'certified_image':state['proof_image']})
-    if order_amount:
+    if uses_signed_pointer:
         monkeypatch.setattr(owner, '_pointer_digest', lambda: IMAGE)
-    runtime_target = ':/order-amount-ddl-witness.json:ro' if order_amount else ':/progress-witness.json:ro'
+    runtime_target = ':/'+kind+'-ddl-witness.json:ro' if uses_signed_pointer else ':/progress-witness.json:ro'
     class Runner:
         def __init__(self,env,log):
             assert env['SENTINEL_POSTGRES_PASSWORD']=='synthetic'
@@ -67,6 +71,8 @@ def operation(monkeypatch,tmp_path,request):
             if argv[:2]==['bash','scripts/sentinel-compose.sh']:
                 return subprocess.CompletedProcess(argv,0,state['graph'],'')
             assert '--no-deps' in argv and '-B' in argv and '-m' in argv
+            if kind == 'backup-compaction':
+                assert argv[argv.index('-m')+1] == 'sentinel.backup_compaction_coverage_recovery'
             mounted=Path(argv[argv.index('--volume')+1].removesuffix(runtime_target))
             assert mounted!=witness and mounted.read_bytes()==witness.read_bytes()
             assert mounted.stat().st_mode&0o777==0o444

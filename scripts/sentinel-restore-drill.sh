@@ -40,12 +40,13 @@ while [ "$#" -gt 0 ]; do
       PHYSICAL_ONLY=1
       shift
       ;;
-    --chain-progress-witness|--order-amount-witness)
+    --chain-progress-witness|--order-amount-witness|--backup-compaction-witness)
       [ "$#" -ge 2 ] && [ -z "$WITNESS_OUTPUT" ] || {
         echo 'REFUSED: witness requires one unique output path' >&2; exit 2; }
       case "$1" in
         --chain-progress-witness) WITNESS_MODULE=sentinel.chain_progress_recovery ;;
         --order-amount-witness) WITNESS_MODULE=sentinel.order_amount_coverage_recovery ;;
+        --backup-compaction-witness) WITNESS_MODULE=sentinel.backup_compaction_coverage_recovery ;;
       esac
       WITNESS_OUTPUT="$2"
       shift 2
@@ -147,6 +148,15 @@ if [ -n "$SYSTEM_ID" ]; then
   METADATA_SHA256="$(metadata_digest)"
   [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
     echo 'REFUSED: restore metadata digest unavailable' >&2; exit 4; }
+fi
+if [ "$WITNESS_MODULE" = sentinel.backup_compaction_coverage_recovery ]; then
+  [ "$NAME" = base-20261115T094526Z ] && [ "$TARGET_LSN" = 45/22003038 ] &&
+    [ -n "$SYSTEM_ID" ] || {
+      echo 'REFUSED: compaction witness requires the exact retained pre-cleanup base' >&2; exit 4; }
+  "${COMPOSE[@]}" exec -T -u postgres sentinel-postgres bash -s -- "$NAME" \
+    "cluster-$SYSTEM_ID" "$SYSTEM_ID" 000000010000004500000062 16777216 \
+    < scripts/sentinel-backup-verify-chain.sh
+  TARGET_LSN=45/62381E78
 fi
 
 TOKEN="$(date -u +%Y%m%dT%H%M%SZ)-$$-$("$PYTHON" -c 'import secrets; print(secrets.token_hex(16))')"
@@ -300,11 +310,11 @@ if not isinstance(value,dict) or set(value)!={"witness","hmac_sha256"}:
     raise SystemExit("REFUSED: restored witness envelope is malformed")
 publish_immutable(Path(sys.argv[1]),value)
 ' "$WITNESS_OUTPUT"
-    if [ "$WITNESS_MODULE" = sentinel.chain_progress_recovery ]; then
-      echo "chain_progress_witness_ready:$WITNESS_OUTPUT"
-    else
-      echo "order_amount_witness_ready:$WITNESS_OUTPUT"
-    fi
+    case "$WITNESS_MODULE" in
+      sentinel.chain_progress_recovery) echo "chain_progress_witness_ready:$WITNESS_OUTPUT" ;;
+      sentinel.order_amount_coverage_recovery) echo "order_amount_witness_ready:$WITNESS_OUTPUT" ;;
+      sentinel.backup_compaction_coverage_recovery) echo "backup_compaction_witness_ready:$WITNESS_OUTPUT" ;;
+    esac
   fi
   exit 0
 fi
