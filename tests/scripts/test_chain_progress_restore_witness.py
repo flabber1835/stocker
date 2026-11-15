@@ -10,7 +10,35 @@ import pytest
 ROOT=Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 
 
-@pytest.mark.parametrize('kind', ['chain_progress', 'order_amount'])
+@pytest.mark.parametrize('fault', [None, 'base', 'marker_lsn', 'checksum'])
+def test_compaction_replay_selects_only_the_verified_wal_coordinate(fault):
+    source = (ROOT / 'scripts/sentinel-restore-drill.sh').read_text()
+    start = source.index('\nif [ "$WITNESS_MODULE" = sentinel.backup_compaction_coverage_recovery ]; then')
+    end = source.index('\nTOKEN=', start)
+    runner = '''
+verified_chain() {
+  [ "$*" = "exec -T -u postgres sentinel-postgres bash -s -- base-20261115T094526Z cluster-1 1 000000010000004500000062 16777216" ]
+  [ "$FAULT" != checksum ]
+}
+COMPOSE=(verified_chain)
+'''
+    env = dict(os.environ, NAME='base-20261115T094526Z', SYSTEM_ID='1',
+               TARGET_LSN='45/22003038', WITNESS_MODULE='sentinel.backup_compaction_coverage_recovery',
+               FAULT=fault or '')
+    if fault == 'base':
+        env['NAME'] = 'base-20261115T155914Z'
+    elif fault == 'marker_lsn':
+        env['TARGET_LSN'] = '45/22003040'
+    result = subprocess.run(['bash', '-eu', '-c', runner + source[start:end] + '\nprintf "%s" "$TARGET_LSN"'],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    if fault:
+        assert result.returncode != 0 and not result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == '45/62381E78'
+
+
+@pytest.mark.parametrize('kind', ['chain_progress', 'order_amount', 'backup_compaction'])
 @pytest.mark.parametrize('fault',[None,'metadata','docker','witness','deadline','image'])
 def test_actual_paused_restore_witness_launcher_has_no_broker_or_secret_arguments(tmp_path,kind,fault):
     source=(ROOT/'scripts/sentinel-restore-drill.sh').read_text()
@@ -42,7 +70,8 @@ print(json.dumps({'witness':{'private_fixture':True},'hmac_sha256':'a'*64}))
 ''')
     output=tmp_path/'witness.json'
     module = 'sentinel.' + {'chain_progress': 'chain_progress_recovery',
-                            'order_amount': 'order_amount_coverage_recovery'}[kind]
+                            'order_amount': 'order_amount_coverage_recovery',
+                            'backup_compaction': 'backup_compaction_coverage_recovery'}[kind]
     env=dict(PATH=os.environ['PATH'],PHYSICAL_ONLY='1',WITNESS_OUTPUT=str(output), WITNESS_MODULE=module,
         SENTINEL_RUNTIME_IMAGE_REF='repo/sentinel@sha256:'+'b'*64,
         METADATA_SHA256='a'*64,SENTINEL_POSTGRES_PASSWORD='synthetic-only-password',
