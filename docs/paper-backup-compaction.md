@@ -52,7 +52,14 @@ Verify the logical archive and the new physical base independently.
 
 ## Release qualification
 
-Seal the acquisition guard's exact successor bytes in the existing complete
+Install the optimized delete function through the composed feed migration.
+The retention schema owns its SQL. The migration substitutes that one
+definition before creating the trigger, keeping the exact acquisition read
+dependencies and their economic witness. The migration and read-only catalog
+validator use the same effective definition. Verify the normal migration
+replaces the old guard and restores catalog admission.
+
+Seal the changed retention migration sources in the existing complete
 source profile. Preserve the installed signed PAPER revision
 `93f2acb4fc328b1ad47da34507d0222910a5de6e` as an exact retained predecessor
 with its original source inventory. The source transition carries no new

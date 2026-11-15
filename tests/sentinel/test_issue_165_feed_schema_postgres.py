@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 
 from sentinel import schema as behavioral_schema
+from sentinel.feed import acquisition_part_schema
 from sentinel.feed import runtime_schema
 from sentinel.feed import staging
 from sentinel.feed import store as feed_store
@@ -80,6 +81,24 @@ def test_explicit_migration_is_idempotent_and_runtime_valid(migrated):
     feed_store.require_feed_schema(migrated)
 
     assert second == first
+
+
+def test_explicit_migration_upgrades_the_acquisition_retirement_guard(migrated):
+    (legacy_guard,) = (
+        statement for statement in acquisition_part_schema.DDL
+        if statement.startswith("CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()")
+    )
+    migrated.execute(legacy_guard)
+    migrated.commit()
+
+    with pytest.raises(runtime_schema.FeedSchemaRefused, match="sentinel_acquisition_price_delete_guard"):
+        feed_store.require_feed_schema(migrated)
+    feed_store.migrate_schema(migrated)
+    feed_store.require_feed_schema(migrated)
+    body = migrated.execute(
+        "SELECT prosrc FROM pg_proc WHERE oid='sentinel_acquisition_price_delete_guard()'::regprocedure"
+    ).fetchone()[0]
+    assert "WITH deleted_parts AS MATERIALIZED" in body
 
 
 def test_staging_keeps_the_migrated_catalog_valid_and_source_values_exact(migrated):

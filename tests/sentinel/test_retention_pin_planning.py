@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from sentinel.feed import acquisition_part_schema, normalized_layout, retention, retention_schema
+from sentinel.feed.schema import DDL as FEED_DDL
 from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
 
 
@@ -37,10 +38,11 @@ def pin_sql(pg):
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_part_pinned(',acquisition_part_schema.DDL),
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_delete_guard()',acquisition_part_schema.DDL),
         ('CREATE TRIGGER acquisition_delete_guard BEFORE DELETE ON sentinel_acquisition_parts',acquisition_part_schema.DDL),
-        ('CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()',acquisition_part_schema.DDL),
+        ('CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard()',FEED_DDL),
         ('CREATE TRIGGER acquisition_delete_guard AFTER DELETE ON sentinel_acquisition_prices',acquisition_part_schema.DDL),
     ):
-        conn.execute(next(query for query in statements if query.startswith(prefix)))
+        (statement,) = (query for query in statements if query.startswith(prefix))
+        conn.execute(statement)
     conn.commit()
     try:
         yield conn,Path(pg.datadir,'server.log')

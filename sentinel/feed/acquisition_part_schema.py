@@ -197,10 +197,8 @@ DDL.extend([
     """CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
       PERFORM sentinel_retention_locks();
-        IF EXISTS(
-          WITH deleted_parts AS MATERIALIZED (SELECT DISTINCT part_id FROM retired_prices)
-          SELECT 1 FROM deleted_parts WHERE sentinel_acquisition_part_pinned(part_id)
-        )
+      IF EXISTS(SELECT 1 FROM (SELECT DISTINCT part_id FROM retired_prices) d
+                WHERE sentinel_acquisition_part_pinned(d.part_id))
       THEN RAISE EXCEPTION 'active acquisition part cannot be retired'; END IF;
       RETURN NULL;
     END $$""",

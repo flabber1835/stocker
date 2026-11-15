@@ -1,5 +1,16 @@
 """Narrow retirement of bulk payloads; immutable identities remain intact."""
 
+ACQUISITION_PRICE_DELETE_GUARD = """CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      PERFORM sentinel_retention_locks();
+      IF EXISTS(
+        WITH deleted_parts AS MATERIALIZED (SELECT DISTINCT part_id FROM retired_prices)
+        SELECT 1 FROM deleted_parts WHERE sentinel_acquisition_part_pinned(part_id)
+      )
+      THEN RAISE EXCEPTION 'active acquisition part cannot be retired'; END IF;
+      RETURN NULL;
+    END $$"""
+
 DDL = [
     """CREATE TABLE IF NOT EXISTS sentinel_snapshot_retirements (
         candidate_id UUID PRIMARY KEY REFERENCES sentinel_price_candidates,
