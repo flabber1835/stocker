@@ -446,7 +446,7 @@ def test_recurring_renewal_allows_copy_cleanup_and_publication(boundary):
         return boundary(command, **kwargs)
 
     assert coordinator.tick('/media', run)['retention_ready']
-    assert budgets['scripts/sentinel-base-backup.sh'] == 900
+    assert budgets['scripts/sentinel-base-backup.sh'] == 1500
     assert 'scripts/sentinel-restore-drill.sh' not in budgets
 
 
