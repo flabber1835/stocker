@@ -83,7 +83,7 @@ def test_notional_and_headroom_fit_both_native_cash_bounds(cash, power):
 def test_cash_guard_falsifier(monkeypatch):
     monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", _compiled(
         GuardedExecutionBroker._prepare_submit,
-        "if estimate > available_purchase_cash(account):", "if False:"))
+        "if estimate > spendable:", "if False:"))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_notional_and_headroom_fit_both_native_cash_bounds("999", "1000")
 

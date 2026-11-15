@@ -85,7 +85,8 @@ def carry_quantities(*, previous, previous_state, projection, state,
                            for p in snapshot.pending if str(p["security_id"]) == sid)
             if sid == DEFENSIVE_SECURITY_ID:
                 symbols.add("BIL")
-            material = actions.material_events_for(security_ids=(sid,), symbols=tuple(sorted(symbols)))
+            from sentinel.execution.share_units import material_events_for_security
+            material = material_events_for_security(actions, sid, symbols, after=through)
             if material:
                 raise TargetProjectionRefused("unsupported action intersects retained account shares")
             multiplier = actions(sid)
@@ -173,7 +174,7 @@ def build_execution_plan(*, retained_targets, retry_openings, **kwargs):
 
 
 def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
-                legacy_fractional=False):
+                legacy_fractional=False, carry_unprojected=True):
     """Freeze the immediate predecessor and the derived continuing targets."""
     from sentinel import dual_plan_authority
     from sentinel.core.production import SessionState
@@ -212,6 +213,7 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
     progress = None
     fulfilled_targets = None
     whole = set()
+    inherited_budgets = {}
     if fractional_progress.is_fractional(projection):
         progress = fractional_progress.derive(conn, projection=projection,
             deployment=binding.identity, require_terminal=True, historical=legacy_fractional)
@@ -221,6 +223,14 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
         if not legacy_fractional:
             for sid in whole & progress.budgets.keys():
                 fulfilled_targets[sid] = progress.acquired_targets[sid]
+    elif projection is None and carry_unprojected:
+        prior_basis = authority.get("held_share_targets") or {}
+        if prior_basis.get("schema") == FRACTIONAL_SCHEMA:
+            inherited_budgets = prior_basis.get("purchase_budgets", {})
+            if inherited_budgets:
+                fulfilled_targets = dict(previous.target_basket)
+                fulfilled_targets.update({sid: Fraction(qty) for sid, qty in
+                    prior_basis.get("pending_share_targets", {}).items()})
     targets = carry_quantities(previous=previous, previous_state=prior_state,
         projection=projection, state=state, exposure=effective_exposure(state, rollout),
         actions=actions, fulfilled_targets=fulfilled_targets)
@@ -243,6 +253,13 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
             fulfillment_commands=[fractional_progress._witness(c) for c in sorted(
                 progress.commands, key=lambda c: c.client_key)
                 if c.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}])
+        if progress.budget_overruns:
+            body["budget_overruns"] = {sid: decimal_text(qty)
+                                       for sid, qty in sorted(progress.budget_overruns.items())}
+    elif budgets := {sid: amount for sid, amount in sorted(inherited_budgets.items())
+                     if sid in targets}:
+        body.update(schema=FRACTIONAL_SCHEMA, purchase_budgets=budgets, fulfillment_commands=[])
+    if body["schema"] in {LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
         pending = {sid: str(qty) for sid, qty in sorted(targets.items()) if isinstance(qty, Fraction)}
         if pending:
             body["pending_share_targets"] = pending
@@ -266,7 +283,8 @@ def verify_basis(conn, *, basis, state, binding, rollout):
             raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout,
         retry_skipped=basis["schema"] == RETRY_SCHEMA,
-        legacy_fractional=basis["schema"] == LEGACY_FRACTIONAL_SCHEMA)
+        legacy_fractional=basis["schema"] == LEGACY_FRACTIONAL_SCHEMA,
+        carry_unprojected=basis["schema"] == FRACTIONAL_SCHEMA)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     return {sid: Decimal(qty) for sid, qty in expected["targets"].items()}

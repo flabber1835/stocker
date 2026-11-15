@@ -86,6 +86,10 @@ class StalePlanRefused(RuntimeError):
     """The plan handed in is not the current authoritative intent."""
 
 
+class _ProvenUnsentCashShortfall(RuntimeError):
+    """The writer restored the exact order after consuming no-transport proof."""
+
+
 def adopt_plan(conn, plan: ExecutionPlan) -> ExecutionPlan:
     """Make `plan` the ONE current execution intent, durably.
 
@@ -416,7 +420,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         if fractional:
             return fractional_progress.delta(conn, projection=target_projection,
                 deployment=deployment, security_id=security_id, observation=observation,
-                min_increment=min_increment)
+                min_increment=min_increment,
+                restricted=(security_id in restrictions or security_id in rec.restricted_securities))
         return C.compute_delta(security_id=security_id,
             desired=desired.get(security_id, Decimal(0)), observation=observation,
             min_increment=min_increment)
@@ -465,10 +470,6 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # 2. SIZE EVERYTHING against one observation, before acting on any of it.
     #    Sizing incrementally as we go would measure each delta against a book
     #    the previous submission had already changed.
-    deltas = []
-    for security_id in sorted(_execution_universe(desired, observation)):
-        deltas.append(size(security_id, observation))
-
     submitted: list = []
     refused: dict = {}
     deferred: list = []
@@ -483,13 +484,15 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     restrictions.update(material_restrictions(actions, {
         sid: getattr(instruments.get(sid), "symbol", sid)
         for sid in desired if desired[sid] != 0
-        or any(item.security_id == sid for item in plan.opening_intents)}))
+        or any(item.security_id == sid for item in plan.opening_intents)},
+        after=plan.decision_session))
     restrictions.update(rec.restricted_securities)
     if fractional:
         progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
         deferred.extend(progress.blocked)
         deferral_reasons.update(progress.blocked)
         restrictions.update(fractional_progress.share_restrictions(target_projection))
+    deltas = [size(sid, observation) for sid in sorted(_execution_universe(desired, observation))]
     window_open = is_execution_window_open(plan, today)
 
     def issuer_admitted(delta, *, reserve=False):
@@ -614,8 +617,14 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 conn=conn, deployment=deployment, plan_id=plan.plan_id,
                 delta=delta, instrument=instruments[delta.security_id],
                 order_terms=order_terms)
-            sent = await _persist_and_send(
-                conn, broker, command, already_planned=already_planned)
+            try:
+                sent = await _persist_and_send(
+                    conn, broker, command, already_planned=already_planned,
+                    report_cash_shortfall=fractional and delta.is_increase)
+            except _ProvenUnsentCashShortfall as exc:
+                deferred.append(delta.security_id)
+                deferral_reasons[delta.security_id] = str(exc)
+                continue
             if sent.state is CommandState.PLANNED:
                 # Only _persist_and_send's consumed no-transport proof can
                 # return an unsent command. Preserve its exact key/economics.
@@ -654,8 +663,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a
     #    sale, and a sale's proceeds are not spendable until they exist.
     ordered = order_of_operations(deltas, opening_intents=plan.opening_intents)
-    reductions = [d for d in ordered
-                  if not d.is_increase and d.classification is not C.DeltaClass.NONE]
+    reductions = [d for d in ordered if not d.is_increase
+                  and d.classification is not C.DeltaClass.NONE]
     increases = [d for d in ordered
                  if d.is_increase and d.classification is not C.DeltaClass.NONE]
 
@@ -778,16 +787,24 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # The strict paper gateway supplies its account-cash authority here, at the
     # last read-only boundary before any increase. It runs for pure buys too;
     # cash can change after preflight even when there was no sale to settle.
-    if fractional and increases:
+    if fractional:
         from fractions import Fraction
         pending = target_projection.pending_share_targets
-        restricted_reductions = [
-            sid for sid in fractional_progress.share_restrictions(target_projection)
-            if Fraction(pending.get(sid, progress.targets.get(sid, 0))) < Fraction(rec.expected.get(sid, 0))]
-        if restricted_reductions:
+        restricted_reductions = []
+        for sid in sorted(restrictions.keys() | rec.restricted_securities.keys()):
+            target = Fraction(pending.get(sid, progress.targets.get(sid, 0)))
+            owned = Fraction(rec.expected.get(sid, 0))
+            if target < owned:
+                restricted_reductions.append(sid)
+            if target == owned and sid not in progress.budgets:
+                continue
+            if sid not in deferred:
+                deferred.append(sid)
+            deferral_reasons[sid] = rec.restricted_securities.get(sid) or restrictions[sid]
+        if restricted_reductions and increases:
             deferred.extend(d.security_id for d in increases)
             increases = []
-            settle_note = f"increases deferred with restricted reductions: {sorted(restricted_reductions)}"
+            settle_note = f"increases deferred with restricted reductions: {restricted_reductions}"
     if market and increases and (open_commands or any(order.is_working for order in observation.orders)):
         deferred.extend(delta.security_id for delta in increases)
         increases = []
@@ -968,7 +985,8 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
 
 
 async def _persist_and_send(conn, broker, command: C.Command, *,
-                            already_planned: bool = False) -> C.Command:
+                            already_planned: bool = False,
+                            report_cash_shortfall: bool = False) -> C.Command:
     """The three writes, in the order that makes a crash survivable.
 
     ```text
@@ -992,11 +1010,15 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     try:
         settled = await recovery.dispatch(broker, pending)
     except Exception as exc:
-        from sentinel.execution.guarded import GuardedExecutionBroker, PreTransportAuthorityRefused, OrderEvidenceNotReady
+        from sentinel.execution.guarded import (
+            GuardedExecutionBroker, InsufficientPurchaseCash,
+            OrderEvidenceNotReady, PreTransportAuthorityRefused)
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
             journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
+            if report_cash_shortfall and isinstance(exc, InsufficientPurchaseCash):
+                raise _ProvenUnsentCashShortfall(str(exc)) from exc
             if isinstance(exc, OrderEvidenceNotReady):
                 from dataclasses import replace
                 return replace(command, detail=str(exc))

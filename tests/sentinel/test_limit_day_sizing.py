@@ -26,8 +26,9 @@ def legacy_environment(monkeypatch):
     monkeypatch.delenv("SENTINEL_PAPER_BUY_CAP_BPS", raising=False)
 
 
-def references(plan, projection, *, prices=None):
-    symbols = {sid: sid.replace("SEC-", "") for sid in limits._wanted(plan, projection)}
+def references(plan, projection, *, prices=None, additional_security_ids=()):
+    symbols = {sid: sid.replace("SEC-", "")
+               for sid in limits._wanted(plan, projection) | set(additional_security_ids)}
     symbols["SENTINEL:BIL"] = "BIL"
     return limits.PriorCloseReferences(plan.fingerprint(), plan.decision_session, plan.effective_session,
         plan.publication_fingerprint, "candidate", "a" * 64, "b" * 64, "ALPACA_OPENFIGI",

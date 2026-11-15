@@ -81,7 +81,8 @@ def _exact_debit(conn, command, *, historical):
     """Native fills must cover the cumulative share counter before re-spending."""
     from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_economics
     try:
-        fills = exact_fill_economics(conn, command, verify_notional=not historical)
+        fills = exact_fill_economics(conn, command, verify_notional=not historical,
+                                     require_cash=not historical)
         return fills.gross if historical else max(fills.gross, -fills.cash)
     except FillHistoryIncomplete as exc:
         raise TargetProjectionRefused(f"FILL_PRINCIPAL_PENDING: {exc}") from exc
@@ -94,6 +95,7 @@ class Fulfillment:
     targets: dict[str, Decimal]
     acquired_targets: dict[str, Decimal]
     budgets: dict[str, Decimal]
+    budget_overruns: dict[str, Decimal]
     blocked: dict[str, str]
     commands: tuple
 
@@ -115,7 +117,7 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
     all_commands = journal.load_commands(conn, deployment, plan_id=projection.plan_id)
     commands = tuple(c for c in all_commands if c.client_key != ignore_key)
     targets, acquired = dict(projection.target_basket), dict(projection.target_basket)
-    budgets, blocked = {}, {}
+    budgets, overruns, blocked = {}, {}, {}
     for sid, row in projection.opening_sizing["purchases"].items():
         buys = sorted((c for c in commands if c.security_id == sid and c.side is Side.BUY
                        and c.state not in {S.PLANNED, S.SUPERSEDED}),
@@ -149,7 +151,15 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             continue
         available = Fraction(row["budget"]) - debit
         if available < 0:
-            blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
+            # The quote authorizes a fixed whole-share order. Its terminal
+            # market fill can cost more than the quote reserved.
+            if (not historical and all(c.quantity is not None
+                    and c.quantity == c.quantity.to_integral_value()
+                    and c.order_terms.order_type == "market" for c in buys)):
+                targets[sid] = acquired[sid]
+                overruns[sid] = exact_decimal(-available)
+            else:
+                blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
             continue
         if filled or (not historical and buys and buys[0].quantity is not None and acquired[sid] == targets[sid]):
             if acquired[sid] != targets[sid]:
@@ -168,18 +178,22 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
                  if reason != REJECTED_FOR_PLAN}
     if require_terminal and unsettled:
         raise TargetProjectionRefused("purchase fulfillment is not settled: " + str(unsettled))
-    return Fulfillment(targets, acquired, budgets, blocked, commands)
+    return Fulfillment(targets, acquired, budgets, overruns, blocked, commands)
 
 
 def evidence(conn, *, projection, deployment):
     """A rederivable close witness, never an independent financial authority."""
     progress = derive(conn, projection=projection, deployment=deployment)
-    return {
+    witness = {
         "targets": {sid: decimal_text(qty) for sid, qty in sorted(progress.targets.items())},
         "remaining_dollars": {sid: decimal_text(qty) for sid, qty in sorted(progress.budgets.items())},
         "blocked": dict(sorted((share_restrictions(projection) | progress.blocked).items())),
         "commands": [_witness(c) for c in sorted(progress.commands, key=lambda c: c.client_key)],
     }
+    if progress.budget_overruns:
+        witness["budget_overruns"] = {sid: decimal_text(qty)
+                                      for sid, qty in sorted(progress.budget_overruns.items())}
+    return witness
 
 
 def age_targets(conn, *, projection, targets, through, multipliers):
@@ -215,12 +229,12 @@ def require_completed(witness):
 
 
 def delta(conn, *, projection, deployment, security_id, observation,
-          min_increment=Decimal("0.000000001"), ignore_key=None):
+          min_increment=Decimal("0.000000001"), ignore_key=None, restricted=False):
     progress = derive(conn, projection=projection, deployment=deployment, ignore_key=ignore_key)
     result = C.compute_delta(security_id=security_id,
         desired=progress.targets.get(security_id, Decimal(0)), observation=observation,
         min_increment=min_increment)
-    if security_id in progress.blocked or security_id in share_restrictions(projection):
+    if restricted or security_id in progress.blocked or security_id in share_restrictions(projection):
         # Keep its shares visible, but a pending dollar remainder cannot be
         # sized as shares or submitted beside an unresolved command.
         from dataclasses import replace

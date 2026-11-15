@@ -66,7 +66,8 @@ class Delivery:
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
     def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False):
-        require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
+        require(evidence.same_preserved_state(evidence.snapshot(self.host), artifacts['preserved']),
+                'PRESERVED_STATE_CHANGED')
         if allow_restart and hasattr(self.host, 'postgres_after_restart'):
             postgres = self.host.postgres_after_restart(artifacts['postgres'])
         else:

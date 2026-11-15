@@ -16,7 +16,8 @@ PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt
 def qualified_predecessor(module, raw):
     profile = basis._profile()
     if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
-            profile['after'], profile['entitlements_after'], profile['settlement_after']):
+            profile['after'], profile['entitlements_after'], profile['settlement_after'],
+            profile['recovery_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
@@ -132,3 +133,8 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert local_patch["execution/reconcile.py"] == basis._profile()["entitlements_after"]
     assert runtime_basis.predecessor_view(actual, previous=local_patch) == local_patch
     assert runtime_basis.predecessor_view(edited, previous=local_patch) is edited
+    settlement = profile["retained_predecessors"][runtime_basis.FRACTIONAL_SETTLEMENT_PREDECESSOR]["files"]
+    assert settlement["execution/reconcile.py"] == basis._profile()["settlement_after"]
+    assert actual["execution/reconcile.py"] == basis._profile()["recovery_after"]
+    assert runtime_basis.predecessor_view(actual, previous=settlement) == settlement
+    assert runtime_basis.predecessor_view(edited, previous=settlement) is edited

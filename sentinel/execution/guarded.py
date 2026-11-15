@@ -76,6 +76,10 @@ class OrderEvidenceNotReady(PreTransportAuthorityRefused):
     """This security lacks a fresh quote/funding; its transport was prevented."""
 
 
+class InsufficientPurchaseCash(OrderEvidenceNotReady):
+    """A fresh native balance cannot fund this exact market purchase."""
+
+
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
@@ -92,6 +96,7 @@ class BrokerOperation(str, Enum):
     SUBMIT = "submit"
     CANCEL = "cancel"
     RECENT_FILLS = "recent_fills"
+    OWNED_ORDER_FILLS = "owned_order_fills"
 
 
 def _required_text(name: str, value: str) -> None:
@@ -375,7 +380,8 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     @property
     def supports_owned_order_fills(self) -> bool:
-        return not self._live and getattr(self._inner, "supports_owned_order_fills", False) is True
+        return (not self._live and getattr(self._inner, "supports_owned_order_fills", False) is True
+                and self._has_optional_override(self._inner, "owned_order_fills"))
 
     async def _read(self, operation: BrokerOperation, call):
         try:
@@ -732,8 +738,12 @@ class GuardedExecutionBroker(ExecutionBroker):
             try:
                 account = await self.account_snapshot()
                 estimate = exact_decimal(Fraction(notional) + Fraction(MARKET_BUY_HEADROOM))
-                if estimate > available_purchase_cash(account):
-                    raise OrderEvidenceNotReady("notional plus fee headroom exceeds available cash")
+                spendable = available_purchase_cash(account)
+                if (account.status.upper() != "ACTIVE" or account.trading_blocked
+                        or account.account_blocked or account.trade_suspended_by_user):
+                    raise PreTransportAuthorityRefused("account does not admit purchases")
+                if estimate > spendable:
+                    raise InsufficientPurchaseCash("notional plus fee headroom exceeds available cash")
                 await self._market_buy_funding(client_key=client_key, instrument=instrument,
                     quantity=None, notional=notional, order_terms=order_terms, account=account,
                     estimate=estimate, session=clock.timestamp.date())
@@ -778,10 +788,13 @@ class GuardedExecutionBroker(ExecutionBroker):
                     if (quote.session != clock.timestamp.date()
                             or quote.symbols.get(instrument.security_id) != instrument.symbol):
                         raise PreTransportAuthorityRefused("market BUY quote names another session or symbol")
+                    if (account.status.upper() != "ACTIVE" or account.trading_blocked
+                            or account.account_blocked or account.trade_suspended_by_user):
+                        raise PreTransportAuthorityRefused("account does not admit purchases")
                     estimate = estimated_market_buy_cost(quantity, ask)
                     if estimate > available:
-                        raise OrderFundingNotReady(
-                            "estimated market BUY cost exceeds native cash or buying power")
+                        raise InsufficientPurchaseCash(
+                            f"{instrument.symbol}: estimated market BUY cost exceeds native cash or buying power")
                     await self._market_buy_funding(client_key=client_key, instrument=instrument,
                         quantity=quantity, order_terms=order_terms, account=account,
                         estimate=estimate, session=quote.session)
@@ -932,12 +945,16 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         return await self._read(BrokerOperation.RECENT_FILLS, read)
 
-    async def owned_order_fills(self, *, orders, identity, through) -> Sequence[BrokerFill]:
+    async def owned_order_fills(
+            self, *, orders: Sequence[BrokerOrder], identity: BrokerAccountIdentity,
+            through: datetime) -> Sequence[BrokerFill]:
         if not self.supports_owned_order_fills:
             raise BrokerAuthorityRefused("owned order fill evidence is unavailable")
+
         async def read():
             return await self._inner.owned_order_fills(orders=orders, identity=identity, through=through)
-        return await self._read(BrokerOperation.RECENT_FILLS, read)
+
+        return await self._read(BrokerOperation.OWNED_ORDER_FILLS, read)
 
 
 __all__ = [

@@ -44,6 +44,7 @@ def prepared():
         source_binding={'job_state': 'PUBLISHED', 'job_publication': 87},
         authority_md5='authority', opening_md5='opening', push_policy_md5='notification-policy',
         issuer_evidence={'count': 0, 'md5': checks.EMPTY_ISSUER_EVIDENCE_MD5},
+        execution_recovery_evidence={'count': 0, 'md5': checks.EMPTY_ISSUER_EVIDENCE_MD5},
         push_subscriptions={'active': 2})
 
 
@@ -140,6 +141,20 @@ def test_removing_issuer_preservation_shape_guard_has_a_falsifier(monkeypatch):
         None if reason == 'ISSUER_EVIDENCE_PRESERVATION_MALFORMED' else original(value, reason))
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_snapshot_refuses_missing_or_malformed_issuer_preservation(None)
+
+
+def test_handoff_requires_execution_recovery_fingerprint_and_matches_old_receipt_scope():
+    host = Host()
+    old = deepcopy(host.state)
+    old.pop('execution_recovery_evidence')
+    host.state['execution_recovery_evidence'] = {'count': 1, 'md5': 'a' * 32}
+    current = evidence.snapshot(host)
+    assert evidence.same_preserved_state(current, old)
+    amended = dict(current, execution_recovery_evidence={'count': 1, 'md5': 'b' * 32})
+    assert not evidence.same_preserved_state(amended, current)
+    host.state.pop('execution_recovery_evidence')
+    with pytest.raises(model.DeliveryRefused, match='EXECUTION_RECOVERY_EVIDENCE_PRESERVATION_MALFORMED'):
+        evidence.snapshot(host)
 
 
 def test_host_sql_uses_server_read_only_and_bounded_small_hashes():

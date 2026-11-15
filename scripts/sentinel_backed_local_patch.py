@@ -443,7 +443,7 @@ class BackedHost(Host):
         decision=state['cycle']['decision_session']
         require(receipt['stage']=='APPLICATIONS_STARTED'
             and receipt['artifacts'].get('successor_proof_sha256')==digest(proof)
-            and receipt['artifacts']['preserved']==state
+            and evidence.same_preserved_state(state, receipt['artifacts']['preserved'])
             and isinstance(decision,str) and date.fromisoformat(decision).isoformat()==decision
             and book.get('session')==decision
             and book.get('state_sha256')==proof.get('book_state_sha256')
@@ -494,6 +494,9 @@ class BackedHost(Host):
         artifacts=record['artifacts']
         preserved=artifacts['preserved']
         comparison=state
+        if 'execution_recovery_evidence' in state and 'execution_recovery_evidence' not in preserved:
+            # The new operation preserves recovery evidence outside the old receipt's scope.
+            return None
         if 'issuer_evidence' not in preserved:
             issuer=state.get('issuer_evidence')
             if not (isinstance(issuer,dict) and set(issuer)=={'count','md5'}
@@ -503,7 +506,7 @@ class BackedHost(Host):
             # A predecessor cannot attest rows which its snapshot did not name.
             # Only their proven absence adds no old-image canonical fact.
             comparison=_without_issuer_evidence(state)
-        elif not evidence.valid_issuer_evidence(preserved['issuer_evidence']):
+        elif not evidence.valid_cursor_evidence(preserved['issuer_evidence']):
             return None
         if preserved!=comparison and not self._issuer_only_change(prior.request,record,state):
             return None
@@ -533,8 +536,8 @@ class BackedHost(Host):
                 and proof.get('plan')==current['plan']['plan_id']
                 and (isinstance(proof.get('settled_native_positions'),dict) if mode=='POST_TRADE'
                     else 'settled_native_positions' not in proof)
-                and evidence.valid_issuer_evidence(preserved.get('issuer_evidence'))
-                and evidence.valid_issuer_evidence(issuer)
+                and evidence.valid_cursor_evidence(preserved.get('issuer_evidence'))
+                and evidence.valid_cursor_evidence(issuer)
                 and _without_issuer_evidence(preserved)==_without_issuer_evidence(current)):
             return False
         observed=self.sql(checks.ISSUER_LINEAGE_SQL)
@@ -577,7 +580,8 @@ def require_started_state(host, record, values, pg, image):
         'BACKED_STARTED_PREDECESSOR_NOT_SELECTED')
     require_same_postgres_storage(record['postgres'],pg)
     host.request['predecessor'].update(postgres=pg,system=record['system'])
-    require(evidence.snapshot(host)==record['preserved'], 'BACKED_STARTED_FINANCIAL_STATE_CHANGED')
+    require(evidence.same_preserved_state(evidence.snapshot(host), record['preserved']),
+            'BACKED_STARTED_FINANCIAL_STATE_CHANGED')
     require(evidence.native_positions(host,values)==record['native_positions'],
         'BACKED_STARTED_NATIVE_POSITIONS_CHANGED')
     evidence.check_notification_history(host,record['notification_history'])

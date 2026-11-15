@@ -347,6 +347,78 @@ cash guard, and sequential submission together with an isolated Alpaca
 fixture. Cover delayed and contradictory fill evidence, posted cash rounding,
 cancelled revisions, and the unchanged-exposure successor plan.
 
+## Recovery boundaries for fractional PAPER plans
+
+When a positively identified working dollar BUY can explain the direction
+and instrument of a position lead, hold transport for the existing bounded
+endpoint-lag window and seek the exact order and its native executions.
+The notional does not create a guessed share ceiling or owned position.
+Require cumulative order and fill agreement before publication, and preserve
+the original nonrenewable lag clock across polls, even when the position
+quantity moves. An unexplained instrument, direction or expired bound refuses.
+Keep the deadline in the existing PAPER-only broker cash activity namespace
+so a broker lag does not invalidate the SHADOW input inventory.
+Use permanent security and native asset IDs for an exact late fill across
+a ticker rename. Retain side, order ID, key, amount, terms and time checks.
+Expose the exact owned-fill reader as an optional execution-protocol read
+with its own guarded operation. Require explicit PAPER support and a concrete
+adapter implementation. Simulators and legacy adapters can omit the reader.
+
+Share coverage and posted cash coverage are separate. An omitted optional
+USD trade cash field can be enriched by replaying the same native fill
+identity. A supplied amount is immutable. Where posted dollars are omitted,
+accept only cash arithmetic proved by exact execution values and the applicable
+Alpaca USD posting precision. For a terminal fractional sale, accept derived
+cash only when rounding each fill and rounding the order give the same cent
+amount without a half-cent tie. An omitted amount on a completed dollar BUY
+must also agree with the requested dollars. Never use the account balance
+to invent a ledger entry. Keep cash and separately posted fees single-counted
+and keep complete posted cash verification exact. See [Alpaca activity events](https://docs.alpaca.markets/us/docs/activity-sse)
+and the [Alpaca Customer Agreement](https://files.alpaca.markets/disclosures/library/AcctAppMarginAndCustAgmt.pdf).
+
+Corporate-action restrictions must bind to the relevant owned position or
+attempt interval. Match a resolved event by permanent security ID. Use a
+ticker only where the event lacks that identity, and preserve the distinction
+between a transport restriction and a proved explanation for a changed
+quantity. An arbitrary quantity mismatch cannot be cleared by a material
+action marker. The cash bracket for market funding can accept a stable
+scoped restriction after checking both observations, reconciling cash against
+the immutable plan baseline, and checking reduction dependencies. Account-wide
+integrity and close verification keep their full clean-book requirements.
+
+An exact, terminal share-denominated market fill can exceed its buffered
+budget. Preserve the acquired shares and record the overrun as explicit
+execution evidence with zero remaining spending authority. The overrun
+does not invalidate confirmed owned fills or prevent an authorized successor
+from reducing its target. Notional contradictions and UNKNOWN outcomes
+continue to fence transport.
+
+A current plan with authenticated continuing purchase dollars requires a
+projection even with no new opening intents. This includes unfinished BIL
+allocations when Core exposure is zero. Reconcile and request ordinary
+execution inside the original window when that projection is absent and no
+command ever crossed transport. An already attempted plan missing its
+projection refuses. Raw share equality cannot complete the dollar obligation.
+If the original window elapses before projection, retain its authenticated
+continuing budgets only when ownership and exposure permit ordinary carry.
+On recovery, a symbol's unavailable RAW reference must leave independently
+actionable legs eligible. If all actionable work is exhausted, the remaining
+unavailable legs stay explicit and the cycle follows its ordinary retirement
+rules. Account-wide evidence still governs every send.
+
+At a confirmed cash shortfall, keep a proven unsent order and its allocation.
+Other independently affordable candidates may proceed under their own fresh
+funding and issuer checks within the original deadline. Preserve the priority
+of candidates that can be funded, the writer lock and one unresolved market
+BUY. Generic authority failures and indeterminate sends cannot use this path.
+
+The backed application handoff fingerprints the persisted posted fill-cash
+records and the durable position-leading order deadlines. Previously issued
+receipts keep their encoding and are interpreted with their original scope.
+Qualify the exact successor against the installed source with composed
+endpoint lag, restart, affordability, corporate identity and accounting
+falsifiers before the backed PAPER handoff.
+
 ## Qualification, presentation and transition
 
 The backed release includes the already deployed November 13 close, opening

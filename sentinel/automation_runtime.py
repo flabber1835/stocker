@@ -580,7 +580,7 @@ def _all_target_deltas(
 
 def _actionable_projection_deltas(
         conn, *, plan, effective_session, observation,
-        minimum_quantity_increment) -> tuple:
+        minimum_quantity_increment, restricted_security_ids=()) -> tuple:
     """Validate and use the durable execution-session unit projection.
 
     The immutable plan basket is decision-close intent.  It is not necessarily
@@ -609,13 +609,8 @@ def _actionable_projection_deltas(
     target_reprojection.assert_projection(
         conn, plan=plan, projection=projection,
         through_session=effective_session)
-    from sentinel.execution import protected_limits
+    from sentinel.execution import fractional_progress, protected_limits
     unavailable = protected_limits.unavailable_opening_intents(projection)
-    if unavailable:
-        raise protected_limits.ProtectedReferenceUnavailable(
-            "opening reference calculations remain unavailable: "
-            + ", ".join(sorted(unavailable)))
-    from sentinel.execution import fractional_progress
     if fractional_progress.is_fractional(projection):
         from sentinel.execution.identity import DeploymentIdentity
         deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
@@ -629,7 +624,8 @@ def _actionable_projection_deltas(
         deltas = _plan_deltas(
             conn=conn, deployment=deployment, projection=projection,
             target_basket=projection.target_basket, observation=observation,
-            minimum_quantity_increment=minimum_quantity_increment)
+            minimum_quantity_increment=minimum_quantity_increment,
+            restricted_security_ids=restricted_security_ids)
         actionable = tuple(delta for delta in deltas
                            if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
         if not actionable:
@@ -640,9 +636,17 @@ def _actionable_projection_deltas(
             if progress.blocked:
                 raise fractional_progress.PurchaseRejectedForPlan(str(progress.blocked))
             fractional_progress.require_completed({
-                "blocked": fractional_progress.share_restrictions(projection),
-                "remaining_dollars": progress.budgets})
-        return actionable
+                "blocked": {sid: reason for sid, reason in
+                            fractional_progress.share_restrictions(projection).items()
+                            if sid not in restricted_security_ids},
+                "remaining_dollars": {sid: amount for sid, amount in progress.budgets.items()
+                                      if sid not in restricted_security_ids}})
+        if actionable or not unavailable:
+            return actionable
+    if unavailable:
+        raise protected_limits.ProtectedReferenceUnavailable(
+            "opening reference calculations remain unavailable: "
+            + ", ".join(sorted(unavailable)))
     return _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)
@@ -1049,11 +1053,13 @@ class ProductionAutomation:
             self, conn, *, plan, effective_session, observation,
             minimum_quantity_increment, reconciliation=None) -> tuple:
         """Use retained projections; support older stamped raw dual plans."""
+        restricted = getattr(reconciliation, "restricted_securities", ())
         if not self._dual_run_enabled:
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
-                minimum_quantity_increment=minimum_quantity_increment)
+                minimum_quantity_increment=minimum_quantity_increment,
+                restricted_security_ids=restricted)
 
         from sentinel import informational_paper_mirror
 
@@ -1064,7 +1070,8 @@ class ProductionAutomation:
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
-                minimum_quantity_increment=minimum_quantity_increment)
+                minimum_quantity_increment=minimum_quantity_increment,
+                restricted_security_ids=restricted)
         current = feed_inputs.require_current(conn)
         frontier = feed_inputs.frontier(conn)
         try:

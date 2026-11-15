@@ -41,7 +41,7 @@ def prepare_send(command: Command) -> Command:
 
 
 def _assert_order_matches_command(command: Command, found: BrokerOrder,
-                                  *, where: str) -> None:
+                                  *, where: str, allow_symbol_change: bool = False) -> None:
     """A matching client key is necessary but not sufficient evidence."""
     mismatches: list[str] = []
     if found.client_key != command.client_key:
@@ -51,10 +51,16 @@ def _assert_order_matches_command(command: Command, found: BrokerOrder,
         mismatches.append(
             f"security_id={found.instrument.security_id!r} "
             f"expected={command.instrument.security_id!r}")
-    if found.instrument.symbol != command.instrument.symbol:
+    same_native_asset = (command.instrument.broker_id is not None
+                         and found.instrument.broker_id == command.instrument.broker_id)
+    if (found.instrument.symbol != command.instrument.symbol
+            and not (allow_symbol_change and same_native_asset)):
         mismatches.append(
             f"symbol={found.instrument.symbol!r} "
             f"expected={command.instrument.symbol!r}")
+    if (command.broker_order_id is not None
+            and found.broker_order_id != command.broker_order_id):
+        mismatches.append("broker order ID differs from the durable receipt")
     if (command.instrument.broker_id is not None
             and found.instrument.broker_id != command.instrument.broker_id):
         mismatches.append(
@@ -305,7 +311,7 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
         await broker.find_by_client_key(command.client_key), observation)
     if found is not None:
         _assert_order_matches_command(
-            command, found, where="exact client-key lookup")
+            command, found, where="exact client-key lookup", allow_symbol_change=True)
         return command.transition(
             found.state, broker_order_id=found.broker_order_id,
             filled_quantity=found.filled_quantity,
@@ -319,7 +325,7 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
     observed = observation.by_client_key(command.client_key)
     if observed is not None:
         _assert_order_matches_command(
-            command, observed, where="account-bound observation")
+            command, observed, where="account-bound observation", allow_symbol_change=True)
         return command.transition(
             observed.state, broker_order_id=observed.broker_order_id,
             filled_quantity=observed.filled_quantity,
@@ -341,7 +347,7 @@ def confirm_cancellation(command: Command,
     still_there = observation.by_client_key(command.client_key)
     if still_there is not None:
         _assert_order_matches_command(
-            command, still_there, where="cancellation observation")
+            command, still_there, where="cancellation observation", allow_symbol_change=True)
         if still_there.state in (S.FILLED, S.PARTIALLY_FILLED):
             return command.transition(
                 still_there.state,
@@ -372,7 +378,7 @@ def apply_observation(command: Command,
     if found is None:
         return command
     _assert_order_matches_command(
-        command, found, where="broker observation")
+        command, found, where="broker observation", allow_symbol_change=True)
     if (found.state is command.state
             and found.filled_quantity == command.filled_quantity
             and found.filled_average_price == command.filled_average_price

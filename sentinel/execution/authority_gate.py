@@ -66,6 +66,7 @@ _READ_OPERATIONS = frozenset({
     BrokerOperation.OBSERVE_WITH_TERMINAL_RECOVERY,
     BrokerOperation.FIND_BY_CLIENT_KEY,
     BrokerOperation.RECENT_FILLS,
+    BrokerOperation.OWNED_ORDER_FILLS,
 })
 
 

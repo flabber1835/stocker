@@ -9,7 +9,7 @@ import re
 BASE_REVISION = "aed1a26c335281169c6d8067b1ce2e7de1632053"
 MODULE = "sentinel.execution.reconcile"
 BEFORE = "0a49d779f60888ff1d0e79d532f857e528789b7c17feeb8ac7816cba231693d9"
-PROFILE_SHA256 = '5604e6f615846b3906f1d3d40ebed662c51dca37ffa2f3eb3cc558984f626842'
+PROFILE_SHA256 = '2868245b6be6272b9c16d12c3f83dba0f362a5b6a2395136358714f55d17e1a5'
 PROFILE = Path(__file__).with_name("fractional-execution-source-transition.json")
 
 
@@ -35,12 +35,12 @@ def _profile():
         b"PROFILE_SHA256 = '" + b"0" * 64 + b"'", Path(__file__).read_bytes(), flags=re.M)
     if (count != 1 or set(value) != {"schema", "authority_effect", "base_revision",
                                    "module", "before", "after", "entitlements_after", "settlement_after",
-                                   "module_sha256", "decision"}
-            or value["schema"] != "sentinel.fractional-execution-source-transition/3"
+                                   "recovery_after", "module_sha256", "decision"}
+            or value["schema"] != "sentinel.fractional-execution-source-transition/4"
             or value["authority_effect"] != "NONE" or value["base_revision"] != BASE_REVISION
             or value["module"] != MODULE or value["before"] != BEFORE
             or any(not re.fullmatch("[a-f0-9]{64}", value[key])
-                   for key in ("after", "entitlements_after", "settlement_after"))
+                   for key in ("after", "entitlements_after", "settlement_after", "recovery_after"))
             or set(value["decision"]) != {"before", "after"}
             or any(not re.fullmatch("[a-f0-9]{64}", item) for item in value["decision"].values())
             or value["module_sha256"] != _sha(own)):
@@ -53,7 +53,8 @@ def contribution(module, raw):
     if module != MODULE:
         return actual
     value = _profile()
-    after = (value["after"], value["entitlements_after"], value["settlement_after"])
+    after = (value["after"], value["entitlements_after"], value["settlement_after"],
+             value["recovery_after"])
     return value["before"] if actual in after else actual
 
 

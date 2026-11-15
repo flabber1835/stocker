@@ -222,7 +222,8 @@ def _informational_active_symbols(
 def _plan_deltas(
         *, target_basket: Mapping[str, Decimal],
         observation: BrokerObservation,
-        minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None):
+        minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None,
+        restricted_security_ids=()):
     identities = set(target_basket)
     identities.update(observation.positions_by_security())
     identities.update(
@@ -230,7 +231,8 @@ def _plan_deltas(
     from sentinel.execution import fractional_progress
     if fractional_progress.is_fractional(projection):
         return tuple(fractional_progress.delta(conn, projection=projection, deployment=deployment,
-            security_id=sid, observation=observation, min_increment=minimum_quantity_increment)
+            security_id=sid, observation=observation, min_increment=minimum_quantity_increment,
+            restricted=sid in restricted_security_ids)
             for sid in sorted(identities))
     return tuple(
         execution_commands.compute_delta(
@@ -336,33 +338,31 @@ def _target_projection_or_refuse(
         | {security_id for security_id, quantity in target.shares.items()
            if quantity != 0}
         | set(expected_book) | additional_ids)
-    symbols = (
-        {target.tickers[security_id] for security_id in security_ids
-         if target.tickers.get(security_id)}
-        | {command.instrument.symbol for command in commands
-           if (command.security_id in security_ids
-               and command.instrument.symbol)})
+    symbols = {sid: {target.tickers[sid]} if target.tickers.get(sid) else set()
+               for sid in security_ids}
+    for command in commands:
+        if command.security_id in symbols:
+            symbols[command.security_id].add(command.instrument.symbol)
     if DEFENSIVE_SECURITY_ID in security_ids:
         # BIL is a fixed execution identity outside the Wealth Core shadow, so
         # ``target.tickers`` cannot supply it.  Unmapped corporate-action rows
         # are ticker-bound; omitting this symbol would let an unresolved BIL
         # action miss a fresh defensive target with no prior command/position.
-        symbols.add(DEFENSIVE_SYMBOL)
-    material = []
-    for lookup in (actions, target_actions):
-        finder = getattr(lookup, "material_events_for", None)
-        if callable(finder):
-            material.extend(finder(
-                security_ids=security_ids, symbols=symbols))
-    unique = {
-        (event.source_row_id, event.reason): event for event in material}
-    if unique and not allow_restrictions:
-        detail = [event.to_dict() for event in unique.values()]
-        raise PaperActivationRefused(
-            "corporate action intersects the executable book but has no "
-            f"certified scalar projection: {detail}. Sentinel will not invent "
-            "cash, positions, fills, or corrective orders for an Alpaca paper "
-            "limitation")
+        symbols[DEFENSIVE_SECURITY_ID].add(DEFENSIVE_SYMBOL)
+    if not allow_restrictions:
+        from sentinel.execution.share_units import material_events_for_security
+        material = {event.source_row_id: event
+                    for lookup in (actions, target_actions)
+                    for sid, tickers in sorted(symbols.items())
+                    for event in material_events_for_security(
+                        lookup, sid, tickers, after=plan.decision_session)}
+        if material:
+            detail = [event.to_dict() for event in material.values()]
+            raise PaperActivationRefused(
+                "corporate action intersects the executable book but has no "
+                f"certified scalar projection: {detail}. Sentinel will not invent "
+                "cash, positions, fills, or corrective orders for an Alpaca paper "
+                "limitation")
 
     target_security_ids = tuple(
         security_id for security_id, quantity
@@ -542,7 +542,8 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         identity = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
         deltas = _plan_deltas(target_basket=desired, observation=observation,
             minimum_quantity_increment=broker.capabilities.minimum_quantity_increment,
-            conn=conn, deployment=identity, projection=fractional_projection)
+            conn=conn, deployment=identity, projection=fractional_projection,
+            restricted_security_ids=restricted_security_ids)
         dollar_increases = {d.security_id for d in deltas if d.is_increase
                             and d.classification is execution_commands.DeltaClass.ACTIONABLE}
         needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE

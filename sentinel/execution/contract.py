@@ -1178,6 +1178,16 @@ class ExecutionBroker(abc.ABC):
     async def recent_fills(self, since: datetime) -> Sequence[BrokerFill]:
         """Fills since `since`, for reconstructing what happened while down."""
 
+    @property
+    def supports_owned_order_fills(self) -> bool:
+        return False
+
+    async def owned_order_fills(
+            self, *, orders: Sequence[BrokerOrder], identity: BrokerAccountIdentity,
+            through: datetime) -> Sequence[BrokerFill]:
+        """Optional positive native fill evidence for exact owned PAPER orders."""
+        raise NotImplementedError("this execution adapter has no native owned order fills")
+
     async def account_fill_interval_evidence(
             self, *, session: date,
             interval_start: datetime) -> BrokerFillIntervalEvidence:

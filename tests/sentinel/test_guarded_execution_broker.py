@@ -222,6 +222,46 @@ def test_protocol_introspection_forces_every_broker_method_through_guard():
         BrokerOperation.SUBMIT, BrokerOperation.CANCEL}
 
 
+def test_owned_order_fill_support_requires_a_concrete_adapter():
+    class AdvertisesWithoutReader(SimulatedBroker):
+        supports_owned_order_fills = True
+
+    for inner in (SimulatedBroker(), AdvertisesWithoutReader()):
+        identity = run(inner.identify_account())
+        recorder = Recorder()
+        broker = recorder.wrap(inner)
+        assert not broker.supports_owned_order_fills
+        with pytest.raises(NotImplementedError, match="no native owned order fills"):
+            run(inner.owned_order_fills(orders=(), identity=identity, through=inner.now))
+        with pytest.raises(BrokerAuthorityRefused, match="owned order fill evidence is unavailable"):
+            run(broker.owned_order_fills(orders=(), identity=identity, through=inner.now))
+        assert not recorder.before_reads and not recorder.after_reads
+
+
+def test_owned_order_fill_reads_use_their_own_fresh_authority():
+    class NativeFillFixture(SimulatedBroker):
+        supports_owned_order_fills = True
+
+        async def owned_order_fills(self, *, orders, identity, through):
+            assert not orders and identity == expected_identity and through == self.now
+            self.calls.append("owned_order_fills")
+            return ()
+
+    inner = NativeFillFixture()
+    expected_identity = run(inner.identify_account())
+    recorder = Recorder()
+    broker = recorder.wrap(inner)
+    assert broker.supports_owned_order_fills
+    assert run(broker.owned_order_fills(orders=(), identity=expected_identity, through=inner.now)) == ()
+    operation = BrokerOperation.OWNED_ORDER_FILLS
+    assert recorder.before_reads == [(broker.grant, operation)]
+    assert recorder.after_reads == [(broker.grant, operation, ())]
+    recorder.authorized = False
+    with pytest.raises(PreTransportAuthorityRefused, match="read authority revoked"):
+        run(broker.owned_order_fills(orders=(), identity=expected_identity, through=inner.now))
+    assert inner.calls.count("owned_order_fills") == 1
+
+
 @pytest.mark.parametrize("grant,expected", [
     (manual_grant(), "EXECUTE_READ"),
     (preparation_grant(), "PREPARE_READ"),

@@ -25,7 +25,7 @@ ZERO_MODE = "ZERO_EXPOSURE"
 
 
 def requires_initial_projection(conn, *, plan, deployment):
-    """True until a positive opening target has crossed the transport boundary.
+    """True when safe execution still needs a share or dollar projection.
 
     A durable sizing projection alone does not prove execution started.  This
     distinction closes the crash gap between persisting opening prices/shares
@@ -35,13 +35,30 @@ def requires_initial_projection(conn, *, plan, deployment):
     from sentinel.execution import journal, target_reprojection
     from sentinel.execution.states import CommandState
 
-    if not plan.opening_intents or plan.target_exposure == 0:
-        return False
+    sizes_core_openings = bool(plan.opening_intents) and plan.target_exposure > 0
+    carries_purchases = False
+    if not sizes_core_openings:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy, MARKET_BUY_HEADROOM
+        policy = MarketBuyPolicy.from_env()
+        if policy is None or not policy.fractional:
+            return False
+        from sentinel import dual_plan_authority
+        authority = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
+        if authority is None:
+            return False
+        if authority["plan_fingerprint"] != plan.fingerprint():
+            raise TargetProjectionRefused("stored purchase authority names a different plan")
+        basis = authority.get("held_share_targets") or {}
+        carries_purchases = any(Decimal(amount) >= Decimal(1) + MARKET_BUY_HEADROOM
+                                for amount in basis.get("purchase_budgets", {}).values())
+        if not carries_purchases:
+            return False
     projection = target_reprojection.load_projection(
         conn, plan_id=plan.plan_id)
     commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
     if projection is None:
-        if commands:
+        if any(not carries_purchases or command.state not in {
+                CommandState.PLANNED, CommandState.SUPERSEDED} for command in commands):
             raise TargetProjectionRefused(
                 "opening projection is absent for a plan with durable commands")
         return True

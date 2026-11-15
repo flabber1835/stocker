@@ -5,6 +5,7 @@ are recomputed, never acknowledged away or latched from historical incidents.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, Inexact
 from fractions import Fraction
 from typing import Mapping
@@ -20,45 +21,80 @@ def decimal_or_rational(value: Fraction) -> Decimal | Fraction:
         return value
 
 
-def material_restrictions(actions, symbols: Mapping[str, str]) -> dict[str, str]:
-    """Map known unsupported events onto the current economic identities."""
+def material_events_for_security(actions, security_id: str, symbols=(), *, after: date | None = None):
+    """Use ticker evidence only when an event lacks a permanent identity."""
     finder = getattr(actions, "material_events_for", None)
     if not callable(finder):
-        return {}
+        return ()
+    tickers = {str(symbol).upper() for symbol in symbols if symbol}
+    return tuple(
+        event for event in finder(security_ids=(security_id,), symbols=tuple(sorted(tickers)))
+        if (after is None or event.session > after)
+        and (event.security_id == security_id or (
+            event.security_id is None and str(event.ticker).upper() in tickers)))
+
+
+def _restriction(event) -> str:
+    return f"CORPORATE_ACTION_PENDING: {event.action} {event.session} source={event.source_row_id}"
+
+
+def material_restrictions(actions, symbols: Mapping[str, str], *, after: date | None = None) -> dict[str, str]:
+    """Map known unsupported events onto one dated execution target."""
     result = {}
-    for event in finder(security_ids=symbols, symbols=symbols.values()):
-        for sid, symbol in symbols.items():
-            if (event.security_id == sid
-                    or str(event.ticker).upper() == str(symbol).upper()):
-                result[sid] = (
-                    f"CORPORATE_ACTION_PENDING: {event.action} "
-                    f"{event.session} source={event.source_row_id}")
-    return dict(sorted(result.items()))
+    for sid, symbol in sorted(symbols.items()):
+        events = material_events_for_security(actions, sid, (symbol,), after=after)
+        if events:
+            result[sid] = _restriction(events[-1])
+    return result
 
 
-def position_restrictions(*, actions, commands, observation,
-                          expected_raw, expected) -> dict[str, str]:
-    held = observation.positions_by_security()
+def _owned_or_working_on_event(actions, commands, security_id, session):
+    from sentinel.execution.commands import is_legacy_migration
+    from sentinel.execution.reconcile import CorpusActionLookup, expected_book_from_commands
+    from sentinel.execution.states import IN_FLIGHT
+
+    owned = tuple(command for command in commands if not is_legacy_migration(command))
+    if any(command.state in IN_FLIGHT and (
+            command.created_at is None or command.created_at.date() <= session) for command in owned):
+        return True
+    prior = tuple(command for command in owned if command.filled_quantity > 0 and (
+        command.created_at is None or command.created_at.date() < session))
+    if not prior:
+        return False
+    if any(command.created_at is None for command in prior):
+        return True
+    # The previous fills must be compared in the same units just before the event.
+    # A closed historical position must not taint a later acquisition.
+    events = tuple((day, ratio) for day, ratio in getattr(actions, "events", {}).get(security_id, ())
+                   if day < session)
+    reader = getattr(actions, "scalar_evidence_for", None)
+    evidence = tuple(event for event in reader((security_id,)) if event.session < session) if callable(reader) else ()
+    start = getattr(actions, "start", min(command.created_at.date() for command in prior))
+    lookup = CorpusActionLookup(start=start, events={security_id: events}, scalar_events=evidence)
+    return expected_book_from_commands(prior, actions=lookup).get(security_id, 0) > 0
+
+
+def position_restrictions(*, actions, commands, observation, expected) -> dict[str, str]:
     active = {sid for sid, quantity in expected.items() if quantity != 0}
-    active.update(sid for sid, quantity in held.items() if quantity != 0)
-    active.update(order.instrument.security_id for order in observation.orders
-                  if order.is_working)
-    symbols = {command.security_id: command.instrument.symbol
-               for command in commands if command.security_id in active}
-    symbols.update({position.instrument.security_id: position.instrument.symbol
-                    for position in observation.positions
-                    if position.instrument.security_id in active})
-    symbols.update({order.instrument.security_id: order.instrument.symbol
-                    for order in observation.orders if order.is_working})
-    result = material_restrictions(actions, symbols)
-    for sid in active:
-        raw = expected_raw.get(sid, Decimal(0))
-        aged = expected.get(sid, Decimal(0))
-        # Recognize only an unchanged, attributable position. An arbitrary
-        # difference is still foreign activity, even on a split day.
-        if raw > 0 and aged != raw and held.get(sid, Decimal(0)) == raw:
-            result[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
-    return dict(sorted(result.items()))
+    from sentinel.execution.states import IN_FLIGHT
+    active.update(command.security_id for command in commands if command.state in IN_FLIGHT)
+    symbols: dict[str, set[str]] = {}
+    own_commands: dict[str, list] = {}
+    for command in commands:
+        sid = command.security_id
+        if sid in active:
+            symbols.setdefault(sid, set()).add(command.instrument.symbol)
+            own_commands.setdefault(sid, []).append(command)
+    for position in observation.positions:
+        sid = position.instrument.security_id
+        if sid in active:
+            symbols.setdefault(sid, set()).add(position.instrument.symbol)
+    result = {}
+    for sid, tickers in sorted(symbols.items()):
+        for event in material_events_for_security(actions, sid, tickers):
+            if _owned_or_working_on_event(actions, own_commands.get(sid, ()), sid, event.session):
+                result[sid] = _restriction(event)
+    return result
 
 
 def entitlement_matches_observation(entitlement, held, prior, increment):

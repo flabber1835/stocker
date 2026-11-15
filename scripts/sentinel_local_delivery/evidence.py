@@ -96,12 +96,19 @@ def compare_configuration(host, previous, candidate, state):
                 'Image automation fingerprint does not match current control')
 
 
-def valid_issuer_evidence(value):
+def valid_cursor_evidence(value):
     return (isinstance(value, dict) and set(value) == {'count', 'md5'}
             and type(value['count']) is int and value['count'] >= 0
             and isinstance(value['md5'], str)
             and re.fullmatch('[0-9a-f]{32}', value['md5']) is not None
             and (value['count'] != 0 or value['md5'] == checks.EMPTY_ISSUER_EVIDENCE_MD5))
+
+
+def same_preserved_state(current, retained):
+    """An authenticated legacy receipt compares its original snapshot fields."""
+    if 'execution_recovery_evidence' not in retained:
+        current = {key: value for key, value in current.items() if key != 'execution_recovery_evidence'}
+    return current == retained
 
 
 def snapshot(host):
@@ -124,8 +131,10 @@ def snapshot(host):
     current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
             'Exactly one current-generation plan matching the handoff mode is required')
-    require(valid_issuer_evidence(current.get('issuer_evidence')),
+    require(valid_cursor_evidence(current.get('issuer_evidence')),
             'ISSUER_EVIDENCE_PRESERVATION_MALFORMED')
+    require(valid_cursor_evidence(current.get('execution_recovery_evidence')),
+            'EXECUTION_RECOVERY_EVIDENCE_PRESERVATION_MALFORMED')
     control, cycle, plan = current['control'], current['cycle'], current['plan']
     bound = current.get('binding')
     values = host.load_values()
