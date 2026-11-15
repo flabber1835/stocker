@@ -109,6 +109,31 @@ def load_alert(conn, alert_id: str, *, for_update: bool = False) -> AlertRecord:
     return _record(row)
 
 
+def _insert_pending_alert(
+        cur, *, idempotency_key: str, event_type: str, severity: str,
+        payload_json: str, schema_version: int = 1, max_attempts: int = 8,
+        next_attempt_at: datetime | None = None) -> str:
+    alert_id = _alert_id(idempotency_key)
+    # A concurrent writer can conflict on either unique index. Check the
+    # stored pair before treating a skipped insert as an idempotent retry.
+    cur.execute(
+        "INSERT INTO sentinel_alert_outbox"
+        " (alert_id,idempotency_key,schema_version,event_type,severity,"
+        " payload,state,max_attempts,next_attempt_at)"
+        " VALUES (%s,%s,%s,%s,%s,%s::jsonb,'PENDING',%s,"
+        " COALESCE(%s,clock_timestamp())) ON CONFLICT DO NOTHING",
+        (alert_id, idempotency_key, schema_version, event_type, severity,
+         payload_json, max_attempts, next_attempt_at),
+    )
+    if cur.rowcount == 0:
+        cur.execute("SELECT idempotency_key FROM sentinel_alert_outbox WHERE alert_id=%s",
+                    (alert_id,))
+        stored = cur.fetchone()
+        if stored is None or stored[0] != idempotency_key:
+            raise ImmutableAlertChanged("stored alert ID and idempotency key disagree")
+    return alert_id
+
+
 def enqueue(
         conn, *, idempotency_key: str, event_type: str, severity: str,
         payload: Mapping[str, Any], schema_version: int = 1,
@@ -121,19 +146,13 @@ def enqueue(
         raise ValueError("event_type and severity must be non-empty")
     if schema_version < 1 or max_attempts < 1:
         raise ValueError("schema_version and max_attempts must be positive")
-    alert_id = _alert_id(idempotency_key)
     payload_json = _json(payload)
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_alert_outbox"
-                " (alert_id,idempotency_key,schema_version,event_type,severity,"
-                " payload,state,max_attempts,next_attempt_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s::jsonb,'PENDING',%s,"
-                " COALESCE(%s,clock_timestamp()))"
-                " ON CONFLICT (idempotency_key) DO NOTHING",
-                (alert_id, idempotency_key, schema_version, event_type,
-                 severity, payload_json, max_attempts, next_attempt_at))
+            alert_id = _insert_pending_alert(cur, idempotency_key=idempotency_key,
+                event_type=event_type, severity=severity, payload_json=payload_json,
+                schema_version=schema_version, max_attempts=max_attempts,
+                next_attempt_at=next_attempt_at)
         conn.commit()
         stored = load_alert(conn, alert_id)
         expected = {
@@ -418,14 +437,7 @@ def _reconstruct_backup_renewal_warning(cur) -> None:
         " ORDER BY observed_at DESC,seq DESC LIMIT 1) b ON TRUE WHERE p.id=1")
     warning = _backup_renewal_warning(cur.fetchone())
     if warning is not None:
-        cur.execute("INSERT INTO sentinel_alert_outbox "
-            "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
-            "SELECT %s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp() "
-            "WHERE NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox WHERE idempotency_key=%s) "
-            "ON CONFLICT (idempotency_key) DO NOTHING",
-            (_alert_id(warning["idempotency_key"]), warning["idempotency_key"],
-             warning["event_type"], warning["severity"], _json(warning["payload"]),
-             warning["idempotency_key"]))
+        _insert_recovered_alert(cur, warning)
 
 
 _NOTIFICATION_BATCH = 32
@@ -436,15 +448,9 @@ _NOTIFIABLE_RETRY = (
 
 
 def _insert_recovered_alert(cur, alert):
-    cur.execute(
-        "INSERT INTO sentinel_alert_outbox"
-        " (alert_id,idempotency_key,schema_version,event_type,severity,"
-        " payload,state,max_attempts,next_attempt_at)"
-        " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
-        " ON CONFLICT (idempotency_key) DO NOTHING",
-        (_alert_id(alert["idempotency_key"]), alert["idempotency_key"],
-         alert["event_type"], alert["severity"], _json(alert["payload"])),
-    )
+    _insert_pending_alert(cur, idempotency_key=alert["idempotency_key"],
+        event_type=alert["event_type"], severity=alert["severity"],
+        payload_json=_json(alert["payload"]))
 
 
 def _complete_cycle_control_batch(cur):
@@ -605,10 +611,8 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
                 below_whole_share=preview.skips,
                 observation_at=preview.observation_at.isoformat(),
                 reason=f'Paper plan for {preview.effective_session}. {summary} Final quantities are checked at the open.')
-            cur.execute("INSERT INTO sentinel_alert_outbox "
-                "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
-                "VALUES (%s,%s,1,'PAPER_PLAN_READY','INFO',%s::jsonb,'PENDING',8,clock_timestamp()) "
-                "ON CONFLICT (idempotency_key) DO NOTHING",(_alert_id(key),key,_json(payload)))
+            _insert_pending_alert(cur, idempotency_key=key, event_type='PAPER_PLAN_READY',
+                severity='INFO', payload_json=_json(payload))
 
 
 def claim_next(

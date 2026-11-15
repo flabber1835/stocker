@@ -247,6 +247,13 @@ alert id as its notification `tag`, and per-subscription delivery rows prevent
 already-confirmed devices from being resent during a partial fan-out retry.
 This is logical deduplication, not a false claim of exactly-once networking.
 
+Outbox insertion treats both the deterministic alert ID and the idempotency key
+as conflict keys. Concurrent producers and dispatchers retain the first row
+only when the stored ID and key agree. A disagreement raises an integrity
+failure before recovery can record completion. Direct enqueue also validates
+immutable contents. Recovery retains the existing row and its delivery history,
+and records completion in the same transaction as any newly inserted alert.
+
 The additive schema records a one-time Web Push activation timestamp. Fill and
 new coalesced-incident reconstruction applies only to events whose economic or
 transition time is on or after that boundary. Existing outbox rows older than

@@ -428,6 +428,37 @@ def _control_event(conn, reason, *, before_activation=False):
     ).fetchone()[0]
 
 
+@pytest.mark.parametrize('recovery', [False, True])
+@pytest.mark.parametrize('conflict', ['alert_id', 'idempotency_key'])
+def test_conflicting_outbox_identity_does_not_complete_recovery(conn, monkeypatch, recovery, conflict):
+    from sentinel.automation.notification_completion import TABLE
+
+    _install_notification_ledger(conn, monkeypatch)
+    seq = _control_event(conn, 'pending control event')
+    key = f'control-event:{seq}'
+    other_key = 'different-event'
+    stored_id = outbox._alert_id(key if conflict == 'alert_id' else other_key)
+    stored_key = key if conflict == 'idempotency_key' else other_key
+    conn.execute(
+        "INSERT INTO sentinel_alert_outbox"
+        " (alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts)"
+        " VALUES (%s,%s,1,'AUTOMATION_KILL_ENGAGED','CRITICAL','{}','PENDING',8)",
+        (stored_id, stored_key),
+    )
+    conn.commit()
+
+    with pytest.raises(ImmutableAlertChanged, match='stored alert ID and idempotency key disagree'):
+        if recovery:
+            outbox.claim_next(conn, holder_id='private-dispatcher')
+        else:
+            outbox.enqueue(conn, idempotency_key=key, event_type='AUTOMATION_KILL_ENGAGED',
+                           severity='CRITICAL', payload={})
+
+    assert conn.execute(f'SELECT count(*) FROM {TABLE}').fetchone() == (0,)
+    assert conn.execute('SELECT alert_id,idempotency_key,state FROM sentinel_alert_outbox').fetchall() == [
+        (stored_id, stored_key, 'PENDING')]
+
+
 def test_completion_finds_late_lower_sequence_and_keeps_original_outbox(conn, pg, monkeypatch):
     from sentinel.automation.notification_completion import TABLE
 
@@ -476,10 +507,17 @@ def test_completion_crash_replays_whole_batch_and_dispatchers_converge(conn, pg,
     conn.rollback()
 
     barrier = threading.Barrier(2)
+    classify = outbox._control_event_alert
+
+    def classify_shared_event(row):
+        if row[4] == '0':
+            barrier.wait(timeout=5)
+        return classify(row)
+
+    monkeypatch.setattr(outbox, '_control_event_alert', classify_shared_event)
 
     def claim(index):
         with feed_store.connect(pg.sync_dsn) as worker:
-            barrier.wait(timeout=5)
             return outbox.claim_next(worker, holder_id=f'private-dispatcher-{index}')
 
     with ThreadPoolExecutor(max_workers=2) as pool:
