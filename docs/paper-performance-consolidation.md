@@ -98,12 +98,13 @@ same publication, prior state and price basis. Require exact equality of feature
 and the resulting transition against the prior full series, including gaps,
 invalid domains, owned histories, splits and controller witnesses.
 
-Keep the economic implementation manifest and its dependency closure fixed.
-The existing exact performance source checker reads a new successor catalog
-which retains the original three records and binds the complete compact
-compiler bytes to the independently verified installed source hash. The
-original catalog remains available as historical evidence. A neighboring
-edit to the compiler contributes its real source hash and earns no compatibility.
+Keep the economic manifest membership, dependency closure and historical
+performance checker and catalog bytes fixed. The current economic manifest
+reader recognizes the full, exact compact compiler bytes and contributes the
+original compiler hash already bound by the manifest. Update the reader's
+self-pin after this exact mapping. The source catalog used by the initial local
+release stays available with its original bytes for retained-source evidence.
+A neighboring edit contributes its real source hash.
 
 ## Restore, qualification and delivery
 

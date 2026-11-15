@@ -185,12 +185,14 @@ def test_native_fill_after_day_close_still_refuses_without_publishing(db, tmp_pa
 
 
 def test_removed_day_close_guard_is_detected(db, tmp_path, monkeypatch):
-    source = inspect.getsource(fill_integrity.validate)
+    # Mutate the shared fill check while the public validator and collector
+    # still run their normal path.
+    source = inspect.getsource(fill_integrity._validate_fill_set)
     guard = 'if fill.filled_at > closed:'
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'if False:'), '<removed-day-close-guard>', 'exec'),
          fill_integrity.__dict__, namespace)
-    monkeypatch.setattr(fill_integrity, 'validate', namespace['validate'])
+    monkeypatch.setattr(fill_integrity, '_validate_fill_set', namespace['_validate_fill_set'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_native_fill_after_day_close_still_refuses_without_publishing(db, tmp_path, monkeypatch)

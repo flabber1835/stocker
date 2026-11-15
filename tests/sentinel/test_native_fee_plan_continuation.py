@@ -645,11 +645,9 @@ def test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn,
 @pytest.mark.parametrize('guard', ['command_reuse', 'cash_plan_filter', 'promise_account_scope'])
 def test_command_reuse_and_scope_omission_falsifiers(conn, case, monkeypatch, guard):
     if guard == 'cash_plan_filter':
-        mutant(monkeypatch, cash, '_plan_fill_cash', 'command.identity.plan_id != plan.plan_id')
-        with pytest.raises(pytest.fail.Exception):
-            test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn, case, monkeypatch, True)
-        return
-    if guard == 'command_reuse':
+        module, function = cash, '_plan_fill_cash'
+        needle, replacement = 'command.identity.plan_id == plan.plan_id and ', ''
+    elif guard == 'command_reuse':
         module, function = protected_funding, '_assert_native_fee_evidence'
         needle, replacement = ('baseline=plan_boundary, commands=commands',
                                'baseline=plan_boundary, commands=None')
@@ -660,10 +658,13 @@ def test_command_reuse_and_scope_omission_falsifiers(conn, case, monkeypatch, gu
     original = inspect.getsource(getattr(module, function))
     assert original.count(needle) == 1
     namespace = {}
-    exec(compile(original.replace(needle, replacement), '<removed-owned-journal-reuse>', 'exec'),
+    exec(compile(original.replace(needle, replacement), '<removed-command-journal-guard>', 'exec'),
         vars(module), namespace)
     monkeypatch.setattr(module, function, namespace[function])
-    if guard == 'command_reuse':
+    if guard == 'cash_plan_filter':
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            test_reused_account_journal_filters_older_plan_fills_from_current_cash(conn, case, monkeypatch, True)
+    elif guard == 'command_reuse':
         with pytest.raises(AssertionError):
             test_one_funding_admission_reads_current_native_ledger_once(conn, case, monkeypatch, True)
     else:
