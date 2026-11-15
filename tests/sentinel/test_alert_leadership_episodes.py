@@ -66,6 +66,14 @@ def _recover_for(connection, clock, seconds, health=None, **kwargs):
         _observe(connection, health, **kwargs)
 
 
+def test_healthy_idle_polls_do_not_rewrite_empty_cursor(conn):
+    statement = 'SELECT xmin::text,ctid::text FROM sentinel_alert_health_cursor WHERE id=1'
+    before = conn.execute(statement).fetchone()
+    for _ in range(2):
+        _observe(conn, _green())
+    assert conn.execute(statement).fetchone() == before
+
+
 @pytest.mark.parametrize("first_reason", ["SCHEDULER_STALLED", "WAITING_FOR_LEADER"])
 def test_symptom_cycle_and_holder_churn_reuse_first_immutable_alert(
         conn, pg, observed_clock, first_reason):
@@ -225,7 +233,7 @@ async def test_dispatcher_start_preserves_episode_but_resets_recovery(
         retry_base_seconds=1, retry_max_seconds=60))
     monkeypatch.setattr(alert_service.feed_store, "connect",
                         lambda *_args, **_kwargs: connect(pg.sync_dsn))
-    monkeypatch.setattr(alert_service, "read_health", lambda _conn: healthy)
+    monkeypatch.setattr(alert_service, "read_health", lambda _conn, **_: healthy)
     monkeypatch.setattr(alert_service, "WebhookAlertAdapter", Adapter)
     monkeypatch.setattr(outbox, "dispatch_once", no_delivery)
     monkeypatch.setattr(alert_service, "_sleep_or_stop", finish)

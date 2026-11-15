@@ -553,6 +553,20 @@ def load_cycle(conn, cycle_id: str, *, for_update: bool = False) -> CycleRecord:
     return _cycle(row)
 
 
+def load_cycle_batch(conn, cycle_ids: list[str]) -> list[CycleRecord]:
+    """Decode an exact bounded inventory in the caller's original order."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {_CYCLE_COLUMNS} FROM sentinel_automation_cycles"
+                    " WHERE cycle_id=ANY(%s)", (cycle_ids,))
+        rows = {str(row[0]): row for row in cur.fetchall()}
+    cycles = []
+    for cycle_id in cycle_ids:
+        if cycle_id not in rows:
+            raise AutomationRefused(f"automation cycle {cycle_id!r} is missing")
+        cycles.append(_cycle(rows[cycle_id]))
+    return cycles
+
+
 def latest_cycle(conn, *, include_historical: bool = False) -> CycleRecord | None:
     predicate = "" if include_historical else " WHERE NOT historical_state_only"
     with conn.cursor() as cur:

@@ -103,6 +103,16 @@ def test_unrecognized_module_never_inherits_known_candidate_contribution():
     assert basis.contribution('sentinel.core.unreviewed', raw) == sha(raw)
 
 
+def test_compact_window_compiler_keeps_only_its_exact_reviewed_semantic_identity():
+    module = 'sentinel.core.window_material'
+    raw = Path(importlib.import_module(module).__file__).read_bytes()
+    historical = '3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76'
+    assert basis.contribution(module, raw) == historical
+    edited = raw + b'\n# neighboring source change\n'
+    assert basis.contribution(module, edited) == sha(edited)
+    assert economic_manifest.manifest()['pure_contracts'][module] == historical
+
+
 def test_tampered_profile_bytes_refuse(monkeypatch, tmp_path):
     path = tmp_path / 'profile.json'
     path.write_bytes(basis.PROFILE.read_bytes() + b' ')

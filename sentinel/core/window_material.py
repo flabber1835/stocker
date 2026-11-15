@@ -1,11 +1,11 @@
 """Pure current-window material and its canonical feed installation."""
 from __future__ import annotations
-from dataclasses import asdict
+from collections import deque
 from itertools import groupby
 from typing import Literal
 from pydantic import ConfigDict, Field
 from stock_strategy_shared.wealth_core.engine import SecurityBar
-from stock_strategy_shared.wealth_core.feed import SecuritySeries
+from stock_strategy_shared.wealth_core.feed import FeedError, SecuritySeries
 from stock_strategy_shared.wealth_core.window_signals import feature
 from sentinel.feed import calendar
 from sentinel.feed.rolling_contract import CanonicalBar, Contract, Digest, digest
@@ -26,9 +26,11 @@ class Signal(Contract):
 
     @classmethod
     def from_feature(cls, bar):
-        value = asdict(bar)
-        value['closes'] = value['closes'][-1:]
-        return cls.model_validate(value)
+        return cls(security_id=bar.security_id, ticker=bar.ticker,
+            issuer_id=bar.issuer_id, closes=tuple(bar.closes[-1:]),
+            raw_close=bar.raw_close, eligible=bar.eligible,
+            eligibility_reason=bar.eligibility_reason,
+            certified_signals=bar.certified_signals)
 
     def bar(self, multiplier=1.):
         return SecurityBar(self.security_id, self.ticker, self.issuer_id,
@@ -73,17 +75,26 @@ def compile_rows(*, prior, manifest, metadata, resolve_identity,
     live = protected(prior)
     signals, histories = [], {sid:[] for sid in live}
     for sid, group in groupby(rows, key=lambda row: row.security_id):
-        series = None
+        closes = deque(maxlen=127)
+        liquidity = deque(maxlen=20)
         for row in group:
             day = str(row.session)
             if day not in indices or resolve_identity(row.ticker, day) != sid or sid not in metadata:
                 raise ValueError('CURRENT_WINDOW_IDENTITY_OR_AXIS_CHANGED')
-            if series is None:
-                series = SecuritySeries(sid, row.ticker, f'SID:{sid}')
-            series.append(_vendor(row), indices[day], published_signal=True)
+            # CanonicalBar validates the raw close as positive and finite. The
+            # identity basis uses the published signal at a multiplier of one.
+            if row.close_signal is None:
+                raise FeedError('Median-5 requires a published signal-domain close')
+            closes.append((indices[day], row.close_signal))
+            liquidity.append((row.close_unadjusted, row.volume))
             if sid in live and axis[-261] <= day < axis[-1]:
                 histories[sid].append(row)
-        if series is not None and series.sessions[-1] == axis[-1]:
+        if day == axis[-1]:
+            session_indices, signal_closes = map(list, zip(*closes))
+            raw_closes, volumes = map(list, zip(*liquidity))
+            series = SecuritySeries(sid, row.ticker, f'SID:{sid}',
+                session_indices=session_indices, signal_closes=signal_closes,
+                raw_closes=raw_closes, volumes=volumes)
             signals.append(Signal.from_feature(feature(
                 series, metadata[sid], index=299, session=axis[-1])))
     return WindowFeatures(snapshot_sha256=manifest.snapshot_id,

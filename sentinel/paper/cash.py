@@ -217,24 +217,23 @@ def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> 
     from sentinel.execution.fractional_progress import is_fractional
     from sentinel.execution.target_reprojection import load_projection
     from sentinel.execution.fill_integrity import (
-        FillHistoryIncomplete, PostedFillCashIncomplete, exact_fill_economics)
+        FillHistoryIncomplete, PostedFillCashIncomplete, fill_economics, load_exact_fill_rows)
 
     expected_without_activity = Fraction(plan.account_cash)
     if commands is None:
         commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
+    filled_commands = tuple(command for command in commands
+                            if command.identity.plan_id == plan.plan_id and command.filled_quantity != 0)
+    rows = load_exact_fill_rows(conn, filled_commands)
     fractional = None
-    for command in commands:
-        if command.identity.plan_id != plan.plan_id:
-            continue
-        if command.filled_quantity == 0:
-            continue
+    for command in filled_commands:
         if command.filled_average_price is None:
             raise PaperActivationRefused(
                 f"cannot reconcile account cash for filled command "
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
         try:
-            expected_without_activity += exact_fill_economics(conn, command).cash
+            expected_without_activity += fill_economics(command, rows).cash
         except PostedFillCashIncomplete as exc:
             raise PaperRetryableRefused(
                 f"FILL_CASH_PENDING for {command.client_key}: {exc}") from exc

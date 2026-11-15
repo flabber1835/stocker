@@ -170,7 +170,31 @@ _ACCESS_PATH_OVERLAY = {
 
 
 
+_NOTIFICATION_OVERLAY = (
+    ("PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',\n"
+     "                           'sentinel.automation.notification_completion')",
+     "PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)"),
+    ("\n\ndef _install_notification_completion(conn, original, *, quiescent=False):\n"
+     "    from sentinel.automation import notification_completion\n\n"
+     "    if notification_completion.require_schema(conn, allow_absent=True):\n"
+     "        return\n"
+     "    if not quiescent:\n"
+     "        _require_quiescence(conn)\n"
+     "    notification_completion.install(conn)\n"
+     "    _require(installation(conn, required=True) == original,\n"
+     "             'OPERATIONAL_INSTALLATION_CHANGED_DURING_NOTIFICATION_INSTALL')\n", ""),
+    ("                _install_notification_completion(conn, current)\n", ""),
+    ("            _install_notification_completion(conn, value, quiescent=True)\n", ""),
+)
+
+
 def _predecessor_bytes(name, raw):
+    if name == 'operational_schema.py':
+        text = raw.decode('utf-8')
+        for current, previous in _NOTIFICATION_OVERLAY:
+            assert text.count(current) == 1, 'notification overlay changed'
+            text = text.replace(current, previous)
+        raw = text.encode('utf-8')
     if name in _ACCESS_PATH_OVERLAY:
         text = raw.decode('utf-8')
         for current, previous in _ACCESS_PATH_OVERLAY[name]:
@@ -192,6 +216,7 @@ def _predecessor_bytes(name, raw):
         value = json.loads(raw)
         assert value['components'].pop('sentinel.panel.review_schema')
         assert value['components'].pop('sentinel.checkpoint_lineage_access')
+        assert value['components'].pop('sentinel.automation.notification_completion')
         return (json.dumps(value, sort_keys=True, separators=(',', ':'))+'\n').encode('ascii')
     return raw
 
@@ -233,7 +258,7 @@ def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(nam
     root = Path(operational_schema.__file__).resolve().parent
     raw = (root/name).read_bytes()
     assert old in raw
-    with pytest.raises(AssertionError, match='access-path overlay changed'):
+    with pytest.raises(AssertionError, match='(access-path|notification) overlay changed'):
         _predecessor_bytes(name, raw.replace(old, new))
 
 

@@ -1,7 +1,7 @@
 """Dollar execution, recovery, cancellation and share ownership boundaries."""
 import asyncio
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D, localcontext
 
 import pytest
@@ -13,7 +13,7 @@ from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolic
 from sentinel.execution.states import CommandState as S
 from sentinel.execution.target_reprojection import TargetProjection, TargetProjectionRefused
 from tests.sentinel.test_order_terms_schema import pg, database
-from tests.sentinel.test_journal_and_reconcile import AAA, DEPLOY, cmd
+from tests.sentinel.test_journal_and_reconcile import AAA, BBB, DEPLOY, cmd
 from tests.sentinel.test_limit_day_sizing import references
 from tests.sentinel.test_market_buy_policy import MARKET_ENV
 from tests.sentinel.test_limit_day_transport import broker_for
@@ -124,6 +124,56 @@ def test_cancelled_partial_requires_exact_fills_and_only_spends_remainder(databa
     # Re-reading after restart does not restore the original $999 purchase.
     assert progress.delta(database, projection=projection(), deployment=DEPLOY,
         security_id=AAA.security_id, observation=observation("4")) == delta
+
+
+def test_portfolio_deltas_read_commands_and_exact_fill_pairs_once(database, monkeypatch):
+    from sentinel.paper.targets import _plan_deltas
+
+    schema.ensure_schema(database)
+    first = dollars(filled="4", state=S.CANCELLED)
+    second = replace(dollars(filled="2", state=S.CANCELLED),
+        identity=replace(first.identity, security_id=BBB.security_id),
+        instrument=BBB, broker_order_id="native-bbb")
+    for command in (first, second):
+        journal.save_command(database, command)
+    native_fills(database, first)
+    journal.record_fills(database, (BrokerFill(first.client_key, second.broker_order_id,
+        D(2), D(100), NOW + timedelta(seconds=1)),))
+    allocation = projection()
+    purchases = {**allocation.opening_sizing["purchases"],
+                 BBB.security_id: {"budget": "1000", "origin": "ENTRY"}}
+    allocation = replace(allocation, target_basket={AAA.security_id: D(0), BBB.security_id: D(0)},
+        opening_sizing={**allocation.opening_sizing, "purchases": purchases})
+    observed = replace(observation("4"), positions=(BrokerPosition(AAA, D(4)), BrokerPosition(BBB, D(2))))
+    reads = []
+    load = journal.load_commands
+
+    def load_commands(*args, **kwargs):
+        reads.append("commands")
+        return load(*args, **kwargs)
+
+    class _CountFillReads:
+        def cursor(self):
+            return database.cursor()
+
+        def execute(self, sql, params):
+            assert "sentinel_fills" in sql
+            reads.append("fills")
+            return database.execute(sql, params)
+
+    monkeypatch.setattr(journal, "load_commands", load_commands)
+
+    def deltas():
+        rows = _plan_deltas(conn=_CountFillReads(), deployment=DEPLOY, projection=allocation,
+            target_basket=allocation.target_basket, observation=observed,
+            minimum_quantity_increment=D("0.000000001"))
+        return {delta.security_id: delta.notional for delta in rows}
+
+    assert deltas() == {AAA.security_id: D(598), BBB.security_id: None}
+    assert reads == ["commands", "fills"]
+    native_fills(database, second)
+    assert deltas() == {AAA.security_id: D(598), BBB.security_id: D(798)}
+    assert reads == ["commands", "fills", "commands", "fills"]
 
 
 def test_filled_purchase_retains_actual_shares_and_no_topup(database):

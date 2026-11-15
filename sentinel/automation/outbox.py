@@ -428,7 +428,119 @@ def _reconstruct_backup_renewal_warning(cur) -> None:
              warning["idempotency_key"]))
 
 
-def _reconstruct_missing_transition_alerts(conn) -> None:
+_NOTIFICATION_BATCH = 32
+_NOTIFIABLE_RETRY = (
+    "COALESCE(e.detail->'diagnostic'->>'notifier_action',"
+    "e.detail->>'notifier_action') = 'RETRY_SCHEDULED'"
+)
+
+
+def _insert_recovered_alert(cur, alert):
+    cur.execute(
+        "INSERT INTO sentinel_alert_outbox"
+        " (alert_id,idempotency_key,schema_version,event_type,severity,"
+        " payload,state,max_attempts,next_attempt_at)"
+        " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
+        " ON CONFLICT (idempotency_key) DO NOTHING",
+        (_alert_id(alert["idempotency_key"]), alert["idempotency_key"],
+         alert["event_type"], alert["severity"], _json(alert["payload"])),
+    )
+
+
+def _complete_cycle_control_batch(cur):
+    from sentinel.automation.notification_completion import TABLE
+
+    streams = (
+        ('CYCLE', 'sentinel_automation_cycle_events', 'e.to_state',
+         sorted(_RECOVERABLE_CYCLE_STATES),
+         'e.seq,e.cycle_id,e.to_state,e.control_generation,e.fence_token,e.detail',
+         f"(e.to_state<>'RETRY_WAIT' OR ({_NOTIFIABLE_RETRY}))", _cycle_event_alert),
+        ('CONTROL', 'sentinel_automation_events', 'e.action', ['DEACTIVATED', 'KILL_ENGAGED'],
+         'e.seq,e.generation,e.action,e.actor,e.reason,e.detail', 'TRUE', _control_event_alert),
+    )
+    for source, table, state_column, states, columns, eligible, classify in streams:
+        # Fetch exact still-unclassified tuples. Ineligible retry events keep
+        # their prior no-notification behavior and also complete durably.
+        cur.execute(
+            f"WITH pending AS MATERIALIZED ("
+            f" SELECT e.seq,e.tableoid,pg_relation_filenode(e.tableoid) AS file_oid,"
+            f" e.xmin::text AS tuple_xmin,e.ctid::text AS tuple_location"
+            f" FROM public.{table} e CROSS JOIN public.sentinel_notification_policy p"
+            f" WHERE p.id=1 AND e.at>=p.web_push_activated_at AND {state_column}=ANY(%s)"
+            f" AND NOT EXISTS (SELECT 1 FROM public.{TABLE} n"
+            f" WHERE n.source=%s AND n.seq=e.seq AND n.relation_oid=e.tableoid"
+            f" AND n.file_oid=pg_relation_filenode(e.tableoid) AND n.tuple_xmin=e.xmin::text"
+            f" AND n.tuple_location=e.ctid) ORDER BY e.seq LIMIT %s)"
+            f" SELECT {columns},{eligible},p.tableoid,p.file_oid,p.tuple_xmin,p.tuple_location"
+            f" FROM pending p JOIN public.{table} e USING (seq) ORDER BY e.seq",
+            (states, source, _NOTIFICATION_BATCH),
+        )
+        for row in cur.fetchall():
+            event, should_classify, physical = row[:6], row[6], row[7:]
+            alert = classify(event) if should_classify else None
+            if alert is not None:
+                _insert_recovered_alert(cur, alert)
+            cur.execute(
+                f"INSERT INTO public.{TABLE}"
+                f" (source,seq,relation_oid,file_oid,tuple_xmin,tuple_location,alert_key)"
+                f" VALUES (%s,%s,%s,%s,%s,%s::tid,%s) ON CONFLICT DO NOTHING",
+                (source, event[0], *physical, alert["idempotency_key"] if alert else None),
+            )
+
+
+def _legacy_cycle_control_recovery(cur):
+    cur.execute(
+        "SELECT e.seq,e.cycle_id,e.to_state,e.control_generation,"
+        " e.fence_token,e.detail"
+        " FROM sentinel_automation_cycle_events e"
+        " CROSS JOIN sentinel_notification_policy p"
+        " CROSS JOIN LATERAL (SELECT"
+        " CASE WHEN e.detail->'diagnostic' ? 'retry_phase'"
+        " THEN e.detail->'diagnostic'->'retry_phase' ELSE e.detail->'retry_phase' END AS phase,"
+        " CASE WHEN e.detail->'diagnostic' ? 'exception_fingerprint'"
+        " THEN e.detail->'diagnostic'->'exception_fingerprint'"
+        " ELSE e.detail->'exception_fingerprint' END AS fingerprint"
+        " ) retry"
+        " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
+        " AND e.to_state = ANY(%s)"
+        " AND (e.to_state <> 'RETRY_WAIT' OR"
+        "      COALESCE(e.detail->'diagnostic'->>'notifier_action',"
+        "               e.detail->>'notifier_action') = 'RETRY_SCHEDULED')"
+        " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key ="
+        " CASE WHEN e.to_state <> 'RETRY_WAIT' THEN 'cycle-event:' || e.seq"
+        # Unexpected legacy shapes still pass through the authoritative decoder.
+        " WHEN COALESCE(jsonb_typeof(e.detail->'diagnostic'),'object')='object'"
+        " AND COALESCE(jsonb_typeof(retry.phase),'null') IN ('null','string')"
+        " AND COALESCE(jsonb_typeof(retry.fingerprint),'null') IN ('null','string')"
+        " AND COALESCE(jsonb_typeof(e.detail->'failure_code'),'null') IN ('null','string')"
+        " AND COALESCE(jsonb_typeof(e.detail->'failure_detail'),'null') IN ('null','string')"
+        " THEN 'cycle-recovery:' || e.cycle_id || ':' || e.control_generation || ':'"
+        " || COALESCE(NULLIF(retry.phase #>> '{}',''),'UNKNOWN') || ':'"
+        " || left(encode(sha256(convert_to(COALESCE("
+        " NULLIF(retry.fingerprint #>> '{}',''),NULLIF(e.detail->>'failure_code',''),"
+        " NULLIF(e.detail->>'failure_detail',''),'cycle entered RETRY_WAIT'),"
+        " 'UTF8')),'hex'),24) END)"
+        " ORDER BY e.seq",
+        (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
+    events = list(cur.fetchall())
+    cur.execute(
+        "SELECT e.seq,e.generation,e.action,e.actor,e.reason,e.detail"
+        " FROM sentinel_automation_events e"
+        " CROSS JOIN sentinel_notification_policy p"
+        " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
+        " AND e.action IN ('DEACTIVATED','KILL_ENGAGED')"
+        " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a"
+        " WHERE a.idempotency_key = 'control-event:' || e.seq) ORDER BY e.seq")
+    control_events = list(cur.fetchall())
+    for row in events:
+        alert = _cycle_event_alert(row)
+        if alert is not None:
+            _insert_recovered_alert(cur, alert)
+    for row in control_events:
+        _insert_recovered_alert(cur, _control_event_alert(row))
+
+
+def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
     """Materialize alert deficits from committed immutable cycle events.
 
     The state transition is the durable fact. A crash can occur after that
@@ -438,49 +550,10 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
     """
     with conn.cursor() as cur:
         _reconstruct_backup_renewal_warning(cur)
-        cur.execute(
-            "SELECT e.seq,e.cycle_id,e.to_state,e.control_generation,"
-            " e.fence_token,e.detail"
-            " FROM sentinel_automation_cycle_events e"
-            " CROSS JOIN sentinel_notification_policy p"
-            " CROSS JOIN LATERAL (SELECT"
-            " CASE WHEN e.detail->'diagnostic' ? 'retry_phase'"
-            " THEN e.detail->'diagnostic'->'retry_phase' ELSE e.detail->'retry_phase' END AS phase,"
-            " CASE WHEN e.detail->'diagnostic' ? 'exception_fingerprint'"
-            " THEN e.detail->'diagnostic'->'exception_fingerprint'"
-            " ELSE e.detail->'exception_fingerprint' END AS fingerprint"
-            " ) retry"
-            " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
-            " AND e.to_state = ANY(%s)"
-            " AND (e.to_state <> 'RETRY_WAIT' OR"
-            "      COALESCE(e.detail->'diagnostic'->>'notifier_action',"
-            "               e.detail->>'notifier_action') = 'RETRY_SCHEDULED')"
-            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key ="
-            " CASE WHEN e.to_state <> 'RETRY_WAIT' THEN 'cycle-event:' || e.seq"
-            # Unexpected legacy shapes still pass through the authoritative decoder.
-            " WHEN COALESCE(jsonb_typeof(e.detail->'diagnostic'),'object')='object'"
-            " AND COALESCE(jsonb_typeof(retry.phase),'null') IN ('null','string')"
-            " AND COALESCE(jsonb_typeof(retry.fingerprint),'null') IN ('null','string')"
-            " AND COALESCE(jsonb_typeof(e.detail->'failure_code'),'null') IN ('null','string')"
-            " AND COALESCE(jsonb_typeof(e.detail->'failure_detail'),'null') IN ('null','string')"
-            " THEN 'cycle-recovery:' || e.cycle_id || ':' || e.control_generation || ':'"
-            " || COALESCE(NULLIF(retry.phase #>> '{}',''),'UNKNOWN') || ':'"
-            " || left(encode(sha256(convert_to(COALESCE("
-            " NULLIF(retry.fingerprint #>> '{}',''),NULLIF(e.detail->>'failure_code',''),"
-            " NULLIF(e.detail->>'failure_detail',''),'cycle entered RETRY_WAIT'),"
-            " 'UTF8')),'hex'),24) END)"
-            " ORDER BY e.seq",
-            (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
-        events = list(cur.fetchall())
-        cur.execute(
-            "SELECT e.seq,e.generation,e.action,e.actor,e.reason,e.detail"
-            " FROM sentinel_automation_events e"
-            " CROSS JOIN sentinel_notification_policy p"
-            " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
-            " AND e.action IN ('DEACTIVATED','KILL_ENGAGED')"
-            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a"
-            " WHERE a.idempotency_key = 'control-event:' || e.seq) ORDER BY e.seq")
-        control_events = list(cur.fetchall())
+        if completion:
+            _complete_cycle_control_batch(cur)
+        else:
+            _legacy_cycle_control_recovery(cur)
         cur.execute(
             "SELECT f.broker_order_id,f.fill_key,f.client_key,c.client_key,"
             " f.quantity,f.price,f.filled_at,"
@@ -506,41 +579,8 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             " ORDER BY f.filled_at,f.broker_order_id,f.fill_key")
         fills = list(cur.fetchall())
 
-        for event in events:
-            alert = _cycle_event_alert(event)
-            if alert is None:
-                continue
-            cur.execute(
-                "INSERT INTO sentinel_alert_outbox"
-                " (alert_id,idempotency_key,schema_version,event_type,severity,"
-                " payload,state,max_attempts,next_attempt_at)"
-                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
-                " ON CONFLICT (idempotency_key) DO NOTHING",
-                (_alert_id(alert["idempotency_key"]),
-                 alert["idempotency_key"], alert["event_type"],
-                 alert["severity"], _json(alert["payload"])))
-        for event in control_events:
-            alert = _control_event_alert(event)
-            cur.execute(
-                "INSERT INTO sentinel_alert_outbox"
-                " (alert_id,idempotency_key,schema_version,event_type,severity,"
-                " payload,state,max_attempts,next_attempt_at)"
-                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
-                " ON CONFLICT (idempotency_key) DO NOTHING",
-                (_alert_id(alert["idempotency_key"]),
-                 alert["idempotency_key"], alert["event_type"],
-                 alert["severity"], _json(alert["payload"])))
         for fill in fills:
-            alert = _fill_alert(fill)
-            cur.execute(
-                "INSERT INTO sentinel_alert_outbox"
-                " (alert_id,idempotency_key,schema_version,event_type,severity,"
-                " payload,state,max_attempts,next_attempt_at)"
-                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
-                " ON CONFLICT (idempotency_key) DO NOTHING",
-                (_alert_id(alert["idempotency_key"]),
-                 alert["idempotency_key"], alert["event_type"],
-                 alert["severity"], _json(alert["payload"])))
+            _insert_recovered_alert(cur, _fill_alert(fill))
 
         from sentinel import paper_plan_preview
         try:
@@ -578,8 +618,12 @@ def claim_next(
         raise ValueError("holder_id must be non-empty")
     if claim_seconds < 1:
         raise ValueError("claim_seconds must be positive")
+    from sentinel.automation import notification_completion
     try:
-        _reconstruct_missing_transition_alerts(conn)
+        completion = notification_completion.require_schema(conn, allow_absent=True)
+        _reconstruct_missing_transition_alerts(conn, completion=completion)
+        if completion:
+            conn.commit()
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='PENDING',"

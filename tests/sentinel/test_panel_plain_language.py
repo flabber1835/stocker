@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel.panel import model, sources
-from sentinel.panel.render import render
+from sentinel.panel.render import CSS, render
 
 NOW = datetime(2026, 10, 4, 20, tzinfo=timezone.utc)
 
@@ -35,8 +35,8 @@ def test_compact_page_and_stale_portfolio_is_never_presented_as_current():
     assert 'This result is unverified' in html
     assert '<div class="casino-stage"' not in html
     assert 'id="system-details" data-detail-key="system-details"' in html
-    assert 'prefers-reduced-motion:reduce' in html
-    assert 'animation:none!important' in html
+    assert 'prefers-reduced-motion:reduce' in CSS
+    assert 'animation:none!important' in CSS
     assert 'Disable notifications' in html
     assert '>Remove</button>' not in html
 

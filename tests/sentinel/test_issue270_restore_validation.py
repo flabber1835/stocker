@@ -33,10 +33,10 @@ class _Cursor:
         elif statement.startswith("SELECT cursor_name,state"):
             self.rows = []  # No prospective cash-retirement rows in this legacy fixture.
         elif statement.startswith("SELECT cursor_name"):
-            self.rows = [("broker-cash-plan:v1:plan-current",)]
+            self.rows = [("broker-cash-plan:v1:plan-current", "2026-08-25", {})]
             if self.conn.retirement_present:
-                self.rows += [("broker-cash-plan:v1:retirement:legacy",),
-                              ("broker-cash-plan:v1:retirement:native:claim",)]
+                self.rows += [("broker-cash-plan:v1:retirement:legacy", "2026-08-25", {}),
+                              ("broker-cash-plan:v1:retirement:native:claim", "2026-08-25", {})]
         else:
             self.rows = []
 
@@ -117,16 +117,16 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
         restore_validation.broker_cash, "load_activity_state",
         lambda *_args, **_kwargs: object())
     monkeypatch.setattr(
-        restore_validation.broker_cash, "load_plan_baseline",
+        restore_validation.broker_cash, "decode_plan_baseline",
         lambda *_args, **_kwargs: SimpleNamespace(
             decision_session="2026-08-25", broker="alpaca",
             account_id="paper-account"))
     monkeypatch.setattr(
-        restore_validation.automation_store, "load_cycle",
-        lambda _c, cycle_id: cycle_id)
+        restore_validation.automation_store, "load_cycle_batch",
+        lambda _c, cycle_ids: cycle_ids)
     monkeypatch.setattr(
-        restore_validation.automation_integrity, "validate_cycle_lineage",
-        lambda _c, cycle: cycles.append(cycle))
+        restore_validation.automation_integrity, "verify_restored_cycle_batch",
+        lambda _c, batch, validated: cycles.extend(batch))
 
     conn = _Connection(retirement_present=retirement_present)
     result = restore_validation.validate_restored_database(conn)

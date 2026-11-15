@@ -430,8 +430,10 @@ async def _execute_current_paper_plan(
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding, through=clock())
             try:
-                actions = _action_lookup(conn, state, today)
-                target_actions = _target_action_lookup(conn, plan, today)
+                from sentinel.execution import action_reads
+                with action_reads.read_scope(conn, pinned) as history:
+                    actions = _action_lookup(conn, state, today, history)
+                    target_actions = _target_action_lookup(conn, plan, today, history)
             except ValueError as exc:
                 raise PaperActivationRefused(
                     f"corporate-action authority is ambiguous or invalid: {exc}") from exc
@@ -536,20 +538,22 @@ async def _execute_current_paper_plan(
             from sentinel.execution.protected_limits import unavailable_opening_intents
             from sentinel.execution import fractional_progress
             restrictions.update(fractional_progress.share_restrictions(target_projection))
+            fulfillment = (fractional_progress.derive(conn, projection=target_projection,
+                deployment=binding.identity) if fractional_progress.is_fractional(target_projection) else None)
             projected_deltas = _plan_deltas(
                 target_basket=target_projection.target_basket,
                 observation=observation,
                 minimum_quantity_increment=minimum_increment,
                 conn=conn, deployment=binding.identity, projection=target_projection,
-                restricted_security_ids=restrictions)
+                restricted_security_ids=restrictions,
+                fulfillment=fulfillment)
             if issuer_admission is not None and any(
                     delta.is_increase and delta.classification is not execution_commands.DeltaClass.NONE
                     and delta.security_id != DEFENSIVE_SECURITY_ID for delta in projected_deltas):
                 issuer_admission.prepare_for_transport(
                     publication=pinned, state=state, plan=plan,
                     projection=target_projection, reconciliation=preflight)
-            unfinished = (fractional_progress.derive(conn, projection=target_projection,
-                deployment=binding.identity).blocked if fractional_progress.is_fractional(target_projection) else {})
+            unfinished = fulfillment.blocked if fulfillment is not None else {}
             if (not restrictions and not unfinished and not unavailable_opening_intents(target_projection)
                     and all(delta.classification is execution_commands.DeltaClass.NONE
                             for delta in projected_deltas)):

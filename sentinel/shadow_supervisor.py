@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from time import monotonic as diagnostic_clock
@@ -56,6 +57,49 @@ def _next_acquisition_close(started_at):
 RETENTION_CHILD_SECONDS = 7.0
 RETENTION_REAP_SECONDS = 2.0
 RETENTION_SPACING_SECONDS = 5.0
+_UNCHANGED_PROOF_SECONDS = 600
+
+
+@dataclass(frozen=True)
+class _UnchangedSchedule:
+    observation: tuple
+    started: float
+    started_at: datetime
+
+    @property
+    def deadline(self):
+        return self.started + _UNCHANGED_PROOF_SECONDS
+
+    def current(self):
+        age = (shadow_budget.now() - self.started_at).total_seconds()
+        return 0 <= age < _UNCHANGED_PROOF_SECONDS and self.started <= time.monotonic() < self.deadline
+
+
+def _scheduling_subject(config):
+    from sentinel import shadow_health_projection
+    if _latch_exists():
+        return None
+    return shadow_health_projection.scheduling_subject(config,
+        LATCH_FILE.with_name('shadow-health-projection.json'))
+
+
+def _observe_schedule(config, stopping):
+    try:
+        return supervisor_io.run(_scheduling_subject, config, timeout=2, cancelled=stopping)
+    except (ValueError, OSError, RuntimeError, TimeoutError):
+        # Optional idle observation cannot conceal a real worker refusal.
+        return None
+
+
+def _earned_schedule(before, measured, *, started, started_at):
+    if before is None or measured is None or before[0] != measured[0]:
+        return None
+    verdict = measured[1]
+    if (verdict is None or verdict == before[1] or not verdict[2]
+            or not started_at <= verdict[1] <= shadow_budget.now()):
+        return None
+    hint = _UnchangedSchedule(measured, started, started_at)
+    return hint if hint.current() else None
 
 
 def _idle_retention(database_url):
@@ -102,6 +146,29 @@ def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_comple
             work_at = time.monotonic() + RETENTION_SPACING_SECONDS
             continue
         time.sleep(max(0.0, min(1.0, remaining())))
+
+
+def _wait_for_next_attempt(poll, hint, config):
+    if hint is None or poll['close_at'] is None:
+        _poll_after_worker(**poll)
+        return
+    cutoff = min(poll['close_at'], hint.started_at + timedelta(seconds=_UNCHANGED_PROOF_SECONDS))
+    poll['close_at'] = cutoff
+    poll['deadline'] = min(poll['deadline'], hint.deadline)
+    checked_at = shadow_budget.now()
+    while True:
+        _poll_after_worker(**poll)
+        observed_at = shadow_budget.now()
+        if poll['stopping']() or not hint.current() or not checked_at <= observed_at < cutoff:
+            return
+        # A newly published row, a due close, clock reversal, or a failed
+        # bounded observation immediately restores ordinary full work.
+        refreshed = _observe_schedule(config, poll['stopping'])
+        checked_at = shadow_budget.now()
+        if (refreshed != hint.observation or not hint.current()
+                or not observed_at <= checked_at < cutoff):
+            return
+        poll['deadline'] = min(time.monotonic() + config.poll_seconds, hint.deadline)
 
 
 def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,
@@ -580,6 +647,10 @@ def _run_owned(owner_fd) -> int:
                 _report_retained_interruption()
                 return _latched_wait(lambda: stopping)
         while not stopping:
+            operational = getattr(config, 'operational_source_only', False)
+            before = _observe_schedule(config, lambda: stopping) if operational else None
+            if stopping:
+                break
             arm_started = diagnostic_clock()
             _diagnostic('ARM', 'BEGIN', started=arm_started)
             try:
@@ -690,7 +761,7 @@ def _run_owned(owner_fd) -> int:
 
             heartbeat()
             deadline = time.monotonic() + config.poll_seconds
-            if getattr(config, 'operational_source_only', False) and (
+            if operational and (
                     close_at is None or worker_started_at >= close_at):
                 close_at = _next_acquisition_close(worker_started_at)
             poll = dict(deadline=deadline, close_at=close_at,
@@ -701,7 +772,7 @@ def _run_owned(owner_fd) -> int:
                 poll["deadline"] = min(deadline, time.monotonic() + BUSY_RETRY_MAX_SECONDS)
                 poll["backup_completed"] = lambda: completed_since(
                     config.database_url, backup_failed_at)
-            elif getattr(config, 'operational_source_only', False) and code in {
+            elif operational and code in {
                     0, EXIT_WAITING, EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE}:
                 def run_idle_work():
                     try:
@@ -712,7 +783,11 @@ def _run_owned(owner_fd) -> int:
                                              + type(exc).__name__)
                         return False
                 poll['idle_work'] = run_idle_work
-            _poll_after_worker(**poll)
+            hint = None
+            if code == 0 and before is not None:
+                hint = _earned_schedule(before, _observe_schedule(config, lambda: stopping),
+                    started=started, started_at=worker_started_at)
+            _wait_for_next_attempt(poll, hint, config)
     finally:
         # Dispose of the active worker before any best-effort filesystem cleanup.
         if active is not None:

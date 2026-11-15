@@ -411,6 +411,13 @@ class AlpacaSource:
                               self._benchmark_rows, checkpoint)
 
     def acquire_prices(self, checkpoint, pulse):
+        from contextlib import nullcontext
+
+        scope = self.client.pooled() if isinstance(self.client, Client) else nullcontext()
+        with scope:
+            self._acquire_prices(checkpoint, pulse)
+
+    def _acquire_prices(self, checkpoint, pulse):
         safe_symbols = {row["ticker"] for row in self.selected} - self.action_affected
         if not safe_symbols:
             raise AlpacaTransportRefused("no candidate securities remain after action quarantine")

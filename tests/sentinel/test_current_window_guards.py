@@ -1,12 +1,15 @@
 """Small falsifiers for candidate isolation and input ownership boundaries."""
 from dataclasses import replace
 from types import SimpleNamespace
+from datetime import date
 
 import pytest
 
 from sentinel.core.history import CurrentWindowProof, require_history_compatible
 from sentinel.core.window_features import Signal, WindowFeatures, install
+from sentinel.core.window_material import compile_rows
 from sentinel.feed import calendar, source_authority
+from sentinel.feed.rolling_contract import CanonicalBar
 from sentinel.feed.source_wait import SourceCoveragePending
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, SecuritySeries, VendorBar
 from stock_strategy_shared.wealth_core.window_signals import feature
@@ -53,6 +56,39 @@ def test_gap_excludes_candidate_until_127_consecutive_closes_return():
             assert not feature(series, meta, index=i, session=day).eligible
         if i == 297:
             assert feature(series, meta, index=i, session=day).eligible
+
+
+@pytest.mark.parametrize('missing', [None, 170, 180])
+def test_compact_window_matches_full_series_and_keeps_exact_owned_history(missing):
+    from sentinel.core.input_domains import _vendor
+
+    days = calendar.previous_sessions(DAY, 300)
+    prior = SimpleNamespace(state_hash='a'*64, wealth_core={}, pending=[], median5={'selected': ['1']})
+    manifest = SimpleNamespace(window=SimpleNamespace(sessions=days), snapshot_id='b'*64)
+    meta = SecurityMeta('1', 'XYZ', 'Domestic Common Stock', '1', first_session='2024-01-01')
+    series = SecuritySeries('1', 'ABC', 'SID:1')
+    rows = []
+    for index, day in enumerate(days):
+        if index == missing:
+            continue
+        item = CanonicalBar(security_id='1', session=date.fromisoformat(day),
+            ticker='ABC' if index < 200 else 'XYZ', close_signal=101 + index / 4,
+            close_unadjusted=(101 + index / 4) / (1 if index < 200 else 2),
+            open_unadjusted=40, volume=1_000_000, split_ratio=2 if index == 200 else 1,
+            dividend_per_share=0)
+        rows.append(item)
+        series.append(_vendor(item), index, published_signal=True)
+    expected = Signal.from_feature(feature(series, meta, index=299, session=DAY))
+    actual = compile_rows(prior=prior, manifest=manifest, metadata={'1': meta},
+        resolve_identity=lambda label, day: '1', publication_version=2, session=DAY, rows=rows)
+    assert actual.signals == (expected,)
+    assert actual.histories['1'] == tuple(row for row in rows if days[39] <= str(row.session) < days[-1])
+    assert expected.eligible == (missing != 180)
+
+    rows[0] = rows[0].model_copy(update={'close_signal': None})
+    with pytest.raises(ValueError, match='requires a published signal-domain close'):
+        compile_rows(prior=prior, manifest=manifest, metadata={'1': meta},
+            resolve_identity=lambda label, day: '1', publication_version=2, session=DAY, rows=rows)
 
 
 def input_pair():

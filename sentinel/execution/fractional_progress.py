@@ -1,11 +1,12 @@
 """Fulfillment of immutable dollar allocations using owned command evidence."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 
-from sentinel.execution import commands as C, journal, reconcile
+from sentinel.execution import commands as C, fill_integrity, journal, reconcile
 from sentinel.execution.contract import Side
 from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MARKET_BUY_HEADROOM
 from sentinel.execution.numeric import decimal_text, exact_decimal
@@ -77,14 +78,13 @@ def baseline(conn, *, deployment, plan, actions, saved=None):
     return result
 
 
-def _exact_debit(conn, command, *, historical):
+def _exact_debit(command, rows, *, historical):
     """Native fills must cover the cumulative share counter before re-spending."""
-    from sentinel.execution.fill_integrity import FillHistoryIncomplete, exact_fill_economics
     try:
-        fills = exact_fill_economics(conn, command, verify_notional=not historical,
-                                     require_cash=not historical)
+        fills = fill_integrity.fill_economics(command, rows, verify_notional=not historical,
+                                             require_cash=not historical)
         return fills.gross if historical else max(fills.gross, -fills.cash)
-    except FillHistoryIncomplete as exc:
+    except fill_integrity.FillHistoryIncomplete as exc:
         raise TargetProjectionRefused(f"FILL_PRINCIPAL_PENDING: {exc}") from exc
     except ValueError as exc:
         raise TargetProjectionRefused(f"FILL_PRINCIPAL_CONTRADICTORY: {exc}") from exc
@@ -98,6 +98,8 @@ class Fulfillment:
     budget_overruns: dict[str, Decimal]
     blocked: dict[str, str]
     commands: tuple
+    whole_share_buys: frozenset[str]
+    share_restrictions: dict[str, str]
 
 
 def share_restrictions(projection):
@@ -116,13 +118,27 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
         raise TargetProjectionRefused("fractional fulfillment requires its immutable projection")
     all_commands = journal.load_commands(conn, deployment, plan_id=projection.plan_id)
     commands = tuple(c for c in all_commands if c.client_key != ignore_key)
+    purchases = projection.opening_sizing["purchases"]
+    buys_by_security = defaultdict(list)
+    owned_reductions = set()
+    for command in commands:
+        sid = command.security_id
+        if sid not in purchases:
+            continue
+        if command.side is Side.SELL and command.filled_quantity:
+            owned_reductions.add(sid)
+        if command.side is Side.BUY and command.state not in {S.PLANNED, S.SUPERSEDED}:
+            buys_by_security[sid].append(command)
+    rows = fill_integrity.load_exact_fill_rows(conn, (
+        command for buys in buys_by_security.values()
+        if not any(c.state in IN_FLIGHT or (historical and c.state is S.FILLED) for c in buys)
+        for command in buys))
     targets, acquired = dict(projection.target_basket), dict(projection.target_basket)
     budgets, overruns, blocked = {}, {}, {}
-    for sid, row in projection.opening_sizing["purchases"].items():
-        buys = sorted((c for c in commands if c.security_id == sid and c.side is Side.BUY
-                       and c.state not in {S.PLANNED, S.SUPERSEDED}),
-                      key=lambda c: c.identity.revision)
-        if any(c.side is Side.SELL and c.security_id == sid and c.filled_quantity for c in commands):
+    whole_share_buys = set()
+    for sid, row in purchases.items():
+        buys = sorted(buys_by_security.get(sid, ()), key=lambda c: c.identity.revision)
+        if sid in owned_reductions:
             raise TargetProjectionRefused("purchase allocation contains contradictory owned reductions")
         qty = sum((Fraction(c.filled_quantity) for c in buys), Fraction(0))
         acquired[sid] = targets[sid] = exact_decimal(Fraction(projection.target_basket[sid]) + qty)
@@ -134,6 +150,7 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
         # A whole-share fallback freezes its first share intent. A completed
         # fallback's rounding cash is never converted into a new fractional buy.
         if buys and buys[0].quantity is not None:
+            whole_share_buys.add(sid)
             target = Fraction(projection.target_basket[sid]) + Fraction(buys[0].quantity)
             if Fraction(targets[sid]) > target:
                 raise TargetProjectionRefused("fallback fills exceed the original share intent")
@@ -145,7 +162,7 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             blocked[sid] = "PURCHASE_COMMAND_UNRESOLVED"
             continue
         try:
-            debit = sum((_exact_debit(conn, c, historical=historical) for c in buys), Fraction(0))
+            debit = sum((_exact_debit(c, rows, historical=historical) for c in buys), Fraction(0))
         except TargetProjectionRefused as exc:
             blocked[sid] = str(exc)
             continue
@@ -178,7 +195,8 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
                  if reason != REJECTED_FOR_PLAN}
     if require_terminal and unsettled:
         raise TargetProjectionRefused("purchase fulfillment is not settled: " + str(unsettled))
-    return Fulfillment(targets, acquired, budgets, overruns, blocked, commands)
+    return Fulfillment(targets, acquired, budgets, overruns, blocked, commands,
+                       frozenset(whole_share_buys), share_restrictions(projection))
 
 
 def evidence(conn, *, projection, deployment):
@@ -187,7 +205,7 @@ def evidence(conn, *, projection, deployment):
     witness = {
         "targets": {sid: decimal_text(qty) for sid, qty in sorted(progress.targets.items())},
         "remaining_dollars": {sid: decimal_text(qty) for sid, qty in sorted(progress.budgets.items())},
-        "blocked": dict(sorted((share_restrictions(projection) | progress.blocked).items())),
+        "blocked": dict(sorted((progress.share_restrictions | progress.blocked).items())),
         "commands": [_witness(c) for c in sorted(progress.commands, key=lambda c: c.client_key)],
     }
     if progress.budget_overruns:
@@ -231,18 +249,22 @@ def require_completed(witness):
 def delta(conn, *, projection, deployment, security_id, observation,
           min_increment=Decimal("0.000000001"), ignore_key=None, restricted=False):
     progress = derive(conn, projection=projection, deployment=deployment, ignore_key=ignore_key)
+    return delta_from_fulfillment(progress, security_id=security_id, observation=observation,
+                                 min_increment=min_increment, restricted=restricted)
+
+
+def delta_from_fulfillment(progress: Fulfillment, *, security_id, observation,
+                           min_increment=Decimal("0.000000001"), restricted=False):
+    """Size one security without re-reading the phase's command and fill evidence."""
     result = C.compute_delta(security_id=security_id,
         desired=progress.targets.get(security_id, Decimal(0)), observation=observation,
         min_increment=min_increment)
-    if restricted or security_id in progress.blocked or security_id in share_restrictions(projection):
+    if restricted or security_id in progress.blocked or security_id in progress.share_restrictions:
         # Keep its shares visible, but a pending dollar remainder cannot be
         # sized as shares or submitted beside an unresolved command.
-        from dataclasses import replace
         return replace(result, classification=C.DeltaClass.NONE)
     budget = progress.budgets.get(security_id)
-    attempted = [c for c in progress.commands if c.security_id == security_id
-                 and c.state not in {S.PLANNED, S.SUPERSEDED} and c.side is Side.BUY]
-    if budget is None or (attempted and attempted[0].quantity is not None):
+    if budget is None or security_id in progress.whole_share_buys:
         return result
     if result.remaining != 0:
         raise TargetProjectionRefused("purchase shares differ from owned fulfillment")
@@ -250,5 +272,4 @@ def delta(conn, *, projection, deployment, security_id, observation,
     principal = exact_decimal(Fraction(principal // Fraction("0.01"), 100))
     if principal < Decimal(1):
         return result
-    from dataclasses import replace
     return replace(result, notional=principal, classification=C.DeltaClass.ACTIONABLE)

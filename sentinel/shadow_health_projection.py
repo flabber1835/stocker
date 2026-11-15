@@ -210,6 +210,11 @@ def health(config, *, fallback, target=None, now=None):
         if source.exists():
             raise ValueError('retained health projection origin is absent')
         return fallback(config)
+    projection = _authenticated_projection(config, inventory, source)
+    return _temporal_health(projection, now if now is not None else _now())
+
+
+def _authenticated_projection(config, inventory, source):
     try:
         with source.open('rb') as stream:
             raw = stream.read(MAX_BYTES + 1)
@@ -226,4 +231,86 @@ def health(config, *, fallback, target=None, now=None):
     projection = Projection.model_validate(payload)
     if projection.config_sha256 != _config(config) or projection.inventory_sha256 != inventory:
         raise ProjectionRenewalRequired('binding changed', session=projection.session)
-    return _temporal_health(projection, now if now is not None else _now())
+    return projection
+
+
+_SCHEDULING_RELATIONS = (
+    'sentinel_processed_sessions', 'sentinel_corpus_publications',
+    'sentinel_operational_snapshots', 'sentinel_snapshot_jobs',
+    'sentinel_price_candidates', 'sentinel_candidate_layouts',
+    'sentinel_candidate_blocks', 'sentinel_normalized_blocks',
+    'sentinel_snapshot_bars', 'sentinel_snapshot_benchmarks',
+    'sentinel_snapshot_evidence', 'sentinel_snapshot_validations',
+    'sentinel_operational_snapshot_validations', 'sentinel_snapshot_retirements',
+    'sentinel_readiness_snapshots',
+)
+
+
+def scheduling_subject(config, source):
+    """Observe only metadata for a supervisor's optional unchanged-poll hint."""
+    from sentinel import operational_ddl_epoch
+
+    conn = store.connect(config.database_url, connect_timeout=1, statement_timeout_ms=750)
+    try:
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        inventory, has_origin = _inventory(conn)
+        if not has_origin:
+            return None
+        projection = _authenticated_projection(config, inventory, source)
+        if _temporal_health(projection, _now())['service_health'] != 'HEALTHY_ATTESTED':
+            return None
+        ddl = operational_ddl_epoch.current(conn)
+        setup = conn.execute("SELECT pg_postmaster_start_time(),xmin::text,ctid::text "
+            "FROM sentinel_processed_sessions WHERE cursor_name='operational-schema:v1'").fetchone()
+        physical = conn.execute(
+            'SELECT relname,oid,pg_relation_filenode(oid),reltoastrelid,'
+            ' pg_relation_filenode(reltoastrelid) FROM pg_class '
+            "WHERE relnamespace='public'::regnamespace AND relname=ANY(%s) ORDER BY relname",
+            (list(_SCHEDULING_RELATIONS),)).fetchall()
+        if setup is None or len(physical) != len(_SCHEDULING_RELATIONS):
+            return None
+        binding = conn.execute('''
+            SELECT c.candidate_id, jsonb_array_length(c.session_axis),
+                   ARRAY[c.reference_sha256,c.source_evidence_sha256,s.validation_sha256,v.validation_sha256],
+                   ARRAY[s.xmin::text,s.ctid::text,j.xmin::text,j.ctid::text,
+                         c.xmin::text,c.ctid::text,l.xmin::text,l.ctid::text,
+                         v.xmin::text,v.ctid::text,o.xmin::text,o.ctid::text]
+              FROM (SELECT version,window_end FROM sentinel_corpus_publications
+                    ORDER BY version DESC LIMIT 1) p
+              JOIN sentinel_operational_snapshots s ON s.publication_version=p.version
+              JOIN sentinel_snapshot_jobs j USING(job_id)
+              JOIN sentinel_price_candidates c ON c.candidate_id=s.candidate_id
+              JOIN sentinel_candidate_layouts l ON l.candidate_id=c.candidate_id
+              JOIN sentinel_snapshot_validations v ON v.candidate_id=c.candidate_id
+              JOIN sentinel_operational_snapshot_validations o ON o.candidate_id=c.candidate_id
+             WHERE p.window_end=%s AND j.state='PUBLISHED' AND l.snapshot_id=c.snapshot_id
+               AND o.validation_sha256=s.validation_sha256
+               AND NOT EXISTS (SELECT 1 FROM sentinel_snapshot_retirements r
+                               WHERE r.candidate_id=c.candidate_id)
+            ''', (projection.session,)).fetchone()
+        if binding is None:
+            return None
+        candidate, sessions, evidence_ids, _ = binding
+        evidence = conn.execute('''
+            SELECT evidence_sha256,xmin::text,ctid::text
+            FROM sentinel_snapshot_evidence WHERE evidence_sha256=ANY(%s)
+              AND (canonical_payload IS NOT NULL OR payload IS NOT NULL)
+            ORDER BY evidence_sha256
+            ''', (evidence_ids,)).fetchall()
+        blocks = conn.execute('''
+            SELECT c.kind,c.session,c.block_sha256,c.xmin::text,c.ctid::text,b.xmin::text,b.ctid::text
+            FROM sentinel_candidate_blocks c JOIN sentinel_normalized_blocks b USING(block_sha256)
+            WHERE c.candidate_id=%s AND b.canonical_payload IS NOT NULL
+            ORDER BY c.kind,c.session LIMIT 853
+            ''', (candidate,)).fetchall()
+        if len(evidence) != len(set(evidence_ids)) or len(blocks) != 2 * sessions:
+            return None
+        verdict = conn.execute('''
+            SELECT snapshot_id,computed_at,ready,xmin::text,ctid::text
+            FROM sentinel_readiness_snapshots ORDER BY computed_at DESC,snapshot_id DESC LIMIT 1
+            ''').fetchone()
+        subject = _digest([projection.model_dump(), ddl, setup, physical, binding, evidence, blocks])
+        return subject, verdict
+    finally:
+        conn.rollback()
+        conn.close()

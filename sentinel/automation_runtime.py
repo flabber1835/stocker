@@ -625,7 +625,7 @@ def _actionable_projection_deltas(
             conn=conn, deployment=deployment, projection=projection,
             target_basket=projection.target_basket, observation=observation,
             minimum_quantity_increment=minimum_quantity_increment,
-            restricted_security_ids=restricted_security_ids)
+            restricted_security_ids=restricted_security_ids, fulfillment=progress)
         actionable = tuple(delta for delta in deltas
                            if delta.classification is execution_commands.DeltaClass.ACTIONABLE)
         if not actionable:

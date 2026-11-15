@@ -11,6 +11,7 @@ import os
 import re
 import sys
 from urllib.parse import quote
+from itertools import batched
 
 from sentinel import administrative_authority, authority, binding, schema, trial
 from sentinel.automation import integrity as automation_integrity
@@ -178,14 +179,15 @@ def validate_restored_database(conn) -> dict:
             " FROM sentinel_execution_plans ORDER BY plan_id")
         plan_rows = cur.fetchall()
         cur.execute(
-            "SELECT cursor_name FROM sentinel_processed_sessions"
+            "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
             " WHERE cursor_name LIKE %s ORDER BY cursor_name",
             (f"{broker_cash.PLAN_BASELINE_PREFIX}%",))
-        baseline_names = [str(row[0]) for row in cur.fetchall()]
+        baseline_rows = cur.fetchall()
     plan_by_id = {str(row[0]): row for row in plan_rows}
     from sentinel.paper.cash_retirement import PREFIX as cash_retirement_prefix, verify_retirements
-    baseline_ids = []
-    for name in baseline_names:
+    baselines = []
+    for raw_name, session, state in baseline_rows:
+        name = str(raw_name)
         if name.startswith(cash_retirement_prefix):
             # A distinct authenticated subtype of existing execution metadata.
             # Its paired receipts are strictly validated below, not parsed as a
@@ -195,19 +197,16 @@ def validate_restored_database(conn) -> dict:
         if not plan_id or plan_id not in plan_by_id:
             raise RestoreValidationRefused(
                 f"cash baseline {name!r} has no execution plan")
-        baseline_ids.append(plan_id)
-    for plan_id in baseline_ids:
-        baseline = broker_cash.load_plan_baseline(conn, plan_id=plan_id)
-        if baseline is None:  # selected by the exact baseline namespace above
-            raise RestoreValidationRefused(
-                f"cash baseline for plan {plan_id!r} vanished during validation")
+        baselines.append((plan_id, session, state))
+    for plan_id, session, state in baselines:
+        baseline = broker_cash.decode_plan_baseline(plan_id, (session, state))
         row = plan_by_id[plan_id]
         if (baseline.decision_session != row[1]
                 or baseline.broker != str(row[2])
                 or baseline.account_id != str(row[3])):
             raise RestoreValidationRefused(
                 f"cash baseline for plan {plan_id!r} disagrees with its plan")
-    cash_baseline_count = len(baseline_ids)
+    cash_baseline_count = len(baselines)
     from sentinel.paper.model import PaperActivationRefused
     try:
         verify_retirements(conn)
@@ -221,9 +220,10 @@ def validate_restored_database(conn) -> dict:
             "SELECT cycle_id FROM sentinel_automation_cycles"
             " ORDER BY decision_session,created_at,cycle_id")
         cycle_ids = [str(row[0]) for row in cur.fetchall()]
-    for cycle_id in cycle_ids:
-        cycle = automation_store.load_cycle(conn, cycle_id)
-        automation_integrity.validate_cycle_lineage(conn, cycle)
+    validated = {}
+    for batch in batched(cycle_ids, 64):
+        cycles = automation_store.load_cycle_batch(conn, list(batch))
+        automation_integrity.verify_restored_cycle_batch(conn, cycles, validated)
 
     with conn.cursor() as cur:
         cur.execute("SHOW transaction_read_only")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.presentation import describe, dashboard_health
@@ -180,6 +181,20 @@ PUSH_SCRIPT = r"""
   });
 })();
 """.strip()
+
+
+def _asset_name(name, body):
+    stem, extension = name.split('.')
+    return f'{stem}.{sha256(body.encode()).hexdigest()}.{extension}'
+
+
+_DEVICE_SCRIPT = PUSH_SCRIPT + '\n' + BANNER_SCRIPT
+STYLE_ASSET = _asset_name('dashboard.css', CSS)
+DEVICE_ASSET = _asset_name('dashboard-device.js', _DEVICE_SCRIPT)
+STATIC_ASSETS = {
+    STYLE_ASSET: (CSS, 'text/css'),
+    DEVICE_ASSET: (_DEVICE_SCRIPT, 'text/javascript'),
+}
 
 
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True) -> str:
@@ -542,7 +557,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<style>{CSS}</style>
+<link id="dashboard-stylesheet" rel="stylesheet" href="/static/{STYLE_ASSET}">
 </head><body data-generated-at="{_esc(generated)}"
              data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
@@ -871,8 +886,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }} else {{ checkAge(); }}
 }})();
 </script>
-<script>{PUSH_SCRIPT}</script>
-<script>{BANNER_SCRIPT}</script>
+<script defer src="/static/{DEVICE_ASSET}"></script>
 </body></html>"""
 
 

@@ -11,12 +11,14 @@ print(config_from_env(json.load(sys.stdin)).fingerprint)
 
 INSTALL_OPERATIONAL_SCHEMA = r'''import json,time
 from sentinel import operational_schema,mirror_projection
+from sentinel.automation import notification_completion
 from sentinel.execution import journal,evidence_projection
 from sentinel.feed import store
 import os
 c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
 try:
     installation=operational_schema.install_quiescent(c)
+    assert notification_completion.require_schema(c)
     for component in operational_schema.access_path_components():
         assert component.require_schema(c)
     c.rollback()
@@ -58,11 +60,13 @@ finally:
 
 READ_OPERATIONAL_SCHEMA = r'''import json,os
 from sentinel import operational_schema
+from sentinel.automation import notification_completion
 from sentinel.feed import store
 c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
 try:
     c.execute('BEGIN TRANSACTION READ ONLY')
     assert operational_schema.require_schema(c)
+    assert notification_completion.require_schema(c)
     for component in operational_schema.access_path_components():
         assert component.require_schema(c)
     installation=operational_schema.installation(c,required=True)

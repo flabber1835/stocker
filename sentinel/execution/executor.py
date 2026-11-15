@@ -421,8 +421,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
 
     def size(security_id, observation):
         if fractional:
-            return fractional_progress.delta(conn, projection=target_projection,
-                deployment=deployment, security_id=security_id, observation=observation,
+            return fractional_progress.delta_from_fulfillment(progress,
+                security_id=security_id, observation=observation,
                 min_increment=min_increment,
                 restricted=(security_id in restrictions or security_id in rec.restricted_securities))
         return C.compute_delta(security_id=security_id,
@@ -776,6 +776,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 assert rec.observation is not None            # pragma: no cover
                 observation = rec.observation
                 open_commands = journal.in_flight_commands(conn, deployment)
+                if fractional:
+                    progress = fractional_progress.derive(conn, projection=target_projection,
+                                                          deployment=deployment)
                 remaining_reductions = [
                     d.security_id for d in reductions
                     if size(d.security_id, observation).remaining < 0]

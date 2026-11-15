@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+import httpx
+
 from sentinel.feed import rolling_work
 from sentinel.trading_environment import TradingEndpoint
 
@@ -92,11 +94,47 @@ class Client:
         self.assets_url = self.trading_endpoint.assets_url
         self._allowed = frozenset((self.assets_url, BAR_URL, ACTION_URL))
         self._opener = opener or build_opener(_NoRedirect())
+        self._injected_opener = opener is not None
+        self._pool = None
         self._sleep = sleeper
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
         self._interval = interval
         self._last_request = None
+
+    @contextmanager
+    def pooled(self):
+        """Keep connections alive only during an owned acquisition operation."""
+        if self._injected_opener or self._pool is not None:
+            yield
+            return
+        with httpx.Client(timeout=45.0, follow_redirects=False,
+                          limits=httpx.Limits(max_connections=2, max_keepalive_connections=2)) as pool:
+            self._pool = pool
+            try:
+                yield
+            finally:
+                self._pool = None
+
+    def _response_bytes(self, request):
+        if self._pool is None:
+            with self._opener.open(request, timeout=45) as response:
+                if response.status != 200:
+                    raise AlpacaTransportRefused("provider returned a non-200 response")
+                return response.read(MAX_RESPONSE_BYTES + 1)
+
+        headers = dict(request.header_items())
+        headers['Accept-Encoding'] = 'identity'
+        with self._pool.stream('GET', request.full_url, headers=headers) as response:
+            if response.status_code != 200:
+                raise HTTPError(request.full_url, response.status_code,
+                                response.reason_phrase, response.headers, None)
+            raw = bytearray()
+            for chunk in response.iter_raw(chunk_size=64 * 1024):
+                raw.extend(chunk[:MAX_RESPONSE_BYTES + 1 - len(raw)])
+                if len(raw) > MAX_RESPONSE_BYTES:
+                    break
+            return raw
 
     def _pace(self):
         now = self._monotonic()
@@ -131,15 +169,12 @@ class Client:
                 metrics.retries += int(attempt > 0)
             try:
                 with _measure(metrics, 'http'):
-                    with self._opener.open(request, timeout=45) as response:
-                        if response.status != 200:
-                            raise AlpacaTransportRefused("provider returned a non-200 response")
-                        raw = response.read(MAX_RESPONSE_BYTES + 1)
-                        if metrics is not None:
-                            metrics.response_bytes += len(raw)
-                        if len(raw) > MAX_RESPONSE_BYTES:
-                            raise AlpacaTransportRefused("provider response exceeds bounded size")
-                        observed = self._clock().astimezone(timezone.utc).isoformat()
+                    raw = self._response_bytes(request)
+                    if metrics is not None:
+                        metrics.response_bytes += len(raw)
+                    if len(raw) > MAX_RESPONSE_BYTES:
+                        raise AlpacaTransportRefused("provider response exceeds bounded size")
+                    observed = self._clock().astimezone(timezone.utc).isoformat()
                 with _measure(metrics, 'decode'):
                     try:
                         value = raw.decode("utf-8-sig") if text else json.loads(raw)
@@ -162,7 +197,7 @@ class Client:
                         wait = min(60, max(1, int(raw_wait)))
                     except (TypeError, ValueError):
                         wait = 60
-            except (URLError, TimeoutError, OSError):
+            except (URLError, TimeoutError, OSError, httpx.TransportError):
                 wait = 0
             if attempt + 1 == MAX_RETRIES:
                 break

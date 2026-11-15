@@ -196,13 +196,51 @@ def test_shared_observer_codec_round_trip_preserves_bounds_and_dated_book():
 
 
 def test_one_stylesheet_keeps_push_controller_and_removes_unused_animation():
+    from sentinel.panel.render import DEVICE_ASSET, STYLE_ASSET, STATIC_ASSETS
+
     html = render(example_panel())
-    assert html.count('<style>') == 1 and html.count('--bg:') == 2
+    css, _ = STATIC_ASSETS[STYLE_ASSET]
+    script, _ = STATIC_ASSETS[DEVICE_ASSET]
+    assert html.count('rel="stylesheet"') == 1
+    assert f'href="/static/{STYLE_ASSET}"' in html and css.count('--bg:') == 2
+    assert css not in html and script not in html
     assert 'casino-stage' not in html and 'casino-accent' not in html
-    assert '@keyframes' not in html
+    assert '@keyframes' not in css
     assert 'id="push-enable"' in html and 'id="push-remove"' in html
-    assert 'navigator.serviceWorker.register' in html
-    assert 'prefers-reduced-motion:reduce' in html
+    assert f'src="/static/{DEVICE_ASSET}"' in html and 'navigator.serviceWorker.register' in script
+    assert 'prefers-reduced-motion:reduce' in css
+
+
+def test_panel_wire_encoding_keeps_evidence_uncached_and_fingerprint_assets_immutable(monkeypatch):
+    from hashlib import sha256
+    from fastapi.testclient import TestClient
+    from sentinel.panel import app as panel_app
+    from sentinel.panel.render import STATIC_ASSETS
+
+    page = example_panel()
+    monkeypatch.setattr(panel_app, '_read_panel', lambda: page)
+    client = TestClient(panel_app.app)
+    for route in ('/?document=1', '/panel.json'):
+        exact = client.get(route, headers={'Accept-Encoding': 'identity'})
+        encoded = client.get(route, headers={'Accept-Encoding': 'gzip'})
+        refused = client.get(route, headers={'Accept-Encoding': 'gzip;q=0, *;q=1'})
+        assert exact.status_code == encoded.status_code == refused.status_code == 200
+        assert 'content-encoding' not in exact.headers and 'content-encoding' not in refused.headers
+        assert encoded.headers['content-encoding'] == 'gzip'
+        assert int(encoded.headers['content-length']) < len(exact.content)
+        assert encoded.content == exact.content == refused.content
+        for response in (exact, encoded, refused):
+            assert response.headers['cache-control'] == 'no-store'
+            assert response.headers['vary'] == 'Accept-Encoding'
+            assert response.headers['x-sentinel-panel-status'] == exact.headers['x-sentinel-panel-status']
+
+    for asset in STATIC_ASSETS:
+        resource = client.get(f'/static/{asset}')
+        assert resource.status_code == 200
+        assert sha256(resource.content).hexdigest() == asset.split('.')[1]
+        assert resource.headers['cache-control'] == 'public, max-age=31536000, immutable'
+    for asset in ('dashboard.css', 'dashboard-device.js', 'caesars-palace-512.png'):
+        assert client.get(f'/static/{asset}').headers['cache-control'] == 'no-store'
 
 
 def test_production_projection_has_no_retired_in_panel_worker():

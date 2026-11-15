@@ -72,7 +72,7 @@ from .model import (
 
 from .inspection import DEFENSIVE_SYMBOL
 
-def _action_lookup(conn, state: SessionState | None, through: date):
+def _action_lookup(conn, state: SessionState | None, through: date, history=None):
     """Corporate-action quantity changes since the last durable decision.
 
     The plan/current state session is the earliest trustworthy boundary this
@@ -80,7 +80,7 @@ def _action_lookup(conn, state: SessionState | None, through: date):
     ticker reuse out of the lookup; unsupported merger/spinoff shapes remain
     foreign activity and therefore block increases.
     """
-    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
+    from sentinel.execution import action_reads
 
     start = date.fromisoformat(
         (state.last_processed_session if state is not None else None) or through.isoformat())
@@ -89,11 +89,9 @@ def _action_lookup(conn, state: SessionState | None, through: date):
         row = cur.fetchone()
     if row and row[0] is not None:
         start = min(start, row[0])
-    from sentinel.execution.cash_corrections import action_view
-    actions = corpus_action_lookup(conn, start=start, end=through)
-    return action_view(conn, actions, start=start, end=through)
+    return action_reads.lookup(conn, start=start, end=through, history=history)
 
-def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
+def _target_action_lookup(conn, plan: ExecutionPlan, through: date, history=None):
     """Share-count changes strictly after this immutable decision.
 
     Reconciliation needs enough history to age old filled commands into the
@@ -102,11 +100,9 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
     an action in ``(decision_session, execution_session]`` can change shares
     after this plan fixed its basket.
     """
-    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
+    from sentinel.execution import action_reads
 
-    from sentinel.execution.cash_corrections import action_view
-    actions = corpus_action_lookup(conn, start=plan.decision_session, end=through)
-    return action_view(conn, actions, start=plan.decision_session, end=through)
+    return action_reads.lookup(conn, start=plan.decision_session, end=through, history=history)
 
 def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
     """Supported share changes in the exact target-validity window.
@@ -223,14 +219,16 @@ def _plan_deltas(
         *, target_basket: Mapping[str, Decimal],
         observation: BrokerObservation,
         minimum_quantity_increment: Decimal, conn=None, deployment=None, projection=None,
-        restricted_security_ids=()):
+        restricted_security_ids=(), fulfillment=None):
     identities = set(target_basket)
     identities.update(observation.positions_by_security())
     identities.update(
         order.instrument.security_id for order in observation.orders)
     from sentinel.execution import fractional_progress
     if fractional_progress.is_fractional(projection):
-        return tuple(fractional_progress.delta(conn, projection=projection, deployment=deployment,
+        if fulfillment is None:
+            fulfillment = fractional_progress.derive(conn, projection=projection, deployment=deployment)
+        return tuple(fractional_progress.delta_from_fulfillment(fulfillment,
             security_id=sid, observation=observation, min_increment=minimum_quantity_increment,
             restricted=sid in restricted_security_ids)
             for sid in sorted(identities))

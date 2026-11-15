@@ -166,18 +166,40 @@ def _native_cash_with_omissions(command, *, gross, known, missing):
     return rounded
 
 
+def load_exact_fill_rows(conn, commands):
+    """Load matching native fills and posted cash for one set of owned commands."""
+    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES
+    keys = sorted({(command.client_key, command.broker_order_id) for command in commands
+                   if command.filled_quantity != 0 and command.broker_order_id})
+    if not keys:
+        return {}
+    client_keys, native_ids = map(list, zip(*keys, strict=True))
+    rows = conn.execute(
+        "SELECT f.client_key,f.broker_order_id,f.fill_key,f.quantity,f.price,cash.state"
+        " FROM unnest(%s::text[],%s::text[]) AS owned(client_key,broker_order_id)"
+        " JOIN sentinel_fills f ON f.client_key=owned.client_key"
+        " AND f.broker_order_id=owned.broker_order_id"
+        + FILL_CASH_JOIN_SQL,
+        (client_keys, native_ids, *FILL_CASH_PREFIXES)).fetchall()
+    by_order = {}
+    for client_key, order_id, key, quantity, price, posted in rows:
+        by_order.setdefault((client_key, order_id), []).append((key, quantity, price, posted))
+    return by_order
+
+
 def exact_fill_economics(conn, command, *, verify_notional=True, require_cash=True) -> FillEconomics:
     """Verify executed principal and signed cash from the same owned fill set."""
-    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES
+    return fill_economics(command, load_exact_fill_rows(conn, (command,)),
+                          verify_notional=verify_notional, require_cash=require_cash)
+
+
+def fill_economics(command, by_order, *, verify_notional=True, require_cash=True) -> FillEconomics:
+    """Apply the command's original exact validation to preloaded fill rows."""
     if command.filled_quantity == 0:
         return FillEconomics(Fraction(0), Fraction(0))
     if not command.broker_order_id:
         raise ValueError("filled command has no native order identity")
-    rows = conn.execute(
-        "SELECT f.fill_key,f.quantity,f.price,cash.state FROM sentinel_fills f"
-        + FILL_CASH_JOIN_SQL +
-        " WHERE f.client_key=%s AND f.broker_order_id=%s",
-        (*FILL_CASH_PREFIXES, command.client_key, command.broker_order_id)).fetchall()
+    rows = by_order.get((command.client_key, command.broker_order_id), ())
     quantity, gross, cash = Fraction(0), Fraction(0), Fraction(0)
     missing = []
     for key, qty, price, posted in rows:

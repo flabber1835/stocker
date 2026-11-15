@@ -696,27 +696,30 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     publication_version=pinned.version, frontier=through_text,
                     reconciliation=rec, superseded_plans=0)
 
-            actions = (
-                _action_lookup(conn, dual_state, through_date)
-                if dual_mode else
-                _action_lookup(
-                    conn, SessionState.from_dict(existing_raw), through_date)
-                if existing_raw is not None else None)
-            due_existing_cycle = (
-                existing_plan is not None
-                and trial.due_succeeded_cycle_id(
-                    conn, plan_id=existing_plan.plan_id,
-                    effective_session=existing_plan.effective_session)
-                is not None)
+            from sentinel.execution import action_reads
+            with action_reads.read_scope(conn, pinned) as history:
+                actions = (
+                    _action_lookup(conn, dual_state, through_date, history)
+                    if dual_mode else
+                    _action_lookup(
+                        conn, SessionState.from_dict(existing_raw), through_date, history)
+                    if existing_raw is not None else None)
+                due_existing_cycle = (
+                    existing_plan is not None
+                    and trial.due_succeeded_cycle_id(
+                        conn, plan_id=existing_plan.plan_id,
+                        effective_session=existing_plan.effective_session)
+                    is not None)
+                due_target_actions = None
+                due_observation_target_actions = None
+                if due_existing_cycle:
+                    _assert_deterministic_plan_id(existing_plan)
+                    due_target_actions = _target_action_lookup(
+                        conn, existing_plan, existing_plan.effective_session, history)
+                    due_observation_target_actions = _target_action_lookup(
+                        conn, existing_plan, through_date, history)
             due_authority = None
-            due_target_actions = None
-            due_observation_target_actions = None
             if due_existing_cycle:
-                _assert_deterministic_plan_id(existing_plan)
-                due_target_actions = _target_action_lookup(
-                    conn, existing_plan, existing_plan.effective_session)
-                due_observation_target_actions = _target_action_lookup(
-                    conn, existing_plan, through_date)
                 commands = journal.load_commands(conn, binding.identity)
                 active_security_ids = _preopen_active_security_ids(
                     plan=existing_plan, commands=commands, actions=actions, conn=conn)

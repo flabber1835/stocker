@@ -349,13 +349,14 @@ def test_reconstruct_only_missing_control_alerts(conn, monkeypatch):
     assert len(ids) == 2 and ids[0] == (first.alert_id,)
 
 
-@pytest.mark.parametrize('reconstruct', [False, True])
+@pytest.mark.parametrize('reconstruct', [False, True, 'completion'])
 @pytest.mark.parametrize('deadline_risk', [False, True])
 def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unless_deadline_risk(
-        conn, reconstruct, deadline_risk):
+        conn, reconstruct, deadline_risk, monkeypatch):
     import asyncio
     from datetime import timedelta
     from sentinel.automation.model import ClosingDataPending, TickAction
+    from sentinel.automation import notification_completion
     from sentinel.automation_resilience import RecoveryAutomationService
     from tests.sentinel.test_automation_service import (
         AFTER_WEDNESDAY_CLOSE, config, enable, prepare_result, recovery_success, execution_success,
@@ -366,6 +367,8 @@ def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unles
             publisher_deadline_at=(AFTER_WEDNESDAY_CLOSE + timedelta(seconds=5)
                 if deadline_risk else None))
 
+    if reconstruct == 'completion':
+        _install_notification_ledger(conn, monkeypatch)
     cfg = config()
     enable(conn, cfg)
     worker = RecoveryAutomationService(config=cfg, holder_id='closing-notification-writer',
@@ -377,9 +380,19 @@ def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unles
         "WHERE cycle_id=%s AND to_state='RETRY_WAIT' ORDER BY seq DESC LIMIT 1",
         (result.cycle.cycle_id,)).fetchone()[0]
     assert ('closing_data_wait' in event_before['diagnostic']) is (not deadline_risk)
+    if reconstruct == 'completion':
+        decoded = []
+        original = outbox._cycle_event_alert
+
+        def classify(row):
+            decoded.append(row[0])
+            return original(row)
+
+        monkeypatch.setattr(outbox, '_cycle_event_alert', classify)
     for _ in range(2):
         if reconstruct:
-            outbox._reconstruct_missing_transition_alerts(conn)
+            outbox._reconstruct_missing_transition_alerts(conn, completion=reconstruct == 'completion')
+            conn.commit()
         else:
             alert = outbox.enqueue_cycle_transition_alert(conn,
                 cycle_id=result.cycle.cycle_id, state='RETRY_WAIT')
@@ -389,6 +402,114 @@ def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unles
     assert conn.execute('SELECT detail FROM sentinel_automation_cycle_events '
         "WHERE cycle_id=%s AND to_state='RETRY_WAIT' ORDER BY seq DESC LIMIT 1",
         (result.cycle.cycle_id,)).fetchone()[0] == event_before
+    if reconstruct == 'completion':
+        assert len(decoded) == 1
+        completed = conn.execute(f"SELECT seq,alert_key FROM {notification_completion.TABLE} "
+                                 "WHERE source='CYCLE'").fetchall()
+        assert len(completed) == 1 and completed[0][0] == decoded[0]
+        assert (completed[0][1] is not None) is deadline_risk
+
+
+def _install_notification_ledger(conn, monkeypatch):
+    from sentinel import operational_schema
+
+    conn.rollback()
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'notification-private-test-key' * 2)
+    return operational_schema.install_quiescent(conn)
+
+
+def _control_event(conn, reason, *, before_activation=False):
+    return conn.execute(
+        "INSERT INTO sentinel_automation_events(generation,action,actor,reason,detail,at) "
+        "SELECT 1,'KILL_ENGAGED','private-test',%s,'{}',"
+        "CASE WHEN %s THEN web_push_activated_at-interval '1 second' ELSE clock_timestamp() END "
+        "FROM sentinel_notification_policy WHERE id=1 RETURNING seq",
+        (reason, before_activation),
+    ).fetchone()[0]
+
+
+def test_completion_finds_late_lower_sequence_and_keeps_original_outbox(conn, pg, monkeypatch):
+    from sentinel.automation.notification_completion import TABLE
+
+    _install_notification_ledger(conn, monkeypatch)
+    excluded = _control_event(conn, 'before activation', before_activation=True)
+    conn.commit()
+    with feed_store.connect(pg.sync_dsn) as delayed:
+        lower = _control_event(delayed, 'late commit')
+        newer = _control_event(conn, 'already notified')
+        conn.commit()
+        existing = outbox.enqueue_latest_kill_alert(conn)
+        first = outbox.claim_next(conn, holder_id='private-one')
+        assert first.alert_id == existing.alert_id
+        assert conn.execute(f'SELECT seq FROM {TABLE}').fetchall() == [(newer,)]
+        outbox.mark_delivered(conn, alert_id=first.alert_id, holder_id='private-one',
+                              attempt=first.attempt_count)
+        delayed.commit()
+    second = outbox.claim_next(conn, holder_id='private-two')
+    assert second.idempotency_key == f'control-event:{lower}'
+    assert lower < newer
+    assert conn.execute(f'SELECT seq FROM {TABLE} ORDER BY seq').fetchall() == [(lower,), (newer,)]
+    assert conn.execute("SELECT 1 FROM sentinel_alert_outbox WHERE idempotency_key=%s",
+                        (f'control-event:{excluded}',)).fetchone() is None
+    conn.execute("UPDATE sentinel_automation_events SET reason='changed source version' WHERE seq=%s",
+                 (newer,))
+    conn.commit()
+    assert outbox.claim_next(conn, holder_id='private-updated-version') is None
+    assert conn.execute(f'SELECT count(*) FROM {TABLE} WHERE seq=%s', (newer,)).fetchone() == (2,)
+    assert outbox.load_alert(conn, existing.alert_id).payload == existing.payload
+
+
+def test_completion_crash_replays_whole_batch_and_dispatchers_converge(conn, pg, monkeypatch):
+    from sentinel.automation.notification_completion import TABLE
+
+    _install_notification_ledger(conn, monkeypatch)
+    for index in range(3):
+        _control_event(conn, str(index))
+    conn.commit()
+    monkeypatch.setattr(outbox, '_NOTIFICATION_BATCH', 2)
+    outbox._reconstruct_missing_transition_alerts(conn, completion=True)
+    assert conn.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0] == 2
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 2
+    conn.rollback()
+    assert conn.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0] == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 0
+    conn.rollback()
+
+    barrier = threading.Barrier(2)
+
+    def claim(index):
+        with feed_store.connect(pg.sync_dsn) as worker:
+            barrier.wait(timeout=5)
+            return outbox.claim_next(worker, holder_id=f'private-dispatcher-{index}')
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(claim, range(2)))
+    assert first.alert_id != second.alert_id
+    third = outbox.claim_next(conn, holder_id='private-third')
+    assert third.alert_id not in {first.alert_id, second.alert_id}
+    assert conn.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0] == 3
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 3
+
+
+def test_completion_catalog_refuses_missing_or_altered_guards(conn, monkeypatch):
+    from sentinel import operational_catalog, operational_schema
+    from sentinel.automation import notification_completion as completion
+
+    assert not completion.require_schema(conn, allow_absent=True)
+    with pytest.raises(operational_catalog.OperationalCatalogRefused, match='CATALOG_PARTIAL'):
+        completion.require_schema(conn)
+    original = _install_notification_ledger(conn, monkeypatch)
+    assert completion.require_schema(conn)
+    conn.rollback()
+    assert operational_schema.install_quiescent(conn) == original
+    conn.execute(f'ALTER TABLE {completion.TABLE} DISABLE TRIGGER {completion.FUNCTION}')
+    with pytest.raises(operational_catalog.OperationalCatalogRefused, match='CATALOG_CHANGED'):
+        completion.require_schema(conn, allow_absent=True)
+    conn.rollback()
+    conn.execute(f'DROP TABLE {completion.TABLE}')
+    with pytest.raises(operational_catalog.OperationalCatalogRefused, match='ORPHANED'):
+        completion.require_schema(conn, allow_absent=True)
+    conn.rollback()
 
 
 def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:

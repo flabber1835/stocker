@@ -17,8 +17,9 @@ no broker and has no mutation authority.
 """
 from __future__ import annotations
 
-import os
+import gzip
 import json
+import os
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -37,7 +38,7 @@ from sentinel.panel.review import recorder
 from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
-from sentinel.panel.render import REFRESH_SECONDS, render
+from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.segment_disclosure import disclose as _shadow_segment_disclosure
 from sentinel.panel.serialization import public_payload
@@ -130,10 +131,41 @@ def _read_panel():
 async def _never_cache_operator_evidence(request, call_next):
     """Cover success and framework-generated error responses uniformly."""
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+    if not (response.status_code == 200
+            and request.url.path.removeprefix('/static/') in STATIC_ASSETS):
+        response.headers["Cache-Control"] = "no-store"
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
     return response
+
+
+def _accepts_gzip(value):
+    codings = {}
+    for offer in value.lower().split(','):
+        coding, _, parameter = offer.partition(';')
+        quality = 1.0
+        if parameter:
+            name, _, weight = parameter.partition('=')
+            try:
+                quality = float(weight) if name.strip() == 'q' else 0.0
+            except ValueError:
+                quality = 0.0
+        if 0 <= quality <= 1:
+            codings[coding.strip()] = quality
+    return codings.get('gzip', codings.get('*', 0.0)) > 0
+
+
+def _compress_document(request, response):
+    """Negotiate encoding without caching or renewing a dynamic document."""
+    response.headers.add_vary_header('Accept-Encoding')
+    if request is None or not _accepts_gzip(request.headers.get('Accept-Encoding', '')):
+        return response
+    headers = dict(response.headers)
+    headers.pop('content-length', None)
+    headers['content-encoding'] = 'gzip'
+    return Response(gzip.compress(response.body, compresslevel=3, mtime=0),
+                    status_code=response.status_code, headers=headers)
+
 
 _REQUIRED_SCHEMA_PROBES = (
     "SELECT id, deployment_id, broker, broker_account_id, takeover_epoch, "
@@ -207,19 +239,19 @@ def panel(request: Request = None) -> HTMLResponse:
     html = render(p, refresh_seconds=REFRESH_SECONDS)
     last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
                                               refresh_pending=True))
-    return HTMLResponse(html, headers={"Cache-Control": "no-store",
-                                       'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'})
+    return _compress_document(request, HTMLResponse(html, headers={"Cache-Control": "no-store",
+                              'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'}))
 
 
 @app.get("/panel.json")
 @_one_panel_build
-def panel_json() -> JSONResponse:
+def panel_json(request: Request = None) -> Response:
     p = _read_panel()
-    return JSONResponse(
+    return _compress_document(request, JSONResponse(
         public_payload(p),
         headers={"Cache-Control": "no-store",
                  'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'},
-    )
+    ))
 
 
 def _acknowledge_review(token):
@@ -276,7 +308,11 @@ def service_worker() -> Response:
 
 
 @app.get("/static/{asset}")
-def static_asset(asset: str) -> FileResponse:
+def static_asset(asset: str) -> Response:
+    if asset in STATIC_ASSETS:
+        body, media_type = STATIC_ASSETS[asset]
+        return Response(body, media_type=media_type,
+                        headers={'Cache-Control': 'public, max-age=31536000, immutable'})
     allowed = {
         "caesars-palace-180.png", "caesars-palace-192.png",
         "caesars-palace-512.png",

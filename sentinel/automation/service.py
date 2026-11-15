@@ -1205,7 +1205,8 @@ class AutomationService:
     async def tick(
             self, conn, *, now: datetime,
             heartbeat_conn_factory=None,
-            clock: Callable[[], datetime] | None = None) -> TickResult:
+            clock: Callable[[], datetime] | None = None,
+            _idle_pulse: tuple[LeaderPermit, datetime, float] | None = None) -> TickResult:
         """Advance at most one callback boundary.
 
         Disabled and killed states return before lease acquisition and before
@@ -1270,12 +1271,25 @@ class AutomationService:
                 now = sampled_now
 
         try:
-            permit = store.acquire_lease(
-                conn, holder_id=self.holder_id,
-                lease_seconds=self.config.lease_seconds,
-                instance_state=TickAction.WAITING.value,
-                next_wake_at=now + timedelta(seconds=min(
-                    self.config.heartbeat_seconds,self.config.control_poll_seconds)))
+            # run() already recorded visible progress immediately before this
+            # tick. Re-prove the database-time fence without writing it again
+            # while that exact idle pulse is young and the opening is still
+            # ahead. Slow work and phase entry use the ordinary renewal.
+            if (_idle_pulse is not None and now < _idle_pulse[1]
+                    and 0 <= time.monotonic() - _idle_pulse[2] < self.config.heartbeat_seconds):
+                try:
+                    permit = store.require_leader(conn, _idle_pulse[0])
+                except StaleLeaderRefused:
+                    conn.rollback()
+                    return TickResult(action=TickAction.WAITING,
+                        reason="idle progress no longer holds the live leader fence")
+            else:
+                permit = store.acquire_lease(
+                    conn, holder_id=self.holder_id,
+                    lease_seconds=self.config.lease_seconds,
+                    instance_state=TickAction.WAITING.value,
+                    next_wake_at=now + timedelta(seconds=min(
+                        self.config.heartbeat_seconds,self.config.control_poll_seconds)))
         except WriterLockUnavailable:
             # This acquisition failed before leadership or financial mutation.
             # Keep the same worker and its bounded scheduler wake; never steal
@@ -2040,6 +2054,7 @@ class AutomationService:
         """Persistent bounded-loop primitive with restart-safe wake recompute."""
         ticks = 0
         idle_permit: LeaderPermit | None = None
+        waiting_execute_at: datetime | None = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             try:
                 conn = conn_factory()
@@ -2054,14 +2069,17 @@ class AutomationService:
             try:
                 now = _utc(clock())
                 try:
+                    progress_started = time.monotonic()
                     idle_permit = self._record_main_progress(
                         conn, permit=idle_permit, state=TickAction.WAITING.value,
                         next_wake_at=now + timedelta(seconds=min(
                             self.config.heartbeat_seconds,
                             self.config.control_poll_seconds)))
+                    idle_pulse = ((idle_permit, waiting_execute_at, progress_started)
+                        if idle_permit is not None and waiting_execute_at is not None else None)
                     result = await self.tick(
                         conn, now=now, heartbeat_conn_factory=conn_factory,
-                        clock=clock)
+                        clock=clock, _idle_pulse=idle_pulse)
                 except BaseException as exc:                    # noqa: BLE001
                     if self.notify is not None:
                         await _resolve(self.notify(conn, exc))
@@ -2072,6 +2090,9 @@ class AutomationService:
                     raise
                 if result.permit is not None:
                     idle_permit = result.permit
+                waiting_execute_at = (result.cycle.execute_at if result.action is TickAction.WAITING
+                    and result.cycle is not None and result.cycle.state is CycleState.WAITING_OPEN
+                    else None)
                 ticks += 1
                 if (self.terminal is not None and result.cycle is not None
                         and result.cycle.state in {
