@@ -38,8 +38,12 @@ const registration = {
   },
 };
 const context = {
-  document: {getElementById: id => ({'push-card':card, 'push-enable':enable,
-    'push-remove':remove, 'push-status':status})[id]},
+  document: {
+    getElementById: id => ({'push-card':card, 'push-enable':enable,
+      'push-remove':remove, 'push-status':status})[id],
+    // The combined asset also initializes the banner when that surface exists.
+    querySelector: () => null,
+  },
   window: {isSecureContext: scenario !== 'unsupported-insecure',
     PushManager: {}, Notification: {}},
   navigator: {serviceWorker: {register: async (url, options) => {

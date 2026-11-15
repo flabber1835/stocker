@@ -105,6 +105,10 @@ original compiler hash already bound by the manifest. Update the reader's
 self-pin after this exact mapping. The source catalog used by the initial local
 release stays available with its original bytes for retained-source evidence.
 A neighboring edit contributes its real source hash.
+The extraction checks retain the original complete implementation as a
+Git-authenticated test fixture. The compact compiler and the original compiler
+must emit identical serialized material when fed the same canonical rows.
+Keep the exact extraction checks for unchanged code, identity and order guards.
 
 ## Restore, qualification and delivery
 

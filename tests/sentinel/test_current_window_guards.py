@@ -1,7 +1,8 @@
 """Small falsifiers for candidate isolation and input ownership boundaries."""
 from dataclasses import replace
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from datetime import date
+import sys
 
 import pytest
 
@@ -59,14 +60,17 @@ def test_gap_excludes_candidate_until_127_consecutive_closes_return():
 
 
 @pytest.mark.parametrize('missing', [None, 170, 180])
-def test_compact_window_matches_full_series_and_keeps_exact_owned_history(missing):
-    from sentinel.core.input_domains import _vendor
+def test_compact_window_matches_full_series_and_keeps_exact_owned_history(monkeypatch, missing):
+    from tests.sentinel.test_economic_implementation_boundary import window_predecessor_source
+
+    reference = ModuleType('qualification_window_predecessor')
+    monkeypatch.setitem(sys.modules, reference.__name__, reference)
+    exec(compile(window_predecessor_source(), 'window-material-516c44e53.py.txt', 'exec'), reference.__dict__)
 
     days = calendar.previous_sessions(DAY, 300)
     prior = SimpleNamespace(state_hash='a'*64, wealth_core={}, pending=[], median5={'selected': ['1']})
     manifest = SimpleNamespace(window=SimpleNamespace(sessions=days), snapshot_id='b'*64)
     meta = SecurityMeta('1', 'XYZ', 'Domestic Common Stock', '1', first_session='2024-01-01')
-    series = SecuritySeries('1', 'ABC', 'SID:1')
     rows = []
     for index, day in enumerate(days):
         if index == missing:
@@ -77,18 +81,19 @@ def test_compact_window_matches_full_series_and_keeps_exact_owned_history(missin
             open_unadjusted=40, volume=1_000_000, split_ratio=2 if index == 200 else 1,
             dividend_per_share=0)
         rows.append(item)
-        series.append(_vendor(item), index, published_signal=True)
-    expected = Signal.from_feature(feature(series, meta, index=299, session=DAY))
-    actual = compile_rows(prior=prior, manifest=manifest, metadata={'1': meta},
+    inputs = dict(prior=prior, manifest=manifest, metadata={'1': meta},
         resolve_identity=lambda label, day: '1', publication_version=2, session=DAY, rows=rows)
-    assert actual.signals == (expected,)
+    expected = reference.compile_rows(**inputs)
+    actual = compile_rows(**inputs)
+    assert actual.model_dump(mode='json', by_alias=True) == expected.model_dump(mode='json', by_alias=True)
+    assert actual.sha256 == expected.sha256
     assert actual.histories['1'] == tuple(row for row in rows if days[39] <= str(row.session) < days[-1])
-    assert expected.eligible == (missing != 180)
+    assert actual.signals[0].eligible == (missing != 180)
 
     rows[0] = rows[0].model_copy(update={'close_signal': None})
-    with pytest.raises(ValueError, match='requires a published signal-domain close'):
-        compile_rows(prior=prior, manifest=manifest, metadata={'1': meta},
-            resolve_identity=lambda label, day: '1', publication_version=2, session=DAY, rows=rows)
+    for compiler in (reference.compile_rows, compile_rows):
+        with pytest.raises(ValueError, match='requires a published signal-domain close'):
+            compiler(**inputs)
 
 
 def input_pair():
