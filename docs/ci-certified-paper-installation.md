@@ -58,6 +58,18 @@ merge and have no main-push trigger. Applicable optional checks must also pass.
 No elapsed-time, trading-session, broker, book or installation admission rule is
 changed. Software certification remains separate from financial activation.
 
+### Protected publication retries
+
+GitHub can retain several provenance artifacts under one name when protected
+publication is retried. If discovery finds that name more than once on a
+retried run, resolve the exact successful attempt through GitHub's attempt-jobs
+endpoint. Require one matching successful publisher job and its successful
+evidence upload step. Require exactly one artifact created during that step's
+reported interval. An ambiguous candidate within the interval or incomplete
+attempt metadata refuses. Every selected artifact still undergoes the existing
+workflow binding, archive hash, manifest, exact attempt and attestation checks.
+Keep evidence from failed attempts available for review.
+
 ## Partial CI reruns and qualification provenance
 
 Decision: 2026-10-16. A workflow's latest validation attempt is distinct from

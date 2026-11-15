@@ -271,6 +271,13 @@ def _publication_artifact(client, run, commit):
     name = "sentinel-provenance-%s" % commit
     candidates = [row for row in rows if isinstance(row, dict)
                   and row.get("name") == name and row.get("expired") is False]
+    if len(candidates) > 1:
+        attempt = _positive_int(run.get("run_attempt"), "CERT_ARTIFACT_BINDING_INVALID",
+                                "publication attempt")
+        if attempt > 1:
+            started, finished = _publication_upload_interval(client, run_id, attempt, commit)
+            candidates = [row for row in candidates
+                          if started <= _artifact_timestamp(row.get("created_at")) <= finished]
     if len(candidates) != 1:
         _refuse("CERT_ARTIFACT_MISSING", "exact certification artifact is unavailable")
     artifact = candidates[0]
@@ -286,6 +293,51 @@ def _publication_artifact(client, run, commit):
             or workflow.get("head_sha") != commit:
         _refuse("CERT_ARTIFACT_BINDING_INVALID", "artifact workflow binding is invalid")
     return artifact
+
+
+def _artifact_timestamp(value):
+    if isinstance(value, str):
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        try:
+            timestamp = datetime.fromisoformat(value)
+            if timestamp.utcoffset() is not None:
+                return timestamp
+        except ValueError:
+            pass
+    _refuse("CERT_ARTIFACT_BINDING_INVALID", "artifact or upload timestamp is invalid")
+
+
+def _publication_upload_interval(client, run_id, attempt, commit):
+    payload = client.json("/repos/%s/actions/runs/%d/attempts/%d/jobs?per_page=100"
+                          % (REPOSITORY, run_id, attempt))
+    rows = payload.get("jobs")
+    if not isinstance(rows, list):
+        _refuse("CERT_GITHUB_RESPONSE_INVALID", "publication attempt jobs are malformed")
+    jobs = [row for row in rows if isinstance(row, dict)
+            and row.get("name") == "publish-tested-main-image"]
+    code = "CERT_ARTIFACT_BINDING_INVALID"
+    if len(jobs) != 1:
+        _refuse(code, "publication attempt has no unique publisher job")
+    job = jobs[0]
+    if (job.get("head_sha") != commit or job.get("status") != "completed"
+            or job.get("conclusion") != "success"
+            or _positive_int(job.get("run_id"), code, "publication job run") != run_id
+            or _positive_int(job.get("run_attempt"), code, "publication job attempt") != attempt):
+        _refuse(code, "publisher job does not match the successful attempt")
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        _refuse(code, "publisher job upload steps are malformed")
+    uploads = [step for step in steps if isinstance(step, dict)
+               and step.get("name") == "Retain signed promotion evidence"]
+    if (len(uploads) != 1 or uploads[0].get("status") != "completed"
+            or uploads[0].get("conclusion") != "success"):
+        _refuse(code, "publication attempt has no unique successful upload step")
+    started = _artifact_timestamp(uploads[0].get("started_at"))
+    finished = _artifact_timestamp(uploads[0].get("completed_at"))
+    if finished < started:
+        _refuse(code, "publication upload interval is reversed")
+    return started, finished
 
 
 def _download_artifact(client, artifact):

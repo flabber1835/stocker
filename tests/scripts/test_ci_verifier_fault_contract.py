@@ -260,6 +260,67 @@ def test_artifact_metadata_cannot_escape_exact_workflow_binding(mutation, code):
     refused(code, lambda: verify._publication_artifact(SimpleNamespace(json=lambda _: {'artifacts': rows}), fixture.PUBLICATION, fixture.COMMIT))
 
 
+def retry_artifacts():
+    run = dict(publication(), run_attempt=2)
+    artifact = Reader().artifact
+    rows = [
+        dict(artifact, id=20, created_at='2026-11-15T07:24:08Z'),
+        dict(artifact, id=10, created_at='2026-11-15T07:26:31Z'),
+    ]
+    steps = [{
+        'name': 'Retain signed promotion evidence', 'status': 'completed',
+        'conclusion': 'success', 'started_at': '2026-11-15T07:26:30Z',
+        'completed_at': '2026-11-15T07:26:31Z',
+    }]
+    jobs = [{
+        'name': 'publish-tested-main-image', 'head_sha': fixture.COMMIT,
+        'run_id': run['id'], 'run_attempt': 2, 'status': 'completed',
+        'conclusion': 'success', 'steps': steps,
+    }]
+
+    def read(path):
+        base = f"/repos/{verify.REPOSITORY}/actions/runs/{run['id']}"
+        if path == base + '/artifacts?per_page=100':
+            return {'artifacts': rows}
+        assert path == base + '/attempts/2/jobs?per_page=100'
+        return {'jobs': jobs}
+
+    return SimpleNamespace(json=read), run, rows, jobs
+
+
+def test_retry_selects_the_artifact_created_in_the_successful_upload_step():
+    client, run, rows, _ = retry_artifacts()
+    assert verify._publication_artifact(client, run, fixture.COMMIT) == rows[1]
+
+
+@pytest.mark.parametrize('fault,code', [
+    ('same-window', 'CERT_ARTIFACT_MISSING'),
+    ('outside-window', 'CERT_ARTIFACT_MISSING'),
+    ('bad-timestamp', 'CERT_ARTIFACT_BINDING_INVALID'),
+    ('bad-attempt', 'CERT_ARTIFACT_BINDING_INVALID'),
+    ('job-failed', 'CERT_ARTIFACT_BINDING_INVALID'),
+    ('duplicate-job', 'CERT_ARTIFACT_BINDING_INVALID'),
+    ('upload-failed', 'CERT_ARTIFACT_BINDING_INVALID'),
+])
+def test_retry_refuses_ambiguous_artifacts_or_invalid_attempt_evidence(fault, code):
+    client, run, rows, jobs = retry_artifacts()
+    if fault == 'same-window':
+        rows[0]['created_at'] = rows[1]['created_at']
+    elif fault == 'outside-window':
+        rows[1]['created_at'] = '2026-11-15T07:26:32Z'
+    elif fault == 'bad-timestamp':
+        rows[0]['created_at'] = '2026-11-15T07:24:08'
+    elif fault == 'bad-attempt':
+        jobs[0]['run_attempt'] = 1
+    elif fault == 'job-failed':
+        jobs[0]['conclusion'] = 'failure'
+    elif fault == 'duplicate-job':
+        jobs.append(jobs[0])
+    elif fault == 'upload-failed':
+        jobs[0]['steps'][0]['conclusion'] = 'failure'
+    refused(code, lambda: verify._publication_artifact(client, run, fixture.COMMIT))
+
+
 @pytest.mark.parametrize('mutation,code', [('url', 'CERT_ARTIFACT_BINDING_INVALID'),
                                          ('digest', 'CERT_ARTIFACT_DIGEST_MISMATCH')])
 def test_artifact_download_requires_api_origin_and_exact_bytes(mutation, code):

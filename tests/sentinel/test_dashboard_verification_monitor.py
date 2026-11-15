@@ -62,18 +62,20 @@ def test_monitor_refreshes_several_lifetimes_without_http_and_serializes_jobs(mo
     monitor=monitoring.Monitor(reader_factory=factory,interval=.005)
     try:
         monitor.start('fixture')
-        wait(lambda:monitor.shadow.completed is not None and monitor.paper.completed is not None)
-        first=monitor.shadow.completed[2]
         # Only the background monitor consumes answers. No browser reads occur.
-        for turn in range(1,5):
+        for turn in range(5):
             clock[0]=turn*reader.REFRESH_SECONDS
-            wait(lambda:monitor.shadow.completed is not None and monitor.shadow.completed[2]>first)
-            first=monitor.shadow.completed[2]
+            completed_at=origin+timedelta(seconds=clock[0])
+            # Both scopes share a slot and a clock. Finish queued PAPER work
+            # before advancing the clock by an entire refresh interval.
+            wait(lambda:all(value is not None and value[2]==completed_at
+                            for value in (monitor.shadow.completed,monitor.paper.completed)))
         assert peak[0]==1
         assert len([x for x in calls if x[0] is monitoring.observe_shadow])>=5
+        assert len([x for x in calls if x[0] is monitoring.observe_paper])>=5
         rows,_,_,errors=monitor.read('fixture')
         assert not errors and rows[0].status==model.OK
-        assert rows[1].value=='$50,575.09' and rows[0].as_of==first
+        assert rows[1].value=='$50,575.09' and rows[0].as_of==completed_at
         assert monitor.read('different-database') is None
     finally: monitor.stop()
     assert not monitor.thread.is_alive() and monitor.read('fixture') is None
