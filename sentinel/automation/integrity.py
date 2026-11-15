@@ -342,15 +342,21 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events
                         from sentinel.automation import store
                         prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
                         for predecessor in prior:
-                            validate_cycle_lineage(conn, predecessor, _validated=validated, _events=_events)
+                            if _events is None:
+                                validate_cycle_lineage(conn, predecessor, _validated=validated)
+                            else:
+                                validate_cycle_lineage(conn, predecessor, _validated=validated, _events=_events)
                         eligible = all(store._unsent_retirement(
                             cycle, spec, debug=debug, recovered_preflight=True) for cycle in prior)
                         if not eligible:
                             raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
                     from sentinel.automation import store
                     prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                    if not continuation and predecessors_reached_transport(conn, prior, _events=_events):
-                        raise AutomationRefused('prospective cycle predecessor reached transport')
+                    if not continuation:
+                        reached = (predecessors_reached_transport(conn, prior) if _events is None
+                                   else predecessors_reached_transport(conn, prior, _events=_events))
+                        if reached:
+                            raise AutomationRefused('prospective cycle predecessor reached transport')
                 conn.rollback()
                 if known != predecessors:
                     raise AutomationRefused("prospective cycle predecessor identity changed")

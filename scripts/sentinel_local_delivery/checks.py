@@ -66,7 +66,7 @@ c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_
 try:
     c.execute('BEGIN TRANSACTION READ ONLY')
     assert operational_schema.require_schema(c)
-    assert notification_completion.require_schema(c)
+    notification_completion.require_schema(c, allow_absent=True)
     for component in operational_schema.access_path_components():
         assert component.require_schema(c)
     installation=operational_schema.installation(c,required=True)

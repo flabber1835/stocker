@@ -45,6 +45,13 @@ commits, and retain existing activation, availability and ordering boundaries.
 Fill recovery retains the current command and cash evidence checks. The sender
 claims only due committed notifications and owns transport separately. Verify
 the selected persistence and its guarded installation before any schema change.
+Ordinary backed handoff installs the optional notification component while
+writers are stopped. Handoff modes which own schema observation only may
+retain the absent-component compatibility path. Any partial or altered catalog
+still refuses. The notification result ledger is derived from committed events
+and does not replace them or their outbox rows. A rollback after its schema
+installation must reestablish the earlier catalog and guarded evidence epoch
+before starting an earlier image. Qualify the removal on private PostgreSQL.
 
 Keep current dynamic dashboard responses uncached. Reuse versioned immutable
 static assets and compress supported dynamic responses. Preserve freshness,
