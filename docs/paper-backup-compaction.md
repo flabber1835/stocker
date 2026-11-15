@@ -49,3 +49,13 @@ all normal WAL archiving and retention. Create a fresh verified physical base
 with the ordinary deadlines and replay its recorded WAL marker in the
 canonical full private restore drill with the exact installed runtime image.
 Verify the logical archive and the new physical base independently.
+
+## Release qualification
+
+Seal the acquisition guard's exact successor bytes in the existing complete
+source profile. Preserve the installed signed PAPER revision
+`93f2acb4fc328b1ad47da34507d0222910a5de6e` as an exact retained predecessor
+with its original source inventory. The source transition carries no new
+financial authority. Qualify the current candidate against both that installed
+inventory and the existing historical witnesses, including the unknown-source
+refusals.
