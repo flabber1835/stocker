@@ -192,7 +192,7 @@ def decode(value, signature, *, current_subject, scope, now):
         display_dependencies.validate_basis(basis)
         if (scope != 'PAPER' or not basis or basis['native']['PAPER'] != current_subject
                 or basis['account_anchor'] is None or value['errors']
-                or not completed_history(rows, now=observed)):
+                or not reusable_paper_outcome(rows, now=observed)):
             raise ValueError('verification valuation basis is not completed PAPER evidence')
     return rows, {}, [], list(value['errors'])
 
@@ -201,6 +201,11 @@ def completed_history(rows, *, now):
     return (len(rows) == 1 and rows[0].key == 'paper_reconciliation'
             and rows[0].paper_alignment == 'COMPLETED_WITH_HISTORY'
             and rows[0].effective_status(now) == model.WARN)
+
+
+def reusable_paper_outcome(rows, *, now):
+    return (completed_history(rows, now=now)
+            or len(rows) == 1 and model.observed_opening_cutoff(rows[0], now=now))
 
 
 def rebase_completed_paper(conn, database_url, stored, *, now, facts=None,
@@ -216,7 +221,7 @@ def rebase_completed_paper(conn, database_url, stored, *, now, facts=None,
                                scope='PAPER', now=now)
     except (ValueError, TypeError, KeyError, OverflowError):
         return None
-    if not completed_history(rows, now=now):
+    if not reusable_paper_outcome(rows, now=now):
         return None
     current = (display_dependencies.capture(conn, database_url, facts=facts)
                if current_basis is None else current_basis)

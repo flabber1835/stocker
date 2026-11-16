@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Mapping, Protocol
 
 from sentinel.automation.model import (
@@ -448,9 +449,35 @@ _NOTIFIABLE_RETRY = (
 
 
 def _insert_recovered_alert(cur, alert):
+    if alert["event_type"] == "BROKER_FILL":
+        _insert_fill_receipt(cur, alert)
+        return
     _insert_pending_alert(cur, idempotency_key=alert["idempotency_key"],
         event_type=alert["event_type"], severity=alert["severity"],
         payload_json=_json(alert["payload"]))
+
+
+def _same_fill_receipt(prior, payload):
+    fields = ("client_key", "broker_order_id", "ticker", "security_id", "side", "fill_key")
+    if any(prior.get(field) != payload.get(field) for field in fields):
+        return False
+    return (Decimal(prior["quantity"]) == Decimal(payload["quantity"])
+        and Decimal(prior["price"]) == Decimal(payload["price"])
+        and datetime.fromisoformat(prior["filled_at"]) == datetime.fromisoformat(payload["filled_at"]))
+
+
+def _insert_fill_receipt(cur, alert):
+    payload = alert["payload"]
+    alert_id = _insert_pending_alert(cur, idempotency_key=alert["idempotency_key"],
+        event_type="BROKER_FILL", severity="TRADE", payload_json=_json(payload))
+    cur.execute("SELECT event_type,severity,payload FROM sentinel_alert_outbox WHERE alert_id=%s",
+                (alert_id,))
+    event_type, severity, prior = cur.fetchone()
+    if (event_type != "BROKER_FILL" or severity != "TRADE"
+            or not _same_fill_receipt(prior, payload)
+            or ("native_activity" in prior and "native_activity" in payload
+                and prior["native_activity"] != payload["native_activity"])):
+        raise ImmutableAlertChanged("stored native and journal fill receipts disagree")
 
 
 def _complete_cycle_control_batch(cur):

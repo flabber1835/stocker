@@ -343,6 +343,47 @@ def test_real_psycopg_io_alarm_keeps_its_owner_cause(media, monkeypatch):
     assert report.validate_failure(value) == value
 
 
+def test_actual_proof_connection_loss_requires_host_removal_before_retry(media, monkeypatch):
+    import psycopg
+
+    runner, args = setup_bridge(monkeypatch)
+    trace = worker._Trace()
+    with psycopg.connect(media.conn.info.dsn, autocommit=True) as probe:
+        with psycopg.connect(media.conn.info.dsn, autocommit=True) as victim:
+            def terminated(conn, **_):
+                assert probe.execute("SELECT pg_terminate_backend(%s)",
+                                     (conn.info.backend_pid,)).fetchone() == (True,)
+                conn.execute("SELECT pg_sleep(2)")
+
+            monkeypatch.setattr(worker.authority, "require", terminated)
+            with pytest.raises((psycopg.OperationalError, psycopg.InterfaceError)) as caught:
+                worker.prove(victim, base_backup=media.base, system_identifier=media.system,
+                    wal_segment_bytes=1024**2, observed_frontier=media.end, _trace=trace)
+            assert victim.broken
+            assert probe.execute("SELECT pg_try_advisory_lock(%s)",
+                                 (worker.reuse.LOCK_KEY,)).fetchone() == (True,)
+
+    original = worker.failure_record(caught.value, trace).model_dump()
+    assert original["code"] == "DATABASE_CONNECTION_LOST"
+    assert original["cleanup"]["proof_lock"] == "FAILED"
+    assert not original["retryable"]
+    assert report.validate_failure(original) == original
+
+    for removed in (False, True):
+        def bounded(command, **_):
+            if command[:2] == ["docker", "run"]:
+                return SimpleNamespace(returncode=4, stdout="", stderr=wire(original))
+            return SimpleNamespace(returncode=0 if removed else 1, stdout="")
+
+        with pytest.raises(bridge.IntegrityFailure) as host:
+            bridge.observe(args, values=values(), runner=runner, bounded=bounded)
+        failure = host.value.record
+        assert failure["code"] == "DATABASE_CONNECTION_LOST"
+        assert failure["cleanup"]["proof_lock"] == "FAILED"
+        assert failure["retryable"] is removed
+        assert worker.MaintenanceFailure.model_validate(failure).retryable is removed
+
+
 def test_nested_timeout_does_not_claim_the_alarm_fired():
     import psycopg
     try:

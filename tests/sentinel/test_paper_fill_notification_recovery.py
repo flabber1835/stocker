@@ -31,7 +31,7 @@ ORDER_ID = "22222222-2222-4222-8222-222222222222"
 ASSET_ID = "33333333-3333-4333-8333-333333333333"
 
 
-def fixture(db, monkeypatch, *, filled="2"):
+def fixture(db, monkeypatch, *, filled="2", record_progress=True):
     monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
     monkeypatch.setenv(local_paper.ACCOUNT_ENV, "PAfixture")
     monkeypatch.setenv(module.SINCE_ENV, NOW.replace(hour=4).isoformat())
@@ -48,9 +48,10 @@ def fixture(db, monkeypatch, *, filled="2"):
     journal.save_command(db, pending, previous=S.PLANNED)
     ack = pending.transition(S.ACKNOWLEDGED, broker_order_id=ORDER_ID)
     journal.save_command(db, ack, previous=S.SEND_PENDING)
-    progress = replace(ack, state=S.FILLED if filled == "2" else S.PARTIALLY_FILLED,
-                       filled_quantity=D(filled), filled_average_price=D("100"))
-    journal.save_command(db, progress, previous=S.ACKNOWLEDGED)
+    if record_progress:
+        progress = replace(ack, state=S.FILLED if filled == "2" else S.PARTIALLY_FILLED,
+                           filled_quantity=D(filled), filled_average_price=D("100"))
+        journal.save_command(db, progress, previous=S.ACKNOWLEDGED)
     db.execute("UPDATE sentinel_commands SET created_at=%s", (SUBMITTED,))
     db.commit()
     account = {"id": NATIVE_ACCOUNT, "account_number": "PAfixture"}
@@ -91,6 +92,45 @@ def fixture(db, monkeypatch, *, filled="2"):
 
 def collect(db, f):
     return asyncio.run(module.collect(db, config=f.config, reader=f.broker, now=NOW))
+
+
+def test_acknowledged_order_discovers_fill_before_financial_reconciliation(db, monkeypatch):
+    f = fixture(db, monkeypatch, record_progress=False)
+    positive = dict(f.order)
+    f.order.update(filled_qty="0", filled_avg_price=None, status="new", filled_at=None)
+    assert collect(db, f) == 0
+    assert not any(path.endswith("/FILL") for _, path in f.calls)
+    f.order.update(positive)
+    assert collect(db, f) == 2
+    assert db.execute("SELECT state,filled_quantity FROM sentinel_commands").fetchone() == (
+        "ACKNOWLEDGED", D(0))
+    assert db.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 0
+    assert collect(db, f) == 0
+    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 2
+
+
+def test_zero_progress_unknown_is_not_a_native_fill_probe_candidate(db, monkeypatch):
+    f = fixture(db, monkeypatch, record_progress=False)
+    db.execute("UPDATE sentinel_commands SET state='UNKNOWN'")
+    db.commit()
+    assert collect(db, f) == 0
+    assert not f.calls
+
+
+def test_native_and_journal_writers_reuse_one_immutable_fill(db, monkeypatch):
+    f = fixture(db, monkeypatch, record_progress=False)
+    insert = outbox._insert_fill_receipt
+    def ledger_wins(cur, alert):
+        native = alert["payload"]
+        recovered = outbox._fill_alert((
+            ORDER_ID, native["fill_key"], f.command.client_key, f.command.client_key,
+            D("1.000"), D("100.00"), FILLED, "BUY", "SEC-BIL", "BIL", 1))
+        insert(cur, recovered)
+        insert(cur, alert)
+    monkeypatch.setattr(outbox, "_insert_fill_receipt", ledger_wins)
+    assert collect(db, f) == 2
+    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox "
+        "WHERE payload->>'reconstructed_from_durable_fill'='true'").fetchone()[0] == 2
 
 
 @pytest.mark.parametrize('boundary', ['since', 'activation'])

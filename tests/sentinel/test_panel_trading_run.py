@@ -458,7 +458,8 @@ def test_noncompleted_history_is_withdrawn_and_guard_removal_is_detected():
     invalid=replace(history,trading_run=history.trading_run.model_copy(update={'state':'FAILED'}))
     assert not invalid.can_show_trading_run(NOW)
     source=textwrap.dedent(inspect.getsource(model.Row.can_show_trading_run))
-    guard="(self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED')"
+    guard=("(self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED'\n"
+           "                 or self.has_opening_cutoff(now))")
     assert source.count(guard)==1
     scope=dict(model.__dict__)
     exec(source.replace(guard,'True'),scope)

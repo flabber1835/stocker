@@ -3,6 +3,13 @@
   "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
+    "ExecutionResult": {
+      "module": "model",
+      "generated_ast_sha256": "965eb98ccce22d16740e572c1b40ddb50f7cfc515604fa7e94ee5df28f9e0eaf",
+      "historical_ast_sha256": "9db80c56276d282f7a1439c47260d980488cc625b354a5d19a9774733697694b",
+      "serial_market_buy_design": "docs/nov16-basket-throughput.md",
+      "serial_market_buy_acceptance": ["tests/sentinel/test_fractional_flow.py::test_guarded_market_buy_continuation_uses_fresh_settlement"]
+    },
     "NativeFeePostingPending": {
       "module": "model",
       "generated_ast_sha256": "7cd56d216f51a3b6ad4577781933986adf1adf0cd20e54d936a750b6bd6ce6eb",
@@ -131,7 +138,13 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "5d74face745dc8d57754045e7277a11493c68957846687cd4c8021c5c50b67a1",
+      "generated_ast_sha256": "a18fe3072f022b8e3ef492d0694957429dc9d3d553a0d299b1d2f00626985c47",
+      "serial_market_buy_predecessor_ast_sha256": "5d74face745dc8d57754045e7277a11493c68957846687cd4c8021c5c50b67a1",
+      "serial_market_buy_design": "docs/nov16-basket-throughput.md",
+      "serial_market_buy_acceptance": [
+        "tests/sentinel/test_fractional_flow.py::test_guarded_market_buy_continuation_uses_fresh_settlement",
+        "tests/sentinel/test_fractional_flow.py::test_twenty_fractional_reductions_need_one_basket_admission"
+      ],
       "consolidation": {
         "predecessor_ast_sha256": "a8acffe08b3701cf2fa187149e96b40c5b0c23f541bfce8f4034c5e3cb7b852e",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],
@@ -284,7 +297,10 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "c7a3107cb5e074655c7a92e749abc9da2c622473ab628d86d06af4cd682371aa",
+      "generated_ast_sha256": "54863deab624ea61cbaf28ec32972b40240ecc904bbb8fa897d39f2501a0819d",
+      "reductions_only_predecessor_ast_sha256": "c7a3107cb5e074655c7a92e749abc9da2c622473ab628d86d06af4cd682371aa",
+      "reductions_only_design": "docs/nov16-basket-throughput.md#reductions-after-the-increase-cutoff",
+      "reductions_only_acceptance": ["tests/sentinel/test_fractional_flow.py::test_twenty_fractional_reductions_need_one_basket_admission"],
       "consolidation": {
         "predecessor_ast_sha256": "38f35ea03f5ff61372e6cd34079ad9c95590e068d031e35fd48db7ce2a9d8950",
         "design": ["docs/fractional-paper-execution.md"],
@@ -606,7 +622,10 @@
         "tests/sentinel/test_paper_package_architecture.py"
       ],
       "debug_window_design": "docs/paper-debug-window.md",
-      "generated_ast_sha256": "b5aa393ac4e82870a5299d765bb836f12bfc98c723f9fa34b2dd0d4ce8204d1c",
+      "generated_ast_sha256": "a0b41e3529384937f4a978086eac79f016cdf617a955f5d54cbc03adeda1a523",
+      "reductions_only_predecessor_ast_sha256": "b5aa393ac4e82870a5299d765bb836f12bfc98c723f9fa34b2dd0d4ce8204d1c",
+      "reductions_only_design": "docs/nov16-basket-throughput.md#reductions-after-the-increase-cutoff",
+      "reductions_only_acceptance": ["tests/sentinel/test_automation_service.py::test_late_transport_continues_only_with_same_session_sell_recovery"],
       "historical_ast_sha256": "44b255babafd9ac3d4687aa8a299f7c3968a0ef5f4fb9ba8de95d2c11351725e",
       "module": "validation",
       "reason": "PR #537: Bind any carried automation configuration SHA to the durable control configuration before paper mutation; preserve existing generation, certificate, account, leader, phase and cycle checks."

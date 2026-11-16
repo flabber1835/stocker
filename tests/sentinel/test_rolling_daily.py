@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import rolling_daily as daily, rolling_daily_checkpoint as cp
+from sentinel import checkpoint_input_storage as input_storage
 from sentinel import rolling_initialization as init, rolling_checkpoint as origin
 from sentinel import shadow_observation as shadow
 from sentinel.core import rolling_continuity as continuity
@@ -126,8 +127,8 @@ def test_repeated_continuation_outlives_origin_prices(conn, first, ready, operat
     assert resume(conn).state.state_hash == third.state.state_hash
     archived = conn.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s",
                             (cp.input_name(OBS, second.session),)).fetchone()[0]
-    assert archived == second_input
-    assert digest(archived) == shadow.PostgresShadowObservationStore(conn, observation_id=OBS).records()[1]["input_sha256"]
+    assert input_storage.decode(archived, expected_sha256=digest(second_input)) == second_input
+    assert archived['sha256'] == shadow.PostgresShadowObservationStore(conn, observation_id=OBS).records()[1]["input_sha256"]
 
 
 @pytest.mark.parametrize("defect", ["raw", "signal", "volume", "sector", "actions", "spy", "bil"])
@@ -182,6 +183,30 @@ def test_uniform_rebase_is_accepted(conn, rebase_first, operational_source, monk
         for field in ("signal_closes", "raw_closes", "volumes"):
             assert series[field] == expected.feed["series"][sid][field]
     assert resume(conn).state.state_hash == result.state.state_hash
+
+
+def test_legacy_checkpoint_closure_advances_to_compact_and_keeps_the_old_archive(
+        conn, first, operational_source, monkeypatch):
+    refresh(conn, operational_source, monkeypatch)
+    prior = advance(conn)
+    payload = cp.read(conn).model_dump(by_alias=True)
+    name = cp.input_name(OBS, prior.session)
+    for cursor, value in ((name, payload['input_value']),
+                          (cp.CURSOR, {'checkpoint': payload, 'hmac_sha256': cp.signature(payload)})):
+        conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                     (canonical_json(value), cursor))
+    conn.commit()
+    assert resume(conn).state.state_hash == prior.state.state_hash
+    refresh(conn, operational_source, monkeypatch)
+    current = advance(conn)
+    assert resume(conn).state.state_hash == current.state.state_hash
+    old_archive = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0]
+    assert old_archive == payload['input_value']
+    cursor = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (cp.CURSOR,)).fetchone()[0]
+    logical = cp.read(conn).model_dump(by_alias=True)
+    assert 'input_value' not in cursor['checkpoint']
+    assert cursor['hmac_sha256'] == cp.signature(logical)
+    assert cursor['input_archive_sha256'] == digest(logical['input_value'])
 
 
 def test_missing_causal_sessions_never_jump_cursor(conn, first, operational_source, monkeypatch):
@@ -312,6 +337,7 @@ def checkpoint_cas(conn, monkeypatch):
         strategy_identity={}, runtime_identity={}, snapshot={}, publication={}, genesis_sha256='a'*64,
         record_sha256='b'*64, state_sha256='c'*64, input_value={'material': 'x'*65536},
         warmup_input_identity={}, precommit_timing={}, pitr={}, origin_sha256='d'*64, history_anchor={})
+    cp.archive_input(conn, checkpoint)
     cp.write(conn, checkpoint, previous=None)
     conn.commit()
     return checkpoint
@@ -326,11 +352,26 @@ def test_checkpoint_cas_writes_only_new_signed_payload(conn, checkpoint_cas):
         queries.append((query, params))
         return conn.execute(query, params)
 
+    cp.archive_input(conn, updated)
     cp.write(SimpleNamespace(execute=execute), updated, previous=previous)
     assert cp.read(conn).model_dump(by_alias=True) == updated.model_dump(by_alias=True)
     assert len(queries) == 1
     assert checkpoint_cas.input_value['material'] not in repr(queries[0][1])
     assert '_row_version' not in previous.model_dump(by_alias=True)
+
+
+def test_repointed_archive_cannot_change_a_signed_checkpoint(conn, checkpoint_cas, monkeypatch):
+    altered = input_storage.encode({'material': 'different'})
+    conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                 (canonical_json(altered), cp.input_name(checkpoint_cas.observation_id, checkpoint_cas.session)))
+    signed = conn.execute(
+        "UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{input_archive_sha256}',to_jsonb(%s::text)) "
+        "WHERE cursor_name=%s RETURNING state->>'hmac_sha256'", (altered['sha256'], cp.CURSOR)).fetchone()[0]
+    with pytest.raises(cp.Refused, match='AUTHENTICATION_FAILED'):
+        cp.read(conn)
+    # Matching archive integrity alone must not authorize the modified input.
+    monkeypatch.setattr(cp, 'signature', lambda _: signed)
+    assert cp.read(conn).input_value == {'material': 'different'}
 
 
 @pytest.mark.parametrize('defect', ['changed_tuple', 'new_transaction'])

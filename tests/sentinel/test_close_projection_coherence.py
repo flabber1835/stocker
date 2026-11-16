@@ -172,6 +172,47 @@ def test_current_attempt_can_explain_original_publication_rollover(metadata):
     assert capture((conn, original)) is None
 
 
+@pytest.mark.parametrize('fault', [None, 'no_rollover', 'worker_idle', 'older_attempt', 'work_expired'])
+def test_running_prior_subject_can_explain_published_readiness_rollover(metadata, fault):
+    conn, original = metadata
+    published = original.row('feed').as_of
+    admitted = published + timedelta(seconds=3)
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(subject_sha256='c'*64, admitted_at=admitted.isoformat(),
+        work_started_at=(admitted+timedelta(seconds=1)).isoformat(),
+        work_deadline=(NOW+timedelta(seconds=15)).isoformat(),
+        supersession_started_at=admitted.isoformat(),
+        supersession_deadline=(admitted+timedelta(minutes=10)).isoformat())
+    worker = original.row('shadow_worker')
+    if fault != 'worker_idle':
+        worker = replace(worker, operational_fact=model.OperationalFact(
+            kind='SHADOW_WORKER', state='ACTIVE_WORKER'))
+    if fault == 'no_rollover':
+        attempt.update(supersession_started_at=None, supersession_deadline=None)
+    elif fault == 'older_attempt':
+        conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (admitted,))
+        attempt['supersession_started_at'] = published.isoformat()
+    elif fault == 'work_expired':
+        attempt['work_deadline'] = NOW.isoformat()
+    # The composite feed may sample the exact published frontier after the
+    # rolling observer has already started. The physical publication did not move.
+    feed = replace(original.row('feed'), as_of=NOW-timedelta(seconds=2))
+    panel = replace(original, rows=[feed, original.row('shadow_verification'), worker])
+    proof = capture((conn, panel))
+    if fault is not None:
+        assert proof is None
+        return
+    assert datetime.fromisoformat(proof['verification_publication_at']) == published
+    assert datetime.fromisoformat(proof['deadline']) == NOW+timedelta(seconds=15)
+    signed = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff': proof})
+    result = waiting.project_panel(signed, now=NOW, subject=SUBJECT)
+    assert result.row('feed').effective_status(NOW) == model.WARN
+    assert result.row('feed').as_of == feed.as_of
+    assert result.row('feed').operational_fact.state == 'AWAITING_VERDICT'
+    deadline = NOW+timedelta(seconds=15)
+    assert waiting.project_panel(signed, now=deadline, subject=SUBJECT).row('feed').effective_status(deadline) == model.FAIL
+
+
 def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(metadata):
     conn, original = metadata
     published_at = NOW - timedelta(seconds=47)

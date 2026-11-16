@@ -66,6 +66,7 @@ PUSH_SCRIPT = r"""
   var enable = document.getElementById("push-enable");
   var remove = document.getElementById("push-remove");
   var status = document.getElementById("push-status");
+  var deviceReceipt = null;
   function message(value) { status.textContent = value; }
   function decode(value) {
     var padding = "=".repeat((4 - value.length % 4) % 4);
@@ -77,8 +78,14 @@ PUSH_SCRIPT = r"""
   }
   function deliveryMessage(receipt) {
     if (receipt.delivery_status === "ACCEPTED") {
-      message("Test accepted by the push service. Check this device’s notifications.");
-      return true;
+      if (deviceReceipt && deviceReceipt.alert_id === receipt.alert_id) {
+        message(deviceReceipt.outcome === "DISPLAY_REQUEST_ACCEPTED"
+          ? "This browser received the test and accepted the request to show it."
+          : "This browser received the test but could not show the notification.");
+        return true;
+      }
+      message("Test accepted by the push service. Waiting for this browser to confirm receipt.");
+      return false;
     }
     if (receipt.delivery_status === "FAILED") {
       message("Test notification failed. Check Notification delivery on the dashboard.");
@@ -98,16 +105,21 @@ PUSH_SCRIPT = r"""
     for (var attempt = 0; attempt < 10; attempt++) {
       await new Promise(function(resolve) { setTimeout(resolve, 2000); });
       try {
-        var response = await fetch("/push/tests/" + encodeURIComponent(receipt.alert_id), {
-          credentials: "same-origin", cache: "no-store"
-        });
-        if (!response.ok) { throw new Error("status unavailable"); }
-        receipt = await response.json();
+        if (receipt.delivery_status !== "ACCEPTED") {
+          var response = await fetch("/push/tests/" + encodeURIComponent(receipt.alert_id), {
+            credentials: "same-origin", cache: "no-store"
+          });
+          if (!response.ok) { throw new Error("status unavailable"); }
+          receipt = await response.json();
+        }
       } catch (_) {
         message("Test is queued, but its current delivery status could not be read.");
         return;
       }
       if (deliveryMessage(receipt)) { return; }
+    }
+    if (receipt.delivery_status === "ACCEPTED") {
+      message("Test accepted by the push service. This browser has yet to confirm receipt.");
     }
   }
   async function refreshButtons() {
@@ -124,6 +136,15 @@ PUSH_SCRIPT = r"""
     message("Web Push is unavailable here. On iPhone, install this HTTPS page to the Home Screen.");
     return;
   }
+  navigator.serviceWorker.addEventListener("message", function(event) {
+    var receipt = event.data;
+    if (event.source && event.source.scriptURL === new URL("/service-worker.js", location.href).href
+        && receipt && receipt.type === "SENTINEL_DEVICE_PUSH_TEST"
+        && typeof receipt.alert_id === "string"
+        && ["DISPLAY_REQUEST_ACCEPTED", "DISPLAY_REQUEST_REJECTED"].includes(receipt.outcome)) {
+      deviceReceipt = receipt;
+    }
+  });
   card.hidden = false;
   refreshButtons().catch(function() { message("Notification status could not be read."); });
   enable.addEventListener("click", async function() {

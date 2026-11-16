@@ -31,6 +31,7 @@ class Progress(BaseModel):
     attempt_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     checkpoint_sha256: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     admission_publication_at: datetime | None = None
+    verification_publication_at: datetime | None = None
     observed_at: datetime
     deadline: datetime
 
@@ -45,6 +46,12 @@ class Progress(BaseModel):
                 published.utcoffset() != timedelta(0) or self.checkpoint_sha256 is not None
                 or not published <= self.observed_at < self.deadline <= published + ADMISSION_WINDOW):
             raise ValueError('admission progress exceeded the original publication clock')
+        verification = self.verification_publication_at
+        if verification is not None and (
+                verification.utcoffset() != timedelta(0)
+                or self.admission_publication_at is not None or self.checkpoint_sha256 is not None
+                or verification > self.observed_at):
+            raise ValueError('verification rollover requires the original publication clock')
         return self
 
 
@@ -64,6 +71,27 @@ def _verified_predecessor(attempt, *, subject, feed, worker, now):
             and attempt.admitted_at <= attempt.completed_at < feed.as_of <= now < attempt.deadline
             and worker.operational_fact is not None
             and worker.operational_fact.state == 'ACTIVE_WORKER')
+
+
+def _active_attempt(attempt, *, published, now):
+    return (attempt.outcome in {'QUEUED', 'RUNNING'} and attempt.completed_at is None
+        and attempt.diagnostic is None and attempt.latched_failure is None
+        and published <= attempt.admitted_at <= now < attempt.deadline
+        and (attempt.supersession_started_at is None
+             or (published <= attempt.supersession_started_at <= attempt.admitted_at
+                 and now < attempt.supersession_deadline))
+        and (attempt.work_started_at is None
+             or attempt.admitted_at <= attempt.work_started_at <= now < attempt.work_deadline)
+        and (attempt.outcome == 'RUNNING') == (attempt.work_started_at is not None))
+
+
+def _superseded_attempt(attempt, *, subject, published, worker, now):
+    return (attempt.subject_sha256 != subject and attempt.outcome == 'RUNNING'
+        and attempt.supersession_started_at is not None
+        and worker.operational_fact is not None
+        and worker.operational_fact.state == 'ACTIVE_WORKER'
+        and published <= worker.as_of <= now
+        and _active_attempt(attempt, published=published, now=now))
 
 
 def _checkpoint_bound(conn, *, pub, binding, closed, now):
@@ -130,6 +158,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
     shadow = next(row for row in panel.rows if row.key == 'shadow_verification')
     if (feed is None or feed.status != model.WARN or feed.feed_readiness != 'AWAITING_VERDICT'
             or not feed.required_current or feed.as_of is None or feed.is_future(now)
+            or feed.is_stale(now)
             or feed.source_session != calendar.latest_closed_session(now)
             or type(feed.source_publication_version) is not int
             or worker is None or worker.effective_status(now) != model.OK
@@ -149,15 +178,9 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         closed = calendar.session_window(feed.source_session)[1]
         if attempt.diagnostic is not None or attempt.latched_failure is not None:
             return None
-        rollover = attempt.supersession_started_at
-        active = (attempt.subject_sha256 == subject and attempt.outcome in {'QUEUED', 'RUNNING'}
-            and attempt.completed_at is None
-            and closed <= feed.as_of <= attempt.admitted_at <= now < attempt.deadline
-            and (rollover is None or (feed.as_of <= rollover <= attempt.admitted_at
-                                      and now < attempt.supersession_deadline))
-            and (attempt.work_started_at is None or
-                 attempt.admitted_at <= attempt.work_started_at <= now < attempt.work_deadline)
-            and (attempt.outcome == 'RUNNING') == (attempt.work_started_at is not None))
+        current_attempt = (attempt.subject_sha256 == subject and attempt.outcome in {'QUEUED', 'RUNNING'})
+        potential_work = current_attempt or (attempt.outcome == 'RUNNING'
+            and attempt.supersession_started_at is not None)
         candidate = (attempt.subject_sha256 != subject and attempt.outcome == 'VERIFIED'
             and attempt.completed_at is not None and shadow.as_of is not None
             and feed.as_of <= shadow.as_of <= attempt.completed_at <= now < attempt.deadline
@@ -166,7 +189,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
             and worker.operational_fact is not None
             and worker.operational_fact.state == 'ACTIVE_WORKER')
         predecessor = _verified_predecessor(attempt, subject=subject, feed=feed, worker=worker, now=now)
-        if not active and not candidate and not predecessor:
+        if not potential_work and not candidate and not predecessor:
             return None
         records = conn.execute(
             'SELECT p.version,p.previous_version,p.window_end,p.evidence,'
@@ -199,19 +222,32 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
                 'dependencies': digest({'scope': rolling_go_inputs.SCHEMA})})):
             return None
         opened = calendar.session_window(calendar.next_session(feed.source_session))[0]
-        boundary = min(deadline, attempt.deadline, worker.valid_until, owner_expiry, opened)
+        boundary = min(deadline, attempt.deadline, worker.valid_until, shadow.valid_until,
+                       owner_expiry, opened)
         checkpoint = None
         admission = None
-        if candidate:
+        verification = None
+        if potential_work:
+            if (type(previous) is not int or previous <= 0
+                    or not isinstance(published_at, datetime) or published_at.utcoffset() != timedelta(0)
+                    or not closed <= created <= published_at <= min(feed.as_of, now)):
+                return None
+            if not current_attempt:
+                if not _superseded_attempt(attempt, subject=subject, published=published_at,
+                                            worker=worker, now=now):
+                    return None
+                verification = published_at
+            elif not _active_attempt(attempt, published=published_at, now=now):
+                return None
+            boundary = min(boundary, attempt.work_deadline or attempt.deadline,
+                           attempt.supersession_deadline or attempt.deadline)
+        elif candidate:
             memo = candidate_memo if candidate_memo is not None else CandidateMemo()
             checkpoint = memo.read(conn, subject=subject, pub=pub, binding=binding,
                                    closed=closed, now=now)
             if checkpoint is None:
                 return None
             boundary = min(boundary, shadow.valid_until)
-        elif active:
-            boundary = min(boundary, attempt.work_deadline or attempt.deadline,
-                           attempt.supersession_deadline or attempt.deadline)
         else:
             if (type(previous) is not int or previous <= 0
                     or not isinstance(published_at, datetime) or published_at.utcoffset() != timedelta(0)
@@ -226,6 +262,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
             publication_version=version, session=feed.source_session,
             subject_sha256=subject, attempt_id=attempt.attempt_id,
             checkpoint_sha256=checkpoint, admission_publication_at=admission,
+            verification_publication_at=verification,
             observed_at=now, deadline=boundary.astimezone(timezone.utc)).model_dump(mode='json', by_alias=True)
     except (KeyError, TypeError, ValueError, OverflowError, RuntimeError):
         return None
@@ -250,14 +287,22 @@ def deadline(panel, *, subject, now):
                 or proof.checkpoint_sha256 is not None and (
                     worker.operational_fact is None or worker.operational_fact.state != 'ACTIVE_WORKER')):
             return None
-        if proof.admission_publication_at is not None:
+        if proof.admission_publication_at is not None or proof.verification_publication_at is not None:
             diagnostic = panel.trial_details.get('verification_attempts', {}).get('SHADOW')
             if not diagnostic or diagnostic.get('observation_fresh') is not True:
                 return None
             attempt = observer_failure.Attempt.model_validate_json(json.dumps(diagnostic['latest']))
-            if (attempt.attempt_id != proof.attempt_id
-                    or not _verified_predecessor(attempt, subject=subject, feed=feed, worker=worker, now=now)
+            if attempt.attempt_id != proof.attempt_id:
+                return None
+        if proof.admission_publication_at is not None:
+            if (not _verified_predecessor(attempt, subject=subject, feed=feed, worker=worker, now=now)
                     or not attempt.completed_at < proof.admission_publication_at <= feed.as_of):
+                return None
+        elif proof.verification_publication_at is not None:
+            if (proof.verification_publication_at > feed.as_of
+                    or not _superseded_attempt(attempt, subject=subject,
+                        published=proof.verification_publication_at, worker=worker, now=now)
+                    or proof.deadline > min(attempt.work_deadline, attempt.supersession_deadline)):
                 return None
         return min(proof.deadline, worker.valid_until)
     except (KeyError, TypeError, ValueError, OverflowError, StopIteration, RuntimeError):

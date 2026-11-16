@@ -192,6 +192,7 @@ class AutomationExecutionGrant:
     certificate_sha256: str
     cancellation_check: Callable[[], None] | None = None
     config_sha256: str | None = None
+    reduction_only_reconciliation_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.operation_scope not in {"PREPARE", "RECOVER", "EXECUTE"}:
@@ -216,6 +217,10 @@ class AutomationExecutionGrant:
         if (self.cancellation_check is not None
                 and not callable(self.cancellation_check)):
             raise TypeError("cancellation_check must be callable")
+        if self.reduction_only_reconciliation_id is not None:
+            if self.operation_scope != "EXECUTE":
+                raise ValueError("reductions-only scope requires an EXECUTE grant")
+            _required_text("reduction_only_reconciliation_id", self.reduction_only_reconciliation_id)
 
     def require_active(self) -> None:
         if self.cancellation_check is not None:
@@ -637,6 +642,10 @@ class GuardedExecutionBroker(ExecutionBroker):
                               notional: Decimal | None = None):
         from sentinel.execution.contract import BrokerInstrumentUnavailable
 
+        if (isinstance(self._grant, AutomationExecutionGrant)
+                and self._grant.reduction_only_reconciliation_id is not None
+                and side is not Side.SELL):
+            raise PreTransportAuthorityRefused("reductions-only execution requires a SELL")
         live_permit = None
         try:
             if not isinstance(order_terms, OrderTerms):
@@ -710,7 +719,14 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker clock reports market closed; increase refused "
                     "before transport")
 
-        if self.capabilities.pre_submit_instrument_revalidation:
+        from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+        # The exact PAPER adapter both validates native rules and places the
+        # order by asset ID. Its fresh rules read below also verifies the
+        # complete instrument and active/tradable status.
+        revalidate_by_asset_rules = (
+            fractional and side is Side.SELL and not self._live
+            and type(self._inner) is AssetIdAlpacaExecutionBroker)
+        if self.capabilities.pre_submit_instrument_revalidation and not revalidate_by_asset_rules:
             if not instrument.broker_id:
                 raise PreTransportAuthorityRefused(
                     "durable command has no broker-native instrument identity")

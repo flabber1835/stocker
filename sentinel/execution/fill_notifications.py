@@ -19,6 +19,8 @@ from sentinel.execution import fill_integrity, journal, native_activity
 SINCE_ENV = "SENTINEL_FILL_NOTIFICATIONS_SINCE"
 DEADLINE_SECONDS = 18
 POLL_SECONDS = 30
+_BATCH_SIZE = 3
+_PAPER_ACTIVE_STATES = ("ACKNOWLEDGED", "PARTIALLY_FILLED", "CANCEL_PENDING")
 
 
 class FillNotificationRefused(ValueError):
@@ -50,19 +52,32 @@ def _covered(payloads, client_key):
                 if p.get("client_key") == client_key), Fraction(0))
 
 
-def _candidates(conn, bound, since):
+def _candidates(conn, bound, since, *, paper, rotation):
     rows = conn.execute(
         "SELECT client_key,broker_order_id,broker_instrument_id,symbol,security_id,side,"
-        " quantity,filled_quantity,order_terms,notional FROM sentinel_commands"
+        " quantity,filled_quantity,order_terms,notional,state FROM sentinel_commands"
         " WHERE broker=%s AND broker_account_id=%s AND deployment_id=%s"
-        " AND takeover_epoch=%s AND created_at>=%s AND filled_quantity>0"
-        " AND broker_order_id IS NOT NULL ORDER BY updated_at DESC",
-        (bound[1], bound[2], bound[0], bound[3], since)).fetchall()
+        " AND takeover_epoch=%s AND created_at>=%s"
+        " AND (filled_quantity>0 OR state=ANY(%s))"
+        " AND broker_order_id IS NOT NULL ORDER BY updated_at DESC,client_key",
+        (bound[1], bound[2], bound[0], bound[3], since,
+         list(_PAPER_ACTIVE_STATES) if paper else [])).fetchall()
+    if not rows:
+        return []
     existing = _existing(conn)
-    return [dict(zip(("client_key", "broker_order_id", "broker_id", "symbol",
-                     "security_id", "side", "quantity", "filled_quantity",
-                     "order_terms", "notional"), row, strict=True)) for row in rows
-            if _covered(existing, row[0]) < Fraction(row[7])][:3]
+    eligible = []
+    for row in rows:
+        command = dict(zip(("client_key", "broker_order_id", "broker_id", "symbol",
+            "security_id", "side", "quantity", "filled_quantity", "order_terms",
+            "notional", "state"), row, strict=True))
+        command["covered"] = _covered(existing, command["client_key"])
+        if (command["covered"] < Fraction(command["filled_quantity"])
+                or (paper and command["state"] in _PAPER_ACTIVE_STATES)):
+            eligible.append(command)
+    if paper and len(eligible) > _BATCH_SIZE:
+        offset = (rotation * _BATCH_SIZE) % len(eligible)
+        eligible = eligible[offset:] + eligible[:offset]
+    return eligible[:_BATCH_SIZE]
 
 
 def _check_order(command, order):
@@ -77,9 +92,9 @@ def _check_order(command, order):
         raise FillNotificationRefused("COMMAND_ORDER_IDENTITY_CHANGED")
     native_qty = None if order.get("qty") is None else native_activity._decimal(order["qty"], positive=True)
     native_notional = None if order.get("notional") is None else native_activity._decimal(order["notional"], positive=True)
+    native_filled = native_activity._decimal(order.get("filled_qty"))
     if (native_qty != command["quantity"] or native_notional != command.get("notional")
-            or native_activity._decimal(order.get("filled_qty"), positive=True)
-            < command["filled_quantity"]
+            or native_filled < command["filled_quantity"]
             or order.get("replaces") or order.get("replaced_by")):
         raise FillNotificationRefused("COMMAND_ORDER_ECONOMICS_CHANGED")
     terms = OrderTerms(order["type"], order["time_in_force"],
@@ -88,6 +103,7 @@ def _check_order(command, order):
                        extended_hours=order.get("extended_hours", False))
     if terms.to_dict() != command["order_terms"]:
         raise FillNotificationRefused("COMMAND_ORDER_TERMS_CHANGED")
+    return native_filled
 
 
 def _notification_order(order):
@@ -121,9 +137,9 @@ async def _activities(reader, order_id):
     raise FillNotificationRefused("FILL_PAGE_LIMIT")
 
 
-async def _collect(conn, *, reader, since, now, config=None):
+async def _collect(conn, *, reader, since, now, config=None, rotation=0):
     bound = _binding(conn) if config is None else _binding(conn, config=config)
-    candidates = _candidates(conn, bound, since)
+    candidates = _candidates(conn, bound, since, paper=config is None, rotation=rotation)
     conn.commit()  # No transaction or execution-writer lock spans network I/O.
     if not candidates:
         return 0
@@ -135,7 +151,9 @@ async def _collect(conn, *, reader, since, now, config=None):
     alerts = []
     for command in candidates:
         order = await reader._get("/v2/orders/" + command["broker_order_id"])
-        _check_order(command, order)
+        native_filled = _check_order(command, order)
+        if Fraction(native_filled) <= command["covered"]:
+            continue
         activities = await _activities(reader, command["broker_order_id"])
         fills = []
         for raw in activities:
@@ -184,21 +202,24 @@ async def _collect(conn, *, reader, since, now, config=None):
         payload = alert["payload"]
         for prior in existing:
             if prior.get("fill_key") == payload["fill_key"]:
-                fields = ("client_key", "broker_order_id", "ticker", "security_id",
-                          "side", "quantity", "price", "filled_at")
-                if any(prior.get(k) != payload.get(k) for k in fields):
+                if not outbox._same_fill_receipt(prior, payload):
                     raise FillNotificationRefused("NATIVE_FILL_ID_REUSED")
                 if prior.get("native_activity", payload["native_activity"]) != payload["native_activity"]:
                     raise FillNotificationRefused("NATIVE_FILL_CHANGED")
-        # Each receipt is independently durable. A crash replays this exact key.
         if not any(p.get("fill_key") == payload["fill_key"] for p in existing):
-            outbox.enqueue(conn, **alert)
+            # The ledger can win the insert after the preceding read. Compare
+            # the exact immutable fill on conflict, including both provenances.
+            try:
+                with conn.cursor() as cur:
+                    outbox._insert_fill_receipt(cur, alert)
+            except outbox.ImmutableAlertChanged as exc:
+                raise FillNotificationRefused("NATIVE_FILL_ID_REUSED") from exc
             existing.append(payload)
     conn.commit()
     return len(alerts)
 
 
-async def collect(conn, *, config, reader=None, now=None):
+async def collect(conn, *, config, reader=None, now=None, rotation=0):
     """Collect positive native facts; never infer a fill from an order average."""
     raw = os.environ.get(SINCE_ENV, "")
     if not raw:
@@ -225,4 +246,4 @@ async def collect(conn, *, config, reader=None, now=None):
             secret_key=config.alpaca_secret, base_url=config.base_url)
     return await asyncio.wait_for(
         _collect(conn, reader=reader, since=since, now=now,
-                 config=config if live else None), DEADLINE_SECONDS)
+                 config=config if live else None, rotation=rotation), DEADLINE_SECONDS)

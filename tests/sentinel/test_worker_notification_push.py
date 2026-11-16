@@ -214,8 +214,9 @@ def test_source_wait_with_missing_or_invalid_original_time_labels_recording_time
     ("AUTOMATION_RETRY_SCHEDULED", "WARN", {"reason": "SourceDataPending",
        "detail": {"retry_phase": "EXECUTE"}}, "Caesar's Palace — automatic recovery", "SourceDataPending"),
 ])
-def test_existing_fill_enrollment_plan_and_critical_payloads_are_unchanged(event, severity, payload, title, body):
+def test_only_enrollment_push_adds_device_test_marker(event, severity, payload, title, body):
     value = web_push.notification_payload(_alert(event, severity, **payload))
+    assert value.pop("device_test", None) is (True if event == "PUSH_ENROLLMENT_TEST" else None)
     assert value == {"schema": "caesars-palace.web-push/1", "alert_id": "a" * 64,
         "title": title, "body": body, "tag": "a" * 64, "url": "/",
         "icon": "/static/caesars-palace-192.png", "badge": "/static/caesars-palace-192.png"}

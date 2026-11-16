@@ -76,7 +76,7 @@ def record_stall(kind, reason):
         conn.rollback();conn.close()
 
 
-def collect_once(kind, *, reader=None, config=None, connection_factory=None):
+def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_factory=None):
     """Existing execution collectors keep their binding and native receipt rules."""
     from sentinel.config import SentinelConfig
     from sentinel.feed import store
@@ -93,7 +93,8 @@ def collect_once(kind, *, reader=None, config=None, connection_factory=None):
             return issuer_refresh.collect(conn, email=os.environ.get(CONTACT_ENV, ''))
         module = {'ACCOUNT':account_status,'FILL':fill_notifications}[kind]
         try:
-            options = {'report_reservation_recheck': True} if kind == 'ACCOUNT' else {}
+            options = ({'report_reservation_recheck': True} if kind == 'ACCOUNT'
+                       else {'rotation': fill_rotation})
             result = asyncio.run(module.collect(conn,config=config,reader=reader, **options))
             return (account_status.RESERVATION_RECHECK
                     if kind == 'ACCOUNT' and result == account_status.RESERVATION_RECHECK
@@ -126,6 +127,7 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
     due = {'ACCOUNT':float('-inf'),'FILL':float('-inf'),'ISSUER':float('-inf')}
     diagnostics = _FailureDiagnostics()
     reservation_retry = False
+    fill_rotation = 0
     try:
         while not stopped.is_set():
             live = trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE
@@ -136,8 +138,12 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
                 if not enabled or stopped.is_set() or clock() < due[kind]:
                     continue
                 due[kind] = clock()+interval
+                args = (kind,)
+                if kind == 'FILL':
+                    args += (fill_rotation,)
+                    fill_rotation += 1
                 try:
-                    result = runner(collect_once,kind,
+                    result = runner(collect_once,*args,
                         timeout=issuer_refresh.DEADLINE_SECONDS if kind == 'ISSUER' else DEADLINE_SECONDS,
                         start_method='spawn')
                     if kind == 'ACCOUNT':

@@ -31,7 +31,7 @@ def case(*, cash=100000., entries=1, sale=False, exposure="1"):
     state.cash = cash
     pending, ids = [], []
     for slot in range(entries):
-        ticker = ("AAA", "BBB")[slot]; sid = "SEC-"+ticker
+        ticker = ("AAA", "BBB", "CCC")[slot]; sid = "SEC-"+ticker
         state.reserve_slot(slot, sid, ticker, "issuer-"+sid)
         ids.append((sid, ticker))
         pending.append(PendingOrder(Operation.OPEN_SLOT_POSITION, sid, ticker,

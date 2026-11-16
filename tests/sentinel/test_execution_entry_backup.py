@@ -69,4 +69,19 @@ def test_only_current_proven_unsent_execution_retries_without_recovery(monkeypat
         CycleState.RETRY_WAIT if case == "entry" else CycleState.RECONCILING)
     assert changes["diagnostic"].get("execution_entry_transport_unstarted") is (
         True if case == "entry" else None)
+    assert changes["diagnostic"].get("original_execution_deadline_at") == (
+        service._latest_new_execution_at(cycle).isoformat() if case == "entry" else None)
     assert now < changes["next_wake_at"] <= now + timedelta(seconds=30)
+
+
+def test_consecutive_unsent_entry_failures_keep_their_busy_attempt_count():
+    cfg, cycle, _ = closing_cycle()
+    service = service_for(cfg)
+    failure = ExecutionEntryBackupBusy("busy", reason=BackupProofBusyReason.COVERAGE_CHANGED)
+    _, first = service._failure_diagnostic(
+        cycle=cycle, phase="EXECUTE", exc=failure, now=cycle.execute_at)
+    _, second = service._failure_diagnostic(
+        cycle=cycle.model_copy(update={"diagnostic": first}), phase="EXECUTE",
+        exc=failure, now=cycle.execute_at + timedelta(seconds=10))
+    assert first["backup_busy_attempt_count"] == 1
+    assert second["backup_busy_attempt_count"] == 2

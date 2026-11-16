@@ -207,8 +207,11 @@ class ExecutionResult:
         terminal_bad = any(
             command.state.name in {"UNKNOWN", "REJECTED", "CANCELLED"}
             for command in self.session.submitted)
+        settlement = set(getattr(self.session, "settlement_deferred", ()))
+        actionable_deferrals = set(self.session.deferred) - settlement
+        actionable_deferrals.update(settlement & set(self.session.deferral_reasons))
         return (self.session.runtime_state is not RuntimeState.RUNNING
-                or bool(self.session.refused) or bool(self.session.deferred)
+                or bool(self.session.refused) or bool(actionable_deferrals)
                 or terminal_bad)
 
     def to_dict(self) -> dict:

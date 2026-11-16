@@ -459,6 +459,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           restricted_security_ids=(),
                           preparation: bool = False,
                           buy_deferrals: dict[str, str] | None = None,
+                          reductions_only: bool = False,
                           ) -> dict[str, BrokerInstrument]:
     from sentinel.execution.contract import BrokerInstrumentUnavailable
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
@@ -553,6 +554,8 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             minimum_quantity_increment=broker.capabilities.minimum_quantity_increment,
             conn=conn, deployment=identity, projection=fractional_projection,
             restricted_security_ids=restricted_security_ids)
+        if reductions_only:
+            deltas = [delta for delta in deltas if not delta.is_increase]
         dollar_increases = {d.security_id for d in deltas if d.is_increase
                             and d.classification is execution_commands.DeltaClass.ACTIONABLE}
         needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE

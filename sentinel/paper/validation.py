@@ -172,7 +172,7 @@ def _fresh_connection_factory(conn):
 
 def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
     from sentinel.automation import store as automation_store
-    from sentinel.automation.model import CycleState, LeaderPermit
+    from sentinel.automation.model import CycleState, LeaderPermit, reduction_continuation_observation
 
     grant.require_active()
     control = automation_store.load_control(conn)
@@ -250,6 +250,9 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
         raise PaperActivationRefused(
             f"automation cycle state {cycle.state.value} does not permit "
             f"{grant.operation_scope.lower()} broker access")
+    if (grant.operation_scope == "EXECUTE"
+            and grant.reduction_only_reconciliation_id != reduction_continuation_observation(cycle)):
+        raise PaperActivationRefused("automation grant differs from durable reductions-only scope")
     return control, cycle
 
 def _validate_broker_grant(

@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta
 import re
 
 from sentinel.automation.model import (
+    BackupProofBusyReason,
+    ExecutionEntryBackupBusy,
     NativeFeePostingWait,
     PreflightPublicationPinUnavailable,
     ProtectedDayWait,
@@ -159,6 +161,34 @@ def _reconciliation_retry(cycle: Mapping) -> RecoveryEvidence | None:
         attempt=attempt, next_attempt_at=wake, deadline=closed-timedelta(microseconds=1))
 
 
+def execution_entry_backup_retry(cycle: Mapping) -> RecoveryEvidence | None:
+    """The live scheduler proved this exact fenced transport never started."""
+    kind = ExecutionEntryBackupBusy
+    diagnostic = cycle.get('diagnostic')
+    if (cycle.get('state') != 'RETRY_WAIT' or cycle.get('retry_phase') != 'EXECUTE'
+            or cycle.get('availability_retry_unbounded') is not True
+            or cycle.get('callback_failure') != 'TRANSIENT_INFRASTRUCTURE'
+            or cycle.get('failure_code') != kind.__name__
+            or cycle.get('exception_type') != f'{kind.__module__}.{kind.__qualname__}'
+            or not cycle.get('plan_id') or not isinstance(diagnostic, Mapping)
+            or diagnostic.get('execution_entry_transport_unstarted') is not True
+            or diagnostic.get('backup_busy_reason') not in tuple(reason.value for reason in BackupProofBusyReason)
+            or diagnostic.get('original_execution_deadline_at') != cycle.get('original_execution_deadline_at')):
+        return None
+    attempt = _availability_attempt(cycle)
+    opened, execute, updated, wake, closed = (cycle.get(key) for key in (
+        'execution_open_at', 'execute_at', 'updated_at', 'next_wake_at', 'execution_close_at'))
+    deadline = clean_execution_deadline(cycle)
+    if (attempt is None or deadline is None
+            or not all(_aware(stamp) for stamp in (opened, execute, updated, wake, closed))
+            or not opened <= execute <= updated < wake < deadline
+            or _retry_session_window(cycle) != (opened, closed)):
+        return None
+    return RecoveryEvidence(phase='AUTOMATION_EXECUTE_ENTRY_AVAILABILITY',
+        automatic=True, attempt=attempt, next_attempt_at=wake,
+        deadline=deadline-timedelta(microseconds=1))
+
+
 def _native_fee_posting_retry(cycle: Mapping, diagnostic: Mapping) -> RecoveryEvidence:
     """Use the scheduler's original phase cutoff, including after a restart."""
     refused = RecoveryEvidence(phase='NATIVE_FEE_POSTING', automatic=False, operator_required=True)
@@ -199,6 +229,8 @@ def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
         state = 'WAITING FOR FEE TO POST'
     elif recovery.phase in {'AUTOMATION_RECOVER_AVAILABILITY', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}:
         state = 'RETRYING RECONCILIATION'
+    elif recovery.phase == 'AUTOMATION_EXECUTE_ENTRY_AVAILABILITY':
+        state = 'WAITING FOR BACKUP PROOF'
     else:
         state = ('WAITING FOR INPUTS' if cycle.get('callback_failure') == 'SOURCE_DATA_PENDING'
                  else 'RETRYING AVAILABILITY')
@@ -257,9 +289,17 @@ def submitted_commands_progress(cycle: Mapping) -> bool:
     if (not isinstance(plan, Mapping) or not cycle.get('plan_id')
             or plan.get('plan_id') != cycle['plan_id']
             or not isinstance(execution, Mapping) or execution.get('runtime_state') != 'RUNNING'
-            or execution.get('refused') != {} or execution.get('deferred') != []
+            or execution.get('refused') != {}
             or execution.get('restricted_securities') != {}):
         return False
+    deferred = execution.get('deferred')
+    if deferred != [] or execution.get('settlement_deferred', []) != []:
+        if (not isinstance(deferred, list) or not 0 < len(deferred) <= 100
+                or any(not isinstance(sid, str) or not sid for sid in deferred)
+                or len(set(deferred)) != len(deferred)
+                or deferred != execution.get('settlement_deferred')
+                or execution.get('deferral_reasons') != {}):
+            return False
     submitted = execution.get('submitted')
     if (not isinstance(submitted, list) or not 0 < len(submitted) <= 100
             or any(not isinstance(key, str) or not 0 < len(key) <= 200 for key in submitted)
@@ -334,7 +374,8 @@ def project_cycle_recovery(
         fee = _native_fee_posting_retry(cycle, diagnostic)
         return CycleRecovery(evidence=fee, availability=fee if fee.automatic else None,
                              availability_refused=not fee.automatic)
-    availability = availability_recovery(cycle) or _planless_preflight_retry(cycle) or _reconciliation_retry(cycle)
+    availability = (availability_recovery(cycle) or _planless_preflight_retry(cycle)
+                    or _reconciliation_retry(cycle) or execution_entry_backup_retry(cycle))
     refused = availability_refusal(cycle, availability)
     if refused is not None:
         return CycleRecovery(evidence=refused, availability_refused=True)

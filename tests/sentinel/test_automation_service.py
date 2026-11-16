@@ -139,6 +139,55 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("remaining_work", ["sell", "buy", "closed"])
+async def test_late_transport_continues_only_with_same_session_sell_recovery(conn, remaining_work):
+    from sentinel.automation_runtime import _grant
+
+    cfg = config()
+    expected = binding(cfg).model_copy(update={"broker": "alpaca"})
+    store.activate(conn, binding=expected, actor="operator", reason="test activation")
+    store.release_kill(conn, expected_binding=expected, actor="operator", reason="test authority")
+    grants = []
+
+    def execute(context):
+        grants.append(_grant(context, "EXECUTE"))
+        if len(grants) == 1:
+            return {"disposition": "RECONCILE", "failure_code": "COMMANDS_IN_FLIGHT"}
+        return execution_success(context)
+
+    def recover(context):
+        if context.cycle.plan_id is None:
+            return recovery_success(context)
+        return {
+            "disposition": "READY_TO_EXECUTE",
+            "last_clean_reconciliation_id": "fresh-book",
+            "transport_reconciliation_id": "fresh-book",
+            "reduction_only_continuation": remaining_work != "buy",
+            "diagnostic": {"reduction_only_reconciliation_id": "untrusted-placeholder"},
+        }
+
+    svc = service_for(cfg, execute=execute, recover=recover)
+    for _ in range(3):
+        ready = await svc.tick(conn, now=THURSDAY_BEFORE_OPEN)
+    active = await svc.tick(conn, now=THURSDAY_AFTER_OPEN)
+    assert active.cycle.state is CycleState.RECONCILING
+    assert grants[0].reduction_only_reconciliation_id is None
+    now = (active.cycle.execution_close_at if remaining_work == "closed" else
+           ready.cycle.execute_at + timedelta(seconds=cfg.maximum_execution_lateness_seconds + 1))
+    recovered = await svc.tick(conn, now=now)
+    if remaining_work == "sell":
+        assert recovered.cycle.state is CycleState.RETRY_WAIT
+        assert recovered.cycle.diagnostic["reduction_only_reconciliation_id"] == "fresh-book"
+        done = await svc.tick(conn, now=now)
+        assert done.cycle.state is CycleState.SUCCEEDED
+        assert grants[1].reduction_only_reconciliation_id == "fresh-book"
+        assert recovered.cycle.plan_fingerprint == active.cycle.plan_fingerprint
+    else:
+        assert recovered.cycle.state is CycleState.SUPERSEDED
+        assert len(grants) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("convergence", ["before-cutoff", "after-cutoff", "absent"])
 async def test_native_fee_at_execution_restarts_via_read_only_recovery(conn, convergence):
     cfg = config()

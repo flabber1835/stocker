@@ -67,7 +67,7 @@ class MaintenanceFailure(BaseModel):
     schema: Literal['sentinel.maintenance-integrity-failure/2']
     origin: Literal['WORKER', 'HOST']
     code: Literal['BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED', 'POLICY_REFUSED', 'PHYSICAL_UNAVAILABLE',
-                  'INTEGRITY_REFUSED', 'DATABASE_FAILURE', 'DEADLINE_EXCEEDED',
+                  'INTEGRITY_REFUSED', 'DATABASE_FAILURE', 'DATABASE_CONNECTION_LOST', 'DEADLINE_EXCEEDED',
                   'TRANSPORT_FAILURE', 'PROTOCOL_FAILURE', 'INTERNAL_FAILURE']
     retryable: bool
     stage: Literal['CONNECT', 'ADMISSION', 'OWNER_WAIT', 'PROOF', 'RESULT', 'LOCK_RELEASE',
@@ -113,6 +113,14 @@ class MaintenanceFailure(BaseModel):
         retry = (self.code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
             and cleanup.proof_lock in {'NOT_ACQUIRED', 'RELEASED'}
             and (self.origin == 'WORKER' or cleanup.worker_container == 'REMOVED'))
+        if self.code == 'DATABASE_CONNECTION_LOST':
+            first = self.exception_chain[0]
+            if (self.stage != 'PROOF' or self.cause_type != 'PsycopgError'
+                    or cleanup.proof_lock != 'FAILED' or not self.cleanup_exception_chain
+                    or first.type not in {'PsycopgOperationalError', 'PsycopgInterfaceError'}
+                    or not _connection_loss_state(first.sqlstate)):
+                raise ValueError('failure lacks broken proof connection evidence')
+            retry = self.origin == 'HOST' and cleanup.worker_container == 'REMOVED'
         if self.retryable != retry:
             raise ValueError('failure retry classification differs')
         return self
@@ -126,6 +134,7 @@ class _Trace:
     wait: float = 0.
     proof: float = 0.
     lock_cleanup: str = 'NOT_ACQUIRED'
+    connection_broken: bool = False
     primary: BaseException | None = None
     failure_stage: str | None = None
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -165,6 +174,10 @@ def _alarm(trace):
     raise exc
 
 
+def _connection_loss_state(state):
+    return state is None or state.startswith('08') or state in {'57P01', '57P02', '57P03'}
+
+
 def failure_record(exc, trace):
     """Describe the original exception by closed type, never its private text."""
     import psycopg
@@ -185,7 +198,13 @@ def failure_record(exc, trace):
         cause = 'BackupRuntimeRefused'
     elif isinstance(original, authority.BackupRuntimeUnavailable):
         code, cause = 'PHYSICAL_UNAVAILABLE', 'BackupRuntimeUnavailable'
-    elif isinstance(original, psycopg.Error): code, cause = 'DATABASE_FAILURE', 'PsycopgError'
+    elif isinstance(original, psycopg.Error):
+        code, cause = 'DATABASE_FAILURE', 'PsycopgError'
+        if (stage == 'PROOF' and trace.connection_broken and trace.lock_cleanup == 'FAILED'
+                and trace.cleanup_error is not None
+                and isinstance(original, (psycopg.OperationalError, psycopg.InterfaceError))
+                and _connection_loss_state(original.sqlstate)):
+            code = 'DATABASE_CONNECTION_LOST'
     elif isinstance(original, TimeoutError): code, cause = 'DEADLINE_EXCEEDED', 'TimeoutError'
     elif isinstance(original, OSError): code, cause = 'DATABASE_FAILURE', 'OSError'
     elif isinstance(original, ValueError): cause = 'ValueError'
@@ -351,6 +370,7 @@ def prove(conn, *, base_backup: str, system_identifier: str,
                 trace.lock_cleanup = 'RELEASED'
             except BaseException as exc:
                 trace.lock_cleanup = 'FAILED'
+                trace.connection_broken = getattr(conn, 'broken', False) is True
                 if trace.primary is None: trace.mark('LOCK_RELEASE')
                 trace.remember(exc)
                 raise

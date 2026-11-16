@@ -172,7 +172,24 @@ self.addEventListener("push", function(event) {
     badge: data.badge || "/static/caesars-palace-192.png",
     data: {url: data.url || "/", alert_id: data.alert_id || null}
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  var shown = self.registration.showNotification(title, options);
+  if (data.device_test !== true || typeof data.alert_id !== "string") {
+    event.waitUntil(shown);
+    return;
+  }
+  async function receipt(outcome) {
+    var pages = await self.clients.matchAll({type: "window"});
+    for (var page of pages) {
+      page.postMessage({type: "SENTINEL_DEVICE_PUSH_TEST", alert_id: data.alert_id,
+        outcome: outcome});
+    }
+  }
+  event.waitUntil(shown.then(
+    function() { return receipt("DISPLAY_REQUEST_ACCEPTED"); },
+    async function(error) {
+      await receipt("DISPLAY_REQUEST_REJECTED");
+      throw error;
+    }));
 });
 self.addEventListener("pushsubscriptionchange", function(event) {
   event.waitUntil((async function() {

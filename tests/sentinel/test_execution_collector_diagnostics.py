@@ -163,9 +163,10 @@ def run_fill_failures(monkeypatch, tmp_path, outcomes, *, record=None):
             received.append(args)
             events.append(('record', args))
             return record(*args) if record is not None else None
-        assert operation is collector.collect_once and args == ('FILL',)
+        assert operation is collector.collect_once
         assert options['timeout'] == 30
         index, value = next(choices)
+        assert args == ('FILL', index)
         if index == len(outcomes)-1:
             stop.set()
         if isinstance(value, BaseException):

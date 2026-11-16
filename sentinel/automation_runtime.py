@@ -524,6 +524,8 @@ def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
 
 def _grant(context: CycleContext, operation_scope: str, *, binding=None
            ) -> AutomationExecutionGrant:
+    from sentinel.automation.model import reduction_continuation_observation
+
     context.require_active()
     cycle = context.cycle
     permit = context.permit
@@ -544,6 +546,8 @@ def _grant(context: CycleContext, operation_scope: str, *, binding=None
         rollout_version=authority.rollout_version,
         certificate_sha256=authority.certificate_sha256,
         config_sha256=authority.config_sha256,
+        reduction_only_reconciliation_id=(reduction_continuation_observation(cycle)
+                                          if operation_scope == "EXECUTE" else None),
         cancellation_check=context.require_active)
 
 
@@ -562,6 +566,12 @@ def _actionable_target_deltas(
             observation=observation,
             min_increment=minimum_quantity_increment)).classification
         is execution_commands.DeltaClass.ACTIONABLE)
+
+
+def _actionable_delta_evidence(delta: execution_commands.Delta) -> dict:
+    return {"security_id": delta.security_id, "remaining": str(delta.remaining),
+            "side": delta.side.value,
+            "remaining_notional": str(delta.notional) if delta.notional is not None else None}
 
 
 def _all_target_deltas(
@@ -1550,8 +1560,8 @@ class ProductionAutomation:
                                     "protected_cohort": cohort.model_dump(mode="json"),
                                     **({"protected_day_wait": wait.model_dump(mode="json", by_alias=True)}
                                        if wait is not None else {}),
-                                    "actionable_deltas": [{"security_id": delta.security_id,
-                                        "remaining": str(delta.remaining)} for delta in actionable]})
+                                    "actionable_deltas": [_actionable_delta_evidence(delta)
+                                                          for delta in actionable]})
                         if wait is not None and (not actionable or _now_utc() >= cutoff):
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.RECONCILE,
@@ -1559,8 +1569,8 @@ class ProductionAutomation:
                                 failure_detail="positively matched protected DAY orders await native settlement",
                                 diagnostic={**result_diagnostic,
                                     "protected_day_wait": wait.model_dump(mode="json", by_alias=True),
-                                    "unsent_actionable_deltas": [{"security_id": delta.security_id,
-                                        "remaining": str(delta.remaining)} for delta in actionable],
+                                    "unsent_actionable_deltas": [_actionable_delta_evidence(delta)
+                                                                 for delta in actionable],
                                     "new_submission_cutoff_expired": _now_utc() >= cutoff})
                 return ExecuteResult(
                     disposition=ExecuteDisposition.RECONCILE,
@@ -1641,10 +1651,11 @@ class ProductionAutomation:
                             conn, deployment, plan_id=cycle.plan_id,
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
+                        from sentinel.execution.contract import Side
                         from sentinel.execution.fractional_progress import is_fractional
-                        if terminal_refusals and is_fractional(target_reprojection.load_projection(
-                                conn, plan_id=cycle.plan_id)):
-                            from sentinel.execution.contract import Side
+                        fractional_projection = is_fractional(target_reprojection.load_projection(
+                            conn, plan_id=cycle.plan_id))
+                        if terminal_refusals and fractional_projection:
                             pending_reductions = {delta.security_id for delta in actionable
                                                   if delta.side is Side.SELL}
                             terminal_refusals = tuple(c for c in terminal_refusals
@@ -1677,6 +1688,11 @@ class ProductionAutomation:
                         return ExecuteResult(
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
                             **evidence,
+                            reduction_only_continuation=(
+                                result.clean and self._dual_run_enabled
+                                and not getattr(self, "_live_run_enabled", False)
+                                and cycle.broker == "alpaca" and fractional_projection
+                                and any(delta.side is Side.SELL for delta in actionable)),
                             failure_code="READY_FOR_FRESH_EXECUTION",
                             failure_detail=(
                                 "read-only recovery permits transport but the current "
@@ -1685,8 +1701,7 @@ class ProductionAutomation:
                             diagnostic={
                                 **result_diagnostic,
                                 "actionable_deltas": [
-                                    {"security_id": delta.security_id,
-                                     "remaining": str(delta.remaining)}
+                                    _actionable_delta_evidence(delta)
                                     for delta in actionable],
                             })
             else:

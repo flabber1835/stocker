@@ -646,9 +646,15 @@ class ExecuteResult(_FrozenModel):
     failure_code: str | None = None
     failure_detail: str | None = None
     diagnostic: Mapping[str, Any] = Field(default_factory=dict)
+    reduction_only_continuation: bool = False
 
     @model_validator(mode="after")
     def _conclusive_result_has_reconciliation(self) -> "ExecuteResult":
+        if (self.reduction_only_continuation
+                and (self.disposition is not ExecuteDisposition.READY_TO_EXECUTE
+                     or not self.last_clean_reconciliation_id
+                     or self.last_clean_reconciliation_id != self.transport_reconciliation_id)):
+            raise ValueError("reduction continuation requires exact clean recovery evidence")
         if self.disposition is ExecuteDisposition.READY_TO_PREPARE:
             restrictions = self.diagnostic.get("restricted_securities")
             if (not self.transport_reconciliation_id
@@ -675,6 +681,17 @@ class ExecuteResult(_FrozenModel):
                 f"{self.disposition.value} requires a clean reconciliation "
                 "identity")
         return self
+
+
+def reduction_continuation_observation(cycle: CycleRecord) -> str | None:
+    """The exact recovery observation selected for the durable sell-only handoff."""
+    observation_id = cycle.diagnostic.get("reduction_only_reconciliation_id")
+    if (cycle.broker == "alpaca" and cycle.plan_id and cycle.plan_fingerprint
+            and cycle.diagnostic.get("retry_phase") == "EXECUTE"
+            and isinstance(observation_id, str) and observation_id
+            and observation_id == cycle.last_clean_reconciliation_id):
+        return observation_id
+    return None
 
 
 class AlertState(str, Enum):

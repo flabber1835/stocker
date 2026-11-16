@@ -335,6 +335,7 @@ def notification_payload(alert) -> dict:
         "url": "/",
         "icon": "/static/caesars-palace-192.png",
         "badge": "/static/caesars-palace-192.png",
+        **({"device_test": True} if alert.event_type == "PUSH_ENROLLMENT_TEST" else {}),
     }
 
 

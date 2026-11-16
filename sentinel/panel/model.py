@@ -54,6 +54,9 @@ def _bounded_display_decimal(value):
     return value
 
 
+OPENING_CUTOFF = 'MAX_EXECUTION_LATENESS_EXCEEDED'
+
+
 class OpeningEvidence(BaseModel):
     """Dated execution metadata; it never certifies holdings or an order."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
@@ -62,7 +65,8 @@ class OpeningEvidence(BaseModel):
     started_at: datetime
     deadline: datetime
     observation_id: int | None = Field(default=None, ge=1, strict=True)
-    terminal_reason: Literal['POST_PLAN_CASH_ACTIVITY_RECONCILED'] | None = None
+    terminal_reason: Literal['POST_PLAN_CASH_ACTIVITY_RECONCILED',
+                             'MAX_EXECUTION_LATENESS_EXCEEDED'] | None = None
     reconciled_at: datetime | None = None
 
     @model_validator(mode='after')
@@ -105,22 +109,25 @@ class OperationalFact(BaseModel):
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
             'SHADOW_WORKER': {'ACTIVE_WORKER'},
-            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED', 'SUPERSEDED'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_HISTORY': {'SUPERSEDED'},
         }
         if self.state not in states[self.kind]:
             raise ValueError('operational state belongs to another producer')
-        if ((self.kind in {'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'} or self.state == 'AWAITING_NEXT_DECISION')
+        cutoff = (self.kind, self.state) == ('PAPER_VERIFICATION', 'SUPERSEDED')
+        historical = self.kind == 'EXECUTION_HISTORY' or cutoff
+        if ((self.kind == 'EXECUTION_PROGRESS' or historical or self.state == 'AWAITING_NEXT_DECISION')
                 != (self.opening is not None)
                 or self.opening is not None and (
-                    (self.state == 'AWAITING_NEXT_DECISION' or self.kind == 'EXECUTION_HISTORY')
+                    (self.state == 'AWAITING_NEXT_DECISION' or historical)
                         != (self.opening.observation_id is not None))):
             raise ValueError('opening fact lacks its exact producer evidence')
-        if (self.opening is not None and ((self.kind == 'EXECUTION_HISTORY')
+        if (self.opening is not None and (historical
                 != (self.opening.terminal_reason is not None and self.opening.reconciled_at is not None)
-                or self.kind != 'EXECUTION_HISTORY' and (self.opening.terminal_reason is not None
-                    or self.opening.reconciled_at is not None))):
+                or not historical and (self.opening.terminal_reason is not None
+                    or self.opening.reconciled_at is not None)
+                or cutoff and self.opening.terminal_reason != OPENING_CUTOFF)):
             raise ValueError('historical retirement belongs to its original producer')
         if ((self.kind == 'MARKET_DATA') != (self.sessions_behind is not None)
                 or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
@@ -145,7 +152,7 @@ class OperationalFact(BaseModel):
             'SHADOW_WORKER': {'shadow_worker'},
             'PAPER_VERIFICATION': {'paper_reconciliation'},
             'EXECUTION_PROGRESS': {'broker'},
-            'EXECUTION_HISTORY': {'trading_run'},
+            'EXECUTION_HISTORY': {'trading_run', 'completed_trading_run'},
         }
         if key not in owned[self.kind]:
             raise ValueError('operational fact belongs to another row')
@@ -335,6 +342,21 @@ class PurchaseAllocation(BaseModel):
     status: str
 
 
+class UnsentOpeningDelta(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    side: Literal['BUY', 'SELL']
+    quantity: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    notional: Decimal | None = Field(default=None, ge=1, allow_inf_nan=False)
+    _number_bound = field_validator('quantity', 'notional')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def units(self):
+        if ((self.quantity is None) == (self.notional is None)
+                or self.notional is not None and self.side != 'BUY'):
+            raise ValueError('unsent opening delta has ambiguous units')
+        return self
+
+
 class TradingRun(BaseModel):
     """Dated intent and durable execution progress, never permission to trade."""
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -346,6 +368,7 @@ class TradingRun(BaseModel):
     orders: list[RunOrder] = Field(default_factory=list, max_length=100)
     purchase_allocations: list[PurchaseAllocation] = Field(default_factory=list, max_length=100)
     below_whole_share: dict[str, OpeningEstimate] = Field(default_factory=dict, max_length=100)
+    unsent_at_cutoff: dict[str, UnsentOpeningDelta] = Field(default_factory=dict, max_length=100)
 
     @model_validator(mode='after')
     def coherent_progress(self):
@@ -367,6 +390,12 @@ class TradingRun(BaseModel):
                     or self.below_whole_share.keys() & {order.security_id for order in self.orders}
                     or any(item.shares != 0 for item in self.below_whole_share.values())):
                 raise ValueError('recorded skip lacks its matching unsubmitted opening intent')
+        if self.unsent_at_cutoff and (
+                self.state != 'SUPERSEDED' or self.completed_at is None
+                or not self.unsent_at_cutoff.keys() <= {leg.security_id for leg in self.intent.legs}
+                or any(order.state not in {'FILLED', 'CANCELLED', 'REJECTED', 'SUPERSEDED'}
+                       for order in self.orders)):
+            raise ValueError('unsent opening deltas lack a matching terminal run')
         return self
 
 
@@ -582,7 +611,9 @@ class Row:
 
     def can_show_trading_run(self, now: datetime) -> bool:
         return (self.trading_run is not None and not self.is_future(now)
-                and (self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED')
+                and (self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED'
+                     or self.has_opening_cutoff(now))
+                and (not self.trading_run.unsent_at_cutoff or self.has_opening_cutoff(now))
                 and not self.is_stale(now)
                 and self.trading_run.intent.effective_session ==
                     now.astimezone(ZoneInfo('America/New_York')).date()
@@ -591,6 +622,17 @@ class Row:
                     self.trading_run.intent.created_at,self.trading_run.intent.observation_at))
                 and all(item.observed_at <= now+MAXIMUM_FUTURE_SKEW
                         for item in self.trading_run.orders))
+
+    def has_opening_cutoff(self, now: datetime) -> bool:
+        fact, run = self.operational_fact, self.trading_run
+        opening = fact.opening if fact is not None else None
+        return bool(self.key in {'trading_run', 'completed_trading_run'} and not self.required_current
+            and run is not None and run.state == 'SUPERSEDED' and run.unsent_at_cutoff
+            and fact is not None and (fact.kind, fact.state) == ('EXECUTION_HISTORY', 'SUPERSEDED')
+            and opening is not None and opening.terminal_reason == OPENING_CUTOFF
+            and (run.intent.cycle_id, run.intent.plan_id) == (opening.cycle_id, opening.plan_id)
+            and run.updated_at == self.as_of == opening.started_at
+            and self.valid_until == opening.deadline and opening.started_at <= now < opening.deadline)
 
     def can_show_paper_plan(self, now: datetime) -> bool:
         """A saved future intent is distinct from today's execution evidence."""
@@ -614,6 +656,18 @@ class Row:
             return []
         return [item for item in self.order_outcomes
                 if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
+
+
+def observed_opening_cutoff(row: Row, *, now: datetime) -> bool:
+    """A verified negative run outcome is an observation, not an observer failure."""
+    fact = row.operational_fact
+    opening = fact.opening if fact is not None else None
+    return bool(row.key == 'paper_reconciliation' and row.status == FAIL
+        and row.recovery is None and row.paper_alignment is None
+        and fact is not None and (fact.kind, fact.state) == ('PAPER_VERIFICATION', 'SUPERSEDED')
+        and opening is not None and opening.terminal_reason == OPENING_CUTOFF
+        and row.as_of == opening.started_at and row.valid_until == opening.deadline
+        and opening.started_at <= now < opening.deadline)
 
 
 def historical_skip_subject(current: Row | None, *, now: datetime) -> bool:
@@ -844,6 +898,7 @@ class Panel:
                 and r.operational_fact.state == 'WAITING_OPEN' and r.effective_status(self.now) == WARN
                 else r.effective_status(self.now)) for r in self.rows
             if (r.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
+                and not (r.status == WARN and r.has_opening_cutoff(self.now))
                 and (r.status != PENDING or r.required_current))
         ]
         if self.source_errors:

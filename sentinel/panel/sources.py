@@ -494,7 +494,9 @@ def _current_trading_run(conn):
               AND p.deployment_id=c.deployment_id AND p.broker=c.broker
               AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
               AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
-            WHERE NOT c.historical_state_only AND p.superseded_by IS NULL
+            WHERE NOT c.historical_state_only AND (p.superseded_by IS NULL OR
+              (c.state='SUPERSEDED' AND c.failure_code='MAX_EXECUTION_LATENESS_EXCEEDED'
+               AND c.diagnostic ? 'actionable_deltas'))
               AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
               AND c.state IN ('PLAN_READY','WAITING_OPEN','EXECUTING','RECONCILING',
                               'RETRY_WAIT','SUCCEEDED','FAILED','ABANDONED','SUPERSEDED')
@@ -513,7 +515,8 @@ def _completed_trading_run(conn):
         cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
             p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
             p.target_basket,p.broker,p.broker_account_id,
-            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York'),
+            c.last_clean_reconciliation_id,c.failure_code,NULL
             FROM sentinel_automation_cycles c
             JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation<a.generation
               AND c.deployment_id=a.deployment_id AND c.broker=a.broker
@@ -525,8 +528,11 @@ def _completed_trading_run(conn):
               AND p.deployment_id=c.deployment_id AND p.broker=c.broker
               AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
               AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
-            WHERE NOT c.historical_state_only AND c.state='SUCCEEDED'
-              AND c.failure_code IS NULL AND c.last_clean_reconciliation_id IS NOT NULL
+            WHERE NOT c.historical_state_only AND
+              ((c.state='SUCCEEDED' AND c.failure_code IS NULL) OR
+               (c.state='SUPERSEDED' AND c.failure_code='MAX_EXECUTION_LATENESS_EXCEEDED'
+                AND c.diagnostic ? 'actionable_deltas'))
+              AND c.last_clean_reconciliation_id IS NOT NULL
               AND c.completed_at>=c.execute_at AND c.completed_at<=clock_timestamp()
               AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
             ORDER BY c.created_at DESC LIMIT 2""")
@@ -545,7 +551,8 @@ def _trading_run_row(conn, row, *, completed_history=False):
     plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
         'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
         'broker','broker_account_id','valid_until'), row[:14], strict=True))
-    if completed_history and (plan['state'] != 'SUCCEEDED' or plan['completed_at'] is None):
+    if completed_history and (
+            plan['state'] not in {'SUCCEEDED', 'SUPERSEDED'} or plan['completed_at'] is None):
         raise ValueError('historical trading run is not completed')
     from sentinel.execution import journal
     stored = journal.load_plan(conn, plan['plan_id'])
@@ -584,6 +591,7 @@ def _trading_run_row(conn, row, *, completed_history=False):
     from sentinel.execution import fractional_progress, target_reprojection
     projection = target_reprojection.load_projection(conn, plan_id=plan['plan_id'])
     allocations = []
+    notional_by_security = {}
     if fractional_progress.is_fractional(projection):
         from sentinel.execution.identity import DeploymentIdentity
         identity = DeploymentIdentity(stored.deployment_id, stored.broker,
@@ -592,6 +600,8 @@ def _trading_run_row(conn, row, *, completed_history=False):
         for sid, allocation in projection.opening_sizing['purchases'].items():
             remaining = progress.budgets.get(sid, Decimal(0))
             blocked = progress.blocked.get(sid)
+            if not blocked and sid not in progress.whole_share_buys:
+                notional_by_security[sid] = fractional_progress.purchase_notional(remaining)
             allocations.append(dict(security_id=sid, budget=allocation['budget'],
                 acquired_quantity=sum((c.filled_quantity for c in progress.commands
                     if c.security_id == sid and c.side.value == 'BUY'), Decimal(0)),
@@ -606,9 +616,20 @@ def _trading_run_row(conn, row, *, completed_history=False):
         'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
     retirement = (_historical_cash_skip_fact(conn, plan, run, row[14:])
                   if not completed_history and len(row) == 17 else None)
+    cutoff = None
+    if len(row) == 17 and row[15] == model.OPENING_CUTOFF:
+        terminal = _opening_cutoff_diagnostic(conn, plan, row[14])
+        cutoff = _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security)
+    if cutoff is not None:
+        unsent, retirement = cutoff
+        run = model.TradingRun.model_validate(
+            {**run.model_dump(), 'unsent_at_cutoff': unsent})
+    elif completed_history and run.state != 'SUCCEEDED':
+        return None
     return model.Row('completed_trading_run' if completed_history else 'trading_run',
         'Today’s recorded completed run' if completed_history else 'Today’s paper trading',
-        ('SKIPPED · CASH ACTIVITY RECONCILED' if retirement else
+        ('OPENING WINDOW CLOSED · UNSENT DELTAS' if cutoff else
+         'SKIPPED · CASH ACTIVITY RECONCILED' if retirement else
          'SUCCEEDED · NO ORDERS PLACED' if skipped and not run.orders else run.state),
         model.WARN if retirement else status,
         detail=('Recorded completed run from before the current software activation; '
@@ -617,6 +638,113 @@ def _trading_run_row(conn, row, *, completed_history=False):
         as_of=_utc(max([run.updated_at]+[item.observed_at for item in run.orders])),
         valid_until=_utc(plan['valid_until'])-timedelta(microseconds=1), trading_run=run,
         operational_fact=retirement)
+
+
+def _opening_cutoff_diagnostic(conn, plan, clean):
+    """Only the recovery payload fields needed to decode this terminal cycle."""
+    row = conn.execute("""SELECT jsonb_build_object(
+          'clean',diagnostic->'clean'='true'::jsonb,
+          'runtime_state',CASE WHEN diagnostic->>'runtime_state'='RUNNING' THEN 'RUNNING' END,
+          'observation_id',CASE WHEN diagnostic->>'observation_id'=last_clean_reconciliation_id
+              THEN diagnostic->'observation_id' END,
+          'unresolved',CASE WHEN diagnostic->'unresolved'='[]'::jsonb THEN '[]'::jsonb END,
+          'foreign_orders',CASE WHEN diagnostic->'foreign_orders'='[]'::jsonb THEN '[]'::jsonb END,
+          'foreign_positions',CASE WHEN diagnostic->'foreign_positions'='[]'::jsonb THEN '[]'::jsonb END,
+          'restricted_securities',CASE WHEN diagnostic->'restricted_securities'='{}'::jsonb THEN '{}'::jsonb END,
+          'terminal_reason',CASE WHEN diagnostic->'terminal_reason'<>'null'::jsonb THEN 'PRESENT' END,
+          'expected',CASE WHEN diagnostic->'expected'=diagnostic->'observed'
+              AND octet_length((diagnostic->'expected')::text)<=16384 THEN diagnostic->'expected' END,
+          'actionable_deltas',CASE WHEN octet_length((diagnostic->'actionable_deltas')::text)<=20480
+              THEN diagnostic->'actionable_deltas' END)
+        FROM sentinel_automation_cycles WHERE cycle_id=%s AND plan_id=%s AND state='SUPERSEDED'
+          AND failure_code=%s AND last_clean_reconciliation_id=%s AND completed_at=%s
+          AND NOT historical_state_only""",
+        (plan['cycle_id'], plan['plan_id'], model.OPENING_CUTOFF, clean, plan['completed_at'])).fetchone()
+    return clean, model.OPENING_CUTOFF, row[0] if row else None
+
+
+def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
+    """Read partial-run history only from exact terminal economics and clean journal proof."""
+    from sentinel import local_paper
+    from sentinel.execution import journal
+    from sentinel.execution.states import CommandState, TERMINAL
+
+    clean, reason, diagnostic = terminal
+    if (not local_paper.require_bound_account(conn) or run.state != 'SUPERSEDED'
+            or run.completed_at is None or reason != model.OPENING_CUTOFF
+            or not isinstance(diagnostic, dict) or diagnostic.get('terminal_reason') is not None
+            or diagnostic.get('clean') is not True or diagnostic.get('runtime_state') != 'RUNNING'
+            or any(diagnostic.get(key) != [] for key in ('unresolved', 'foreign_orders', 'foreign_positions'))
+            or diagnostic.get('restricted_securities') != {}
+            or not isinstance(diagnostic.get('expected'), dict)
+            or not isinstance(clean, (int, str)) or isinstance(clean, bool)
+            or not str(clean).isdigit() or not 0 < int(clean) < 2**63
+            or diagnostic.get('observation_id') != int(clean)
+            or any(CommandState(order.state) not in TERMINAL for order in run.orders)):
+        return None
+    raw = diagnostic.get('actionable_deltas')
+    if not isinstance(raw, list) or not 0 < len(raw) <= 100:
+        return None
+    unsent = {}
+    legs = {leg.security_id: leg for leg in run.intent.legs}
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get('security_id'), str):
+            return None
+        sid = item['security_id']
+        if sid not in legs or sid in unsent or not isinstance(item.get('remaining'), str):
+            return None
+        try:
+            remaining = Decimal(item['remaining'])
+            if not remaining.is_finite():
+                return None
+            expected_side = 'SELL' if remaining < 0 else 'BUY'
+            notional = notional_by_security.get(sid) if not remaining else None
+            if ('side' in item and item['side'] != expected_side
+                    or 'remaining_notional' in item and (
+                        item['remaining_notional'] is None and notional is not None
+                        or item['remaining_notional'] is not None and (
+                            not isinstance(item['remaining_notional'], str) or notional is None
+                            or Decimal(item['remaining_notional']) != notional))):
+                return None
+            unsent[sid] = model.UnsentOpeningDelta(side=expected_side,
+                quantity=remaining.copy_abs() if remaining else None, notional=notional)
+        except (ValueError, ArithmeticError):
+            return None
+    observed = conn.execute('SELECT observed_at,runtime_state,completeness FROM sentinel_observations '
+                            'WHERE seq=%s', (int(clean),)).fetchone()
+    if (observed is None or observed[1:] != ('RUNNING', 'COMPLETE')
+            or not run.intent.execute_at <= observed[0] <= run.updated_at
+            or run.updated_at > run.completed_at):
+        return None
+    payload = journal.load_observation_payload(conn, int(clean))
+    if (payload.get('completeness') != 'COMPLETE'
+            or (payload.get('broker'), payload.get('account_id')) != (plan['broker'], plan['broker_account_id'])
+            or any(CommandState(order['state']) not in TERMINAL for order in payload['orders'])):
+        return None
+    from sentinel.paper_plan_preview import quantity
+    positions = {item['security_id']: quantity(item['quantity']) for item in payload['positions']}
+    expected = {sid: quantity(value) for sid, value in diagnostic['expected'].items()}
+    if {sid: qty for sid, qty in positions.items() if qty} != {sid: qty for sid, qty in expected.items() if qty}:
+        return None
+    return unsent, model.OperationalFact(kind='EXECUTION_HISTORY', state='SUPERSEDED',
+        opening=model.OpeningEvidence(cycle_id=run.intent.cycle_id, plan_id=run.intent.plan_id,
+            started_at=run.updated_at, deadline=_utc(plan['valid_until'])-timedelta(microseconds=1),
+            observation_id=int(clean), terminal_reason=reason, reconciled_at=_utc(observed[0])))
+
+
+def _opening_cutoff_current_status(row, next_plan, cycle, *, now):
+    """Retire the actionable failure after the exact next plan is admitted."""
+    from sentinel.feed import calendar
+
+    if row is None or not row.has_opening_cutoff(now):
+        return row
+    preview = next_plan.paper_plan
+    admitted = (cycle and cycle.get('state') == 'WAITING_OPEN'
+        and preview is not None and next_plan.can_show_paper_plan(now)
+        and (preview.cycle_id, preview.plan_id) == (cycle.get('cycle_id'), cycle.get('plan_id'))
+        and str(preview.decision_session) == str(row.trading_run.intent.effective_session)
+        and str(preview.effective_session) == calendar.next_session(str(preview.decision_session)))
+    return replace(row, status=model.WARN if admitted else model.FAIL)
 
 
 def _completed_opening_skips(conn, run_plan, plan, commands):
@@ -2605,21 +2733,26 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     from sentinel.automation.health import read_health
     from sentinel.execution import journal
     from sentinel.feed import calendar
-    from sentinel.panel.retry_status import project_cycle_recovery, submitted_commands_progress
+    from sentinel.panel.retry_status import (
+        execution_entry_backup_retry, project_cycle_recovery, submitted_commands_progress,
+    )
 
     now = now or datetime.now(timezone.utc)
     state = cycle.get('state')
+    entry_retry = execution_entry_backup_retry(cycle)
     if (state not in {'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}
-            or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))
+            or entry_retry is None and any(
+                cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))
             or not local_paper.require_bound_account(conn)):
         return None
     if state == 'RECONCILING':
         if not submitted_commands_progress(cycle):
             return None
     elif ((cycle.get('failure_code') or cycle.get('failure_detail'))
+          and entry_retry is None
           and not (state == 'RETRY_WAIT' and cycle.get('failure_code') == 'COMMANDS_IN_FLIGHT')):
         return None
-    if state == 'RETRY_WAIT' and cycle.get('retry_phase') != 'RECOVER':
+    if state == 'RETRY_WAIT' and entry_retry is None and cycle.get('retry_phase') != 'RECOVER':
         return None
     opened, closed = (cycle.get(k) for k in ('execute_at', 'execution_close_at'))
     if (not all(isinstance(value, datetime) and value.utcoffset() is not None for value in (opened, closed))
@@ -2644,6 +2777,9 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     if state == 'EXECUTING':
         in_flight.add('SEND_PENDING')
         allowed.update({'SEND_PENDING', 'PLANNED'})
+    if entry_retry is not None:
+        in_flight = set()
+        allowed = {'FILLED', 'CANCELLED', 'REJECTED', 'SUPERSEDED'}
     if (run.state != state or run.intent.cycle_id != cycle.get('cycle_id')
             or run.intent.plan_id != cycle.get('plan_id') or run.completed_at is not None
             or run.intent.execute_at != opened or run.updated_at != cycle.get('updated_at')
@@ -2660,7 +2796,18 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
             or plan.data_version != active_publication.version):
         return None
     callback = cycle.get('observation_callback')
-    if state == 'RETRY_WAIT':
+    detail = 'current saved plan is executing; recorded orders and fills remain in progress; post-close verification is separate'
+    if entry_retry is not None:
+        account = _latest_account_evidence(conn)
+        if not account or not entry_retry.active(now):
+            return None
+        account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+            valid_until=_account_valid_until(account.get('observed_at')), **account)
+        if account_row.effective_status(now) != model.OK or account_row.valid_until is None:
+            return None
+        deadline = min(entry_retry.deadline, account_row.valid_until)
+        detail = 'this submission attempt stopped before reaching Alpaca; waiting for the backup proof within the opening window'
+    elif state == 'RETRY_WAIT':
         recovery = project_cycle_recovery(cycle, phases=('RECOVER',)).protected_recovery
         diagnostic = cycle.get('diagnostic') or {}
         if (diagnostic.get('clean') is not True or diagnostic.get('runtime_state') != 'RUNNING'
@@ -2700,7 +2847,7 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
     if now >= boundary:
         return None
     return replace(model.paper_reconciliation_row(state='PENDING', cycle_state=state,
-        detail='current saved plan is executing; recorded orders and fills remain in progress; post-close verification is separate'),
+        detail=detail),
         as_of=current.as_of, valid_until=boundary, required_current=True,
         recovery=model.RecoveryEvidence(phase='PAPER_TRANSPORT', automatic=True, deadline=boundary))
 
@@ -2715,7 +2862,7 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
             detail='historical mirror mismatch has no valid authenticated count')
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
     if not historical:
-        if cycle.get('state') in {'EXECUTING', 'RECONCILING'}:
+        if cycle.get('state') in {'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}:
             return _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
         return scheduled
     history = f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
@@ -2985,6 +3132,19 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     + "; no broker mismatch is established by this cycle status; "
                     + str(cycle.get('failure_code') or 'cycle did not converge')
                     + ": " + str(cycle.get('failure_detail') or 'no recorded detail')))
+        if cycle.get('failure_code') == model.OPENING_CUTOFF:
+            current = _current_trading_run(conn)
+            history = current.operational_fact if current is not None else None
+            opening = history.opening if history is not None else None
+            if (opening is not None and opening.terminal_reason == model.OPENING_CUTOFF
+                    and (opening.cycle_id, opening.plan_id, opening.started_at,
+                         str(opening.observation_id)) ==
+                        (cycle['cycle_id'], cycle['plan_id'], cycle['updated_at'],
+                         cycle['clean_reconciliation_id'])):
+                return replace(failed, value='OPENING WINDOW CLOSED · UNSENT DELTAS',
+                    as_of=opening.started_at, valid_until=opening.deadline,
+                    operational_fact=model.OperationalFact(
+                        kind='PAPER_VERIFICATION', state='SUPERSEDED', opening=opening))
         if cycle_state == 'BLOCKED' and cycle.get('completed_at') is not None:
             return replace(failed, operational_fact=model.OperationalFact(
                 kind='PAPER_VERIFICATION', state='BLOCKED'))
@@ -2998,7 +3158,9 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="MISMATCH", detail=(
                 "informational mirror evidence is not bound to a current "
                 "automation cycle"))
-    active_transport = cycle_state in {'EXECUTING', 'RECONCILING'}
+    from sentinel.panel.retry_status import execution_entry_backup_retry
+    active_transport = (cycle_state in {'EXECUTING', 'RECONCILING'}
+                        or execution_entry_backup_retry(cycle or {}) is not None)
     if mirror_count == 0 and not active_transport:
         state = "MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"
         return model.paper_reconciliation_row(
@@ -3909,6 +4071,9 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 errors.append('previous paper order outcomes: '+outcome_error)
             else:
                 plan_row = replace(plan_row, order_outcomes=outcomes)
+        sampled = now or datetime.now(timezone.utc)
+        trading_row = _opening_cutoff_current_status(trading_row, plan_row, recovery_cycle, now=sampled)
+        completed_row = _opening_cutoff_current_status(completed_row, plan_row, recovery_cycle, now=sampled)
         return [exposure, book, terminals, broker, plan_row,
                 *([trading_row] if trading_row else []),
                 *([completed_row] if completed_row else [])], errors
