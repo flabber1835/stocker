@@ -242,7 +242,6 @@ def _run_html(panel: Panel) -> str:
                else 'Today’s run · partially completed' if run.unsent_at_cutoff
                     and any(order.filled_quantity > 0 for order in run.orders)
                else 'Today’s run · opening window closed' if run.unsent_at_cutoff
-               else 'Today’s paper trading' if run.state in {'FAILED', 'ABANDONED', 'SUPERSEDED'}
                else 'Today’s trading plan')
     stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
              'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
