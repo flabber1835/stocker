@@ -1,0 +1,2 @@
+# Research optimization only; NumPy comes from the pinned replay image.
+scipy==1.16.3

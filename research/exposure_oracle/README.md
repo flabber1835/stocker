@@ -136,3 +136,40 @@ PYTHONPATH=.:shared python -B -m pytest tests/sentinel/test_exposure_neural.py \
   tests/sentinel/test_exposure_oracle.py tests/sentinel/test_exposure_logic.py \
   -q -p no:cacheprovider
 ```
+
+## Target CAGR closest to existing decisions
+
+The target experiment searches for 25–30% CAGR after modeled costs, with MaxDD
+no worse than current Sentinel over the same completed period. Closeness means
+fewest changed daily decisions, then smallest exposure deviation, then fewest
+switches. It combines growth-budget dynamic programming, conservative transition
+pruning and an exact sparse MILP. A separate raw-ledger and exhaustive audit
+checks the selected result. No predictive policy is trained by this command.
+
+Use the pinned replay image with `requirements-target.txt` and
+`requirements-report.txt` installed in isolated research locations. Limit BLAS
+and the solver to one thread. Mount the authenticated snapshot read-only; all
+outputs belong in a separate new directory. Defaults allow 128 changed days and
+120 seconds per solver objective. A time limit is never reported as infeasibility.
+
+```bash
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.target \
+  --snapshot /read-only/snapshot --output /separate/new-target-run
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.target_analysis \
+  --snapshot /read-only/snapshot --result /separate/new-target-run
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.target_report \
+  --snapshot /read-only/snapshot --result /separate/new-target-run
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.target_audit \
+  --snapshot /read-only/snapshot --result /separate/new-target-run
+```
+
+The HTML report contains monthly CAGR, multiple and MaxDD for Sentinel, target
+and SPY. JSON outputs retain the complete path, solver bounds, signal comparisons,
+fixed causal-rule diagnostics and all changed episodes including their rejoin
+overnights. See `docs/sentinel-target-cagr.md` for design, evidence and limitations.
+
+```bash
+PYTHONPATH=.:shared python -B -m pytest tests/sentinel/test_exposure_target.py \
+  tests/sentinel/test_exposure_target_analysis.py tests/sentinel/test_exposure_oracle.py \
+  -q -p no:cacheprovider
+```
