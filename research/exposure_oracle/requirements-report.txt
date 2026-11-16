@@ -1,0 +1,2 @@
+# Report-only dependency; optimization uses the repository's existing NumPy.
+plotly==6.5.0
