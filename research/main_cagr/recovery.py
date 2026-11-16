@@ -8,6 +8,7 @@ from .storage import checkpoint, checkpoint_pointer, file_prefix, read_checkpoin
 # Exact run-001 identity, independently retained before this recovery was written.
 PREDECESSOR_BINDING = '3df3a1a5998e7bdad2332b34697aaaff5f75d7da2088d95237c6d78731b813d2'
 TERMINAL_PREDECESSOR_BINDING = 'a93e4bc14a48d29a4c212092fb5c13b0d339e4bb3728288b869469dc291c9d14'
+CHAIN_PREDECESSOR_BINDING = '163f3a826449fe4b6e72a481814643f3875d4ce230bc36c03397447b70134651'
 UNCHANGED_HARNESS = ('__init__.py', 'fractional.py', 'inputs.py', 'metrics.py',
                      'runtime.py', 'verify.py')
 
@@ -23,20 +24,26 @@ def validate(predecessor, binding, saved):
         expected_source = digest(dict(predecessor=predecessor['source_identity'], spinoff_repair=repair))
         old_ignored = {'harness'}
         new_ignored = {'harness', 'prospective_spinoff_repair', 'effective_source_identity'}
-    elif predecessor_hash == TERMINAL_PREDECESSOR_BINDING:
+    elif predecessor_hash in (TERMINAL_PREDECESSOR_BINDING, CHAIN_PREDECESSOR_BINDING):
         repairs = binding.get('prospective_terminal_repairs')
         if not repairs:
             raise ValueError('prospective terminal repairs required')
+        prior_repairs = predecessor.get('prospective_terminal_repairs', [])
+        if repairs[:len(prior_repairs)] != prior_repairs or len(repairs) <= len(prior_repairs):
+            raise ValueError('terminal repair history must be an unchanged prefix with additions')
         changed_sessions = []
-        for repair in repairs:
+        for repair in repairs[len(prior_repairs):]:
             doc = repair['document']
             if not doc.get('suppress') or not doc.get('add'):
                 raise ValueError('terminal repair must replace an existing event')
             changed_sessions.extend(row['session'] for row in (*doc['suppress'], *doc['add']))
-        expected_source = digest(dict(predecessor=predecessor['effective_source_identity'],
+        base_source = (digest(dict(predecessor=predecessor['source_identity'],
+                                  spinoff_repair=predecessor['prospective_spinoff_repair']))
+                       if prior_repairs else predecessor['effective_source_identity'])
+        expected_source = digest(dict(predecessor=base_source,
                                       terminal_repairs=repairs))
-        old_ignored = {'harness', 'effective_source_identity'}
-        new_ignored = old_ignored | {'prospective_terminal_repairs'}
+        old_ignored = {'harness', 'effective_source_identity', 'prospective_terminal_repairs'}
+        new_ignored = old_ignored
         unchanged = (*unchanged, 'spinoff_repair.py')
     else:
         raise ValueError('unreviewed predecessor binding')

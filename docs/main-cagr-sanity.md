@@ -381,3 +381,54 @@ formerly refused December 10 valuation resolves. The new scenario binding is
 The separately mounted full continuation resumes from this tested December 11
 checkpoint. Its twenty-year outcome remains pending; the source run and all
 earlier scenario outputs are retained.
+
+## Belmond continuation and append-only correction history
+
+The terminal-corrected scenario completed 2019-04-16 (3,200 measured sessions)
+and refused the April 17 valuation. BEL still has 351.432376400433 shares and
+an incomplete April 16 cash-merger term. LVMH's primary
+[completion announcement](https://www.lvmh.com/en/publications/lvmh-completes-the-agreement-with-belmond)
+dates completion April 17, 2019; its
+[agreement announcement](https://www.lvmh.com/en/publications/lvmh-reaches-an-agreement-with-belmond-to-increase-its-presence-in-the-ultimate-hospitality-world/)
+sets $25.00 cash per Class A share. Retain both HTML documents and replace the
+exact April 16 incomplete term with an April 17 $25 cash event. Continue the
+existing completion-session economic recognition convention; broker posting
+date is unobserved. Do not change prior strategy, costs, accounting or repairs.
+
+TRCO is also held, but its source schedule already contains the exact September
+19, 2019 settlement at $46.687397 following the incomplete September 18 term.
+Its original 362-share narrative is historical provenance, not a quantity
+instruction; the canonical settlement multiplies the actual current shares.
+No new TRCO repair is required or authorized by this continuation decision.
+
+Extend recovery to the explicitly reviewed predecessor binding
+`163f3a826449fe4b6e72a481814643f3875d4ce230bc36c03397447b70134651`.
+Require the new terminal-repair list to preserve the entire prior list as an
+identical ordered prefix and append at least one new repair. Only newly appended
+events are subject to the selected-checkpoint date guard. Their suppress/add
+dates must remain strictly after the selected cursor, and the earliest change
+must be at or before the refused session. Validate the source identity from the
+unchanged original source, spin-off correction and complete terminal-repair
+list, matching the existing runner's identity equation. Preserve all original
+experiment fields and the prior correction code. No general migration is added.
+
+Select the March 29 checkpoint
+`checkpoint-825bf4aad1ffc230d0b7170878c99d7ad84a8854b3ff836790627384f23cfbf4.json.gz`
+(3,188 measured sessions) into a fresh scenario. Qualify 14 replayed sessions
+through April 18 (3,202 measured sessions), including the formerly refused
+April 17. Independently verify the copied state/accounting and output prefixes,
+all pre-event financial returns, and exact fractional BEL settlement before
+continuing. Keep the complete predecessor and the separately pinned exposure
+experiment unchanged. Delivery extends PR #595 from current verified main
+`69b4a78a25610bf4aaee27eb4956a0611d26d124` in an isolated worktree.
+
+The BEL repair document has SHA256
+`32e90bf4d99029d76798df738fe76efbf0fb237181f62af3029d649e0f35800e`;
+the exact suppressed term hash is
+`63b847254ce2f74e3f9e3155130524826894c316a35bc3a60fe83ea1e244650a`.
+Retained completion/consideration HTML hashes are respectively
+`7050c3adbbcb171ba1b42ef8191101ecaca5f1192983ac3546054f0756355e95`
+and `aaa7dc8cba544dd06096f2abf23b350397d6ead79e1f54111ed20491caf74ea0`.
+`python -B -m pytest tests/sentinel/test_main_cagr_recovery.py -q -p no:cacheprovider`
+reports **36 passed**. Removing the prior-correction-prefix guard in an isolated
+process makes its changed-prefix falsifier fail as expected.

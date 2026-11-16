@@ -211,3 +211,59 @@ def test_selected_checkpoint_requires_a_content_address(name, predecessor):
     previous, _, original, _, _ = predecessor
     with pytest.raises(ValueError, match='filename'):
         storage.read_checkpoint(previous, original, name)
+
+
+@pytest.fixture
+def chain_predecessor(terminal_predecessor, monkeypatch):
+    previous, target, _, prior, saved, _ = terminal_predecessor
+    prior = deepcopy(prior)
+    monkeypatch.setattr(recovery, 'CHAIN_PREDECESSOR_BINDING', digest(prior))
+    storage.write_json(previous/'identity.json', {'binding':prior})
+    saved = {**saved, 'binding':digest(prior), 'cursor':'2019-03-29', 'measured':3188}
+    selected = storage.checkpoint(previous, saved)
+    storage.append(previous, 'daily.jsonl', {'session':'2019-04-16', 'pending_bel':True})
+    storage.checkpoint(previous, {**saved, 'cursor':'2019-04-16', 'measured':3200})
+    storage.write_json(previous/'refusal.json', dict(last_completed_session='2019-04-16',
+        attempted_session='2019-04-17', measured_sessions=3200))
+    binding = deepcopy(prior)
+    binding['prospective_terminal_repairs'].append({'document':{
+        'suppress':[{'session':'2019-04-16'}], 'add':[{'session':'2019-04-17'}]}})
+    base = digest(dict(predecessor=prior['source_identity'], spinoff_repair=prior['prospective_spinoff_repair']))
+    binding['effective_source_identity'] = digest(dict(predecessor=base,
+        terminal_repairs=binding['prospective_terminal_repairs']))
+    return previous, target, prior, binding, saved, selected, base
+
+
+def test_later_recovery_preserves_prior_repairs_and_complete_predecessor(chain_predecessor):
+    previous, target, prior, binding, saved, selected, _ = chain_predecessor
+    before = {p.name:p.read_bytes() for p in previous.iterdir()}
+    lineage = recovery.fork(previous, target, {'binding':binding}, selected.name)
+    actual, _ = storage.read_checkpoint(target,binding)
+    assert {p.name:p.read_bytes() for p in previous.iterdir()} == before
+    assert lineage['terminal_repairs'][:-1] == prior['prospective_terminal_repairs']
+    for key in ('state','economics','metrics','counters','cursor','measured'):
+        assert actual[key] == saved[key]
+    assert b'pending_bel' not in (target/'daily.jsonl').read_bytes()
+
+
+@pytest.mark.parametrize('fault',['edit_prefix','remove_prefix','reorder','no_addition',
+                                 'past_suppress','past_add','prior_assumption'])
+def test_chain_recovery_rejects_rewriting_prior_corrections(chain_predecessor,fault):
+    previous,target,prior,binding,_,selected,base = chain_predecessor
+    repairs = binding['prospective_terminal_repairs']
+    if fault == 'edit_prefix':
+        repairs[0]['document']['amount'] = 'changed'
+    elif fault == 'remove_prefix':
+        del repairs[0]
+    elif fault == 'reorder':
+        repairs.reverse()
+    elif fault == 'no_addition':
+        del repairs[-1]
+    elif fault.startswith('past_'):
+        repairs[-1]['document']['suppress' if fault == 'past_suppress' else 'add'][0]['session'] = '2019-03-29'
+    else:
+        binding['prospective_spinoff_repair']['document']['amount'] = 'changed'
+    binding['effective_source_identity'] = digest(dict(predecessor=base,terminal_repairs=repairs))
+    with pytest.raises(ValueError):
+        recovery.fork(previous,target,{'binding':binding},selected.name)
+    assert not list(target.iterdir())
