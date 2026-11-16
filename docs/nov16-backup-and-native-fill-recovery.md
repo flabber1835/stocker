@@ -43,8 +43,7 @@ fill idempotency key. They do not confer any financial settlement authority on
 notification evidence. Preserve the previously selected LIVE collector scope.
 
 Apple's HTTP 201 evidence establishes sender acceptance. Device-side
-presentation of the November 16 alert is unresolved. A fresh enrollment test
-can use a bounded device-local signal to split service-worker receipt and
-notification API result from push-service acceptance. It cannot establish that
-iOS showed a banner or that a person saw an alert. No historical fill replay
-or device permission changes follow from this diagnosis.
+presentation of the November 16 alert is unresolved. The backed local handoff
+preserves the exact installed browser notification assets and subscription
+contract. The early fill collector changes when verified order activity
+reaches the existing notification sender.

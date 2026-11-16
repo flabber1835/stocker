@@ -58,9 +58,7 @@ def test_holdings_expansion_distinguishes_unscaled_weights_and_unspendable_recei
 def test_browser_subscription_and_sender_acceptance_do_not_claim_device_receipt():
     script = render.PUSH_SCRIPT
     assert 'This browser has a notification subscription. Send a test to check delivery.' in script
-    assert 'Test accepted by the push service. This browser has yet to confirm receipt.' in script
-    assert 'deviceReceipt.alert_id === receipt.alert_id' in script
-    assert 'This browser received the test and accepted the request to show it.' in script
+    assert 'Test accepted by the push service. Check this device' in script
     assert 'Check Alert delivery' not in script
     assert 'Check Notification delivery' in script
     assert 'Notifications enabled on this device.' not in script
