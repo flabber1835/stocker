@@ -293,7 +293,10 @@ verification. Missing or failed historical evidence cannot manufacture success.
 Both same-day run views use the account NAV and target exposure from the
 fingerprint-verified saved plan when projecting original fractional intent.
 The date rollover preserves the saved dollar proposals and their original
-sizing evidence.
+sizing evidence. The verifier composes this projection into the authenticated
+dashboard snapshot. A local repair uses the qualified backed pre-open handoff
+so the verifier starts with its validated candidate identity and the saved plan
+stays in place.
 
 Qualify the real generation-change/supersession query and rendered fallback,
 account/takeover/session/completion/ambiguity refusals, exact original intent,
