@@ -281,3 +281,6 @@ tests/sentinel/test_in_kind_distributions.py -q -p no:cacheprovider`:
 **63 passed**. This includes the ordinary missing-term refusal, exact fractional
 cash, unchanged parent quantity, immutable predecessor outputs, exact resumed
 state/accounting, and rejection of retrospective repairs and unrelated changes.
+Removing the prospective-date guard and exact-original-event guard in an
+isolated process made all three selected falsifiers fail as expected (past
+repair, same-day repair, changed distribution ratio). Source files stayed intact.
