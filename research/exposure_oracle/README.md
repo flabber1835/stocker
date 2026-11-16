@@ -83,3 +83,56 @@ PYTHONPATH=.:shared python -B -m pytest \
   tests/sentinel/test_exposure_logic.py tests/sentinel/test_exposure_oracle.py \
   -q -p no:cacheprovider
 ```
+
+## Neural imitation of the ideal policy
+
+The neural experiment fits a small 38 → 16 → 8 → 3 classifier to independently
+bounded hindsight labels. Training ends in 2012, validation selects an epoch
+using 2013–2015, and 2016–April 2019 is excluded from fitting and selection.
+Every feature is known at its decision close; the predicted action executes
+at the next open. The original ideal has no 55% examples at the selected cap.
+
+Use the pinned Python 3.12 replay image (NumPy 2.4.6), install
+`requirements-neural.txt` and `requirements-report.txt` into isolated research
+locations, and limit BLAS threads to one. Mount the snapshot and earlier oracle
+result read-only. Training refuses mismatched dependency/source identities.
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH=.:shared \
+  python -B -m research.exposure_oracle.neural \
+  --snapshot /read-only/previous-experiment/snapshot \
+  --oracle /read-only/previous-oracle-result \
+  --output /separate/new-neural-experiment
+```
+
+The output includes `evaluation-model.json`, `all-history-model.json`, every
+epoch's loss, frozen test probabilities/actions, bounded teacher labels,
+test-period paths, cumulative monthly metrics, provenance and an interactive
+HTML report. The evaluation model is exported before test labels are scored.
+The second model refits all available ideal labels for the already selected
+epoch count; it has no held-out result on its training history.
+
+Saved models contain finite arrays and feature order as JSON, without pickle.
+For a research prediction from the last completed close of an authenticated
+snapshot:
+
+```python
+from pathlib import Path
+from research.exposure_oracle import inputs, neural_data, neural_model
+
+_, rows = inputs.load(Path('/read-only/snapshot'))
+model = neural_model.FrozenModel.model_validate_json(Path('all-history-model.json').read_text())
+assert model.features == list(neural_data.FEATURES)
+probabilities = model.probabilities(neural_data.feature_matrix(rows)[-1:])[0]
+target = model.actions[int(probabilities.argmax())]  # For the following open.
+```
+
+No model is installed in Sentinel or allowed to contact a broker. See
+`docs/sentinel-neural-imitation.md` for exact features, fixed settings, boundary
+semantics and limitations. Test with:
+
+```bash
+PYTHONPATH=.:shared python -B -m pytest tests/sentinel/test_exposure_neural.py \
+  tests/sentinel/test_exposure_oracle.py tests/sentinel/test_exposure_logic.py \
+  -q -p no:cacheprovider
+```
