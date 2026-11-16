@@ -57,6 +57,8 @@ COPY audit/economic_399/postgres_pressure/report.py /work/repo/audit/economic_39
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
 COPY research/bounded_20y/ /work/research/bounded_20y/
+COPY research/main_cagr/ /work/research/main_cagr/
+COPY research/economic_replay60/ /work/research/economic_replay60/
 # Host-owned suites execute these source-matched helpers and inspect metadata
 # relative to /work/tests. Sentinel and the installed shared package stay below
 # the runtime layer; no production Python package is added to /work.
