@@ -284,3 +284,13 @@ state/accounting, and rejection of retrospective repairs and unrelated changes.
 Removing the prospective-date guard and exact-original-event guard in an
 isolated process made all three selected falsifiers fail as expected (past
 repair, same-day repair, changed distribution ratio). Source files stayed intact.
+
+The real-data continuation passed 2015-07-01 and 2015-07-02 (2,247 measured
+sessions). An independent read verified all daily calculations and 108 monthly
+rows, every original committed output prefix, and exact equality of the copied
+canonical state, accounting, metrics and counters at 2015-06-30. The one BXLT
+liquidation records $47.84762599004924 total proceeds, including
+$15.97952599004924 modeled fractional cash, at the retained $31.90 raw open.
+The original 2,245-session run remains intact. The full continuation resumes
+from that tested July 2 checkpoint in the separate scenario, with independent
+full-history arithmetic verification required on completion.
