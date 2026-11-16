@@ -88,6 +88,54 @@ def test_cash_guard_falsifier(monkeypatch):
         test_notional_and_headroom_fit_both_native_cash_bounds("999", "1000")
 
 
+@pytest.mark.parametrize("delay,automated,crosses,accepted", [
+    (30, True, False, True),
+    (30, True, True, False),
+    (30, False, True, True),
+    (60, True, True, False),
+])
+def test_signed_buy_cutoff_is_rechecked_after_fresh_authority(monkeypatch, delay, automated, crosses, accepted):
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution.guarded import AutomationExecutionGrant
+
+    monkeypatch.setenv("SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS", str(delay))
+    config = config_from_env()
+    cutoff = delay + config.maximum_execution_lateness_seconds
+    inner = DollarBroker(cash=D(1000))
+    set_clock(inner, cutoff - 1)
+    checks = []
+
+    async def authority(*args):
+        checks.append(inner.now)
+        if crosses:
+            set_clock(inner, cutoff)
+
+    broker = wrapper(inner, before_mutation=authority)
+    if automated:
+        broker._grant = AutomationExecutionGrant(
+            "EXECUTE", "cycle", 1, "holder", 1, "SIM-ACCOUNT", 1, "CONTROLLER", 1,
+            "a" * 64, config_sha256=config.fingerprint)
+    initial_clock = inner.now
+    call = broker.submit(client_key="signed-cutoff", instrument=market_instruments()["SEC-AAA"],
+                         side=Side.BUY, quantity=None, notional=D(100))
+    if accepted:
+        assert asyncio.run(call).state is S.ACKNOWLEDGED
+        assert inner.dollars == {"signed-cutoff": D(100)}
+    else:
+        with pytest.raises(OrderEvidenceNotReady, match="final next-open freshness"):
+            asyncio.run(call)
+        assert not inner.dollars
+    assert checks == [initial_clock]
+
+
+def test_signed_buy_cutoff_falsifier(monkeypatch):
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", _compiled(
+        GuardedExecutionBroker._prepare_submit,
+        "latest = min(latest, scheduled_cutoff)", "latest = latest"))
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_signed_buy_cutoff_is_rechecked_after_fresh_authority(monkeypatch, 30, True, True, False)
+
+
 def test_reduction_scope_refuses_buy_at_transport_even_before_cutoff():
     from sentinel.execution.guarded import AutomationExecutionGrant
 

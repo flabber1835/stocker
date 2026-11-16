@@ -893,6 +893,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 else:
                     from sentinel.automation.model import PaperDebugWindow
                     window = None if self._live else PaperDebugWindow.from_env()
+                    config = None
                     if (window is not None or isinstance(self._grant, AutomationExecutionGrant)
                             and self._grant.config_sha256 is not None):
                         from sentinel.automation_runtime import config_from_env
@@ -908,6 +909,11 @@ class GuardedExecutionBroker(ExecutionBroker):
                     else:
                         earliest = opened + timedelta(seconds=60 if protected or market is not None else 0)
                         latest = min(closed, opened + timedelta(seconds=600))
+                        if config is not None and not self._live:
+                            execute_at = opened + timedelta(seconds=config.execution_delay_seconds)
+                            scheduled_cutoff = execute_at + timedelta(
+                                seconds=config.maximum_execution_lateness_seconds)
+                            latest = min(latest, scheduled_cutoff)
                 if market is not None and notional is None and (quote is None or now.date() != quote.session):
                     raise ValueError("market BUY quote is outside the final regular session")
                 if not earliest <= now < latest:

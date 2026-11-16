@@ -679,7 +679,6 @@ def test_missing_activation_binding_cannot_construct_an_executable_cycle():
 
 @pytest.mark.parametrize('restore_old_guard',[False,True])
 def test_early_clean_recovery_waits_for_execute_at_and_falsifies_old_guard(monkeypatch,restore_old_guard):
-    import inspect,textwrap,types
     config=AutomationConfig()
     cycle,permit=scheduled_record(config,module.CycleState.RECONCILING)
     now=cycle.execute_at-timedelta(minutes=2)
@@ -689,12 +688,8 @@ def test_early_clean_recovery_waits_for_execute_at_and_falsifies_old_guard(monke
     service=module.AutomationService(config=config,holder_id='early-recovery',
         refresh=None,prepare=None,recover=recover,execute=lambda _:pytest.fail('early transport'))
     if restore_old_guard:
-        source=textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
-        changed=source.replace('if self._execution_expired(now=now, cycle=cycle):',
-            'if not self._execution_is_fresh(now=now, cycle=cycle):')
-        assert changed!=source
-        namespace=dict(vars(module));exec(changed,namespace)
-        service._run_recover=types.MethodType(namespace['_run_recover'],service)
+        monkeypatch.setattr(service, '_execution_expired',
+            lambda *, now, cycle: not service._execution_is_fresh(now=now, cycle=cycle))
     monkeypatch.setattr(module.store,'require_leader',lambda _c,p:p)
     current=cycle
     def transition(_c,*,to_state,**fields):
