@@ -41,3 +41,13 @@ authenticated shadow worker is active, and the old invocation's recorded
 supersession remains within its original fence. The checkpoint was first
 committed at 21:30:02 UTC, so it cannot witness this earlier transition. The
 observer's work deadline is also a limit on this display.
+
+## Backed installation handoff
+
+The PRE_OPEN installer recognizes the optional current-date cutoff card only
+when its authenticated history and terminal run name the same old cycle and
+plan, the cutoff has verified unsent legs, and its original New York day has
+not expired. The saved successor must be the independently expected, current
+next-session WAITING_OPEN plan. The current panel, health, account, broker,
+authority, backup, worker and operator review requirements still govern the
+handoff. The cutoff card does not authorize execution or acknowledge review.

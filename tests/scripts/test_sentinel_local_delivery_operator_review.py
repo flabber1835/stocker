@@ -7,6 +7,7 @@ import json
 import sys
 import time
 import urllib.request
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -131,6 +132,89 @@ def test_clean_green_software_completion_keeps_its_existing_result(monkeypatch):
     result = execute_reader(monkeypatch, page, expected)
     assert result['color'] == 'green'
     assert 'operator_review' not in result and 'installation_scope' not in result
+
+
+def pre_open_with_cutoff(*, key='trading_run', **options):
+    page, expected = scheduled_page(**options)
+    now = datetime.fromisoformat(page['as_of'])
+    zone = ZoneInfo('America/New_York')
+    today = now.astimezone(zone).date()
+    expected['decision'] = today.isoformat()
+    next_row = keyed(page, 'paper_plan')
+    next_plan = next_row['paper_plan']
+    next_plan['decision_session'] = expected['decision']
+    keyed(page, 'feed')['value'] = expected['decision']+' · 0 sessions behind'
+    keyed(page, 'shadow_verification')['value'] = 'SHADOW VERIFIED THROUGH '+expected['decision']
+    old_at = now-timedelta(minutes=15)
+    execute_at = old_at-timedelta(minutes=9)
+    day_end = datetime.combine(today+timedelta(days=1), datetime.min.time(), zone)
+    day_end = (day_end-timedelta(microseconds=1)).astimezone(timezone.utc)
+    intent = dict(next_plan, cycle_id='prior-cycle', plan_id='prior-plan',
+        decision_session=(today-timedelta(days=3)).isoformat(), effective_session=today.isoformat(),
+        execute_at=execute_at.isoformat(), created_at=(execute_at-timedelta(hours=1)).isoformat(),
+        observation_at=(execute_at-timedelta(hours=1)).isoformat(), execution_open_at=None,
+        legs=[dict(security_id='held', ticker='CRL', current_quantity='0', target_quantity='0',
+            change_quantity=None, opening_dollars='1338.66', purchase_notional='1337.66', action='BUY')])
+    run = model.TradingRun(intent=intent, state='SUPERSEDED', updated_at=old_at, completed_at=old_at,
+        unsent_at_cutoff={'held':model.UnsentOpeningDelta(side='BUY', notional='1337.66')})
+    fact = model.OperationalFact(kind='EXECUTION_HISTORY', state='SUPERSEDED',
+        opening=model.OpeningEvidence(cycle_id=intent['cycle_id'], plan_id=intent['plan_id'],
+            started_at=old_at, deadline=day_end, observation_id=528, terminal_reason=model.OPENING_CUTOFF,
+            reconciled_at=old_at-timedelta(seconds=3)))
+    row = dict(key=key, label='Today’s paper trading', value='OPENING WINDOW CLOSED · UNSENT DELTAS',
+        status='warn', color='amber', current=True, required_current=False, stale=False, future=False,
+        as_of=old_at.isoformat(), valid_until=day_end.isoformat(), recovery=None, paper_alignment=None,
+        operational_fact=fact.model_dump(mode='json'), trading_run=run.model_dump(mode='json'))
+    page['rows'].append(row)
+    return page, expected
+
+
+@pytest.mark.parametrize('key,history,clean', [
+    ('trading_run', True, False), ('completed_trading_run', False, False),
+    ('trading_run', False, True),
+])
+def test_cutoff_history_is_informational_only_after_the_exact_successor(
+        monkeypatch, key, history, clean):
+    page, expected = pre_open_with_cutoff(key=key, history=history, clean=clean)
+    before = deepcopy(page)
+    result = execute_reader(monkeypatch, page, expected)
+    assert result['cycle'] == 'WAITING_OPEN' and result['plan']['plan_id'] == expected['plan']
+    assert page == before
+    if not clean:
+        assert result['operational_ready'] is False and result['operator_review']['status'] == 'REVIEW'
+
+
+@pytest.mark.parametrize('fault', ['generic_history', 'stale', 'noncurrent', 'required', 'old_clock',
+    'wrong_terminal_plan', 'no_unsent', 'wrong_successor_day', 'superseded_successor', 'backup_missing',
+    'duplicate_history'])
+def test_cutoff_history_never_waives_installer_proof(monkeypatch, fault):
+    page, expected = pre_open_with_cutoff(history=True)
+    row = keyed(page, 'trading_run')
+    if fault == 'generic_history': row['operational_fact'] = None
+    elif fault == 'stale': row['stale'] = True
+    elif fault == 'noncurrent': row['current'] = False
+    elif fault == 'required': row['required_current'] = True
+    elif fault == 'old_clock':
+        expiry = (datetime.fromisoformat(page['as_of'])-timedelta(seconds=1)).isoformat()
+        row['valid_until'] = row['operational_fact']['opening']['deadline'] = expiry
+    elif fault == 'wrong_terminal_plan': row['operational_fact']['opening']['plan_id'] = 'other'
+    elif fault == 'no_unsent': row['trading_run']['unsent_at_cutoff'] = {}
+    elif fault == 'wrong_successor_day': keyed(page, 'paper_plan')['paper_plan']['decision_session'] = '2000-01-01'
+    elif fault == 'superseded_successor': keyed(page, 'automation_cycle')['value'] = 'SUPERSEDED'
+    elif fault == 'backup_missing': page['rows'].remove(keyed(page, 'backup_restore'))
+    elif fault == 'duplicate_history': page['rows'].append(dict(row, key='completed_trading_run'))
+    with pytest.raises((AssertionError, KeyError, TypeError, ValueError)):
+        execute_reader(monkeypatch, page, expected)
+
+
+def test_cutoff_history_requires_its_validation_in_the_actual_program(monkeypatch):
+    page, expected = pre_open_with_cutoff(history=True)
+    keyed(page, 'trading_run')['operational_fact']['opening']['plan_id'] = 'other'
+    guard = 'if cutoff_row is not None: opening_cutoff_history(cutoff_row)'
+    assert checks.PANEL.count(guard) == 1
+    with pytest.raises(AssertionError):
+        execute_reader(monkeypatch, page, expected)
+    assert execute_reader(monkeypatch, page, expected, code=checks.PANEL.replace(guard, ''))['cycle'] == 'WAITING_OPEN'
 
 
 def test_pure_review_can_keep_a_native_undated_wait_without_historical_exceptions(monkeypatch):
