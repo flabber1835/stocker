@@ -7,9 +7,10 @@ import statistics
 
 import pytest
 
-from sentinel import rolling_runtime, restore_validation
+from sentinel import checkpoint_input_storage, rolling_daily_checkpoint, rolling_runtime, restore_validation
 from sentinel.core import window_policy
 from sentinel.feed import calendar, runtime_schema, store
+from sentinel.feed.rolling_contract import canonical_json
 from sentinel.strategy import production_strategy
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, SecuritySeries, VendorBar
 from stock_strategy_shared.wealth_core.window_signals import feature
@@ -162,11 +163,15 @@ def test_funded_cash_oracle_and_physical_restore_continue_same_book(conn, ready,
                     for k, e in second.state.wealth_core['episodes'].items()}
             close_to(third.state.wealth_core['cash'], cash)
             close_to(third.state.shadow_nav_history[-1], nav)
-            from sentinel import rolling_daily_checkpoint
-            import json
-            restored.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,"
-                "'{window_features,prior_state_sha256}',%s::jsonb) WHERE cursor_name=%s",
-                (json.dumps('f'*64), rolling_daily_checkpoint.input_name(OBS, third.session)))
+            cursor = rolling_daily_checkpoint.input_name(OBS, third.session)
+            archive = restored.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                                       (cursor,)).fetchone()[0]
+            archived_input = checkpoint_input_storage.decode(archive, expected_sha256=archive['sha256'])
+            archived_input['window_features']['prior_state_sha256'] = 'f' * 64
+            altered = checkpoint_input_storage.encode(archived_input)
+            assert altered['sha256'] != archive['sha256']
+            restored.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                             (canonical_json(altered), cursor))
             restored.commit()
             with pytest.raises(RuntimeError, match='DAILY_INPUT_ARCHIVE_CHANGED'):
                 restore_validation.validate_restored_database(restored)
