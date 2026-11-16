@@ -50,3 +50,36 @@ PYTHONPATH=.:shared python -B -m pytest \
 
 The oracle uses future knowledge. Its large performance advantage measures
 hindsight opportunity and cannot establish a deployable improvement to Sentinel.
+
+## Four causal exit and recovery cases
+
+Run the four fixed hypotheses on an existing authenticated snapshot:
+
+```bash
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.logic \
+  --snapshot /read-only/previous-experiment/snapshot \
+  --output /separate/new-logic-experiment
+```
+
+The cases are the recorded baseline, one-close owned-impairment entry instead
+of five, a 55% bridge during the native-full/recovery-zero state, and both changes.
+They retain the existing severe exits, full-recovery criteria and eight-close
+owned release. Each close decision acts at the next open. No oracle decisions
+or future returns enter the candidate rules. Baseline states and targets must
+match every recorded row; the canonical accountant must reproduce the tape.
+
+Optional `--start` and `--end` select exact completed-session closes. Candidate
+state and returns are built from the shared original seed before the selected
+window is rebased, preserving each candidate's own prior held exposure. This is
+a diagnostic comparison on inspected history, not out-of-sample qualification.
+
+Outputs include the interactive HTML report, summary, full close decisions,
+applied exposures and NAV paths, monthly metrics, yearly returns, and returns
+during each recorded defensive episode. See
+`docs/sentinel-exit-recovery-experiment.md` for the frozen design and results.
+
+```bash
+PYTHONPATH=.:shared python -B -m pytest \
+  tests/sentinel/test_exposure_logic.py tests/sentinel/test_exposure_oracle.py \
+  -q -p no:cacheprovider
+```
