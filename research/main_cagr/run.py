@@ -75,6 +75,9 @@ def render(root):
     if identity['binding'].get('prospective_spinoff_repair'):
         lines[5:5] = ['Includes an explicit spin-off cash-in-lieu price/timing assumption; '
                       'see identity.json and recovery.json for its terms and preserved history.', '']
+    if identity['binding'].get('prospective_terminal_repairs'):
+        lines[5:5] = ['Includes source-backed prospective cash-merger corrections; '
+                      'see identity.json and recovery.json for terms and checkpoint lineage.', '']
     path = root/'monthly.jsonl'
     if path.exists():
         for line in path.read_text().splitlines():
@@ -91,6 +94,8 @@ def render(root):
 
 
 def run(args, variant):
+    if args.recover_checkpoint and not args.recover_from:
+        raise ValueError('selected checkpoint requires --recover-from')
     started = time.monotonic()
     root = args.output.resolve()
     if args.resume:
@@ -107,6 +112,12 @@ def run(args, variant):
     source = verify_source(Path.cwd())
     manifest = verify(args.bundle, args.archive)
     schedule, spins, repair_provenance = actions(args.bundle, args.repair)
+    terminal_provenance = []
+    if args.prospective_terminal_repair:
+        schedule, _, complete_provenance = actions(args.bundle, [*args.repair, *args.prospective_terminal_repair])
+        if complete_provenance[:len(repair_provenance)] != repair_provenance:
+            raise ValueError('original terminal repair provenance changed')
+        terminal_provenance = complete_provenance[len(repair_provenance):]
     spins, spin_repair = spinoff_repair.apply(spins, args.spinoff_repair)
     config, identity = production_strategy()
     identity = {**identity, 'research_fractional_profile':variant['profile'],
@@ -128,13 +139,18 @@ def run(args, variant):
     if spin_repair:
         binding.update(prospective_spinoff_repair=spin_repair,
             effective_source_identity=digest(dict(predecessor=source_identity, spinoff_repair=spin_repair)))
+    if terminal_provenance:
+        binding.update(prospective_terminal_repairs=terminal_provenance,
+            effective_source_identity=digest(dict(
+                predecessor=binding.get('effective_source_identity', source_identity),
+                terminal_repairs=terminal_provenance)))
     identity_doc = dict(binding=binding, limitations=manifest['limitations'],
         execution_policy_simulated=False,
         excluded_execution_policy='FRACTIONAL_MARKET_DAY_V1',
         source_status=manifest['source_status'], strict_pit_certified=False,
         mode='FRACTIONAL_CORE_RESEARCH_SANITY')
     if args.recover_from:
-        recovery.fork(args.recover_from, root, identity_doc)
+        recovery.fork(args.recover_from, root, identity_doc, args.recover_checkpoint)
     elif args.resume:
         if json.loads((root/'identity.json').read_text()) != identity_doc:
             raise ValueError('run identity changed')
@@ -287,6 +303,8 @@ def parser():
     value.add_argument('--archive', type=Path, required=True)
     value.add_argument('--repair', type=Path, action='append', default=[])
     value.add_argument('--spinoff-repair', type=Path)
+    value.add_argument('--prospective-terminal-repair', type=Path, action='append', default=[])
+    value.add_argument('--recover-checkpoint')
     value.add_argument('--output', type=Path, required=True)
     continuation = value.add_mutually_exclusive_group()
     continuation.add_argument('--resume', action='store_true')

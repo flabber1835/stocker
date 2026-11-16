@@ -294,3 +294,76 @@ $15.97952599004924 modeled fractional cash, at the retained $31.90 raw open.
 The original 2,245-session run remains intact. The full continuation resumes
 from that tested July 2 checkpoint in the separate scenario, with independent
 full-history arithmetic verification required on completion.
+
+## Missing cash-merger terms and an earlier checkpoint
+
+The continuing run reached 2018-12-07 and refused performance on 2018-12-10.
+It held 201.638202117061 SONC shares. The original 2018-12-07 terminal row names
+a cash merger but contains no per-share consideration; its company-level deal
+value cannot settle the holding. Preserve the valuation refusal. Restore the
+2018-11-30 checkpoint into a new scenario and replay the intervening sessions.
+Never insert cash directly into a saved state or amend completed output rows.
+
+Retain authenticated primary source documents and use the existing exact-term
+suppression/replacement API for three missing cash-merger terms of holdings
+present at the refusal:
+
+| Security | Retained terminal date | Correct economic date | Cash per share |
+|---|---|---|---:|
+| SONC | 2018-12-07 | 2018-12-07 | $43.50 |
+| REGI | 2022-06-10 | 2022-06-13 | $61.50 |
+| AMED | 2025-08-14 | 2025-08-14 | $101.00 |
+
+Sources: Inspire's [completion](https://stories.inspirebrands.com/inspire-brands-completes-acquisition-of-sonic-corp/)
+and [consideration announcement](https://inspirebrands.com/sonic-corp-acquired-inspire-brands-2-3-billion-transaction/),
+Chevron's [completion](https://chevroncorp.gcs-web.com/news-releases/news-release-details/chevron-completes-acquisition-renewable-energy-group)
+and [consideration announcement](https://www.chevron.com/newsroom/2022/q1/chevron-announces-agreement-to-acquire-renewable-energy-group),
+and [Nasdaq's AMED corporate action notice](https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-439).
+Recognize economic merger cash on the completion session using the existing
+research convention; these documents do not prove broker cash posting dates.
+REGI's original last-trading-day terminal is one session earlier than completion.
+Other prices, dates, dividends, selection, sizing and controller rules remain
+unchanged. The earlier BXLT modeled cash assumption remains separately visible.
+
+Extend continuation to an explicitly selected content-addressed checkpoint.
+Authenticate its filename/hash, original binding, canonical state and committed
+output prefixes. Also authenticate the predecessor's latest checkpoint/refusal,
+so an older checkpoint cannot masquerade as the latest completed state. Every
+suppressed and added terminal event must lie strictly after the selected cursor;
+the earliest changed event must be on or before the refused session. Copy only
+the selected committed prefixes; leave the complete predecessor and its later
+rows intact. Record both checkpoint identities and the rewind boundary.
+
+Prospective terminal repairs are separate from the original four input repairs
+and formation identity. Preserve the prior spin-off correction byte-for-byte,
+verify retained source hashes and exact replaced terms, and bind all new repair
+documents into future input identity. The two explicitly reviewed predecessor
+bindings are the only supported migration origins. Test the old recovery as
+well as this path, retrospective changes, altered prior assumptions, corrupt
+historical checkpoints, and the original missing-cash refusal. Qualify the
+replayed December 7 settlement and December 10 valuation before restarting the
+full continuation. Development remains based on verified main `69b4a78a`, while
+the replay continues importing the original `566a36819` production snapshot.
+
+The byte-retained REGI source is
+[Nasdaq ECA2022-136](https://nasdaqtrader.com/TraderNews.aspx?id=ECA2022-136),
+which confirms both the pre-open June 13 completion and $61.50 consideration.
+The three correction documents have SHA256:
+
+- SONC: `55e27430f962af82f0b7543bb4f7530b8b5a3a801ac627b5e603b12d185b29d9`
+- REGI: `dbda75d27752689e65394a24ad59cfb28f2e3396013dd86ef7602b289056936f`
+- AMED: `38712f173798992ddeedadfd6144aa75935ec456ce47510a0edb9b5942203cbd`
+
+Continue with the previous original-input and spin-off arguments, adding the
+three `--prospective-terminal-repair` paths, `--recover-from /predecessor` and
+`--recover-checkpoint checkpoint-90d1bd6f29243ae140402ed7c5e4d3f539b8c54e7efffe74bc77de9b0d364f48.json.gz`.
+That checkpoint is the authenticated November 30 boundary with 3,108 measured
+sessions. Select a fresh output and `--max-transitions 6` to qualify through
+December 11, including both the merger and the formerly refused December 10.
+
+The focused four-file pytest command above now reports **75 passed**. Isolated
+removal of prospective-date and unchanged-experiment guards makes all five
+selected falsifiers fail: past/same-day spin-off changes, retrospective terminal
+suppression/addition, and mutation of the prior spin-off assumption. The
+fractional-sizing, transport, accounting, input and existing spin-off repair
+modules remain byte-identical to the previous scenario.

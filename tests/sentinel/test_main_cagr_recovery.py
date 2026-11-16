@@ -124,9 +124,6 @@ def test_recovery_refuses_other_changes_before_copying(predecessor, fault):
         binding['prospective_spinoff_repair']['document']['session'] = '2015-06-29' if fault == 'past' else '2015-06-30'
         binding['effective_source_identity'] = digest(dict(predecessor=original['source_identity'],
             spinoff_repair=binding['prospective_spinoff_repair']))
-        refusal = json.loads((previous/'refusal.json').read_text())
-        refusal['attempted_session'] = binding['prospective_spinoff_repair']['document']['session']
-        storage.write_json(previous/'refusal.json', refusal)
     elif fault == 'source':
         binding['effective_source_identity'] = 'changed'
     elif fault == 'strategy':
@@ -141,3 +138,76 @@ def test_recovery_refuses_other_changes_before_copying(predecessor, fault):
     with pytest.raises(ValueError):
         recovery.fork(previous, target, {'binding':binding})
     assert not list(target.iterdir())
+
+
+@pytest.fixture
+def terminal_predecessor(predecessor, monkeypatch):
+    previous, target, _, prior, saved = predecessor
+    prior = deepcopy(prior)
+    prior['harness']['spinoff_repair.py'] = 'd'*64
+    monkeypatch.setattr(recovery, 'TERMINAL_PREDECESSOR_BINDING', digest(prior))
+    storage.write_json(previous/'identity.json', {'binding':prior})
+    saved.update(binding=digest(prior), cursor='2018-11-30', measured=3108)
+    selected = storage.checkpoint(previous, saved)
+    storage.append(previous, 'daily.jsonl', {'session':'2018-12-07', 'pending_merger':True})
+    latest = {**saved, 'cursor':'2018-12-07', 'measured':3112}
+    storage.checkpoint(previous, latest)
+    storage.write_json(previous/'refusal.json', dict(last_completed_session='2018-12-07',
+        attempted_session='2018-12-10', measured_sessions=3112))
+    repairs = [{'document':{'suppress':[{'session':'2018-12-07'}],
+                            'add':[{'session':'2018-12-07'}]}}]
+    binding = {**deepcopy(prior), 'prospective_terminal_repairs':repairs,
+        'effective_source_identity':digest(dict(predecessor=prior['effective_source_identity'],
+                                                terminal_repairs=repairs))}
+    return previous, target, prior, binding, saved, selected
+
+
+def test_selected_checkpoint_preserves_later_predecessor_rows(terminal_predecessor):
+    previous, target, _, binding, saved, selected = terminal_predecessor
+    before = {p.name:p.read_bytes() for p in previous.iterdir()}
+    lineage = recovery.fork(previous, target, {'binding':binding}, selected.name)
+    actual, state = storage.restore(target, binding)
+    assert {p.name:p.read_bytes() for p in previous.iterdir()} == before
+    assert state.state_hash == saved['state_sha256']
+    assert actual['cursor'] == '2018-11-30' and actual['measured'] == 3108
+    for key in ('state', 'economics', 'metrics', 'counters'):
+        assert actual[key] == saved[key]
+    assert b'pending_merger' not in (target/'daily.jsonl').read_bytes()
+    assert b'pending_merger' in (previous/'daily.jsonl').read_bytes()
+    assert lineage['predecessor_checkpoint']['file'] == selected.name
+    assert lineage['latest_predecessor_checkpoint']['session'] == '2018-12-07'
+
+
+@pytest.mark.parametrize('fault', ['latest', 'past_suppress', 'past_add', 'prior_assumption',
+                                  'prior_assumption_code', 'corrupt', 'future_only', 'no_replacement'])
+def test_terminal_recovery_cannot_hide_past_changes(terminal_predecessor, fault):
+    previous, target, prior, binding, _, selected = terminal_predecessor
+    name = selected.name
+    if fault == 'latest':
+        name = None
+    elif fault in ('past_suppress', 'past_add'):
+        leg = 'suppress' if fault == 'past_suppress' else 'add'
+        binding['prospective_terminal_repairs'][0]['document'][leg][0]['session'] = '2018-11-30'
+    elif fault == 'prior_assumption':
+        binding['prospective_spinoff_repair']['document']['extra'] = 'changed'
+    elif fault == 'prior_assumption_code':
+        binding['harness']['spinoff_repair.py'] = 'changed'
+    elif fault == 'corrupt':
+        selected.write_bytes(selected.read_bytes()+b'changed')
+    elif fault == 'future_only':
+        for leg in ('suppress', 'add'):
+            binding['prospective_terminal_repairs'][0]['document'][leg][0]['session'] = '2020-01-01'
+    else:
+        binding['prospective_terminal_repairs'][0]['document']['suppress'] = []
+    binding['effective_source_identity'] = digest(dict(predecessor=prior['effective_source_identity'],
+        terminal_repairs=binding['prospective_terminal_repairs']))
+    with pytest.raises(ValueError):
+        recovery.fork(previous, target, {'binding':binding}, name)
+    assert not list(target.iterdir())
+
+
+@pytest.mark.parametrize('name', ['../checkpoint.json.gz', 'checkpoint-unknown.json.gz', '/tmp/checkpoint.json.gz'])
+def test_selected_checkpoint_requires_a_content_address(name, predecessor):
+    previous, _, original, _, _ = predecessor
+    with pytest.raises(ValueError, match='filename'):
+        storage.read_checkpoint(previous, original, name)

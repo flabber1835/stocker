@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 
 from sentinel.feed.rolling_contract import digest
@@ -54,16 +55,26 @@ def checkpoint(root, payload):
     return path
 
 
-def read_checkpoint(root, binding):
+def checkpoint_pointer(root, checkpoint_file=None):
+    if checkpoint_file is None:
+        return json.loads((Path(root)/'latest-checkpoint.json').read_text())
+    match = re.fullmatch(r'checkpoint-([0-9a-f]{64})\.json\.gz', checkpoint_file)
+    if not match:
+        raise ValueError('invalid selected checkpoint filename')
+    return dict(file=checkpoint_file, sha256=match.group(1))
+
+
+def read_checkpoint(root, binding, checkpoint_file=None):
     """Authenticate a checkpoint without changing even an uncommitted suffix."""
     root = Path(root)
-    pointer = json.loads((root/'latest-checkpoint.json').read_text())
+    pointer = checkpoint_pointer(root, checkpoint_file)
     path = (root/pointer['file']).resolve()
     if root.resolve() != path.parent or file_prefix(path)['sha256'] != pointer['sha256']:
         raise ValueError('checkpoint bytes changed')
     with gzip.open(path, 'rt', encoding='utf8') as stream:
         value = json.load(stream)
-    if value['binding'] != digest(binding) or value['cursor'] != pointer['session']:
+    if (value['binding'] != digest(binding)
+            or ('session' in pointer and value['cursor'] != pointer['session'])):
         raise ValueError('checkpoint binding changed')
     state = SessionState.from_dict(value['state'])
     if state.state_hash != value['state_sha256']:
