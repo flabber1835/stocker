@@ -432,3 +432,21 @@ and `aaa7dc8cba544dd06096f2abf23b350397d6ead79e1f54111ed20491caf74ea0`.
 `python -B -m pytest tests/sentinel/test_main_cagr_recovery.py -q -p no:cacheprovider`
 reports **36 passed**. Removing the prior-correction-prefix guard in an isolated
 process makes its changed-prefix falsifier fail as expected.
+
+The BEL qualification replay passed all 14 sessions through 2019-04-18:
+3,202 measured sessions and 153 completed monthly rows. Independent checks
+verified Sentinel, SPY and Core daily arithmetic, exact initial state/accounting
+and copied prefixes, all 3,200 predecessor sessions unchanged, and the complete
+prior correction list and spin-off assumption unchanged. Financial outputs
+match the predecessor on every replayed session April 1-16, including the old
+incomplete terminal date. The canonical ledger records exactly one April 17
+BEL cash merger: 351.432376400433 shares at $25.00 produce
+$8,785.809410010825. BEL leaves the book and the refused valuation resolves.
+The new scenario binding is
+`b21a537f35de5a8aeee2303a97949dde5fe0a925516cd065fc133d4b823942ad`.
+
+The full local continuation resumes from the qualified April 18 checkpoint
+with 1,830 measured sessions remaining. It retains one CPU, 2 GiB RAM, no
+network, read-only source/data mounts and the original production snapshot.
+The separately pinned exit/recovery experiment retains its April 16 source
+snapshot. No later backtest results or twenty-year completion are inferred.
