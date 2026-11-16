@@ -214,6 +214,16 @@
       ],
       "native_fee_posting_delay_predecessor_ast_sha256": "c3eb303bbd18e1f8bd760b9f529a4d85493b4f4f476e033989ad34b126a749d3"
     },
+    "_fractional_renewal_retry_basis": {
+      "acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py::test_below_whole_share_retries_from_the_durable_original_reservation[True]"
+      ],
+      "design": "docs/retained-state-activation.md#fractional-renewal-of-a-pending-whole-share-retry",
+      "generated_ast_sha256": "1a1ca1e0ff2205d7c8f825844a286ad02700009a628a08eb48fdfc15c60f684e",
+      "historical_ast_sha256": null,
+      "module": "preparation",
+      "reason": "Recover the original retry basis only through authenticated same-session fractional plans with no execution projection, transport attempt, or fill."
+    },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
       "historical_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
@@ -687,7 +697,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "c4d572b1403c6675af0e0d47eb44a96bed3d688c39aa030b3505a479104a7493",
+      "generated_ast_sha256": "d361d997276f68704603e24f389f8cb57a10a0db6f9867dcf05ff85bd6a60ec7",
       "consolidation": {
         "predecessor_ast_sha256": "4e4c03bde9e5f92dda25efaa8f6c0a5cbd96fd2fe60e4318961b7f38096c55de",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],
@@ -701,6 +711,13 @@
         "tests/sentinel/test_paper_package_architecture.py"
       ],
       "fractional_replacement_reason": "Explicit attended pre-open conversion of a wholly unsent quantity plan under renewed same-mode PAPER authority. Retain the original holding basis and immutable predecessor, reconcile before adoption, and commit a signed replacement receipt atomically. Ordinary retry and historical transport policy checks remain strict.",
+      "fractional_renewal_predecessor_ast_sha256": "c4d572b1403c6675af0e0d47eb44a96bed3d688c39aa030b3505a479104a7493",
+      "fractional_renewal_design": "docs/retained-state-activation.md#fractional-renewal-of-a-pending-whole-share-retry",
+      "fractional_renewal_acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py::test_below_whole_share_retries_from_the_durable_original_reservation[True]",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "fractional_renewal_reason": "Revalidate pending whole-share retry intent on unsent same-session fractional certificate renewal and size it with fresh account inputs.",
       "market_buy_acceptance": [
         "tests/sentinel/test_dual_plan_scalar_proof.py",
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle"

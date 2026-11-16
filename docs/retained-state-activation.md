@@ -232,6 +232,25 @@ reconciliation and the coordinated restore before execution can resume. Admit
 this execution repair through a new exact source profile; earlier economic,
 execution and readiness profiles remain immutable.
 
+### Fractional renewal of a pending whole-share retry
+
+An unsent fractional opening can carry an authenticated dollar reservation for
+an earlier whole-share skip. During a same-session certificate renewal, reuse
+its original holding basis and revalidate the reservation against the recorded
+skip. Fresh account sizing, funding and broker observation still apply. The
+retry requires zero account shares and zero working commitments for that
+security.
+
+If an earlier renewal lost the reservation, follow the immediate predecessor
+recorded in each verified holding basis. Search only the same decision,
+publication, shadow record, account, controller rollout mode and fractional
+policy. Require exact predecessor fingerprints and authority digests, direct
+supersession, decreasing historical rollout versions, and absent execution
+projections, transport history and fills. A different decision or policy closes
+the search. A recovered reservation must still re-derive from its original
+whole-share skip before the new plan can persist. This keeps the ordinary
+protected-limit eligibility rules for discovering new retries.
+
 ## Qualification
 
 Qualify the complete retained-book activation sequence locally before spending

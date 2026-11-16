@@ -14,8 +14,9 @@ from sentinel import dual_plan_authority as authority, schema
 from sentinel.core import decision
 from sentinel.execution import held_targets, journal, protected_limits as limits
 from sentinel.execution import target_reprojection as projections
-from sentinel.execution.commands import compute_delta, DeltaClass
-from sentinel.execution.contract import Side
+from sentinel.execution.commands import Command, compute_delta, DeltaClass
+from sentinel.execution.contract import BrokerInstrument, Side
+from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.reconcile import CorporateActionEvent
 from sentinel.feed import calendar
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -347,6 +348,7 @@ def test_below_whole_share_retries_from_the_durable_original_reservation(
         conn, monkeypatch, switch_to_fractional):
     from sentinel.execution import fractional_sizing
     from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
+    from sentinel.paper.preparation import _fractional_renewal_retry_basis
     sid = "SEC-AAA"
     monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY", raising=False)
     monkeypatch.delenv("SENTINEL_PAPER_BUY_CAP_BPS", raising=False)
@@ -451,14 +453,15 @@ def test_below_whole_share_retries_from_the_durable_original_reservation(
         assert retries == first.opening_intents
         policy = MarketBuyPolicy(fractional=True)
         decision_date = date.fromisoformat(friday.last_processed_session)
-        plan = held_targets.build_execution_plan(
+        sizing = dict(
             state=friday, binding=_binding(),
             publication=replace(_publication(), window_end=friday.last_processed_session),
             account_snapshot=account, observation=observation, marks={sid: D(3500)},
             tickers={sid: "AAA"}, decision_session=decision_date,
             effective_session=date.fromisoformat(calendar.next_session(decision_date)),
-            rollout_state=rollout, retained_targets={}, retry_openings=retries,
-            fractional_sizing=True).plan
+            fractional_sizing=True)
+        plan = held_targets.build_execution_plan(**sizing, rollout_state=rollout,
+            retained_targets={}, retry_openings=retries).plan
         shadow = save_day(friday, plan, "3500", basis=basis, market_policy=policy)
         assert authority.rederive_plan(conn, plan=plan, binding=_binding(),
             rollout_state=rollout, expected_shadow_result=shadow)["verdict"] == "MATCH"
@@ -472,7 +475,51 @@ def test_below_whole_share_retries_from_the_durable_original_reservation(
         result = fractional_sizing.resolve(friday, plan, projected, refs, policy,
             baseline={"holdings": {}}, retained_targets={}, retry_openings=retries)
         assert result.opening_sizing["mode"] == FRACTIONAL_MODE
-        assert 0 < D(result.opening_sizing["purchases"][sid]["budget"]) < 3500
+        expected_budget = result.opening_sizing["purchases"][sid]["budget"]
+        assert 0 < D(expected_budget) < 3500
+        assert _fractional_renewal_retry_basis(conn, plan, policy) == basis
+
+        # Reproduce the previously deployed renewal path on two same-session
+        # successors, with the same policy, model, and recorded broker facts.
+        latest = plan
+        for version, certificate in ((rollout.version + 1, "d" * 64),
+                                     (rollout.version + 2, "e" * 64)):
+            renewed = replace(rollout, version=version, certificate_sha256=certificate)
+            lost_basis = held_targets.build_basis(conn, previous=latest, state=friday,
+                binding=_binding(), rollout=renewed)
+            latest = decision.build_execution_plan(**sizing, rollout_state=renewed,
+                retained_targets={key: D(value) for key, value in lost_basis["targets"].items()}).plan
+            assert latest.opening_intents == () and latest.target_basket[sid] > 0
+            shadow = save_day(friday, latest, "3500", basis=lost_basis, market_policy=policy)
+            assert authority.rederive_plan(conn, plan=latest, binding=_binding(),
+                rollout_state=renewed, expected_shadow_result=shadow)["verdict"] == "MATCH"
+
+        recovered = _fractional_renewal_retry_basis(conn, latest, policy)
+        assert recovered == basis
+        renewed = replace(rollout, version=rollout.version + 3, certificate_sha256="f" * 64)
+        retained = held_targets.verify_basis(conn, basis=recovered, state=friday,
+                                             binding=_binding(), rollout=renewed)
+        successor = held_targets.build_execution_plan(**sizing, rollout_state=renewed,
+            retained_targets=retained, retry_openings=held_targets.retry_openings(recovered)).plan
+        shadow = save_day(friday, successor, "3500", basis=recovered, market_policy=policy)
+        assert authority.rederive_plan(conn, plan=successor, binding=_binding(),
+            rollout_state=renewed, expected_shadow_result=shadow)["verdict"] == "MATCH"
+        projected = base(friday, successor)
+        refs = references(successor, projected, prices={sid: D(3500), "SENTINEL:BIL": D(100)})
+        result = fractional_sizing.resolve(friday, successor, projected, refs, policy,
+            baseline={"holdings": {}}, retained_targets=retained, retry_openings=retries)
+        assert result.opening_sizing["purchases"][sid]["budget"] == expected_budget
+        projections.record_projection(conn, result)
+        assert _fractional_renewal_retry_basis(conn, successor, policy) is None
+
+        # A historical PLANNED row does not erase a prior dispatch checkpoint.
+        attempted = Command(CommandIdentity(_binding().identity, plan.plan_id, sid),
+                            BrokerInstrument(sid, "AAA"), Side.BUY, D(1))
+        journal.save_command(conn, attempted)
+        assert _fractional_renewal_retry_basis(conn, latest, policy) == basis
+        conn.execute("INSERT INTO sentinel_command_events (client_key, from_state, to_state)"
+                     " VALUES (%s, 'SEND_PENDING', 'PLANNED')", (attempted.client_key,))
+        assert _fractional_renewal_retry_basis(conn, latest, policy) is None
         return
 
     expensive, outcome = retry(friday, first, "3500", "3500")
