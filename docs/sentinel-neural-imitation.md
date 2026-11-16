@@ -102,3 +102,84 @@ and [training-only preprocessing](https://scikit-learn.org/stable/common_pitfall
 Install research-only dependencies into a dedicated volume, not the production
 image or protected backtest. Limit workers to one BLAS thread, half a CPU and
 1 GiB RAM; model inference has no network or broker access.
+
+## Completed first training result
+
+The frozen implementation ran from commit
+`72aaf42a1f4477fcc548634ff9929196d8e1aae6` in the pinned replay image. The
+787-parameter network selected epoch 42 and stopped after epoch 82. Training
+has 1,553 examples (first decision 2006-10-27, first outcome 2006-10-30);
+validation has 756, and test has 827. Teacher counts at 0/55/100 are respectively
+709/0/844, 327/0/429 and 357/0/470. All three period caps are nonbinding for
+their exact maximum-growth teacher. The all-history refit uses 3,136 examples,
+1,393 at zero and 1,743 at full exposure, for the preselected 42 epochs.
+
+Held-out economics use the 2015-12-31 close as common baseline and returns from
+2016-01-04 through 2019-04-16:
+
+| Policy | CAGR | Multiple | MaxDD | Changes |
+| --- | ---: | ---: | ---: | ---: |
+| Neural model | 4.3862% | 1.1517 | 20.8066% | 101 |
+| Current Sentinel | 8.8290% | 1.3211 | 20.6137% | 6 |
+| Always Core / training-majority action | 9.6629% | 1.3547 | 23.4211% | 1 |
+| SPY | 13.5007% | 1.5170 | 19.3387% | — |
+| BIL | 0.9639% | 1.0321 | 0.0873% | 0 |
+| Hindsight teacher | 113.8648% | 12.2033 | 0.9380% | 340 |
+
+The model matches 54.8972% of test teacher actions, below the 56.8319% accuracy
+of always choosing the training-majority class, 100%. Balanced accuracy is
+49.1397%. It identifies only 25 of 357 teacher-zero days (7.00% recall), and
+mistakenly goes to zero on 41 teacher-full days. Its mean exposure is 92.02%,
+versus Sentinel's 90.06% and the hindsight teacher's 56.83%. The model generally
+stays invested, interrupted by short exits that do not reproduce ideal timing.
+No test prediction selects 55%, consistent with its absence from teacher labels.
+
+Both model and Sentinel spend 66 sessions at zero in this test, but with very
+different sequencing; Sentinel also has 36 sessions at 55%. The neural model's
+101 exposure changes incur a 9.6113% compounded overlay-cost drag, versus
+0.3894% for Sentinel. Of the -0.1371678 log-wealth gap, -0.0971491 (70.83%) is
+additional overlay cost and -0.0400187 is gross return timing. Before those
+overlay costs, CAGR is still lower: 7.6411% versus 8.9581%. The first model fails
+both the growth and imitation comparison. This does not establish that every
+neural approach must fail; it supplies no evidence for replacing Sentinel.
+
+Training/validation/test accuracies are 59.37% / 55.95% / 54.90%. The separate
+all-history model fits 60.91% of its own teacher labels; that is an in-sample
+score, not a second held-out result. No architecture, threshold, feature or
+epoch was retuned after test results were observed.
+
+Retained local evidence is
+`.codex-tmp/sentinel-neural-imitation-20261115/run-001/`, including both JSON
+models, learning history, test probabilities, teacher labels, daily paths, all
+40 monthly metric rows, provenance and a self-contained interactive report.
+Artifact SHA256:
+
+- Evaluation model: `a1c7f884de5d094f10522534e45a72b5975eb2456593ffee2259c2f9ad6b878d`
+- Test predictions, frozen before test-label scoring: `b41dbe6743a6bb19b774c37d3b63ceb5442c9f561969dc19cfd47dd6feb01f5a`
+- All-history refit: `bc58ed0f45452035590abe8c5e06f524ff3fb147b3c1c99d3fa14b7f2d664d66`
+
+Validation:
+
+```bash
+python -B -m pytest tests/sentinel/test_exposure_neural.py \
+  tests/sentinel/test_exposure_oracle.py tests/sentinel/test_exposure_logic.py \
+  -q -p no:cacheprovider
+```
+
+This reports **67 passed**. After renaming the serialized schema field to avoid
+a Pydantic method-name warning and strengthening the source-identity falsifier,
+the final targeted command
+`python -B -m pytest tests/sentinel/test_exposure_neural.py -q -p no:cacheprovider`
+reports **18 passed**. Isolated mutations of label horizon, feature/next-open
+alignment, training-only scaling, action schema and teacher source identity each
+make their selected falsifier fail. No repository source file is modified by
+these mutation checks.
+
+A separate read-only audit verifies serialized model/probability hashes,
+training-only scaling, all 827 decision/outcome alignments, independent Decimal
+neural NAV arithmetic, every policy's metrics, and all neural/Sentinel/SPY
+monthly arithmetic. Its additive cost/timing attribution reconciles exactly
+within numeric tolerance. Both model JSON exports reproduce fitted inference.
+The earlier full-period oracle is recomputed and matches before final refit.
+The HTML embeds its library; 15 plot traces, lengths and displayed values pass
+programmatic checks. Interactive browser visual inspection was unavailable.
