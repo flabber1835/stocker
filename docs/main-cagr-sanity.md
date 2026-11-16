@@ -367,3 +367,17 @@ selected falsifiers fail: past/same-day spin-off changes, retrospective terminal
 suppression/addition, and mutation of the prior spin-off assumption. The
 fractional-sizing, transport, accounting, input and existing spin-off repair
 modules remain byte-identical to the previous scenario.
+
+The real-data qualification passed all six replayed sessions through 2018-12-11
+(3,114 measured sessions and 149 completed monthly rows). Independent checks
+verified Sentinel, SPY and Core daily arithmetic; exact initial canonical state,
+accounting, counters and output prefixes; unchanged pre-event financial outputs
+on December 3, 4 and 6; and preservation of all 3,112 predecessor sessions.
+The single December 7 SONC settlement exchanges 201.638202117061 shares at
+$43.50, recording $8,771.261792092155 in the canonical float research ledger
+(exact decimal product $8,771.26179209215350). SONC leaves the book and the
+formerly refused December 10 valuation resolves. The new scenario binding is
+`163f3a826449fe4b6e72a481814643f3875d4ce230bc36c03397447b70134651`.
+The separately mounted full continuation resumes from this tested December 11
+checkpoint. Its twenty-year outcome remains pending; the source run and all
+earlier scenario outputs are retained.
