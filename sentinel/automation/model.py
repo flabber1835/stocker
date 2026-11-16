@@ -61,6 +61,9 @@ class BackupProofBusy(TransientInfrastructureFailure):
         super().__init__(detail)
         self.reason = BackupProofBusyReason(reason)
 
+class ExecutionEntryBackupBusy(BackupProofBusy):
+    """PAPER gateway entry failed before creating a command or calling a broker."""
+
 
 class CorporateActionPending(TransientInfrastructureFailure):
     """A scoped reconciliation wait uses its bounded preflight policy."""

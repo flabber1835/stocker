@@ -47,6 +47,9 @@ class PaperActivationRefused(BrokerAuthorityRefused):
 class PaperRetryableRefused(PaperActivationRefused):
     """Temporary readiness or settlement evidence is not yet usable."""
 
+class PaperExecutionEntryBackupBusy(PaperRetryableRefused):
+    """The automated gateway could not enter before any broker call."""
+
 class NativeFeePostingPending(PaperRetryableRefused):
     """Verified Alpaca debit fees are still absent from fresh account cash."""
 

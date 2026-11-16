@@ -35,6 +35,7 @@ from sentinel.automation.model import (
     CycleSpec,
     CycleState,
     DataIntegrityFailure,
+    ExecutionEntryBackupBusy,
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
@@ -79,7 +80,7 @@ from sentinel.feed import (
 from sentinel.feed import store as feed_store
 from sentinel.feed.source_authority import SeedIdentityCollision
 from sentinel.feed.source_wait import SourceCoveragePending
-from sentinel.paper.model import NativeFeePostingPending
+from sentinel.paper.model import NativeFeePostingPending, PaperExecutionEntryBackupBusy
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
@@ -1796,6 +1797,10 @@ class ProductionAutomation:
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
+                if type(exc) is PaperExecutionEntryBackupBusy:
+                    mapped = classify_dependency_failure(exc.__cause__)
+                    if not getattr(self, "_live_run_enabled", False) and type(mapped) is BackupProofBusy:
+                        raise ExecutionEntryBackupBusy(str(mapped), reason=mapped.reason) from exc
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:

@@ -47,6 +47,7 @@ BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
 RUNTIME_MAX_VERIFIED_BYTES = 16 * 1024 * 1024 * 1024
 FULL_SCRUB_SECONDS = 300
+MAX_RENEWAL_TAIL_BYTES = 64 * 1024 * 1024
 RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
 RUNTIME_MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 RUNTIME_MAX_SELECTION_BYTES = 256
@@ -570,40 +571,50 @@ def _validate_archive_objects_owned(
         if any(name not in objects for name in previous_names):
             raise BackupRuntimeRefused(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
-    full_scrub = (cached is None or now < cached['full_scrub_at'] or
-                  now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
-                  (maintenance_refresh and shared is not None and shared.refresh_due()) or
-                  any(name in cached['metadata'] and cached['metadata'][name] != actual[name]
-                      for name in objects))
+    refresh_due = maintenance_refresh and shared is not None and shared.refresh_due()
+    full_required = (cached is None or now < cached['full_scrub_at'] or
+                     now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
+                     any(actual[name] != cached['metadata'][name] for name in cached['objects']))
+    full_scrub = full_required or refresh_due
     if read_only and full_scrub:
         raise BackupIntegrityBusy('completed backup integrity proof requires a fresh scrub')
-    hash_names = objects if full_scrub else tuple(name for name in objects if name not in cached['metadata'])
+    tail = tuple(name for name in objects if name not in cached['metadata']) if cached else ()
 
-    digests = {} if read_only else _hash_objects(conn, root=wal_root, objects=hash_names,
-                            sizes={name: int(actual[name][0]) for name in hash_names})
-    if hash_names:
-        repeated = _hash_objects(conn, root=wal_root, objects=hash_names,
-                                 sizes={name: int(actual[name][0]) for name in hash_names})
-        if repeated != digests:
+    def prove(hash_names):
+        sizes = {name: int(actual[name][0]) for name in hash_names}
+        digests = {} if read_only else _hash_objects(conn, root=wal_root, objects=hash_names, sizes=sizes)
+        if hash_names:
+            if _hash_objects(conn, root=wal_root, objects=hash_names, sizes=sizes) != digests:
+                raise BackupRuntimeUnavailable(
+                    f"{operation}: archived objects changed during content proof")
+        if _archive_metadata(conn, root=wal_root, objects=objects) != actual:
             raise BackupRuntimeUnavailable(
-                f"{operation}: archived objects changed during content proof")
-    if _archive_metadata(conn, root=wal_root, objects=objects) != actual:
-        raise BackupRuntimeUnavailable(
-            f"{operation}: archived objects changed during integrity proof")
-    _require_no_aliases(conn, base=base, system_id=system_id, objects=objects)
+                f"{operation}: archived objects changed during integrity proof")
+        _require_no_aliases(conn, base=base, system_id=system_id, objects=objects)
+        for name in hash_names:
+            checksum = actual[name][3]
+            assert checksum is not None
+            match = _SHA256.fullmatch(checksum)
+            assert match is not None
+            if match.group(1) != digests.get(name):
+                raise BackupRuntimeRefused(
+                    f"archived object {name} failed SHA-256 integrity validation")
+        if require_current_selection and _published_base(conn, system_id=system_id) != base:
+            raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
 
-    for name in hash_names:
-        checksum = actual[name][3]
-        assert checksum is not None
-        match = _SHA256.fullmatch(checksum)
-        assert match is not None
-        digest = digests.get(name)
-        if digest is None or match.group(1) != digest:
-            raise BackupRuntimeRefused(
-                f"archived object {name} failed SHA-256 integrity validation")
+    if (refresh_due and not full_required and require_current_selection and tail
+            and sum(int(actual[name][0]) for name in tail) <= MAX_RENEWAL_TAIL_BYTES):
+        # Give concurrent readers exact coverage before renewing the old bytes.
+        # An append must not extend the authenticated full-scrub clock.
+        prove(tail)
+        if _archive_frontier(conn, operation=operation) == (end, segment_size):
+            try:
+                shared.publish({'end': end, 'metadata': actual}, full_scrub=False)
+            except BackupIntegrityProofExpired:
+                pass  # Only the still-required full pass can renew the clock.
 
-    if require_current_selection and _published_base(conn, system_id=system_id) != base:
-        raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
+    hash_names = objects if full_scrub else tail
+    prove(hash_names)
 
     if read_only:
         if _archive_frontier(conn, operation=operation) != (end, segment_size):

@@ -30,7 +30,8 @@ from pydantic import ValidationError
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.source_completion import SourceCompletionHint, progressed
 from sentinel.backup_guard import BUSY_RETRY_MAX_SECONDS
-from sentinel.execution.journal import WriterLockUnavailable
+from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.journal import WriterLockUnavailable, in_flight_commands
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
@@ -43,6 +44,7 @@ from sentinel.automation.model import (
     CycleSpec,
     CycleState,
     DataIntegrityFailure,
+    ExecutionEntryBackupBusy,
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
@@ -126,6 +128,7 @@ class _CallbackOutcome:
 _CHILD_EXCEPTION_TYPES = {
     (cls.__module__, cls.__qualname__): cls for cls in (
         BackupProofBusy,
+        ExecutionEntryBackupBusy,
         CallbackDeadlineExceeded,
         ClosingDataPending,
         DataIntegrityFailure,
@@ -163,7 +166,7 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if candidate not in (BackupProofBusy, ClosingDataPending, PreflightPublicationPinUnavailable,
+        if candidate not in (BackupProofBusy, ExecutionEntryBackupBusy, ClosingDataPending, PreflightPublicationPinUnavailable,
                              RefreshPublicationPinUnavailable)
         and isinstance(exc, candidate))
     if not matches:
@@ -230,7 +233,7 @@ def _callback_child(
             "detail": str(exc),
             "reviewed": reviewed_class is not None,
             "failure_domain": _failure_domain(exc),
-            "backup_busy_reason": exc.reason.value if type(exc) is BackupProofBusy else None,
+            "backup_busy_reason": exc.reason.value if isinstance(exc, BackupProofBusy) else None,
             "retry_after_seconds": getattr(exc, "retry_after_seconds", 0),
             "publisher_deadline_at": (exc.publisher_deadline_at
                 if type(exc) is ClosingDataPending else None),
@@ -295,7 +298,10 @@ def _decode_child_callback(payload: bytes):
                     name = field.removesuffix('_at').replace('_', ' ')
                     raise SoftwareDefect(f'callback child returned an invalid {name}') from exc
             decoded = trusted(detail, **deadlines)
-        elif trusted is BackupProofBusy:
+        elif trusted in (BackupProofBusy, ExecutionEntryBackupBusy):
+            if trusted is ExecutionEntryBackupBusy and (
+                    envelope.get("actual_module"), envelope.get("actual_qualname")) != (module, qualname):
+                raise SoftwareDefect("callback child returned an inexact execution entry refusal")
             try:
                 decoded = trusted(detail, reason=envelope.get("backup_busy_reason"))
             except (TypeError, ValueError) as exc:
@@ -645,7 +651,7 @@ class AutomationService:
             if prior_phase == phase and prior.get("exception_type") == _PUBLICATION_PIN_EXCEPTION:
                 pin_attempt += int(prior.get("publication_pin_attempt_count", 0))
         busy_attempt = None
-        if type(exc) is BackupProofBusy:
+        if type(exc) in (BackupProofBusy, ExecutionEntryBackupBusy):
             busy_attempt = 1
             if prior_phase == phase and prior.get("exception_type") == _BACKUP_BUSY_EXCEPTION:
                 busy_attempt += int(prior.get("backup_busy_attempt_count", 0))
@@ -744,9 +750,22 @@ class AutomationService:
             terminal, classified = self._failure_diagnostic(
                 cycle=cycle, phase=phase, exc=exc, now=now)
             if phase == "EXECUTE" and not explicit_result:
-                # Any exception may leave a durable send unresolved.
+                # Only the exact gateway entry refusal proves this callback
+                # could not transport. A prior unresolved command still wins.
                 terminal = False
-                to_state = CycleState.RECONCILING
+                if (self._unattended_recovery
+                        and type(exc) is ExecutionEntryBackupBusy
+                        and cycle.broker == "alpaca"
+                        and cycle.last_fence_token == permit.fence_token
+                        and self._execution_is_fresh(now=now, cycle=cycle)
+                        and not in_flight_commands(conn, DeploymentIdentity(
+                            deployment_id=cycle.deployment_id, broker=cycle.broker,
+                            broker_account_id=cycle.broker_account_id,
+                            takeover_epoch=cycle.takeover_epoch))):
+                    to_state = CycleState.RETRY_WAIT
+                    classified["execution_entry_transport_unstarted"] = True
+                else:
+                    to_state = CycleState.RECONCILING
             else:
                 policy = PHASE_POLICIES[phase]
                 to_state = policy.terminal_state if terminal else policy.retry_state
@@ -754,7 +773,7 @@ class AutomationService:
                 classified.get("publication_pin_attempt_count", classified["phase_attempt_count"]))
             retry_at = None if terminal else self._retry_at(now, retry_attempt)
             if retry_at is not None:
-                if type(exc) is BackupProofBusy:
+                if type(exc) in (BackupProofBusy, ExecutionEntryBackupBusy):
                     retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
                 retry_at = max(retry_at, now + timedelta(
                     seconds=getattr(exc, "retry_after_seconds", 0)))

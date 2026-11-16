@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sentinel.execution import feed_inputs
+from contextlib import ExitStack, contextmanager
 
 from datetime import date, datetime, timedelta
 
@@ -11,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from sentinel import (
+    backup_runtime_authority,
     binding as binding_mod,
     dual_plan_authority,
     identity as system_identity,
@@ -76,6 +78,7 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 from .model import (
     PaperActivationRefused,
+    PaperExecutionEntryBackupBusy,
     PaperRetryableRefused,
     ExecutionResult,
 )
@@ -211,6 +214,18 @@ def _execution_observation_time(value: date | datetime | None) -> datetime:
     opened, _closed = calendar.session_window(value)
     return opened
 
+@contextmanager
+def _execution_writer(conn, grant):
+    with ExitStack() as owner:
+        try:
+            owner.enter_context(journal.writer_lock(conn))
+        except backup_runtime_authority.BackupIntegrityBusy as exc:
+            if not isinstance(grant, AutomationExecutionGrant):
+                raise
+            raise PaperExecutionEntryBackupBusy(str(exc)) from exc
+        yield
+
+
 async def _execute_current_paper_plan(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: ManualExecutionGrant | AutomationExecutionGrant,
@@ -252,7 +267,7 @@ async def _execute_current_paper_plan(
     except journal.ObservationEvidenceUncertifiable as exc:
         raise PaperActivationRefused(str(exc)) from exc
 
-    with journal.writer_lock(conn):
+    with _execution_writer(conn, grant):
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
@@ -729,7 +744,13 @@ async def execute_automated_paper_plan(
         dual_shadow_starting_cash: Decimal | str | None = None
         ) -> ExecutionResult:
     """Execute the same current plan through a fenced automation grant."""
-    _require_mutation_backup(conn, operation="automated paper order execution")
+    try:
+        _require_mutation_backup(conn, operation="automated paper order execution")
+    except PaperRetryableRefused as exc:
+        cause = exc.__cause__
+        if type(cause) is backup_runtime_authority.BackupIntegrityBusy:
+            raise PaperExecutionEntryBackupBusy(str(cause)) from cause
+        raise
     return await _execute_current_paper_plan(
         conn=conn, broker=broker, base_url=base_url, grant=grant,
         today=today, automation_config_sha256=automation_config_sha256,
