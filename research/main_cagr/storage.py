@@ -54,7 +54,8 @@ def checkpoint(root, payload):
     return path
 
 
-def restore(root, binding):
+def read_checkpoint(root, binding):
+    """Authenticate a checkpoint without changing even an uncommitted suffix."""
     root = Path(root)
     pointer = json.loads((root/'latest-checkpoint.json').read_text())
     path = (root/pointer['file']).resolve()
@@ -72,6 +73,12 @@ def restore(root, binding):
     for name, expected in value['outputs'].items():
         if name not in OUTPUTS or file_prefix(root/name, expected['bytes']) != expected:
             raise ValueError('committed output prefix changed')
+    return value, state
+
+
+def restore(root, binding):
+    root = Path(root)
+    value, state = read_checkpoint(root, binding)
     # Validation completes before preserving and truncating task-owned suffixes.
     for name in OUTPUTS:
         path = root/name

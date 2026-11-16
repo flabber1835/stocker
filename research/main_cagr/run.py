@@ -27,6 +27,7 @@ from .metrics import measure
 from .runtime import Buffer, WarmupBars, observe_core
 from .storage import append, checkpoint, restore, write_json
 from .fractional import activate
+from . import recovery, spinoff_repair
 
 
 def source_hash(path):
@@ -70,6 +71,10 @@ def render(root):
         'This is modeled performance, not Alpaca-reported fills or an unchanged-main certification.', '',
         '| Month end | Strategy CAGR | Multiple | MaxDD | SPY CAGR | Multiple | MaxDD |',
         '|---|---:|---:|---:|---:|---:|---:|']
+    identity = json.loads((root/'identity.json').read_text())
+    if identity['binding'].get('prospective_spinoff_repair'):
+        lines[5:5] = ['Includes an explicit spin-off cash-in-lieu price/timing assumption; '
+                      'see identity.json and recovery.json for its terms and preserved history.', '']
     path = root/'monthly.jsonl'
     if path.exists():
         for line in path.read_text().splitlines():
@@ -102,6 +107,7 @@ def run(args, variant):
     source = verify_source(Path.cwd())
     manifest = verify(args.bundle, args.archive)
     schedule, spins, repair_provenance = actions(args.bundle, args.repair)
+    spins, spin_repair = spinoff_repair.apply(spins, args.spinoff_repair)
     config, identity = production_strategy()
     identity = {**identity, 'research_fractional_profile':variant['profile'],
                 'research_overlay_sha256':digest(variant)}
@@ -119,18 +125,23 @@ def run(args, variant):
         measurement_start=START, measurement_end=END, starting_cash='50000',
         python=platform.python_version(), packages={name:importlib.metadata.version(name)
             for name in ('numpy', 'pandas', 'pydantic', 'exchange-calendars')})
+    if spin_repair:
+        binding.update(prospective_spinoff_repair=spin_repair,
+            effective_source_identity=digest(dict(predecessor=source_identity, spinoff_repair=spin_repair)))
     identity_doc = dict(binding=binding, limitations=manifest['limitations'],
         execution_policy_simulated=False,
         excluded_execution_policy='FRACTIONAL_MARKET_DAY_V1',
         source_status=manifest['source_status'], strict_pit_certified=False,
         mode='FRACTIONAL_CORE_RESEARCH_SANITY')
-    if args.resume:
+    if args.recover_from:
+        recovery.fork(args.recover_from, root, identity_doc)
+    elif args.resume:
         if json.loads((root/'identity.json').read_text()) != identity_doc:
             raise ValueError('run identity changed')
     else:
         write_json(root/'identity.json', identity_doc)
 
-    buffer = Buffer(source_identity)
+    buffer = Buffer(binding.get('effective_source_identity', source_identity))
     iterator = iter(packets(args.bundle, args.archive, manifest, schedule, spins))
     economics = dict(strategy_nav='50000', last_session=None, pending_allocation=None, held_allocation=None)
     account = EconomicPath(50000)
@@ -155,7 +166,7 @@ def run(args, variant):
             economics=economics, metrics=metrics, measured=measured, counters=totals))
         render(root)
 
-    if args.resume:
+    if args.resume or args.recover_from:
         saved, state = restore(root, binding)
         cursor, measured = saved['cursor'], saved['measured']
         economics, metrics, totals = saved['economics'], saved['metrics'], saved['counters']
@@ -275,8 +286,11 @@ def parser():
     value.add_argument('--bundle', type=Path, required=True)
     value.add_argument('--archive', type=Path, required=True)
     value.add_argument('--repair', type=Path, action='append', default=[])
+    value.add_argument('--spinoff-repair', type=Path)
     value.add_argument('--output', type=Path, required=True)
-    value.add_argument('--resume', action='store_true')
+    continuation = value.add_mutually_exclusive_group()
+    continuation.add_argument('--resume', action='store_true')
+    continuation.add_argument('--recover-from', type=Path)
     value.add_argument('--max-transitions', type=int, default=0)
     return value
 

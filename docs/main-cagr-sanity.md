@@ -212,3 +212,72 @@ MaxDD 0.086432%; SPY CAGR 28.9491%, multiple 1.02181383, MaxDD 1.120738%.
 These annualized one-month values do not establish a twenty-year result. The
 continuation through July 2026 runs locally from that checkpoint and executes
 the independent full-history verifier on successful completion.
+
+## Prospective spin-off correction and checkpoint continuation
+
+Owner instruction, 2026-11-15: fix the refused fractional backtest and proceed.
+The original scenario completed 2,245 measurement sessions through 2015-06-30
+and refused the 2015-07-01 BAX/BXLT distribution. The retained one-for-one
+distribution has a reviewed $31.90 child opening price but no cash-in-lieu
+price: the earlier whole-share holding did not require one. Fractional parent
+ownership now creates a fractional child entitlement.
+
+The [Baxalta information statement](https://www.sec.gov/Archives/edgar/data/1620546/000119312515244456/d59817dex991.htm)
+documents aggregation and market sale of fractional entitlements, with net
+proceeds distributed later. It does not establish the agent's realized price.
+For this research sanity run, explicitly model that remainder at the already
+retained child opening price, less the existing 10 basis point sale cost:
+`31.90 * (1 - 10 / 10000) = 31.8681` per fractional share. Recognize it on the
+distribution session, as with the existing child liquidation convention. This
+is a modeled price and timing assumption, not an observed agent payment. Do not
+change the one-for-one ratio, parent basis treatment, whole-child liquidation,
+other cash-in-lieu terms, ordinary entry cash threshold or production code.
+
+Apply only an explicit, hash-bound repair to that exact original typed event.
+Bind the retained primary document and reject a changed event, missing evidence,
+nonpositive price, different gross child price, or unsupported repair policy.
+There is no general missing-price fallback. Other missing terms still refuse.
+
+Continue in a new output directory. The original run, refusal, checkpoint and
+all outputs remain read-only. Authenticate its exact predecessor binding and
+checkpoint, canonical state hash and every committed output prefix before
+copying those prefixes. A repair may take effect only strictly after that
+checkpoint. Preserve the original formation plan, production source, strategy,
+fractional overlay, package versions, original data and terminal corrections.
+Only the reviewed harness update and prospective spin-off correction may differ.
+Record old/new identities and checkpoint lineage; do not relabel old results.
+
+The resumed checkpoint retains exactly the original canonical and accounting
+state, including controller state, peaks, cash, holdings and measured count.
+Future publications bind a new effective source identity containing the repair;
+the original formation identity remains historical truth. Normal restarts of
+the new scenario require its full new identity. Mount the corrected research
+harness over the pinned original production tree, so later main changes cannot
+enter this ongoing experiment. Qualify the refused session and restart before
+launching the remainder with the same offline resource limits.
+
+The retained primary bytes for this correction are the
+[Baxter distribution announcement](https://investor.baxter.com/investors/events-and-news/news/press-release-details/2015/Baxters-Board-of-Directors-Approves-Separation-of-Baxalta-and-Declares-Special-Dividend-of-Baxalta-Stock/default.aspx),
+SHA256 `b0f68c016b2dfbb0b66ad5d0ca7784edf56b4de4c208d51eeb0a8781904503e9`.
+The original typed event hash is
+`7ccf4676ab3f464d8d7777b92b26f4e4d2569a3ebf1dca31e2f901af68152d25`.
+The correction document has SHA256
+`e3a632116bb25807482065cb78c937c1178dd4f84ccf7d42514d583f025e2703`.
+At the refused boundary the fractional entitlement is 0.501427006632 shares;
+the modeled remainder proceeds are $15.9795259900492392.
+
+With the original input arguments above, add
+`--spinoff-repair /data/spinoff-repair/spinoff-repair.json`, select a new output,
+and use `--recover-from /predecessor --max-transitions 2`. Mount the predecessor
+read-only and the new output on a separate writable mount. After validating
+those two closes, use the same corrected arguments and output with `--resume`
+and no transition limit. The source production tree remains pinned at `566a36819`;
+only `/source/research/main_cagr` is overlaid with the reviewed recovery harness.
+
+Focused validation: `python -B -m pytest
+tests/sentinel/test_main_cagr_recovery.py tests/sentinel/test_main_cagr.py
+tests/sentinel/test_fractional_core_research.py
+tests/sentinel/test_in_kind_distributions.py -q -p no:cacheprovider`:
+**63 passed**. This includes the ordinary missing-term refusal, exact fractional
+cash, unchanged parent quantity, immutable predecessor outputs, exact resumed
+state/accounting, and rejection of retrospective repairs and unrelated changes.
