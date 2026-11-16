@@ -553,6 +553,7 @@ def _trading_run_row(conn, row, *, completed_history=False):
             or stored.target_basket != {sid:Decimal(str(value))
                                         for sid,value in plan['target_basket'].items()}):
         raise ValueError('current trading run economic plan identity changed')
+    plan.update(account_nav=stored.account_nav, target_exposure=stored.target_exposure)
     from sentinel.panel.intent_memo import read as dated_intent
     authority = dated_intent(conn, plan_id=plan['plan_id'])
     if authority is None:

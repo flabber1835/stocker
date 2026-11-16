@@ -290,6 +290,11 @@ expiry, and say that the next plan is pending. It grants no execution authority,
 does not claim fills from SUCCEEDED, and does not complete post-close financial
 verification. Missing or failed historical evidence cannot manufacture success.
 
+Both same-day run views use the account NAV and target exposure from the
+fingerprint-verified saved plan when projecting original fractional intent.
+The date rollover preserves the saved dollar proposals and their original
+sizing evidence.
+
 Qualify the real generation-change/supersession query and rendered fallback,
 account/takeover/session/completion/ambiguity refusals, exact original intent,
 current-error precedence, original expiry, and unchanged future eligibility.
