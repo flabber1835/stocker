@@ -303,7 +303,8 @@ def _selected_scopes(include_paper, only_scope):
             ('SHADOW', 'PAPER') if include_paper else ('SHADOW',))
 
 
-def read(database_url, *, include_paper=True, now=None, only_scope=None):
+def read(database_url, *, include_paper=True, now=None, only_scope=None,
+         with_error_scopes=False):
     """Consume bounded receipts in one owned read-only transaction."""
     _selected_scopes(include_paper,only_scope)
     from sentinel.feed import store
@@ -312,7 +313,8 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
     try:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         return read_owned(conn,database_url,include_paper=include_paper,
-                          now=instant,only_scope=only_scope)
+                          now=instant,only_scope=only_scope,
+                          with_error_scopes=with_error_scopes)
     finally:
         conn.rollback(); conn.close()
 
@@ -378,7 +380,7 @@ def _activation_paper_rows(conn, rows, *, now):
 
 
 def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
-               native_subjects=None, display_basis=None):
+               native_subjects=None, display_basis=None, with_error_scopes=False):
     """Read through the caller's snapshot without owning its transaction.
 
     Optional facts, native subjects and display basis come from this same transaction's
@@ -446,4 +448,8 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
         results.append(result)
     rows = {row.key:row for result in results for row in result[0]}
     order = ('shadow_verification','shadow_nav','shadow_return','paper_reconciliation','exposure','book','terminals')
-    return [rows[key] for key in order if key in rows], {}, [], [error for result in results for error in result[3]]
+    selected = ([rows[key] for key in order if key in rows], {}, [],
+                [error for result in results for error in result[3]])
+    if with_error_scopes:
+        return (*selected, {scope: list(result[3]) for scope, result in zip(scopes, results)})
+    return selected

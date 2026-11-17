@@ -182,6 +182,30 @@ def test_missing_monitor_withdraws_authority_without_starting_an_http_observer(m
     assert not any(row.status == model.OK for row in rows)
 
 
+def test_composition_records_receipt_error_ownership_without_text_guessing(monkeypatch):
+    from sentinel.panel.verification_monitor import monitor
+
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'dual')
+    owned = {'SHADOW': ['same text'], 'PAPER': ['same text']}
+    def financial(_database_url, *, include_paper, with_error_scopes):
+        assert include_paper and with_error_scopes
+        return ([model.Row('shadow_verification', 'Shadow', 'UNKNOWN', model.UNKNOWN)],
+                {}, [], ['same text', 'same text'], owned)
+    monkeypatch.setattr(monitor, 'read', financial)
+    monkeypatch.setattr(sources, '_ownership', lambda *_: model.Row('ownership', 'Ownership', 'CURRENT'))
+    monkeypatch.setattr(sources, '_shadow_worker_row',
+                        lambda *_args, **_kwargs: model.Row('shadow_worker', 'Worker', 'CURRENT'))
+    monkeypatch.setattr(sources, '_feed_rows', lambda *_args: ([], []))
+    monkeypatch.setattr(sources, '_runtime_rows', lambda *_args: ([], []))
+    monkeypatch.setattr(sources, '_automation_rows', lambda *_args: ([
+        model.Row('automation', 'Automation', 'CURRENT'),
+        model.Row('automation_leader', 'Leader', 'CURRENT')], []))
+    monkeypatch.setattr(sources, '_operator_evidence_rows', lambda *_args, **_kwargs: ([], []))
+    page = sources.build_panel(state_dir=Path('/private'), database_url='fixture', now=NOW)
+    assert page.financial_source_errors == owned
+    assert page.source_errors == ['same text', 'same text']
+
+
 def test_shared_observer_codec_round_trip_preserves_bounds_and_dated_book():
     row = example_panel().row('book')
     raw = observer_codec.pack([row], [], observed_at=NOW)

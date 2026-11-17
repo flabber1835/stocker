@@ -844,7 +844,7 @@
     "PaperAccountInspection": {
       "module": "model",
       "historical_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
-      "generated_ast_sha256": "c4adfb1b514a387a490c9575076fae640dd3aabf2dc61c72288355322901ea30",
+      "generated_ast_sha256": "50aa3a7bb08a8508fc9d48443c659d4bd8b4183b9750e1641cd090584f0879cb",
       "fractional_predecessor_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
       "fractional_design": "docs/fractional-paper-execution.md",
       "fractional_acceptance": [

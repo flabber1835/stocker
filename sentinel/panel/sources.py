@@ -4126,15 +4126,23 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 pass
 
 
-def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
+def _bounded_dual_authority_rows(database_url, *, now, include_paper=True,
+                                 error_owners=None):
     del now
     from sentinel.panel.verification_monitor import monitor
-    monitored = monitor.read(database_url, include_paper=include_paper)
+    monitored = monitor.read(database_url, include_paper=include_paper,
+        **({'with_error_scopes': True} if error_owners is not None else {}))
     if monitored is not None:
+        if error_owners is not None:
+            error_owners.update(monitored[4])
+            return monitored[:4]
         return monitored
     from sentinel.panel.authority_reader import _unknown
-    return _unknown(include_paper,
+    unknown = _unknown(include_paper,
                     'background verification monitor is not initialized; no current verification is claimed')
+    if error_owners is not None:
+        error_owners['GLOBAL'] = list(unknown[3])
+    return unknown
 
 
 def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=None):
@@ -4207,13 +4215,16 @@ def build_panel(*, state_dir: Path, database_url: str,
     fixed_now = now
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
+    financial_error_owners = {}
 
     mode = os.environ.get(
         "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower()
     if mode in {"dual", "shadow"}:
         financial_rows, trial_details, trial_history, financial_errs = (
-            _bounded_dual_authority_rows(database_url, now=now) if mode == "dual" else
-            _bounded_dual_authority_rows(database_url, now=now, include_paper=False))
+            _bounded_dual_authority_rows(database_url, now=now,
+                error_owners=financial_error_owners) if mode == "dual" else
+            _bounded_dual_authority_rows(database_url, now=now, include_paper=False,
+                error_owners=financial_error_owners))
     else:
         financial_rows, trial_details, trial_history, financial_errs = (
             _trial_rows(database_url, now=now))
@@ -4258,7 +4269,8 @@ def build_panel(*, state_dir: Path, database_url: str,
         local_mode = local_paper.enabled()
     except (RuntimeError, ValueError):
         local_mode = False  # Existing runtime/account error rows remain visible.
-    return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at, source_errors=errors,
+    return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at,
+                       source_errors=errors, financial_source_errors=financial_error_owners,
                        trial_details={**trial_details, **worker_diagnostics},
                        trial_history=trial_history,
                        local_paper_mode=local_mode)

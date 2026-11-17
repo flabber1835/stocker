@@ -135,6 +135,17 @@ def _validate_panel(raw):
              'SNAPSHOT_PANEL_SHAPE_INVALID')
     rows = raw.get('rows')
     _require(isinstance(rows, list) and len(rows) <= 128, 'SNAPSHOT_ROWS_INVALID')
+    errors = raw.get('source_errors')
+    owned = raw.get('financial_source_errors')
+    _require(isinstance(errors, list) and all(isinstance(error, str) for error in errors)
+             and isinstance(owned, dict) and set(owned) <= {'SHADOW', 'PAPER', 'GLOBAL'}
+             and all(isinstance(value, list) and all(isinstance(error, str) for error in value)
+                     for value in owned.values()), 'SNAPSHOT_SOURCE_ERRORS_INVALID')
+    remaining = list(errors)
+    for values in owned.values():
+        for error in values:
+            _require(error in remaining, 'SNAPSHOT_SOURCE_ERRORS_INVALID')
+            remaining.remove(error)
     _require(type(raw.get('local_paper_mode')) is bool, 'SNAPSHOT_PANEL_FLAGS_INVALID')
     _require(raw.get('observation_current') is True
              and raw.get('observation_changed_scopes') == []

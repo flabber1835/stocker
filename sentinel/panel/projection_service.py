@@ -110,6 +110,55 @@ def _with_activation_fee_wait(conn, panel, *, now, state_dir=None):
         wait.decision_session, wait.observed_at, wait.valid_until) if wait is not None else None))
 
 
+def _replace_financial_source_errors(panel, refreshed):
+    """Replace signed receipt-owned errors without losing another source's text."""
+    unrelated = list(panel.source_errors)
+    for values in panel.financial_source_errors.values():
+        for error in values:
+            unrelated.remove(error)
+    # A whole-read error is retired only when the full resample explicitly
+    # reports GLOBAL=[]; a failed full resample retains the prior error.
+    owned = {scope: list(values) for scope, values in panel.financial_source_errors.items()}
+    for scope, values in refreshed.items():
+        if scope == 'GLOBAL' and not values:
+            owned.pop('GLOBAL', None)
+        else:
+            owned[scope] = list(values)
+    return replace(panel, financial_source_errors=owned,
+        source_errors=[*unrelated, *(error for values in owned.values() for error in values)])
+
+
+def _financial_receipt_overlay(conn, database_url, panel, *, now, changed, facts, basis):
+    """Read changed scopes, or all scopes when a prior whole-read failed."""
+    from psycopg.errors import SerializationFailure
+
+    from sentinel.panel import read_projection
+
+    arguments = dict(now=now, facts=facts, native_subjects=basis.get('native'),
+                     display_basis=basis or None, with_error_scopes=True)
+    if 'GLOBAL' in panel.financial_source_errors:
+        include_paper = panel.row('paper_reconciliation') is not None
+        conn.execute('SAVEPOINT financial_global_refresh')
+        try:
+            rows, _, _, _, scoped = read_projection.read_owned(
+                conn, database_url, include_paper=include_paper, **arguments)
+        except SerializationFailure:
+            raise
+        except Exception:
+            conn.execute('ROLLBACK TO SAVEPOINT financial_global_refresh')
+        else:
+            conn.execute('RELEASE SAVEPOINT financial_global_refresh')
+            return {row.key: row for row in rows}, {**scoped, 'GLOBAL': []}
+        conn.execute('RELEASE SAVEPOINT financial_global_refresh')
+    replacements, scoped = {}, {}
+    for scope in changed:
+        rows, _, _, _, errors = read_projection.read_owned(
+            conn, database_url, only_scope=scope, **arguments)
+        replacements.update((row.key, row) for row in rows)
+        scoped.update(errors)
+    return replacements, scoped
+
+
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
                  *, shadow_observer=None, candidate_memo=None):
     from sentinel.feed import store
@@ -152,16 +201,12 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                 raise CollectionSuperseded('operational projection inputs changed')
             if set(delivery.display_keys(panel)) != {row.key for row in panel.rows}:
                 raise CollectionSuperseded('composition has unproved display dependencies')
-            replacements, errors = {}, []
             now = review.store.database_now(conn)
-            for scope in changed:
-                rows, _, _, selected_errors = read_projection.read_owned(
-                    conn, database_url, now=now, only_scope=scope, facts=facts,
-                    native_subjects=current_basis['native'], display_basis=current_basis)
-                replacements.update((row.key,row) for row in rows)
-                errors.extend(selected_errors)
-            panel = replace(display_dependencies.overlay(panel, replacements),
-                source_errors=list(dict.fromkeys([*panel.source_errors,*errors])))
+            replacements, errors = _financial_receipt_overlay(
+                conn, database_url, panel, now=now, changed=changed, facts=facts,
+                basis=current_basis)
+            panel = _replace_financial_source_errors(
+                display_dependencies.overlay(panel, replacements), errors)
         if panel.display_basis.get('account_anchor') != current_basis.get('account_anchor'):
             now = review.store.database_now(conn)
             account = display_dependencies.current_account_negative(conn, panel, now=now)
@@ -539,24 +584,18 @@ def read(database_url, *, display=False):
         if display:
             panel = replace(panel, observation_generated_at=value.generated_at)
         if display and head_changed and recorded[0].get('active'):
-            panel = replace(panel, source_errors=list(dict.fromkeys([*panel.source_errors,
-                'Current signed review records active conditions; current display composition is pending.'])))
+            panel = replace(panel, source_errors=[*panel.source_errors,
+                'Current signed review records active conditions; current display composition is pending.'])
         if changed:
             # Cheap receipt consumption only. A PAPER update must not discard
             # the independent SHADOW proof, and a newly negative receipt must
             # take precedence immediately even before the next full snapshot.
-            replacements, selected_errors = {}, []
-            for scope in changed:
-                current_rows, _, _, errors = read_projection.read_owned(
-                    conn, database_url, now=now, only_scope=scope, facts=facts,
-                    native_subjects=current_basis.get('native'), display_basis=current_basis or None)
-                keys = (read_projection.SHADOW_KEYS if scope == 'SHADOW'
-                        else read_projection.PAPER_KEYS)
-                replacements.update((row.key, row) for row in current_rows if row.key in keys)
-                selected_errors.extend(errors)
-            panel = replace(display_dependencies.overlay(panel, replacements),
-                            observation_revalidated_keys=tuple(replacements),
-                            source_errors=list(dict.fromkeys([*panel.source_errors, *selected_errors])))
+            replacements, selected_errors = _financial_receipt_overlay(
+                conn, database_url, panel, now=now, changed=changed, facts=facts,
+                basis=current_basis)
+            panel = replace(_replace_financial_source_errors(
+                display_dependencies.overlay(panel, replacements), selected_errors),
+                observation_revalidated_keys=tuple(replacements))
         account_keys = ()
         if (display and value.panel.display_basis
                 and value.panel.display_basis.get('account_anchor') != current_basis.get('account_anchor')):

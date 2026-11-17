@@ -865,6 +865,9 @@ class Panel:
     #: Set when a SOURCE failed rather than a check — the panel could not read
     #: the world. Rendered at the top, because every row below it is suspect.
     source_errors: list[str] = field(default_factory=list)
+    #: Signed provenance for the financial subset of source_errors. Receipt
+    #: replacement changes only its owned scope; GLOBAL is a whole-read failure.
+    financial_source_errors: dict[Literal['SHADOW', 'PAPER', 'GLOBAL'], list[str]] = field(default_factory=dict)
     #: Already-earned durable financial evidence for read-only detail sections.
     trial_details: dict = field(default_factory=dict)
     trial_history: list[dict] = field(default_factory=list)
