@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import re
 import sys
@@ -189,6 +190,22 @@ async def test_process_backed_callback_preserves_every_reviewed_exception_type(
     assert type(exc_info.value) is exception_type
     if exception_type in (BackupProofBusy, ExecutionEntryBackupBusy):
         assert exc_info.value.reason is BackupProofBusyReason.FRONTIER_CHANGED
+
+
+@pytest.mark.parametrize("field", ["actual_module", "actual_qualname"])
+def test_child_cannot_claim_exact_execution_entry_refusal_with_other_identity(field):
+    module = ExecutionEntryBackupBusy.__module__
+    qualname = ExecutionEntryBackupBusy.__qualname__
+    envelope = {
+        "kind": "error", "reviewed": True, "name": qualname,
+        "module": module, "qualname": qualname,
+        "actual_module": module, "actual_qualname": qualname,
+        "backup_busy_reason": BackupProofBusyReason.FRONTIER_CHANGED.value,
+    }
+    envelope[field] += "_other"
+
+    with pytest.raises(SoftwareDefect, match="inexact execution entry refusal"):
+        service_module._decode_child_callback(json.dumps(envelope).encode("utf-8"))
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires fork supervision")
