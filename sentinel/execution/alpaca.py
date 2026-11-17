@@ -1988,12 +1988,16 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 event_id = str(event.get("event_id") or "").strip()
                 ref_id = str(event.get("ref_id") or "").strip()
                 event_account = str(event.get("account_id") or "").strip()
+                native_event = (event if ref_id and
+                    str(event.get("activity_type") or "").upper() == "TRD" else None)
                 if not event_id or not ref_id:
                     raise MalformedBrokerPayload(
-                        "Activity SSE event omitted event_id/ref_id")
+                        "Activity SSE event omitted event_id/ref_id",
+                        raw_event=native_event)
                 if "account_id" in event and event_account != account_uuid:
                     raise MalformedBrokerPayload(
-                        "Activity SSE event belongs to another account")
+                        "Activity SSE event belongs to another account",
+                        raw_event=native_event)
                 # The cash and fill consumers below are USD ledgers and
                 # accept only completed economic state changes.  Alpaca's
                 # common envelope requires both fields; silently accepting
@@ -2004,19 +2008,26 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 if currency != "USD":
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} currency "
-                        f"{currency or '<missing>'!r} is not USD")
+                        f"{currency or '<missing>'!r} is not USD",
+                        raw_event=native_event)
                 status = str(event.get("status") or "").strip().lower()
                 if status != "executed":
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} status "
-                        f"{status or '<missing>'!r} is not executed")
-                business_at = _required_aware_ts(
-                    event.get("at"),
-                    where=f"Activity SSE {event_id} business time")
+                        f"{status or '<missing>'!r} is not executed",
+                        raw_event=native_event)
+                try:
+                    business_at = _required_aware_ts(
+                        event.get("at"),
+                        where=f"Activity SSE {event_id} business time")
+                except MalformedBrokerPayload as exc:
+                    raise MalformedBrokerPayload(
+                        str(exc), raw_event=native_event) from exc
                 if not (floor <= business_at <= upper):
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} business time lies "
-                        "outside the requested bounded snapshot")
+                        "outside the requested bounded snapshot",
+                        raw_event=native_event)
                 try:
                     _required_aware_ts(
                         event.get("executed_at"),
@@ -2031,22 +2042,26 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 except (TypeError, ValueError) as exc:
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} settle_date is "
-                        "not an ISO date") from exc
+                        "not an ISO date", raw_event=native_event) from exc
                 if event_id in seen_event:
                     raise MalformedBrokerPayload(
-                        f"Activity SSE repeated event_id {event_id}")
+                        f"Activity SSE repeated event_id {event_id}",
+                        raw_event=native_event)
                 if ref_id in seen_ref:
                     raise MalformedBrokerPayload(
-                        f"Activity SSE repeated ref_id {ref_id}")
+                        f"Activity SSE repeated ref_id {ref_id}",
+                        raw_event=native_event)
                 if prior_event and event_id <= prior_event:
                     raise MalformedBrokerPayload(
-                        "Activity SSE event_id order is not strictly monotonic")
+                        "Activity SSE event_id order is not strictly monotonic",
+                        raw_event=native_event)
                 seen_event.add(event_id)
                 seen_ref.add(ref_id)
                 prior_event = event_id
                 if not isinstance(event.get("details"), dict):
                     raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} has no details object")
+                        f"Activity SSE event {event_id} has no details object",
+                        raw_event=native_event)
             # Trading API activities are scoped by the owned endpoint and may
             # omit the partner stream's per-event account_id. Bind every finite
             # response to the same native account on both sides of the read.
@@ -2283,13 +2298,15 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     or execution_type in {"trade_correct", "trade_bust"}):
                 raise ActivityCorrectionRequiresRecovery(
                     "Activity SSE reported a correction/bust inside the "
-                    "account history; append-only fill evidence is refused")
+                    "account history; append-only fill evidence is refused",
+                    raw_event=event)
             if str(event.get("activity_type") or "").upper() != "TRD":
                 continue
-            if execution_type != "fill":
+            if execution_type not in {"fill", "partial_fill"}:
                 raise MalformedBrokerPayload(
                     "TRD Activity SSE event has an unsupported or missing "
-                    f"execution_type {execution_type or '<missing>'!r}")
+                    f"execution_type {execution_type or '<missing>'!r}",
+                    raw_event=event)
 
             event_id = str(event["event_id"])
             ref_id = str(event["ref_id"])
@@ -2299,34 +2316,41 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             side = str(details.get("side") or "").strip().lower()
             if not order_id:
                 raise MalformedBrokerPayload(
-                    f"TRD Activity SSE {event_id} omitted details.order_id")
+                    f"TRD Activity SSE {event_id} omitted details.order_id",
+                    raw_event=event)
             if not asset_id or not symbol or side not in {"buy", "sell"}:
                 raise MalformedBrokerPayload(
                     f"TRD Activity SSE {event_id} omitted native asset/"
-                    "symbol/side identity")
+                    "symbol/side identity", raw_event=event)
             client_value = details.get("client_order_id")
             client_key = (None if client_value is None else
                           str(client_value).strip())
             if client_value is not None and not client_key:
                 raise MalformedBrokerPayload(
                     f"TRD Activity SSE {event_id} has an empty "
-                    "details.client_order_id")
+                    "details.client_order_id", raw_event=event)
 
-            quantity = _required_dec(
-                event.get("qty"), where=f"TRD {event_id} qty")
-            price = _required_dec(
-                event.get("price"), where=f"TRD {event_id} price")
+            try:
+                quantity = _required_dec(
+                    event.get("qty"), where=f"TRD {event_id} qty")
+                price = _required_dec(
+                    event.get("price"), where=f"TRD {event_id} price")
+            except MalformedBrokerPayload as exc:
+                raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
             if quantity <= 0 or price <= 0:
                 raise MalformedBrokerPayload(
                     f"TRD Activity SSE {event_id} quantity and price must "
-                    "be positive")
-            executed_at = _required_aware_ts(
-                event.get("executed_at"),
-                where=f"TRD {event_id} executed_at")
+                    "be positive", raw_event=event)
+            try:
+                executed_at = _required_aware_ts(
+                    event.get("executed_at"),
+                    where=f"TRD {event_id} executed_at")
+            except MalformedBrokerPayload as exc:
+                raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
             if executed_at > processed_through:
                 raise MalformedBrokerPayload(
                     f"TRD Activity SSE {event_id} executes after the "
-                    "fixed processed-through boundary")
+                    "fixed processed-through boundary", raw_event=event)
             if executed_at < requested_floor:
                 continue
             fills.append(contract.BrokerAccountFill(
@@ -2411,7 +2435,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         order_id = str(details.get("order_id") or "").strip()
         asset_id = str(details.get("asset_id") or "").strip()
         side = str(details.get("side") or "").lower()
-        if execution_type != "fill" or not order_id or not asset_id or side not in {"buy", "sell"}:
+        if (execution_type not in {"fill", "partial_fill"}
+                or not order_id or not asset_id or side not in {"buy", "sell"}):
             raise MalformedBrokerPayload(
                 "TRD native order/asset/side/execution type is missing or unsupported", raw_event=event)
         try:

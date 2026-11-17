@@ -290,7 +290,8 @@ def _closing_scan_reserve(conn, now):
     return row[0] if row is not None else None
 
 
-def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previous, deadline):
+def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previous, deadline,
+                                   *, on_publication=None):
     """Rebind the completed fact while preserving its original observation and expiry."""
     from sentinel import receipt_authentication
     with reader.lock:
@@ -319,6 +320,8 @@ def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previou
             signature = receipt_authentication.sign(value)
             read_projection.publish(conn, owner_id=owner_id, value=value, signature=signature)
             _require_iteration_time(deadline)
+        if on_publication is not None:
+            on_publication()
         _require_iteration_time(deadline)
         previous['PAPER'] = value, signature
         reader.configuration = value['subject_sha256']
@@ -353,14 +356,16 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
         valid_until=datetime.fromisoformat(document['valid_until']), valuation_basis=basis)
 
 
-def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
+def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline,
+                     *, on_publication=None):
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
             break
         _require_iteration_time(deadline)
         if scope == 'PAPER' and _renew_completed_paper_subject(
-                conn, reader, database_url, owner_id, previous, deadline):
+                conn, reader, database_url, owner_id, previous, deadline,
+                on_publication=on_publication):
             continue
         reserve = None
         if reader.completed is not None:
@@ -402,6 +407,8 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
         if financial_changed or diagnostic_changed or retained is not None:
             _require_iteration_time(deadline)
             conn.commit()
+            if on_publication is not None:
+                on_publication()
             if retained is not None:
                 reader.ack_failed_attempt(retained['attempt_id'])
             _require_iteration_time(deadline)
@@ -418,7 +425,8 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
 
 
 def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
-                    on_first_refresh=None, wakeup=None, on_owner_deadline=None):
+                    on_first_refresh=None, wakeup=None, on_owner_deadline=None,
+                    on_publication=None):
     retry_until = None
     projection_started = False
     while not stopped.is_set():
@@ -433,7 +441,9 @@ def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, de
             if on_owner_deadline is not None:
                 on_owner_deadline(deadline)
             iteration_deadline = min(deadline, retry_until) if retry_until is not None else deadline
-            _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)
+            options = {} if on_publication is None else {'on_publication': on_publication}
+            _refresh_readers(conn, readers, database_url, owner_id, previous, stopped,
+                iteration_deadline, **options)
             _require_iteration_time(iteration_deadline)
             if on_first_refresh is not None and not projection_started:
                 on_first_refresh()
@@ -499,12 +509,13 @@ def run(*, stopped=None):
             for scope in ('SHADOW','PAPER')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
         from sentinel.panel.projection_service import Publisher
-        publisher = Publisher(database_url, owner_id, stopped=stopped)
+        publisher = Publisher(database_url, owner_id, stopped=stopped, wake_on_publication=True)
         # Establish actual queued/running/completed financial receipts before an
         # operational collector can classify a cold verifier's initial state.
         _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline,
                         on_first_refresh=publisher.start, wakeup=wakeup,
-                        on_owner_deadline=lambda value: owner.update(deadline=value))
+                        on_owner_deadline=lambda value: owner.update(deadline=value),
+                        on_publication=publisher.request_refresh)
     finally:
         owner['active'] = False
         stopped.set()

@@ -1370,6 +1370,8 @@ class ProductionAutomation:
                 context.require_active()
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
+            except paper.PaperDataIntegrityRefused as exc:
+                raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -1466,6 +1468,8 @@ class ProductionAutomation:
                     })
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
+            except paper.PaperDataIntegrityRefused as exc:
+                raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -1811,6 +1815,8 @@ class ProductionAutomation:
                     })
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
+            except paper.PaperDataIntegrityRefused as exc:
+                raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 if type(exc) is PaperExecutionEntryBackupBusy:
                     mapped = classify_dependency_failure(exc.__cause__)

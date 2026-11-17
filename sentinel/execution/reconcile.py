@@ -103,6 +103,7 @@ class ReconciliationResult:
     observation_id: Optional[int] = None
     restricted_securities: Mapping[str, str] = field(default_factory=dict)
     cash_plan_superseded: bool = False
+    native_fill_integrity_refused: bool = False
 
     @property
     def clean(self) -> bool:
@@ -132,6 +133,8 @@ class ReconciliationResult:
             "observation_id": self.observation_id,
             "restricted_securities": dict(self.restricted_securities),
             **({'cash_plan_superseded': True} if self.cash_plan_superseded else {}),
+            **({'native_fill_integrity_refused': True}
+               if self.native_fill_integrity_refused else {}),
         }
 
 
@@ -576,7 +579,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             fill_integrity.retain_native_refusal(conn, identity, exc)
             return ReconciliationResult(
                 runtime_state=RuntimeState.RECONCILING,
-                detail=f"native fill evidence refused: {exc}")
+                detail=f"native fill evidence refused: {exc}",
+                native_fill_integrity_refused=True)
         return ReconciliationResult(
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
@@ -744,9 +748,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     except BrokerAuthorityRefused:
         raise
     except (ValueError, RuntimeError) as exc:
-        if (isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,
+        raw_native_refusal = (
+            isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,
                              alpaca_adapter.ActivityCorrectionRequiresRecovery))
-                and exc.raw_event is not None):
+            and exc.raw_event is not None)
+        native_fill_integrity_refused = (
+            raw_native_refusal
+            or isinstance(exc, fill_integrity.NativeFillIdentityRefused))
+        if raw_native_refusal:
             fill_integrity.retain_native_refusal(conn, identity, exc)
         elif isinstance(exc, ValueError):
             fill_integrity.retain_refusal(conn, observation, exc)
@@ -754,7 +763,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             runtime_state=RuntimeState.RECONCILING,
             observation=replace(observation, completeness=Completeness.INCONSISTENT,
                                 terminal_recovery_through=None, fills=()),
-            detail=str(exc))
+            detail=str(exc),
+            native_fill_integrity_refused=native_fill_integrity_refused)
     for fill in observation.fills:
         order = orders_by_broker_id.get(fill.broker_order_id)
         if order is None:

@@ -179,6 +179,24 @@ def test_history_count_and_warning_remain_during_proven_progress(ongoing,monkeyp
     assert row.valid_until==actual.valid_until and row.recovery==actual.recovery
 
 
+@pytest.mark.parametrize('count', [2, 0])
+def test_historical_mismatch_without_current_proof_names_unproved_readiness(monkeypatch,count):
+    for name in ('_scheduled_preopen_mirror','_in_progress_paper_mirror','_completed_postopen_mirror'):
+        monkeypatch.setattr(sources,name,lambda *_:None)
+    row=sources._scheduled_paper_mirror(object(),dict(state='RETRY_WAIT'),None,
+        '2026-11-16',dict(status=mirror.MISMATCH,historical_mismatch_count=count))
+    assert row.status==model.FAIL and row.value=='PAPER NOT VERIFIED · CURRENT READINESS UNPROVED'
+    assert 'MISMATCH · BLOCKED' not in row.value
+    assert 'historical' in row.detail and 'cycle RETRY_WAIT' in row.detail
+    if count:
+        assert f'{count} historical informational mirror mismatch(es)' in row.detail
+    else:
+        assert 'no valid authenticated count' in row.detail
+    current=model.paper_reconciliation_row(state='MISMATCH',cycle_state='BLOCKED',
+        detail='current plan share-unit mismatch')
+    assert current.status==model.FAIL and current.value=='PAPER NOT VERIFIED · MISMATCH · BLOCKED'
+
+
 @pytest.mark.parametrize('state,session,count,wait_session,expected', [
     ('WAITING_OPEN', '2026-10-30', 2, '2026-10-30', True),
     ('WAITING_OPEN', '2026-10-30', 2, None, False),

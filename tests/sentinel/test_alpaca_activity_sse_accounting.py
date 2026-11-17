@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from sentinel.execution.alpaca import AlpacaExecutionBroker
 
 UTC = timezone.utc
@@ -71,7 +73,7 @@ def broker_for(event):
         http_provider=lambda: http)
 
 
-def trade_event():
+def trade_event(*, execution_type="fill"):
     return {
         "account_id": ACCOUNT_UUID,
         "at": "2026-08-19T17:00:00Z",
@@ -88,7 +90,7 @@ def trade_event():
         "currency": "USD",
         "previous_id": None,
         "details": {
-            "execution_type": "fill",
+            "execution_type": execution_type,
             "order_id": "order-1",
             "client_order_id": "sntl-0123456789abcdef0123",
             "asset_id": "asset-aapl", "side": "buy",
@@ -96,8 +98,9 @@ def trade_event():
     }
 
 
-def test_trade_event_is_fill_evidence_not_second_cash_flow():
-    broker = broker_for(trade_event())
+@pytest.mark.parametrize("execution_type", ("fill", "partial_fill"))
+def test_trade_event_is_fill_evidence_not_second_cash_flow(execution_type):
+    broker = broker_for(trade_event(execution_type=execution_type))
     start = datetime(2026, 8, 19, 16, tzinfo=UTC)
     end = datetime(2026, 8, 19, 18, tzinfo=UTC)
 

@@ -178,6 +178,25 @@ def test_receipt_only_renewal_does_not_withdraw_native_display_rows(operational,
     assert 'paper_reconciliation' in current.observation_revalidated_keys
 
 
+@pytest.mark.parametrize('negative',[False,True])
+def test_new_signed_snapshot_restores_strict_read_after_receipt_handoff(
+        operational,monkeypatch,negative):
+    c,owner=primed(operational,monkeypatch)
+    before=producer.read(c.info.dsn)
+    row=model.paper_reconciliation_row(state='MISMATCH' if negative else 'CLEAN')
+    save_financial(c,'PAPER',[row])
+    handoff=producer.read(c.info.dsn,display=True)
+    assert handoff.observation_changed_scopes==('PAPER',)
+    assert not handoff.observation_current
+    if negative:
+        assert handoff.row('paper_reconciliation').status==model.FAIL
+    producer.publish_once(c.info.dsn,owner,'/private','dependency-fixture')
+    current=producer.read(c.info.dsn)
+    assert current.observation_current and not current.observation_changed_scopes
+    assert current.row('paper_reconciliation').status==(model.FAIL if negative else model.OK)
+    assert current.row('alpaca_account')==before.row('alpaca_account')
+
+
 def test_new_negative_financial_receipt_still_dominates_current_display(operational,monkeypatch):
     c,_=primed(operational,monkeypatch)
     save_financial(c,'PAPER',[model.paper_reconciliation_row(state='MISMATCH')])
@@ -354,6 +373,42 @@ def completed_reader(operational):
         c, {'PAPER':reader}, c.info.dsn, owner, previous, Event(), time.monotonic()+5)
     assert previous['PAPER'][0]['valuation_basis']
     return c, owner, reader, previous, result
+
+
+def test_valuation_rebind_wakes_only_after_committed_receipt(operational):
+    from sentinel.panel import verification_service
+    c, owner, reader, previous, _ = completed_reader(operational)
+    account(c, equity='103')
+    wakes = []
+
+    def notice():
+        # A second connection must see the new receipt before the projector wakes.
+        with psycopg.connect(c.info.dsn) as independent:
+            published = independent.execute(
+                "SELECT subject_sha256 FROM sentinel_operational_verification_receipts "
+                "WHERE scope='PAPER'").fetchone()
+        wakes.append(published[0])
+
+    verification_service._refresh_readers(c, {'PAPER': reader}, c.info.dsn, owner,
+        previous, Event(), time.monotonic()+5, on_publication=notice)
+    assert wakes == [previous['PAPER'][0]['subject_sha256']]
+    verification_service._refresh_readers(c, {'PAPER': reader}, c.info.dsn, owner,
+        previous, Event(), time.monotonic()+5, on_publication=notice)
+    assert len(wakes) == 1, 'unchanged receipt scheduled another publication'
+
+
+def test_rolled_back_valuation_rebind_does_not_wake(operational,monkeypatch):
+    from sentinel.panel import verification_service
+    c, owner, reader, previous, _ = completed_reader(operational)
+    account(c, equity='103')
+    wakes = []
+    def fail_publish(*_args, **_kwargs):
+        raise ValueError('private publication refusal')
+    monkeypatch.setattr(read_projection, 'publish', fail_publish)
+    with pytest.raises(ValueError, match='private publication refusal'):
+        verification_service._refresh_readers(c, {'PAPER': reader}, c.info.dsn, owner,
+            previous, Event(), time.monotonic()+5, on_publication=lambda:wakes.append(True))
+    assert wakes == []
 
 
 def test_valuation_only_rebind_refreshes_neither_observation_nor_reader(operational, monkeypatch):

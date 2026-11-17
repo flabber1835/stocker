@@ -1061,6 +1061,11 @@ def paper_reconciliation_row(
             "PAPER NOT VERIFIED · MISMATCH · BLOCKED", FAIL,
             (detail or "a durable PAPER discrepancy blocks future mutations")
             + suffix)
+    if normalized == "HISTORICAL_READINESS_UNPROVED":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · CURRENT READINESS UNPROVED", FAIL,
+            (detail or "current PAPER readiness has no completed proof") + suffix)
     if normalized in {"SCHEDULED", "SCHEDULED_WITH_HISTORY"} and scheduled_until is not None:
         historical = normalized == 'SCHEDULED_WITH_HISTORY'
         return Row(

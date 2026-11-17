@@ -111,6 +111,7 @@ from .targets import (
 
 from .reconciliation_evidence import (
     _dual_mutation_observation_or_refuse,
+    _native_fill_integrity_or_refuse,
     _settled_account_evidence_bracket,
 )
 
@@ -314,6 +315,8 @@ async def recover_automated_paper_cycle(
             informational_current_book=dual_mode)
         result.cash_correction_classifications = getattr(
             actions, "cash_correction_classifications", [])
+        _native_fill_integrity_or_refuse(
+            result, purpose="PAPER recovery")
 
         if plan is not None:
             current_commands = journal.load_commands(conn, binding.identity)

@@ -69,9 +69,9 @@ def _one_panel_build(function):
     def guarded(*args, **kwargs):
         try:
             return function(*args, **kwargs)
-        except singleflight.BuildUnavailable as exc:
+        except singleflight.BuildUnavailable:
             headers = {"Cache-Control": "no-store", "Retry-After": "5"}
-            message = str(exc) or "Current status is temporarily unavailable. Please retry shortly."
+            message = "Current signed status is temporarily unavailable."
             if function.__name__ == "panel":
                 retained = last_known.read(_config())
                 if retained is not None:
@@ -375,8 +375,20 @@ def operational_health() -> JSONResponse:
         "source_errors": list(p.source_errors),
     }
     status_code = 503 if not p.observation_current or body["color"] == "red" else 200
+    headers = {"Cache-Control": "no-store"}
+    if not p.observation_current:
+        body["observation"] = {
+            "display_current": delivery.display_current(p),
+            "retained": p.observation_retained,
+            "changed_scopes": list(p.observation_changed_scopes),
+            "generated_at": (p.observation_generated_at.isoformat()
+                             if p.observation_generated_at else None),
+            "valid_until": (p.observation_valid_until.isoformat()
+                            if p.observation_valid_until else None),
+        }
+        headers["Retry-After"] = "2"
     return JSONResponse(
-        body, status_code=status_code, headers={"Cache-Control": "no-store"})
+        body, status_code=status_code, headers=headers)
 
 
 __all__ = ["app"]

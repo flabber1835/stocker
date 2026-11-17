@@ -199,8 +199,10 @@ def test_last_equity_candidate_refuses_half_day_and_in_bracket_revision():
         run(adapter(changed_http).account_close_valuation(session=SESSION))
 
 
-def test_activity_sse_candidate_is_only_a_repeated_bounded_snapshot():
-    event = trade_event()
+@pytest.mark.parametrize("execution_type", ("fill", "partial_fill"))
+def test_activity_sse_candidate_is_only_a_repeated_bounded_snapshot(execution_type):
+    event = trade_event(details={**trade_event()["details"],
+                                 "execution_type": execution_type})
     http = Httpx(accounts=[account(), account(), account()],
                  activity_events=[event])
     broker = adapter(http)
@@ -273,15 +275,49 @@ def test_empty_candidate_snapshot_never_claims_finality():
     ],
 )
 def test_activity_sse_fill_candidate_refuses_correction_or_bust(changes):
+    event = trade_event(**changes)
     http = Httpx(accounts=[account(), account(), account()],
-                 activity_events=[trade_event(**changes)])
+                 activity_events=[event])
     broker = adapter(http)
 
     with pytest.raises(ActivityCorrectionRequiresRecovery,
-                       match="correction/bust"):
+                       match="correction/bust") as refused:
         run(broker.account_fill_interval_evidence(
             session=SESSION,
             interval_start=datetime(2026, 8, 20, 12, tzinfo=UTC)))
+    assert refused.value.raw_event == event
+
+
+def test_activity_sse_fill_candidate_retains_unknown_execution_type():
+    event = trade_event(details={**trade_event()["details"],
+                                 "execution_type": "unsupported"})
+    broker = adapter(Httpx(accounts=[account(), account(), account()],
+                           activity_events=[event]))
+
+    with pytest.raises(MalformedBrokerPayload, match="unsupported or missing") as refused:
+        run(broker.account_fill_interval_evidence(
+            session=SESSION,
+            interval_start=datetime(2026, 8, 20, 12, tzinfo=UTC)))
+    assert refused.value.raw_event == event
+
+
+@pytest.mark.parametrize("field,value", [
+    ("order_id", ""), ("side", "unknown"), ("qty", "bad"),
+])
+def test_activity_sse_fill_candidate_retains_malformed_trd(field, value):
+    event = trade_event()
+    if field == "qty":
+        event[field] = value
+    else:
+        event["details"][field] = value
+    broker = adapter(Httpx(accounts=[account(), account(), account()],
+                           activity_events=[event]))
+
+    with pytest.raises(MalformedBrokerPayload) as refused:
+        run(broker.account_fill_interval_evidence(
+            session=SESSION,
+            interval_start=datetime(2026, 8, 20, 12, tzinfo=UTC)))
+    assert refused.value.raw_event == event
 
 
 def test_activity_sse_fill_candidate_refuses_identity_flip():

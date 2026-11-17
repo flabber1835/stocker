@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal as D
 import asyncio,json
 import pytest
-from sentinel.execution import reconcile as R
+from sentinel.execution import journal, reconcile as R
 from sentinel.execution.states import RuntimeState
 from sentinel.automation import outbox
 from tests.support import native_fill_fixture as prior
@@ -59,6 +59,70 @@ def test_native_fill_authority_requires_order_economic_coherence(conn,label,quan
     assert all(method=='GET' for method,*_ in http.calls)
 
 
+def test_partial_then_final_native_executions_replay_once_by_ref_id(conn):
+    owner, command, broker, http, events = prior.fixture(
+        conn, native_quantities=('4', '6'))
+    events[0]['details'].update(execution_type='partial_fill',
+        order_status='partially_filled', cum_qty='4', leaves_qty='6')
+    events[1]['details'].update(execution_type='fill',
+        order_status='filled', cum_qty='10', leaves_qty='0')
+    http.routes['/v2beta1/events/activities'] = prior.Response(
+        text=prior.sse(*events))
+
+    result = asyncio.run(R.reconcile(
+        broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is RuntimeState.RUNNING and result.clean
+    assert conn.execute(
+        'SELECT quantity,price FROM sentinel_fills '
+        'WHERE client_key=%s ORDER BY quantity',
+        (command.client_key,)).fetchall() == [(D(4), D(100)), (D(6), D(100))]
+
+    replay = asyncio.run(broker.recent_fills(prior.START))
+    assert [fill.activity_id for fill in replay] == [
+        event['ref_id'] for event in events]
+    assert journal.record_fills(conn, replay) == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_fills '
+                        'WHERE client_key=%s', (command.client_key,)).fetchone()[0] == 2
+
+
+@pytest.mark.parametrize('native_refusal', [True, False])
+def test_initial_observation_failure_classifies_native_integrity(
+        monkeypatch, native_refusal):
+    from sentinel import binding as binding_mod
+    from sentinel.execution import alpaca, fill_integrity
+
+    identity = object()
+    connection = object()
+    raw_event = {'ref_id': 'ref-1', 'details': {'execution_type': 'unknown'}}
+    failure = (alpaca.MalformedBrokerPayload('unsupported native event',
+                                            raw_event=raw_event)
+               if native_refusal else TimeoutError('broker request timed out'))
+    retained = []
+
+    class FailingBroker:
+        async def identify_account(self):
+            return identity
+
+        async def observe_with_terminal_recovery(
+                self, *, submitted_after, processed_through):
+            assert (submitted_after, processed_through) == (prior.START, prior.START)
+            raise failure
+
+    monkeypatch.setattr(binding_mod, 'verify', lambda *_: None)
+    monkeypatch.setattr(journal, 'terminal_recovery_floor', lambda _: prior.START)
+    monkeypatch.setattr(journal, 'terminal_recovery_checkpoint', lambda _: prior.START)
+    monkeypatch.setattr(fill_integrity, 'retain_native_refusal',
+                        lambda *args: retained.append(args))
+
+    result = asyncio.run(R.reconcile(
+        broker=FailingBroker(), conn=connection, binding=None,
+        deployment=object()))
+    assert result.native_fill_integrity_refused is native_refusal
+    assert result.runtime_state is (
+        RuntimeState.RECONCILING if native_refusal else RuntimeState.BROKER_DEGRADED)
+    assert retained == ([(connection, identity, failure)] if native_refusal else [])
+
+
 @pytest.mark.parametrize('initial', [(), ('6',)])
 def test_delayed_complete_native_history_converges_without_partial_entitlement(conn, initial):
     from sentinel import paper_performance, trial
@@ -66,6 +130,7 @@ def test_delayed_complete_native_history_converges_without_partial_entitlement(c
     owner, command, broker, http, events = prior.fixture(conn, native_quantities=initial)
     result = asyncio.run(R.reconcile(broker=broker,conn=conn,binding=None,deployment=owner.identity))
     assert result.runtime_state is RuntimeState.RECONCILING
+    assert not result.native_fill_integrity_refused
     assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
     with pytest.raises(trial.TrialEvidenceRefused, match='unresolved commands'):
         paper_performance.scan_entitlements(conn, binding=owner.to_dict(), through=prior.FILL.date(),
@@ -89,6 +154,7 @@ def test_delayed_complete_native_history_converges_without_partial_entitlement(c
 
 
 @pytest.mark.parametrize('field,value', [('asset_id','other-asset'), ('side','sell'),
+    ('client_order_id','other-key'),
     ('execution_type','unknown'), ('execution_type',None), ('asset_id',None), ('side',None)])
 def test_native_identity_and_execution_type_cannot_be_dropped(conn, field, value):
     owner, _, broker, http, events = prior.fixture(conn, native_quantities=('10',))
@@ -96,6 +162,7 @@ def test_native_identity_and_execution_type_cannot_be_dropped(conn, field, value
     http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
     result = asyncio.run(R.reconcile(broker=broker,conn=conn,binding=None,deployment=owner.identity))
     assert result.runtime_state is not RuntimeState.RUNNING
+    assert result.native_fill_integrity_refused
     assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
     saved = conn.execute("SELECT state FROM sentinel_processed_sessions "
                          "WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchall()
@@ -111,6 +178,7 @@ def test_unsupported_native_correction_retains_diagnostic_without_publishing(con
     for _ in range(2):
         result = asyncio.run(R.reconcile(broker=broker,conn=conn,binding=None,deployment=owner.identity))
         assert result.runtime_state is not RuntimeState.RUNNING
+        assert result.native_fill_integrity_refused
     assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
     saved = conn.execute("SELECT state FROM sentinel_processed_sessions "
                          "WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchall()
@@ -132,6 +200,40 @@ def test_malformed_native_economics_retains_raw_diagnostic(conn, field, value):
     saved = conn.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchall()
     assert len(saved) == 1
     assert saved[0][0]['raw_event'][field] == value
+
+
+@pytest.mark.parametrize('field,value', [
+    ('event_id', None), ('account_id', 'other-account'),
+    ('currency', 'EUR'), ('status', 'pending'), ('at', 'not-a-time'),
+    ('settle_date', 'not-a-date'), ('details', None),
+])
+def test_identified_native_trd_envelope_refusal_is_retained(conn, field, value):
+    owner, _, broker, http, events = prior.fixture(conn, native_quantities=('10',))
+    events[0][field] = value
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
+
+    result = asyncio.run(R.reconcile(
+        broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is RuntimeState.RECONCILING
+    assert result.native_fill_integrity_refused
+    assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
+    saved = conn.execute("SELECT state FROM sentinel_processed_sessions "
+                         "WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchall()
+    assert len(saved) == 1
+    assert saved[0][0]['raw_event'] == events[0]
+
+
+def test_unidentified_trd_envelope_is_not_labeled_native_fill_refusal(conn):
+    owner, _, broker, http, events = prior.fixture(conn, native_quantities=('10',))
+    events[0]['ref_id'] = None
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
+
+    result = asyncio.run(R.reconcile(
+        broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is RuntimeState.BROKER_DEGRADED
+    assert not result.native_fill_integrity_refused
+    assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions "
+                        "WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchone()[0] == 0
 
 
 def test_complete_native_history_cannot_replace_durable_execution_ids(conn):

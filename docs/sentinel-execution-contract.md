@@ -1010,10 +1010,14 @@ event cursor. A retained cursor disappearing from that discovery is source
 contradiction, not an empty interval. Trade events filtered out of cash
 accounting still advance the shared Activity SSE event cursor; otherwise an
 account containing only fills would replay the same stream forever. Ordinary
-`TRD/fill` cash is not added to the activity total because the exact durable
-fill ledger already moves plan cash; booking both would count the same trade
-twice. A correction or bust remains a refusal until the prior native fill can
-be reversed.
+`TRD/fill` and `TRD/partial_fill` cash is not added to the activity total
+because the exact durable fill ledger already moves plan cash; booking both
+would count the same trade twice. Both types name positive incremental
+executions under their native `ref_id`, subject to exact owned-order and
+economic validation. An unsupported execution type is retained as a native
+data-integrity refusal, not an endlessly retried broker outage. A correction
+or bust remains a refusal until the prior native fill can be reversed. See
+[the November 17 opening decision](nov17-opening-recovery.md).
 
 Recognized cash activities with an explicit zero `net_amount` retain their
 native identity, settlement session and classification as namespaced

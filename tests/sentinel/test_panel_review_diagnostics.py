@@ -49,6 +49,15 @@ def test_missing_and_excess_conditions_are_explicitly_bounded():
     assert len(result)==33 and result['_limit']['condition_count']==40
 
 
+def test_unrecognized_receipt_failure_text_cannot_enter_review_evidence():
+    secret='private database or receipt contents'
+    row=model.paper_reconciliation_row(state='UNKNOWN',error=(
+        'durable paper verification unavailable: RECEIPT_DECODE: ValueError '+secret))
+    result=review.condition_evidence(page(row),['paper_reconciliation'])['paper_reconciliation']
+    assert result['code']=='ROW_CONDITION' and 'exception_type' not in result
+    assert secret not in json.dumps(result)
+
+
 def test_removed_hashing_has_an_executed_privacy_falsifier(monkeypatch):
     text=inspect.getsource(review.condition_evidence);guard="hashlib.sha256(row.detail.encode('utf-8')).hexdigest()"
     assert text.count(guard)==1

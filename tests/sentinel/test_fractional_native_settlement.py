@@ -101,12 +101,17 @@ class FractionalVenue(NativeWorkflowAlpaca):
         order.update(status="partially_filled", filled_qty=str(quantity), filled_at=None)
         self.cash += D(order["notional"]) - price * quantity
         self.positions[order["asset_id"]] = quantity
+        cumulative = D(0)
+        total = D(fill["qty"])
         for index, part in enumerate(parts, 1):
             # Distinct native nanosecond clocks can serialize to the same Python/Postgres clock.
             raw_time = fill["executed_at"].replace("+00:00", f".00000000{index}Z")
+            cumulative += part
             self.events.append(dict(fill, event_id=f"01J5R00000000000000000{index:03d}",
                 ref_id=str(UUID(int=100+index)), qty=str(part), net_amount=str(-part*price),
-                executed_at=raw_time))
+                executed_at=raw_time, details=dict(fill["details"],
+                    execution_type="partial_fill", order_status="partially_filled",
+                    cum_qty=str(cumulative), leaves_qty=str(total-cumulative))))
 
 
 @pytest.fixture
