@@ -11,6 +11,11 @@ it must not require an empty strategy database, repeat formation, reset a bindin
 or manufacture another genesis. Unknown, corrupt or foreign lineage still
 refuses. A returning book is not evidence of paper execution readiness.
 
+The [fenced PAPER command recovery](fenced-paper-command-recovery.md) decision
+adds a narrow activation-owned safety observation before retained GO when an
+already durable order blocks source admission. Admission itself remains
+broker-free and retains its command fence.
+
 ## Economic identity and executable admission
 
 The executable identity continues to cover the complete current Sentinel and

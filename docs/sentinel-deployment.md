@@ -4,6 +4,11 @@
 PAPER partial-fill refusal, its bounded data-integrity behavior and focused
 qualification before this local patch can be installed.
 
+[Fenced PAPER command recovery](fenced-paper-command-recovery.md) selects a
+pre-GO, GET-only settlement path for exact owned commands that block retained
+source admission during an installed-but-killed activation. It requires a new
+qualified release and leaves the installed account fenced until then.
+
 [PAPER performance consolidation](paper-performance-consolidation.md) records
 how the runtime reuses verified work during idle scheduling, order preparation,
 delivery, and recovery while preserving the existing authority boundaries.
