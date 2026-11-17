@@ -204,7 +204,15 @@ def paper_refusal_types() -> tuple[type[BaseException], ...]:
     )
 
 
-def paper_refused(exc: BaseException) -> int:
+def paper_refused(exc: BaseException, *, activation_command: str | None = None) -> int:
+    if activation_command is not None:
+        from sentinel.execution.journal import ActivationBackupEntryBusy
+
+        if type(exc) is ActivationBackupEntryBusy:
+            from sentinel.activation_backup_protocol import EXIT_BACKUP_PROOF_BUSY, backup_proof_busy_record
+
+            print(backup_proof_busy_record(activation_command))
+            return EXIT_BACKUP_PROOF_BUSY
     print(f"REFUSED: {exc}", file=sys.stderr)
     return EXIT_NOT_ESTABLISHED
 

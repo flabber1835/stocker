@@ -700,6 +700,12 @@
     },
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
+      "activation_backup_entry": {
+        "predecessor_ast_sha256": "d361d997276f68704603e24f389f8cb57a10a0db6f9867dcf05ff85bd6a60ec7",
+        "source_ast_sha256": "30ed70ac91ddab7e59e4103edd57b07f0d86ad2dbae03889ff77a8e432722ffa",
+        "design": "docs/backup-proof-refresh-overlap.md#retry-the-fenced-activation-step",
+        "acceptance": "tests/sentinel/test_activation_backup_entry.py"
+      },
       "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
       "cash_retirement_acceptance": [
         "tests/sentinel/test_unsent_cash_retirement.py",
@@ -716,7 +722,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "d361d997276f68704603e24f389f8cb57a10a0db6f9867dcf05ff85bd6a60ec7",
+      "generated_ast_sha256": "a6bd59485126d3c472d6dc5cf4869d9772cb6da2493ed0c4b56d9dcc4940cce6",
       "consolidation": {
         "predecessor_ast_sha256": "4e4c03bde9e5f92dda25efaa8f6c0a5cbd96fd2fe60e4318961b7f38096c55de",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],

@@ -295,14 +295,14 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
         result = await paper.prepare_paper_plan(
             conn=conn, broker=broker, base_url=config.base_url,
             through=args.through, expected_account=args.expect_account,
-            warmup_sessions=args.warmup_sessions, **dual_kwargs)
+            warmup_sessions=args.warmup_sessions, activation_backup_retry=True, **dual_kwargs)
     except NativeFeePostingPending as exc:
         if type(exc) is not NativeFeePostingPending:
             return _paper_refused(exc)
         print(native_fee_wait_record(args.through))
         return EXIT_NATIVE_FEE_WAIT
     except _paper_refusal_types() as exc:
-        return _paper_refused(exc)
+        return _paper_refused(exc, activation_command="prepare-paper-plan")
     finally:
         conn.close()
 

@@ -258,6 +258,7 @@ def test_prepare_builds_resolver_after_schemas_and_prints_json(
         "through": "2026-08-12",
         "expected_account": "paper-123",
         "warmup_sessions": 252,
+        "activation_backup_retry": True,
     }
     assert conn.closed
 

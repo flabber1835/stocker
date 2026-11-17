@@ -2195,23 +2195,24 @@ class AutonomousDeploy:
             tool="tools.sentinel_observation_authority",
             candidate=candidate, output=cert,
             confirmation="--confirm-issue-paper-observation-only")
-        self._authorized_cli([
+        self._activation_backup_cli([
             "install-system-certificate", "--certificate",
             self._authorized_artifact(cert), "--confirm-certificate-sha256", digest,
             "--reason", "autonomous renewable paper observation deploy",
-            "--confirm-install-alpaca-paper-execution-certificate"])
+            "--confirm-install-alpaca-paper-execution-certificate"],
+            certificate_sha256=predecessor)
         self._wait_for(actual_not_before)
         if predecessor:
-            self._authorized_cli([
+            self._activation_backup_cli([
                 "rotate-system-certificate", "--certificate-sha256", digest,
                 "--confirm-supersedes-certificate-sha256", str(predecessor),
                 "--confirm-paper-account", self.cfg.account_id,
                 "--confirm-deployment-id", self.cfg.deployment_id,
                 "--reason", "autonomous renewable paper observation deploy",
                 "--confirm-rotate-alpaca-paper-execution-certificate",
-                "--confirm-controller-rollout"])
+                "--confirm-controller-rollout"], certificate_sha256=predecessor)
         else:
-            self._authorized_cli([
+            self._activation_backup_cli([
                 "activate-system-certificate", "--certificate-sha256", digest,
                 "--confirm-paper-account", self.cfg.account_id,
                 "--confirm-deployment-id", self.cfg.deployment_id,
@@ -2241,10 +2242,10 @@ class AutonomousDeploy:
         return remaining
 
     def _require_native_fee_wait_authority(
-            self, certificate_sha256: str, *, timeout: float,
+            self, certificate_sha256: Optional[str], *, timeout: float,
             decision_session: Optional[str] = None, deadline: Optional[datetime] = None,
-            clear: bool = False,
-    ) -> None:
+            clear: bool = False, enabled: bool = False,
+    ) -> Optional[Mapping]:
         from sentinel_go_process import owned_command
 
         code = r'''
@@ -2262,48 +2263,113 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 certificate_sha256=certificate)
             raise SystemExit(0)
         cursor.execute(
-            'SELECT c.enabled,c.kill_switch_engaged,a.active_certificate_sha256 '
+            'SELECT c.enabled,c.kill_switch_engaged,a.active_certificate_sha256,c.generation '
             'FROM sentinel_automation_control c CROSS JOIN sentinel_execution_authority_state a '
             'WHERE c.id=1 AND a.id=1')
         row = cursor.fetchone()
     if row is None:
         raise RuntimeError('fenced activation control or authority is missing')
-    if decision_session and row == (False, True, certificate):
+    if decision_session and row[:3] == (False, True, certificate):
         try:
             activation_fee_wait.publish_owned(conn, decision_session=decision_session,
                 deadline=datetime.fromisoformat(deadline), certificate_sha256=certificate)
         except (OSError, ValueError):
             print('Fee wait dashboard observation unavailable', file=sys.stderr)
-    print(json.dumps(dict(enabled=row[0], killed=row[1], certificate_sha256=row[2])))
+    print(json.dumps(dict(enabled=row[0], killed=row[1], certificate_sha256=row[2],
+                          generation=row[3])))
 '''.strip()
         command = self._authorized_compose() + [
             "--profile", "authorized-cli", "run", "--rm", "-T", "--no-deps",
             "--entrypoint", "python", "sentinel-authorized-cli", "-c", code,
-            certificate_sha256, decision_session or "", deadline.isoformat() if deadline else "",
+            certificate_sha256 or "", decision_session or "", deadline.isoformat() if deadline else "",
             "clear" if clear else "observe"]
         with owned_command(command) as owner:
             result = self.runner.run(owner["command"], capture=True, timeout=timeout)
         if clear:
             return
         state = _json_output(result, label="native fee posting wait authority")
-        if (set(state) != {"enabled", "killed", "certificate_sha256"}
-                or state["enabled"] is not False or state["killed"] is not True
-                or state["certificate_sha256"] != certificate_sha256):
-            raise DeployRefused("native fee posting wait lost the disabled, killed or signed authority")
+        if (set(state) != {"enabled", "killed", "certificate_sha256", "generation"}
+                or state["enabled"] is not enabled or state["killed"] is not True
+                or type(state["generation"]) is not int or state["generation"] < 1
+                or certificate_sha256 is not None and state["certificate_sha256"] != certificate_sha256):
+            raise DeployRefused("activation wait lost the expected control, kill or signed authority")
+        return state
 
     @staticmethod
-    def _load_native_fee_protocol():
+    def _load_activation_protocol(name):
         # The inspection checkout must remain off the module search path.
-        path = ROOT / "sentinel" / "paper_fee_wait_protocol.py"
+        path = ROOT / "sentinel" / (name + ".py")
         if not path.is_file() and os.environ.get("SENTINEL_IN_IMAGE") == "1":
-            from sentinel import paper_fee_wait_protocol
-            return paper_fee_wait_protocol
-        spec = importlib.util.spec_from_file_location("sentinel_host_fee_wait_protocol", path)
+            return importlib.import_module("sentinel." + name)
+        spec = importlib.util.spec_from_file_location("sentinel_host_" + name, path)
         if spec is None or spec.loader is None:
-            raise DeployRefused("native fee wait protocol loader is unavailable")
+            raise DeployRefused("activation protocol loader is unavailable")
         protocol = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(protocol)
         return protocol
+
+    @staticmethod
+    def _load_native_fee_protocol():
+        return AutonomousDeploy._load_activation_protocol("paper_fee_wait_protocol")
+
+    def _activation_backup_cli(
+            self, args: Sequence[str], *, certificate_sha256: Optional[str] = None,
+            enabled: bool = False, deadline: Optional[Tuple[datetime, float]] = None,
+            cutoff: Optional[str] = None, capture: bool = False, check: bool = True,
+    ) -> subprocess.CompletedProcess:
+        """Retry one typed pre-mutation refusal under its original activation clocks."""
+        protocol = self._load_activation_protocol("activation_backup_protocol")
+        step_deadline = None
+        retained_fence = None
+        while True:
+            clocks = [clock for clock in (deadline, step_deadline) if clock is not None]
+            options = {"timeout": min(self._native_fee_wait_seconds(clock) for clock in clocks)} if clocks else {}
+            result = self._authorized_cli(args, capture=True, check=False, **options)
+            stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
+            marker = protocol.BACKUP_PROOF_BUSY_MARKER
+            if result.returncode != protocol.EXIT_BACKUP_PROOF_BUSY:
+                if marker in stdout or marker in stderr:
+                    raise DeployRefused("backup proof wait contradicted the command exit status")
+                if check and result.returncode != 0:
+                    _raise_command_refusal(result, getattr(result, "args", args))
+                if step_deadline is not None:
+                    self._native_fee_wait_seconds(step_deadline)
+                if not capture and stdout:
+                    print(stdout, end="")
+                return result
+            if (stdout.splitlines() != [protocol.backup_proof_busy_record(args[0])]
+                    or marker in stderr or "SENTINEL_NATIVE_FEE_WAIT=" in stderr
+                    or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
+                raise DeployRefused("activation backup proof wait result is malformed")
+            if step_deadline is None:
+                now = _utcnow()
+                wall = now + timedelta(minutes=5)
+                review = getattr(self.reviewed_validation, "validation", None)
+                if not isinstance(review, Mapping):
+                    raise DeployRefused("activation backup proof wait requires reviewed readiness")
+                wall = min(wall, _parse_validation_time(review.get("valid_until"), field="valid_until"))
+                if cutoff is not None:
+                    try:
+                        opening = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+                        if opening.utcoffset() != timedelta(0):
+                            raise ValueError("non-UTC opening time")
+                    except (AttributeError, TypeError, ValueError) as exc:
+                        raise DeployRefused("activation backup proof wait opening time is malformed") from exc
+                    wall = min(wall, opening)
+                step_deadline = (wall, time.monotonic() + (wall - now).total_seconds())
+                self.phase("backup: waiting for current proof before " + args[0])
+            clocks = [clock for clock in (deadline, step_deadline) if clock is not None]
+            try:
+                time.sleep(min(5, *(self._native_fee_wait_seconds(clock) for clock in clocks)))
+                remaining = min(self._native_fee_wait_seconds(clock) for clock in clocks)
+            except DeployRefused as exc:
+                raise DeployRefused("activation backup proof wait reached its original cutoff") from exc
+            self._require_activation_writers_stopped(timeout=min(15, remaining / 2))
+            fence = self._require_native_fee_wait_authority(
+                certificate_sha256, timeout=min(30, remaining), enabled=enabled)
+            if retained_fence is not None and fence != retained_fence:
+                raise DeployRefused("activation fence changed while waiting for backup proof")
+            retained_fence = fence
 
     def _prepare_activation_plan(
             self, prepare_args: Sequence[str], certificate_sha256: str,
@@ -2317,11 +2383,12 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 requested, getattr(self.reviewed_validation, 'mode', None))]
         protocol = self._load_native_fee_protocol()
         deadline = None
+        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
         witness_attempted = False
         try:
             while True:
-                options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
-                result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
+                result = self._activation_backup_cli(prepare_args, certificate_sha256=certificate_sha256,
+                    deadline=deadline, cutoff=opening_cutoff, capture=True, check=False)
                 stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
                 if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
                     if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
@@ -2396,6 +2463,7 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         timing = self.assert_activation_timing(decision_session)
+        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
         self.quiesce_activation_writers()
         self.phase("plan: prepare one current durable paper plan")
         prepare_args = [
@@ -2421,14 +2489,15 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
         self.phase("automation: activate behind kill with financial services stopped")
-        self._authorized_cli([
+        self._activation_backup_cli([
             "activate-paper-automation",
             "--confirm-paper-account", self.cfg.account_id,
             "--confirm-deployment-id", self.cfg.deployment_id,
             "--confirm-certificate-sha256", certificate_sha256,
             "--confirm-old-writer-fenced", "--actor", self.cfg.actor,
             "--reason", "autonomous deployment",
-            "--confirm-enable-unattended-alpaca-paper-automation"])
+            "--confirm-enable-unattended-alpaca-paper-automation"],
+            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff)
         killed = self._automation_status()
         if (killed.get("enabled") is not True
                 or killed.get("kill_switch_engaged") is not True
@@ -2444,13 +2513,14 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         authorize_requested(self, certificate_sha256, decision_session)
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
-        self._authorized_cli([
+        self._activation_backup_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
             "--confirm-deployment-id", self.cfg.deployment_id,
             "--confirm-certificate-sha256", certificate_sha256,
             "--actor", self.cfg.actor, "--reason", "autonomous deployment verified",
-            "--confirm-release-unattended-paper-kill-switch"])
+            "--confirm-release-unattended-paper-kill-switch"],
+            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff)
         self.start_activated_runtime(certificate_sha256, decision_session)
         return current
 

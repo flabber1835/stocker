@@ -1,4 +1,5 @@
 """Compose real required-current rows, retained HTTP HTML and failure rules."""
+import ast
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import replace
@@ -92,16 +93,19 @@ def test_source_errors_remain_visible_in_retained_screen():
 
 
 def test_reverting_status_separation_reproduces_the_phone_screenshot():
-    source = inspect.getsource(render.render)
-    needle = 'rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,\n                             current=delivery.row_current(panel, r)) for r in rendered_rows)'
-    assert source.count(needle) == 1
-    mutation = '''if refresh_pending:
-        rendered_rows = [replace(row,
-            status=WARN if row.effective_status(now) == OK else row.effective_status(now))
-            for row in rendered_rows]
-    ''' + needle
+    source = ast.parse(inspect.getsource(render.render))
+    function, = source.body
+    row_render, = (index for index, node in enumerate(function.body)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == 'rows' for target in node.targets))
+    mutation = ast.parse('''if refresh_pending:
+    rendered_rows = [replace(row,
+        status=WARN if row.effective_status(now) == OK else row.effective_status(now))
+        for row in rendered_rows]
+''')
+    function.body[row_render:row_render] = mutation.body
     namespace = dict(vars(render))
-    exec(compile(source.replace(needle, mutation), 'reverted-fallback-status', 'exec'), namespace)
+    exec(compile(ast.fix_missing_locations(source), 'reverted-fallback-status', 'exec'), namespace)
     broken = namespace['render'](healthy_panel(), refresh_pending=True)
     with pytest.raises(AssertionError, match='refresh-only attention list'):
         assert_healthy_retained(broken)

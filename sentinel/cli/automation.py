@@ -92,7 +92,7 @@ def _activate_paper_automation(config: SentinelConfig, args) -> int:
     try:
         schema.require_runtime_schema(conn)
         automation_config = config_from_env()
-        with journal.writer_lock(conn):
+        with journal.writer_lock(conn, activation_backup_retry=True):
             assert_no_legacy_path(conn)
             binding, rollout, certificate = _automation_authority(
                 conn, config, automation_config)
@@ -109,7 +109,7 @@ def _activate_paper_automation(config: SentinelConfig, args) -> int:
                     binding, rollout, certificate, automation_config),
                 actor=args.actor, reason=args.reason)
     except _paper_refusal_types() as exc:
-        return _paper_refused(exc)
+        return _paper_refused(exc, activation_command="activate-paper-automation")
     finally:
         conn.close()
     print(json.dumps({
@@ -189,7 +189,7 @@ def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
     try:
         schema.require_runtime_schema(conn)
         automation_config = config_from_env()
-        with journal.writer_lock(conn):
+        with journal.writer_lock(conn, activation_backup_retry=True):
             binding, rollout, certificate = _automation_authority(
                 conn, config, automation_config)
             if (binding.broker_account_id != args.confirm_paper_account
@@ -204,7 +204,7 @@ def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
                     binding, rollout, certificate, automation_config),
                 actor=args.actor, reason=args.reason)
     except _paper_refusal_types() as exc:
-        return _paper_refused(exc)
+        return _paper_refused(exc, activation_command="release-paper-automation-kill-switch")
     finally:
         conn.close()
     print(json.dumps({

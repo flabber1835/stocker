@@ -91,11 +91,13 @@ from .model import (
     PaperRetryableRefused,
 )
 
-def _require_mutation_backup(conn, *, operation: str) -> None:
+def _require_mutation_backup(conn, *, operation: str, activation_backup_retry: bool = False) -> None:
     """Apply strict durability or explicitly selected bounded PAPER continuity."""
     try:
         backup_runtime_authority.require(conn, operation=operation, allow_continuity=True)
     except backup_runtime_authority.BackupRuntimeUnavailable as exc:
+        if activation_backup_retry and type(exc) is backup_runtime_authority.BackupIntegrityBusy:
+            raise journal.ActivationBackupEntryBusy(str(exc)) from exc
         raise PaperRetryableRefused(str(exc)) from exc
     except backup_runtime_authority.BackupRuntimeRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
