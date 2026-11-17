@@ -15,6 +15,16 @@ ROOT = Path(__file__).resolve().parents[2]
 STAMP = '20261117T200720Z-068e378f7e53'
 
 
+def test_helper_has_only_the_capabilities_needed_for_private_receipt_access():
+    compose = yaml.safe_load((ROOT / 'docker-compose.sentinel-automation.yml').read_text())
+    helper = compose['services']['sentinel-authority-permissions']
+    assert helper['user'] == '0:0'
+    assert helper['network_mode'] == 'none'
+    assert helper['cap_drop'] == ['ALL']
+    assert helper['cap_add'] == ['DAC_OVERRIDE', 'FOWNER', 'CHOWN']
+    assert helper['security_opt'] == ['no-new-privileges:true']
+
+
 def _helper(authority, relative):
     compose = yaml.safe_load((ROOT / 'docker-compose.sentinel-automation.yml').read_text())
     command = compose['services']['sentinel-authority-permissions']['command'][0]

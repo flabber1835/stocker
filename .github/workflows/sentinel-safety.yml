@@ -170,6 +170,13 @@ jobs:
           set -euo pipefail
           bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
+      - name: Falsify fenced receipt helper capabilities on an isolated bind mount
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/test_fenced_receipt_capabilities.py
+
       - name: Falsify exact-XID PostgreSQL physical recovery
         if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
