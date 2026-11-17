@@ -8,6 +8,7 @@ import pytest
 
 from sentinel import informational_paper_mirror as mirror, paper
 import sentinel.paper.reconciliation_evidence as paper_reconciliation_evidence
+from sentinel.paper.model import PaperDataIntegrityRefused
 from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, Side)
 from sentinel.execution.reconcile import (
@@ -271,7 +272,7 @@ def test_retained_native_fill_refusal_is_distinct_from_reobservation_wait():
         runtime_state=RuntimeState.RECONCILING,
         detail="unsupported TRD execution_type for ref_id abc",
         native_fill_integrity_refused=True)
-    with pytest.raises(paper.PaperDataIntegrityRefused, match="ref_id abc") as caught:
+    with pytest.raises(PaperDataIntegrityRefused, match="ref_id abc") as caught:
         paper_reconciliation_evidence._dual_mutation_observation_or_refuse(  # noqa: SLF001
             refused)
     assert not isinstance(caught.value, paper.PaperRetryableRefused)
