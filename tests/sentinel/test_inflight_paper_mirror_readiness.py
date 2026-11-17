@@ -179,6 +179,24 @@ def test_history_count_and_warning_remain_during_proven_progress(ongoing,monkeyp
     assert row.valid_until==actual.valid_until and row.recovery==actual.recovery
 
 
+@pytest.mark.parametrize('state,session,count,expected', [
+    ('WAITING_OPEN', '2026-10-30', 2, True),
+    ('WAITING_OPEN', '2026-10-29', 2, False),
+    ('WAITING_OPEN', '2026-10-30', 0, False),
+    ('RECONCILING', '2026-10-30', 2, False),
+])
+def test_only_current_preopen_historical_warning_can_be_attributed_to_fence(
+        monkeypatch, state, session, count, expected):
+    for name in ('_scheduled_preopen_mirror', '_in_progress_paper_mirror', '_completed_postopen_mirror'):
+        monkeypatch.setattr(sources, name, lambda *_: None)
+    row = sources._scheduled_paper_mirror(object(), dict(state=state,decision_session=session),
+        None, '2026-10-30', dict(status=mirror.MISMATCH,historical_mismatch_count=count))
+    assert row.status == model.FAIL
+    assert (row.operational_fact is not None) is expected
+    if expected:
+        assert row.operational_fact.state == 'HISTORICAL_READINESS_WITHDRAWN'
+
+
 def test_removed_order_state_guard_fails_oracle(ongoing,monkeypatch):
     code=textwrap.dedent(inspect.getsource(sources._in_progress_paper_mirror))
     guard="any(order.state not in allowed for order in run.orders)"

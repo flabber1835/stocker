@@ -129,7 +129,9 @@ def original_boundary(panel):
 
 
 def _validate_panel(raw):
-    _require(isinstance(raw, dict) and set(raw) == {item.name for item in fields(model.Panel)},
+    producer_fields = {item.name for item in fields(model.Panel)} - {'activation_fee_wait'}
+    _require(isinstance(raw, dict) and set(raw) in (producer_fields,
+             producer_fields | {'activation_fee_wait'}),
              'SNAPSHOT_PANEL_SHAPE_INVALID')
     rows = raw.get('rows')
     _require(isinstance(rows, list) and len(rows) <= 128, 'SNAPSHOT_ROWS_INVALID')
@@ -141,7 +143,8 @@ def _validate_panel(raw):
              and raw.get('observation_retained') is False
              and raw.get('observation_generated_at') is None
              and raw.get('observation_display_current') is None
-             and raw.get('observation_display_keys') == [],
+             and raw.get('observation_display_keys') == []
+             and raw.get('activation_fee_wait') is None,
              'SNAPSHOT_CONSUMER_STATE_REFUSED')
     expected = {item.name for item in fields(model.Row)}
     _require(all(isinstance(row, dict) and set(row) == expected for row in rows),
@@ -211,7 +214,7 @@ def encode(panel, *, context_sha256, subjects, valid_until=None):
     _require(_digest(context_sha256) and _subjects(subjects), 'SNAPSHOT_SCOPE_INVALID')
     _require(_utc(panel.now), 'SNAPSHOT_PANEL_CLOCK_INVALID')
     try:
-        raw = _PANEL.dump_python(panel, mode='json', warnings='error')
+        raw = _PANEL.dump_python(panel, mode='json', warnings='error', exclude={'activation_fee_wait'})
     except (ValueError, TypeError, OverflowError):
         raise SnapshotUnavailable('SNAPSHOT_PANEL_INVALID') from None
     panel = _validate_panel(raw)

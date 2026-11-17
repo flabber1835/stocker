@@ -85,14 +85,17 @@ class OperationalFact(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
     kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
                   'MARKET_DATA', 'SHADOW_VERIFICATION', 'SHADOW_WORKER',
-                  'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY']
+                  'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY',
+                  'AUTHORITY', 'ALPACA_ACCOUNT']
     state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
                    'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                    'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
                    'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED',
                    'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'READY', 'NOT_READY',
                    'AWAITING_VERDICT', 'VERIFIED', 'ACTIVE_WORKER',
-                   'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION']
+                   'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'STOPPED',
+                   'HISTORICAL_READINESS_WITHDRAWN', 'ROLLOUT_RENEWAL_PENDING',
+                   'ACTIVATION_VERDICT_WITHDRAWN', 'READY_SNAPSHOT']
     session: date | None = None
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -105,13 +108,16 @@ class OperationalFact(BaseModel):
             'AUTOMATION_CYCLE': {'DISCOVERY_WAIT', 'DISCOVERED', 'REFRESHING_DATA',
                 'PREPARING', 'PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING',
                 'RETRY_WAIT', 'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'},
-            'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED'},
+            'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'ROLLOUT_RENEWAL_PENDING'},
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
-            'SHADOW_WORKER': {'ACTIVE_WORKER'},
-            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED', 'SUPERSEDED'},
+            'SHADOW_WORKER': {'ACTIVE_WORKER', 'STOPPED'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED',
+                                   'SUPERSEDED', 'HISTORICAL_READINESS_WITHDRAWN'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_HISTORY': {'SUPERSEDED'},
+            'AUTHORITY': {'ACTIVATION_VERDICT_WITHDRAWN'},
+            'ALPACA_ACCOUNT': {'READY_SNAPSHOT'},
         }
         if self.state not in states[self.kind]:
             raise ValueError('operational state belongs to another producer')
@@ -134,7 +140,8 @@ class OperationalFact(BaseModel):
                 or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
                     and self.session is None)
                 or (self.kind in {'AUTOMATION_POLICY', 'SHADOW_WORKER',
-                                 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'}
+                                 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY',
+                                 'AUTHORITY', 'ALPACA_ACCOUNT'}
                     and self.session is not None)):
             raise ValueError('operational fact fields do not match their producer')
         if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
@@ -153,6 +160,8 @@ class OperationalFact(BaseModel):
             'PAPER_VERIFICATION': {'paper_reconciliation'},
             'EXECUTION_PROGRESS': {'broker'},
             'EXECUTION_HISTORY': {'trading_run', 'completed_trading_run'},
+            'AUTHORITY': {'authority'},
+            'ALPACA_ACCOUNT': {'alpaca_account'},
         }
         if key not in owned[self.kind]:
             raise ValueError('operational fact belongs to another row')
@@ -833,6 +842,14 @@ def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
 
 
 @dataclass(frozen=True)
+class ActivationFeeWaitDisplay:
+    """Display-only clocks earned by the separately owned activation wait."""
+    decision_session: date
+    observed_at: datetime
+    valid_until: datetime
+
+
+@dataclass(frozen=True)
 class Panel:
     rows: list[Row] = field(default_factory=list)
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -861,6 +878,8 @@ class Panel:
     #: Consumer-only human delivery; strict observation gates remain separate.
     observation_display_current: Optional[bool] = None
     observation_display_keys: tuple[str, ...] = ()
+    #: Attached only after an independent, current read of the activation witness.
+    activation_fee_wait: ActivationFeeWaitDisplay | None = None
 
     @property
     def overall(self) -> str:
@@ -2253,7 +2272,10 @@ def alpaca_account_row(
         "alpaca_account", "Alpaca Account", value,
         WARN if market_wait else OK if state_ok else FAIL, detail, observed_at,
         freshness=timedelta(minutes=10), required_current=True,
-        recovery=market_working if market_wait else recovery, valid_until=valid_until)
+        recovery=market_working if market_wait else recovery, valid_until=valid_until,
+        operational_fact=(OperationalFact(kind='ALPACA_ACCOUNT', state='READY_SNAPSHOT')
+                          if state_ok and not (market_wait or matched_hold or operator_hold is not None)
+                          else None))
 
 
 def backup_restore_row(

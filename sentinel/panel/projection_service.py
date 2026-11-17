@@ -99,6 +99,17 @@ def lock_inputs(conn):
                  "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
 
 
+def _with_activation_fee_wait(conn, panel, *, now, state_dir=None):
+    from sentinel import activation_fee_wait
+    from sentinel.panel.model import ActivationFeeWaitDisplay
+
+    if not panel.local_paper_mode:
+        return panel
+    wait = activation_fee_wait.read_owned(conn, now=now, state_dir=state_dir)
+    return replace(panel, activation_fee_wait=(ActivationFeeWaitDisplay(
+        wait.decision_session, wait.observed_at, wait.valid_until) if wait is not None else None))
+
+
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
                  *, shadow_observer=None, candidate_memo=None):
     from sentinel.feed import store
@@ -190,6 +201,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         # boundary. Apply the same known-instant contract to this final handoff.
         panel = replace(panel, rows=[sources._utc_row(row) for row in panel.rows])
         view = postclose_feed_wait.project_panel(panel, now=now, subject=current_basis['native']['SHADOW'])
+        view = _with_activation_fee_wait(conn, view, now=now, state_dir=state_dir)
         _COLLECTION_STAGE.set('REVIEW')
         result = recorder.observe_owned(conn, view, database_url)
         panel = replace(panel, operator_review=result)
@@ -609,7 +621,8 @@ def read(database_url, *, display=False):
                             observation_valid_until=min(display_until, owner[0]))
         elif finished >= value.valid_until:
             raise snapshots.SnapshotUnavailable('operational snapshot expired during read')
-        return replace(panel, now=finished)
+        panel = replace(panel, now=finished)
+        return _with_activation_fee_wait(conn, panel, now=finished) if display else panel
     finally:
         conn.rollback()
         conn.close()
@@ -625,6 +638,8 @@ def guard_acknowledgement(conn, panel, database_url):
         raise review.store.ReviewRefused('operational owner unavailable during acknowledgement')
     lock_inputs(conn)
     now = review.store.database_now(conn)
+    if _with_activation_fee_wait(conn, panel, now=now).activation_fee_wait is not None:
+        raise review.store.ReviewRefused('PAPER activation is still waiting for Alpaca')
     latest = snapshots.read_owned(conn, context_sha256=snapshots.context(conn, database_url),
                                   now=now, lock=True)
     latest_view = postclose_feed_wait.project_panel(latest.panel, now=latest.generated_at,

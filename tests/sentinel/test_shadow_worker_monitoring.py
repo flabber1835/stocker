@@ -83,6 +83,25 @@ def test_real_native_reader_can_observe_current_worker(state):
     assert worker.status == model.OK, worker.detail
 
 
+def test_only_signed_clean_stop_keeps_fenced_attribution(state, monkeypatch):
+    target = state/status.CRITICAL_NAME
+    status.publish(target, A, stopped=True, now=NOW)
+    stopped = row(state, monkeypatch)
+    assert stopped.status == model.FAIL and stopped.as_of == NOW
+    assert stopped.operational_fact.state == 'STOPPED'
+
+    arm(state)
+    interrupted = row(state, monkeypatch)
+    assert interrupted.status == model.FAIL and interrupted.operational_fact is None
+    status.publish(target, A, stopped=True, now=NOW)
+    interrupted = row(state, monkeypatch)
+    assert interrupted.status == model.FAIL and interrupted.operational_fact is None
+
+    target.write_text('terminal refusal')
+    critical = row(state, monkeypatch)
+    assert critical.status == model.FAIL and critical.operational_fact is None
+
+
 def test_stalled_status_file_cannot_block_the_http_worker(state):
     os.mkfifo(state/status.NAME)
     started = time.monotonic()

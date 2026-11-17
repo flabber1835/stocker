@@ -860,10 +860,54 @@ def _classify_health_rows(panel, *, include_inactive_warnings=False):
     for row in panel.rows:
         status = row.effective_status(panel.now)
         current = row_current(panel, row)
+        if activation_wait_withdraws(panel, row) or activation_wait_history(panel, row):
+            yield row, 'pending', current, False
+            continue
         admits_warning = ((current or include_inactive_warnings) and status == 'warn'
                           or current and status == 'fail' and row.key == 'exposure'
                           and row.status == 'warn')
         yield row, status, current, admits_warning and _normal_warning(panel, row)
+
+
+def current_activation_fee_wait(panel):
+    wait = panel.activation_fee_wait
+    if (panel.local_paper_mode and wait is not None
+            and _aware(wait.observed_at) and _aware(wait.valid_until)
+            and wait.observed_at <= panel.now < wait.valid_until):
+        return wait
+    return None
+
+
+_ACTIVATION_WITHDRAWALS = {
+    'automation': ('AUTOMATION_POLICY', 'INERT', 'warn'),
+    'shadow_worker': ('SHADOW_WORKER', 'STOPPED', 'fail'),
+    'paper_reconciliation': ('PAPER_VERIFICATION', 'HISTORICAL_READINESS_WITHDRAWN', 'fail'),
+    'exposure': ('CONTROLLER_DECISION', 'ROLLOUT_RENEWAL_PENDING', 'unknown'),
+    'authority': ('AUTHORITY', 'ACTIVATION_VERDICT_WITHDRAWN', 'unknown'),
+    'alpaca_account': ('ALPACA_ACCOUNT', 'READY_SNAPSHOT', 'ok'),
+}
+
+
+def activation_wait_withdraws(panel, row):
+    """Explain producer-classified activation gaps without changing machine evidence."""
+    wait = current_activation_fee_wait(panel)
+    fact = row.operational_fact
+    if (wait is None or fact is None or row.is_future(panel.now)
+            or (fact.kind, fact.state, row.status) != _ACTIVATION_WITHDRAWALS.get(row.key)):
+        return False
+    if row.key == 'exposure':
+        return fact.session == wait.decision_session
+    if row.key == 'alpaca_account':
+        return row.is_stale(panel.now)
+    return True
+
+
+def activation_wait_history(panel, row):
+    """A clean prior opening cutoff remains history during the new wait."""
+    wait = current_activation_fee_wait(panel)
+    return (wait is not None and row.key == 'completed_trading_run'
+            and row.has_opening_cutoff(panel.now)
+            and row.trading_run.intent.effective_session == wait.decision_session)
 
 
 def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
@@ -900,6 +944,7 @@ def _health_facts(panel, classifications, *, boundaries) -> dict:
 
 def dashboard_health(panel) -> dict:
     """Human system health is separate from unchanged machine readiness."""
+    activation_wait = current_activation_fee_wait(panel)
     plan = panel.row('paper_plan')
     from sentinel.panel.delivery import display_current, row_current
     plan_readiness = ('unavailable' if plan is not None and not row_current(panel, plan)
@@ -910,7 +955,8 @@ def dashboard_health(panel) -> dict:
     boundaries = []
     facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
-    normal = (not negative and not facts['warnings'] and _green_eligible(panel) and any(
+    normal = (activation_wait is None and not negative and not facts['warnings']
+              and _green_eligible(panel) and any(
         status == 'ok' or status == 'warn' and normal_warning
         for _, status, _, normal_warning in classifications))
     review = panel.operator_review
@@ -945,6 +991,11 @@ def dashboard_health(panel) -> dict:
         if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
         else _row_boundary(row) for row in admitted)
     cycle = panel.row('automation_cycle')
+    if activation_wait is not None:
+        boundaries.append(activation_wait.valid_until)
+        if status == 'warn' and review is not None:
+            label = 'Installed · Waiting for the Alpaca fee to post'
+            plan_readiness = 'pending'
     if (cycle is not None and cycle.recovery is not None
             and cycle.recovery.phase == 'NATIVE_FEE_POSTING' and cycle.recovery.active(panel.now)):
         boundaries.append(cycle.recovery.deadline)

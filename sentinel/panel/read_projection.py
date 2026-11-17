@@ -317,6 +317,51 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None):
         conn.rollback(); conn.close()
 
 
+def _activation_renewal_exposure(conn, rows, mismatch, *, now, valid_until):
+    """Keep authenticated SHADOW evidence when only adoption awaits renewal."""
+    from sentinel import activation_fee_wait
+    from sentinel.feed import calendar
+
+    wait = activation_fee_wait.read_owned(conn, now=now)
+    if wait is None:
+        return None
+    plan, rollout = mismatch.plan, mismatch.rollout
+    basis = next(row.shadow_projection for row in rows if row.key == 'book')
+    session = wait.decision_session.isoformat()
+    old_version, current_version = plan['rollout_version'], rollout['version']
+    old_certificate, current_certificate = (plan['rollout_certificate_sha256'],
+                                             rollout['certificate_sha256'])
+    if (plan['decision_session'] != session or basis.session != session
+            or plan['effective_session'] != calendar.next_session(session)
+            or plan['target_exposure'] != basis.target_core_exposure
+            or plan['rollout_mode'] != 'CONTROLLER' or rollout['mode'] != 'CONTROLLER'
+            or not 1 < old_version < current_version or not old_certificate
+            or current_certificate != wait.certificate_sha256
+            or old_certificate == current_certificate):
+        return None
+    proof = conn.execute("""
+        SELECT count(*)=%s,
+            bool_and(to_mode='CONTROLLER' AND (version=%s OR from_mode='CONTROLLER')
+                     AND coalesce(certificate_sha256 ~ '^[0-9a-f]{64}$', false)),
+            bool_or(version=%s AND certificate_sha256=%s),
+            bool_or(version=%s AND certificate_sha256=%s),
+            NOT EXISTS (SELECT 1 FROM sentinel_commands WHERE plan_id=%s
+                AND (state<>'PLANNED' OR filled_quantity<>0 OR broker_order_id IS NOT NULL
+                    OR recovered))
+        FROM sentinel_rollout_events WHERE version BETWEEN %s AND %s
+        """, (current_version-old_version+1, old_version, old_version, old_certificate,
+              current_version, current_certificate, plan['plan_id'],
+              old_version, current_version)).fetchone()
+    if proof != (True, True, True, True, True):
+        return None
+    exposure = model.Row('exposure', 'Exposure', 'CURRENT PLAN NOT ADOPTED', model.UNKNOWN,
+        'The preceding plan remains recorded under its own certificate. Current adoption is pending.',
+        as_of=basis.observed_at, required_current=True, valid_until=min(valid_until, wait.valid_until),
+        operational_fact=model.OperationalFact(kind='CONTROLLER_DECISION',
+            state='ROLLOUT_RENEWAL_PENDING', session=session, exposure=basis.target_core_exposure))
+    return [exposure if row.key == 'exposure' else row for row in rows]
+
+
 def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
                native_subjects=None, display_basis=None):
     """Read through the caller's snapshot without owning its transaction.
@@ -360,9 +405,16 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                 raise ValueError('current verification receipt unavailable')
             result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
             if scope == 'SHADOW':
+                from sentinel.panel.sources import PlanRolloutMismatch
                 from sentinel.panel.shadow_execution_projection import project
-                result = (project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant),
-                          result[1], result[2], result[3])
+                try:
+                    projected = project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant)
+                except PlanRolloutMismatch as mismatch:
+                    projected = _activation_renewal_exposure(
+                        conn, result[0], mismatch, now=instant, valid_until=row[2])
+                    if projected is None:
+                        raise
+                result = (projected, result[1], result[2], result[3])
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
             retained = None
             if row is not None and row[0] == key:

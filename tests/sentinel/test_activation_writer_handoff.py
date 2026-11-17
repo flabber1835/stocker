@@ -58,7 +58,7 @@ CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
 @pytest.mark.parametrize('case', [
     'converges', 'go-expired', 'open-expired', 'publication-changed', 'writer-reappeared',
     'lost-kill', 'changed-certificate', 'authorization-crossed-cutoff', 'bad-marker', 'duplicate-marker', 'wrong-channel',
-    'contradictory-status', 'unrelated-refusal', 'missing-review',
+    'contradictory-status', 'unrelated-refusal', 'refusal-after-wait', 'missing-review',
 ])
 def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch, cls, case):
     obj, events, control, running = appliance(tmp_path, cls)
@@ -94,9 +94,17 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
             control['kill_switch_engaged'] = False
     monkeypatch.setattr(core.time, 'sleep', sleep)
     run = obj.runner.run
+    witness_operations = []
     def observe(args, **kwargs):
-        if 'FROM sentinel_automation_control' not in args[-1]:
+        if not any('FROM sentinel_automation_control' in item for item in args):
             return run(args, **kwargs)
+        certificate, session, mark_deadline, operation = args[-4:]
+        assert certificate == 'certificate' and session == decision
+        witness_operations.append(operation)
+        if operation == 'clear':
+            assert kwargs['timeout'] == 15 and not mark_deadline
+            return SimpleNamespace(stdout='', stderr='', returncode=0)
+        assert operation == 'observe' and mark_deadline == cutoff.isoformat()
         assert kwargs['timeout'] == 30 and '--no-deps' in args
         return SimpleNamespace(stdout=json.dumps({
             'enabled': control['enabled'], 'killed': control['kill_switch_engaged'],
@@ -116,8 +124,10 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
             return cli(args, **kwargs)
         attempts.append(kwargs)
         if len(attempts) > 1:
-            assert case in {'converges', 'authorization-crossed-cutoff'}
+            assert case in {'converges', 'authorization-crossed-cutoff', 'refusal-after-wait'}
             assert kwargs['timeout'] == (cutoff - now).total_seconds() - ticks[0]
+            if case == 'refusal-after-wait':
+                return SimpleNamespace(stdout='', stderr='REFUSED: positions did not reconcile', returncode=2)
             return cli(args, **kwargs)
         events.append('prepare-paper-plan')
         marker = native_fee_wait_record('2026-10-07' if case == 'bad-marker' else decision)
@@ -142,6 +152,7 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
         assert events.count('stop-shadow') == 1
         assert events.index('restore') < events.index('release-paper-automation-kill-switch')
         assert ticks[0] == 60
+        assert witness_operations == ['observe', 'clear']
     else:
         with pytest.raises(core.DeployRefused) as refused:
             obj.prepare_activate_start('certificate', decision)
@@ -153,13 +164,17 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
             assert 'restore' in events and control['kill_switch_engaged']
             assert 'original validation or opening cutoff' in str(refused.value)
         else:
-            assert len(attempts) == 1
+            assert len(attempts) == (2 if case == 'refusal-after-wait' else 1)
             assert 'activate-paper-automation' not in events
         if case in {'go-expired', 'open-expired'}:
             assert 'original validation or opening cutoff' in str(refused.value)
             assert ticks[0] == 30
-        if case == 'unrelated-refusal':
+        if case in {'unrelated-refusal', 'refusal-after-wait'}:
             assert 'positions did not reconcile' in str(refused.value)
+        if case in {'lost-kill', 'changed-certificate', 'authorization-crossed-cutoff', 'refusal-after-wait'}:
+            assert witness_operations == ['observe', 'clear']
+        else:
+            assert witness_operations == []
 
 
 @pytest.mark.parametrize('cls', CLASSES)

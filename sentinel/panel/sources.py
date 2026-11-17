@@ -889,6 +889,15 @@ def _state_view(snapshot, *, expected_version=3) -> dict:
     }
 
 
+class PlanRolloutMismatch(ValueError):
+    """The current plan and rollout were read, but name different authority."""
+
+    def __init__(self, plan, rollout):
+        super().__init__('current plan and rollout authority disagree')
+        self.plan = plan
+        self.rollout = rollout
+
+
 def _exposure_row(state_view, plan, rollout, *, state_error: str | None,
                   plan_error: str | None, rollout_error: str | None,
                   valid_until: datetime | None = None,
@@ -931,7 +940,7 @@ def _exposure_row(state_view, plan, rollout, *, state_error: str | None,
     current_rollout = (
         rollout["mode"], rollout["version"], rollout["certificate_sha256"])
     if plan_rollout != current_rollout:
-        raise ValueError("current plan and rollout authority disagree")
+        raise PlanRolloutMismatch(plan, rollout)
     if rollout["mode"] == "PINNED_1_00":
         if Decimal(str(plan_exposure)) != Decimal(1):
             raise ValueError("pinned rollout plan exposure is not exactly 1")
@@ -1173,13 +1182,24 @@ def _execution_authority_display(lifecycle, control, *, verdict, detail, checked
     lifecycle = dict(lifecycle or {})
     digest = lifecycle.get('certificate_sha256')
     owner_local = local_paper.enabled()
-    return model.execution_authority_row(
+    row = model.execution_authority_row(
         installed=True, runtime_verdict=verdict, runtime_detail=detail, checked_at=checked_at,
         verdict_binding_matches=bool(digest and control and control.get('certificate_sha256') == digest),
         owner_local_runtime=owner_local,
         runtime_git_commit=os.environ.get('SENTINEL_GIT_COMMIT') if owner_local else None,
         runtime_image_digest=os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST') if owner_local else None,
         **lifecycle)
+    if (row.status == model.UNKNOWN and owner_local and control is not None
+            and control.get('enabled') is False and control.get('killed') is True
+            and verdict is None and detail is None and checked_at is None
+            and lifecycle.get('lifecycle_status') == 'ACTIVE'
+            and lifecycle.get('lifecycle_current') is True
+            and lifecycle.get('reviewed_git_commit') and lifecycle.get('reviewed_image_digest')
+            and lifecycle.get('reviewed_git_commit') == os.environ.get('SENTINEL_GIT_COMMIT')
+            and lifecycle.get('reviewed_image_digest') == os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')):
+        return replace(row, operational_fact=model.OperationalFact(
+            kind='AUTHORITY', state='ACTIVATION_VERDICT_WITHDRAWN'))
+    return row
 
 
 def _late_authority_display(conn, old, *, now):
@@ -2875,8 +2895,12 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
         completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
         if completed is not None:
             return replace(completed, detail=history + completed.detail)
-        return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+        row = model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
             detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
+        if cycle.get('state') == 'WAITING_OPEN' and str(cycle.get('decision_session')) == frontier:
+            return replace(row, operational_fact=model.OperationalFact(
+                kind='PAPER_VERIFICATION', state='HISTORICAL_READINESS_WITHDRAWN'))
+        return row
     return model.paper_reconciliation_row(
         state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
         scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
@@ -4113,6 +4137,8 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
         value = status.decode_probe(snapshot, database_url)
         reason = value['reason']
         running = value['state'] == 'RUNNING'
+        clean_stop = (reason == 'STOPPED' and value.get('attempt_id') is None
+                      and snapshot['pending'] is None and snapshot['latest_pending'] is None)
         labels = {'IDLE': 'RUNNING · WAITING FOR NEXT CHECK',
                   'ACTIVE_WORKER': 'RUNNING · CHECKING STRATEGY',
                   'CRITICAL_LATCH': 'HALTED · INTEGRITY FENCE',
@@ -4124,7 +4150,9 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
              'The publisher is halted; retained-state verification and operator recovery are required.'),
             as_of=value.get('observed_at'), freshness=timedelta(seconds=status.MAX_AGE_SECONDS),
             operational_fact=(model.OperationalFact(kind='SHADOW_WORKER', state='ACTIVE_WORKER')
-                              if running and reason == 'ACTIVE_WORKER' else None),
+                              if running and reason == 'ACTIVE_WORKER'
+                              else model.OperationalFact(kind='SHADOW_WORKER', state='STOPPED')
+                              if clean_stop else None),
             required_current=True, valid_until=(min(value['observed_at']+timedelta(
                 seconds=status.MAX_AGE_SECONDS), value['worker_deadline'])
                 if value.get('worker_deadline') is not None else

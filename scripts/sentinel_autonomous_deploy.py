@@ -2240,16 +2240,27 @@ class AutonomousDeploy:
             raise DeployRefused("native fee posting wait reached the original validation or opening cutoff")
         return remaining
 
-    def _require_native_fee_wait_authority(self, certificate_sha256: str, *, timeout: float) -> None:
+    def _require_native_fee_wait_authority(
+            self, certificate_sha256: str, *, timeout: float,
+            decision_session: Optional[str] = None, deadline: Optional[datetime] = None,
+            clear: bool = False,
+    ) -> None:
         from sentinel_go_process import owned_command
 
         code = r'''
-import json, os
+from datetime import datetime
+import json, os, sys
+from sentinel import activation_fee_wait
 from sentinel.feed import store
+certificate, decision_session, deadline, operation = sys.argv[1:]
 with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         connect_timeout=3, statement_timeout_ms=5000) as conn:
     with conn.cursor() as cursor:
         cursor.execute('SET TRANSACTION READ ONLY')
+        if operation == 'clear':
+            activation_fee_wait.clear_owned(conn, decision_session=decision_session,
+                certificate_sha256=certificate)
+            raise SystemExit(0)
         cursor.execute(
             'SELECT c.enabled,c.kill_switch_engaged,a.active_certificate_sha256 '
             'FROM sentinel_automation_control c CROSS JOIN sentinel_execution_authority_state a '
@@ -2257,13 +2268,23 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         row = cursor.fetchone()
     if row is None:
         raise RuntimeError('fenced activation control or authority is missing')
+    if decision_session and row == (False, True, certificate):
+        try:
+            activation_fee_wait.publish_owned(conn, decision_session=decision_session,
+                deadline=datetime.fromisoformat(deadline), certificate_sha256=certificate)
+        except (OSError, ValueError):
+            print('Fee wait dashboard observation unavailable', file=sys.stderr)
     print(json.dumps(dict(enabled=row[0], killed=row[1], certificate_sha256=row[2])))
 '''.strip()
         command = self._authorized_compose() + [
             "--profile", "authorized-cli", "run", "--rm", "-T", "--no-deps",
-            "--entrypoint", "python", "sentinel-authorized-cli", "-c", code]
+            "--entrypoint", "python", "sentinel-authorized-cli", "-c", code,
+            certificate_sha256, decision_session or "", deadline.isoformat() if deadline else "",
+            "clear" if clear else "observe"]
         with owned_command(command) as owner:
             result = self.runner.run(owner["command"], capture=True, timeout=timeout)
+        if clear:
+            return
         state = _json_output(result, label="native fee posting wait authority")
         if (set(state) != {"enabled", "killed", "certificate_sha256"}
                 or state["enabled"] is not False or state["killed"] is not True
@@ -2296,56 +2317,68 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 requested, getattr(self.reviewed_validation, 'mode', None))]
         protocol = self._load_native_fee_protocol()
         deadline = None
-        while True:
-            options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
-            result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
-            stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
-            if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
-                if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
-                        or protocol.NATIVE_FEE_WAIT_MARKER in stderr):
-                    raise DeployRefused("native fee posting wait contradicted the command exit status")
-                if result.returncode != 0:
-                    _raise_command_refusal(result, getattr(result, "args", prepare_args))
-                if deadline:
-                    self._native_fee_wait_seconds(deadline)
-                return _json_output(result, label="prepared paper plan"), deadline
-            if (stdout.splitlines() != [protocol.native_fee_wait_record(decision_session)]
-                    or protocol.NATIVE_FEE_WAIT_MARKER in stderr
-                    or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
-                raise DeployRefused("native fee posting wait result is malformed")
-            if deadline is None:
-                reviewed = self.reviewed_validation
-                validation = getattr(reviewed, "validation", None)
-                if (getattr(reviewed, "mode", None) not in {"dual", "paper"}
-                        or not isinstance(validation, Mapping) or not isinstance(timing, Mapping)
-                        or timing.get("target") != decision_session):
-                    raise DeployRefused("native fee posting wait requires a reviewed exchange session")
-                open_text = timing.get("execution_open_at")
+        witness_attempted = False
+        try:
+            while True:
+                options = {"timeout": self._native_fee_wait_seconds(deadline)} if deadline else {}
+                result = self._authorized_cli(prepare_args, capture=True, check=False, **options)
+                stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
+                if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
+                    if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
+                            or protocol.NATIVE_FEE_WAIT_MARKER in stderr):
+                        raise DeployRefused("native fee posting wait contradicted the command exit status")
+                    if result.returncode != 0:
+                        _raise_command_refusal(result, getattr(result, "args", prepare_args))
+                    if deadline:
+                        self._native_fee_wait_seconds(deadline)
+                    return _json_output(result, label="prepared paper plan"), deadline
+                if (stdout.splitlines() != [protocol.native_fee_wait_record(decision_session)]
+                        or protocol.NATIVE_FEE_WAIT_MARKER in stderr
+                        or any(line.lstrip().startswith("REFUSED:") for line in stderr.splitlines())):
+                    raise DeployRefused("native fee posting wait result is malformed")
+                if deadline is None:
+                    reviewed = self.reviewed_validation
+                    validation = getattr(reviewed, "validation", None)
+                    if (getattr(reviewed, "mode", None) not in {"dual", "paper"}
+                            or not isinstance(validation, Mapping) or not isinstance(timing, Mapping)
+                            or timing.get("target") != decision_session):
+                        raise DeployRefused("native fee posting wait requires a reviewed exchange session")
+                    open_text = timing.get("execution_open_at")
+                    try:
+                        exchange_open = datetime.fromisoformat(open_text)
+                        if exchange_open.utcoffset() != timedelta(0):
+                            raise ValueError("non-UTC opening time")
+                    except (TypeError, ValueError) as exc:
+                        raise DeployRefused("native fee posting wait opening time is malformed") from exc
+                    cutoff = min(exchange_open, _parse_validation_time(
+                        validation.get("valid_until"), field="valid_until"))
+                    deadline = (cutoff, time.monotonic() + (cutoff - _utcnow()).total_seconds())
+                    self.phase("plan: waiting for Alpaca to post a native debit fee to account cash")
+                time.sleep(min(60, self._native_fee_wait_seconds(deadline)))
+                remaining = self._native_fee_wait_seconds(deadline)
                 try:
-                    exchange_open = datetime.fromisoformat(open_text)
-                    if exchange_open.utcoffset() != timedelta(0):
-                        raise ValueError("non-UTC opening time")
-                except (TypeError, ValueError) as exc:
-                    raise DeployRefused("native fee posting wait opening time is malformed") from exc
-                cutoff = min(exchange_open, _parse_validation_time(
-                    validation.get("valid_until"), field="valid_until"))
-                deadline = (cutoff, time.monotonic() + (cutoff - _utcnow()).total_seconds())
-                self.phase("plan: waiting for Alpaca to post a native debit fee to account cash")
-            time.sleep(min(60, self._native_fee_wait_seconds(deadline)))
-            remaining = self._native_fee_wait_seconds(deadline)
-            try:
-                timing = self.assert_activation_timing(
-                    decision_session, timeout=remaining)
-            except ActivationPending as exc:
-                raise DeployRefused("native fee posting wait lost the reviewed publication") from exc
-            if (not isinstance(timing, Mapping) or timing.get("target") != decision_session
-                    or timing.get("execution_open_at") != open_text
-                    or timing.get("prospective") is not True):
-                raise DeployRefused("native fee posting wait lost the original exchange opening")
-            self._require_activation_writers_stopped(timeout=min(
-                15, self._native_fee_wait_seconds(deadline) / 2))
-            self._require_native_fee_wait_authority(
-                certificate_sha256, timeout=min(30, self._native_fee_wait_seconds(deadline)))
+                    timing = self.assert_activation_timing(decision_session, timeout=remaining)
+                except ActivationPending as exc:
+                    raise DeployRefused("native fee posting wait lost the reviewed publication") from exc
+                if (not isinstance(timing, Mapping) or timing.get("target") != decision_session
+                        or timing.get("execution_open_at") != open_text
+                        or timing.get("prospective") is not True):
+                    raise DeployRefused("native fee posting wait lost the original exchange opening")
+                self._require_activation_writers_stopped(timeout=min(
+                    15, self._native_fee_wait_seconds(deadline) / 2))
+                remaining = self._native_fee_wait_seconds(deadline)
+                witness_attempted = True
+                self._require_native_fee_wait_authority(
+                    certificate_sha256, timeout=min(30, remaining), decision_session=decision_session,
+                    deadline=min(deadline[0], _utcnow() + timedelta(seconds=remaining)))
+        finally:
+            if witness_attempted:
+                try:
+                    self._require_native_fee_wait_authority(certificate_sha256, timeout=15,
+                        decision_session=decision_session, clear=True)
+                except (DeployRefused, OSError, subprocess.TimeoutExpired):
+                    # The witness also expires independently of cleanup.
+                    pass
 
     def _initial_paper_recovery_args(self):
         requested = getattr(self, 'requested_initial_paper_recovery', None)

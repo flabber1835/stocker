@@ -23,7 +23,10 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, dashboard_health
+from sentinel.panel.presentation import (
+    activation_wait_history, activation_wait_withdraws, current_activation_fee_wait,
+    dashboard_health, describe,
+)
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
@@ -197,13 +200,16 @@ STATIC_ASSETS = {
 }
 
 
-def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True) -> str:
+def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
+              activation_pending: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
-                      else st)
+                      else PENDING if activation_pending else st)
+    if activation_pending:
+        value = 'Awaiting PAPER activation'
     detail = r.detail
     if refresh_pending or not current:
         value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
@@ -458,7 +464,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         operational_headline = "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"
     elif health['status'] == WARN:
         headline_status = WARN
-        operational_headline = "SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW"
+        operational_headline = ('SYSTEM HEALTH AMBER — WAITING FOR ALPACA'
+                                if current_activation_fee_wait(panel) is not None else
+                                'SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW')
     else:
         headline_status = FAIL
         operational_headline = "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK"
@@ -473,7 +481,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         # relabel an independently current shadow result.  The green shadow row
         # remains visible directly below the red operational badge.
         shadow_status = shadow.effective_status(now)
-        if overall in {FAIL, UNKNOWN}:
+        if health['status'] == WARN and current_activation_fee_wait(panel) is not None:
+            trial_status = WARN
+            trial_headline = 'PAPER ACTIVATION PENDING'
+        elif overall in {FAIL, UNKNOWN}:
             trial_status = FAIL
             trial_headline = "OPERATIONAL RED — REVIEW REQUIRED"
         elif overall == WARN:
@@ -520,12 +531,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         headline_status = 'neutral'
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
-                             current=delivery.row_current(panel, r)) for r in rendered_rows)
+        current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r))
+        for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
     reasons = []
     for row in rendered_rows:
-        status = row.effective_status(now)
-        if status in {FAIL, UNKNOWN} and delivery.row_current(panel, row):
+        status = delivery.row_status(panel, row)
+        if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
+                and not activation_wait_history(panel, row)):
             label, value, _ = describe(row, status)
             reasons.append(f'<li><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
