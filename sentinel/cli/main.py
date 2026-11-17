@@ -244,6 +244,14 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument('--initial-paper-recovery-reason')
     prep.add_argument('--confirm-initial-paper-recovery', action='store_true')
     prep.add_argument('--confirm-retain-current-paper-credentials', action='store_true')
+    fenced = sub.add_parser(
+        "recover-fenced-paper-commands",
+        help="reconcile exact owned PAPER commands before retained GO; GET only")
+    for flag in ("installation-receipt", "confirm-installation-sha256",
+                 "confirm-paper-account", "confirm-deployment-id",
+                 "confirm-installed-commit", "confirm-installed-runtime-image"):
+        fenced.add_argument("--" + flag, required=True)
+    fenced.add_argument("--confirm-control-generation", type=int, required=True)
     prep.add_argument('--retire-legacy-cash-plan')
     prep.add_argument('--retire-legacy-cash-plan-fingerprint')
     prep.add_argument('--retirement-native-dividend-id')
@@ -502,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
         config = SentinelConfig.from_env()
         if args.command in {
                 "inspect-paper-account", "inspect-empty-paper-account",
-                "bind-empty-paper-account", "prepare-paper-plan", "current-paper-plan",
+                "bind-empty-paper-account", "prepare-paper-plan", "recover-fenced-paper-commands", "current-paper-plan",
                 "execute-paper-plan", "set-paper-rollout-mode", "activate-paper-automation",
                 "authorize-unsent-paper-recovery", "release-paper-automation-kill-switch"}:
             config.assert_paper()

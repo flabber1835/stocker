@@ -40,8 +40,32 @@ SENTINEL_AUTHORITY_ARTIFACTS_DIR="$(
 )"
 export SENTINEL_AUTHORITY_ARTIFACTS_DIR
 
-exec docker compose \
+compose=(docker compose \
   -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml \
   -f docker-compose.sentinel-automation.yml \
-  --profile authorized-cli run --rm sentinel-authorized-cli "$@"
+  --profile authorized-cli)
+
+# This operator entry does not own database startup. In particular, a plain
+# `compose run` may recreate a dependent PostgreSQL container whose rendered
+# configuration differs from its original creation. Check the existing one
+# without letting this inspection change any service state.
+postgres_id="$("${compose[@]}" ps --status running -q sentinel-postgres)" || {
+  echo "REFUSED: existing Sentinel PostgreSQL status is unavailable" >&2
+  exit 2
+}
+[[ "${postgres_id}" =~ ^[0-9a-f]{12,64}$ ]] || {
+  echo "REFUSED: one running Sentinel PostgreSQL container is required" >&2
+  exit 2
+}
+postgres_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${postgres_id}")" || {
+  echo "REFUSED: existing Sentinel PostgreSQL health is unavailable" >&2
+  exit 2
+}
+[[ "${postgres_health}" == healthy ]] || {
+  echo "REFUSED: existing Sentinel PostgreSQL is not healthy" >&2
+  exit 2
+}
+
+"${compose[@]}" run --rm -T --no-deps sentinel-authority-permissions
+exec "${compose[@]}" run --rm -T --no-deps sentinel-authorized-cli "$@"

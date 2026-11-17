@@ -184,12 +184,13 @@ def phase_request(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('supplied_bundle', [False, True])
-def test_coordinator_fences_before_go_only_when_it_must_produce_a_bundle(monkeypatch, tmp_path, supplied_bundle):
+def test_coordinator_recovers_under_fence_before_both_paper_bundle_paths(monkeypatch, tmp_path, supplied_bundle):
     calls = []
     def fenced():calls.append('coordinator-fence');return True
     obj = SimpleNamespace(commit=SHA, runtime_repo_digest=IMAGE,
         git_preflight=lambda:None, activation_transition=nullcontext,
         _quiesce_database=fenced, read_paper_account=lambda:calls.append('account'),
+        confirm_disabled_activation_fence=lambda:calls.append('disabled-killed'),
         run_activation=lambda:calls.append('activation-body'))
     monkeypatch.setattr(core, 'merged_environment', lambda:{})
     monkeypatch.setattr(activate.sentinel_env, 'validate', lambda *a,**k:None)
@@ -200,13 +201,137 @@ def test_coordinator_fences_before_go_only_when_it_must_produce_a_bundle(monkeyp
     monkeypatch.setattr(install, 'select_certified_runtime', lambda obj:None)
     def bundle(*args):calls.append('bundle');return tmp_path/'bundle.zip','digest'
     monkeypatch.setattr(activate, 'financial_bundle', bundle)
+    monkeypatch.setattr(activate, 'recover_fenced_paper_commands',
+                        lambda *args:calls.append('fenced-recovery'))
     monkeypatch.setattr(activate, 'parse_reviewed_validation_bundle', lambda *a,**k:SimpleNamespace(git_commit=SHA))
     monkeypatch.setattr(activate, 'publish_immutable', lambda *a:None)
     activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
         installation_sha256='f'*64,bundle='bundle.zip' if supplied_bundle else None),
         dict(runtime_image=IMAGE))
-    assert calls == (['bundle','activation-body'] if supplied_bundle else
-                     ['coordinator-fence','account','bundle','activation-body'])
+    assert calls == ['coordinator-fence', 'account', 'disabled-killed',
+                     'fenced-recovery', 'bundle', 'activation-body']
+
+
+def test_fenced_recovery_uses_exact_signed_cli_and_accepts_only_settled_result(tmp_path):
+    receipt = (tmp_path / 'deployments' /
+               ('20261117T200720Z-' + SHA[:12]) / 'installation-receipt.json')
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text('{}')
+    calls = []
+    permissions = []
+    receipt_sha256 = activate.digest(receipt)
+    request = dict(mode='dual', installation_receipt=str(receipt),
+                   installation_sha256=receipt_sha256, source_commit=SHA)
+    installed = dict(runtime_image=IMAGE)
+    result = dict(schema='sentinel.fenced-paper-command-recovery/1',
+                  status='RECONCILED', installation_sha256=receipt_sha256,
+                  git_commit=SHA, runtime_image=IMAGE, deployment_id='deployment',
+                  paper_account_id='account', control_generation=7,
+                  command_keys_sha256='d'*64, observation_id=23,
+                  in_flight_commands=0, broker_mutations=False)
+
+    def cli(args, **options):
+        calls.append((args, options))
+        return completed(json.dumps(result))
+
+    obj = SimpleNamespace(
+        cfg=SimpleNamespace(account_id='account', deployment_id='deployment',
+                            health_timeout=300, authority_dir=tmp_path),
+        phase=lambda *_:None,
+        runner=SimpleNamespace(run=lambda args, **options:permissions.append((args, options))),
+        _authorized_compose=lambda:['docker', 'compose'],
+        _automation_status=lambda:dict(enabled=False, kill_switch_engaged=True,
+                                        control_generation=7),
+        _authorized_artifact=lambda path:'/var/lib/sentinel-authority/'
+                             + path.relative_to(tmp_path).as_posix(),
+        _authorized_cli=cli)
+    activate.recover_fenced_paper_commands(obj, request, installed)
+    argv, options = calls.pop()
+    assert argv == [
+        'recover-fenced-paper-commands', '--installation-receipt',
+        '/var/lib/sentinel-authority/deployments/20261117T200720Z-'
+        + SHA[:12] + '/installation-receipt.json',
+        '--confirm-installation-sha256', receipt_sha256,
+        '--confirm-paper-account', 'account',
+        '--confirm-deployment-id', 'deployment',
+        '--confirm-installed-commit', SHA,
+        '--confirm-installed-runtime-image', IMAGE,
+        '--confirm-control-generation', '7']
+    assert options == dict(capture=True, check=False, timeout=300)
+    assert not any(item in {'-c', 'python'} for item in argv)
+    assert permissions == [(
+        ['docker', 'compose', '--profile', 'authorized-cli', 'run', '--rm', '-T',
+         '--no-deps', '-e', 'SENTINEL_RECOVERY_RECEIPT_REL=deployments/'
+         + '20261117T200720Z-' + SHA[:12] + '/installation-receipt.json',
+         'sentinel-authority-permissions'], {'timeout':30})]
+
+    result.update(status='SKIPPED_CLEAN', observation_id=None)
+    activate.recover_fenced_paper_commands(obj, request, installed)
+    assert len(calls) == 1
+
+    result['in_flight_commands'] = 1
+    with pytest.raises(core.DeployRefused, match='incomplete or contradictory'):
+        activate.recover_fenced_paper_commands(obj, request, installed)
+
+
+@pytest.mark.parametrize('defect', ['outside', 'traversal', 'symlink', 'wrong-name'])
+def test_fenced_receipt_read_grant_refuses_noncanonical_paths_before_permissions(tmp_path, defect):
+    authority = tmp_path / 'authority'
+    good = authority / 'deployments' / ('20261117T200720Z-' + SHA[:12])
+    good.mkdir(parents=True)
+    receipt = good / 'installation-receipt.json'
+    receipt.write_text('{}')
+    if defect == 'outside':
+        selected = tmp_path / 'outside' / 'installation-receipt.json'
+        selected.parent.mkdir()
+        selected.write_text('{}')
+    elif defect == 'traversal':
+        # This resolves to the valid receipt. Canonical destination checks
+        # alone must not make raw traversal acceptable.
+        selected = good / '..' / good.name / 'installation-receipt.json'
+    elif defect == 'symlink':
+        selected = (authority / 'deployments' /
+                    ('20261117T200720Z-' + SHA[:12] + '-1') /
+                    'installation-receipt.json')
+        selected.parent.mkdir()
+        selected.symlink_to(receipt)
+    else:
+        selected = good / 'other.json'
+        selected.write_text('{}')
+    calls = []
+    obj = SimpleNamespace(cfg=SimpleNamespace(authority_dir=authority, health_timeout=300),
+        runner=SimpleNamespace(run=lambda *args, **kwargs:calls.append((args, kwargs))),
+        _authorized_compose=lambda:['docker', 'compose'])
+    request = dict(installation_receipt=str(selected),
+                   installation_sha256=activate.digest(selected))
+    with pytest.raises(core.DeployRefused):
+        activate.grant_installation_receipt_read(obj, request)
+    assert calls == []
+
+
+def test_fenced_recovery_refusal_stops_before_financial_go(monkeypatch, tmp_path):
+    calls = []
+    obj = SimpleNamespace(commit=SHA, runtime_repo_digest=IMAGE,
+        git_preflight=lambda:None, activation_transition=nullcontext,
+        _quiesce_database=lambda:calls.append('fence') or True,
+        read_paper_account=lambda:calls.append('account'),
+        confirm_disabled_activation_fence=lambda:calls.append('disabled-killed'),
+        run_activation=lambda:pytest.fail('activation ran after recovery refusal'))
+    monkeypatch.setattr(core, 'merged_environment', lambda:{})
+    monkeypatch.setattr(activate.sentinel_env, 'validate', lambda *a,**k:None)
+    monkeypatch.setattr(activate.bootstrap, 'discover', lambda env, **_kwargs:env)
+    monkeypatch.setattr(core, '_attempt_dir', lambda *a:tmp_path)
+    monkeypatch.setattr(activate.roles, 'activation_types',
+        lambda mode: (lambda env: object(), lambda *args, **kwargs: obj))
+    monkeypatch.setattr(install, 'select_certified_runtime', lambda obj:None)
+    monkeypatch.setattr(activate, 'recover_fenced_paper_commands',
+        lambda *args:(_ for _ in ()).throw(core.DeployRefused('native fill invalid')))
+    monkeypatch.setattr(activate, 'financial_bundle',
+        lambda *args:pytest.fail('GO ran after recovery refusal'))
+    with pytest.raises(core.DeployRefused, match='native fill invalid'):
+        activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
+            installation_sha256='f'*64, bundle=None), dict(runtime_image=IMAGE))
+    assert calls == ['fence', 'account', 'disabled-killed']
 
 
 @pytest.mark.parametrize('field,value', [('mode', []), ('checkout', 1), ('installation_receipt', None),

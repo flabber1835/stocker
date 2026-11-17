@@ -37,6 +37,7 @@ AUTHORIZED_RUNTIME_COMMANDS = frozenset({
     "inspect-empty-paper-account",
     "bind-empty-paper-account",
     "prepare-paper-plan",
+    "recover-fenced-paper-commands",
     "execute-paper-plan",
     "install-administrative-certificate",
     "activate-administrative-certificate",

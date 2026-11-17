@@ -81,6 +81,24 @@ services:
       - |
         find /authority -type d -exec chmod 0711 {} +
         find /authority -type f -name '*-certificate.json' -exec chmod 0644 {} +
+        if [ -n "$${SENTINEL_RECOVERY_RECEIPT_REL:-}" ]; then
+          case "$$SENTINEL_RECOVERY_RECEIPT_REL" in
+            deployments/*/installation-receipt.json) ;;
+            *) echo 'fenced recovery receipt path is invalid' >&2; exit 1 ;;
+          esac
+          case "$$SENTINEL_RECOVERY_RECEIPT_REL" in
+            *..*|*//*|*[!A-Za-z0-9_./-]*)
+              echo 'fenced recovery receipt path is invalid' >&2; exit 1 ;;
+          esac
+          receipt="/authority/$$SENTINEL_RECOVERY_RECEIPT_REL"
+          found="$$(find /authority -type f -path "$$receipt" -print -quit)"
+          [ "$$found" = "$$receipt" ] || {
+            echo 'fenced recovery receipt is not a regular authority file' >&2
+            exit 1
+          }
+          chgrp 10001 "$$receipt"
+          chmod 0640 "$$receipt"
+        fi
     volumes:
       - type: bind
         source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
