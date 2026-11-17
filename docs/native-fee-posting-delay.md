@@ -67,6 +67,44 @@ Current mismatches,
 invalid evidence, and unrelated operator review history retain their
 existing treatment.
 
+### Bounded renewal under slow PAPER preparation (2026-11-17)
+
+The first installed activation showed consecutive authenticated fee-wait
+observations 178–204 seconds apart, then a preparation retry exceeded the
+original 210-second display lifetime. The broker-free verifier also queued a
+PAPER check for 83 seconds behind the shared observation slot. Its pending
+receipt retained the earlier witness deadline and expired while a newer
+witness was valid. Both gaps produced real dashboard failures, although the
+activation fence remained engaged.
+
+Allow each newly authenticated fee-wait observation up to 360 seconds from its
+publication, still capped by the original validation/opening cutoff. The
+consumer must recheck the exact runtime, source, certificate, control
+generation, disabled and killed fence, and current session on every read. The
+observation remains display-only and grants no cash, plan, execution or
+activation authority. A terminal activation clears it; a stalled owner or a
+retry beyond this bound eventually withdraws the amber display and records a
+real failure.
+
+The pre-mutation backup proof may itself return a typed busy result for up to
+five minutes before the next broker cash observation. That result does not
+renew the fee-wait witness. If it outlasts the 360-second bound, the dashboard
+must show the expired evidence as a failure until a new typed fee result or
+successful preparation resolves it.
+
+While a PAPER pending row is fresh, start its next full source observation
+150 seconds before that row's original deadline, subject to the existing
+single-observer slot and retry pacing. Keep the row and signed receipt's
+original clocks; a newer witness cannot extend either without a newly
+completed source observation. If the observer cannot publish before expiry,
+the dashboard must still report the gap rather than extending old proof.
+
+Retain the installed signed predecessor `3afc2f5302ffd63008585a3530e6ed7634c06ccc`
+with its complete 490-module executable inventory and source closure
+`ab589e0adfa53b7233ed15fa5207da8aa16b2d964f7f325f46dfa93d088a1f5e`.
+Append that exact source view to the transition; do not rewrite any older
+retained source record or change execution authority.
+
 Retain the signed PAPER predecessor `4563851899ea5eaa157ae1c82e9fe72d2d298e2f`
 with all 488 archived Python modules and source closure
 `6beb79df5cfdf84d9ba1a266e413fd13254aae06bbe07578bcb92451d93fba8c`.

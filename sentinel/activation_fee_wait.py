@@ -21,7 +21,7 @@ from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
 
 SCHEMA = 'sentinel.activation-native-fee-wait/1'
 FILENAME = 'activation-native-fee-wait.json'
-FRESHNESS = timedelta(seconds=210)
+FRESHNESS = timedelta(seconds=360)
 MAX_BYTES = 4096
 _DIGEST = re.compile(r'[0-9a-f]{64}')
 _DIGEST_KEYS = (

@@ -62,7 +62,7 @@ def publish(connection, tmp_path, **overrides):
 
 def test_fenced_fee_wait_round_trip_and_exact_expiry(connection, tmp_path):
     wait = publish(connection, tmp_path, deadline='2026-11-17T09:37:29Z')
-    assert wait == fee_wait.ActivationFeeWait(SESSION, NOW, DEADLINE, NOW + timedelta(seconds=210), CERTIFICATE, 9)
+    assert wait == fee_wait.ActivationFeeWait(SESSION, NOW, DEADLINE, NOW + timedelta(seconds=360), CERTIFICATE, 9)
     assert fee_wait.read_owned(connection, now=NOW, state_dir=tmp_path) == wait
     assert fee_wait.read_owned(connection, now=wait.valid_until, state_dir=tmp_path) is None
     assert fee_wait.read_owned(connection, now=NOW - timedelta(microseconds=1), state_dir=tmp_path) is None

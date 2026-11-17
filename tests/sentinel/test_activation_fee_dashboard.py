@@ -146,23 +146,38 @@ def test_owned_paper_observer_schedules_refresh_before_pending_expires(panel, mo
     reader = authority_reader.Reader(clock=lambda: elapsed[0],
         wall_clock=lambda: NOW+timedelta(seconds=elapsed[0]),
         evidence_reader=lambda *_: key, expected_keys=frozenset({'paper_reconciliation'}))
-    pending = panel.row('paper_reconciliation')
+    pending = replace(panel.row('paper_reconciliation'),
+                      valid_until=NOW+activation_fee_wait.FRESHNESS)
     observed = NOW + timedelta(seconds=1)
     elapsed[0] = 1
     reader.answer = (key, observer_codec.pack([pending], [], observed_at=observed), None, observed)
     result = reader.read('private', allow_start=False)
     assert reader.attempt_outcome == 'VERIFIED' and reader.failure_diagnostic is None
-    assert result[0][0].as_of == NOW and result[0][0].valid_until == END
+    assert result[0][0].as_of == NOW and result[0][0].valid_until == pending.valid_until
     signed = verification_service.snapshot(reader, result, scope='PAPER', now=observed)
-    assert signed[0]['valid_until'] == END.isoformat()
-    elapsed[0] = 89
+    assert signed[0]['valid_until'] == pending.valid_until.isoformat()
+    elapsed[0] = 209
     reader.read('private')
     assert not started
-    elapsed[0] = 90
+    elapsed[0] = 210
     reader.read('private')
-    assert started == [90] and elapsed[0] < authority_reader.REFRESH_SECONDS
+    assert started == [210] and elapsed[0] < authority_reader.REFRESH_SECONDS
+
+    # A queued PAPER observation may spend 83 seconds behind the shared slot.
+    # It must be admitted early enough to complete with the renewed witness
+    # while the original signed pending proof is still current.
+    elapsed[0] = 301
+    renewed = replace(pending, as_of=NOW+timedelta(seconds=204),
+        valid_until=NOW+timedelta(seconds=564))
+    reader.answer = (key, observer_codec.pack([renewed], [],
+        observed_at=NOW+timedelta(seconds=301)), None, NOW+timedelta(seconds=301))
+    renewed_result = reader.read('private', allow_start=False)
+    assert renewed_result[0][0].as_of == renewed.as_of
+    renewed_signed = verification_service.snapshot(reader, renewed_result,
+        scope='PAPER', now=NOW+timedelta(seconds=301))
+    assert renewed_signed[0]['valid_until'] == renewed.valid_until.isoformat()
     assert verification_service.snapshot(reader, result, scope='PAPER',
-        now=END+timedelta(microseconds=1)) is None
+        now=renewed.valid_until+timedelta(microseconds=1)) is None
 
 
 def test_projection_does_not_serialize_or_replay_the_live_consumer_witness(panel, monkeypatch):
