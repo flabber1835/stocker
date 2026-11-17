@@ -83,18 +83,24 @@ weakening the certificate.
 
 ### Host PostgreSQL qualification generation
 
-Decision: 2026-11-17. Pin the Alpaca simulation, internal-state and production
-composition workflows to `ubuntu-24.04`, and require the CI host PostgreSQL
-toolchain to be major version 16 before creating any fixture database. These
-campaigns use the host server, unlike the safety image's separate test lens.
+Decision: 2026-11-17. Pin the Alpaca simulation, internal-state, production
+composition and backup reliability workflows to `ubuntu-24.04`, and require
+the CI host PostgreSQL toolchain to be major version 16 before creating any
+fixture database. These campaigns use the host server, unlike the safety
+image's separate test lens.
+Backup reliability also has one digest-pinned PostgreSQL 16 container test;
+that does not cover its other host database fixtures and physical scripts.
 The current supported PAPER schema and its exact migration-ledger constraint
 fingerprint are qualified against PostgreSQL 16; a different server major must
 not be accepted by loosening that fingerprint.
 
 In PR 601, the preceding successful run used Ubuntu 24.04 with PostgreSQL
-16.15 in all three campaigns. During GitHub's `ubuntu-latest` rollout, their
-next run used Ubuntu 26.04 with PostgreSQL 18.6. Composition and internal-state
-fixtures then refused the ledger constraint fingerprint at setup. Alpaca's
+16.15 in the Alpaca, internal-state and composition campaigns; backup also
+passed on Ubuntu 24.04. During GitHub's `ubuntu-latest` rollout, the next run
+used Ubuntu 26.04 with PostgreSQL 18.6 in the first three campaigns; backup
+ran on Ubuntu 26.04 and inherited its host database. Composition, internal-state
+and backup fixtures then refused the ledger constraint fingerprint at setup;
+backup also refused the exact recovery-marker fingerprint. Alpaca's
 mutation campaign also had a failed unmodified baseline under PostgreSQL 18,
 so a reported surviving mutant was not evidence that the execution guard had
 changed. Keep that baseline gate strict. The host setup helper now refuses a

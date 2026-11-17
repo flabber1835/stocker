@@ -123,6 +123,7 @@ def test_failed_or_incomplete_setup_never_reports_success(tmp_path, fault):
     ('internal-state-harness.yml', 'lifecycle', 'Install locked dependencies and real PostgreSQL tools'),
     ('internal-state-harness.yml', 'core-infrastructure', 'Install locked dependencies and PostgreSQL'),
     ('alpaca-simulation-harness.yml', 'alpaca', 'Install locked test dependencies and PostgreSQL'),
+    ('backup-reliability.yml', 'media-and-recovery', 'Verify host PostgreSQL 16 toolchain'),
     ('production-composition-harness.yml', 'database-preflight', 'Install PostgreSQL and locked dependencies'),
     ('production-composition-harness.yml', 'composition', 'Install PostgreSQL physical restore tools'),
 ])
@@ -145,6 +146,7 @@ def test_filtered_alpaca_workflow_qualifies_shared_setup_changes():
 
 HOST_POSTGRES_WORKFLOWS = (
     ('alpaca-simulation-harness.yml', 'alpaca'),
+    ('backup-reliability.yml', 'media-and-recovery'),
     ('internal-state-harness.yml', 'contract'),
     ('internal-state-harness.yml', 'lifecycle'),
     ('internal-state-harness.yml', 'core-infrastructure'),
@@ -173,6 +175,16 @@ def _host_postgres_workflows():
 
 def test_host_postgres_campaigns_pin_one_runner_generation():
     _assert_host_postgres_runner_generation(_host_postgres_workflows())
+
+
+def test_backup_host_postgres_probe_precedes_fixture_and_recovery_commands():
+    workflow = _host_postgres_workflows()['backup-reliability.yml']
+    steps = workflow['jobs']['media-and-recovery']['steps']
+    names = [step.get('name') for step in steps]
+    assert names.index('Verify host PostgreSQL 16 toolchain') < names.index(
+        'Simulate media faults and replay backup lifecycles')
+    assert names.index('Verify host PostgreSQL 16 toolchain') < names.index(
+        'Prove real PostgreSQL recovery and corruption refusal')
 
 
 @pytest.mark.parametrize('workflow,job', HOST_POSTGRES_WORKFLOWS)
