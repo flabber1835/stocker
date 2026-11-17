@@ -25,6 +25,7 @@ from sentinel.paper import (
     inspection as paper_inspection,
     validation as paper_validation,
 )
+from sentinel.paper.model import PaperDataIntegrityRefused
 from sentinel.automation import store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -1138,7 +1139,7 @@ async def test_postsubmit_native_refusal_keeps_ack_for_read_only_recovery(
                 detail=refused.detail))
 
     async def recover_refusal(**_kwargs):
-        raise paper.PaperDataIntegrityRefused(
+        raise PaperDataIntegrityRefused(
             "unsupported native TRD execution_type")
 
     monkeypatch.setattr(
@@ -1847,7 +1848,7 @@ async def test_native_fill_integrity_refusal_maps_to_terminal_data_integrity(
                             lambda _conn: None)
 
     async def refused(**_kwargs):
-        raise paper.PaperDataIntegrityRefused(
+        raise PaperDataIntegrityRefused(
             "retained native TRD execution_type is unsupported")
 
     callback = {"prepare": "prepare_paper_plan",

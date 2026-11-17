@@ -104,10 +104,26 @@
       ],
       "native_fee_posting_delay_predecessor_ast_sha256": "ccfdcc697f8c13370e66a91eab0005d6f7a82aa38ee62a6a458f2a4f84903a07"
     },
+    "PaperDataIntegrityRefused": {
+      "module": "model",
+      "generated_ast_sha256": "97dcd9b7a8cd174fb11d343f51a26773dc38248b32e246c721614f486ce3ca49",
+      "historical_ast_sha256": null,
+      "opening_recovery_design": "docs/nov17-opening-recovery.md",
+      "opening_recovery_acceptance": ["tests/sentinel/test_automation_runtime.py", "tests/sentinel/test_automation_service.py"]
+    },
+    "_native_fill_integrity_or_refuse": {
+      "module": "reconciliation_evidence",
+      "generated_ast_sha256": "d2d5fe0c4fdc9a6e0acad3ddfc97c20a5087f65a30f568d13f9986932c0afe15",
+      "historical_ast_sha256": null,
+      "opening_recovery_design": "docs/nov17-opening-recovery.md",
+      "opening_recovery_acceptance": ["tests/sentinel/test_informational_paper_mirror.py", "tests/sentinel/test_reboot_outage_recovery.py"]
+    },
     "_clean_or_refuse": {
-      "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
+      "generated_ast_sha256": "a82e9785c5f8bc8b7b782043cd5baf079b17ad02c3df4cbbaa06e29386c7d160",
       "historical_ast_sha256": "976a000f28d52c62d606ada1932514f028632ba3fd0af294965ff0e4380382d7",
-      "module": "reconciliation_evidence"
+      "module": "reconciliation_evidence",
+      "opening_recovery_design": "docs/nov17-opening-recovery.md",
+      "opening_recovery_acceptance": ["tests/sentinel/test_informational_paper_mirror.py"]
     },
     "_default_paper_strategy": {
       "generated_ast_sha256": "3e10a47c2c9688268e2d972294ee6ea41875d6dc0f9eaadb08ccbe2bc5e0fbe8",
@@ -807,7 +823,7 @@
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "7646501c348d94dd55f7e41f139e5822b66d70e885faeae4cb3d31b4d38f038a",
+      "generated_ast_sha256": "46d68a987ad09a6654ae8f624cf5bb1bfeff74293ea7d4d4180e61ee18b8a7ba",
       "consolidation": {
         "predecessor_ast_sha256": "202cf310a12be8daada8704adedeb4a8fb91cd5917ddcfa37b1a5243547dd3b5",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],
@@ -815,6 +831,8 @@
       },
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
+      "opening_recovery_design": "docs/nov17-opening-recovery.md",
+      "opening_recovery_acceptance": ["tests/sentinel/test_reboot_outage_recovery.py", "tests/sentinel/test_automation_runtime.py"],
       "protected_cohort_acceptance": [
         "tests/sentinel/test_limit_day_plan_cash_funding.py",
         "tests/sentinel/test_automation_runtime.py",

@@ -225,6 +225,9 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 
 
 @pytest.mark.parametrize('definition,owner', [
+    ('PaperDataIntegrityRefused', 'model'),
+    ('_native_fill_integrity_or_refuse', 'reconciliation_evidence'),
+    ('_clean_or_refuse', 'reconciliation_evidence'),
     ('_plan_fill_cash', 'cash'),
     ('_cash_authority_or_refuse', 'cash'),
     ('_fractional_renewal_retry_basis', 'preparation'),

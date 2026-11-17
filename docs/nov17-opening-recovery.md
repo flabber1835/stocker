@@ -52,6 +52,14 @@ wire type is not retained. Its success does not qualify the missing type.
   an error string or by turning every fill-validation `ValueError` terminal.
   A blocked cycle does not cancel or erase an acknowledged order, create a
   replacement key, or imply flat exposure.
+- Keep the typed PAPER refusal owned by `sentinel.paper.model` and import it
+  directly at the automation boundary. The canonical `sentinel.paper` package
+  root API remains unchanged; this recovery classification does not create a
+  new public lifecycle operation or alter the frozen package equivalence
+  manifest. Qualify the new internal class and refusal helper, plus the changed
+  clean-evidence and recovery definitions, in the existing paper lifecycle
+  delta registry with their exact ASTs and behavioral acceptance tests. Keep
+  their historical AST pins unchanged and falsify unknown neighboring edits.
 - The separate cash-activity correction/bust guard can refuse before fill
   reconciliation. It remains terminal and fail-closed, but it does not yet
   retain a raw native-refusal row. This adjacent evidence gap is separate from
@@ -77,6 +85,22 @@ published Activity V2 changes as part of release qualification.
 
 No test may infer a canonical fill from native evidence without passing the
 existing exact account/order/economic validation and one durable commit.
+
+## Independent economic source contribution
+
+The first PR CI run exposed a second qualification gap. The execution-only
+changes to `execution/reconcile.py` changed its raw bytes, but the existing
+operation-read source compiler knew only the earlier read-elision edit. It
+could no longer reconstruct the exact independently pinned predecessor and
+therefore changed the economic manifest and production strategy identity.
+This is a source-qualification failure, not evidence that Wealth Core economics
+changed. Extend the exact reviewed compiler edge only for the new reconciliation
+fields and refusal propagation, preserving the original predecessor bytes,
+economic contribution, strategy identity and all historical pins. Reject any
+other altered reconcile bytes. Do not update the expected economic or strategy
+digest merely to satisfy CI. Falsify the new reverse transform and test the
+complete source and strategy identities before resealing the final source
+inventory.
 
 ## Selected dashboard behavior
 

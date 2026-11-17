@@ -80,7 +80,8 @@ from sentinel.feed import (
 from sentinel.feed import store as feed_store
 from sentinel.feed.source_authority import SeedIdentityCollision
 from sentinel.feed.source_wait import SourceCoveragePending
-from sentinel.paper.model import NativeFeePostingPending, PaperExecutionEntryBackupBusy
+from sentinel.paper.model import (
+    NativeFeePostingPending, PaperDataIntegrityRefused, PaperExecutionEntryBackupBusy)
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
@@ -1370,7 +1371,7 @@ class ProductionAutomation:
                 context.require_active()
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
-            except paper.PaperDataIntegrityRefused as exc:
+            except PaperDataIntegrityRefused as exc:
                 raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
@@ -1468,7 +1469,7 @@ class ProductionAutomation:
                     })
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
-            except paper.PaperDataIntegrityRefused as exc:
+            except PaperDataIntegrityRefused as exc:
                 raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
@@ -1815,7 +1816,7 @@ class ProductionAutomation:
                     })
             except NativeFeePostingPending as exc:
                 raise NativeFeePostingWait(str(exc)) from exc
-            except paper.PaperDataIntegrityRefused as exc:
+            except PaperDataIntegrityRefused as exc:
                 raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
                 if type(exc) is PaperExecutionEntryBackupBusy:

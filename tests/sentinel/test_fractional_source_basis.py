@@ -17,11 +17,62 @@ def qualified_predecessor(module, raw):
     profile = basis._profile()
     if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
             profile['after'], profile['entitlements_after'], profile['settlement_after'],
-            profile['recovery_after'], profile['replay_after']):
+            profile['recovery_after'], profile['replay_after'], profile['opening_after']):
         return raw
     prior = PREVIOUS.read_bytes()
     assert hashlib.sha256(prior).hexdigest() == basis.BEFORE
     return prior
+
+
+def opening_predecessor(raw):
+    """Reverse only the reviewed November 17 reconciliation result and refusal edits."""
+    profile = basis._profile()
+    assert hashlib.sha256(raw).hexdigest() == profile['opening_after']
+    changes = (
+        (b'    native_fill_integrity_refused: bool = False\n', b''),
+        (b"            **({'native_fill_integrity_refused': True}\n"
+         b'               if self.native_fill_integrity_refused else {}),\n', b''),
+        (b'                detail=f"native fill evidence refused: {exc}",\n'
+         b'                native_fill_integrity_refused=True)\n',
+         b'                detail=f"native fill evidence refused: {exc}")\n'),
+        (b'        raw_native_refusal = (\n'
+         b'            isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,\n'
+         b'                             alpaca_adapter.ActivityCorrectionRequiresRecovery))\n'
+         b'            and exc.raw_event is not None)\n'
+         b'        native_fill_integrity_refused = (\n'
+         b'            raw_native_refusal\n'
+         b'            or isinstance(exc, fill_integrity.NativeFillIdentityRefused))\n'
+         b'        if raw_native_refusal:\n',
+         b'        if (isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,\n'
+         b'                             alpaca_adapter.ActivityCorrectionRequiresRecovery))\n'
+         b'                and exc.raw_event is not None):\n'),
+        (b'            detail=str(exc),\n'
+         b'            native_fill_integrity_refused=native_fill_integrity_refused)\n',
+         b'            detail=str(exc))\n'),
+    )
+    for current, previous in changes:
+        assert raw.count(current) == 1
+        raw = raw.replace(current, previous)
+    assert hashlib.sha256(raw).hexdigest() == profile['replay_after']
+    return raw
+
+
+def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
+    current = Path(reconcile.__file__).read_bytes()
+    prior = opening_predecessor(current)
+    before, after = ast.parse(prior), ast.parse(current)
+    assert len(before.body) == len(after.body)
+    changed = set()
+    for left, right in zip(before.body, after.body):
+        if ast.dump(left) != ast.dump(right):
+            assert getattr(left, 'name', None) == getattr(right, 'name', None)
+            changed.add(left.name)
+        else:
+            assert ast.get_source_segment(prior.decode(), left) == ast.get_source_segment(current.decode(), right)
+    assert changed == {'ReconciliationResult', 'reconcile'}
+    assert economic_manifest.local_imports(prior, module_name=basis.MODULE) == (
+        economic_manifest.local_imports(current, module_name=basis.MODULE))
+    assert basis.contribution(basis.MODULE, current) == basis.BEFORE
 
 
 def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
@@ -51,6 +102,8 @@ def test_unknown_execution_or_action_source_never_inherits_qualified_identity():
                                     b'if effective < start or effective > end:')):
         assert changed != current
         assert basis.contribution(basis.MODULE, changed) == hashlib.sha256(changed).hexdigest()
+        with pytest.raises(AssertionError):
+            opening_predecessor(changed)
     assert basis.contribution('sentinel.unreviewed', current) == hashlib.sha256(current).hexdigest()
 
 
@@ -139,6 +192,6 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert runtime_basis.predecessor_view(edited, previous=settlement) is edited
     recovery = profile["retained_predecessors"][runtime_basis.FRACTIONAL_RECOVERY_PREDECESSOR]["files"]
     assert recovery["execution/reconcile.py"] == basis._profile()["recovery_after"]
-    assert actual["execution/reconcile.py"] == basis._profile()["replay_after"]
+    assert actual["execution/reconcile.py"] == basis._profile()["opening_after"]
     assert runtime_basis.predecessor_view(actual, previous=recovery) == recovery
     assert runtime_basis.predecessor_view(edited, previous=recovery) is edited
