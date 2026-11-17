@@ -177,6 +177,46 @@ class PaperPreparationGrant:
 
 
 @dataclass(frozen=True)
+class FencedPaperRecoveryGrant:
+    """Exact owned-command GET authority during a killed PAPER installation."""
+
+    expected_account: str
+    deployment_id: str
+    takeover_epoch: int
+    certificate_sha256: str
+    control_generation: int
+    installation_sha256: str
+    command_keys: tuple[str, ...]
+    command_order_ids: tuple[tuple[str, str], ...]
+    git_commit: str
+    runtime_image_digest: str
+
+    def __post_init__(self) -> None:
+        for name in ("expected_account", "deployment_id"):
+            _required_text(name, getattr(self, name))
+        for name in ("takeover_epoch", "control_generation"):
+            _positive(name, getattr(self, name))
+        for name in ("certificate_sha256", "installation_sha256"):
+            if re.fullmatch(r"[0-9a-f]{64}", getattr(self, name)) is None:
+                raise ValueError(f"{name} must be an exact SHA256")
+        if (re.fullmatch(r"[0-9a-f]{40}", self.git_commit) is None
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", self.runtime_image_digest) is None):
+            raise ValueError("fenced recovery installed image identity is malformed")
+        if (type(self.command_keys) is not tuple or not self.command_keys
+                or any(type(key) is not str or not key for key in self.command_keys)
+                or tuple(sorted(set(self.command_keys))) != self.command_keys):
+            raise ValueError("fenced recovery requires sorted, unique owned command keys")
+        if (type(self.command_order_ids) is not tuple
+                or any(type(pair) is not tuple or len(pair) != 2
+                       or any(type(value) is not str or not value for value in pair)
+                       for pair in self.command_order_ids)
+                or tuple(sorted(set(self.command_order_ids))) != self.command_order_ids
+                or len({key for key, _ in self.command_order_ids}) != len(self.command_order_ids)
+                or any(key not in self.command_keys for key, _ in self.command_order_ids)):
+            raise ValueError("fenced recovery durable order IDs are not exact-owned")
+
+
+@dataclass(frozen=True)
 class AutomationExecutionGrant:
     """Standing automation identity, never a substitute for plan economics."""
 
@@ -252,7 +292,7 @@ class LiveExecutionGrant:
 
 
 ExecutionGrant: TypeAlias = (
-    PaperPreparationGrant | ManualExecutionGrant | AutomationExecutionGrant
+    PaperPreparationGrant | FencedPaperRecoveryGrant | ManualExecutionGrant | AutomationExecutionGrant
     | AttendedPaperExecutionGrant | LiveExecutionGrant)
 BeforeRead: TypeAlias = Callable[
     [ExecutionGrant, BrokerOperation], Awaitable[None]]
@@ -284,7 +324,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             guard: ExecutionBrokerGuard, protected_funding=None,
             issuer_admission_check=None, live_policy=None,
             market_buy_funding=None) -> None:
-        if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
+        if not isinstance(grant, (PaperPreparationGrant, FencedPaperRecoveryGrant, ManualExecutionGrant,
                                   AutomationExecutionGrant, AttendedPaperExecutionGrant,
                                   LiveExecutionGrant)):
             raise TypeError("grant must be a typed execution grant")
@@ -393,6 +433,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                 and self._has_optional_override(self._inner, "owned_order_fills"))
 
     async def _read(self, operation: BrokerOperation, call):
+        if (isinstance(self._grant, FencedPaperRecoveryGrant)
+                and operation not in {BrokerOperation.IDENTIFY_ACCOUNT,
+                                      BrokerOperation.OBSERVE,
+                                      BrokerOperation.FIND_BY_CLIENT_KEY,
+                                      BrokerOperation.OWNED_ORDER_FILLS}):
+            raise BrokerAuthorityRefused("fenced PAPER recovery permits only owned-command GETs")
         try:
             if isinstance(self._grant, AutomationExecutionGrant):
                 self._grant.require_active()
@@ -524,6 +570,9 @@ class GuardedExecutionBroker(ExecutionBroker):
     async def observe_with_terminal_recovery(
             self, *, submitted_after: datetime,
             processed_through: datetime) -> BrokerObservation:
+        if isinstance(self._grant, FencedPaperRecoveryGrant):
+            raise BrokerAuthorityRefused(
+                "fenced PAPER recovery has no certified terminal scan")
         async def read():
             return await self._inner.observe_with_terminal_recovery(
                 submitted_after=submitted_after,
@@ -534,10 +583,22 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def find_by_client_key(
             self, client_key: str) -> BrokerExactOrderLookup:
+        if (isinstance(self._grant, FencedPaperRecoveryGrant)
+                and client_key not in self._grant.command_keys):
+            raise BrokerAuthorityRefused("fenced PAPER recovery exact key is not retained")
         async def read():
             return await self._inner.find_by_client_key(client_key)
 
-        return await self._read(BrokerOperation.FIND_BY_CLIENT_KEY, read)
+        result = await self._read(BrokerOperation.FIND_BY_CLIENT_KEY, read)
+        if isinstance(self._grant, FencedPaperRecoveryGrant):
+            if result.client_key != client_key:
+                raise BrokerAuthorityRefused("fenced PAPER recovery exact response changed its requested key")
+            expected_id = dict(self._grant.command_order_ids).get(client_key)
+            if (expected_id is not None and result.order is not None
+                    and result.order.broker_order_id != expected_id):
+                raise BrokerAuthorityRefused(
+                    "fenced PAPER recovery exact response changed its durable order ID")
+        return result
 
     async def submit(
             self, *, client_key: str, instrument: BrokerInstrument,
@@ -689,7 +750,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     or (self._protected_funding is None and not self._live)):
                 raise PreTransportAuthorityRefused(
                     "protected LIMIT/DAY capability, clock or funding authority is absent")
-        if (isinstance(self._grant, PaperPreparationGrant)
+        if (isinstance(self._grant, (PaperPreparationGrant, FencedPaperRecoveryGrant))
                 or (isinstance(self._grant, LiveExecutionGrant)
                     and self._grant.operation_scope != "EXECUTE")
                 or (isinstance(self._grant, AutomationExecutionGrant)
@@ -957,7 +1018,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         return await self._read(BrokerOperation.ASSET_RULES, read)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
-        if (isinstance(self._grant, PaperPreparationGrant)
+        if (isinstance(self._grant, (PaperPreparationGrant, FencedPaperRecoveryGrant))
                 or (isinstance(self._grant, LiveExecutionGrant)
                     and self._grant.operation_scope == "PREPARE")
                 or (isinstance(self._grant, AutomationExecutionGrant)
@@ -992,11 +1053,26 @@ class GuardedExecutionBroker(ExecutionBroker):
             through: datetime) -> Sequence[BrokerFill]:
         if not self.supports_owned_order_fills:
             raise BrokerAuthorityRefused("owned order fill evidence is unavailable")
+        if (isinstance(self._grant, FencedPaperRecoveryGrant)
+                and (identity.broker != "alpaca"
+                     or identity.account_id != self._grant.expected_account
+                     or not orders
+                     or any((order.client_key, order.broker_order_id)
+                            not in self._grant.command_order_ids
+                            for order in orders))):
+            raise BrokerAuthorityRefused("fenced PAPER recovery fill read is not exact-owned")
 
         async def read():
             return await self._inner.owned_order_fills(orders=orders, identity=identity, through=through)
 
-        return await self._read(BrokerOperation.OWNED_ORDER_FILLS, read)
+        fills = await self._read(BrokerOperation.OWNED_ORDER_FILLS, read)
+        if isinstance(self._grant, FencedPaperRecoveryGrant):
+            owned = {order.broker_order_id: order.client_key for order in orders}
+            if any(fill.broker_order_id not in owned
+                   or fill.client_key not in (None, owned[fill.broker_order_id])
+                   for fill in fills):
+                raise BrokerAuthorityRefused("fenced PAPER recovery received an unrelated native fill")
+        return fills
 
 
 __all__ = [
@@ -1005,6 +1081,7 @@ __all__ = [
     "BrokerAuthorityCheckFailed",
     "GuardedExecutionBroker", "ManualExecutionGrant",
     "AttendedPaperExecutionGrant",
+    "FencedPaperRecoveryGrant",
     "PaperPreparationGrant",
     "LiveExecutionGrant",
     "PreTransportAuthorityRefused",

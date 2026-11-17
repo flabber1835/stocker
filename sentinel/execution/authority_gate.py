@@ -42,6 +42,7 @@ from sentinel.execution.guarded import (
     BrokerOperation,
     ExecutionBrokerGuard,
     ExecutionGrant,
+    FencedPaperRecoveryGrant,
     LiveExecutionGrant,
     PaperPreparationGrant,
 )
@@ -267,6 +268,13 @@ def require_current_authority(
 
 def _authority_operation(
         grant: ExecutionGrant, operation: BrokerOperation) -> str:
+    if isinstance(grant, FencedPaperRecoveryGrant):
+        if operation in {BrokerOperation.IDENTIFY_ACCOUNT,
+                         BrokerOperation.OBSERVE,
+                         BrokerOperation.FIND_BY_CLIENT_KEY,
+                         BrokerOperation.OWNED_ORDER_FILLS}:
+            return "SAFETY_READ"
+        raise AuthorityRefused("fenced PAPER recovery cannot mutate or expand broker reads")
     if isinstance(grant, LiveExecutionGrant):
         if grant.operation_scope != "EXECUTE" and operation not in _READ_OPERATIONS:
             raise AuthorityRefused("LIVE preparation/recovery grants are read-only")
@@ -371,16 +379,29 @@ def build_fresh_execution_check(
                         raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
-                current = feed_inputs.require_current(conn)
+                # This observation-only recovery runs before the new GO
+                # publication and admits no fresh plan or submission. Its
+                # signed safety certificate is independent of corpus drift.
+                current = (None if isinstance(grant, FencedPaperRecoveryGrant)
+                           else feed_inputs.require_current(conn))
                 concrete = _authority_operation(grant, operation)
                 kwargs = dict(
                     runtime_identity=runtime_identity(),
                     strategy_identity=strategy_identity(),
                     required_mode=rollout.mode,
                     paper_base_url=paper_base_url,
-                    current_publication_version=current.version,
+                    current_publication_version=(current.version if current is not None else None),
                     automation_config_sha256=automation_config_sha256)
-                if concrete in {"SAFETY_READ", "SAFETY_CANCEL"} and not live:
+                if isinstance(grant, FencedPaperRecoveryGrant):
+                    if concrete != "SAFETY_READ" or live:
+                        raise AuthorityRefused("fenced PAPER recovery has no mutation or LIVE authority")
+                    concrete_cert = safety_authority_check(
+                        conn, required_operation="SAFETY_READ",
+                        required_mode=rollout.mode,
+                        paper_base_url=paper_base_url)
+                    if grant.certificate_sha256 != concrete_cert.certificate_sha256:
+                        raise AuthorityRefused("fenced PAPER recovery signed safety authority changed")
+                elif concrete in {"SAFETY_READ", "SAFETY_CANCEL"} and not live:
                     regular_operation = (
                         "CANCEL" if concrete == "SAFETY_CANCEL"
                         else "EXECUTE_READ")
@@ -424,6 +445,8 @@ def build_fresh_execution_check(
                     if isinstance(grant, LiveExecutionGrant):
                         expected = grant.subject.account_id
                     if isinstance(grant, PaperPreparationGrant):
+                        expected = grant.expected_account
+                    if isinstance(grant, FencedPaperRecoveryGrant):
                         expected = grant.expected_account
                     if expected is None:
                         expected = getattr(

@@ -24,6 +24,7 @@ ROUTES = {
     "inspect-empty-paper-account": paper._inspect_empty_paper_account,
     "bind-empty-paper-account": paper._bind_empty_paper_account,
     "prepare-paper-plan": paper._prepare_paper_plan,
+    "recover-fenced-paper-commands": paper._recover_fenced_paper_commands,
     "execute-paper-plan": paper._execute_paper_plan,
     "install-administrative-certificate": (
         authority._install_administrative_certificate),

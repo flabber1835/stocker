@@ -65,6 +65,7 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
     monkeypatch.setattr(installation,'select_certified_runtime',
         lambda actual:setattr(actual,'runtime_repo_digest',gate.RUNTIME))
     monkeypatch.setattr(activate,'financial_bundle',lambda *a:(bundle.path,bundle.sha256))
+    monkeypatch.setattr(activate,'recover_fenced_paper_commands',lambda *a:None)
     monkeypatch.setattr(core,'deployment_request',lambda **k:pytest.fail('duplicate full reviewed validation'))
     software=core.verify_reviewed_software_environment
     software_calls=[]
@@ -85,7 +86,7 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
         assert lineage==['read'] and events[-1]=='success'
         assert json.loads((tmp_path/'activation-result.json').read_text())['activation_state']=='ACTIVE'
     assert software_calls==[True]
-    assert quiesces==[True]
+    assert quiesces==[True,True]
 
 
 def test_removed_final_fenced_guard_is_detected(monkeypatch,tmp_path):

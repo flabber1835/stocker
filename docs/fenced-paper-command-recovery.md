@@ -6,6 +6,14 @@ at `RETAINED_ADMISSION_REQUIRES_COMMAND_RECONCILIATION`. Its durable CRL command
 was `ACKNOWLEDGED` with zero recorded fills, while exact account-bound broker
 evidence showed that the order had filled. The refusal kept execution fenced.
 
+The owner requested a local patch before today's close for qualification and
+tracing. The patch is not an installed release or permission to bypass the
+protected signed-image path. The current predecessor has only a fenced
+installation receipt, while the existing backed local application handoff
+requires an active predecessor receipt. Close observation can continue read-only
+on the fenced installation; financial activation waits for a qualified supported
+release path.
+
 ## Sequencing and authority
 
 Retained executable admission correctly refuses an overlapping command. The
@@ -36,9 +44,24 @@ identity and exact-account preflight, and before any GO child starts. It passes
 the exact expected PAPER account and installed commit/image identity; the route
 rechecks those facts against the running image and durable binding. The host
 does not execute supplied Python, call `python -c`, import the execution
-reconciler, manufacture a grant, or update the journal itself. A direct CLI
-invocation outside the verified activation context must fail the route's own
-fence, account, image and authority checks.
+reconciler, manufacture a grant, or update the journal itself. The route verifies
+the immutable installed receipt and its digest, plus the fence, account, image
+and authority gates on every invocation. Receipt and command flags alone do
+not prove a live host activation owner; a direct invocation under those exact
+fenced conditions can only settle already durable commands and cannot activate
+the system or authorize broker mutations.
+
+The immutable installation receipt is initially private mode `0600` under the
+host owner, while the signed CLI runs as UID/GID `10001` with a read-only
+authority mount. Before this one route, the existing root-owned
+`sentinel-authority-permissions` helper grants group `10001` read access
+(`0640`) to **only the exact host-verified regular receipt file** beneath the
+configured authority root. The host supplies its canonical relative path as
+one validated environment value, not executable shell text. The helper refuses traversal,
+symlinks, paths outside that root and a different basename; it never follows
+links or edits receipt bytes. The route then rechecks the unchanged SHA-256 and
+strict receipt contents from its read-only mount. The broker-capable CLI stays
+UID `10001` and no other authority file becomes generally readable.
 
 This is a safety observation of **already durable, exact-owned PAPER commands**.
 It does not use the new executable to choose holdings, size a plan, create a
@@ -54,14 +77,29 @@ takeover epoch, endpoint and rollout. This authority deliberately tolerates
 runtime/source drift but grants no submission. If it is unavailable or revoked,
 the stage refuses; activation cannot manufacture a certificate to resolve the
 deadlock. A dedicated typed recovery grant binds the verified installation,
-control generation, account and existing command client keys. A certified
+control generation, account, existing command client keys and their durable
+broker order IDs. A command without a durable broker order ID cannot obtain a
+native-fill read through this pre-GO route; it remains recoverable under the
+ordinary execution contract. A certified
 generation-fenced execution wrapper freshly rechecks the durable kill, disabled
 control, absent lease, account binding, signed safety authority and grant before
-and after **each** broker GET. It exposes only identity, complete observation,
-exact-client-key lookup and native fills for those exact owned orders. `submit`
+and after **each guarded broker read operation**. A complete observation can
+contain several underlying HTTP GETs; a fence change during that read must be
+caught by its after-read check before any journal advancement. It exposes only
+identity, complete observation, exact-client-key lookup and native fills for
+those exact owned orders. `submit`
 and `cancel` are rejected structurally before transport, including when a
 caller invokes the wrapper directly. No broker POST, DELETE or order retry is
 part of this stage.
+
+The certified production adapter does not claim complete recent terminal-order
+history. Its terminal-history operation correctly reports PARTIAL. This route
+uses its certified complete current account observation, exact client-key GETs
+for the retained durable commands, and native owned-fill GETs. It rejects an
+unknown Sentinel key present in that current observation before canonical
+reconciliation. A closed broker-only key absent from that observation is not
+enumerated, adopted, or used as evidence for this recovery. The route cannot
+upgrade the adapter's terminal-history capability to make admission pass.
 
 Use the existing execution reconciliation membrane and journal to validate
 account-bound observation, exact order economics and client key, native fill
@@ -72,8 +110,8 @@ Sentinel client key must already name a durable command for this binding, and
 exact-key and native-fill reads are limited to those commands. A broker-only
 key or unrelated order is a refusal here, not permission to adopt or submit
 it before source admission. The canonical reconciliation algorithm does not
-need a second implementation or a changed command-transition rule. Preserve the ordinary
-informational dual-account treatment of exact owned fills; do not use another
+need a second implementation or a changed command-transition rule. Preserve the
+ordinary informational dual-account treatment of exact owned fills; do not use another
 strategy book or treat Activity SSE cash and the same fill ledger as two trades.
 Persist positive fills and the command transition only through canonical journal
 operations. UNKNOWN, absent exact-key evidence, still-working orders, malformed
@@ -137,8 +175,13 @@ contribution, backtest authority, or LIVE permission changes.
   failed recovery cannot reach GO or any activation authority mutation.
 - Assert the host calls only the digest-qualified authorized CLI route, with
   exact installed commit/image/account arguments, and cannot use a `python -c`
-  execution shortcut. A direct CLI call with missing activation context, wrong
-  account, altered image, LIVE URL or stale control generation must refuse.
+  execution shortcut. A direct CLI call with a missing or altered receipt,
+  wrong account, altered image, LIVE URL or stale control generation must refuse.
+- Start with a `0600` immutable receipt owned by another UID. Prove the
+  one-file permissions helper grants UID/GID `10001` read access without
+  changing its bytes or SHA. Traversal, symlink, wrong basename and a path
+  outside the authority root must refuse before any permission change; the
+  signed CLI itself must remain non-root.
 - Mutation-test the exact source-transition profile and command-overlap fence;
   changed/unreviewed source bytes or a skipped/failed preflight must still make
   retained admission refuse. Keep the focused PR checks and protected exact-head

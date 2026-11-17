@@ -222,6 +222,93 @@ def financial_bundle(obj, request):
     return path, hashes[0]
 
 
+def grant_installation_receipt_read(obj, request):
+    """Grant only the installed receipt to the non-root signed CLI user."""
+    try:
+        root_path = Path(obj.cfg.authority_dir).absolute()
+        receipt_path = Path(request['installation_receipt']).absolute()
+        parts = receipt_path.relative_to(root_path).parts
+        if any(part in {'.', '..'} for part in parts):
+            raise core.DeployRefused('fenced recovery receipt path contains traversal')
+        current = root_path
+        for part in parts:
+            current = current / part
+            if current.is_symlink():
+                raise core.DeployRefused('fenced recovery receipt path follows a symlink')
+        root = root_path.resolve(strict=True)
+        receipt = receipt_path.resolve(strict=True)
+        relative = receipt.relative_to(root).as_posix()
+    except (KeyError, OSError, ValueError) as exc:
+        raise core.DeployRefused('fenced recovery receipt escaped authority root') from exc
+    if (not receipt.is_file()
+            or re.fullmatch(r'deployments/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}(?:-[0-9]+)?/installation-receipt\.json',
+                            relative) is None
+            or digest(receipt) != request['installation_sha256']):
+        raise core.DeployRefused('fenced recovery receipt path or bytes changed')
+    obj.runner.run(obj._authorized_compose() + [
+        '--profile', 'authorized-cli', 'run', '--rm', '-T', '--no-deps',
+        '-e', 'SENTINEL_RECOVERY_RECEIPT_REL=' + relative,
+        'sentinel-authority-permissions'], timeout=min(30, obj.cfg.health_timeout))
+
+
+def recover_fenced_paper_commands(obj, request, receipt):
+    """Settle exact owned commands through the signed PAPER CLI before GO."""
+    if request['mode'] not in {'dual', 'paper'}:
+        return
+    obj.phase('activation: reconcile fenced PAPER commands before GO')
+    control = obj._automation_status()
+    generation = control.get('control_generation')
+    if (control.get('enabled') is not False
+            or control.get('kill_switch_engaged') is not True
+            or type(generation) is not int or generation < 1):
+        raise core.DeployRefused('pre-GO PAPER recovery requires disabled+killed control')
+    grant_installation_receipt_read(obj, request)
+    args = [
+        'recover-fenced-paper-commands',
+        '--installation-receipt', obj._authorized_artifact(
+            Path(request['installation_receipt'])),
+        '--confirm-installation-sha256', request['installation_sha256'],
+        '--confirm-paper-account', obj.cfg.account_id,
+        '--confirm-deployment-id', obj.cfg.deployment_id,
+        '--confirm-installed-commit', request['source_commit'],
+        '--confirm-installed-runtime-image', receipt['runtime_image'],
+        '--confirm-control-generation', str(generation),
+    ]
+    completed = obj._authorized_cli(
+        args, capture=True, check=False, timeout=obj.cfg.health_timeout)
+    if completed.returncode != 0:
+        core._raise_command_refusal(completed, getattr(completed, 'args', args))
+    if (getattr(completed, 'stderr', '') or '').strip():
+        raise core.DeployRefused('pre-GO PAPER recovery returned unexpected diagnostic output')
+    result = core._json_output(completed, label='pre-GO PAPER command recovery')
+    expected = {'schema', 'status', 'installation_sha256', 'git_commit',
+                'runtime_image', 'deployment_id', 'paper_account_id',
+                'control_generation', 'command_keys_sha256', 'observation_id',
+                'in_flight_commands', 'broker_mutations'}
+    status = result.get('status')
+    observation_id = result.get('observation_id')
+    if (set(result) != expected
+            or result['schema'] != 'sentinel.fenced-paper-command-recovery/1'
+            or not isinstance(status, str)
+            or status not in {'SKIPPED_CLEAN', 'RECONCILED'}
+            or result['installation_sha256'] != request['installation_sha256']
+            or result['git_commit'] != request['source_commit']
+            or result['runtime_image'] != receipt['runtime_image']
+            or result['deployment_id'] != obj.cfg.deployment_id
+            or result['paper_account_id'] != obj.cfg.account_id
+            or type(result['control_generation']) is not int
+            or result['control_generation'] != generation
+            or not isinstance(result['command_keys_sha256'], str)
+            or re.fullmatch('[0-9a-f]{64}', result['command_keys_sha256']) is None
+            or (status == 'SKIPPED_CLEAN' and observation_id is not None)
+            or (status == 'RECONCILED'
+                and (type(observation_id) is not int or observation_id < 1))
+            or type(result['in_flight_commands']) is not int
+            or result['in_flight_commands'] != 0
+            or result['broker_mutations'] is not False):
+        raise core.DeployRefused('pre-GO PAPER recovery returned incomplete or contradictory evidence')
+
+
 def attempt(path, request, receipt, *, environment_writer=None):
     env = core.merged_environment()
     try:
@@ -260,11 +347,13 @@ def attempt(path, request, receipt, *, environment_writer=None):
         # Supplied bundles need only byte parsing here. run_activation owns the
         # fresh fence before lineage/mutation. GO may start source services, so
         # a generated bundle still needs both the pre-GO and post-GO boundaries.
-        if request['bundle'] is None:
+        if request['bundle'] is None or request['mode'] != 'shadow':
             if not obj._quiesce_database():
                 raise core.DeployRefused('activation could not confirm execution fence')
             if request['mode'] != 'shadow':
                 obj.read_paper_account()
+                obj.confirm_disabled_activation_fence()
+                recover_fenced_paper_commands(obj, request, receipt)
         bundle, confirmation = financial_bundle(obj, request)
         # Parse the signed proposal here; run_activation binds software/account
         # and reads current financial lineage once after confirming its fence.

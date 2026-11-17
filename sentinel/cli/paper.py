@@ -20,6 +20,33 @@ from sentinel.cli import authority as authority_cli
 from sentinel.config import SentinelConfig, build_execution_broker
 
 
+@authorized_handler("recover-fenced-paper-commands")
+async def _recover_fenced_paper_commands(config: SentinelConfig, args) -> int:
+    """One signed, GET-only route for an installed-but-killed PAPER upgrade."""
+    refusal = require_authorized_runtime("recover-fenced-paper-commands")
+    if refusal is not None:
+        return refusal
+    from sentinel.execution import fenced_paper_recovery as fenced
+    try:
+        fenced.installation_receipt(
+            path=args.installation_receipt,
+            sha256=args.confirm_installation_sha256,
+            account=args.confirm_paper_account,
+            deployment=args.confirm_deployment_id,
+            commit=args.confirm_installed_commit,
+            image=args.confirm_installed_runtime_image)
+        result = await fenced.recover(
+            config=config, installation_sha256=args.confirm_installation_sha256,
+            account=args.confirm_paper_account,
+            deployment=args.confirm_deployment_id,
+            generation=args.confirm_control_generation,
+            image=args.confirm_installed_runtime_image)
+    except (fenced.FencedPaperRecoveryRefused, OSError, ValueError, RuntimeError) as exc:
+        return _paper_refused(exc)
+    print(json.dumps(result, sort_keys=True))
+    return EXIT_OK
+
+
 def _administrative_identity_session() -> str:
     """Inspect today's account using an actual XNYS identity session."""
     from sentinel.feed import calendar
