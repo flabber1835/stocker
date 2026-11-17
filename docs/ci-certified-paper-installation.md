@@ -58,6 +58,29 @@ merge and have no main-push trigger. Applicable optional checks must also pass.
 No elapsed-time, trading-session, broker, book or installation admission rule is
 changed. Software certification remains separate from financial activation.
 
+### Runner generation for image transfer
+
+Decision: 2026-11-17. Pin the safety image builder, its parallel consumers and
+exact-head assembler, and the protected publisher that loads the certified
+runtime to the explicit `ubuntu-24.04` runner label. GitHub's
+[`ubuntu-latest` migration](https://github.com/actions/runner-images/issues/14748)
+can assign different OS generations to jobs in one workflow run. In PR 601,
+the build and successful worker used Ubuntu 24.04 image `20261111.370.1`,
+while the final exact-head assembler used Ubuntu 26.04 image
+`20261111.196.1`. The downloaded bundle's archive hash and both image-config
+digests matched the builder's manifest, and a 24.04 worker loaded that same
+bundle with the expected IDs. The 26.04 assembler loaded both named images,
+but at least one loaded image ID differed; the old generic diagnostic did not
+identify which. Certification correctly refused.
+
+Keep the archive hash, exact source/attempt, image revision and both post-load
+image-ID comparisons mandatory. A runner migration requires an independently
+qualified change of this explicit label across every image producer and
+consumer; it cannot be handled by accepting a different loaded ID. On refusal,
+name which image reference diverged and report only the expected and observed
+image digests, so a runner compatibility failure can be diagnosed without
+weakening the certificate.
+
 ### Protected publication retries
 
 GitHub can retain several provenance artifacts under one name when protected
