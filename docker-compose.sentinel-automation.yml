@@ -74,7 +74,7 @@ services:
     network_mode: "none"
     user: "0:0"
     cap_drop: ["ALL"]
-    cap_add: ["DAC_OVERRIDE", "FOWNER"]
+    cap_add: ["DAC_OVERRIDE", "FOWNER", "CHOWN"]
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["sh", "-ceu"]
     command:

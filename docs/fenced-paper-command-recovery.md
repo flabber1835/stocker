@@ -63,6 +63,14 @@ links or edits receipt bytes. The route then rechecks the unchanged SHA-256 and
 strict receipt contents from its read-only mount. The broker-capable CLI stays
 UID `10001` and no other authority file becomes generally readable.
 
+The helper drops all container capabilities, then receives only `DAC_OVERRIDE`,
+`FOWNER` and `CHOWN`. The installed receipt belongs to the host owner, so root
+inside the helper needs `CHOWN` to set its group to `10001`; the other two
+capabilities do not authorize `chgrp`. This grant applies only to the short-lived,
+network-isolated permission helper. Qualification must run the helper against a
+disposable host-owned authority bind mount with the Compose capability set and
+must show that removing `CHOWN` refuses before the exact receipt is changed.
+
 This is a safety observation of **already durable, exact-owned PAPER commands**.
 It does not use the new executable to choose holdings, size a plan, create a
 command, acquire financial GO, or interpret an old plan as current. Retained GO
