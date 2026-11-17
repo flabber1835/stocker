@@ -11,13 +11,15 @@ def paper_unknown(include_paper, detail, retained=None, *, checking_until=None):
 class DurableProjection:
     """The production panel is only a consumer and cannot create proof workers."""
 
-    def read(self, database_url, *, include_paper=True):
+    def read(self, database_url, *, include_paper=True, with_error_scopes=False):
         from sentinel.panel import read_projection
         try:
-            return read_projection.read(database_url, include_paper=include_paper)
+            return read_projection.read(database_url, include_paper=include_paper,
+                **({'with_error_scopes': True} if with_error_scopes else {}))
         except Exception as exc:
-            return financial._unknown(include_paper,
+            unknown = financial._unknown(include_paper,
                 'durable verification unavailable: '+type(exc).__name__)
+            return (*unknown, {'GLOBAL': list(unknown[3])}) if with_error_scopes else unknown
 
 
 monitor = DurableProjection()

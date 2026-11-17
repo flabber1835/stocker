@@ -373,9 +373,11 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              initial_paper_recovery: Mapping | None = None,
                              legacy_cash_retirement: Mapping | None = None,
                              unsent_policy_replacement: Mapping | None = None,
+                             activation_backup_retry: bool = False,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
-    _require_mutation_backup(conn, operation="paper plan preparation")
+    entry_options = {"activation_backup_retry": True} if activation_backup_retry else {}
+    _require_mutation_backup(conn, operation="paper plan preparation", **entry_options)
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker, expected_wrapper_kind=None)
     schema.require_runtime_schema(conn)
@@ -439,7 +441,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         config = controller_config or load_controller()
         identity = dict(strategy_identity or runtime_strategy_identity(config))
 
-    with journal.writer_lock(conn):
+    with journal.writer_lock(conn, **entry_options):
         # Ownership is checked under the same lock as plan adoption and before
         # the first broker read. An unbound inherited book is migration input,
         # never something daily preparation may adopt.

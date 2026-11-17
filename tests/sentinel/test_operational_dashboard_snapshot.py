@@ -97,6 +97,17 @@ def test_roundtrip_preserves_every_nested_schema_and_original_clocks():
     assert fact.exposure == Decimal('.55')
 
 
+def test_signed_financial_error_ownership_must_match_the_aggregate():
+    original = replace(panel(), source_errors=['shared', 'shared'],
+                       financial_source_errors={'SHADOW': ['shared'], 'PAPER': ['shared']})
+    value, signed = encode(original)
+    assert decode(value, signed).panel.financial_source_errors == original.financial_source_errors
+    value['panel']['source_errors'].pop()
+    signed = review_store.signature(value, purpose=snapshot.PURPOSE)
+    with pytest.raises(snapshot.SnapshotUnavailable, match='SOURCE_ERRORS'):
+        decode(value, signed)
+
+
 def test_paper_subject_change_is_exposed_without_erasing_independent_shadow():
     value, signed = encode()
     before = decode(value, signed)

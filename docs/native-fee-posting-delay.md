@@ -34,6 +34,45 @@ refusals retain their existing behavior.
 The host loads the shared, dependency-free wire definition from its exact file
 without adding the inspection checkout to the Python module search path.
 
+## Display during fenced activation
+
+The software installation receipt retains its installed timestamp while the
+activation owner waits for Alpaca cash. For reviewed dual activation of backed
+owner PAPER, the existing fenced-authority probe publishes a short-lived,
+authenticated observation after the plan-preparation command returns the typed
+cash wait. It uses the existing shared state volume and the activation's
+original finite cutoff and exact certificate.
+The observation binds the decision session, source publication, disabled and
+killed control generation, active certificate, and local runtime identity.
+Each refresh requires a new fee-wait result. Fencing, a changed subject, a
+terminal activation outcome or a stale observation withdraws the display.
+
+The verifier and dashboard consume this observation through the existing
+operational projection. During a verified wait, expected missing worker
+readiness and withdrawn financial views are pending, and the dashboard shows
+amber with the Alpaca fee wait. Unrelated failures and corrupt evidence keep
+their existing severity. Historical views keep their original status and
+clocks. The wait supplies no machine readiness or trading authority. Ordinary
+health resumes when activation ends and current checks provide fresh evidence.
+
+The PAPER verifier must also distinguish an expected withdrawal from a failed
+observation. When its existing historical-mirror branch cannot prove this
+decision's scheduled readiness during the exact authenticated activation
+wait, publish a bounded pending row at the source. This prevents the owned
+verification attempt from recording the historical mismatch as a new failure
+on each poll. The verifier schedules a new check before that row's original
+deadline and publishes its original clock. Consumers recheck the wait before
+using the pending row. An expired or changed wait withdraws that explanation.
+Current mismatches,
+invalid evidence, and unrelated operator review history retain their
+existing treatment.
+
+Retain the signed PAPER predecessor `4563851899ea5eaa157ae1c82e9fe72d2d298e2f`
+with all 488 archived Python modules and source closure
+`6beb79df5cfdf84d9ba1a266e413fd13254aae06bbe07578bcb92451d93fba8c`.
+The source transition appends that exact inventory and seals the new runtime
+without changing earlier retained records or granting execution authority.
+
 Preserve the immutable plan baseline, canonical book, journal, account and
 source history. Qualify using the real native-activity ledger, the opening
 scheduler and the fenced activation protocol, including tests for unexplained

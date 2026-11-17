@@ -396,7 +396,8 @@ class Reader:
                             rows = [replace(row,
                                 as_of=((row.as_of or observed)
                                        if (historical_source_wait and row.key != 'paper_reconciliation'
-                                           or model.observed_opening_cutoff(row, now=observed))
+                                           or model.observed_opening_cutoff(row, now=observed)
+                                           or model.activation_fee_paper_pending(row))
                                        else observed),
                                 freshness=timedelta(seconds=FRESH_SECONDS),
                                 required_current=(row.required_current or row.status != model.WARN))
@@ -480,6 +481,9 @@ class Reader:
                     retry_failed_check = False
             refresh_due = (fresh is None or retry_failed_check or self.identity_failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
+            if fresh is not None and len(rows) == 1 and model.activation_fee_paper_pending(rows[0]):
+                refresh_due = (refresh_due or self.wall_clock()+timedelta(seconds=RETRY_SECONDS)
+                               >= rows[0].valid_until)
             coalesced = self._coalesced_retry
             if coalesced is not None:
                 if (coalesced[0] != self.attempt_id or key == coalesced[1]

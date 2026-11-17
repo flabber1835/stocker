@@ -121,7 +121,7 @@ def _wire_administrative_inspection(monkeypatch):
     return grant, guard
 
 
-def _inspection_result():
+def _inspection_result(*, notional_order: bool = False):
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("alpaca", "paper-123"),
         equity=Decimal("12345.67"), cash=Decimal("2345.67"),
@@ -134,15 +134,24 @@ def _inspection_result():
         positions=(BrokerPosition(instrument, Decimal("5.25")),),
         orders=(BrokerOrder(
             broker_order_id="order-1", client_key=None,
-            instrument=instrument, side=Side.SELL,
-            state=CommandState.ACKNOWLEDGED, quantity=Decimal(2)),))
+            instrument=instrument,
+            side=Side.BUY if notional_order else Side.SELL,
+            state=(CommandState.PARTIALLY_FILLED if notional_order
+                   else CommandState.ACKNOWLEDGED),
+            quantity=None if notional_order else Decimal(2),
+            notional=Decimal("150.00") if notional_order else None,
+            filled_quantity=Decimal("0.25") if notional_order else Decimal(0),
+            filled_average_price=(Decimal("100") if notional_order
+                                  else None)),))
     return paper.PaperAccountInspection(
         endpoint=DEFAULT_BASE_URL, expected_account="paper-123",
         account=account, observation=observation, binding=None)
 
 
+@pytest.mark.parametrize("notional_order", [False, True],
+                         ids=["quantity-sell", "partial-notional-buy"])
 def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
-        monkeypatch, capsys):
+        monkeypatch, capsys, notional_order):
     calls = []
     conn = _Connection()
     monkeypatch.setattr(
@@ -161,7 +170,7 @@ def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
 
     async def inspect(**kwargs):
         calls.append(("inspect", kwargs))
-        return _inspection_result()
+        return _inspection_result(notional_order=notional_order)
 
     monkeypatch.setattr(paper, "inspect_paper_account", inspect)
     grant, guard = _wire_administrative_inspection(monkeypatch)
@@ -182,7 +191,16 @@ def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
     assert output["binding_state"] == "UNBOUND"
     assert output["broker_mutations_permitted"] is False
     assert output["positions"][0]["quantity"] == "5.25"
-    assert output["working_open_orders"][0]["remaining_quantity"] == "2"
+    order = output["working_open_orders"][0]
+    if notional_order:
+        assert order["side"] == "BUY"
+        assert order["quantity"] is None
+        assert order["notional"] == "150.00"
+        assert order["filled_quantity"] == "0.25"
+        assert order["remaining_quantity"] is None
+    else:
+        assert order["remaining_quantity"] == "2"
+        assert "notional" not in order
     assert calls[-1][1] == {
         "conn": conn,
         "broker": ("guarded-admin", broker, grant, guard),
@@ -258,6 +276,7 @@ def test_prepare_builds_resolver_after_schemas_and_prints_json(
         "through": "2026-08-12",
         "expected_account": "paper-123",
         "warmup_sessions": 252,
+        "activation_backup_retry": True,
     }
     assert conn.closed
 

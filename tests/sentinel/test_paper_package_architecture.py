@@ -209,6 +209,10 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                         node.name, {}).get("generated_ast_sha256")
                 else:
                     record = manifest["definitions"][node.name]
+                if node.name == 'prepare_paper_plan':
+                    source = ast.dump(node, annotate_fields=True, include_attributes=False)
+                    if record['activation_backup_entry']['source_ast_sha256'] != hashlib.sha256(source.encode()).hexdigest():
+                        unreviewed.append(f"unreviewed canonical paper definition: {module_name}.{node.name}")
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
@@ -284,6 +288,8 @@ def _check_and_remove_backup_gate_delta(node):
     if node.name == 'prepare_paper_plan':
         # The prior plan-work patch added this exact performance-only scope.
         owner = next(item for item in node.body if isinstance(item, ast.With))
+        expected_owner = ast.parse('with journal.writer_lock(conn, **entry_options):\n    pass').body[0]
+        assert [ast.dump(item) for item in owner.items] == [ast.dump(item) for item in expected_owner.items]
         extra_import = ast.parse('from sentinel import structural_verification').body[0]
         positions = [i for i, item in enumerate(owner.body)
             if ast.dump(item) == ast.dump(extra_import)]
@@ -325,7 +331,14 @@ def _check_and_remove_backup_gate_delta(node):
         expected = ast.parse(
             "_require_mutation_backup(conn, operation="
             + repr(operations[node.name]) + ")").body[0]
-        if node.name == "execute_automated_paper_plan":
+        if node.name == "prepare_paper_plan":
+            gate = ast.parse(
+                'entry_options = {"activation_backup_retry": True} if activation_backup_retry else {}\n'
+                '_require_mutation_backup(conn, operation="paper plan preparation", **entry_options)\n'
+            ).body
+            assert [ast.dump(item) for item in node.body[1:3]] == [ast.dump(item) for item in gate]
+            del node.body[2]
+        elif node.name == "execute_automated_paper_plan":
             gate = ast.parse(
                 'try:\n'
                 '    _require_mutation_backup(conn, operation="automated paper order execution")\n'
@@ -454,6 +467,8 @@ def test_recovery_scope_witness_refuses_other_wrapper_changes(before, after):
     ('structural_verification.callback(conn)', 'structural_verification.callback(other)'),
     ('feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn)',
      'feed_inputs.pinned(conn, commit=True) as pinned, structural_verification.callback(conn)'),
+    ('if activation_backup_retry else {}', 'if True else {}'),
+    ('with journal.writer_lock(conn, **entry_options):', 'with journal.writer_lock(conn):'),
 ])
 def test_preparation_scope_witness_refuses_other_wrapper_changes(before, after):
     source = (PACKAGE / 'preparation.py').read_text()

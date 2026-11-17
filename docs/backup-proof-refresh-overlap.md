@@ -27,6 +27,32 @@ on a concurrent hit. A busy owner with no eligible receipt remains a retryable
 strict refusal and does not call the absent-media policy. Actual media failures
 retain their ordinary classification and continuity checks.
 
+### Retry the fenced activation step
+
+Retained PAPER activation can encounter a busy proof during certificate
+installation or while rechecking account cash during plan preparation. Report
+that outcome across the authorized CLI boundary with a dedicated exit status
+and an exact, versioned result naming the command. Only the first preparation
+proof and the proof checks before entry to the command's outer writer scope
+may report this outcome. Those checks run before the requested mutation.
+Ambiguous results, refusal from the command body and other failures remain
+terminal.
+
+While it owns activation, the host retries the identical certificate
+installation, activation or rotation, plan preparation, automation enable or
+kill-release command. It retains the exact candidate and signed certificate
+and does not replay preceding phases. Require stopped financial writers and
+the appropriate held kill fence before each retry. Give each refused step up
+to five minutes for a fresh proof, bounded by the reviewed bundle expiry and,
+when established, the original execution-open or fee-wait cutoff. No retry
+extends any of those clocks or substitutes evidence from absent media. On
+expiry, preserve the durable fence. If a retry occurs during a verified Alpaca
+fee wait, it does not renew the display observation without a fresh fee result.
+
+Qualify the CLI's exclusive pre-mutation result and the host's exact-command
+retries for certificate installation and plan preparation, including contention
+after a fee wait, expiry, malformed results and the unchanged fence.
+
 After both metadata observations and the current selection and frontier checks,
 reread the exact authenticated primary-local receipt. The existing atomic file rename
 orders the final file observation against publication and invalidation, even

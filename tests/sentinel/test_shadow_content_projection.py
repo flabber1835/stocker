@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import inspect
+from types import SimpleNamespace
 
 import pytest
 from psycopg.types.json import Jsonb
@@ -100,6 +101,85 @@ def test_changed_rollout_cannot_reuse_old_plan_adoption(monkeypatch):
     monkeypatch.setattr(sources,'_rollout_state',lambda _:dict(mode='PINNED_1_00',version=2,certificate_sha256=None))
     with pytest.raises(ValueError,match='rollout authority disagree'):
         execution.project(None,proof_rows(),observed_at=NOW,valid_until=NOW+timedelta(seconds=600),now=NOW)
+
+
+@pytest.mark.parametrize('defect', [None, 'no_wait', 'wrong_certificate',
+    'missing_predecessor', 'different_mode', 'different_exposure'])
+def test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn, monkeypatch, defect):
+    from sentinel import activation_fee_wait
+    from sentinel.feed import calendar
+
+    install_projection(conn)
+    prior, successor = 'a'*64, 'b'*64
+    session = NOW.date().isoformat()
+    for version, start, end, certificate in (
+            (2, 'PINNED_1_00', 'CONTROLLER', prior),
+            (3, 'CONTROLLER', 'CONTROLLER', successor)):
+        if defect == 'missing_predecessor' and version == 2:
+            continue
+        conn.execute('INSERT INTO sentinel_rollout_events '
+            '(version,from_mode,to_mode,certificate_sha256,reason) VALUES (%s,%s,%s,%s,%s)',
+            (version, 'PINNED_1_00' if defect == 'different_mode' and version == 3 else start,
+             end, certificate, 'fixture'))
+    key = projection.subject(conn, conn.info.dsn, 'SHADOW')
+    expiry = NOW+timedelta(seconds=600)
+    value, signature = projection.make('SHADOW',key,proof_rows(),[],observed_at=NOW)
+    conn.execute('INSERT INTO sentinel_operational_verification_receipts VALUES (%s,%s,%s,%s,%s,%s)',
+        ('SHADOW',key,NOW,expiry,Jsonb(value),signature))
+    conn.commit()
+    plan = dict(plan_id='prior', decision_session=session, effective_session=calendar.next_session(session),
+        target_exposure=Decimal('0.60' if defect == 'different_exposure' else '0.65'),
+        rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256=prior)
+    monkeypatch.setattr(sources,'_current_plan',lambda _:plan)
+    monkeypatch.setattr(sources,'_rollout_state',lambda _:dict(mode='CONTROLLER',version=3,
+        certificate_sha256=successor))
+    wait = SimpleNamespace(decision_session=NOW.date(),valid_until=NOW+timedelta(seconds=90),
+        certificate_sha256=('c'*64 if defect == 'wrong_certificate' else successor))
+    monkeypatch.setattr(activation_fee_wait,'read_owned',lambda *_a,**_k: None if defect == 'no_wait' else wait)
+    result, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=NOW+timedelta(seconds=30))
+    rows = {row.key: row for row in result}
+    assert rows['exposure'].status == model.UNKNOWN
+    if defect is None:
+        assert not errors
+        assert rows['exposure'].valid_until == wait.valid_until
+        assert rows['exposure'].operational_fact.state == 'ROLLOUT_RENEWAL_PENDING'
+        assert all(rows[k].status == model.OK and rows[k].as_of == NOW
+                   for k in projection.SHADOW_KEYS - {'exposure'})
+    else:
+        assert errors and rows['shadow_verification'].status == model.UNKNOWN
+        assert rows['exposure'].operational_fact is None
+
+
+def test_wrong_fee_certificate_falsifies_removed_binding_guard(conn, monkeypatch):
+    source = inspect.getsource(projection._activation_renewal_exposure)
+    binding = 'or current_certificate != wait.certificate_sha256'
+    assert source.count(binding) == 1
+    namespace = {}
+    exec(compile(source.replace(binding, ''), '<removed wait certificate binding>', 'exec'),
+         projection.__dict__, namespace)
+    monkeypatch.setattr(projection, '_activation_renewal_exposure', namespace['_activation_renewal_exposure'])
+    with pytest.raises(AssertionError):
+        test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn, monkeypatch, 'wrong_certificate')
+
+
+@pytest.mark.parametrize('defect', [None, 'released', 'expired', 'other_image', 'negative_verdict'])
+def test_only_exact_fenced_lifecycle_can_explain_an_unwritten_runtime_verdict(monkeypatch, defect):
+    from sentinel import local_paper
+
+    commit, image = 'b'*40, 'sha256:'+'a'*64
+    monkeypatch.setattr(local_paper, 'enabled', lambda: True)
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', commit)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', image)
+    control = dict(enabled=False,killed=defect != 'released',certificate_sha256='c'*64)
+    lifecycle = dict(lifecycle_status='ACTIVE',lifecycle_current=defect != 'expired',
+        certificate_sha256='c'*64,reviewed_git_commit=commit,
+        reviewed_image_digest='sha256:'+'d'*64 if defect == 'other_image' else image)
+    row = sources._execution_authority_display(lifecycle, control,
+        verdict='FAIL' if defect == 'negative_verdict' else None, detail=None, checked_at=None)
+    assert row.status in {model.FAIL,model.UNKNOWN}
+    assert (row.operational_fact is not None) is (defect is None)
+    if defect is None:
+        assert row.operational_fact.state == 'ACTIVATION_VERDICT_WITHDRAWN'
 
 
 def test_removed_plan_coherence_guard_is_detected(monkeypatch):

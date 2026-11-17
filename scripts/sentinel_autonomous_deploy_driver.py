@@ -628,6 +628,7 @@ c.rollback(); c.close()
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         timing = self.assert_activation_timing(decision_session)
+        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
         self.quiesce_activation_writers()
         self.phase("plan: prepare and re-read one exact durable paper plan")
         prepare_args = [
@@ -663,14 +664,15 @@ c.rollback(); c.close()
             self._native_fee_wait_seconds(fee_deadline)
         self.phase(
             "automation: activate behind kill with financial services stopped")
-        self._authorized_cli([
+        self._activation_backup_cli([
             "activate-paper-automation",
             "--confirm-paper-account", self.cfg.account_id,
             "--confirm-deployment-id", self.cfg.deployment_id,
             "--confirm-certificate-sha256", certificate_sha256,
             "--confirm-old-writer-fenced", "--actor", self.cfg.actor,
             "--reason", "autonomous deployment",
-            "--confirm-enable-unattended-alpaca-paper-automation"])
+            "--confirm-enable-unattended-alpaca-paper-automation"],
+            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff)
         killed = self._automation_status()
         if (killed.get("enabled") is not True
                 or killed.get("kill_switch_engaged") is not True
@@ -687,14 +689,15 @@ c.rollback(); c.close()
         authorize_requested(self, certificate_sha256, decision_session)
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
-        self._authorized_cli([
+        self._activation_backup_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
             "--confirm-deployment-id", self.cfg.deployment_id,
             "--confirm-certificate-sha256", certificate_sha256,
             "--actor", self.cfg.actor,
             "--reason", "autonomous deployment verified",
-            "--confirm-release-unattended-paper-kill-switch"])
+            "--confirm-release-unattended-paper-kill-switch"],
+            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff)
         self.start_activated_runtime(certificate_sha256, decision_session)
         return current
 

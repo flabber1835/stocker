@@ -72,6 +72,22 @@ An unchanged owner ID is insufficient: require its current lease to be live.
 No HTTP collection, financial observer, broker request, incident write, new
 polling service or corpus verification is introduced.
 
+Financial source errors have the same receipt ownership as their rows. The
+signed composition records the exact error strings by SHADOW and PAPER scope;
+a failure of the whole durable financial read is recorded separately as a
+financial collection error. A changed receipt replaces only its scope's errors
+inside the same owned transaction that revalidates its rows. A whole-read error
+can belong to an unchanged scope, so retire it only after re-reading every
+financial scope selected by the deployment in one owned transaction; reproject
+all of those current financial rows and scope errors together. If that full
+read refuses, retain the whole-read error and still revalidate the changed
+receipt alone after rolling back the failed read to a transaction savepoint.
+Rebuild the public error
+list from those owned entries and the unchanged nonfinancial errors, preserving
+duplicate strings that came from distinct sources. Never identify ownership by
+message prefix or retain a superseded financial error until a full collection.
+This is presentation and review provenance, not a financial authority claim.
+
 Fast reuse validates context and dependencies once in its final owned publication
 transaction. Do not open an earlier coordinate transaction only to discard its
 subjects and repeat the complete validation before commit. The bounded worker

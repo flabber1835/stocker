@@ -17,7 +17,7 @@ import uuid
 
 from psycopg.errors import LockNotAvailable, QueryCanceled, SerializationFailure
 
-from sentinel.panel import authority_reader as financial, observer_codec, observer_failure, read_projection
+from sentinel.panel import authority_reader as financial, model, observer_codec, observer_failure, read_projection
 from sentinel.panel import operational_schema as schema
 from sentinel.panel.verification_monitor import paper_unknown
 from sentinel.panel.verification_health import VERIFIER_HEARTBEAT
@@ -107,6 +107,8 @@ def snapshot(reader, result, *, scope, now):
         if reader.completed is not None:
             rows, errors, observed = reader.completed
             expiry = observed+timedelta(seconds=financial.FRESH_SECONDS)
+            if len(rows) == 1 and model.activation_fee_paper_pending(rows[0]):
+                expiry = min(expiry, rows[0].valid_until)
         else:
             rows, _, _, errors = result
             retained = reader.negative_result if scope == 'PAPER' else None

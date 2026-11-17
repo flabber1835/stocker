@@ -399,7 +399,7 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
         payload = Path(args.certificate).read_bytes()
         conn = feed_store.connect(config.database_url)
         schema.require_runtime_schema(conn)
-        with journal.writer_lock(conn):
+        with journal.writer_lock(conn, activation_backup_retry=True):
             binding = binding_mod.require(conn)
             rollout = authority.load_rollout_state(conn)
             prospective = authority.verify_signed_certificate(
@@ -431,7 +431,7 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
                 confirm_sha256=args.confirm_certificate_sha256,
                 context=context, reason=args.reason, commit=False)
     except (OSError,) + _paper_refusal_types() as exc:
-        return _paper_refused(exc)
+        return _paper_refused(exc, activation_command="install-system-certificate")
     finally:
         if conn is not None:
             conn.close()
@@ -471,7 +471,7 @@ def _activate_system_certificate(config: SentinelConfig, args) -> int:
     try:
         conn = feed_store.connect(config.database_url)
         schema.require_runtime_schema(conn)
-        with journal.writer_lock(conn):
+        with journal.writer_lock(conn, activation_backup_retry=True):
             binding = binding_mod.require(conn)
             if (args.confirm_paper_account != binding.broker_account_id
                     or args.confirm_deployment_id != binding.deployment_id):
@@ -530,7 +530,8 @@ def _activate_system_certificate(config: SentinelConfig, args) -> int:
                     args.confirm_pinned_rollout_may_increase_exposure),
                 commit=False)
     except _paper_refusal_types() as exc:
-        return _paper_refused(exc)
+        return _paper_refused(exc, activation_command=(
+            "rotate-system-certificate" if rotating else "activate-system-certificate"))
     finally:
         if conn is not None:
             conn.close()

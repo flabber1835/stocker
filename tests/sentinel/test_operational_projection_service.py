@@ -1,8 +1,10 @@
 """Actual PostgreSQL operational ownership, review/snapshot atomicity and ACK."""
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
+from threading import Event
 import time
+from types import SimpleNamespace
 import uuid
 
 import psycopg
@@ -74,6 +76,100 @@ def state(conn):
     review_store.authenticate(dict(scope=key, state=row[0]), row[1], purpose=review_store.SCHEMA)
     conn.rollback()
     return row[0]
+
+
+@pytest.mark.parametrize('case', ['fee_wait', 'current_mismatch', 'removed_fee_attribution'])
+def test_owned_paper_observer_records_only_actual_failure_during_fee_wait(
+        operational, monkeypatch, case):
+    from sentinel import activation_fee_wait, informational_paper_mirror as mirror
+    from sentinel.panel import attempt_store, authority_reader, observer_codec, read_projection
+    from sentinel.panel import sources, verification_service as verifier
+
+    conn, owner, _ = operational
+    decision = date(2026, 11, 16)
+    observed = review_store.database_now(conn)
+    cutoff = observed + timedelta(seconds=120)
+    conn.rollback()
+    witness = activation_fee_wait.ActivationFeeWait(
+        decision, observed, cutoff, cutoff, 'd'*64, 200)
+    monkeypatch.setattr(activation_fee_wait, 'read_owned',
+                        lambda _conn, *, now, **_: witness if observed <= now < cutoff else None)
+    cycle = dict(state='WAITING_OPEN', decision_session=decision.isoformat(),
+                 plan_id='paper-fixture', plan_fingerprint='a'*64)
+    monkeypatch.setattr(sources, '_latest_automation_cycle', lambda _: cycle)
+    monkeypatch.setattr(sources, '_informational_mirror_count', lambda _: 1)
+    for name in ('_scheduled_preopen_mirror', '_in_progress_paper_mirror', '_completed_postopen_mirror'):
+        monkeypatch.setattr(sources, name, lambda *_: None)
+    monkeypatch.setattr(mirror, 'require_transport_permitted', lambda *_a, **_kw: {
+        'status': mirror.MISMATCH, 'historical_mismatch_count': 1})
+
+    def current_plan_status(*_a, **_kw):
+        if case == 'current_mismatch':
+            raise mirror.InformationalPaperMirrorMismatch('current plan share-unit mismatch')
+        return {'status': mirror.PENDING}
+    monkeypatch.setattr(mirror, 'require_current_plan_status', current_plan_status)
+    if case == 'removed_fee_attribution':
+        source = inspect.getsource(sources._scheduled_paper_mirror)
+        guard = 'wait is not None and wait.decision_session.isoformat() == frontier'
+        assert source.count(guard) == 1
+        namespace = {}
+        exec(compile(source.replace(guard, 'False and '+guard), '<removed fee attribution>', 'exec'),
+             vars(sources), namespace)
+        monkeypatch.setattr(sources, '_scheduled_paper_mirror', namespace['_scheduled_paper_mirror'])
+
+    publication = SimpleNamespace(current=lambda _: SimpleNamespace(version=22),
+                                  frontier=lambda *_: decision.isoformat())
+
+    def observe(database_url, include_paper, _subject):
+        assert include_paper
+        with psycopg.connect(database_url) as read:
+            read.execute('SET TRANSACTION READ ONLY')
+            paper = sources._dual_paper_row(read, informational_paper_mirror=mirror,
+                                           publication=publication, feed_store=None)
+            return observer_codec.pack([paper], [], observed_at=review_store.database_now(read))
+
+    reader = authority_reader.Reader(expected_keys=frozenset({'paper_reconciliation'}),
+        unknown_factory=verifier.paper_unknown, retain_failed_attempt=True, observer=observe,
+        runner=lambda run, *args, **_: run(*args))
+    previous, stopped = {}, Event()
+    deadline = time.monotonic() + 15
+    dsn = conn.info.dsn
+    verifier._refresh_readers(conn, {'PAPER': reader}, dsn, owner, previous, stopped, deadline)
+    pending = reader.pending
+    if pending is not None:
+        pending.join(timeout=5)
+        assert not pending.is_alive()
+    verifier._refresh_readers(conn, {'PAPER': reader}, dsn, owner, previous, stopped, deadline)
+
+    now = review_store.database_now(conn)
+    history = attempt_store.read_owned(conn, scope='PAPER', now=now)
+    assert history is not None and history['financial_authority'] is False
+    key = review_store.scope(conn)
+    notes = [event for event in review_store.recent(conn, key)
+             if event['details'].get('verification_scope') == 'PAPER']
+    rows, _, _, errors = read_projection.read_owned(conn, dsn, only_scope='PAPER', now=now)
+    assert not errors and len(rows) == 1
+    if case != 'fee_wait':
+        assert rows[0].status == model.FAIL
+        assert ('current plan share-unit mismatch' if case == 'current_mismatch'
+                else 'historical mirror warning remains recorded') in rows[0].detail
+        assert history['latest']['outcome'] == 'FAILED'
+        assert len(history['failures']) == len(notes) == 1
+        assert notes[0]['kind'] == 'REVIEW'
+        assert notes[0]['details']['attempt'] == history['failures'][0]['first']
+        assert notes[0]['details']['attempt']['diagnostic']['code'] == 'NEGATIVE_RESULT'
+    else:
+        assert rows[0].status == model.PENDING and rows[0].required_current
+        assert rows[0].operational_fact.state == 'HISTORICAL_READINESS_WITHDRAWN'
+        assert rows[0].operational_fact.session == decision
+        assert rows[0].as_of == observed and rows[0].valid_until == cutoff
+        assert history['latest']['outcome'] != 'FAILED'
+        assert not history['failures'] and not notes
+        assert conn.execute(f'SELECT valid_until FROM {snapshots.schema.RECEIPTS} '
+                            "WHERE scope='PAPER'").fetchone() == (cutoff,)
+        expired, _, _, _ = read_projection.read_owned(conn, dsn, only_scope='PAPER', now=cutoff)
+        assert expired[0].effective_status(cutoff) in {model.FAIL, model.UNKNOWN}
+        assert expired[0].operational_fact is None
 
 
 def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject_fence(operational,monkeypatch,tmp_path):
@@ -284,18 +380,208 @@ def financial_rows(scope, now):
     return proof_rows(instant=now)
 
 
-def save_financial(conn, scope, rows=None):
+def save_financial(conn, scope, rows=None, *, errors=None):
     from psycopg.types.json import Jsonb
     from sentinel.panel import read_projection
     now = datetime.now(timezone.utc)
     native = read_projection.subject(conn, conn.info.dsn, scope)
-    value, signed = read_projection.make(scope, native, rows or financial_rows(scope, now), [], observed_at=now)
+    value, signed = read_projection.make(scope, native, rows or financial_rows(scope, now),
+                                         errors or [], observed_at=now)
     conn.execute(f'INSERT INTO {snapshots.schema.RECEIPTS} VALUES(%s,%s,%s,%s,%s,%s) '
         'ON CONFLICT(scope) DO UPDATE SET subject_sha256=EXCLUDED.subject_sha256,'
         'observed_at=EXCLUDED.observed_at,valid_until=EXCLUDED.valid_until,'
         'envelope=EXCLUDED.envelope,signature=EXCLUDED.signature',
         (scope, native, value['observed_at'], value['valid_until'], Jsonb(value), signed))
     conn.commit()
+
+
+def _publish_error_composition(operational, monkeypatch, tmp_path, *,
+                               shadow_errors=(), shadow_rows=None, paper_errors=(), unrelated=(),
+                               whole_read_error=None):
+    from sentinel.panel import composition, read_projection, sources
+
+    conn, owner, condition = operational
+    condition['financial'] = True
+    save_financial(conn, 'SHADOW', rows=shadow_rows, errors=list(shadow_errors))
+    save_financial(conn, 'PAPER', errors=list(paper_errors))
+    base = sources.build_panel
+
+    def build(**kwargs):
+        page = base(**kwargs)
+        financial, _, _, errors, by_scope = read_projection.read(
+            conn.info.dsn, with_error_scopes=True)
+        owned = ({'GLOBAL': [whole_read_error]}
+                 if whole_read_error is not None else by_scope)
+        financial_errors = ([whole_read_error]
+                            if whole_read_error is not None else errors)
+        selected = {row.key: row for row in financial}
+        return replace(page,
+            rows=[selected.get(row.key, row) for row in page.rows],
+            source_errors=[*unrelated, *financial_errors],
+            financial_source_errors=owned)
+
+    monkeypatch.setattr(sources, 'build_panel', build)
+    monkeypatch.setattr(composition.tempfile, 'gettempdir', lambda: str(tmp_path))
+    instance = str(uuid.uuid4())
+    composition.collect(conn.info.dsn, owner, '/private', instance)
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    return conn, owner, instance
+
+
+def _assert_clean_paper_receipt_clears_error(operational, monkeypatch, tmp_path):
+    conn, owner, instance = _publish_error_composition(
+        operational, monkeypatch, tmp_path, paper_errors=('PAPER source failed',))
+    assert producer.read(conn.info.dsn).source_errors == ['PAPER source failed']
+    save_financial(conn, 'PAPER')
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.observation_changed_scopes == ('PAPER',)
+    assert current.source_errors == []
+    assert current.financial_source_errors['PAPER'] == []
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    published = producer.read(conn.info.dsn)
+    assert published.source_errors == []
+    assert 'backend_sources' not in state(conn)['active']
+
+
+def test_clean_receipt_retires_old_source_error_on_read_and_fast_publication(
+        operational, monkeypatch, tmp_path):
+    _assert_clean_paper_receipt_clears_error(operational, monkeypatch, tmp_path)
+
+
+def test_stale_financial_source_error_guard_has_a_real_receipt_falsifier(
+        operational, monkeypatch, tmp_path):
+    monkeypatch.setattr(producer, '_replace_financial_source_errors',
+                        lambda panel, _refreshed: panel)
+    with pytest.raises(AssertionError, match='.*'):
+        _assert_clean_paper_receipt_clears_error(operational, monkeypatch, tmp_path)
+
+
+def test_paper_receipt_replacement_preserves_shadow_and_nonfinancial_errors(
+        operational, monkeypatch, tmp_path):
+    conn, owner, instance = _publish_error_composition(
+        operational, monkeypatch, tmp_path,
+        shadow_errors=('shared source text',), paper_errors=('shared source text',),
+        unrelated=('shared source text', 'unrelated source failed'))
+    assert producer.read(conn.info.dsn).source_errors.count('shared source text') == 3
+    save_financial(conn, 'PAPER')
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.source_errors.count('shared source text') == 2
+    assert 'unrelated source failed' in current.source_errors
+    assert current.financial_source_errors['SHADOW'] == ['shared source text']
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    published = producer.read(conn.info.dsn)
+    assert published.source_errors.count('shared source text') == 2
+    assert 'unrelated source failed' in published.source_errors
+    assert published.financial_source_errors['SHADOW'] == ['shared source text']
+
+
+def test_changed_review_head_keeps_duplicate_error_ownership_during_paper_refresh(
+        operational, monkeypatch, tmp_path):
+    conn, _, _ = _publish_error_composition(
+        operational, monkeypatch, tmp_path,
+        shadow_errors=('shared source text',), paper_errors=('shared source text',),
+        unrelated=('shared source text',))
+    key, now = review_store.scope(conn), review_store.database_now(conn)
+    reviewed = review_store.load_locked(conn, key, now)
+    assert 'backend_sources' in reviewed['active']
+    review_store.append(conn, key, reviewed, kind='REVIEW',
+        event_key='independent-review-head:'+str(reviewed['head']+1),
+        details={'reason':'independent signed review event'}, now=now)
+    review_store.save(conn, key, reviewed, now)
+    conn.commit()
+    save_financial(conn, 'PAPER')
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.observation_changed_scopes == ('PAPER',)
+    assert current.observation_retained
+    assert current.source_errors.count('shared source text') == 2
+    assert current.source_errors.count(
+        'Current signed review records active conditions; current display composition is pending.') == 1
+    assert current.financial_source_errors['SHADOW'] == ['shared source text']
+
+
+def test_owned_receipt_read_retires_prior_whole_financial_read_failure(
+        operational, monkeypatch, tmp_path):
+    conn, owner, instance = _publish_error_composition(
+        operational, monkeypatch, tmp_path,
+        whole_read_error='financial verification: durable read unavailable')
+    save_financial(conn, 'PAPER')
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.source_errors == []
+    assert 'GLOBAL' not in current.financial_source_errors
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    published = producer.read(conn.info.dsn)
+    assert published.source_errors == []
+    assert 'GLOBAL' not in published.financial_source_errors
+
+
+def _assert_whole_read_checks_unchanged_shadow(operational, monkeypatch, tmp_path):
+    from sentinel.panel import authority_reader
+
+    shadow_rows = authority_reader._unknown(False, 'SHADOW source failed')[0]
+    conn, owner, instance = _publish_error_composition(
+        operational, monkeypatch, tmp_path, shadow_rows=shadow_rows,
+        shadow_errors=('SHADOW source failed',),
+        whole_read_error='financial verification: PlanRolloutMismatch')
+    save_financial(conn, 'PAPER')
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.source_errors == ['SHADOW source failed']
+    assert current.financial_source_errors['SHADOW'] == ['SHADOW source failed']
+    assert 'GLOBAL' not in current.financial_source_errors
+    assert current.row('shadow_verification').status == model.UNKNOWN
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    published = producer.read(conn.info.dsn)
+    assert published.source_errors == ['SHADOW source failed']
+    assert published.financial_source_errors['SHADOW'] == ['SHADOW source failed']
+
+
+def test_whole_financial_error_requires_resampling_unchanged_shadow(
+        operational, monkeypatch, tmp_path):
+    _assert_whole_read_checks_unchanged_shadow(operational, monkeypatch, tmp_path)
+
+
+def test_omitting_unchanged_shadow_resample_has_a_real_receipt_falsifier(
+        operational, monkeypatch, tmp_path):
+    from sentinel.panel import read_projection
+
+    def only_changed(conn, database_url, _panel, *, now, changed, facts, basis):
+        assert changed == ('PAPER',)
+        rows, _, _, _, owned = read_projection.read_owned(
+            conn, database_url, now=now, only_scope='PAPER', facts=facts,
+            native_subjects=basis.get('native'), display_basis=basis or None,
+            with_error_scopes=True)
+        return {row.key: row for row in rows}, owned
+
+    monkeypatch.setattr(producer, '_financial_receipt_overlay', only_changed)
+    with pytest.raises(AssertionError, match='.*'):
+        _assert_whole_read_checks_unchanged_shadow(operational, monkeypatch, tmp_path)
+
+
+def test_failed_whole_financial_resample_keeps_error_and_reads_changed_paper(
+        operational, monkeypatch, tmp_path):
+    from sentinel.panel import read_projection
+
+    conn, owner, instance = _publish_error_composition(
+        operational, monkeypatch, tmp_path,
+        whole_read_error='financial verification: PlanRolloutMismatch')
+    save_financial(conn, 'PAPER')
+    original = read_projection.read_owned
+
+    def fails_full_in_sql(actual, database_url, **kwargs):
+        if kwargs.get('only_scope') is None and kwargs.get('with_error_scopes'):
+            actual.execute('SELECT 1/0')  # Aborts this transaction until savepoint rollback.
+        return original(actual, database_url, **kwargs)
+
+    monkeypatch.setattr(read_projection, 'read_owned', fails_full_in_sql)
+    current = producer.read(conn.info.dsn, display=True)
+    assert current.source_errors == ['financial verification: PlanRolloutMismatch']
+    assert current.financial_source_errors == {
+        'GLOBAL': ['financial verification: PlanRolloutMismatch'], 'PAPER': []}
+    assert current.row('paper_reconciliation').status == model.OK
+    assert 'paper_reconciliation' in current.observation_revalidated_keys
+    producer.publish_once(conn.info.dsn, owner, '/private', instance)
+    published = producer.read(conn.info.dsn)
+    assert published.source_errors == ['financial verification: PlanRolloutMismatch']
+    assert published.row('paper_reconciliation').status == model.OK
 
 
 def test_changed_paper_subject_keeps_independent_shadow_proof_and_original_clock(operational):

@@ -85,14 +85,17 @@ class OperationalFact(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
     kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
                   'MARKET_DATA', 'SHADOW_VERIFICATION', 'SHADOW_WORKER',
-                  'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY']
+                  'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY',
+                  'AUTHORITY', 'ALPACA_ACCOUNT']
     state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
                    'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                    'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
                    'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED',
                    'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'READY', 'NOT_READY',
                    'AWAITING_VERDICT', 'VERIFIED', 'ACTIVE_WORKER',
-                   'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION']
+                   'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'STOPPED',
+                   'HISTORICAL_READINESS_WITHDRAWN', 'ROLLOUT_RENEWAL_PENDING',
+                   'ACTIVATION_VERDICT_WITHDRAWN', 'READY_SNAPSHOT']
     session: date | None = None
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -105,13 +108,16 @@ class OperationalFact(BaseModel):
             'AUTOMATION_CYCLE': {'DISCOVERY_WAIT', 'DISCOVERED', 'REFRESHING_DATA',
                 'PREPARING', 'PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING',
                 'RETRY_WAIT', 'SUCCEEDED', 'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'},
-            'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED'},
+            'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'ROLLOUT_RENEWAL_PENDING'},
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
-            'SHADOW_WORKER': {'ACTIVE_WORKER'},
-            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED', 'SUPERSEDED'},
+            'SHADOW_WORKER': {'ACTIVE_WORKER', 'STOPPED'},
+            'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED',
+                                   'SUPERSEDED', 'HISTORICAL_READINESS_WITHDRAWN'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
             'EXECUTION_HISTORY': {'SUPERSEDED'},
+            'AUTHORITY': {'ACTIVATION_VERDICT_WITHDRAWN'},
+            'ALPACA_ACCOUNT': {'READY_SNAPSHOT'},
         }
         if self.state not in states[self.kind]:
             raise ValueError('operational state belongs to another producer')
@@ -129,13 +135,11 @@ class OperationalFact(BaseModel):
                     or self.opening.reconciled_at is not None)
                 or cutoff and self.opening.terminal_reason != OPENING_CUTOFF)):
             raise ValueError('historical retirement belongs to its original producer')
+        needs_session = (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
+                         or self.state == 'HISTORICAL_READINESS_WITHDRAWN')
         if ((self.kind == 'MARKET_DATA') != (self.sessions_behind is not None)
                 or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
-                or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
-                    and self.session is None)
-                or (self.kind in {'AUTOMATION_POLICY', 'SHADOW_WORKER',
-                                 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY'}
-                    and self.session is not None)):
+                or self.kind != 'AUTOMATION_CYCLE' and needs_session != (self.session is not None)):
             raise ValueError('operational fact fields do not match their producer')
         if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
             raise ValueError('controller exposure exceeds its display precision')
@@ -153,6 +157,8 @@ class OperationalFact(BaseModel):
             'PAPER_VERIFICATION': {'paper_reconciliation'},
             'EXECUTION_PROGRESS': {'broker'},
             'EXECUTION_HISTORY': {'trading_run', 'completed_trading_run'},
+            'AUTHORITY': {'authority'},
+            'ALPACA_ACCOUNT': {'alpaca_account'},
         }
         if key not in owned[self.kind]:
             raise ValueError('operational fact belongs to another row')
@@ -670,6 +676,18 @@ def observed_opening_cutoff(row: Row, *, now: datetime) -> bool:
         and opening.started_at <= now < opening.deadline)
 
 
+def activation_fee_paper_pending(row: Row) -> bool:
+    """A bounded withdrawal can be successfully observed without PAPER readiness."""
+    fact = row.operational_fact
+    return (row.key == 'paper_reconciliation' and row.status == PENDING
+            and row.required_current and row.paper_alignment is None and row.recovery is None
+            and fact is not None
+            and (fact.kind, fact.state) == ('PAPER_VERIFICATION', 'HISTORICAL_READINESS_WITHDRAWN')
+            and row.as_of is not None and row.valid_until is not None
+            and row.as_of.utcoffset() == row.valid_until.utcoffset() == timedelta(0)
+            and row.as_of < row.valid_until)
+
+
 def historical_skip_subject(current: Row | None, *, now: datetime) -> bool:
     """The signed immutable outcome owns its original historical lifetime."""
     history = current.operational_fact if current is not None else None
@@ -833,12 +851,23 @@ def project_opening_rows(rows: list[Row], *, now: datetime) -> list[Row]:
 
 
 @dataclass(frozen=True)
+class ActivationFeeWaitDisplay:
+    """Display-only clocks earned by the separately owned activation wait."""
+    decision_session: date
+    observed_at: datetime
+    valid_until: datetime
+
+
+@dataclass(frozen=True)
 class Panel:
     rows: list[Row] = field(default_factory=list)
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     #: Set when a SOURCE failed rather than a check — the panel could not read
     #: the world. Rendered at the top, because every row below it is suspect.
     source_errors: list[str] = field(default_factory=list)
+    #: Signed provenance for the financial subset of source_errors. Receipt
+    #: replacement changes only its owned scope; GLOBAL is a whole-read failure.
+    financial_source_errors: dict[Literal['SHADOW', 'PAPER', 'GLOBAL'], list[str]] = field(default_factory=dict)
     #: Already-earned durable financial evidence for read-only detail sections.
     trial_details: dict = field(default_factory=dict)
     trial_history: list[dict] = field(default_factory=list)
@@ -861,6 +890,8 @@ class Panel:
     #: Consumer-only human delivery; strict observation gates remain separate.
     observation_display_current: Optional[bool] = None
     observation_display_keys: tuple[str, ...] = ()
+    #: Attached only after an independent, current read of the activation witness.
+    activation_fee_wait: ActivationFeeWaitDisplay | None = None
 
     @property
     def overall(self) -> str:
@@ -2253,7 +2284,10 @@ def alpaca_account_row(
         "alpaca_account", "Alpaca Account", value,
         WARN if market_wait else OK if state_ok else FAIL, detail, observed_at,
         freshness=timedelta(minutes=10), required_current=True,
-        recovery=market_working if market_wait else recovery, valid_until=valid_until)
+        recovery=market_working if market_wait else recovery, valid_until=valid_until,
+        operational_fact=(OperationalFact(kind='ALPACA_ACCOUNT', state='READY_SNAPSHOT')
+                          if state_ok and not (market_wait or matched_hold or operator_hold is not None)
+                          else None))
 
 
 def backup_restore_row(

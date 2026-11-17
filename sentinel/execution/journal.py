@@ -65,6 +65,20 @@ class WriterLockUnavailable(RuntimeError):
     """Another process holds the writer lock. Do not proceed."""
 
 
+class ActivationBackupEntryBusy(backup_runtime_authority.BackupIntegrityBusy):
+    """The activation command has not entered its mutation scope."""
+
+
+def _require_writer_entry_backup(conn, *, activation_backup_retry: bool) -> None:
+    try:
+        backup_runtime_authority.require(
+            conn, operation="plan/execution writer mutation", allow_continuity=True)
+    except backup_runtime_authority.BackupIntegrityBusy as exc:
+        if activation_backup_retry and type(exc) is backup_runtime_authority.BackupIntegrityBusy:
+            raise ActivationBackupEntryBusy(str(exc)) from exc
+        raise
+
+
 class JournalUnitOfWork:
     """Own one multi-record journal invariant and its final commit.
 
@@ -92,7 +106,7 @@ class JournalUnitOfWork:
 
 
 @contextmanager
-def writer_lock(conn, *, recovery_only: bool = False):
+def writer_lock(conn, *, recovery_only: bool = False, activation_backup_retry: bool = False):
     """Exclusive write access, or refuse.
 
     `pg_try_advisory_lock`, not `pg_advisory_lock`: blocking would turn "another
@@ -103,14 +117,14 @@ def writer_lock(conn, *, recovery_only: bool = False):
     owner-PAPER continuity policy. The explicit recovery
     scope is reserved for broker-observation journals and scheduler leases;
     nested ordinary writer locks independently enforce the mutation gate.
+    Only the activation CLI opts into an entry-specific busy exception.
     """
     acquired = False
     try:
         if not recovery_only:
             # Cold/due archive scrubs must not monopolize account ownership.
             # The inner guard still rechecks fresh media facts under the lock.
-            backup_runtime_authority.require(
-                conn, operation="plan/execution writer mutation", allow_continuity=True)
+            _require_writer_entry_backup(conn, activation_backup_retry=activation_backup_retry)
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK_KEY,))
             acquired = bool(cur.fetchone()[0])
@@ -120,8 +134,7 @@ def writer_lock(conn, *, recovery_only: bool = False):
                 "One appliance controls one account and there is exactly one "
                 "writer; a second would race every command it creates.")
         if not recovery_only:
-            backup_runtime_authority.require(
-                conn, operation="plan/execution writer mutation", allow_continuity=True)
+            _require_writer_entry_backup(conn, activation_backup_retry=activation_backup_retry)
         yield
     except BaseException:
         # Never let the housekeeping commit in ``finally`` make a caller's

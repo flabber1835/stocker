@@ -177,14 +177,17 @@ def row_current(panel, row):
 
 
 def row_status(panel, row):
+    from sentinel.panel.presentation import activation_wait_withdraws
+
+    if activation_wait_withdraws(panel, row):
+        return model.PENDING
     native = row.effective_status(panel.now)
     return native if row_current(panel, row) else model.PENDING
 
 
 def row_color(panel, row):
     from sentinel.operational_status import color
-    native = row.effective_status(panel.now)
-    return color(native) if row_current(panel, row) else 'neutral'
+    return color(row_status(panel, row)) if row_current(panel, row) else 'neutral'
 
 
 def payload_panel(panel):
