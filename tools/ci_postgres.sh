@@ -3,13 +3,18 @@
 set -euo pipefail
 
 postgres_tools_ready() {
-  local pg_bin tool
+  local pg_bin tool version
   pg_bin="$(pg_config --bindir 2>/dev/null)" || return 1
   test -n "$pg_bin" || return 1
   for tool in postgres initdb pg_ctl pg_basebackup pg_verifybackup pg_controldata \
               pg_dump pg_restore psql createdb dropdb; do
     test -x "$pg_bin/$tool" || return 1
-    "$pg_bin/$tool" --version || return 1
+    version="$("$pg_bin/$tool" --version)" || return 1
+    printf '%s\n' "$version"
+    if [[ "$version" != "$tool (PostgreSQL) 16."* ]]; then
+      printf 'REFUSED: CI PostgreSQL 16 required; %s reports a different version\n' "$tool" >&2
+      exit 1
+    fi
   done
 }
 

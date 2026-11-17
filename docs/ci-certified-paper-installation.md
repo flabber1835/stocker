@@ -81,6 +81,27 @@ name which image reference diverged and report only the expected and observed
 image digests, so a runner compatibility failure can be diagnosed without
 weakening the certificate.
 
+### Host PostgreSQL qualification generation
+
+Decision: 2026-11-17. Pin the Alpaca simulation, internal-state and production
+composition workflows to `ubuntu-24.04`, and require the CI host PostgreSQL
+toolchain to be major version 16 before creating any fixture database. These
+campaigns use the host server, unlike the safety image's separate test lens.
+The current supported PAPER schema and its exact migration-ledger constraint
+fingerprint are qualified against PostgreSQL 16; a different server major must
+not be accepted by loosening that fingerprint.
+
+In PR 601, the preceding successful run used Ubuntu 24.04 with PostgreSQL
+16.15 in all three campaigns. During GitHub's `ubuntu-latest` rollout, their
+next run used Ubuntu 26.04 with PostgreSQL 18.6. Composition and internal-state
+fixtures then refused the ledger constraint fingerprint at setup. Alpaca's
+mutation campaign also had a failed unmodified baseline under PostgreSQL 18,
+so a reported surviving mutant was not evidence that the execution guard had
+changed. Keep that baseline gate strict. The host setup helper now refuses a
+non-16 toolchain explicitly, before any fixture starts or a mutation result is
+reported. A future PostgreSQL major upgrade requires separately reviewed
+schema compatibility and qualification; the CI label alone cannot grant it.
+
 ### Protected publication retries
 
 GitHub can retain several provenance artifacts under one name when protected
