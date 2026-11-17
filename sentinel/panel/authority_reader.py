@@ -17,6 +17,7 @@ RETRY_SECONDS = 30
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 RESERVED_REFRESH_LEAD_SECONDS = 150
+ACTIVATION_FEE_REFRESH_LEAD_SECONDS = 150
 CORPUS_LOCK_RETRY_SECONDS = 20
 CORPUS_LOCK_POLL_SECONDS = 0.5
 # Canonical execution/trial namespaces sharing the processed-session table.
@@ -482,7 +483,8 @@ class Reader:
             refresh_due = (fresh is None or retry_failed_check or self.identity_failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
             if fresh is not None and len(rows) == 1 and model.activation_fee_paper_pending(rows[0]):
-                refresh_due = (refresh_due or self.wall_clock()+timedelta(seconds=RETRY_SECONDS)
+                refresh_due = (refresh_due or self.wall_clock()+timedelta(
+                                   seconds=ACTIVATION_FEE_REFRESH_LEAD_SECONDS)
                                >= rows[0].valid_until)
             coalesced = self._coalesced_retry
             if coalesced is not None:
