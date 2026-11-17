@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Signed CLI dependency fence](signed-cli-dependency-fence.md) prevents a
+read-only signed command from starting or recreating PostgreSQL through
+Compose dependencies. The existing database must already be healthy.
+
 [November 17 opening recovery](nov17-opening-recovery.md) records the observed
 PAPER partial-fill refusal, its bounded data-integrity behavior and focused
 qualification before this local patch can be installed.

@@ -949,8 +949,14 @@ def _maintenance_case(launcher, case):
                 ("status",) if "authorized" in launcher else ())
         result = self.run_shell(launcher, process, *args)
         if case in ("valid", "literal_override", "process_only"):
-            self.assertIn(result.returncode, (4, 93), result.stderr)
+            # The signed CLI now refuses a failed *read-only* PostgreSQL
+            # preflight after reaching the fake Docker boundary. This suite
+            # proves environment ingestion, not database availability.
+            accepted = (2, 4, 93) if launcher == "sentinel-authorized-cli.sh" else (4, 93)
+            self.assertIn(result.returncode, accepted, result.stderr)
             self.assertIn("docker", (self.root / "effects").read_text())
+            if launcher == "sentinel-authorized-cli.sh":
+                self.assertIn("existing Sentinel PostgreSQL status is unavailable", result.stderr)
             selected = json.loads((self.root / "selected.json").read_text())
             for key, value in expected.items():
                 self.assertEqual(selected[key], value, key)
