@@ -55,6 +55,18 @@ their existing severity. Historical views keep their original status and
 clocks. The wait supplies no machine readiness or trading authority. Ordinary
 health resumes when activation ends and current checks provide fresh evidence.
 
+The PAPER verifier must also distinguish an expected withdrawal from a failed
+observation. When its existing historical-mirror branch cannot prove this
+decision's scheduled readiness during the exact authenticated activation
+wait, publish a bounded pending row at the source. This prevents the owned
+verification attempt from recording the historical mismatch as a new failure
+on each poll. The verifier schedules a new check before that row's original
+deadline and publishes its original clock. Consumers recheck the wait before
+using the pending row. An expired or changed wait withdraws that explanation.
+Current mismatches,
+invalid evidence, and unrelated operator review history retain their
+existing treatment.
+
 Retain the signed PAPER predecessor `4563851899ea5eaa157ae1c82e9fe72d2d298e2f`
 with all 488 archived Python modules and source closure
 `6beb79df5cfdf84d9ba1a266e413fd13254aae06bbe07578bcb92451d93fba8c`.

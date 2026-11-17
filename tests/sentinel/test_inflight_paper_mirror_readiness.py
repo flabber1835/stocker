@@ -1,7 +1,7 @@
 """The actual opening diagnostic must not confuse history with current transport."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime,timedelta
+from datetime import date,datetime,timedelta
 from decimal import Decimal
 import inspect,textwrap
 from types import SimpleNamespace
@@ -179,21 +179,34 @@ def test_history_count_and_warning_remain_during_proven_progress(ongoing,monkeyp
     assert row.valid_until==actual.valid_until and row.recovery==actual.recovery
 
 
-@pytest.mark.parametrize('state,session,count,expected', [
-    ('WAITING_OPEN', '2026-10-30', 2, True),
-    ('WAITING_OPEN', '2026-10-29', 2, False),
-    ('WAITING_OPEN', '2026-10-30', 0, False),
-    ('RECONCILING', '2026-10-30', 2, False),
+@pytest.mark.parametrize('state,session,count,wait_session,expected', [
+    ('WAITING_OPEN', '2026-10-30', 2, '2026-10-30', True),
+    ('WAITING_OPEN', '2026-10-30', 2, None, False),
+    ('WAITING_OPEN', '2026-10-30', 2, '2026-10-29', False),
+    ('WAITING_OPEN', '2026-10-29', 2, '2026-10-30', False),
+    ('WAITING_OPEN', '2026-10-30', 0, '2026-10-30', False),
+    ('RECONCILING', '2026-10-30', 2, '2026-10-30', False),
 ])
 def test_only_current_preopen_historical_warning_can_be_attributed_to_fence(
-        monkeypatch, state, session, count, expected):
+        monkeypatch, state, session, count, wait_session, expected):
+    from sentinel import activation_fee_wait
+
     for name in ('_scheduled_preopen_mirror', '_in_progress_paper_mirror', '_completed_postopen_mirror'):
         monkeypatch.setattr(sources, name, lambda *_: None)
+
+    def wait(_, *, now):
+        if wait_session is not None:
+            return activation_fee_wait.ActivationFeeWait(date.fromisoformat(wait_session), now,
+                now+timedelta(seconds=60), now+timedelta(seconds=60), 'b'*64, 1)
+
+    monkeypatch.setattr(activation_fee_wait, 'read_owned', wait)
     row = sources._scheduled_paper_mirror(object(), dict(state=state,decision_session=session),
         None, '2026-10-30', dict(status=mirror.MISMATCH,historical_mismatch_count=count))
-    assert row.status == model.FAIL
+    assert row.status == (model.PENDING if expected else model.FAIL)
     assert (row.operational_fact is not None) is expected
     if expected:
+        assert model.activation_fee_paper_pending(row)
+        assert row.effective_status(row.as_of) == model.FAIL
         assert row.operational_fact.state == 'HISTORICAL_READINESS_WITHDRAWN'
 
 

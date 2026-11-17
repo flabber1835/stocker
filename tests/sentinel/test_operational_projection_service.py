@@ -1,8 +1,10 @@
 """Actual PostgreSQL operational ownership, review/snapshot atomicity and ACK."""
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
+from threading import Event
 import time
+from types import SimpleNamespace
 import uuid
 
 import psycopg
@@ -74,6 +76,100 @@ def state(conn):
     review_store.authenticate(dict(scope=key, state=row[0]), row[1], purpose=review_store.SCHEMA)
     conn.rollback()
     return row[0]
+
+
+@pytest.mark.parametrize('case', ['fee_wait', 'current_mismatch', 'removed_fee_attribution'])
+def test_owned_paper_observer_records_only_actual_failure_during_fee_wait(
+        operational, monkeypatch, case):
+    from sentinel import activation_fee_wait, informational_paper_mirror as mirror
+    from sentinel.panel import attempt_store, authority_reader, observer_codec, read_projection
+    from sentinel.panel import sources, verification_service as verifier
+
+    conn, owner, _ = operational
+    decision = date(2026, 11, 16)
+    observed = review_store.database_now(conn)
+    cutoff = observed + timedelta(seconds=120)
+    conn.rollback()
+    witness = activation_fee_wait.ActivationFeeWait(
+        decision, observed, cutoff, cutoff, 'd'*64, 200)
+    monkeypatch.setattr(activation_fee_wait, 'read_owned',
+                        lambda _conn, *, now, **_: witness if observed <= now < cutoff else None)
+    cycle = dict(state='WAITING_OPEN', decision_session=decision.isoformat(),
+                 plan_id='paper-fixture', plan_fingerprint='a'*64)
+    monkeypatch.setattr(sources, '_latest_automation_cycle', lambda _: cycle)
+    monkeypatch.setattr(sources, '_informational_mirror_count', lambda _: 1)
+    for name in ('_scheduled_preopen_mirror', '_in_progress_paper_mirror', '_completed_postopen_mirror'):
+        monkeypatch.setattr(sources, name, lambda *_: None)
+    monkeypatch.setattr(mirror, 'require_transport_permitted', lambda *_a, **_kw: {
+        'status': mirror.MISMATCH, 'historical_mismatch_count': 1})
+
+    def current_plan_status(*_a, **_kw):
+        if case == 'current_mismatch':
+            raise mirror.InformationalPaperMirrorMismatch('current plan share-unit mismatch')
+        return {'status': mirror.PENDING}
+    monkeypatch.setattr(mirror, 'require_current_plan_status', current_plan_status)
+    if case == 'removed_fee_attribution':
+        source = inspect.getsource(sources._scheduled_paper_mirror)
+        guard = 'wait is not None and wait.decision_session.isoformat() == frontier'
+        assert source.count(guard) == 1
+        namespace = {}
+        exec(compile(source.replace(guard, 'False and '+guard), '<removed fee attribution>', 'exec'),
+             vars(sources), namespace)
+        monkeypatch.setattr(sources, '_scheduled_paper_mirror', namespace['_scheduled_paper_mirror'])
+
+    publication = SimpleNamespace(current=lambda _: SimpleNamespace(version=22),
+                                  frontier=lambda *_: decision.isoformat())
+
+    def observe(database_url, include_paper, _subject):
+        assert include_paper
+        with psycopg.connect(database_url) as read:
+            read.execute('SET TRANSACTION READ ONLY')
+            paper = sources._dual_paper_row(read, informational_paper_mirror=mirror,
+                                           publication=publication, feed_store=None)
+            return observer_codec.pack([paper], [], observed_at=review_store.database_now(read))
+
+    reader = authority_reader.Reader(expected_keys=frozenset({'paper_reconciliation'}),
+        unknown_factory=verifier.paper_unknown, retain_failed_attempt=True, observer=observe,
+        runner=lambda run, *args, **_: run(*args))
+    previous, stopped = {}, Event()
+    deadline = time.monotonic() + 15
+    dsn = conn.info.dsn
+    verifier._refresh_readers(conn, {'PAPER': reader}, dsn, owner, previous, stopped, deadline)
+    pending = reader.pending
+    if pending is not None:
+        pending.join(timeout=5)
+        assert not pending.is_alive()
+    verifier._refresh_readers(conn, {'PAPER': reader}, dsn, owner, previous, stopped, deadline)
+
+    now = review_store.database_now(conn)
+    history = attempt_store.read_owned(conn, scope='PAPER', now=now)
+    assert history is not None and history['financial_authority'] is False
+    key = review_store.scope(conn)
+    notes = [event for event in review_store.recent(conn, key)
+             if event['details'].get('verification_scope') == 'PAPER']
+    rows, _, _, errors = read_projection.read_owned(conn, dsn, only_scope='PAPER', now=now)
+    assert not errors and len(rows) == 1
+    if case != 'fee_wait':
+        assert rows[0].status == model.FAIL
+        assert ('current plan share-unit mismatch' if case == 'current_mismatch'
+                else 'historical mirror warning remains recorded') in rows[0].detail
+        assert history['latest']['outcome'] == 'FAILED'
+        assert len(history['failures']) == len(notes) == 1
+        assert notes[0]['kind'] == 'REVIEW'
+        assert notes[0]['details']['attempt'] == history['failures'][0]['first']
+        assert notes[0]['details']['attempt']['diagnostic']['code'] == 'NEGATIVE_RESULT'
+    else:
+        assert rows[0].status == model.PENDING and rows[0].required_current
+        assert rows[0].operational_fact.state == 'HISTORICAL_READINESS_WITHDRAWN'
+        assert rows[0].operational_fact.session == decision
+        assert rows[0].as_of == observed and rows[0].valid_until == cutoff
+        assert history['latest']['outcome'] != 'FAILED'
+        assert not history['failures'] and not notes
+        assert conn.execute(f'SELECT valid_until FROM {snapshots.schema.RECEIPTS} '
+                            "WHERE scope='PAPER'").fetchone() == (cutoff,)
+        expired, _, _, _ = read_projection.read_owned(conn, dsn, only_scope='PAPER', now=cutoff)
+        assert expired[0].effective_status(cutoff) in {model.FAIL, model.UNKNOWN}
+        assert expired[0].operational_fact is None
 
 
 def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject_fence(operational,monkeypatch,tmp_path):

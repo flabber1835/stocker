@@ -135,14 +135,11 @@ class OperationalFact(BaseModel):
                     or self.opening.reconciled_at is not None)
                 or cutoff and self.opening.terminal_reason != OPENING_CUTOFF)):
             raise ValueError('historical retirement belongs to its original producer')
+        needs_session = (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
+                         or self.state == 'HISTORICAL_READINESS_WITHDRAWN')
         if ((self.kind == 'MARKET_DATA') != (self.sessions_behind is not None)
                 or (self.kind == 'CONTROLLER_DECISION') != (self.exposure is not None)
-                or (self.kind in {'MARKET_DATA', 'SHADOW_VERIFICATION', 'CONTROLLER_DECISION'}
-                    and self.session is None)
-                or (self.kind in {'AUTOMATION_POLICY', 'SHADOW_WORKER',
-                                 'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY',
-                                 'AUTHORITY', 'ALPACA_ACCOUNT'}
-                    and self.session is not None)):
+                or self.kind != 'AUTOMATION_CYCLE' and needs_session != (self.session is not None)):
             raise ValueError('operational fact fields do not match their producer')
         if self.exposure is not None and self.exposure.as_tuple().exponent < -12:
             raise ValueError('controller exposure exceeds its display precision')
@@ -677,6 +674,18 @@ def observed_opening_cutoff(row: Row, *, now: datetime) -> bool:
         and opening is not None and opening.terminal_reason == OPENING_CUTOFF
         and row.as_of == opening.started_at and row.valid_until == opening.deadline
         and opening.started_at <= now < opening.deadline)
+
+
+def activation_fee_paper_pending(row: Row) -> bool:
+    """A bounded withdrawal can be successfully observed without PAPER readiness."""
+    fact = row.operational_fact
+    return (row.key == 'paper_reconciliation' and row.status == PENDING
+            and row.required_current and row.paper_alignment is None and row.recovery is None
+            and fact is not None
+            and (fact.kind, fact.state) == ('PAPER_VERIFICATION', 'HISTORICAL_READINESS_WITHDRAWN')
+            and row.as_of is not None and row.valid_until is not None
+            and row.as_of.utcoffset() == row.valid_until.utcoffset() == timedelta(0)
+            and row.as_of < row.valid_until)
 
 
 def historical_skip_subject(current: Row | None, *, now: datetime) -> bool:

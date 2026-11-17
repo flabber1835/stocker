@@ -881,7 +881,7 @@ def current_activation_fee_wait(panel):
 _ACTIVATION_WITHDRAWALS = {
     'automation': ('AUTOMATION_POLICY', 'INERT', 'warn'),
     'shadow_worker': ('SHADOW_WORKER', 'STOPPED', 'fail'),
-    'paper_reconciliation': ('PAPER_VERIFICATION', 'HISTORICAL_READINESS_WITHDRAWN', 'fail'),
+    'paper_reconciliation': ('PAPER_VERIFICATION', 'HISTORICAL_READINESS_WITHDRAWN', 'pending'),
     'exposure': ('CONTROLLER_DECISION', 'ROLLOUT_RENEWAL_PENDING', 'unknown'),
     'authority': ('AUTHORITY', 'ACTIVATION_VERDICT_WITHDRAWN', 'unknown'),
     'alpaca_account': ('ALPACA_ACCOUNT', 'READY_SNAPSHOT', 'ok'),
@@ -897,6 +897,11 @@ def activation_wait_withdraws(panel, row):
         return False
     if row.key == 'exposure':
         return fact.session == wait.decision_session
+    if row.key == 'paper_reconciliation':
+        from sentinel.panel.model import activation_fee_paper_pending
+
+        return (activation_fee_paper_pending(row) and fact.session == wait.decision_session
+                and row.as_of <= panel.now < row.valid_until)
     if row.key == 'alpaca_account':
         return row.is_stale(panel.now)
     return True

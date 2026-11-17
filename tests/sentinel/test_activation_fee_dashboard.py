@@ -2,11 +2,13 @@
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from sentinel import activation_fee_wait
-from sentinel.panel import model, operational_snapshot, presentation, projection_service, render
+from sentinel.panel import model, operational_snapshot, presentation, projection_service, read_projection, render
+from sentinel.panel import authority_reader, observer_codec, verification_service
 from sentinel.panel.review_model import OperatorReview
 from sentinel.panel.serialization import public_payload
 from tests.sentinel.test_panel_opening_cutoff import ENDED, proof, terminal  # noqa: F401
@@ -19,6 +21,8 @@ END = NOW + timedelta(minutes=2)
 
 def _row(key, status, *, kind=None, state=None, as_of=NOW, **extra):
     fields = dict(session=DECISION, exposure=Decimal('1')) if key == 'exposure' else {}
+    if state == 'HISTORICAL_READINESS_WITHDRAWN':
+        fields['session'] = DECISION
     fact = model.OperationalFact(kind=kind, state=state, **fields) if kind else None
     return model.Row(key, key, 'recorded reason', status, as_of=as_of,
                      operational_fact=fact, **extra)
@@ -34,8 +38,8 @@ def panel(terminal):
         trading_run=prior_run, operational_fact=opening_fact)
     rows = [_row('automation', model.WARN, kind='AUTOMATION_POLICY', state='INERT'),
             _row('shadow_worker', model.FAIL, kind='SHADOW_WORKER', state='STOPPED'),
-            _row('paper_reconciliation', model.FAIL, kind='PAPER_VERIFICATION',
-                 state='HISTORICAL_READINESS_WITHDRAWN'),
+            _row('paper_reconciliation', model.PENDING, kind='PAPER_VERIFICATION',
+                 state='HISTORICAL_READINESS_WITHDRAWN', required_current=True, valid_until=END),
             _row('exposure', model.UNKNOWN, kind='CONTROLLER_DECISION', state='ROLLOUT_RENEWAL_PENDING'),
             _row('authority', model.UNKNOWN, kind='AUTHORITY', state='ACTIVATION_VERDICT_WITHDRAWN'),
             _row('alpaca_account', model.OK, kind='ALPACA_ACCOUNT', state='READY_SNAPSHOT',
@@ -106,6 +110,59 @@ def test_cutoff_terminal_outcome_and_fresh_healthy_owner_follow_normal_health(pa
     assert presentation.dashboard_health(_attach(active, monkeypatch, wait=False))['color'] == 'red'
     healthy = replace(active, rows=[_row('runtime_identity', model.OK)])
     assert presentation.dashboard_health(_attach(healthy, monkeypatch, wait=False))['color'] == 'green'
+
+
+def test_paper_projection_cannot_use_withdrawn_or_older_wait(panel, monkeypatch):
+    rows = [panel.row('paper_reconciliation')]
+    _attach(panel, monkeypatch)
+    assert read_projection._activation_paper_rows(None, rows, now=NOW) == rows
+    for now, live in ((END, True), (NOW, False)):
+        _attach(panel, monkeypatch, wait=live)
+        restored, = read_projection._activation_paper_rows(None, rows, now=now)
+        assert restored.status == model.FAIL and restored.operational_fact is None
+        assert (restored.as_of, restored.valid_until) == (rows[0].as_of, rows[0].valid_until)
+
+
+@pytest.mark.parametrize('renewal_offset', [-1, 1])
+def test_paper_projection_uses_earlier_original_expiry_of_both_witnesses(panel, monkeypatch, renewal_offset):
+    signed = panel.row('paper_reconciliation')
+    renewed_expiry = END + timedelta(microseconds=renewal_offset)
+    later = activation_fee_wait.ActivationFeeWait(DECISION, NOW+timedelta(seconds=1),
+        renewed_expiry, renewed_expiry, 'b'*64, 200)
+    monkeypatch.setattr(activation_fee_wait, 'read_owned', lambda *_, **__: later)
+    returned, = read_projection._activation_paper_rows(None, [signed], now=later.observed_at)
+    assert returned.status == model.PENDING and returned.as_of == signed.as_of
+    assert returned.valid_until == min(signed.valid_until, renewed_expiry)
+    assert signed.valid_until == END
+
+
+def test_owned_paper_observer_schedules_refresh_before_pending_expires(panel, monkeypatch):
+    elapsed = [0]
+    started = []
+    key = 'c'*64
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-qualification-'+'q'*40)
+    monkeypatch.setattr(authority_reader, 'Thread',
+        lambda **_: SimpleNamespace(start=lambda: started.append(elapsed[0])))
+    reader = authority_reader.Reader(clock=lambda: elapsed[0],
+        wall_clock=lambda: NOW+timedelta(seconds=elapsed[0]),
+        evidence_reader=lambda *_: key, expected_keys=frozenset({'paper_reconciliation'}))
+    pending = panel.row('paper_reconciliation')
+    observed = NOW + timedelta(seconds=1)
+    elapsed[0] = 1
+    reader.answer = (key, observer_codec.pack([pending], [], observed_at=observed), None, observed)
+    result = reader.read('private', allow_start=False)
+    assert reader.attempt_outcome == 'VERIFIED' and reader.failure_diagnostic is None
+    assert result[0][0].as_of == NOW and result[0][0].valid_until == END
+    signed = verification_service.snapshot(reader, result, scope='PAPER', now=observed)
+    assert signed[0]['valid_until'] == END.isoformat()
+    elapsed[0] = 89
+    reader.read('private')
+    assert not started
+    elapsed[0] = 90
+    reader.read('private')
+    assert started == [90] and elapsed[0] < authority_reader.REFRESH_SECONDS
+    assert verification_service.snapshot(reader, result, scope='PAPER',
+        now=END+timedelta(microseconds=1)) is None
 
 
 def test_projection_does_not_serialize_or_replay_the_live_consumer_witness(panel, monkeypatch):

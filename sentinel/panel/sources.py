@@ -2898,8 +2898,16 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
         row = model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
             detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
         if cycle.get('state') == 'WAITING_OPEN' and str(cycle.get('decision_session')) == frontier:
-            return replace(row, operational_fact=model.OperationalFact(
-                kind='PAPER_VERIFICATION', state='HISTORICAL_READINESS_WITHDRAWN'))
+            from sentinel import activation_fee_wait
+
+            now = datetime.now(timezone.utc)
+            wait = activation_fee_wait.read_owned(conn, now=now)
+            if (wait is not None and wait.decision_session.isoformat() == frontier
+                    and wait.observed_at <= now < wait.valid_until):
+                return replace(row, value='PAPER NOT VERIFIED · PENDING', status=model.PENDING,
+                    as_of=wait.observed_at, valid_until=wait.valid_until, required_current=True,
+                    operational_fact=model.OperationalFact(kind='PAPER_VERIFICATION',
+                        state='HISTORICAL_READINESS_WITHDRAWN', session=wait.decision_session))
         return row
     return model.paper_reconciliation_row(
         state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),

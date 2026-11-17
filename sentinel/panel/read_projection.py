@@ -362,6 +362,21 @@ def _activation_renewal_exposure(conn, rows, mismatch, *, now, valid_until):
     return [exposure if row.key == 'exposure' else row for row in rows]
 
 
+def _activation_paper_rows(conn, rows, *, now):
+    if len(rows) != 1 or not model.activation_fee_paper_pending(rows[0]):
+        return rows
+    from sentinel import activation_fee_wait
+
+    row = rows[0]
+    wait = activation_fee_wait.read_owned(conn, now=now)
+    if wait is not None and row.operational_fact.session == wait.decision_session:
+        until = min(row.valid_until, wait.valid_until)
+        if row.as_of <= now < until:
+            return [replace(row, valid_until=until)]
+    return [replace(row, status=model.FAIL, operational_fact=None,
+                    value='PAPER NOT VERIFIED · MISMATCH · BLOCKED')]
+
+
 def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=None, facts=None,
                native_subjects=None, display_basis=None):
     """Read through the caller's snapshot without owning its transaction.
@@ -415,6 +430,9 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                     if projected is None:
                         raise
                 result = (projected, result[1], result[2], result[3])
+            if scope == 'PAPER':
+                result = (_activation_paper_rows(conn, result[0], now=instant),
+                          result[1], result[2], result[3])
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
             retained = None
             if row is not None and row[0] == key:
