@@ -13,7 +13,7 @@ from sentinel.execution import journal, protected_funding as funding, protected_
 from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
 from sentinel.execution.alpaca import FinancialGradeAlpacaExecutionBroker
 from sentinel.execution.certification import certify_adapter, require_certified_adapter
-from sentinel.execution.commands import Command
+from sentinel.execution.commands import Command, compute_delta
 from sentinel.execution.contract import BrokerAccountIdentity, BrokerAccountSnapshot, BrokerObservation, OrderTerms, Side
 from sentinel.execution.guarded import GuardedExecutionBroker
 from sentinel.execution.identity import CommandIdentity
@@ -591,10 +591,14 @@ class TestProtectedCohortContinuation:
         monkeypatch.setattr(automation_runtime.journal, "in_flight_commands", lambda *_args: (command,))
         monkeypatch.setattr(automation_runtime.journal, "load_commands", lambda *_args, **_kwargs: (command,))
         monkeypatch.setattr(automation_runtime.journal, "latest_plan", lambda _conn: plan)
-        runtime._actionable_current_plan_deltas = lambda *_args, **_kwargs: (
-            (SimpleNamespace(security_id="SEC-B", remaining=D(1), is_increase=True),) if actionable else ())
+        delta = compute_delta(security_id="SEC-B", desired=D(1), observation=observation)
+        monkeypatch.setattr(runtime, "_actionable_current_plan_deltas",
+                            lambda *_args, **_kwargs: (delta,) if actionable else ())
         result = asyncio.run(runtime.recover(ctx))
         assert result.disposition.value == expected
+        expected_deltas = [
+            {"security_id": "SEC-B", "remaining": "1", "side": "BUY", "remaining_notional": None}
+        ] if actionable else []
         if proved:
             from sentinel.automation.model import ProtectedDayWait
             from sentinel.feed import calendar
@@ -610,7 +614,11 @@ class TestProtectedCohortContinuation:
         if proved and (not inside or not actionable):
             assert result.failure_code == "PROTECTED_DAY_ORDERS_WORKING"
             assert result.diagnostic["protected_day_wait"]["reserved_cash"] == "100"
+            assert result.diagnostic["unsent_actionable_deltas"] == expected_deltas
         elif not proved:
             assert result.failure_code == "COMMANDS_IN_FLIGHT"
+            assert "actionable_deltas" not in result.diagnostic
+            assert "unsent_actionable_deltas" not in result.diagnostic
         else:
             assert result.failure_code == "PROTECTED_COHORT_READY"
+            assert result.diagnostic["actionable_deltas"] == expected_deltas
