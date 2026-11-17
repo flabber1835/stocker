@@ -84,6 +84,45 @@ PYTHONPATH=.:shared python -B -m pytest \
   -q -p no:cacheprovider
 ```
 
+## Three versus five levels without regenerating Wealth Core
+
+The levels experiment reuses an authenticated Core/BIL history and recorded
+controller evidence. It adds paired early-warning and recovery-probe latches,
+using 55% for both in the three-level grid, versus 75% and 25% in the five-level
+grid. The original severe zero and confirmed 55% decisions remain in force.
+There is no Core transition or new holdings book for any candidate.
+
+Fourteen settings per grid and the baseline fallback are fitted only through
+2015-12-31. Selections are saved before later-period evaluation. Paired controls
+hold transition settings constant; fixed controls exercise both new stages even
+when fitting rejects one. Each candidate retains its own state and overnight
+holding across the fitting boundary. The dates were inspected in previous
+research, so the later period is a fitting holdout, not an untouched research one.
+
+Use the same pinned replay image and isolated Plotly report dependency. The input
+snapshot must be read-only and the output a separate new directory:
+
+```bash
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.levels \
+  --snapshot /read-only/snapshot --output /separate/new-levels-run
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.levels_report \
+  --snapshot /read-only/snapshot --result /separate/new-levels-run
+PYTHONPATH=.:shared python -B -m research.exposure_oracle.levels_audit \
+  --snapshot /read-only/snapshot --result /separate/new-levels-run
+```
+
+Outputs preserve training selection, daily decisions, full and holdout NAVs,
+monthly CAGR/multiple/MaxDD, yearly returns, paired cost/timing attribution,
+offline charts and an independent raw-ledger/state audit. Additional authenticated
+sessions can extend the common Core history; every overlay reuses that history.
+See `docs/sentinel-exposure-levels.md` for the frozen design and results.
+
+```bash
+PYTHONPATH=.:shared python -B -m pytest tests/sentinel/test_exposure_levels.py \
+  tests/sentinel/test_exposure_logic.py tests/sentinel/test_exposure_oracle.py \
+  -q -p no:cacheprovider
+```
+
 ## Neural imitation of the ideal policy
 
 The neural experiment fits a small 38 → 16 → 8 → 3 classifier to independently
