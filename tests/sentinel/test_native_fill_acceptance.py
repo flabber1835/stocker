@@ -85,6 +85,32 @@ def test_partial_then_final_native_executions_replay_once_by_ref_id(conn):
                         'WHERE client_key=%s', (command.client_key,)).fetchone()[0] == 2
 
 
+def test_two_partial_executions_and_final_fill_need_not_have_monotone_execution_times(conn):
+    quantities = ('1', '1.983235066', '7.016764934')
+    owner, command, broker, http, events = prior.fixture(
+        conn, native_quantities=quantities)
+    cumulative = ('1', '2.983235066', '10')
+    remaining = ('9', '7.016764934', '0')
+    for index, event in enumerate(events):
+        event['details'].update(
+            execution_type='fill' if index == 2 else 'partial_fill',
+            order_status='filled' if index == 2 else 'partially_filled',
+            cum_qty=cumulative[index], leaves_qty=remaining[index])
+    events[1]['executed_at'] = (prior.FILL + timedelta(milliseconds=3)).isoformat()
+    events[2]['executed_at'] = (prior.FILL + timedelta(milliseconds=2)).isoformat()
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
+
+    result = asyncio.run(R.reconcile(
+        broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is RuntimeState.RUNNING and result.clean
+    assert conn.execute('SELECT quantity FROM sentinel_fills '
+                        'WHERE client_key=%s ORDER BY quantity',
+                        (command.client_key,)).fetchall() == [(D(q),) for q in quantities]
+    replay = asyncio.run(broker.recent_fills(prior.START))
+    assert [fill.activity_id for fill in replay] == [event['ref_id'] for event in events]
+    assert journal.record_fills(conn, replay) == 0
+
+
 @pytest.mark.parametrize('native_refusal', [True, False])
 def test_initial_observation_failure_classifies_native_integrity(
         monkeypatch, native_refusal):
