@@ -82,7 +82,7 @@ def test_shadow_build_never_selects_legacy_trial_certificates(monkeypatch):
         pytest.fail('obsolete paper trial selected in shadow mode'))
     with pytest.raises(RuntimeError, match='selection reached'):
         sources.build_panel(state_dir=None, database_url='database', now=NOW)
-    assert called == [{'now': NOW, 'include_paper': False}]
+    assert called == [{'now': NOW, 'include_paper': False, 'error_owners': {}}]
 
 
 def test_slow_status_read_dates_document_at_completion_without_redating_facts(monkeypatch):
