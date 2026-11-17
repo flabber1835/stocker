@@ -15,6 +15,7 @@ from sentinel.automation.model import (
     CallbackDeadlineExceeded,
     CycleRecord,
     CycleState,
+    DataIntegrityFailure,
     LeaderPermit,
     NonRetryableCallbackRefused,
     TickAction,
@@ -112,6 +113,28 @@ def test_transient_outage_never_exhausts_activation_generation(source_probe):
         assert "source_probe" not in diagnostic
     else:
         assert diagnostic["source_probe"] == source_probe
+
+
+def test_native_integrity_blocks_unattended_recovery_while_transport_retries():
+    service = _service(recover_max_attempts=2)
+    now = datetime(2026, 11, 17, 14, 52, tzinfo=timezone.utc)
+    cycle = SimpleNamespace(diagnostic={
+        "retry_phase": "RECOVER", "phase_attempt_count": 1000})
+
+    terminal, diagnostic = service._failure_diagnostic(
+        cycle=cycle, phase="RECOVER",
+        exc=DataIntegrityFailure("unsupported native TRD execution_type"),
+        now=now)
+    assert terminal is True
+    assert diagnostic["callback_failure"] == "DATA_INTEGRITY"
+    assert "availability_retry_unbounded" not in diagnostic
+
+    retry, retry_diagnostic = service._failure_diagnostic(
+        cycle=cycle, phase="RECOVER",
+        exc=TransientInfrastructureFailure("broker read timed out"),
+        now=now)
+    assert retry is False
+    assert retry_diagnostic["availability_retry_unbounded"] is True
 
 
 def test_long_data_callback_restarts_after_deadline_without_blocking():

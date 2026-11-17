@@ -56,6 +56,17 @@ def condition_evidence(panel, keys):
             'recovery_phase': phase if phase is not None and re.fullmatch('[A-Z0-9_]{1,64}', phase) else None,
             'value_sha256': hashlib.sha256(row.value.encode('utf-8')).hexdigest(),
             'detail_sha256': hashlib.sha256(row.detail.encode('utf-8')).hexdigest()}
+        if key in {'shadow_verification', 'paper_reconciliation'} and row.status == UNKNOWN:
+            scope = 'shadow' if key == 'shadow_verification' else 'paper'
+            match = re.fullmatch(
+                'durable '+scope+r' verification unavailable: ([A-Z_]+): '
+                r'(ValueError|TypeError|KeyError|OverflowError)', row.detail)
+            if match is not None:
+                from sentinel.panel.read_projection import RECEIPT_FAILURE_SITES
+                if match.group(1) in RECEIPT_FAILURE_SITES:
+                    result[key].update(
+                        code='FINANCIAL_RECEIPT_'+match.group(1),
+                        exception_type=match.group(2))
         failure = panel.trial_details.get('worker_observation_failure')
         if key == 'operational_projection' and row.status == UNKNOWN:
             from sentinel.panel.observer_failure import Failure

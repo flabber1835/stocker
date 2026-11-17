@@ -14,6 +14,12 @@ from sentinel.panel import operational_schema as schema
 
 SCHEMA = 'sentinel.operational-verification/1'
 SCOPES = frozenset({'SHADOW', 'PAPER'})
+RECEIPT_FAILURE_SITES = frozenset({
+    'SUBJECT_FACTS', 'SUBJECT_READ', 'RECEIPT_MISSING',
+    'RECEIPT_CLOCK_MISMATCH', 'RECEIPT_REBASE', 'RECEIPT_SUBJECT_WAIT',
+    'RECEIPT_SUBJECT_STALE', 'RECEIPT_DECODE', 'SHADOW_PROJECTION',
+    'PAPER_ACTIVATION',
+})
 SHADOW_KEYS = frozenset({'shadow_verification','shadow_nav','shadow_return','exposure','book','terminals'})
 PAPER_KEYS = frozenset({'paper_reconciliation'})
 # Only facts read by independent financial verification belong here. Public
@@ -398,16 +404,23 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
     results = []
     for scope in scopes:
         key = row = None
+        failure_site = 'SUBJECT_READ'
         try:
             if facts_error is not None:
+                failure_site = 'SUBJECT_FACTS'
                 raise facts_error
             key = (native_subjects[scope] if native_subjects is not None
                    else _subject(conn, database_url, scope, facts=facts))
+            failure_site = 'RECEIPT_MISSING'
             row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
-            if (row is None or row[1].isoformat() != row[3].get('observed_at')
+            if row is None:
+                raise ValueError('current verification receipt unavailable')
+            failure_site = 'RECEIPT_CLOCK_MISMATCH'
+            if (row[1].isoformat() != row[3].get('observed_at')
                     or row[2].isoformat() != row[3].get('valid_until')):
                 raise ValueError('current verification receipt unavailable')
             if row[0] != key:
+                failure_site = 'RECEIPT_REBASE'
                 advanced = (rebase_completed_paper(
                     conn, database_url, (row[3], row[4]), now=instant, facts=facts,
                     current_basis=display_basis)
@@ -415,13 +428,17 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                 if advanced is not None and advanced[0]['subject_sha256'] == key:
                     results.append((advanced[1], {}, [], []))
                     continue
+                failure_site = 'RECEIPT_SUBJECT_WAIT'
                 waiting = changed_subject_wait(conn,row,scope=scope,now=instant)
                 if waiting is not None:
                     results.append(waiting)
                     continue
+                failure_site = 'RECEIPT_SUBJECT_STALE'
                 raise ValueError('current verification receipt unavailable')
+            failure_site = 'RECEIPT_DECODE'
             result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
             if scope == 'SHADOW':
+                failure_site = 'SHADOW_PROJECTION'
                 from sentinel.panel.sources import PlanRolloutMismatch
                 from sentinel.panel.shadow_execution_projection import project
                 try:
@@ -433,6 +450,7 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                         raise
                 result = (projected, result[1], result[2], result[3])
             if scope == 'PAPER':
+                failure_site = 'PAPER_ACTIVATION'
                 result = (_activation_paper_rows(conn, result[0], now=instant),
                           result[1], result[2], result[3])
         except (ValueError,TypeError,KeyError,OverflowError) as exc:
@@ -443,7 +461,9 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                         now=datetime.fromisoformat(row[3]['observed_at']))[0]
                 except (ValueError,TypeError,KeyError,OverflowError):
                     pass
-            result = financial._unknown(scope == 'PAPER', 'durable '+scope.lower()+' verification unavailable: '+type(exc).__name__,retained)
+            detail = ('durable '+scope.lower()+' verification unavailable: '
+                      +failure_site+': '+type(exc).__name__)
+            result = financial._unknown(scope == 'PAPER', detail, retained)
             result = ([r for r in result[0] if (r.key == 'paper_reconciliation') == (scope == 'PAPER')], {}, [], result[3])
         results.append(result)
     rows = {row.key:row for result in results for row in result[0]}

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   media-and-recovery:
     name: backup-${{ matrix.scope }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -42,6 +42,9 @@ jobs:
         run: |
           python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip install --no-deps --no-build-isolation ./shared
+      - name: Verify host PostgreSQL 16 toolchain
+        timeout-minutes: 10
+        run: bash tools/ci_postgres.sh
       - name: Simulate media faults and replay backup lifecycles
         run: |
           mkdir -p evidence

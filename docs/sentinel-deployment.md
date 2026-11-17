@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[November 17 opening recovery](nov17-opening-recovery.md) records the observed
+PAPER partial-fill refusal, its bounded data-integrity behavior and focused
+qualification before this local patch can be installed.
+
 [PAPER performance consolidation](paper-performance-consolidation.md) records
 how the runtime reuses verified work during idle scheduling, order preparation,
 delivery, and recovery while preserving the existing authority boundaries.

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -104,11 +105,21 @@ def verify_bundle(root: Path, bundle: Path, *, load: bool = False) -> dict:
             and set(manifest["files"]) == {"images.tar"}
             and manifest["files"] == _inventory(bundle, exclude={"identity.json"}),
             "runtime bundle file inventory/hash differs")
+    require(type(manifest["images"]) is dict
+            and set(manifest["images"]) == {"sentinel:ci", "sentinel-test:ci"}
+            and all(type(image_id) is str and
+                    re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+                    for image_id in manifest["images"].values()),
+            "invalid runtime bundle image identity inventory")
     if load:
         subprocess.run(["docker", "load", "--input", str(bundle / "images.tar")],
                        cwd=root, check=True)
-    require(manifest["images"] == _images(root, commit=manifest["commit"]),
-            "loaded image IDs differ from built runtime/test lens")
+    loaded = _images(root, commit=manifest["commit"])
+    differences = [f"{reference}: expected {manifest['images'][reference]}, observed {loaded[reference]}"
+                   for reference in ("sentinel:ci", "sentinel-test:ci")
+                   if manifest["images"][reference] != loaded[reference]]
+    require(not differences, "loaded image IDs differ from built runtime/test lens: "
+            + "; ".join(differences))
     return manifest
 
 

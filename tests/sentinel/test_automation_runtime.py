@@ -25,6 +25,7 @@ from sentinel.paper import (
     inspection as paper_inspection,
     validation as paper_validation,
 )
+from sentinel.paper.model import PaperDataIntegrityRefused
 from sentinel.automation import store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -1106,6 +1107,67 @@ async def test_accepted_submit_needs_restart_reobservation_and_final_fill(
 
 
 @async_test
+async def test_postsubmit_native_refusal_keeps_ack_for_read_only_recovery(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan()
+    execute_ctx = context(cfg, plan=current_plan)
+    inner = SimulatedBroker()
+    grant = automation_runtime._grant(  # noqa: SLF001
+        execute_ctx, "EXECUTE", binding=control(cfg).binding)
+    guarded = GuardedExecutionBroker(
+        inner=inner, grant=grant, guard=permissive_guard())
+    runtime = production(cfg)
+    install_runtime_seams(
+        monkeypatch, runtime, FakeConnection(), execute_ctx, guarded)
+    submitted = command(current_plan.plan_id)
+
+    async def execute_through_membrane(**kwargs):
+        outcome = await kwargs["broker"].submit(
+            client_key=submitted.client_key, instrument=INSTRUMENT,
+            side=Side.BUY, quantity=Decimal("1"))
+        assert outcome.state is CommandState.ACKNOWLEDGED
+        refused = ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            detail="unsupported native TRD execution_type",
+            native_fill_integrity_refused=True)
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(
+                runtime_state=RuntimeState.RECONCILING,
+                reconciliation=refused, submitted=(submitted,),
+                detail=refused.detail))
+
+    async def recover_refusal(**_kwargs):
+        raise PaperDataIntegrityRefused(
+            "unsupported native TRD execution_type")
+
+    monkeypatch.setattr(
+        paper, "execute_automated_paper_plan", execute_through_membrane)
+    monkeypatch.setattr(
+        paper, "recover_automated_paper_cycle", recover_refusal)
+    monkeypatch.setattr(journal, "in_flight_commands",
+                        lambda *_args: (submitted,))
+
+    executed = await runtime.execute(execute_ctx)
+    assert executed.disposition is ExecuteDisposition.RECONCILE
+    assert executed.failure_code == "COMMANDS_IN_FLIGHT"
+    assert executed.diagnostic["execution"]["reconciliation"][  # noqa: SLF001
+        "native_fill_integrity_refused"] is True
+
+    recover_ctx = context(cfg, state=CycleState.RECONCILING,
+                          plan=current_plan)
+    install_runtime_seams(
+        monkeypatch, runtime, FakeConnection(), recover_ctx, guarded)
+    with pytest.raises(automation_runtime.DataIntegrityFailure,
+                       match="unsupported native TRD"):
+        await runtime.recover(recover_ctx)
+    assert submitted.state is CommandState.ACKNOWLEDGED
+    assert sum(call.startswith("submit:") for call in inner.calls) == 1
+    assert not any(call.startswith("cancel:") for call in inner.calls)
+
+
+@async_test
 async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
         monkeypatch) -> None:
     """The informational raw plan still needs a later exact filled-book read."""
@@ -1759,6 +1821,46 @@ async def test_paper_refusal_class_controls_durable_latching(
                 else NonRetryableCallbackRefused)
     with pytest.raises(expected):
         await runtime.execute(ctx)
+
+
+@pytest.mark.parametrize("phase", ["prepare", "execute", "recover"])
+@async_test
+async def test_native_fill_integrity_refusal_maps_to_terminal_data_integrity(
+        monkeypatch, phase) -> None:
+    cfg = config()
+    current_plan = plan()
+    state = {"prepare": CycleState.PREPARING,
+             "execute": CycleState.EXECUTING,
+             "recover": CycleState.RECONCILING}[phase]
+    ctx = context(cfg, state=state,
+                  plan=None if phase == "prepare" else current_plan)
+    broker = SimulatedBroker()
+    runtime = production(cfg)
+    install_runtime_seams(
+        monkeypatch, runtime, FakeConnection(), ctx, broker)
+    if phase == "prepare":
+        runtime._dual_run_enabled = True  # noqa: SLF001 - bypass legacy cursor
+        monkeypatch.setattr(automation_runtime.schema,
+                            "require_runtime_schema", lambda _conn: None)
+        monkeypatch.setattr(automation_runtime,
+                            "require_observation_integrity", lambda _conn: None)
+        monkeypatch.setattr(runtime, "_require_operational_inputs",
+                            lambda _conn: None)
+
+    async def refused(**_kwargs):
+        raise PaperDataIntegrityRefused(
+            "retained native TRD execution_type is unsupported")
+
+    callback = {"prepare": "prepare_paper_plan",
+                "execute": "execute_automated_paper_plan",
+                "recover": "recover_automated_paper_cycle"}[phase]
+    monkeypatch.setattr(paper, callback, refused)
+
+    with pytest.raises(automation_runtime.DataIntegrityFailure,
+                       match="execution_type is unsupported"):
+        await getattr(runtime, phase)(ctx)
+    assert not any(call.startswith(("submit:", "cancel:"))
+                   for call in broker.calls)
 
 
 @async_test

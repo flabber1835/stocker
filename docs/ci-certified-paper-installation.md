@@ -58,6 +58,56 @@ merge and have no main-push trigger. Applicable optional checks must also pass.
 No elapsed-time, trading-session, broker, book or installation admission rule is
 changed. Software certification remains separate from financial activation.
 
+### Runner generation for image transfer
+
+Decision: 2026-11-17. Pin the safety image builder, its parallel consumers and
+exact-head assembler, and the protected publisher that loads the certified
+runtime to the explicit `ubuntu-24.04` runner label. GitHub's
+[`ubuntu-latest` migration](https://github.com/actions/runner-images/issues/14748)
+can assign different OS generations to jobs in one workflow run. In PR 601,
+the build and successful worker used Ubuntu 24.04 image `20261111.370.1`,
+while the final exact-head assembler used Ubuntu 26.04 image
+`20261111.196.1`. The downloaded bundle's archive hash and both image-config
+digests matched the builder's manifest, and a 24.04 worker loaded that same
+bundle with the expected IDs. The 26.04 assembler loaded both named images,
+but at least one loaded image ID differed; the old generic diagnostic did not
+identify which. Certification correctly refused.
+
+Keep the archive hash, exact source/attempt, image revision and both post-load
+image-ID comparisons mandatory. A runner migration requires an independently
+qualified change of this explicit label across every image producer and
+consumer; it cannot be handled by accepting a different loaded ID. On refusal,
+name which image reference diverged and report only the expected and observed
+image digests, so a runner compatibility failure can be diagnosed without
+weakening the certificate.
+
+### Host PostgreSQL qualification generation
+
+Decision: 2026-11-17. Pin the Alpaca simulation, internal-state, production
+composition and backup reliability workflows to `ubuntu-24.04`, and require
+the CI host PostgreSQL toolchain to be major version 16 before creating any
+fixture database. These campaigns use the host server, unlike the safety
+image's separate test lens.
+Backup reliability also has one digest-pinned PostgreSQL 16 container test;
+that does not cover its other host database fixtures and physical scripts.
+The current supported PAPER schema and its exact migration-ledger constraint
+fingerprint are qualified against PostgreSQL 16; a different server major must
+not be accepted by loosening that fingerprint.
+
+In PR 601, the preceding successful run used Ubuntu 24.04 with PostgreSQL
+16.15 in the Alpaca, internal-state and composition campaigns; backup also
+passed on Ubuntu 24.04. During GitHub's `ubuntu-latest` rollout, the next run
+used Ubuntu 26.04 with PostgreSQL 18.6 in the first three campaigns; backup
+ran on Ubuntu 26.04 and inherited its host database. Composition, internal-state
+and backup fixtures then refused the ledger constraint fingerprint at setup;
+backup also refused the exact recovery-marker fingerprint. Alpaca's
+mutation campaign also had a failed unmodified baseline under PostgreSQL 18,
+so a reported surviving mutant was not evidence that the execution guard had
+changed. Keep that baseline gate strict. The host setup helper now refuses a
+non-16 toolchain explicitly, before any fixture starts or a mutation result is
+reported. A future PostgreSQL major upgrade requires separately reviewed
+schema compatibility and qualification; the CI label alone cannot grant it.
+
 ### Protected publication retries
 
 GitHub can retain several provenance artifacts under one name when protected

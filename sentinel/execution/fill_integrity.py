@@ -20,6 +20,10 @@ class PostedFillCashIncomplete(FillHistoryIncomplete):
     pass
 
 
+class NativeFillIdentityRefused(ValueError):
+    """A decoded native execution contradicts immutable owned-order identity."""
+
+
 _CENT = Fraction("0.01")
 _SHARE_INCREMENT = Fraction("0.000000001")
 NOTIONAL_POSITION_LEAD_PREFIX = "broker-cash-activity:v1:notional-position-lead:v1:"
@@ -268,9 +272,11 @@ def _validate_fill_set(fills, orders, *, observed_at, history_complete, position
             seen.add(native)
             if (getattr(fill, 'asset_id', None) != order.instrument.broker_id
                     or getattr(fill, 'side', None) is not order.side):
-                raise ValueError('native fill asset or side contradicts order')
+                raise NativeFillIdentityRefused(
+                    'native fill asset or side contradicts order')
         if fill.client_key not in (None, order.client_key):
-            raise ValueError('native fill client key contradicts order')
+            error = (NativeFillIdentityRefused if native else ValueError)
+            raise error('native fill client key contradicts order')
         if (fill.filled_at is None or order.submitted_at is None
                 or fill.filled_at < order.submitted_at
                 or fill.filled_at > observed_at):

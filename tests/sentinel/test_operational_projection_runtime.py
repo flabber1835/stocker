@@ -73,6 +73,51 @@ def test_transport_or_malformed_child_response_is_latched_until_success(monkeypa
     assert previous == [False, True, True]
 
 
+def test_commit_wake_during_publication_runs_one_immediate_follow_up(monkeypatch, tmp_path):
+    stop, calls = Stop(), []
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'wake-heartbeat')
+
+    class Wake:
+        def __init__(self):
+            self.pending = False
+            self.waits = []
+
+        def set(self):
+            self.pending = True
+
+        def clear(self):
+            self.pending = False
+
+        def wait(self, seconds):
+            self.waits.append((seconds, self.pending))
+            assert self.pending or stop.stopped, 'commit wake was lost during publication'
+            return self.pending
+
+    def runner(*_args, **_kwargs):
+        calls.append(True)
+        if len(calls) == 1:
+            worker.request_refresh()
+            worker.request_refresh()  # Several commits coalesce into one follow-up.
+        else:
+            stop.set()
+        return {'outcome': 'PUBLISHED', 'valid_until':
+                (datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat()}
+
+    worker = producer.Publisher('private-db', 'owner', stopped=stop, runner=runner,
+                                wake_on_publication=True)
+    wake = Wake()
+    worker.publication_wake = wake
+    worker.run()
+    assert len(calls) == 2 and len(wake.waits) == 2
+    assert wake.waits[0][1] is True
+
+
+def test_removed_commit_wake_is_detected(monkeypatch, tmp_path):
+    monkeypatch.setattr(producer.Publisher, 'request_refresh', lambda self: None)
+    with pytest.raises(AssertionError, match='commit wake was lost'):
+        test_commit_wake_during_publication_runs_one_immediate_follow_up(monkeypatch, tmp_path)
+
+
 @pytest.mark.parametrize('alive', [False, True])
 def test_shutdown_retains_existing_bounded_join(monkeypatch, tmp_path, alive):
     heartbeat = tmp_path/'heartbeat'
@@ -272,7 +317,7 @@ def test_projection_starts_once_after_first_successful_financial_refresh(monkeyp
     connection = SimpleNamespace(closed=False, broken=False, rollback=lambda: rolled_back.append(True))
     monkeypatch.setattr(verifier, 'HEARTBEAT', tmp_path/'financial-heartbeat')
     monkeypatch.setattr(verifier, '_renew_owner', lambda *_: time.monotonic()+100)
-    def refresh(*_):
+    def refresh(*_, **__):
         refreshes.append(True)
         if len(refreshes) == 1: raise refusal('private typed availability')
         if len(refreshes) == 3: stop.set()

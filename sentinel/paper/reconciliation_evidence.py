@@ -18,6 +18,7 @@ from sentinel.execution.states import RuntimeState
 
 from .model import (
     PaperActivationRefused,
+    PaperDataIntegrityRefused,
     PaperRetryableRefused,
 )
 
@@ -33,7 +34,14 @@ from .cash import (
 )
 
 
+def _native_fill_integrity_or_refuse(result, *, purpose: str) -> None:
+    if getattr(result, "native_fill_integrity_refused", False):
+        raise PaperDataIntegrityRefused(
+            f"{purpose} refused retained native fill evidence: {result.detail}")
+
+
 def _clean_or_refuse(result, *, purpose: str, allow_restrictions: bool = False) -> BrokerObservation:
+    _native_fill_integrity_or_refuse(result, purpose=purpose)
     observation = result.observation
     replaced = sorted(
         order.broker_order_id

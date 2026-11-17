@@ -136,6 +136,42 @@ def test_workflow_declares_every_reviewed_worker_once():
     assert set(shards.CURRENT_LANES).issubset(lanes)
 
 
+CERTIFIED_IMAGE_JOBS = (
+    ("sentinel-safety.yml", "qualification-source"),
+    ("sentinel-safety.yml", "host-python-38-compatibility"),
+    ("sentinel-safety.yml", "runtime-build"),
+    ("sentinel-safety.yml", "parallel-certification"),
+    ("sentinel-safety.yml", "certification-and-durability"),
+    ("sentinel-publish.yml", "publish-tested-main-image"),
+)
+
+
+def _certified_image_workflows():
+    directory = Path(__file__).resolve().parents[2] / ".github/workflows"
+    return {name: yaml.safe_load((directory / name).read_text(encoding="utf-8"))
+            for name in {workflow for workflow, _ in CERTIFIED_IMAGE_JOBS}}
+
+
+def _assert_one_certified_image_runner_generation(workflows):
+    for name in workflows:
+        expected = {job for workflow, job in CERTIFIED_IMAGE_JOBS if workflow == name}
+        assert set(workflows[name]["jobs"]) == expected
+    assert all(workflows[workflow]["jobs"][job]["runs-on"] == "ubuntu-24.04"
+               for workflow, job in CERTIFIED_IMAGE_JOBS)
+
+
+def test_certified_image_producers_consumers_and_publisher_pin_runner_generation():
+    _assert_one_certified_image_runner_generation(_certified_image_workflows())
+
+
+@pytest.mark.parametrize("workflow,job", CERTIFIED_IMAGE_JOBS)
+def test_floating_one_certified_image_runner_is_detected(workflow, job):
+    workflows = _certified_image_workflows()
+    workflows[workflow]["jobs"][job]["runs-on"] = "ubuntu-latest"
+    with pytest.raises(AssertionError):
+        _assert_one_certified_image_runner_generation(workflows)
+
+
 @pytest.mark.parametrize("lane", ["sentinel-general-6", "sentinel-general-7", "sentinel-rolling-4"])
 def test_omitting_a_new_worker_is_detected(monkeypatch, lane):
     workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
@@ -269,7 +305,21 @@ def test_bundle_refuses_stale_source_or_attempt_before_loading(campaign, field):
 def test_refuses_different_loaded_image_id(campaign, reference):
     root, bundle, _, _, _, images, _ = campaign
     images[reference] = "sha256:" + "e" * 64
-    with pytest.raises(ValueError, match="image IDs differ"):
+    with pytest.raises(ValueError, match="image IDs differ") as caught:
+        evidence.verify_bundle(root, bundle)
+    assert reference in str(caught.value)
+    assert images[reference] in str(caught.value)
+    assert ("sha256:" + ("c" if reference == "sentinel:ci" else "d") * 64
+            ) in str(caught.value)
+
+
+@pytest.mark.parametrize("image_id", ["unexpected text", "sha256:" + "A" * 64, 7])
+def test_unbounded_manifest_image_id_refuses_before_diagnostic(campaign, image_id):
+    root, bundle, _, _, _, _, _ = campaign
+    manifest = json.loads((bundle / "identity.json").read_text(encoding="utf-8"))
+    manifest["images"]["sentinel:ci"] = image_id
+    (bundle / "identity.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid runtime bundle image identity inventory"):
         evidence.verify_bundle(root, bundle)
 
 

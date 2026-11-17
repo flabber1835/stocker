@@ -152,7 +152,7 @@ def test_owned_paper_observer_records_only_actual_failure_during_fee_wait(
     if case != 'fee_wait':
         assert rows[0].status == model.FAIL
         assert ('current plan share-unit mismatch' if case == 'current_mismatch'
-                else 'historical mirror warning remains recorded') in rows[0].detail
+                else 'historical informational mirror mismatch(es) remain recorded') in rows[0].detail
         assert history['latest']['outcome'] == 'FAILED'
         assert len(history['failures']) == len(notes) == 1
         assert notes[0]['kind'] == 'REVIEW'

@@ -2878,7 +2878,8 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
     historical = mirror.get('status') == informational_paper_mirror.MISMATCH
     count = mirror.get('historical_mismatch_count')
     if historical and (type(count) is not int or count <= 0):
-        return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+        return model.paper_reconciliation_row(state='HISTORICAL_READINESS_UNPROVED',
+            cycle_state=cycle.get('state'),
             detail='historical mirror mismatch has no valid authenticated count')
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
     if not historical:
@@ -2895,8 +2896,9 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
         completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
         if completed is not None:
             return replace(completed, detail=history + completed.detail)
-        row = model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
-            detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
+        row = model.paper_reconciliation_row(state='HISTORICAL_READINESS_UNPROVED',
+            cycle_state=cycle.get('state'),
+            detail=history + 'current PAPER readiness is unproved')
         if cycle.get('state') == 'WAITING_OPEN' and str(cycle.get('decision_session')) == frontier:
             from sentinel import activation_fee_wait
 

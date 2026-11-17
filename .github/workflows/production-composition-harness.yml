@@ -25,7 +25,7 @@ concurrency:
 jobs:
   qualification-source:
     name: composition-qualification-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       mode: ${{ steps.select.outputs.mode }}
@@ -55,7 +55,7 @@ jobs:
   database-preflight:
     needs: qualification-source
     name: GO database preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       PYTHONPATH: ${{ github.workspace }}/shared
@@ -98,7 +98,7 @@ jobs:
   composition:
     needs: [qualification-source, database-preflight]
     name: go-campaign-${{ matrix.scope }}-${{ matrix.campaign }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}
     env:
       # stock_strategy_shared is intentionally imported as a top-level module.
@@ -414,7 +414,7 @@ jobs:
     name: composition-${{ matrix.scope }}
     if: always()
     needs: composition
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         scope: ${{ fromJSON(github.event_name == 'pull_request' && '["synthetic-merge"]' || '["exact-head"]') }}

@@ -13,6 +13,7 @@ from sentinel.automation.model import (
     AutomationConfig,
     ControlBinding,
     CycleState,
+    DataIntegrityFailure,
     MissingAutomationState,
     NativeFeePostingWait,
     NonRetryableCallbackRefused,
@@ -1148,6 +1149,53 @@ async def test_nonretryable_recovery_refusal_latches_adopted_cycle_blocked(
     latched = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
     assert latched.action is TickAction.BLOCKED
     assert latched.cycle.cycle_id == blocked.cycle.cycle_id
+
+
+@pytest.mark.asyncio
+async def test_postsubmit_integrity_marker_recovers_then_blocks_without_resend(
+        conn) -> None:
+    cfg = config()
+    enable(conn, cfg)
+    calls = []
+    acknowledged_key = "sntl-0123456789abcdef0123"
+
+    def execute(_context):
+        calls.append("execute")
+        return {
+            "disposition": "RECONCILE",
+            "failure_code": "COMMANDS_IN_FLIGHT",
+            "failure_detail": "unsupported native TRD execution_type",
+            "diagnostic": {
+                "execution": {"submitted": [acknowledged_key],
+                              "reconciliation": {
+                                  "native_fill_integrity_refused": True}}},
+        }
+
+    def recover(context):
+        if context.cycle.state is not CycleState.RECONCILING:
+            return recovery_success(context)
+        calls.append("recover")
+        raise DataIntegrityFailure("unsupported native TRD execution_type")
+
+    service = service_for(cfg, execute=execute, recover=recover)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    ready = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert ready.cycle.state is CycleState.PLAN_READY
+
+    submitted = await service.tick(conn, now=THURSDAY_AFTER_OPEN)
+    assert submitted.cycle.state is CycleState.RECONCILING
+    assert submitted.cycle.diagnostic["execution"]["submitted"] == [
+        acknowledged_key]
+    assert calls == ["execute"]
+
+    blocked = await service.tick(
+        conn, now=THURSDAY_AFTER_OPEN + timedelta(seconds=30))
+    assert blocked.action is TickAction.BLOCKED
+    assert blocked.cycle.state is CycleState.BLOCKED
+    assert blocked.cycle.failure_code == "DataIntegrityFailure"
+    assert blocked.cycle.diagnostic["callback_failure"] == "DATA_INTEGRITY"
+    assert calls == ["execute", "recover"]
 
 
 @pytest.mark.asyncio

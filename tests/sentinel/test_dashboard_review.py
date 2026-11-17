@@ -121,6 +121,28 @@ def test_signed_failure_and_recovery_retain_original_condition_evidence(conn):
     assert recovered.status=='REVIEW' and recovered.reviewed_head<recovered.head
 
 
+@pytest.mark.parametrize('scope,site', [
+    ('PAPER','RECEIPT_DECODE'), ('SHADOW','RECEIPT_CLOCK_MISMATCH'),
+])
+def test_financial_receipt_site_is_durable_without_raw_exception(conn,scope,site):
+    owner=review.Recorder();clean(owner,conn)
+    detail=f'durable {scope.lower()} verification unavailable: {site}: ValueError'
+    financial=(model.paper_reconciliation_row(state='UNKNOWN',error=detail)
+               if scope=='PAPER' else model.shadow_verification_row(
+                   verdict=None,verification=None,session=None,error=detail,unreadable=True))
+    original=panel()
+    failed=replace(original,rows=[*original.rows,financial],
+                   source_errors=[detail],financial_source_errors={scope:[detail]})
+    observed=owner.observe(failed,conn.info.dsn)
+    assert observed.status=='FAILED'
+    event=next(event for event in observed.events if event['kind']=='FAILED')
+    key=financial.key
+    evidence=event['details']['evidence'][key]
+    assert evidence['code']=='FINANCIAL_RECEIPT_'+site
+    assert evidence['exception_type']=='ValueError'
+    assert detail not in json.dumps(event)
+
+
 def test_material_warning_cannot_be_acknowledged_into_green(conn):
     owner=review.Recorder();clean(owner,conn)
     page=panel(backup_restore=model.WARN)

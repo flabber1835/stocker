@@ -611,6 +611,56 @@ def snapshot_receipts(monkeypatch):
     return connection,calls
 
 
+@pytest.mark.parametrize('site', [
+    'SUBJECT_FACTS', 'SUBJECT_READ', 'RECEIPT_MISSING',
+    'RECEIPT_CLOCK_MISMATCH', 'RECEIPT_REBASE', 'RECEIPT_SUBJECT_WAIT',
+    'RECEIPT_SUBJECT_STALE', 'RECEIPT_DECODE', 'SHADOW_PROJECTION',
+    'PAPER_ACTIVATION',
+])
+def test_receipt_failure_site_is_finite_and_keeps_unknown_authority(monkeypatch, site):
+    connection,_=snapshot_receipts(monkeypatch)
+    scope='SHADOW' if site=='SHADOW_PROJECTION' else 'PAPER'
+    arguments={}
+    secret='private exception contents must not be retained'
+
+    def refused(*_args, **_kwargs):
+        raise ValueError(secret)
+
+    if site=='SUBJECT_FACTS':
+        monkeypatch.setattr(projection,'_subject_facts',refused)
+    elif site=='SUBJECT_READ':
+        del connection.revisions[scope]
+    elif site=='RECEIPT_MISSING':
+        del connection.receipts[scope]
+    elif site=='RECEIPT_CLOCK_MISMATCH':
+        row=connection.receipts[scope]
+        connection.receipts[scope]=(row[0],row[1]+timedelta(seconds=1),*row[2:])
+    elif site in {'RECEIPT_REBASE','RECEIPT_SUBJECT_WAIT','RECEIPT_SUBJECT_STALE'}:
+        arguments['native_subjects']={scope:'f'*64}
+        if site=='RECEIPT_REBASE':
+            monkeypatch.setattr(projection,'rebase_completed_paper',refused)
+        elif site=='RECEIPT_SUBJECT_WAIT':
+            monkeypatch.setattr(projection,'changed_subject_wait',refused)
+        else:
+            monkeypatch.setattr(projection,'changed_subject_wait',lambda *_args,**_kwargs:None)
+    elif site=='RECEIPT_DECODE':
+        row=connection.receipts[scope]
+        connection.receipts[scope]=(*row[:-1],'invalid-signature')
+    elif site=='SHADOW_PROJECTION':
+        from sentinel.panel import shadow_execution_projection
+        monkeypatch.setattr(shadow_execution_projection,'project',refused)
+    else:
+        monkeypatch.setattr(projection,'_activation_paper_rows',refused)
+
+    rows,_,_,errors=projection.read_owned(
+        connection,'fixture',only_scope=scope,now=NOW,**arguments)
+    authority=next(row for row in rows if row.key==(
+        'shadow_verification' if scope=='SHADOW' else 'paper_reconciliation'))
+    assert authority.status==model.UNKNOWN
+    assert len(errors)==1 and site+': ValueError' in errors[0]
+    assert secret not in errors[0] and secret not in authority.detail
+
+
 def test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch):
     from sentinel.feed import store
     connection,calls=snapshot_receipts(monkeypatch)

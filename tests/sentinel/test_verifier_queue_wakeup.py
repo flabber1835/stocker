@@ -1,4 +1,5 @@
 """Resource admission and owner wakeups confer no financial authority."""
+import ast
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 import inspect
@@ -403,10 +404,33 @@ def test_public_queue_bound_has_executed_falsifier(monkeypatch):
 
 def test_restoring_clear_after_observe_loses_the_completion_and_is_detected(monkeypatch):
     source=inspect.getsource(service._run_owned_loop)
-    clear="        if wakeup is not None:\n            wakeup.clear()\n"
-    refresh='            _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)\n'
-    assert source.count(clear)==source.count(refresh)==1
-    source=source.replace(clear,'').replace(refresh,refresh+'            if wakeup is not None:wakeup.clear()\n')
+    tree=ast.parse(source)
+    clear_guards=[node for node in ast.walk(tree) if isinstance(node,ast.If)
+        and len(node.body)==1 and not node.orelse
+        and isinstance(node.body[0],ast.Expr)
+        and isinstance(node.body[0].value,ast.Call)
+        and isinstance(node.body[0].value.func,ast.Attribute)
+        and isinstance(node.body[0].value.func.value,ast.Name)
+        and node.body[0].value.func.value.id=='wakeup'
+        and node.body[0].value.func.attr=='clear']
+    refreshes=[node for node in ast.walk(tree) if isinstance(node,ast.Expr)
+        and isinstance(node.value,ast.Call)
+        and isinstance(node.value.func,ast.Name)
+        and node.value.func.id=='_refresh_readers']
+    assert len(clear_guards)==len(refreshes)==1
+    clear,refresh=clear_guards[0],refreshes[0]
+    assert clear.end_lineno<refresh.lineno
+    lines=source.splitlines(keepends=True)
+    refresh_line=lines[refresh.lineno-1]
+    indent=refresh_line[:len(refresh_line)-len(refresh_line.lstrip())]
+    mutated=[]
+    for line_number,line in enumerate(lines,1):
+        if clear.lineno<=line_number<=clear.end_lineno:
+            continue
+        mutated.append(line)
+        if line_number==refresh.end_lineno:
+            mutated.append(indent+'if wakeup is not None: wakeup.clear()\n')
+    source=''.join(mutated)
     # The mutated loop must see the same clock, reader and heartbeat fixtures.
     namespace = {}
     exec(compile(source, '<clear-after-observe-falsifier>', 'exec'), vars(service), namespace)

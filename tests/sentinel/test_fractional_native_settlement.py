@@ -101,12 +101,17 @@ class FractionalVenue(NativeWorkflowAlpaca):
         order.update(status="partially_filled", filled_qty=str(quantity), filled_at=None)
         self.cash += D(order["notional"]) - price * quantity
         self.positions[order["asset_id"]] = quantity
+        cumulative = D(0)
+        total = D(fill["qty"])
         for index, part in enumerate(parts, 1):
             # Distinct native nanosecond clocks can serialize to the same Python/Postgres clock.
             raw_time = fill["executed_at"].replace("+00:00", f".00000000{index}Z")
+            cumulative += part
             self.events.append(dict(fill, event_id=f"01J5R00000000000000000{index:03d}",
                 ref_id=str(UUID(int=100+index)), qty=str(part), net_amount=str(-part*price),
-                executed_at=raw_time))
+                executed_at=raw_time, details=dict(fill["details"],
+                    execution_type="partial_fill", order_status="partially_filled",
+                    cum_qty=str(cumulative), leaves_qty=str(total-cumulative))))
 
 
 @pytest.fixture
@@ -215,6 +220,90 @@ def test_durable_replay_preserves_identical_economics_under_distinct_native_ids(
             assert replay.transport_ready
             assert f.venue.requests["GET /v2beta1/events/activities"] == reads
             assert database.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 2
+    asyncio.run(run())
+
+
+def test_notional_two_partials_then_final_fill_reconcile_exact_observed_cash(
+        database, fractional_recovery_case):
+    f = fractional_recovery_case
+    command = replace(f.command, notional=D("1337.66"))
+    asset_id = command.instrument.broker_id
+    f.venue.by_id[asset_id]["price"] = D("335.82")
+    quantities = ("1", "1.983235066", "1")
+    posted_cash = ("-335.82", "-666.01", "-335.82")
+    cumulative = ("1", "2.983235066", "3.983235066")
+    remaining = ("2.983235066", "1", "0")
+    assert D("1337.66") + sum(map(D, posted_cash), D(0)) == D("0.01")
+    assert sum((D(qty) * D("335.82") for qty in quantities), D(0)) == D(
+        "1337.64999986412")
+
+    async def run():
+        with journal.writer_lock(database, recovery_only=True):
+            broker_cash.record_plan_baseline(database,
+                plan_id=f.plan.plan_id,
+                decision_session=f.plan.decision_session,
+                activity_state=await f.activity())
+            journal.save_command(database, command)
+            order = f.venue.post("https://paper-api.alpaca.markets/v2/orders", dict(
+                type="market", time_in_force="day", side="buy",
+                symbol=asset_id, notional="1337.66",
+                client_order_id=command.client_key, order_class="simple",
+                extended_hours=False)).payload
+            prototype = f.venue.unpublished.pop()
+            order["filled_qty"] = "3.983235066"
+            order["filled_avg_price"] = "335.82"
+            f.venue.positions[asset_id] = D("3.983235066")
+            f.venue.cash = D("20000") - D("1337.65")
+            observed_at = f.clock.now()
+            execution_times = (
+                observed_at,
+                observed_at + timedelta(seconds=3, milliseconds=3),
+                observed_at + timedelta(seconds=3, milliseconds=2),
+            )
+            order["filled_at"] = execution_times[-1].isoformat()
+            order["updated_at"] = order["filled_at"]
+            for index, (qty, cash, cum, leaves) in enumerate(
+                    zip(quantities, posted_cash, cumulative, remaining,
+                        strict=True), 1):
+                event = dict(prototype,
+                    event_id=f"01J5R00000000000000000{index:03d}",
+                    ref_id=str(UUID(int=100+index)), qty=qty,
+                    net_amount=cash,
+                    at=execution_times[index - 1].isoformat(),
+                    executed_at=execution_times[index - 1].isoformat(),
+                    details=dict(prototype["details"],
+                        execution_type="fill" if index == 3 else "partial_fill",
+                        order_status="filled" if index == 3 else "partially_filled",
+                        cum_qty=cum, leaves_qty=leaves))
+                f.venue.events.append(event)
+            f.clock.instant += timedelta(seconds=4)
+
+            first = await f.poll()
+            assert first.runtime_state is RuntimeState.RUNNING and first.clean
+            assert first.transport_ready
+            assert first.expected == first.observed == {
+                command.security_id: D("3.983235066")}
+            saved, = journal.load_commands(database, f.bound.identity)
+            assert saved.state is CommandState.FILLED
+            assert saved.filled_quantity == D("3.983235066")
+            refs = [event["ref_id"] for event in f.venue.events]
+            assert len(set(refs)) == 3
+            assert [fill.activity_id for fill in first.observation.fills] == refs
+            assert sorted(database.execute(
+                "SELECT quantity,price FROM sentinel_fills").fetchall()
+            ) == sorted((D(qty), D("335.82")) for qty in quantities)
+            assert _cash_authority_or_refuse(database, plan=f.plan,
+                deployment=f.bound.identity,
+                account=await f.broker.account_snapshot(),
+                observation=first.observation,
+                activity_state=await f.activity()) is False
+            assert f.venue.requests["POST /v2/orders"] == 1
+
+            replay = await f.poll()
+            assert replay.clean and replay.transport_ready
+            assert database.execute(
+                "SELECT count(*) FROM sentinel_fills").fetchone()[0] == 3
+            assert f.venue.requests["POST /v2/orders"] == 1
     asyncio.run(run())
 
 

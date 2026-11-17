@@ -419,12 +419,14 @@ class FastCollector(Collector):
 class Publisher:
     """One bounded child at a time; no HTTP admission and no new runtime role."""
 
-    def __init__(self, database_url, owner_id, *, stopped=None, runner=None):
+    def __init__(self, database_url, owner_id, *, stopped=None, runner=None,
+                 wake_on_publication=False):
         self.database_url = database_url
         self.owner_id = owner_id
         self.state_dir = os.environ.get('SENTINEL_STATE_DIR', '/var/lib/sentinel')
         self.instance = str(uuid.uuid4())
         self.stopped = stopped or Event()
+        self.publication_wake = Event() if wake_on_publication else None
         self.runner = runner
         from sentinel.panel.projection_worker import Worker
         self.worker = Worker(FastCollector(), self.database_url, self.owner_id,
@@ -439,6 +441,11 @@ class Publisher:
         self.thread = Thread(target=self.run, name='sentinel-operational-projection', daemon=True)
         self.started = False
 
+    def request_refresh(self):
+        """Coalesce committed verifier changes into one prompt publication."""
+        if self.publication_wake is not None:
+            self.publication_wake.set()
+
     def start(self):
         if self.composition_worker is not None:
             self.composition_thread.start()
@@ -451,6 +458,10 @@ class Publisher:
         failed = False
         published_expiry = None
         while not self.stopped.is_set():
+            # The next collection sees all commits preceding this point. Keep
+            # any wake arriving during that collection for one follow-up pass.
+            if self.publication_wake is not None:
+                self.publication_wake.clear()
             delay = POLL_SECONDS
             started = time.monotonic()
             result_expiry = None
@@ -496,7 +507,10 @@ class Publisher:
                 failed = True
                 if not _report_parent_deadline('FAST', exc, result_expiry or published_expiry):
                     supervisor_io.report('operational projection unavailable: '+type(exc).__name__)
-            self.stopped.wait(delay)
+            if self.publication_wake is None:
+                self.stopped.wait(delay)
+            else:
+                self.publication_wake.wait(delay)
 
     def run_composition(self):
         from sentinel.panel import composition
@@ -528,6 +542,8 @@ class Publisher:
 
     def close(self):
         self.stopped.set()
+        if self.publication_wake is not None:
+            self.publication_wake.set()
         self.composition_wake.set()
         self.component_attempted.set()
         shutdown_seconds=2*DEADLINE_SECONDS+3

@@ -21,7 +21,7 @@ concurrency:
 jobs:
   contract:
     name: contract-${{ matrix.scope }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       source_commit: ${{ steps.verifier-source.outputs.commit }}
@@ -106,7 +106,7 @@ jobs:
 
   lifecycle:
     name: state-${{ matrix.scope }}-${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -153,7 +153,7 @@ jobs:
 
   core-infrastructure:
     name: core-${{ matrix.scope }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -202,7 +202,7 @@ jobs:
     name: evidence-${{ matrix.scope }}
     needs: [contract, lifecycle, core-infrastructure]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     strategy:
       fail-fast: false

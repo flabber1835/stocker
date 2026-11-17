@@ -14,7 +14,7 @@ TOOLS = ('postgres', 'initdb', 'pg_ctl', 'pg_basebackup', 'pg_verifybackup',
 
 
 def setup_fixture(tmp_path, *, missing=None, broken=None, install_repairs=True,
-                  update_code=0, install_code=0):
+                  update_code=0, install_code=0, wrong_major=None):
     binaries = tmp_path / 'bin'
     binaries.mkdir()
     pg_bin = tmp_path / 'postgres bin'
@@ -27,7 +27,8 @@ with open(os.environ['CALLS'], 'a') as out:
 assert sys.argv[1:] == ['--version'], 'database or other operation reached'
 if Path(sys.argv[0]).name == os.environ['BROKEN']:
     raise SystemExit(9)
-print(Path(sys.argv[0]).name + ' (PostgreSQL) 16.10')
+major = '18.6' if Path(sys.argv[0]).name == os.environ['WRONG_MAJOR'] else '16.10'
+print(Path(sys.argv[0]).name + ' (PostgreSQL) ' + major)
 '''
     for tool in TOOLS:
         if tool != missing:
@@ -60,7 +61,8 @@ if os.environ['INSTALL_REPAIRS'] == '1' and os.environ['MISSING']:
     sudo.chmod(0o755)
     env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
                CALLS=str(calls), PG_BIN=str(pg_bin), MISSING=missing or '',
-               BROKEN=broken or '', INSTALL_REPAIRS=str(int(install_repairs)),
+               BROKEN=broken or '', WRONG_MAJOR=wrong_major or '',
+               INSTALL_REPAIRS=str(int(install_repairs)),
                UPDATE_CODE=str(update_code), INSTALL_CODE=str(install_code))
     return env, calls
 
@@ -77,6 +79,16 @@ def test_complete_tools_are_reused_without_package_network_or_database_start(tmp
     result, calls = invoke(tmp_path)
     assert result.returncode == 0, result.stderr
     assert calls == [[tool, '--version'] for tool in TOOLS]
+
+
+@pytest.mark.parametrize('wrong_major', ['postgres', 'pg_restore'])
+def test_wrong_postgres_major_refuses_before_fixture_or_package_install(
+        tmp_path, wrong_major):
+    result, calls = invoke(tmp_path, wrong_major=wrong_major)
+    assert result.returncode != 0
+    assert 'REFUSED: CI PostgreSQL 16 required' in result.stderr
+    assert 'toolchain verified;' not in result.stdout
+    assert not any(call[0] == 'sudo' for call in calls)
 
 
 def test_missing_tool_requires_bounded_package_install_and_complete_reprobe(tmp_path):
@@ -111,6 +123,7 @@ def test_failed_or_incomplete_setup_never_reports_success(tmp_path, fault):
     ('internal-state-harness.yml', 'lifecycle', 'Install locked dependencies and real PostgreSQL tools'),
     ('internal-state-harness.yml', 'core-infrastructure', 'Install locked dependencies and PostgreSQL'),
     ('alpaca-simulation-harness.yml', 'alpaca', 'Install locked test dependencies and PostgreSQL'),
+    ('backup-reliability.yml', 'media-and-recovery', 'Verify host PostgreSQL 16 toolchain'),
     ('production-composition-harness.yml', 'database-preflight', 'Install PostgreSQL and locked dependencies'),
     ('production-composition-harness.yml', 'composition', 'Install PostgreSQL physical restore tools'),
 ])
@@ -129,3 +142,54 @@ def test_filtered_alpaca_workflow_qualifies_shared_setup_changes():
     paths = events['pull_request']['paths']
     assert 'tools/ci_postgres.sh' in paths
     assert 'tests/scripts/test_ci_postgres.py' in paths
+
+
+HOST_POSTGRES_WORKFLOWS = (
+    ('alpaca-simulation-harness.yml', 'alpaca'),
+    ('backup-reliability.yml', 'media-and-recovery'),
+    ('internal-state-harness.yml', 'contract'),
+    ('internal-state-harness.yml', 'lifecycle'),
+    ('internal-state-harness.yml', 'core-infrastructure'),
+    ('internal-state-harness.yml', 'complete-evidence'),
+    ('production-composition-harness.yml', 'qualification-source'),
+    ('production-composition-harness.yml', 'database-preflight'),
+    ('production-composition-harness.yml', 'composition'),
+    ('production-composition-harness.yml', 'acceptance'),
+)
+
+
+def _assert_host_postgres_runner_generation(workflows):
+    for name in workflows:
+        expected = {job for workflow, job in HOST_POSTGRES_WORKFLOWS
+                    if workflow == name}
+        assert set(workflows[name]['jobs']) == expected
+    assert all(workflows[workflow]['jobs'][job]['runs-on'] == 'ubuntu-24.04'
+               for workflow, job in HOST_POSTGRES_WORKFLOWS)
+
+
+def _host_postgres_workflows():
+    directory = ROOT / '.github/workflows'
+    return {name: yaml.safe_load((directory / name).read_text())
+            for name in {workflow for workflow, _ in HOST_POSTGRES_WORKFLOWS}}
+
+
+def test_host_postgres_campaigns_pin_one_runner_generation():
+    _assert_host_postgres_runner_generation(_host_postgres_workflows())
+
+
+def test_backup_host_postgres_probe_precedes_fixture_and_recovery_commands():
+    workflow = _host_postgres_workflows()['backup-reliability.yml']
+    steps = workflow['jobs']['media-and-recovery']['steps']
+    names = [step.get('name') for step in steps]
+    assert names.index('Verify host PostgreSQL 16 toolchain') < names.index(
+        'Simulate media faults and replay backup lifecycles')
+    assert names.index('Verify host PostgreSQL 16 toolchain') < names.index(
+        'Prove real PostgreSQL recovery and corruption refusal')
+
+
+@pytest.mark.parametrize('workflow,job', HOST_POSTGRES_WORKFLOWS)
+def test_floating_host_postgres_runner_is_detected(workflow, job):
+    workflows = _host_postgres_workflows()
+    workflows[workflow]['jobs'][job]['runs-on'] = 'ubuntu-latest'
+    with pytest.raises(AssertionError):
+        _assert_host_postgres_runner_generation(workflows)

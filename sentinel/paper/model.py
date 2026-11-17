@@ -47,6 +47,9 @@ class PaperActivationRefused(BrokerAuthorityRefused):
 class PaperRetryableRefused(PaperActivationRefused):
     """Temporary readiness or settlement evidence is not yet usable."""
 
+class PaperDataIntegrityRefused(PaperActivationRefused):
+    """Retained native fill evidence contradicts the execution contract."""
+
 class PaperExecutionEntryBackupBusy(PaperRetryableRefused):
     """The automated gateway could not enter before any broker call."""
 

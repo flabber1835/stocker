@@ -195,3 +195,61 @@ def test_database_timeout_uses_retained_http_and_preserves_a_real_schema_failure
             assert failure_latch == [True]
     finally:
         app.last_known.clear()
+
+
+@pytest.mark.parametrize('changed,retained', [(('PAPER',), False), ((), True)])
+def test_machine_noncurrent_response_explains_signed_handoff_without_granting_health(
+        monkeypatch, changed, retained):
+    app = importlib.import_module('sentinel.panel.app')
+    monkeypatch.delenv('SENTINEL_DATABASE_URL', raising=False)
+    panel = replace(healthy_panel(), observation_current=False,
+        observation_display_current=not retained,
+        observation_changed_scopes=changed, observation_retained=retained,
+        observation_generated_at=NOW,
+        observation_valid_until=NOW+timedelta(seconds=10))
+    monkeypatch.setattr(app, '_read_panel', lambda: panel)
+    with TestClient(app.app) as client:
+        response = client.get('/operational-health')
+    body = response.json()
+    assert response.status_code == 503 and response.headers['retry-after'] == '2'
+    assert body['status'] == model.UNKNOWN and body['current'] is False
+    assert body['observation'] == {
+        'display_current': not retained, 'retained': retained,
+        'changed_scopes': list(changed), 'generated_at': NOW.isoformat(),
+        'valid_until': (NOW+timedelta(seconds=10)).isoformat()}
+
+
+def test_machine_current_failure_does_not_look_like_a_freshness_handoff(monkeypatch):
+    app = importlib.import_module('sentinel.panel.app')
+    monkeypatch.delenv('SENTINEL_DATABASE_URL', raising=False)
+    panel = healthy_panel()
+    panel = replace(panel, rows=[replace(row, status=model.FAIL)
+        if row.key == 'paper_reconciliation' else row for row in panel.rows])
+    monkeypatch.setattr(app, '_read_panel', lambda: panel)
+    with TestClient(app.app) as client:
+        response = client.get('/operational-health')
+    body = response.json()
+    assert response.status_code == 503 and body['current'] is True
+    assert 'paper_reconciliation' in body['red_rows']
+    assert 'observation' not in body and 'retry-after' not in response.headers
+
+
+def test_no_signed_snapshot_has_truthful_retry_page(monkeypatch):
+    app = importlib.import_module('sentinel.panel.app')
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://private-isolated-fixture')
+    monkeypatch.setattr(app.projection_service, 'register_panel_incarnation', lambda *_: None)
+    monkeypatch.setattr(app.projection_service, 'read',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            app.operational_snapshot.SnapshotUnavailable('private exact cause')))
+    app.last_known.clear()
+    try:
+        with TestClient(app.app) as client:
+            response = client.get('/?document=1')
+            machine = client.get('/operational-health')
+        assert response.status_code == 503 and response.headers['retry-after'] == '5'
+        assert 'Current signed status is temporarily unavailable.' in response.text
+        assert 'private exact cause' not in response.text
+        assert machine.status_code == 503 and machine.headers['retry-after'] == '5'
+        assert machine.json()['status'] == 'UNKNOWN'
+    finally:
+        app.last_known.clear()
