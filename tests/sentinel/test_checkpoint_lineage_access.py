@@ -42,7 +42,8 @@ def test_daily_loader_keeps_the_guard_at_its_existing_admission_boundary(monkeyp
     checkpoint = SimpleNamespace(origin_sha256=daily.digest(initial.model_dump()),
         genesis_sha256=initial.genesis_sha256, warmup_input_identity={},
         observation_id='primary', starting_cash='50000', strategy_identity=context['strategy'],
-        runtime_identity=context['runtime'], session='2026-11-05')
+        runtime_identity=context['runtime'], session='2026-11-05',
+        _authenticated_input_sha256=None)
     selected = []
     monkeypatch.setattr(runtime_admission, 'bind_context', lambda *_args: None)
     monkeypatch.setattr(daily.origin, 'read', lambda *_args: initial)

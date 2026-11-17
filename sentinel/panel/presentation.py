@@ -693,6 +693,8 @@ def _normal_warning(panel, row: Row) -> bool:
         return True
     if row.key == 'trading_run' and _historical_skip_record(panel):
         return True
+    if row.has_opening_cutoff(panel.now):
+        return True
     if _retired_workflow_history(panel,row):
         return True
     if row.key == 'paper_reconciliation' and _positive_retirement_paper(panel,row):

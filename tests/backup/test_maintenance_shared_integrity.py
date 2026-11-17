@@ -356,6 +356,37 @@ def test_maintenance_renews_before_expiry_with_both_byte_passes(media, monkeypat
     assert_maintenance_renews_before_expiry(media, monkeypatch)
 
 
+@pytest.mark.parametrize('omit_append_pass', [False, True])
+def test_newly_archived_wal_is_admissible_during_proactive_renewal(
+        media, monkeypatch, omit_append_pass):
+    media.prove()
+    stamp = media.receipt()['proof']['completed_uptime']
+    media.advance()
+    expire_proof_clock(monkeypatch, offset=125)
+    original = authority._hash_objects
+    observed = []
+
+    def check_overlap(*args, **kwargs):
+        if kwargs['objects'] == media.names and not observed:
+            reader = media.child('application')
+            observed.append(reader)
+            assert reader['ok'], 'new archive frontier cannot be used during full renewal'
+            assert reader['reads'] == 0
+            assert reader['result']['recoverable_through_wal'] == media.end
+            assert media.receipt()['proof']['completed_uptime'] == stamp
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(authority, '_hash_objects', check_overlap)
+    if omit_append_pass:
+        monkeypatch.setattr(authority, 'MAX_RENEWAL_TAIL_BYTES', 0)
+        with pytest.raises(AssertionError, match='new archive frontier cannot be used'):
+            media.prove()
+    else:
+        refreshed = media.prove()
+        assert len(observed) == 1 and refreshed['integrity_full_scrub']
+        assert refreshed['integrity_completed_uptime'] > stamp
+
+
 def test_removed_early_refresh_has_executed_falsifier(media, monkeypatch):
     monkeypatch.setattr(reuse.Owner, 'refresh_due', lambda self: False)
     with pytest.raises(AssertionError, match='omitted the two byte passes'):

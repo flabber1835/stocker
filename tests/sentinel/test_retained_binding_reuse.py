@@ -43,6 +43,7 @@ def retained(conn, monkeypatch):
         'strategy_identity': stored_strategy, 'session': '2026-09-15',
         'publication': {'version': 2}, 'state_sha256': 'a' * 64,
         'origin_sha256': digest(initial.model_dump(by_alias=True)), 'history_anchor': {}})
+    daily.archive_input(conn, checkpoint)
     daily.write(conn, checkpoint, previous=initial)
     context = {'observation_id': 'primary', 'starting_cash': '50000',
         'controller': shadow_runtime._strategy()[0],
@@ -168,13 +169,18 @@ def test_historical_binding_reuses_real_proof_across_exact_paper_writes(conn, re
 
 
 @pytest.mark.parametrize('defect', ['origin_hmac', 'daily_hmac', 'admission_hmac',
-    'missing_current', 'missing_prior', 'daily_origin', 'admission_binding'])
+    'missing_current', 'missing_prior', 'daily_origin', 'daily_archive', 'admission_binding'])
 def test_reused_binding_refuses_real_checkpoint_or_admission_tamper(conn, retained, defect):
     with proof_scope(conn):
         admission.require_retained_state(conn, **state_binding(retained))
+        reason = None
         if defect.startswith('missing_'):
             cursor = retained.current_key if defect == 'missing_current' else retained.prior_key
             conn.execute('DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s', (cursor,))
+        elif defect == 'daily_archive':
+            reason = 'DAILY_INPUT_ARCHIVE_CHANGED'
+            conn.execute("UPDATE sentinel_processed_sessions SET state='{}'::jsonb WHERE cursor_name=%s",
+                         (daily.input_name(retained.checkpoint.observation_id, retained.checkpoint.session),))
         elif defect.endswith('_hmac'):
             cursor = {'origin_hmac': admission.origin.CURSOR, 'daily_hmac': daily.CURSOR,
                       'admission_hmac': retained.current_key}[defect]
@@ -183,14 +189,16 @@ def test_reused_binding_refuses_real_checkpoint_or_admission_tamper(conn, retain
             cursor = daily.CURSOR if defect == 'daily_origin' else retained.current_key
             raw = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (cursor,)).fetchone()[0]
             if defect == 'daily_origin':
+                reason = 'RETAINED_PUBLICATION_CHECKPOINT_BINDING_CHANGED'
                 raw['checkpoint']['origin_sha256'] = '0' * 64
-                raw['hmac_sha256'] = daily.signature(raw['checkpoint'])
+                raw['hmac_sha256'] = daily.signature({
+                    **raw['checkpoint'], 'input_value': retained.checkpoint.input_value})
             else:
                 raw['admission']['process_sha256'] = '0' * 64
                 raw['hmac_sha256'] = admission._signature(raw['admission'])
             conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s', (canonical_json(raw), cursor))
         conn.commit()
-        with pytest.raises(admission.Refused):
+        with pytest.raises(admission.Refused, match=reason):
             admission.require_retained_state(conn, **state_binding(retained))
 
 

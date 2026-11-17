@@ -51,6 +51,7 @@ def checkpoints(conn, monkeypatch):
     daily_cp = daily.Checkpoint(**{**cp.model_dump(by_alias=True), 'schema': daily.SCHEMA,
         'status': 'DAILY_CONTINUATION_COMMITTED', 'origin_sha256': digest(cp.model_dump(by_alias=True)),
         'history_anchor': {}})
+    daily.archive_input(conn, daily_cp)
     daily.write(conn, daily_cp, previous=cp)
     conn.commit()
     return cp, daily_cp
@@ -350,11 +351,20 @@ def test_removed_read_reuse_is_detected_by_real_work_counts(conn, checkpoints, m
 def test_exact_wrapper_reconstructs_the_independently_archived_module(name):
     records = predecessors()
     raw = Path(importlib.import_module(name).__file__).read_bytes()
-    expected = basis.CAS_CANDIDATE if name == 'sentinel.rolling_daily_checkpoint' else basis.CANDIDATES[name]
+    expected = basis.STORAGE_CANDIDATE if name == 'sentinel.rolling_daily_checkpoint' else basis.CANDIDATES[name]
     assert sha(raw) == expected
     before = basis.predecessor(name, raw)
     assert before == records[name]['source'].encode()
     assert semantic.canonical_contribution(name, raw) == semantic.canonical_contribution(name, before)
+
+
+def test_storage_source_transition_refuses_a_changed_codec(monkeypatch, tmp_path):
+    raw = Path(daily.__file__).read_bytes()
+    codec = tmp_path / 'checkpoint_input_storage.py'
+    codec.write_bytes(basis._STORAGE_HELPER.read_bytes() + b'\n# unreviewed codec\n')
+    monkeypatch.setattr(basis, '_STORAGE_HELPER', codec)
+    with pytest.raises(ValueError, match='STORAGE_SOURCE_CODEC_CHANGED'):
+        semantic.canonical_contribution('sentinel.rolling_daily_checkpoint', raw)
 
 
 def test_daily_source_compares_equal_across_independent_physical_row_witnesses(conn, checkpoints):

@@ -12,7 +12,7 @@ BASELINES = {
     'sentinel.rolling_daily_checkpoint': 'b82768e4c925f73bcb14878d245672f93a069d3e7139f7e0f65a5d1762110f3e',
 }
 CANDIDATES = {'sentinel.rolling_checkpoint': '5ad70f4e6fef66ede7392bf7371693cac808046ff47e7657349438a51d70058b', 'sentinel.rolling_daily_checkpoint': '8f93be6f455c17c8b6eeb17ab1bf8a20936338e6dc4da63692e0a6c6caf9d57b'}
-PROFILE_SHA256 = 'ee9aafe0c0cc5b0b7d612ab7c09366262239c4da3d599ca3970f694a976143cc'
+PROFILE_SHA256 = '6b96d8423d13b0bb91f0a6cf4c08dfd148cb5fbac7af3cdf373e29f22dbf2189'
 PROFILE = Path(__file__).with_name('checkpoint-read-source-transition.json')
 _WRAPPER = (b'def read(conn):\n    from sentinel import committed_read\n'
             b'    return committed_read.checkpoint(conn, cursor=CURSOR, read=_read)\n\n\n'
@@ -21,6 +21,56 @@ _WRAPPER = (b'def read(conn):\n    from sentinel import committed_read\n'
 
 _CAS_MODULE = 'sentinel.rolling_daily_checkpoint'
 CAS_CANDIDATE = '564fcd218fb5596c2db5888911df9c6e9eeb4509f8c7b3928eb53ea006e150fd'
+STORAGE_CANDIDATE = '09c511ad5dc3aaa1aec51bf46980c3f88f83a32eec08a7cc4fe7c6cbcc5b4048'
+_STORAGE_HELPER = Path(__file__).with_name('checkpoint_input_storage.py')
+_STORAGE_HELPER_SHA256 = '880569f25a358fe81c0a78b9c63eee0939bab4725381b12723667d975fd2ee59'
+_STORAGE_ADDITIONS = (
+    b'from sentinel import checkpoint_input_storage as input_storage\n',
+    b'    _authenticated_input_sha256: str | None = PrivateAttr(default=None)\n',
+)
+# The complete candidate and codec hashes bind every byte of the regions below.
+# Keep only the predecessor regions here so the witness does not duplicate the
+# new implementation as well.
+_STORAGE_REGIONS = (
+    (
+        b'def archive_input(conn, checkpoint):\n', b'def read(conn):\n',
+        b'def archive_input(conn, checkpoint):\n'
+        b'    result = conn.execute(\n'
+        b'        "INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"\n'
+        b'        " ON CONFLICT DO NOTHING",\n'
+        b'        (input_name(checkpoint.observation_id, checkpoint.session), checkpoint.session,\n'
+        b'         canonical_json(checkpoint.input_value)))\n'
+        b'    if result.rowcount != 1:\n'
+        b'        raise Refused("DAILY_INPUT_ARCHIVE_ALREADY_EXISTS")\n\n\n'
+        b'def require_input(conn, checkpoint):\n'
+        b'    row = conn.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",\n'
+        b'                       (input_name(checkpoint.observation_id, checkpoint.session),)).fetchone()\n'
+        b'    if row is None or str(row[0]) != checkpoint.session or row[1] != checkpoint.input_value:\n'
+        b'        raise Refused("DAILY_INPUT_ARCHIVE_CHANGED")\n\n\n',
+    ),
+    (
+        b'    raw = row[1]\n', b'    checkpoint._row_version = (row[0], *row[2:])\n',
+        b'    raw = row[1]\n'
+        b'    if (not isinstance(raw, dict) or set(raw) != {"checkpoint", "hmac_sha256"}\n'
+        b'            or not hmac.compare_digest(str(raw["hmac_sha256"]), signature(raw["checkpoint"]))):\n'
+        b'        raise Refused("DAILY_CHECKPOINT_AUTHENTICATION_FAILED")\n'
+        b'    model = (ReconstructionCheckpoint if raw["checkpoint"].get("schema") ==\n'
+        b'             "sentinel.rolling-reconstruction-checkpoint/1" else Checkpoint)\n'
+        b'    checkpoint = model.model_validate(raw["checkpoint"])\n'
+        b'    if str(row[0]) != checkpoint.session or raw["checkpoint"] != checkpoint.model_dump(by_alias=True):\n'
+        b'        raise Refused("DAILY_CHECKPOINT_SHAPE_CHANGED")\n',
+    ),
+    (
+        b'    payload = checkpoint.model_dump(by_alias=True)\n', b'    if isinstance(previous, Checkpoint):\n',
+        b'    payload = checkpoint.model_dump(by_alias=True)\n'
+        b'    raw = canonical_json({"checkpoint": payload, "hmac_sha256": signature(payload)})\n',
+    ),
+    (
+        b'    input_sha256 = checkpoint._authenticated_input_sha256\n',
+        b'    observer = shadow.ShadowObserver.resume_checkpoint(\n',
+        b'    require_input(conn, checkpoint)\n',
+    ),
+)
 _CAS_CHANGES = (
     (
         b'from pydantic import Field, PrivateAttr\n',
@@ -113,6 +163,21 @@ def _profile():
 
 def predecessor(module, raw):
     """Reverse only the complete sealed wrapper to independently pinned bytes."""
+    if module == _CAS_MODULE and _sha(raw) == STORAGE_CANDIDATE:
+        if _sha(_STORAGE_HELPER.read_bytes()) != _STORAGE_HELPER_SHA256:
+            raise ValueError('CHECKPOINT_STORAGE_SOURCE_CODEC_CHANGED')
+        for added in _STORAGE_ADDITIONS:
+            if raw.count(added) != 1:
+                raise ValueError('CHECKPOINT_STORAGE_SOURCE_RECIPE_CHANGED')
+            raw = raw.replace(added, b'')
+        for start, end, previous in _STORAGE_REGIONS:
+            if raw.count(start) != 1 or raw.count(end) != 1 or raw.index(start) >= raw.index(end):
+                raise ValueError('CHECKPOINT_STORAGE_SOURCE_RECIPE_CHANGED')
+            raw = raw[:raw.index(start)] + previous + raw[raw.index(end):]
+        raw = raw.replace(b'or input_sha256 != rows[0]["input_sha256"]',
+                          b'or digest(checkpoint.input_value) != rows[0]["input_sha256"]')
+        if _sha(raw) != CAS_CANDIDATE:
+            raise ValueError('CHECKPOINT_STORAGE_SOURCE_PREDECESSOR_CHANGED')
     if module == _CAS_MODULE and _sha(raw) == CAS_CANDIDATE:
         for current, previous in _CAS_CHANGES:
             if raw.count(current) != 1:

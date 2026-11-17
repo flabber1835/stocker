@@ -239,15 +239,21 @@ def _run_html(panel: Panel) -> str:
     no_orders = run.state == 'SUCCEEDED' and not run.orders
     heading = ('Today’s run · no orders placed' if no_orders else
                'Today’s trades · completed' if run.state == 'SUCCEEDED'
+               else 'Today’s run · partially completed' if run.unsent_at_cutoff
+                    and any(order.filled_quantity > 0 for order in run.orders)
+               else 'Today’s run · opening window closed' if run.unsent_at_cutoff
                else 'Today’s trading plan')
     stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
              'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
              'FAILED':'Run failed','ABANDONED':'Run abandoned','SUPERSEDED':'Run superseded',
              'PLAN_READY':'Plan ready','WAITING_OPEN':'Waiting for market open'}[run.state]
+    if run.unsent_at_cutoff:
+        stage = 'Opening window closed'
     rows = []
     for leg in run.intent.legs:
         allocation = next((item for item in run.purchase_allocations if item.security_id == leg.security_id), None)
-        action = 'BUY' if allocation is not None else leg.action
+        unsent = run.unsent_at_cutoff.get(leg.security_id)
+        action = unsent.side if unsent is not None else 'BUY' if allocation is not None else leg.action
         if action == 'HOLD':
             continue
         orders = [item for item in run.orders if item.security_id == leg.security_id]
@@ -265,7 +271,10 @@ def _run_html(panel: Panel) -> str:
                  else 'Partly filled' if filled>0 else 'Rejected' if 'REJECTED' in states
                  else 'Ended unfilled' if states and states<={'CANCELLED','REJECTED','SUPERSEDED'}
                  else 'Working' if states & {'ACKNOWLEDGED','PARTIALLY_FILLED'}
-                 else 'Awaiting submission' if run.state!='SUCCEEDED' else 'No order recorded')
+                 else 'Unsent · opening window closed' if unsent is not None
+                 else 'Awaiting submission' if run.state in {
+                     'PLAN_READY','WAITING_OPEN','EXECUTING','RECONCILING','RETRY_WAIT'}
+                 else 'No order recorded')
         amount = (f'${skipped.account_budget:,.2f} paper budget' if skipped is not None else
                   f'${leg.opening_dollars:,.2f} strategy intent' if leg.opening_dollars is not None
                   else _quantity(abs(leg.change_quantity) if leg.change_quantity is not None else None)+' shares')
@@ -281,6 +290,13 @@ def _run_html(panel: Panel) -> str:
                 progress += ' · '+allocation.status.replace('_', ' ').lower()
         if filled:
             progress += ' · avg $'+f'{value/filled:,.2f}'
+        if unsent is not None:
+            remaining = (f'${unsent.notional:,.2f}' if unsent.notional is not None
+                         else _quantity(unsent.quantity)+' shares')
+            if orders:
+                progress += ' · '+remaining+' unsent at cutoff'
+            else:
+                amount = remaining+' unsent'
         detail = ''.join('<p>'+_esc(item.state)+' · '+_quantity(item.filled_quantity)
             +(f' shares / ${item.notional:,.2f} requested' if item.notional is not None
               else '/'+_quantity(item.quantity)+' shares')+' · '+_esc(_clock(item.observed_at))
@@ -306,7 +322,8 @@ def _run_html(panel: Panel) -> str:
                      else ' The next trading plan is unavailable.' if future is not None
                          and future.effective_status(panel.now) in {FAIL, UNKNOWN}
                      else ' The next trading plan is pending.')
-        recorded_note = '<p class="overview-note">Recorded completed run.'+next_note+'</p>'
+        recorded_note = '<p class="overview-note">'+(
+            'Recorded opening result.' if run.unsent_at_cutoff else 'Recorded completed run.')+next_note+'</p>'
     return ('<section class="overview-card current-trades" aria-labelledby="current-trades-title">'
         '<div class="overview-heading"><h2 id="current-trades-title">'+_esc(heading)+'</h2>'
         '<span class="overview-tag">PAPER</span></div><div class="plan-schedule"><strong>'

@@ -241,6 +241,50 @@ def test_original_intent_is_not_resized_from_current_filled_positions():
     with pytest.raises(ValueError): run_progress.project_run(plan,invalid,[])
 
 
+@pytest.mark.parametrize('completed_history', [False, True])
+def test_fractional_run_reader_uses_the_saved_plan_valuation(monkeypatch, completed_history):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from sentinel import local_paper
+    from sentinel.execution import journal, target_reprojection
+    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE
+    from sentinel.panel import intent_memo
+    from tests.sentinel.test_fractional_plan_preview import inputs
+
+    plan, authority = inputs()
+    plan['state'] = 'SUCCEEDED' if completed_history else 'WAITING_OPEN'
+    plan['updated_at'] = plan['execute_at'] if completed_history else plan['created_at']
+    plan['completed_at'] = plan['updated_at'] if completed_history else None
+    plan['valid_until'] = plan['execute_at'] + timedelta(hours=6)
+    row = tuple(plan[key] for key in ('cycle_id', 'state', 'execute_at', 'updated_at',
+        'completed_at', 'plan_id', 'plan_fingerprint', 'created_at', 'decision_session',
+        'effective_session', 'target_basket', 'broker', 'broker_account_id', 'valid_until'))
+    if not completed_history:
+        row += (None, None, None)
+
+    stored = SimpleNamespace(target_basket={sid: Decimal(value) for sid, value in plan['target_basket'].items()},
+        fingerprint=lambda: plan['plan_fingerprint'], opening_intents=plan['opening_intents'],
+        plan_id=plan['plan_id'], account_nav=Decimal('5000'), target_exposure=Decimal('0.55'))
+    monkeypatch.setattr(journal, 'load_plan', lambda *_: stored)
+    monkeypatch.setattr(intent_memo, 'read', lambda *_args, **_kwargs: intent_memo.projection(authority))
+    monkeypatch.setattr(target_reprojection, 'load_projection', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(local_paper, 'require_bound_account', lambda _: False)
+    conn = MagicMock()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.fetchall.side_effect = [[row], []]
+    cursor.fetchone.return_value = (plan['effective_session'], dict(kind='plan-opening-intents/v1',
+        plan_id=plan['plan_id'], plan_fingerprint=plan['plan_fingerprint'], intents=plan['opening_intents']))
+
+    reader = sources._completed_trading_run if completed_history else sources._current_trading_run
+    result = reader(conn)
+    assert result.status == model.OK
+    assert result.trading_run.intent.buy_policy == FRACTIONAL_MODE
+    mtd = next(leg for leg in result.trading_run.intent.legs if leg.ticker == 'MTD')
+    assert (mtd.action, mtd.opening_dollars, mtd.purchase_notional) == (
+        'BUY', Decimal('368.82'), Decimal('367.82'))
+
+
 def test_actual_source_composition_recovers_the_screenshot_then_cleans_up(monkeypatch):
     from sentinel import paper_plan_preview
     from test_panel import TestRuntimeRowsAreDurableFacts
@@ -414,7 +458,8 @@ def test_noncompleted_history_is_withdrawn_and_guard_removal_is_detected():
     invalid=replace(history,trading_run=history.trading_run.model_copy(update={'state':'FAILED'}))
     assert not invalid.can_show_trading_run(NOW)
     source=textwrap.dedent(inspect.getsource(model.Row.can_show_trading_run))
-    guard="(self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED')"
+    guard=("(self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED'\n"
+           "                 or self.has_opening_cutoff(now))")
     assert source.count(guard)==1
     scope=dict(model.__dict__)
     exec(source.replace(guard,'True'),scope)

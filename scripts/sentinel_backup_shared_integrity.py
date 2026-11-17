@@ -12,7 +12,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sentinel_backup_maintenance import COMPOSE, Refused, runtime_image
-from sentinel_backup_integrity_report import FAILURE_PREFIX, failure, parse_failure, validate, validate_failure
+from sentinel_backup_integrity_report import (
+    FAILURE_PREFIX, failure, parse_failure, retryable_failure, validate, validate_failure,
+)
 from sentinel_maintenance_process import run_bounded
 
 PAPER_URL = 'https://paper-api.alpaca.markets'
@@ -159,8 +161,7 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
             if record is not None:
                 record = dict(record, origin='HOST', cleanup=dict(record['cleanup'],
                     worker_container='REMOVED' if removed else 'FAILED'))
-                record['retryable'] = (record['code'] in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
-                    and record['cleanup']['proof_lock'] in {'NOT_ACQUIRED', 'RELEASED'} and removed)
+                record['retryable'] = retryable_failure(record)
                 validate_failure(record)
             elif not removed:
                 record = host_failure(origin='HOST', code='TRANSPORT_FAILURE', stage='HOST_CLEANUP',

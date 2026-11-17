@@ -196,6 +196,12 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     # both public and canonical imports and exception classes.
                     assert module_name == "validation"
                     continue
+                if node.name in {"_execution_writer", "PaperExecutionEntryBackupBusy"}:
+                    assert module_name == {
+                        "_execution_writer": "execution", "PaperExecutionEntryBackupBusy": "model",
+                    }[node.name]
+                    actual.remove(node.name)
+                    continue  # The entry/body fault-path tests qualify this operational adapter.
                 if node.name in revisions:
                     record = revisions[node.name]
                     assert record["module"] == module_name
@@ -319,9 +325,24 @@ def _check_and_remove_backup_gate_delta(node):
         expected = ast.parse(
             "_require_mutation_backup(conn, operation="
             + repr(operations[node.name]) + ")").body[0]
-        assert ast.dump(node.body[1]) == ast.dump(expected)
+        if node.name == "execute_automated_paper_plan":
+            gate = ast.parse(
+                'try:\n'
+                '    _require_mutation_backup(conn, operation="automated paper order execution")\n'
+                'except PaperRetryableRefused as exc:\n'
+                '    cause = exc.__cause__\n'
+                '    if type(cause) is backup_runtime_authority.BackupIntegrityBusy:\n'
+                '        raise PaperExecutionEntryBackupBusy(str(cause)) from cause\n'
+                '    raise\n').body[0]
+            assert ast.dump(node.body[1]) == ast.dump(gate)
+        else:
+            assert ast.dump(node.body[1]) == ast.dump(expected)
         del node.body[1]
     elif node.name == "_execute_current_paper_plan":
+        outer = next(item for item in node.body if isinstance(item, ast.With))
+        expected_owner = ast.parse("with _execution_writer(conn, grant):\n    pass").body[0].items[0]
+        assert len(outer.items) == 1 and ast.dump(outer.items[0]) == ast.dump(expected_owner)
+        outer.items[0] = ast.parse("with journal.writer_lock(conn):\n    pass").body[0].items[0]
         expected = ast.parse(
             "opening_prices = _opening_resolution_freshness_or_refuse("
             "conn, plan=plan, deployment=binding.identity, now_et=now_et)"

@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 FAILURE_PREFIX = 'shared_integrity_failure:'
 FAILURE_SCHEMA = 'sentinel.maintenance-integrity-failure/2'
 FAILURE_CODES = frozenset(('BUSY PROOF_WINDOW_EXPIRED SELECTION_MOVED POLICY_REFUSED PHYSICAL_UNAVAILABLE '
-    'INTEGRITY_REFUSED DATABASE_FAILURE DEADLINE_EXCEEDED TRANSPORT_FAILURE '
+    'INTEGRITY_REFUSED DATABASE_FAILURE DATABASE_CONNECTION_LOST DEADLINE_EXCEEDED TRANSPORT_FAILURE '
     'PROTOCOL_FAILURE INTERNAL_FAILURE').split())
 FAILURE_STAGES = frozenset(('CONNECT ADMISSION OWNER_WAIT PROOF RESULT LOCK_RELEASE '
     'HOST_POLICY HOST_IMAGE HOST_POSTGRES HOST_WORKER HOST_VALIDATE HOST_CLEANUP').split())
@@ -79,11 +79,28 @@ def validate_failure(value):
             or value['code'] in stages and (value['stage'] not in stages[value['code']]
                 or chain[0]['type'] != value['cause_type'])):
         raise ValueError('common integrity original cause or stage contradicts its code')
-    safe_cleanup = (cleanup['proof_lock'] in {'NOT_ACQUIRED', 'RELEASED'}
-        and (value['origin'] == 'WORKER' or cleanup['worker_container'] == 'REMOVED'))
-    if value['retryable'] != (value['code'] in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'} and safe_cleanup):
+    if value['code'] == 'DATABASE_CONNECTION_LOST':
+        first = chain[0]
+        state = first['sqlstate']
+        if (value['schema'] != FAILURE_SCHEMA or value['stage'] != 'PROOF'
+                or value['cause_type'] != 'PsycopgError' or cleanup['proof_lock'] != 'FAILED'
+                or not value['cleanup_exception_chain']
+                or first['type'] not in {'PsycopgOperationalError', 'PsycopgInterfaceError'}
+                or state is not None and not (state.startswith('08') or state in {'57P01', '57P02', '57P03'})):
+            raise ValueError('common integrity failure lacks broken proof connection evidence')
+    if value['retryable'] != retryable_failure(value):
         raise ValueError('common integrity failure retry classification is invalid')
     return value
+
+
+def retryable_failure(value):
+    cleanup = value['cleanup']
+    removed = cleanup['worker_container'] == 'REMOVED'
+    if value['code'] == 'DATABASE_CONNECTION_LOST':
+        return value['origin'] == 'HOST' and removed
+    return (value['code'] in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
+        and cleanup['proof_lock'] in {'NOT_ACQUIRED', 'RELEASED'}
+        and (value['origin'] == 'WORKER' or removed))
 
 
 def _validate_chain(chain, *, minimum):
@@ -111,9 +128,7 @@ def failure(*, origin, code, stage, cause_type, elapsed_seconds=0., owner_wait_s
         timing=timing or dict(alarm_budget_seconds=None,alarm_fired=False,
             started_at=(now-timedelta(seconds=elapsed_seconds)).isoformat(),failed_at=now.isoformat()),
         cleanup=dict(proof_lock=proof_lock, worker_container=worker_container), retryable=False)
-    value['retryable'] = (code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
-        and proof_lock in {'NOT_ACQUIRED', 'RELEASED'}
-        and (origin == 'WORKER' or worker_container == 'REMOVED'))
+    value['retryable'] = retryable_failure(value)
     return validate_failure(value)
 
 

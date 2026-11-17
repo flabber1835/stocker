@@ -1,7 +1,7 @@
 """Exercise the existing journal/reconciler/executor with native dollar orders."""
 import asyncio
 from dataclasses import replace
-from datetime import timedelta, timezone
+from datetime import date, timedelta, timezone
 from decimal import Decimal as D
 import inspect
 import textwrap
@@ -88,6 +88,116 @@ def test_cash_guard_falsifier(monkeypatch):
         test_notional_and_headroom_fit_both_native_cash_bounds("999", "1000")
 
 
+@pytest.mark.parametrize("delay,automated,crosses,accepted", [
+    (30, True, False, True),
+    (30, True, True, False),
+    (30, False, True, True),
+    (60, True, True, False),
+])
+def test_signed_buy_cutoff_is_rechecked_after_fresh_authority(monkeypatch, delay, automated, crosses, accepted):
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution.guarded import AutomationExecutionGrant
+
+    monkeypatch.setenv("SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS", str(delay))
+    config = config_from_env()
+    cutoff = delay + config.maximum_execution_lateness_seconds
+    inner = DollarBroker(cash=D(1000))
+    set_clock(inner, cutoff - 1)
+    checks = []
+
+    async def authority(*args):
+        checks.append(inner.now)
+        if crosses:
+            set_clock(inner, cutoff)
+
+    broker = wrapper(inner, before_mutation=authority)
+    if automated:
+        broker._grant = AutomationExecutionGrant(
+            "EXECUTE", "cycle", 1, "holder", 1, "SIM-ACCOUNT", 1, "CONTROLLER", 1,
+            "a" * 64, config_sha256=config.fingerprint)
+    initial_clock = inner.now
+    call = broker.submit(client_key="signed-cutoff", instrument=market_instruments()["SEC-AAA"],
+                         side=Side.BUY, quantity=None, notional=D(100))
+    if accepted:
+        assert asyncio.run(call).state is S.ACKNOWLEDGED
+        assert inner.dollars == {"signed-cutoff": D(100)}
+    else:
+        with pytest.raises(OrderEvidenceNotReady, match="final next-open freshness"):
+            asyncio.run(call)
+        assert not inner.dollars
+    assert checks == [initial_clock]
+
+
+def test_signed_buy_cutoff_falsifier(monkeypatch):
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", _compiled(
+        GuardedExecutionBroker._prepare_submit,
+        "latest = min(latest, scheduled_cutoff)", "latest = latest"))
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_signed_buy_cutoff_is_rechecked_after_fresh_authority(monkeypatch, 30, True, True, False)
+
+
+def test_reduction_scope_refuses_buy_at_transport_even_before_cutoff():
+    from sentinel.execution.guarded import AutomationExecutionGrant
+
+    inner = DollarBroker(cash=D(1000))
+    set_clock(inner, 60)
+    broker = wrapper(inner)
+    broker._grant = AutomationExecutionGrant(
+        "EXECUTE", "cycle", 1, "holder", 1, "SIM-ACCOUNT", 1, "CONTROLLER", 1,
+        "a" * 64, reduction_only_reconciliation_id="fresh-book")
+    with pytest.raises(PreTransportAuthorityRefused, match="reductions-only execution requires a SELL"):
+        asyncio.run(broker.submit(client_key="dollar", instrument=market_instruments()["SEC-AAA"],
+                                  side=Side.BUY, quantity=None, notional=D(999)))
+    assert not inner.dollars
+
+
+def test_reduction_scope_transport_guard_falsifier(monkeypatch):
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", _compiled(
+        GuardedExecutionBroker._prepare_submit,
+        "and side is not Side.SELL):", "and False):"))
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_reduction_scope_refuses_buy_at_transport_even_before_cutoff()
+
+
+@pytest.mark.parametrize("override", [{}, {"fractionable": False}, {"id": "other"},
+                                      {"symbol": "OTHER"}, {"tradable": False}])
+def test_native_fractional_sell_proves_final_asset_in_one_lookup(monkeypatch, override):
+    from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+    from tests.sentinel.test_issue_183_alpaca_hardening import INSTRUMENT, full_order
+    from tests.sentinel.test_limit_day_transport import broker_for
+
+    opened, closed = calendar.session_window(date(2026, 8, 18))
+    now = opened + timedelta(minutes=15)
+    asset_route = f"/v2/assets/{INSTRUMENT.broker_id}"
+    inner, http = broker_for(AssetIdAlpacaExecutionBroker,
+        payload=full_order(side="sell", quantity="4.5"), routes={
+            "/v2/clock": {"timestamp": now.isoformat(), "is_open": True,
+                          "next_open": (opened + timedelta(days=1)).isoformat(),
+                          "next_close": closed.isoformat()},
+            asset_route: {"id": INSTRUMENT.broker_id, "symbol": INSTRUMENT.symbol,
+                          "status": "active", "tradable": True, "fractionable": True, **override}})
+    monkeypatch.setattr(inner, "now", now, raising=False)
+    monkeypatch.setattr(inner, "_now", lambda: now)
+    call = wrapper(inner).submit(client_key="key-1", instrument=INSTRUMENT,
+                                 side=Side.SELL, quantity=D("4.5"))
+    if override:
+        with pytest.raises(OrderEvidenceNotReady):
+            asyncio.run(call)
+        assert [step[1] for step in http.calls] == ["/v2/clock", asset_route]
+    else:
+        assert asyncio.run(call).state is S.ACKNOWLEDGED
+        assert [(step[0], step[1]) for step in http.calls] == [
+            ("GET", "/v2/clock"), ("GET", asset_route), ("POST", inner.base_url + "/v2/orders")]
+        assert http.calls[-1][2]["symbol"] == INSTRUMENT.broker_id
+
+
+def test_native_fractional_sell_deduplication_falsifier(monkeypatch):
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", _compiled(
+        GuardedExecutionBroker._prepare_submit, "and not revalidate_by_asset_rules:", "and True:"))
+    with pytest.raises(PreTransportAuthorityRefused, match="instrument identity"):
+        test_native_fractional_sell_proves_final_asset_in_one_lookup(monkeypatch, {})
+
+
 def test_eligibility_change_leaves_unsent_dollar_command_provable(database):
     schema.ensure_schema(database)
     inner = DollarBroker()
@@ -138,11 +248,11 @@ def test_native_accept_then_timeout_stays_unknown_and_recovers_same_dollars(data
     assert inner.calls.count("submit:" + command.client_key) == 1
 
 
-async def serial_flow(database, monkeypatch):
+async def serial_flow(database, monkeypatch, *, continuation=None):
     schema.ensure_schema(database)
     binding.bind(database, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
                  broker_account_id=DEPLOYMENT.broker_account_id)
-    state, original = case(entries=2)
+    state, original = case(entries=2 if continuation is None else 3)
     plan = replace(original, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
                    broker_account_id=DEPLOYMENT.broker_account_id, takeover_epoch=1)
     plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
@@ -166,6 +276,9 @@ async def serial_flow(database, monkeypatch):
     from sentinel.execution import reconcile
     from sentinel.feed import issuer_reference
     instruments = market_instruments()
+    if continuation is not None:
+        from sentinel.execution.contract import BrokerInstrument
+        instruments["SEC-CCC"] = BrokerInstrument("SEC-CCC", "CCC", "sim-asset-SEC-CCC")
     source = issuer_reference.IssuerReferenceSnapshot.create(observed_at_utc=inner.now,
         associations=[{'cik': str(i).zfill(10), 'ticker': asset.symbol, 'exchange': 'NYSE'}
                       for i, asset in enumerate(instruments.values(), 1)],
@@ -189,6 +302,62 @@ async def serial_flow(database, monkeypatch):
         admission.prepare_for_transport(publication=object(), state=state, plan=plan,
             projection=projection, reconciliation=rec)
         assert admission.evidence is not None, admission.error
+        if continuation is not None:
+            from sentinel.paper.model import ExecutionResult
+            native_submit = inner.submit
+            checked_books = []
+
+            async def submit(**kwargs):
+                result = await native_submit(**kwargs)
+                if continuation not in {"working", "unknown", "rejected"}:
+                    inner.fill(kwargs["client_key"])
+                if continuation == "new_reconciliation_required":
+                    inner.schedule_observe(FaultKind.PARTIAL_OBSERVATION)
+                return result
+
+            async def fresh_cash(latest):
+                assert not journal.in_flight_commands(database, DEPLOYMENT)
+                assert not any(order.is_working for order in latest.observation.orders)
+                assert latest.clean
+                checked_books.append(latest.observation_id)
+                if continuation == "cash" and len(checked_books) == 2:
+                    raise RuntimeError("new account cash is unavailable")
+
+            if continuation in {"unknown", "rejected"}:
+                inner.schedule_submit(FaultKind.ACCEPT_THEN_TIMEOUT if continuation == "unknown"
+                                      else FaultKind.REJECT)
+            monkeypatch.setattr(inner, "submit", submit)
+            async def invoke():
+                return await executor._execute_session_locked(
+                    broker=broker, conn=database, deployment=DEPLOYMENT,
+                    plan=plan, instruments=instruments, today=plan.effective_session,
+                    actions=lambda *args: D(1), target_projection=projection,
+                    min_increment=D("0.000000001"), buy_admission=admission.check_buy,
+                    informational_current_book=True,
+                    increase_reconciliation_authority=fresh_cash,
+                    market_buy_window_open=(None if continuation == "handoff"
+                                            else lambda: continuation != "expired"))
+
+            current = await invoke()
+            if continuation == "immediate":
+                assert [command.security_id for command in current.submitted] == [
+                    "SEC-AAA", "SEC-BBB", "SEC-CCC"], current.to_dict()
+                assert len(set(checked_books)) == 3 and all(checked_books)
+                assert not current.deferred
+            elif continuation == "handoff":
+                second, third = await invoke(), await invoke()
+                assert [tuple(command.security_id for command in result.submitted)
+                        for result in (current, second, third)] == [("SEC-AAA",), ("SEC-BBB",), ("SEC-CCC",)]
+                assert len(set(checked_books)) == 3 and all(checked_books)
+            else:
+                assert [command.security_id for command in current.submitted] == ["SEC-AAA"], current.to_dict()
+                assert current.deferred == ("SEC-BBB", "SEC-CCC")
+                assert current.settlement_deferred == (
+                    ("SEC-BBB", "SEC-CCC") if continuation == "working" else ())
+                assert ExecutionResult(plan, rec, current).needs_attention is (continuation != "working")
+                if continuation == "cash":
+                    assert len(checked_books) == 2 and "new account cash" in current.detail
+            return
         async def tick():
             return await executor._execute_session_locked(broker=broker, conn=database,
                 deployment=DEPLOYMENT, plan=plan, instruments=instruments,
@@ -225,6 +394,12 @@ def test_real_reconciliation_keeps_partial_shares_and_serializes_two_dollar_buys
     asyncio.run(serial_flow(database, monkeypatch))
 
 
+@pytest.mark.parametrize("outcome", ["immediate", "handoff", "working", "cash", "expired",
+                                   "new_reconciliation_required", "unknown", "rejected"])
+def test_guarded_market_buy_continuation_uses_fresh_settlement(database, monkeypatch, outcome):
+    asyncio.run(serial_flow(database, monkeypatch, continuation=outcome))
+
+
 def test_serial_buy_guard_falsifier(database, monkeypatch):
     monkeypatch.setattr(executor, "_execute_session_locked", _compiled(
         executor._execute_session_locked, "if market and delta.is_increase:", "if False:"))
@@ -237,6 +412,76 @@ def test_real_issuer_guard_falsifier(database, monkeypatch):
         issuer_admission.check_buy, "or Decimal(purchases.get(sid, {}).get('budget', '0')) > 0", "or False"))
     with pytest.raises(AssertionError, match="ISSUER_POSITIVE_TARGET_REQUIRED"):
         asyncio.run(serial_flow(database, monkeypatch))
+
+
+def test_twenty_fractional_reductions_need_one_basket_admission(database, monkeypatch):
+    from sentinel.execution.commands import Command
+    from sentinel.execution import feed_inputs
+    from sentinel.execution.contract import BrokerInstrument
+    from sentinel.execution.identity import CommandIdentity
+    from sentinel.paper import targets
+
+    async def run():
+        schema.ensure_schema(database)
+        binding.bind(database, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                     broker_account_id=DEPLOYMENT.broker_account_id)
+        state, original = case(entries=1, exposure="0.55")
+        instruments = {
+            f"SEC-A{i:02d}": BrokerInstrument(f"SEC-A{i:02d}", f"A{i:02d}", f"sim-asset-SEC-A{i:02d}")
+            for i in range(20)}
+        plan = replace(original, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                       broker_account_id=DEPLOYMENT.broker_account_id, takeover_epoch=1,
+                       target_basket={**dict.fromkeys(instruments, D("5.5")), "SEC-AAA": D(0)})
+        plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
+        raw = target_reprojection.project_target(
+            plan, through_session=plan.effective_session, action_multipliers={},
+            minimum_quantity_increment=D("0.000000001"))
+        projection = fractional_sizing.resolve(state, plan, raw, references(plan, raw), MarketBuyPolicy(True),
+            baseline={"through_event_seq": 0, "commands": [], "holdings": dict.fromkeys(instruments, "10")},
+            retained_targets={})
+        journal.save_plan(database, plan)
+        target_reprojection.record_projection(database, projection)
+        inner = DollarBroker()
+        opened, _ = calendar.session_window(plan.effective_session)
+        inner.now = opened + timedelta(minutes=15)
+        database.execute("UPDATE sentinel_account_binding SET established_at=%s", (opened,))
+        database.commit()
+        for sid, instrument in instruments.items():
+            inner.seed_position(instrument, "10")
+            journal.save_command(database, Command(CommandIdentity(DEPLOYMENT, "prior", sid),
+                instrument, Side.BUY, D(10), filled_quantity=D(10), filled_average_price=D(100),
+                state=S.FILLED, broker_order_id=f"prior-{sid}"))
+        admitted = []
+
+        async def mutation_authority(latest):
+            assert latest.clean
+            admitted.append(latest.observation_id)
+
+        native_resolve = inner.resolve_instrument
+
+        async def resolve(*, security_id, symbol):
+            assert security_id != "SEC-AAA", "a non-executable BUY requested asset evidence"
+            return await native_resolve(security_id=security_id, symbol=symbol)
+
+        monkeypatch.setattr(inner, "resolve_instrument", resolve)
+        monkeypatch.setattr(feed_inputs, "metadata", lambda _conn: {})
+        broker = wrapper(inner)
+        with journal.writer_lock(database, recovery_only=True):
+            mapped = await targets._instrument_map(database, broker, state, plan, await broker.observe(),
+                target_basket=projection.target_basket, reductions_only=True)
+            result = await executor._execute_session_locked(broker=broker, conn=database,
+                deployment=DEPLOYMENT, plan=plan, instruments=mapped,
+                today=plan.effective_session, actions=None, target_projection=projection,
+                informational_current_book=True, mutation_authority=mutation_authority, reductions_only=True,
+                min_increment=D("0.000000001"))
+        assert len(admitted) == 1 and admitted[0]
+        assert result.deferred == ("SEC-AAA",) and not result.refused, result.to_dict()
+        assert [command.security_id for command in result.submitted] == list(instruments)
+        assert len({command.client_key for command in result.submitted}) == 20
+        assert all(command.side is Side.SELL and command.state is S.ACKNOWLEDGED
+                   and command.quantity == D("4.5") for command in result.submitted)
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("fractionable", [False, True])

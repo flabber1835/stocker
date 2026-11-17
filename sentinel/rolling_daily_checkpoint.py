@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field, PrivateAttr
 
 from sentinel import rolling_checkpoint as origin, shadow_observation as shadow
+from sentinel import checkpoint_input_storage as input_storage
 from sentinel.feed import publication, operational_snapshot
 from sentinel.feed.rolling_contract import Digest, canonical_json, digest
 
@@ -22,6 +23,7 @@ class Checkpoint(origin.Checkpoint):
     history_anchor: dict
     # Local to the transaction that authenticated the predecessor.
     _row_version: tuple | None = PrivateAttr(default=None)
+    _authenticated_input_sha256: str | None = PrivateAttr(default=None)
 
     def __eq__(self, other):
         # Physical metadata belongs to the write attempt, not the signed value.
@@ -45,19 +47,36 @@ def input_name(observation_id, session):
 
 
 def archive_input(conn, checkpoint):
+    try:
+        archived = input_storage.encode(checkpoint.input_value)
+    except ValueError as exc:
+        raise Refused("DAILY_INPUT_ARCHIVE_LIMIT_EXCEEDED") from exc
     result = conn.execute(
         "INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
         " ON CONFLICT DO NOTHING",
         (input_name(checkpoint.observation_id, checkpoint.session), checkpoint.session,
-         canonical_json(checkpoint.input_value)))
+         canonical_json(archived)))
     if result.rowcount != 1:
         raise Refused("DAILY_INPUT_ARCHIVE_ALREADY_EXISTS")
 
 
-def require_input(conn, checkpoint):
+def _archived_input(conn, *, observation_id, session, expected_sha256=None):
     row = conn.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
-                       (input_name(checkpoint.observation_id, checkpoint.session),)).fetchone()
-    if row is None or str(row[0]) != checkpoint.session or row[1] != checkpoint.input_value:
+                       (input_name(observation_id, session),)).fetchone()
+    if row is None or str(row[0]) != session:
+        raise Refused("DAILY_INPUT_ARCHIVE_CHANGED")
+    if expected_sha256 is None:
+        return row[1]
+    try:
+        return input_storage.decode(row[1], expected_sha256=expected_sha256)
+    except ValueError as exc:
+        raise Refused("DAILY_INPUT_ARCHIVE_CHANGED") from exc
+
+
+def require_input(conn, checkpoint):
+    value = _archived_input(conn, observation_id=checkpoint.observation_id, session=checkpoint.session,
+                            expected_sha256=checkpoint._authenticated_input_sha256)
+    if value != checkpoint.input_value:
         raise Refused("DAILY_INPUT_ARCHIVE_CHANGED")
 
 
@@ -75,21 +94,38 @@ def _read(conn):
     if row is None:
         return None
     raw = row[1]
-    if (not isinstance(raw, dict) or set(raw) != {"checkpoint", "hmac_sha256"}
-            or not hmac.compare_digest(str(raw["hmac_sha256"]), signature(raw["checkpoint"]))):
+    legacy_keys = {"checkpoint", "hmac_sha256"}
+    compact_keys = legacy_keys | {"input_archive_sha256"}
+    if (not isinstance(raw, dict) or set(raw) not in (legacy_keys, compact_keys)
+            or not isinstance(raw["checkpoint"], dict) or not isinstance(raw["hmac_sha256"], str)
+            or not raw["hmac_sha256"].isascii()):
         raise Refused("DAILY_CHECKPOINT_AUTHENTICATION_FAILED")
-    model = (ReconstructionCheckpoint if raw["checkpoint"].get("schema") ==
+    payload = raw["checkpoint"]
+    compact = set(raw) == compact_keys
+    if compact:
+        if ("input_value" in payload or not isinstance(payload.get("observation_id"), str)
+                or payload.get("session") != str(row[0]) or not isinstance(raw["input_archive_sha256"], str)):
+            raise Refused("DAILY_CHECKPOINT_AUTHENTICATION_FAILED")
+        payload = {**payload, "input_value": _archived_input(conn,
+            observation_id=payload["observation_id"], session=payload["session"],
+            expected_sha256=raw["input_archive_sha256"])}
+    if not hmac.compare_digest(raw["hmac_sha256"], signature(payload)):
+        raise Refused("DAILY_CHECKPOINT_AUTHENTICATION_FAILED")
+    model = (ReconstructionCheckpoint if payload.get("schema") ==
              "sentinel.rolling-reconstruction-checkpoint/1" else Checkpoint)
-    checkpoint = model.model_validate(raw["checkpoint"])
-    if str(row[0]) != checkpoint.session or raw["checkpoint"] != checkpoint.model_dump(by_alias=True):
+    checkpoint = model.model_validate(payload)
+    if str(row[0]) != checkpoint.session or payload != checkpoint.model_dump(by_alias=True):
         raise Refused("DAILY_CHECKPOINT_SHAPE_CHANGED")
+    checkpoint._authenticated_input_sha256 = raw.get("input_archive_sha256")
     checkpoint._row_version = (row[0], *row[2:])
     return checkpoint
 
 
 def write(conn, checkpoint, *, previous):
     payload = checkpoint.model_dump(by_alias=True)
-    raw = canonical_json({"checkpoint": payload, "hmac_sha256": signature(payload)})
+    signed = signature(payload)
+    input_sha256 = digest(payload.pop("input_value"))
+    raw = canonical_json({"checkpoint": payload, "hmac_sha256": signed, "input_archive_sha256": input_sha256})
     if isinstance(previous, Checkpoint):
         witness = previous._row_version
         if witness is None:
@@ -157,7 +193,10 @@ def load(conn, context, *, status_only=False):
         authority_pattern=rolling_authority.prefix(checkpoint.observation_id) + "%")
     if alien:
         raise Refused("DAILY_CHECKPOINT_FOREIGN_LINEAGE")
-    require_input(conn, checkpoint)
+    input_sha256 = checkpoint._authenticated_input_sha256
+    if input_sha256 is None:
+        require_input(conn, checkpoint)
+        input_sha256 = digest(checkpoint.input_value)
     observer = shadow.ShadowObserver.resume_checkpoint(
         history_anchor=checkpoint.history_anchor, store=store, observation_id=checkpoint.observation_id,
         starting_cash=checkpoint.starting_cash, first_session=initial.session,
@@ -170,7 +209,7 @@ def load(conn, context, *, status_only=False):
     if (len(rows) != 1 or rows[0]["record_sha256"] != checkpoint.record_sha256
             or rows[0]["state_sha256"] != checkpoint.state_sha256
             or state.strategy_identity != checkpoint.strategy_identity
-            or digest(checkpoint.input_value) != rows[0]["input_sha256"]
+            or input_sha256 != rows[0]["input_sha256"]
             or rows[0]["publication"]["publication"] != checkpoint.publication
             or observer.genesis_sha256 != checkpoint.genesis_sha256):
         raise Refused("DAILY_CHECKPOINT_RECORD_CHANGED")

@@ -23,6 +23,7 @@ AUTOMATION = frozenset({
     "test_closing_data_notifications.py",
     "test_close_scheduling_root_causes.py",
     "test_database_startup_recovery.py",
+    "test_execution_entry_backup.py",
     "test_idle_leader_progress.py",
     "test_automation_generation.py",
     "test_automation_composition.py",

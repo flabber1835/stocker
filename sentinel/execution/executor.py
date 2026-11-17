@@ -65,12 +65,14 @@ class SessionResult:
     detail: str = ""
     restricted_securities: Mapping[str, str] = field(default_factory=dict)
     deferral_reasons: Mapping[str, str] = field(default_factory=dict)
+    settlement_deferred: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         return {"runtime_state": self.runtime_state.value,
                 "submitted": [c.client_key for c in self.submitted],
                 "refused": dict(self.refused),
                 "deferred": list(self.deferred),
+                "settlement_deferred": list(self.settlement_deferred),
                 "deferral_reasons": dict(self.deferral_reasons),
                 "detail": self.detail,
                 "restricted_securities": dict(self.restricted_securities),
@@ -266,6 +268,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           security_restrictions: Optional[Mapping[str, str]] = None,
                           buy_deferrals: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
+                          market_buy_window_open: Callable[[], bool] | None = None,
+                          reductions_only: bool = False,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
 
@@ -385,7 +389,9 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             buy_admission=buy_admission,
             security_restrictions=security_restrictions,
             buy_deferrals=buy_deferrals,
-            informational_current_book=informational_current_book)
+            informational_current_book=informational_current_book,
+            market_buy_window_open=market_buy_window_open,
+            reductions_only=reductions_only)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -404,6 +410,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
                                   buy_deferrals: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
+                                  market_buy_window_open: Callable[[], bool] | None = None,
+                                  reductions_only: bool = False,
                                   ) -> SessionResult:
     from sentinel.execution import market_buy_sizing
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
@@ -476,6 +484,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     submitted: list = []
     refused: dict = {}
     deferred: list = []
+    settlement_deferred: list[str] = []
     deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
     buy_deferrals = buy_deferrals or {}
@@ -497,7 +506,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         deferral_reasons.update(progress.blocked)
         restrictions.update(fractional_progress.share_restrictions(target_projection))
     deltas = [size(sid, observation) for sid in sorted(_execution_universe(desired, observation))]
-    window_open = is_execution_window_open(plan, today)
+    window_open = not reductions_only and is_execution_window_open(plan, today)
 
     def issuer_admitted(delta, *, reserve=False):
         if not delta.is_increase or delta.security_id == 'SENTINEL:BIL':
@@ -663,9 +672,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                     for item in authorized_candidates[index + 1:])
                 break
             if market and delta.is_increase:
-                # Even a synchronous fill must pass the normal complete
-                # recovery and cash reconciliation before the next market BUY.
-                deferred.extend(item.security_id for item in authorized_candidates[index + 1:])
+                settlement_deferred.extend(
+                    item.security_id for item in authorized_candidates[index + 1:])
                 break
         return commands
 
@@ -703,7 +711,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # reporting it as "deferred, waiting to settle" would name a cause that is
     # not the cause. Survivors are authorised AGAIN below, against the read they
     # are actually sized from — this pass classifies, the second one gates.
-    increases = await authorized(increases, observation, open_commands)
+    if not reductions_only:
+        increases = await authorized(increases, observation, open_commands)
 
     # THE MISSED-OPEN RULE, before anything is spent on settling. A stale plan
     # may still de-risk; it may not buy, so there is nothing to settle FOR.
@@ -822,8 +831,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         increases = []
         settle_note = "market BUY awaits complete account-wide order reconciliation"
 
-    if increases and (increase_authority is not None
-                      or increase_reconciliation_authority is not None):
+    async def verify_increase_authority():
+        if increase_authority is None and increase_reconciliation_authority is None:
+            return ""
         try:
             if increase_authority is not None:
                 await increase_authority(observation)
@@ -832,14 +842,80 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
-            deferred.extend(d.security_id for d in increases)
-            increases = []
-            settle_note = (
-                f"{len(deferred)} increase(s) DEFERRED — fresh increase "
-                f"authority failed ({type(exc).__name__}: {exc})")
+            return f"fresh increase authority failed ({type(exc).__name__}: {exc})"
+        return ""
 
-    if increases:
+    while increases:
+        increase_failure = await verify_increase_authority()
+        if increase_failure:
+            deferred.extend(delta.security_id for delta in increases)
+            settle_note = increase_failure
+            break
         await submit_all(increases, observation, open_commands)
+        if not settlement_deferred:
+            break
+        if (not fractional or not informational_current_book
+                or increase_reconciliation_authority is None
+                or market_buy_window_open is None):
+            break
+        if not market_buy_window_open():
+            deferred.extend(settlement_deferred)
+            settlement_deferred.clear()
+            settle_note = "market BUY continuation is outside the buy window"
+            break
+
+        previous = submitted[-1]
+        fresh = await R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=deployment,
+            actions=actions, informational_current_book=informational_current_book)
+        previous_observation_id = rec.observation_id
+        rec = fresh
+        runtime = fresh.runtime_state
+        if (not fresh.clean or fresh.cash_plan_superseded
+                or fresh.observation_id is None
+                or fresh.observation_id == previous_observation_id):
+            deferred.extend(settlement_deferred)
+            settlement_deferred.clear()
+            settle_note = "market BUY continuation requires a new, clean reconciliation"
+            break
+
+        observation = fresh.observation
+        assert observation is not None
+        recent = journal.load_commands(conn, deployment, client_keys=(previous.client_key,))
+        open_commands = journal.in_flight_commands(conn, deployment)
+        if (len(recent) != 1 or recent[0].identity != previous.identity
+                or recent[0].side is not Side.BUY
+                or not previous.broker_order_id
+                or recent[0].broker_order_id != previous.broker_order_id):
+            deferred.extend(settlement_deferred)
+            settlement_deferred.clear()
+            settle_note = "market BUY continuation could not prove the previous command identity"
+            break
+        working = tuple(order for order in observation.orders if order.is_working)
+        if (recent[0].state in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}
+                and {command.client_key for command in open_commands} == {previous.client_key}
+                and all(order.client_key == previous.client_key for order in working)):
+            settle_note = "market BUY is still awaiting complete settlement"
+            break
+        if (recent[0].state is not CommandState.FILLED or open_commands
+                or working):
+            deferred.extend(settlement_deferred)
+            settlement_deferred.clear()
+            settle_note = "market BUY continuation requires the previous order FILLED and a quiescent account"
+            break
+
+        progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
+        if (progress.blocked or any(
+                size(sid, observation).remaining < 0
+                for sid in _execution_universe(desired, observation))
+                or not market_buy_window_open()):
+            deferred.extend(settlement_deferred)
+            settlement_deferred.clear()
+            settle_note = "market BUY continuation requires current fulfillment, reductions and buy window"
+            break
+        increases = [size(sid, observation) for sid in settlement_deferred]
+        increases = [delta for delta in increases if delta.is_increase]
+        settlement_deferred.clear()
 
     detail = f"{len(submitted)} submitted, {len(refused)} refused"
     if deferral_reasons:
@@ -849,7 +925,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             detail += ", " + note
     return SessionResult(runtime_state=runtime, reconciliation=rec,
                          submitted=tuple(submitted), refused=refused,
-                         deferred=tuple(deferred), detail=detail,
+                         deferred=tuple(dict.fromkeys((*deferred, *settlement_deferred))),
+                         settlement_deferred=tuple(settlement_deferred), detail=detail,
                          deferral_reasons=deferral_reasons,
                          restricted_securities=restrictions)
 

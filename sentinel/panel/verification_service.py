@@ -299,7 +299,7 @@ def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previou
         rows, errors, observed = reader.completed
         now = datetime.now(timezone.utc)
         if (errors or not timedelta(0) <= now-observed < timedelta(seconds=financial.REFRESH_SECONDS)
-                or not read_projection.completed_history(rows, now=now)):
+                or not read_projection.reusable_paper_outcome(rows, now=now)):
             return False
         prior = previous.get('PAPER')
         if (prior is None or not prior[0].get('valuation_basis')
@@ -340,7 +340,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
             conn, database_url, previous, now=now)
         if retained is not None and retained[0]['subject_sha256'] == document['subject_sha256']:
             return retained[0], receipt_authentication.sign(retained[0])
-    if not read_projection.completed_history(rows, now=now):
+    if not read_projection.reusable_paper_outcome(rows, now=now):
         return value
     basis = display_dependencies.capture(conn, database_url)
     if (basis['native']['PAPER'] != document['subject_sha256']

@@ -395,7 +395,8 @@ class Reader:
                                 for row in original_rows)
                             rows = [replace(row,
                                 as_of=((row.as_of or observed)
-                                       if historical_source_wait and row.key != 'paper_reconciliation'
+                                       if (historical_source_wait and row.key != 'paper_reconciliation'
+                                           or model.observed_opening_cutoff(row, now=observed))
                                        else observed),
                                 freshness=timedelta(seconds=FRESH_SECONDS),
                                 required_current=(row.required_current or row.status != model.WARN))
@@ -411,7 +412,8 @@ class Reader:
                                 self.retained = rows
                             self.completed = (rows, value['errors'], observed)
                             negative = [row for row in rows if row.status in {
-                                model.FAIL, model.UNKNOWN}]
+                                model.FAIL, model.UNKNOWN}
+                                and not model.observed_opening_cutoff(row, now=observed)]
                             independent_paper_failure = (
                                 all(error.startswith('PAPER mirror database: ')
                                     for error in value['errors']) and len(negative) == 1
@@ -424,6 +426,7 @@ class Reader:
                                     and not independent_paper_failure else None)
                             if (self.expected_keys == frozenset({'paper_reconciliation'})
                                     and not value['errors'] and len(rows) == 1
+                                    and rows[0] in negative
                                     and rows[0].key == 'paper_reconciliation' and rows[0].status == model.FAIL):
                                 self.negative_result = (rows[0], key)
                             if self.failure is None:

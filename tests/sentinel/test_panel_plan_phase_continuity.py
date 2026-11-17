@@ -42,6 +42,8 @@ def test_same_intent_does_not_hide_an_execution_or_failed_run():
         changed=replace(run,trading_run=run.trading_run.model_copy(update={'state':state}))
         html=overview.overview_html(replace(page,rows=[changed if row is run else row for row in page.rows]))
         assert 'Today’s trading plan' in html
+        if state == 'FAILED':
+            assert 'Run failed' in html and 'Awaiting submission' not in html
 
 
 @pytest.mark.parametrize('scope', ['PAPER', 'SHADOW'])

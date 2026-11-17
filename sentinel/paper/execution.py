@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sentinel.execution import feed_inputs
+from contextlib import ExitStack, contextmanager
 
 from datetime import date, datetime, timedelta
 
@@ -11,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from sentinel import (
+    backup_runtime_authority,
     binding as binding_mod,
     dual_plan_authority,
     identity as system_identity,
@@ -76,6 +78,7 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 from .model import (
     PaperActivationRefused,
+    PaperExecutionEntryBackupBusy,
     PaperRetryableRefused,
     ExecutionResult,
 )
@@ -211,6 +214,18 @@ def _execution_observation_time(value: date | datetime | None) -> datetime:
     opened, _closed = calendar.session_window(value)
     return opened
 
+@contextmanager
+def _execution_writer(conn, grant):
+    with ExitStack() as owner:
+        try:
+            owner.enter_context(journal.writer_lock(conn))
+        except backup_runtime_authority.BackupIntegrityBusy as exc:
+            if not isinstance(grant, AutomationExecutionGrant):
+                raise
+            raise PaperExecutionEntryBackupBusy(str(exc)) from exc
+        yield
+
+
 async def _execute_current_paper_plan(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: ManualExecutionGrant | AutomationExecutionGrant,
@@ -243,6 +258,10 @@ async def _execute_current_paper_plan(
         market_policy = MarketBuyPolicy.from_env()
     except TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
+    reductions_only = (isinstance(grant, AutomationExecutionGrant)
+                       and grant.reduction_only_reconciliation_id is not None)
+    if reductions_only and not (dual_mode and market_policy is not None and market_policy.fractional):
+        raise PaperActivationRefused("reductions-only continuation requires fractional dual PAPER execution")
     real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
@@ -252,7 +271,7 @@ async def _execute_current_paper_plan(
     except journal.ObservationEvidenceUncertifiable as exc:
         raise PaperActivationRefused(str(exc)) from exc
 
-    with journal.writer_lock(conn):
+    with _execution_writer(conn, grant):
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
@@ -427,8 +446,9 @@ async def _execute_current_paper_plan(
                 _recovery_account_identity_or_refuse(account, binding, confirmed_account)
             else:
                 _account_or_refuse(account, binding, confirmed_account)
-            activity_state = await _broker_cash_state_or_refuse(
-                conn, broker=broker, binding=binding, through=clock())
+            if not (dual_mode and market_policy is not None and market_policy.fractional):
+                await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding, through=clock())
             try:
                 from sentinel.execution import action_reads
                 with action_reads.read_scope(conn, pinned) as history:
@@ -568,7 +588,8 @@ async def _execute_current_paper_plan(
                     target_basket=(
                         plan.target_basket if target_projection is None
                         else target_projection.target_basket),
-                    restricted_security_ids=restrictions, buy_deferrals=buy_deferrals)
+                    restricted_security_ids=restrictions, buy_deferrals=buy_deferrals,
+                    reductions_only=reductions_only)
 
                 async def authorize_increases(fresh_observation, fresh_reconciliation=None):
                     nonlocal market_settled
@@ -641,6 +662,22 @@ async def _execute_current_paper_plan(
                     await authorize_increases(
                         fresh_reconciliation.observation, fresh_reconciliation)
 
+                def market_buy_window_open():
+                    from sentinel.automation import schedule
+                    from sentinel.automation_runtime import config_from_env
+                    config = config_from_env()
+                    if (config.paper_debug_window is not None
+                            or grant.config_sha256 != config.fingerprint):
+                        return False
+                    timing = schedule.for_decision_session(plan.decision_session, config)
+                    cutoff = min(
+                        timing.execution_close_at,
+                        timing.execution_open_at + _V5_OPENING_FRESHNESS,
+                        timing.execute_at + timedelta(seconds=config.maximum_execution_lateness_seconds))
+                    return (plan.effective_session == timing.effective_session
+                            and max(timing.execute_at, timing.execution_open_at + timedelta(minutes=1))
+                            <= clock() < cutoff)
+
                 session = await executor.execute_session(
                     broker=broker, conn=conn, deployment=binding.identity,
                     plan=plan, instruments=instruments, today=today,
@@ -655,7 +692,11 @@ async def _execute_current_paper_plan(
                     security_restrictions=restrictions,
                     buy_deferrals=buy_deferrals,
                     buy_admission=(issuer_admission.check_buy if issuer_admission else None),
-                    informational_current_book=dual_mode)
+                    informational_current_book=dual_mode,
+                    reductions_only=reductions_only,
+                    market_buy_window_open=(market_buy_window_open if dual_mode
+                                            and market_policy is not None
+                                            and market_policy.fractional else None))
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and not session.restricted_securities
@@ -729,7 +770,13 @@ async def execute_automated_paper_plan(
         dual_shadow_starting_cash: Decimal | str | None = None
         ) -> ExecutionResult:
     """Execute the same current plan through a fenced automation grant."""
-    _require_mutation_backup(conn, operation="automated paper order execution")
+    try:
+        _require_mutation_backup(conn, operation="automated paper order execution")
+    except PaperRetryableRefused as exc:
+        cause = exc.__cause__
+        if type(cause) is backup_runtime_authority.BackupIntegrityBusy:
+            raise PaperExecutionEntryBackupBusy(str(cause)) from cause
+        raise
     return await _execute_current_paper_plan(
         conn=conn, broker=broker, base_url=base_url, grant=grant,
         today=today, automation_config_sha256=automation_config_sha256,

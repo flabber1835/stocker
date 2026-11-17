@@ -30,7 +30,8 @@ from pydantic import ValidationError
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.source_completion import SourceCompletionHint, progressed
 from sentinel.backup_guard import BUSY_RETRY_MAX_SECONDS
-from sentinel.execution.journal import WriterLockUnavailable
+from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.journal import WriterLockUnavailable, in_flight_commands
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
@@ -43,6 +44,7 @@ from sentinel.automation.model import (
     CycleSpec,
     CycleState,
     DataIntegrityFailure,
+    ExecutionEntryBackupBusy,
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
@@ -56,6 +58,7 @@ from sentinel.automation.model import (
     PreflightPublicationPinUnavailable,
     RefreshPublicationPinUnavailable,
     RefreshResult,
+    reduction_continuation_observation,
     SoftwareDefect,
     SourceDataPending,
     SupervisorIntegrityFailure,
@@ -126,6 +129,7 @@ class _CallbackOutcome:
 _CHILD_EXCEPTION_TYPES = {
     (cls.__module__, cls.__qualname__): cls for cls in (
         BackupProofBusy,
+        ExecutionEntryBackupBusy,
         CallbackDeadlineExceeded,
         ClosingDataPending,
         DataIntegrityFailure,
@@ -145,6 +149,8 @@ _REVIEWED_FAILURE_DOMAINS = frozenset({"BACKUP"})
 _PUBLICATION_PIN_EXCEPTION = (
     f"{RefreshPublicationPinUnavailable.__module__}.{RefreshPublicationPinUnavailable.__qualname__}")
 _BACKUP_BUSY_EXCEPTION = f"{BackupProofBusy.__module__}.{BackupProofBusy.__qualname__}"
+_EXECUTION_ENTRY_BACKUP_BUSY_EXCEPTION = (
+    f"{ExecutionEntryBackupBusy.__module__}.{ExecutionEntryBackupBusy.__qualname__}")
 
 
 def _failure_domain(exc: BaseException) -> str | None:
@@ -163,7 +169,7 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if candidate not in (BackupProofBusy, ClosingDataPending, PreflightPublicationPinUnavailable,
+        if candidate not in (BackupProofBusy, ExecutionEntryBackupBusy, ClosingDataPending, PreflightPublicationPinUnavailable,
                              RefreshPublicationPinUnavailable)
         and isinstance(exc, candidate))
     if not matches:
@@ -230,7 +236,7 @@ def _callback_child(
             "detail": str(exc),
             "reviewed": reviewed_class is not None,
             "failure_domain": _failure_domain(exc),
-            "backup_busy_reason": exc.reason.value if type(exc) is BackupProofBusy else None,
+            "backup_busy_reason": exc.reason.value if isinstance(exc, BackupProofBusy) else None,
             "retry_after_seconds": getattr(exc, "retry_after_seconds", 0),
             "publisher_deadline_at": (exc.publisher_deadline_at
                 if type(exc) is ClosingDataPending else None),
@@ -295,7 +301,10 @@ def _decode_child_callback(payload: bytes):
                     name = field.removesuffix('_at').replace('_', ' ')
                     raise SoftwareDefect(f'callback child returned an invalid {name}') from exc
             decoded = trusted(detail, **deadlines)
-        elif trusted is BackupProofBusy:
+        elif trusted in (BackupProofBusy, ExecutionEntryBackupBusy):
+            if trusted is ExecutionEntryBackupBusy and (
+                    envelope.get("actual_module"), envelope.get("actual_qualname")) != (module, qualname):
+                raise SoftwareDefect("callback child returned an inexact execution entry refusal")
             try:
                 decoded = trusted(detail, reason=envelope.get("backup_busy_reason"))
             except (TypeError, ValueError) as exc:
@@ -532,6 +541,15 @@ class AutomationService:
             or now >= cycle.execution_close_at
         )
 
+    def _reduction_window_open(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        return (cycle.broker == "alpaca" and self.config.debug_window_for(cycle) is None
+                and cycle.execution_open_at <= now < cycle.execution_close_at)
+
+    def _transport_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        return (self._execution_expired(now=now, cycle=cycle)
+                and not (reduction_continuation_observation(cycle) is not None
+                         and self._reduction_window_open(now=now, cycle=cycle)))
+
     def _assert_clock_skew(
             self, *, now: datetime, conn_factory,
             clock: Callable[[], datetime] | None = None) -> datetime:
@@ -645,9 +663,10 @@ class AutomationService:
             if prior_phase == phase and prior.get("exception_type") == _PUBLICATION_PIN_EXCEPTION:
                 pin_attempt += int(prior.get("publication_pin_attempt_count", 0))
         busy_attempt = None
-        if type(exc) is BackupProofBusy:
+        if type(exc) in (BackupProofBusy, ExecutionEntryBackupBusy):
             busy_attempt = 1
-            if prior_phase == phase and prior.get("exception_type") == _BACKUP_BUSY_EXCEPTION:
+            if prior_phase == phase and prior.get("exception_type") in {
+                    _BACKUP_BUSY_EXCEPTION, _EXECUTION_ENTRY_BACKUP_BUSY_EXCEPTION}:
                 busy_attempt += int(prior.get("backup_busy_attempt_count", 0))
         budget_attempt = busy_attempt or pin_attempt or phase_attempt
         if isinstance(exc, (ValidationError, DataIntegrityFailure)):
@@ -744,9 +763,24 @@ class AutomationService:
             terminal, classified = self._failure_diagnostic(
                 cycle=cycle, phase=phase, exc=exc, now=now)
             if phase == "EXECUTE" and not explicit_result:
-                # Any exception may leave a durable send unresolved.
+                # Only the exact gateway entry refusal proves this callback
+                # could not transport. A prior unresolved command still wins.
                 terminal = False
-                to_state = CycleState.RECONCILING
+                if (self._unattended_recovery
+                        and type(exc) is ExecutionEntryBackupBusy
+                        and cycle.broker == "alpaca"
+                        and cycle.last_fence_token == permit.fence_token
+                        and self._execution_is_fresh(now=now, cycle=cycle)
+                        and not in_flight_commands(conn, DeploymentIdentity(
+                            deployment_id=cycle.deployment_id, broker=cycle.broker,
+                            broker_account_id=cycle.broker_account_id,
+                            takeover_epoch=cycle.takeover_epoch))):
+                    to_state = CycleState.RETRY_WAIT
+                    classified["execution_entry_transport_unstarted"] = True
+                    classified["original_execution_deadline_at"] = (
+                        self._latest_new_execution_at(cycle).isoformat())
+                else:
+                    to_state = CycleState.RECONCILING
             else:
                 policy = PHASE_POLICIES[phase]
                 to_state = policy.terminal_state if terminal else policy.retry_state
@@ -754,7 +788,7 @@ class AutomationService:
                 classified.get("publication_pin_attempt_count", classified["phase_attempt_count"]))
             retry_at = None if terminal else self._retry_at(now, retry_attempt)
             if retry_at is not None:
-                if type(exc) is BackupProofBusy:
+                if type(exc) in (BackupProofBusy, ExecutionEntryBackupBusy):
                     retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
                 retry_at = max(retry_at, now + timedelta(
                     seconds=getattr(exc, "retry_after_seconds", 0)))
@@ -1465,7 +1499,7 @@ class AutomationService:
                     return TickResult(
                         action=TickAction.WAITING, cycle=cycle, permit=permit,
                         reason="effective-session execution wake has not arrived")
-                if self._execution_expired(now=now, cycle=cycle):
+                if self._transport_expired(now=now, cycle=cycle):
                     return await self._run_recover(
                         conn, now=now, cycle=cycle, permit=permit,
                         heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
@@ -1548,7 +1582,7 @@ class AutomationService:
             if now < cycle.execute_at:
                 raise AutomationRefused(
                     "EXECUTING cycle reached executor before immutable execute_at")
-            if self._execution_expired(now=now, cycle=cycle):
+            if self._transport_expired(now=now, cycle=cycle):
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
@@ -1832,7 +1866,10 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
-            if self._execution_expired(now=now, cycle=cycle):
+            cutoff_expired = self._execution_expired(now=now, cycle=cycle)
+            reductions_only = (cutoff_expired and result.reduction_only_continuation
+                               and self._reduction_window_open(now=now, cycle=cycle))
+            if cutoff_expired and not reductions_only:
                 if cycle.state is CycleState.EXECUTING:
                     cycle = store.transition_cycle(
                         conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -1852,6 +1889,9 @@ class AutomationService:
                     reason=cycle.failure_detail)
             ready_diagnostic = dict(result.diagnostic)
             ready_diagnostic.pop("protected_day_wait", None)
+            ready_diagnostic.pop("reduction_only_reconciliation_id", None)
+            if reductions_only:
+                ready_diagnostic["reduction_only_reconciliation_id"] = result.last_clean_reconciliation_id
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.RETRY_WAIT,
@@ -1868,7 +1908,8 @@ class AutomationService:
                             "retry_phase": "EXECUTE"})
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
-                reason="clean recovery permits a fresh executor boundary")
+                reason=("clean recovery permits reductions during the regular session"
+                        if reductions_only else "clean recovery permits a fresh executor boundary"))
         return self._handle_retry_result(
             conn, now=now, cycle=cycle, permit=permit,
             phase="RECOVER", failure_code=result.failure_code,
@@ -1957,7 +1998,7 @@ class AutomationService:
         if now < cycle.execute_at:
             raise AutomationRefused(
                 "EXECUTE callback refused before immutable execute_at")
-        if self._execution_expired(now=now, cycle=cycle):
+        if self._transport_expired(now=now, cycle=cycle):
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)

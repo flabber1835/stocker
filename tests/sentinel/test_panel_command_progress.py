@@ -115,6 +115,46 @@ def test_normal_progress_cannot_hide_current_unknown_broker_or_trading_outcome()
     assert 'broker' in presentation.health_facts(page)['active']
 
 
+def test_later_buy_waits_after_acknowledged_submission_without_a_false_failure():
+    c = cycle()
+    c['diagnostic']['execution'].update(deferred=['CRL'], settlement_deferred=['CRL'],
+                                        deferral_reasons={})
+    assert summary(c).effective_status(NOW) == model.WARN
+    transport, reconciliation = steps(c)[4:6]
+    assert transport.status == model.OK and reconciliation.effective_status(NOW) == model.WARN
+    c['diagnostic']['execution']['deferral_reasons']['CRL'] = 'instrument unavailable'
+    assert summary(c).effective_status(NOW) == model.FAIL
+    c['diagnostic']['execution']['deferral_reasons'].clear()
+    del c['diagnostic']['execution']['settlement_deferred']
+    assert summary(c).effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize('fault', [None, 'unproved', 'expired_wake', 'raw_error'])
+def test_backup_wait_only_grants_the_original_opening_cutoff(fault):
+    opened = datetime(2026, 11, 16, 14, 30, tzinfo=timezone.utc)
+    when, deadline = opened + timedelta(minutes=1, seconds=8), opened + timedelta(minutes=10)
+    kind = 'ExecutionEntryBackupBusy'
+    diagnostic = dict(execution_entry_transport_unstarted=fault != 'unproved',
+        backup_busy_reason='COVERAGE_CHANGED', original_execution_deadline_at=deadline.isoformat())
+    c = dict(cycle_id='saved', plan_id='bound-plan', state='RETRY_WAIT', retry_phase='EXECUTE',
+        decision_session='2026-11-13', effective_session='2026-11-16',
+        callback_failure='TRANSIENT_INFRASTRUCTURE',
+        failure_code='BackupProofBusy' if fault == 'raw_error' else kind,
+        exception_type='sentinel.automation.model.'+kind, phase_attempt_count=1,
+        availability_retry_unbounded=True, diagnostic=diagnostic,
+        execution_open_at=opened, execute_at=opened+timedelta(minutes=1),
+        execution_close_at=opened+timedelta(hours=6, minutes=30),
+        updated_at=when, next_wake_at=deadline if fault == 'expired_wake' else when+timedelta(seconds=5),
+        original_execution_deadline_at=deadline.isoformat())
+    row = summary(c)
+    if fault is None:
+        assert row.value == 'WAITING FOR BACKUP PROOF · ATTEMPT 1'
+        assert row.effective_status(when) == model.WARN
+        assert row.effective_status(deadline) == model.FAIL
+    else:
+        assert row.effective_status(when) == model.FAIL
+
+
 def test_removed_attention_guard_is_detected():
     fn=retry_status.submitted_commands_progress
     tree=ast.parse(inspect.getsource(fn));hits=[]

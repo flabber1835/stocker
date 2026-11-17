@@ -183,7 +183,7 @@ def test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(
     value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
     value.read('fixture'); complete(value)
     output = value.read('fixture')
-    assert all(row.as_of == now for row in output[0])
+    assert all(row.as_of == now for row in output[0]), "a current row kept its source clock"
     assert all(row.effective_status(now) == model.OK for row in output[0])
     actual, _ = surfaces(monkeypatch, output, now)
     assert actual['operational'] == model.OK and actual['overall'] == model.OK
@@ -193,15 +193,14 @@ def test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(
 
 
 def test_preserving_every_source_clock_falsely_expires_current_exposure(monkeypatch):
-    import inspect, textwrap
-    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
-    guard = "if historical_source_wait and row.key != 'paper_reconciliation'"
-    assert guard in body
-    namespace = {}
-    exec(compile(body.replace(guard, 'if True'), 'all-clocks-falsifier', 'exec'),
-         reader.__dict__, namespace)
-    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
-    with pytest.raises(AssertionError):
+    replace = reader.replace
+
+    def preserve_source_clock(row, **changes):
+        changes.pop("as_of", None)
+        return replace(row, **changes)
+
+    monkeypatch.setattr(reader, "replace", preserve_source_clock)
+    with pytest.raises(AssertionError, match="a current row kept its source clock"):
         test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch)
 
 

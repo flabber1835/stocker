@@ -2,7 +2,6 @@
 import ast
 import inspect
 from threading import Event
-from types import SimpleNamespace
 
 import pytest
 
@@ -84,21 +83,30 @@ def test_sender_run_contains_no_broker_collection_or_broker_construction():
 def test_collector_uses_separate_bounded_calls_and_never_needs_push_key(monkeypatch,tmp_path):
     from sentinel import local_paper
     from sentinel.execution import fill_notifications
+    from sentinel.feed.issuer_refresh import CONTACT_ENV
     monkeypatch.setattr(collector,'HEARTBEAT',tmp_path/'collector-heartbeat')
     monkeypatch.setattr(collector.signal,'signal',lambda *args:None)
     monkeypatch.setattr(local_paper,'enabled',lambda:True)
     monkeypatch.setenv(fill_notifications.SINCE_ENV,'2031-04-21T00:00:00+00:00')
+    monkeypatch.delenv(CONTACT_ENV, raising=False)
     monkeypatch.delenv('SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY',raising=False)
-    stop=Event();calls=[]
+    stop = Event()
+    monkeypatch.setattr(stop, "wait", lambda _seconds: stop.set())
+    calls = []
+
     def runner(operation,*args,**kwargs):
         calls.append((operation,args,kwargs))
-        if args==('ACCOUNT',):raise TimeoutError('private stalled provider')
-        if args==('FILL',):stop.set()
+        if operation is collector.collect_once and args == ('ACCOUNT',):
+            raise TimeoutError('private stalled provider')
+
     monkeypatch.setattr(collector.supervisor_io,'report',lambda *args:None)
     assert collector.run(stopped=stop,runner=runner)==0
-    assert [args[0] for operation,args,_ in calls if operation is collector.collect_once]==['ACCOUNT','FILL']
+    assert [(operation, args) for operation, args, _ in calls] == [
+        (collector.collect_once, ('ACCOUNT',)),
+        (collector.record_stall, ('ACCOUNT', 'TimeoutError')),
+        (collector.collect_once, ('FILL', 0)),
+    ]
     assert all(options['timeout']<=30 and options['start_method']=='spawn' for _,_,options in calls)
-    assert any(operation is collector.record_stall for operation,_,_ in calls)
 
 
 def test_collector_refuses_push_signing_material_before_any_collection(monkeypatch):

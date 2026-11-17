@@ -268,8 +268,14 @@ def delta_from_fulfillment(progress: Fulfillment, *, security_id, observation,
         return result
     if result.remaining != 0:
         raise TargetProjectionRefused("purchase shares differ from owned fulfillment")
-    principal = max(Fraction(0), Fraction(budget) - Fraction(MARKET_BUY_HEADROOM))
-    principal = exact_decimal(Fraction(principal // Fraction("0.01"), 100))
-    if principal < Decimal(1):
+    principal = purchase_notional(budget)
+    if principal is None:
         return result
     return replace(result, notional=principal, classification=C.DeltaClass.ACTIONABLE)
+
+
+def purchase_notional(budget: Decimal) -> Decimal | None:
+    """Orderable cash after the reserved headroom and Alpaca's cent increment."""
+    principal = max(Fraction(0), Fraction(budget) - Fraction(MARKET_BUY_HEADROOM))
+    principal = exact_decimal(Fraction(principal // Fraction("0.01"), 100))
+    return principal if principal >= Decimal(1) else None

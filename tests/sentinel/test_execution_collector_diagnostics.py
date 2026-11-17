@@ -148,7 +148,15 @@ def run_fill_failures(monkeypatch, tmp_path, outcomes, *, record=None):
     monkeypatch.delenv(CONTACT_ENV, raising=False)
     monkeypatch.delenv('SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY', raising=False)
     stop = Event()
-    stop.wait = lambda seconds: stop.is_set()
+    remaining_sweeps = len(outcomes)
+
+    def finish_sweep(_seconds):
+        nonlocal remaining_sweeps
+        remaining_sweeps -= 1
+        if remaining_sweeps <= 0:
+            stop.set()
+
+    monkeypatch.setattr(stop, 'wait', finish_sweep)
     events, received = [], []
     def send(value):
         events.append(('diagnostic', json.loads(value)))
@@ -163,15 +171,15 @@ def run_fill_failures(monkeypatch, tmp_path, outcomes, *, record=None):
             received.append(args)
             events.append(('record', args))
             return record(*args) if record is not None else None
-        assert operation is collector.collect_once and args == ('FILL',)
+        assert operation is collector.collect_once
         assert options['timeout'] == 30
         index, value = next(choices)
-        if index == len(outcomes)-1:
-            stop.set()
+        assert args == ('FILL', index)
         if isinstance(value, BaseException):
             raise value
         return value
     assert collector.run(stopped=stop, runner=runner, clock=lambda: 0) == 0
+    assert next(choices, None) is None, 'collector skipped a scheduled fill check'
     return events, received
 
 

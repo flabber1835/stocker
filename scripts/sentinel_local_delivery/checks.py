@@ -825,7 +825,43 @@ def utc_clock(value):
  return bound
 def current_boundaries(at):
  assert at<health_until<=observation_until<=observed+timedelta(seconds=30)
+ if cutoff_row is not None: assert at<utc_clock(cutoff_row['valid_until'])
+def opening_cutoff_history(fact):
+ from datetime import time
+ from zoneinfo import ZoneInfo
+ from sentinel.panel.model import OPENING_CUTOFF,Row,TradingRun
+ assert expected.get('handoff_mode') in {None,'PRE_OPEN'}
+ assert fact['status']=='warn' and fact['color']=='amber' and fact['current'] is True
+ assert fact['required_current'] is False and fact['stale'] is False and fact['future'] is False
+ assert fact['recovery'] is None and fact['paper_alignment'] is None
+ run=TradingRun.model_validate(fact['trading_run'])
+ row=Row(fact['key'],fact['label'],fact['value'],fact['status'],
+  as_of=utc_clock(fact['as_of']),valid_until=utc_clock(fact['valid_until']),
+  trading_run=run,operational_fact=fact['operational_fact'])
+ assert row.has_opening_cutoff(now) and row.can_show_trading_run(now)
+ opening=row.operational_fact.opening
+ assert opening.terminal_reason==OPENING_CUTOFF and opening.observation_id is not None
+ assert run.intent.execute_at<=opening.reconciled_at<=run.updated_at<=run.completed_at<=now
+ next_date=run.intent.effective_session+timedelta(days=1)
+ day_end=datetime.combine(next_date,time.min,ZoneInfo('America/New_York'))
+ assert opening.deadline==day_end-timedelta(microseconds=1)
+ successor=rows['paper_plan']
+ assert successor['status']=='ok' and successor['color']=='green' and successor['current'] is True
+ assert successor['stale'] is False and successor['future'] is False
+ plan=successor['paper_plan']
+ assert plan['plan_id']==expected['plan'] and plan['plan_id']!=run.intent.plan_id
+ assert plan['cycle_id'] and plan['cycle_id']!=run.intent.cycle_id
+ assert plan['decision_session']==expected['decision']==run.intent.effective_session.isoformat()
+ assert plan['effective_session']==expected['effective'] and plan['decision_session']<plan['effective_session']
+ assert run.completed_at<=utc_clock(successor['as_of'])==utc_clock(plan['created_at'])<=now<utc_clock(plan['execute_at'])
+ assert utc_clock(successor['valid_until'])==utc_clock(plan['execute_at'])
 review_amber=None
+cutoff_rows=([fact for fact in page['rows']
+ if fact['key'] in {'trading_run','completed_trading_run'} and fact['status']=='warn']
+ if expected.get('handoff_mode') in {None,'PRE_OPEN'} else [])
+assert len(cutoff_rows)<=1
+cutoff_row=cutoff_rows[0] if cutoff_rows else None
+if cutoff_row is not None: opening_cutoff_history(cutoff_row)
 if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
  from sentinel.panel.review_model import OperatorReview
  assert observed.utcoffset()==timedelta(0)
@@ -845,7 +881,7 @@ if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
  health_until=utc_clock(health['valid_until'])
  current_boundaries(now)
  assert len(rows)==len(page['rows']) and not page['source_errors']
- if post_trade or review.status=='REVIEW':
+ if post_trade or review.status=='REVIEW' or cutoff_row is not None:
   from sentinel.panel.presentation import _HISTORY_CURRENT_FACTS
   for key in (*_HISTORY_CURRENT_FACTS,'trading_run' if post_trade else 'paper_plan'):
    fact=rows[key]
@@ -859,7 +895,7 @@ if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
   assert page['color'] in {'green','amber'}
   if not post_trade:
    assert all(rows[key]['status']=='warn' for key in ('automation_cycle','automation_step_open'))
- if post_trade or review.status=='REVIEW':
+ if post_trade or review.status=='REVIEW' or cutoff_row is not None:
   for fact in page['rows']:
    assert fact['current'] is True
    assert fact['status'] in {'ok','warn','pending'}
@@ -880,6 +916,7 @@ if expected.get('handoff_mode') in {None,'PRE_OPEN','POST_TRADE'}:
      assert fact['key'] in {'automation_cycle','automation_step_open'}
     if fact.get('valid_until') is not None: assert now<utc_clock(fact['valid_until'])
    if fact['status']=='warn':
+    if fact is cutoff_row: continue
     assert fact['key'] in ({'paper_reconciliation','automation_alerts'} if post_trade else
      {'paper_reconciliation','automation_cycle','automation_step_open','automation_alerts'})
     if fact['key']=='automation_alerts':
@@ -952,6 +989,7 @@ if not post_trade and (rows['paper_reconciliation']['status']=='warn'
   assert fact['color']=={'ok':'green','warn':'amber','pending':'amber'}[fact['status']]
   assert not (fact.get('required_current') is True and fact['status']=='pending')
   if fact['status']=='warn':
+   if fact is cutoff_row: continue
    assert fact['key'] in allowed
    if fact['key']=='automation_alerts':
     assert fact['required_current'] is False

@@ -103,6 +103,59 @@ def test_new_tail_hashes_only_new_bytes_and_preserves_original_scrub_clock(world
     assert admit(world)['integrity_objects_hashed']==10
 
 
+@pytest.mark.parametrize('case', ['overlap', 'expired', 'old_object_changed', 'full_pass_failed'])
+def test_proactive_scrub_makes_the_extended_frontier_readable_first(world, monkeypatch, case):
+    admit(world)
+    original = authority._hash_objects
+    predecessor = json.loads(world.receipt.read_bytes())['proof']
+    world.uptime += 125
+    world.media.segment(6)
+    world.frontier = wal_name(6)
+    if case == 'old_object_changed':
+        # Identical bytes with moved physical metadata still require a full proof.
+        path = world.media.namespace / wal_name(4)
+        path.write_bytes(path.read_bytes())
+    reads = []
+
+    def hashing(conn, *, root, objects, sizes):
+        reads.append(objects)
+        if len(objects) > 1 and reads.count(objects) == 1:
+            published = json.loads(world.receipt.read_bytes())['proof']
+            world.busy = True
+            try:
+                if case == 'old_object_changed':
+                    assert published['end'] == predecessor['end']
+                    with pytest.raises(authority.BackupIntegrityBusy):
+                        admit(world)
+                else:
+                    assert published['end'] == wal_name(6)
+                    assert published['completed_uptime'] == predecessor['completed_uptime']
+                    if case == 'expired':
+                        world.uptime = predecessor['completed_uptime'] + 300
+                        with pytest.raises(authority.BackupIntegrityBusy):
+                            admit(world)
+                    else:
+                        assert admit(world)['integrity_objects_hashed'] == 0
+            finally:
+                world.busy = False
+            if case == 'full_pass_failed':
+                raise authority.BackupRuntimeUnavailable('full pass failed')
+        return original(conn, root=root, objects=objects, sizes=sizes)
+
+    monkeypatch.setattr(authority, '_hash_objects', hashing)
+    def refresh():
+        return authority.require(world, operation='proactive overlap', maintenance_refresh=True)
+    if case == 'full_pass_failed':
+        with pytest.raises(authority.BackupRuntimeUnavailable, match='full pass failed'):
+            refresh()
+        assert json.loads(world.receipt.read_bytes())['proof']['outcome'] == 'INVALID'
+    else:
+        assert refresh()['integrity_objects_hashed'] == 10
+        assert json.loads(world.receipt.read_bytes())['proof']['completed_uptime'] == world.uptime
+    if case != 'old_object_changed':
+        assert reads[:2] == [(wal_name(6),), (wal_name(6),)]
+
+
 @pytest.mark.parametrize('changed',['postmaster','boot','implementation','rollback','expiry'])
 def test_foreign_or_expired_receipt_never_grants_reuse(world,monkeypatch,changed):
     admit(world)
