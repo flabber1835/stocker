@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 import pytest
 
-from sentinel import runtime_admission
+from sentinel import backup_runtime_authority, runtime_admission
 from sentinel.automation import store as automation_store
 from sentinel.automation.model import ControlBinding
 from sentinel.config import SentinelConfig
@@ -363,7 +363,48 @@ def test_fenced_route_settles_ack_zero_three_native_fills_then_go_admits(
                   deployment=f.bound.deployment_id,
                   generation=control.generation,
                   image="example/sentinel@" + image_digest)
+
+    def writer_lock_held(conn):
+        return conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks"
+            " WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted)"
+        ).fetchone()[0]
+
+    def check_backup(conn, *, operation, allow_continuity, calls, refuse_at=None):
+        assert operation == "plan/execution writer mutation"
+        assert allow_continuity is True
+        calls.append(writer_lock_held(conn))
+        if len(calls) == refuse_at:
+            raise backup_runtime_authority.BackupRuntimeUnavailable(
+                "fenced recovery backup proof refused")
+
+    before_requests = dict(f.venue.requests)
+    before_command, = journal.load_commands(database, f.bound.identity)
+    before_history = journal.command_history(database, command.client_key)
+    before_fills = database.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone()[0]
+    for refuse_at, expected_calls in ((1, [False]), (2, [False, True])):
+        calls = []
+        with monkeypatch.context() as denied:
+            denied.setattr(backup_runtime_authority, "require",
+                           lambda conn, *, operation, allow_continuity: check_backup(
+                               conn, operation=operation, allow_continuity=allow_continuity,
+                               calls=calls, refuse_at=refuse_at))
+            with pytest.raises(backup_runtime_authority.BackupRuntimeUnavailable,
+                               match="backup proof refused"):
+                asyncio.run(fenced.recover(**kwargs))
+        assert calls == expected_calls
+        assert dict(f.venue.requests) == before_requests
+        assert journal.load_commands(database, f.bound.identity) == (before_command,)
+        assert journal.command_history(database, command.client_key) == before_history
+        assert database.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone()[0] == before_fills
+
+    calls = []
+    monkeypatch.setattr(backup_runtime_authority, "require",
+                        lambda conn, *, operation, allow_continuity: check_backup(
+                            conn, operation=operation, allow_continuity=allow_continuity,
+                            calls=calls))
     result = asyncio.run(fenced.recover(**kwargs))
+    assert calls == [False, True]
     assert result["status"] == "RECONCILED"
     assert result["in_flight_commands"] == 0
     assert result["broker_mutations"] is False
@@ -378,7 +419,9 @@ def test_fenced_route_settles_ack_zero_three_native_fills_then_go_admits(
         (Decimal(qty), Decimal("335.82")) for qty in quantities)
     assert f.venue.requests["POST /v2/orders"] == 1
     runtime_admission._fence(database)
+    calls.clear()
     replay = asyncio.run(fenced.recover(**kwargs))
+    assert calls == [False, True]
     assert replay["status"] == "SKIPPED_CLEAN"
     assert replay["observation_id"] is None
     assert database.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone()[0] == 3

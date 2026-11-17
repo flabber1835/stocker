@@ -185,7 +185,7 @@ async def recover(*, config: SentinelConfig, installation_sha256: str,
     try:
         schema.require_runtime_schema(conn)
         journal.require_observation_integrity(conn)
-        with journal.writer_lock(conn, recovery_only=True):
+        with journal.writer_lock(conn):
             bound, control = _fence(
                 conn, grant=None, account=account,
                 deployment=deployment, generation=generation)

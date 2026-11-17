@@ -70,8 +70,12 @@ admission itself stays broker-free and keeps its existing command fence. The
 predecessor strategy book, account binding, takeover epoch, journal command
 identity and economic terms, and source/authority history remain unchanged.
 
-The stage takes the canonical execution writer lock in its recovery-only scope
-across the complete observation and settlement. It requires a current signed
+The stage takes the canonical execution writer lock in its ordinary backed
+financial-write scope across the complete observation and settlement. The
+entry and under-lock backup checks must both pass before any fill or command
+state is committed. The recovery-only lock exemption is reserved for
+nonfinancial observation and lease work and cannot cover this settlement.
+It requires a current signed
 `SAFETY_READ` observation authority for the exact PAPER deployment/account,
 takeover epoch, endpoint and rollout. This authority deliberately tolerates
 runtime/source drift but grants no submission. If it is unavailable or revoked,
