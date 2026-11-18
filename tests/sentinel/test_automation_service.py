@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import schema
+from sentinel import opening_stage_log, schema
 from sentinel.automation import outbox, schedule, store
 from sentinel.automation import integrity as automation_integrity
 from sentinel.automation import service as service_module
@@ -522,7 +522,7 @@ async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog
                                      cycle["execution_open_at"] + timedelta(minutes=10))
     assert schedule.recovery_deadline == cycle["execution_close_at"]
 
-    with caplog.at_level(logging.INFO, logger=service_module.__name__):
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
         completed = await restarted.tick(conn, now=THURSDAY_AFTER_OPEN)
     assert completed.action is TickAction.EXECUTED
     assert completed.cycle.state is CycleState.SUCCEEDED
