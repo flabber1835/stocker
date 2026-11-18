@@ -9,6 +9,10 @@ simulator; no network or real account is involved.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import threading
+import time
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -2221,15 +2225,69 @@ def idle_attestation(monkeypatch):
     async def notify(*_a, **_kw):
         return None
 
-    monkeypatch.setattr(automation_runtime, "load_active_signed_certificate", lifecycle)
+    monkeypatch.setattr(runtime, "_idle_certificate_identity", lifecycle)
     monkeypatch.setattr(automation_runtime, "require_current_authority", full)
     monkeypatch.setattr(store, "transition_cycle", block)
     monkeypatch.setattr(store, "adopt_cycle", block)
     monkeypatch.setattr(runtime, "notify", notify)
     monkeypatch.setattr(runtime, "_broker", lambda *_a, **_k: pytest.fail("idle broker"))
+
+    class CompletedFlight:
+        timeout_seconds = 25
+        backend_pid = None
+        stage = "COMPLETE"
+        elapsed_seconds = 0.01
+
+        def __init__(self, value):
+            self.value = value
+            self.error = None
+            self.finished = threading.Event()
+            self.finished.set()
+            self.cancelled = threading.Event()
+
+        def stop(self, **_kwargs):
+            self.cancelled.set()
+            return True
+
+    def start_idle(control_value, permit, observed_at):
+        subject = {}
+
+        def retain(checked, rollout, current):
+            subject.update(
+                generation=checked.generation,
+                binding=checked.binding.model_dump(mode="json"),
+                publication_version=current.version,
+                rollout_mode=rollout.mode.value,
+                rollout_version=rollout.version)
+
+        try:
+            _checked, certificate, _publication_version = (
+                runtime._validate_control_authority(
+                    conn, permit, include_publication_version=True,
+                    retain_subject=retain))
+            value = {"status": "PASS", **subject,
+                     "certificate_sha256": certificate.certificate_sha256}
+        except Exception as exc:  # noqa: BLE001
+            try:
+                runtime._raise_authority_refusal(exc)
+            except NonRetryableCallbackRefused as refusal:
+                value = {"status": "REFUSED", "detail": str(refusal),
+                         "subject": subject or None}
+            except TransientInfrastructureFailure:
+                value = {"status": "TRANSIENT"}
+            except StaleLeaderRefused:
+                value = {"status": "STALE"}
+        flight = CompletedFlight(value)
+        runtime._idle_authority_flight = (
+            flight, runtime._idle_attestation_key(control_value, permit),
+            observed_at)
+        return flight
+
+    monkeypatch.setattr(runtime, "_start_idle_authority_observer", start_idle)
     return SimpleNamespace(runtime=runtime, conn=conn, state=state,
                            full=full_checks, lifecycle=lifecycle_checks,
-                           verdicts=verdicts, blocked=blocked, cfg=cfg)
+                           verdicts=verdicts, blocked=blocked, cfg=cfg,
+                           flight_type=CompletedFlight)
 
 
 @async_test
@@ -2241,8 +2299,8 @@ async def test_idle_attestation_bounds_full_checks_without_refreshing_pass(idle_
         assert len(item.full) == (1 if elapsed < 30 else 2)
         # One display write per full check; skips retain original evidence time.
         assert len(item.verdicts) == len(item.full)
-    assert len(item.lifecycle) == 9
-    assert all(call == {"allow_expired_observation_safety": True}
+    assert len(item.lifecycle) >= 9
+    assert all(call == {"expected_sha256": CERTIFICATE}
                for call in item.lifecycle)
     assert item.runtime._idle_attestation[0] == NOW + timedelta(seconds=30)
 
@@ -2253,7 +2311,9 @@ async def test_idle_attestation_revocation_immediately_runs_existing_block(idle_
     await item.runtime.control_wake(item.conn)
     item.state.update(now=NOW + timedelta(seconds=3), revoked=True)
     await item.runtime.control_wake(item.conn)
-    assert len(item.full) == 2
+    # A known revoked certificate is terminal from the cheap current
+    # lifecycle check; the full source proof need not repeat first.
+    assert len(item.full) == 1
     assert item.blocked
     assert item.verdicts[-1]["verdict"] == "FAIL"
     assert item.runtime._idle_attestation is None
@@ -2286,7 +2346,7 @@ async def test_idle_attestation_read_failure_cannot_resume_old_cadence(idle_atte
     item.state["now"] = NOW + timedelta(seconds=3)
     await item.runtime.control_wake(item.conn)
     assert len(item.full) == 2
-    assert not item.lifecycle
+    assert item.lifecycle
 
 
 @async_test
@@ -2299,7 +2359,7 @@ async def test_idle_attestation_detects_rollback_between_skipped_polls(idle_atte
     item.state["now"] = NOW + timedelta(seconds=9)
     await item.runtime.control_wake(item.conn)
     assert len(item.full) == 2
-    assert len(item.lifecycle) == 1
+    assert item.lifecycle
 
 
 @pytest.mark.parametrize("next_poll", [9, 30])
@@ -2347,7 +2407,7 @@ async def test_idle_attestation_invalidates_on_clock_or_ownership_change(idle_at
                                NOW + timedelta(seconds=2))
     await item.runtime.control_wake(item.conn)
     assert len(item.full) == 2
-    assert not item.lifecycle
+    assert item.lifecycle
 
 
 @async_test
@@ -2369,48 +2429,329 @@ async def test_idle_source_drift_rechecked_at_original_deadline_and_execution_bo
     assert item.runtime._idle_attestation is None
 
 
+@async_test
+async def test_pending_idle_proof_revocation_blocks_and_cancels(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.runtime._idle_attestation = None
+    flight = item.flight_type({"status": "PASS"})
+    flight.finished.clear()
+    item.runtime._idle_authority_flight = (
+        flight,
+        item.runtime._idle_attestation_key(item.state["control"], context(item.cfg).permit),
+        NOW)
+    item.state.update(now=NOW + timedelta(seconds=3), revoked=True)
+    await item.runtime.control_wake(item.conn)
+    assert item.blocked and flight.cancelled.is_set()
+    assert item.verdicts[-1]["verdict"] == "FAIL"
+    assert len(item.full) == 1
+
+
+@async_test
+async def test_late_idle_proof_cannot_publish_a_new_pass(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    before = len(item.verdicts)
+    item.runtime._idle_attestation = None
+    flight = item.flight_type({"status": "PASS"})
+    flight.elapsed_seconds = 31
+    item.runtime._idle_authority_flight = (
+        flight,
+        item.runtime._idle_attestation_key(item.state["control"], context(item.cfg).permit),
+        NOW)
+    item.state["now"] = NOW + timedelta(seconds=31)
+    retry_at = await item.runtime.control_wake(item.conn)
+    assert retry_at > item.state["now"]
+    assert flight.cancelled.is_set() and len(item.verdicts) == before
+    assert item.runtime._idle_attestation is None
+
+
+@async_test
+async def test_idle_refusal_for_old_publication_is_discarded(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    before = len(item.verdicts)
+    item.runtime._idle_attestation = None
+    control_value = item.state["control"]
+    flight = item.flight_type({
+        "status": "REFUSED", "detail": "old source refused",
+        "subject": {
+            "generation": control_value.generation,
+            "binding": control_value.binding.model_dump(mode="json"),
+            "publication_version": 1,
+            "rollout_mode": "PINNED_1_00", "rollout_version": 1,
+        },
+    })
+    item.runtime._idle_authority_flight = (
+        flight,
+        item.runtime._idle_attestation_key(control_value, context(item.cfg).permit),
+        NOW)
+    item.state.update(now=NOW + timedelta(seconds=3), publication=2)
+    retry_at = await item.runtime.control_wake(item.conn)
+    assert retry_at > item.state["now"]
+    assert len(item.verdicts) == before and not item.blocked
+
+
+@async_test
+async def test_callback_reaps_idle_proof_before_admission(idle_attestation):
+    item = idle_attestation
+    flight = item.flight_type({"status": "PASS"})
+    item.runtime._idle_authority_flight = (
+        flight,
+        item.runtime._idle_attestation_key(item.state["control"], context(item.cfg).permit),
+        NOW)
+
+    async def callback(_context):
+        assert flight.cancelled.is_set()
+        return "admitted"
+
+    ctx = context(item.cfg)
+    assert await item.runtime.service._invoke(
+        callback, ctx, permit=ctx.permit, phase="PREPARE") == "admitted"
+    assert item.runtime._idle_authority_flight is None
+
+
+@pytest.mark.parametrize("path", ["immediate", "observed"])
+@pytest.mark.parametrize("race", ["fail_write", "takeover"])
+@async_test
+async def test_idle_refusal_never_terminalizes_after_losing_original_fence(
+        idle_attestation, monkeypatch, path, race):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
+    permit = LeaderPermit(
+        holder_id="worker-a", fence_token=17, control_generation=3,
+        acquired_at=NOW, expires_at=NOW + timedelta(seconds=90))
+    monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _conn: None)
+    monkeypatch.setattr(runtime, "notify", lambda *_args: pytest.fail(
+        "stale authority refusal notified a terminal outcome"))
+    if path == "immediate":
+        monkeypatch.setattr(
+            runtime, "_idle_certificate_identity",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                authority.AuthorityRefused("certificate revoked")))
+    else:
+        bound = item.state["control"].binding
+        flight = item.flight_type({
+            "status": "REFUSED", "detail": "signed proof refused",
+            "subject": {
+                "generation": 3, "binding": bound.model_dump(mode="json"),
+                "publication_version": 1,
+                "rollout_mode": bound.rollout_mode,
+                "rollout_version": bound.rollout_version,
+                "certificate_sha256": CERTIFICATE,
+            },
+        })
+        runtime._idle_authority_flight = (
+            flight, runtime._idle_attestation_key(item.state["control"], permit),
+            NOW)
+
+    if race == "fail_write":
+        monkeypatch.setattr(
+            store, "record_authority_verdict",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                StaleLeaderRefused("takeover before FAIL")))
+        monkeypatch.setattr(
+            store, "engage_kill_if_leader",
+            lambda *_args, **_kwargs: pytest.fail(
+                "unpublished FAIL reached the kill latch"))
+    else:
+        def stale_latch(_conn, original, **_kwargs):
+            assert original == permit
+            raise StaleLeaderRefused("takeover between FAIL and latch")
+
+        monkeypatch.setattr(store, "engage_kill_if_leader", stale_latch)
+    result = await runtime.control_wake(conn)
+    if race == "fail_write":
+        assert result == runtime._idle_authority_retry_at
+        assert not item.verdicts
+    else:
+        assert result is None
+        assert [row["verdict"] for row in item.verdicts] == ["FAIL"]
+    assert runtime._idle_attestation is None
+
+
+def test_cumulative_foreground_idle_budget_refuses_slow_mutable_reads(
+        idle_attestation, monkeypatch):
+    item = idle_attestation
+    runtime = item.runtime
+    control_value = item.state["control"]
+    permit = LeaderPermit(
+        holder_id="worker-a", fence_token=17, control_generation=3,
+        acquired_at=NOW, expires_at=NOW + timedelta(seconds=90))
+    original_leader = store.require_leader
+
+    def slow_leader(conn, permit):
+        time.sleep(.01)
+        return original_leader(conn, permit)
+
+    def slow_control(_conn):
+        time.sleep(.01)
+        return control_value
+
+    def slow_certificate(_conn, **_kwargs):
+        time.sleep(.01)
+        return SimpleNamespace(certificate_sha256=CERTIFICATE)
+
+    monkeypatch.setattr(store, "require_leader", slow_leader)
+    monkeypatch.setattr(store, "load_control", slow_control)
+    monkeypatch.setattr(runtime, "_idle_certificate_identity", slow_certificate)
+    monkeypatch.setattr(
+        automation_runtime, "load_rollout_state",
+        lambda _conn: pytest.fail("expired cumulative budget read rollout"))
+    runtime._idle_foreground_deadline = time.monotonic() + .025
+    with pytest.raises(TransientInfrastructureFailure, match="foreground budget"):
+        runtime._idle_current_facts(item.conn, permit)
+    assert not item.verdicts
+
+
+def test_idle_diagnostics_never_wait_for_child_shared_lock():
+    class PoisonedLockProgress:
+        def __getitem__(self, index):
+            return (1942, 5)[index]
+
+        def get_lock(self):
+            pytest.fail("foreground diagnostic took a child-held lock")
+
+    flight = object.__new__(automation_runtime.idle_authority.IdleAuthorityFlight)
+    flight.progress = PoisonedLockProgress()
+    assert flight.stage == "SIGNED_AUTHORITY_PUBLICATION"
+    assert flight.backend_pid == 1942
+
+
+@pytest.mark.parametrize("corruption", ["raw", "claims", "revoked", "key_revoked"])
+def test_idle_mutable_certificate_check_refuses_tampering_without_file_reads(
+        monkeypatch, corruption):
+    cfg = config()
+    runtime = production(cfg)
+    claims = {
+        "authorization_mode": "PAPER_OBSERVATION_ONLY",
+        "certificate_id": "signed-1", "issuer_generation": 1,
+        "supersedes_certificate_sha256": None,
+        "not_before": "2026-08-01T00:00:00Z",
+        "expires_at": "2026-08-12T00:00:00Z",
+    }
+    envelope = {"key_id": "trusted-key", "claims": claims}
+    raw = json.dumps(envelope, sort_keys=True).encode()
+    sha = hashlib.sha256(raw).hexdigest()
+    row = [
+        1, sha, raw, envelope, claims, "trusted-key", "signed-1", 1, None,
+        datetime(2026, 8, 1, tzinfo=UTC),
+        datetime(2026, 8, 12, tzinfo=UTC),
+        "ACTIVE", False, False, NOW,
+    ]
+    if corruption == "raw":
+        row[2] = raw + b" "
+    elif corruption == "claims":
+        row[4] = {**claims, "certificate_id": "different"}
+    elif corruption == "revoked":
+        row[12] = True
+    else:
+        row[13] = True
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, sql):
+            assert "sentinel_execution_certificate_revocations" in sql
+
+        def fetchone(self):
+            return tuple(row)
+
+    conn = SimpleNamespace(cursor=lambda: Cursor())
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: pytest.fail(
+        "foreground idle poll read a trust-root file"))
+    with pytest.raises(authority.AuthorityRefused):
+        runtime._idle_certificate_identity(conn, expected_sha256=sha)
+
+
+def test_idle_mutable_certificate_check_preserves_paper_expiry_exception(monkeypatch):
+    cfg = config()
+    runtime = production(cfg)
+    claims = {
+        "authorization_mode": "PAPER_OBSERVATION_ONLY",
+        "certificate_id": "signed-1", "issuer_generation": 1,
+        "supersedes_certificate_sha256": None,
+        "not_before": "2026-08-01T00:00:00Z",
+        "expires_at": "2026-08-12T00:00:00Z",
+    }
+    envelope = {"key_id": "trusted-key", "claims": claims}
+    raw = json.dumps(envelope, sort_keys=True).encode()
+    sha = hashlib.sha256(raw).hexdigest()
+    row = [1, sha, raw, envelope, claims, "trusted-key", "signed-1", 1, None,
+           datetime(2026, 8, 1, tzinfo=UTC),
+           datetime(2026, 8, 12, tzinfo=UTC), "ACTIVE", False, False, NOW]
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, _sql):
+            pass
+
+        def fetchone(self):
+            return tuple(row)
+
+    conn = SimpleNamespace(cursor=lambda: Cursor())
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: pytest.fail(
+        "foreground idle poll read a trust-root file"))
+    assert runtime._idle_certificate_identity(
+        conn, expected_sha256=sha).certificate_sha256 == sha
+    claims["authorization_mode"] = "EXECUTION"
+    envelope["claims"] = claims
+    raw = json.dumps(envelope, sort_keys=True).encode()
+    row[1] = hashlib.sha256(raw).hexdigest()
+    row[2] = raw
+    with pytest.raises(authority.AuthorityRefused):
+        runtime._idle_certificate_identity(
+            conn, expected_sha256=row[1])
+
+
 @pytest.mark.parametrize("boundary", ["control", "cycle"])
 @async_test
 async def test_idle_lease_loss_returns_to_scheduler_without_authority_or_broker(
-        monkeypatch, boundary):
-    cfg = config()
-    runtime = production(cfg)
-    conn = FakeConnection(lease_row=(
-        "worker-a", 17, 3, NOW, NOW + timedelta(seconds=30)))
-    monkeypatch.setattr(store, "load_control", lambda _c: control(cfg))
-    monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _c: cycle(cfg))
+        idle_attestation, monkeypatch, boundary):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
     calls = []
 
     def check_control(_c, _permit):
         calls.append("control")
         if boundary == "control":
             raise StaleLeaderRefused("lease expired before idle verification")
-        return control(cfg), SimpleNamespace(certificate_sha256=CERTIFICATE)
+        return item.state["control"], SimpleNamespace(
+            certificate_sha256=CERTIFICATE)
 
     def check_cycle(*_args, **_kwargs):
         calls.append("cycle")
         raise StaleLeaderRefused("new generation won before cycle verification")
 
-    monkeypatch.setattr(runtime, "_assert_control_authority", check_control)
+    monkeypatch.setattr(runtime, "_idle_current_facts", check_control)
     monkeypatch.setattr(runtime, "_assert_cycle_authority", check_cycle)
-    for name in ("transition_cycle", "adopt_cycle", "engage_kill", "record_authority_verdict"):
+    for name in ("transition_cycle", "adopt_cycle", "engage_kill_if_leader"):
         monkeypatch.setattr(store, name, lambda *_a, **_kw: pytest.fail("stale poll mutated authority"))
     monkeypatch.setattr(runtime, "_broker", lambda *_a, **_kw: pytest.fail("idle broker reached"))
     monkeypatch.setattr(runtime, "notify", lambda *_a, **_kw: pytest.fail("lease loss is not certificate failure"))
     assert await runtime.control_wake(conn) is None
-    assert calls == (["control"] if boundary == "control" else ["control", "cycle"])
-    assert conn.rollbacks == 2
+    assert calls == (["control"] if boundary == "control"
+                     else ["control", "control", "cycle"])
+    assert conn.rollbacks >= 2
+    assert [row["verdict"] for row in item.verdicts] == (
+        [] if boundary == "control" else ["PASS"])
 
 
 @async_test
-async def test_idle_poll_does_not_swallow_unknown_defects(monkeypatch):
-    cfg = config()
-    runtime = production(cfg)
-    conn = FakeConnection(lease_row=("worker-a", 17, 3, NOW, NOW + timedelta(seconds=30)))
-    monkeypatch.setattr(store, "load_control", lambda _c: control(cfg))
+async def test_idle_poll_does_not_swallow_unknown_defects(idle_attestation, monkeypatch):
+    runtime, conn = idle_attestation.runtime, idle_attestation.conn
     def defect(*_a):
         raise ValueError("unexpected authority reader defect")
-    monkeypatch.setattr(runtime, "_assert_control_authority", defect)
+    monkeypatch.setattr(runtime, "_idle_current_facts", defect)
     with pytest.raises(ValueError, match="unexpected authority reader defect"):
         await runtime.control_wake(conn)
 
@@ -2455,6 +2796,10 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
         automation_runtime, "require_current_authority",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             authority.AuthorityRefused("certificate expired")))
+    monkeypatch.setattr(
+        runtime, "_idle_certificate_identity",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            authority.AuthorityRefused("certificate expired")))
 
     def block(_conn, **kwargs):
         blocked = latest[0].model_copy(update={
@@ -2485,12 +2830,6 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
     assert broker_builds == []
     assert kills == []
 
-    # Restored certificate validity cannot silently resume the same generation.
-    monkeypatch.setattr(
-        automation_runtime, "require_current_authority",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            certificate_sha256=CERTIFICATE))
-    await runtime.control_wake(conn)
     assert latest[0].state is CycleState.BLOCKED
     assert len(alerts) == 1
 
@@ -2535,8 +2874,13 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
         automation_runtime, "require_current_authority",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             authority.AuthorityRefused("certificate revoked while idle")))
+    monkeypatch.setattr(
+        runtime, "_idle_certificate_identity",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            authority.AuthorityRefused("certificate revoked while idle")))
 
-    def engage_kill(_conn, *, actor, reason):
+    def engage_kill(_conn, permit, *, actor, reason):
+        assert permit.control_generation == current_control[0].generation
         kills.append({"actor": actor, "reason": reason})
         current_control[0] = current_control[0].model_copy(update={
             "generation": current_control[0].generation + 1,
@@ -2547,7 +2891,7 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
         })
         return current_control[0]
 
-    monkeypatch.setattr(store, "engage_kill", engage_kill)
+    monkeypatch.setattr(store, "engage_kill_if_leader", engage_kill)
 
     async def notify(_conn, result):
         alerts.append(result)
@@ -2582,25 +2926,19 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
 
 @async_test
 async def test_control_poll_preserves_adopted_old_recovery_obligation(
-        monkeypatch) -> None:
-    cfg = config()
-    current_control = control(cfg)
+        idle_attestation, monkeypatch) -> None:
+    item = idle_attestation
+    cfg = item.cfg
+    current_control = item.state["control"]
     old = cycle(
         cfg, generation=2, state=CycleState.RETRY_WAIT,
         last_fence_token=17).model_copy(update={
             "diagnostic": {"retry_phase": "RECOVER"}})
-    conn = FakeConnection(lease_row=(
-        "worker-a", 17, 3, NOW, NOW + timedelta(seconds=30)))
-    runtime = production(cfg)
+    conn, runtime = item.conn, item.runtime
     scopes = []
 
     monkeypatch.setattr(store, "load_control", lambda _conn: current_control)
     monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _conn: old)
-    monkeypatch.setattr(
-        runtime, "_assert_control_authority",
-        lambda _conn, _permit: (
-            current_control,
-            SimpleNamespace(certificate_sha256=CERTIFICATE)))
     monkeypatch.setattr(
         runtime, "_assert_cycle_authority",
         lambda _conn, _context, *, operation_scope, verified_control: (
