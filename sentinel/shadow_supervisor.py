@@ -484,64 +484,89 @@ def _latched_wait(stopping, pending=None) -> int:
     return 0
 
 
+def _health_failure(reason, message, error=None):
+    if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
+        supervisor_io.report_event('shadow', 'HEALTH_PROBE', 'FAILED', error=error,
+                                   context={'state': reason}, container_log=True)
+    supervisor_io.report(message, file=sys.stderr)
+    return 1
+
+
+def _close_worker(config):
+    """Match the current authenticated attempt to the original live process."""
+    try:
+        value = shadow_service_status.read(LATCH_FILE.parent, config.database_url)
+        now = datetime.now(timezone.utc)
+        pending = shadow_service_status.pending(_pending_file())
+        if (value['reason'] == 'ACTIVE_WORKER' and pending is not None
+                and pending['schema'] == restart_recovery.SCHEMA
+                and pending['attempt_id'] == value['attempt_id']
+                and shadow_worker_liveness.matches(_pending_file())
+                and not LATCH_FILE.exists()
+                and timedelta(0) <= now-value['observed_at'] <= timedelta(seconds=shadow_service_status.MAX_AGE_SECONDS)
+                and now < value['worker_deadline']):
+            return value
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
 def _health(max_age_seconds: float, *, config=None) -> int:
     """Require supervisor liveness plus a safe shadow recovery state."""
     try:
         return supervisor_io.run(_health_snapshot, max_age_seconds, config, timeout=3)
     except Exception as exc:
-        supervisor_io.report(f"REFUSED: shadow health dependency unavailable: {type(exc).__name__}")
-        return 1
+        return _health_failure('DEPENDENCY', f"REFUSED: shadow health dependency unavailable: {type(exc).__name__}", exc)
 
 
 def _health_snapshot(max_age_seconds, config, *, financial=True):
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
-        supervisor_io.report(f"REFUSED: shadow supervisor heartbeat absent: {exc}",
-              file=sys.stderr)
-        return 1
+        return _health_failure('HEARTBEAT_ABSENT', f"REFUSED: shadow supervisor heartbeat absent: {exc}", exc)
     if age < 0 or age > max_age_seconds:
-        supervisor_io.report(
-            f"REFUSED: shadow supervisor heartbeat stale ({age:.3f}s)",
-            file=sys.stderr)
-        return 1
+        return _health_failure('HEARTBEAT_STALE', f"REFUSED: shadow supervisor heartbeat stale ({age:.3f}s)")
     pending = _pending_file().exists()
     active = pending and shadow_worker_liveness.matches(_pending_file())
     if pending and not active and not LATCH_FILE.exists():
-        supervisor_io.report('REFUSED: shadow supervisor has an unacknowledged worker outcome; '
-                             'retained-state verification and operator recovery are required',
-                             file=sys.stderr)
-        return 1
+        return _health_failure('UNACKNOWLEDGED_WORKER', 'REFUSED: shadow supervisor has an unacknowledged worker outcome; '
+                               'retained-state verification and operator recovery are required')
     if LATCH_FILE.exists():
         try:
             with LATCH_FILE.open(encoding="utf-8") as stream:
                 detail = stream.read(4096)
         except OSError as exc:
             detail = f"critical latch or unacknowledged worker outcome: {exc}"
-        supervisor_io.report(f"REFUSED: shadow supervisor critical latch: {detail}",
-              file=sys.stderr)
-        return 1
+        return _health_failure('CRITICAL_LATCH', f"REFUSED: shadow supervisor critical latch: {detail}")
     if not financial:
         return 0  # Process readiness does not authorize a financial decision.
+    from sentinel import shadow_health_projection
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
-        from sentinel import shadow_health_projection
+        owner = _close_worker(resolved) if active and getattr(resolved, 'operational_source_only', False) else None
         health = shadow_health_projection.health(
             resolved, fallback=service_health,
+            observe_close_wait=owner is not None,
             target=LATCH_FILE.with_name('shadow-health-projection.json'))
+        if health.get('service_health') == 'CLOSE_PUBLICATION_PENDING':
+            after = _close_worker(resolved)
+            if (owner and after and (after['incarnation'], after['attempt_id']) == (owner['incarnation'], owner['attempt_id'])
+                    and after['observed_at'] >= owner['observed_at']
+                    and after['worker_deadline'] <= owner['worker_deadline']
+                    and datetime.now(timezone.utc) < min(health['valid_until'], after['worker_deadline'])):
+                return 0
+            return _health_failure('CLOSE_WORKER_CHANGED', 'REFUSED: shadow close publisher changed during health observation')
         if health.get("service_health") == "RECONSTRUCTION_PENDING" and not active:
-            supervisor_io.report("REFUSED: shadow reconstruction is pending", file=sys.stderr)
-            return 1
+            return _health_failure('RECONSTRUCTION_PENDING', "REFUSED: shadow reconstruction is pending")
     except ShadowServiceWaiting as exc:
         if active:
             return 0  # Recovering worker is live; financial admission stays red.
-        supervisor_io.report(f"REFUSED: shadow financial readiness pending: {exc}")
-        return 1
+        return _health_failure('FINANCIAL_PENDING', f"REFUSED: shadow financial readiness pending: {exc}", exc)
+    except shadow_health_projection.ProjectionRenewalRequired as exc:
+        cause = {'inventory': 'INVENTORY_CHANGED', 'config': 'CONFIG_CHANGED'}.get(exc.binding, 'HINT_RENEWAL')
+        return _health_failure(cause, f"REFUSED: shadow frontier health failed: {type(exc).__name__}: {exc}", exc)
     except Exception as exc:  # structural corruption still fails health closed
-        supervisor_io.report(
-            "REFUSED: shadow frontier health failed: "
-            f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        return _health_failure('FRONTIER', f"REFUSED: shadow frontier health failed: {type(exc).__name__}: {exc}", exc)
     return 0
 
 

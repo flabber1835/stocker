@@ -97,7 +97,7 @@ def _config(config):
     return _digest({'config': asdict(config), 'environment': env})
 
 
-def _inventory(conn):
+def _inventory_rows(conn):
     relation = conn.execute(
         "SELECT system_identifier::text,current_database(),"
         "'sentinel_processed_sessions'::regclass::oid::text,"
@@ -120,6 +120,11 @@ def _inventory(conn):
     ).fetchall()
     if len(rows) > 10000 or len(pubs) > 10000:
         raise ValueError('shadow health inventory exceeds bound')
+    return relation, rows, pubs
+
+
+def _inventory(conn):
+    relation, rows, pubs = _inventory_rows(conn)
     return _digest([relation, rows, pubs]), any(row[0] == 'rolling-cold-start:v1' for row in rows)
 
 
@@ -188,33 +193,94 @@ def publish(config, result, conn):
 class ProjectionRenewalRequired(ValueError):
     """Negative auxiliary evidence; only the canonical producer can renew it."""
 
-    def __init__(self, reason: str, *, session: str | None = None):
+    def __init__(self, reason: str, *, session: str | None = None, binding: str | None = None):
         self.reason = reason
         self.session = session
+        self.binding = binding
         super().__init__('shadow health projection ' + reason)
 
 
-def health(config, *, fallback, target=None, now=None):
+def health(config, *, fallback, target=None, now=None, observe_close_wait=False):
     """Reobserve row versions and causal age without reading retained payloads."""
     if not getattr(config, 'operational_source_only', False):
         return fallback(config)
+    source = target if target is not None else path()
     conn = store.connect(config.database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        inventory, has_origin = _inventory(conn)
+        relation, rows, pubs = _inventory_rows(conn)
+        if any(row[0] == 'rolling-cold-start:v1' for row in rows):
+            projection = _signed_projection(config, source)
+            if projection.inventory_sha256 == _digest([relation, rows, pubs]):
+                return _temporal_health(projection, now if now is not None else _now())
+            if (observe_close_wait and len(pubs) >= 2
+                    and projection.inventory_sha256 == _digest([relation, rows, pubs[:-1]])):
+                wait = _publication_wait(conn, projection, pubs[-2][0], pubs[-1][0], now)
+                if wait is not None:
+                    return wait
+            raise ProjectionRenewalRequired('binding changed', session=projection.session, binding='inventory')
     finally:
         conn.rollback()
         conn.close()
-    source = target if target is not None else path()
-    if not has_origin:
-        if source.exists():
-            raise ValueError('retained health projection origin is absent')
-        return fallback(config)
-    projection = _authenticated_projection(config, inventory, source)
-    return _temporal_health(projection, now if now is not None else _now())
+    if source.exists():
+        raise ValueError('retained health projection origin is absent')
+    return fallback(config)
+
+
+def _publication_wait(conn, projection, previous, version, now):
+    """Classify one appended operational close while the signed prefix is intact."""
+    if version != previous + 1:
+        return None
+    row = conn.execute("""
+        SELECT j.created_at, p.published_at, j.updated_at, j.deadline, p.window_start, p.evidence,
+               prior.evidence->%s->>'receipt_sha256'
+        FROM sentinel_corpus_publications p
+        JOIN sentinel_corpus_publications prior ON prior.version=p.previous_version
+        JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
+        JOIN sentinel_snapshot_jobs j ON j.job_id=b.job_id AND j.candidate_id=b.candidate_id
+        JOIN sentinel_operational_snapshot_validations v ON v.candidate_id=b.candidate_id
+        JOIN sentinel_publication_validation_receipts r ON r.publication_version=p.version
+        WHERE p.version=%s AND prior.version=%s AND prior.window_end=%s AND p.window_end=%s
+          AND j.state='PUBLISHED' AND j.publication_version=p.version
+          AND NOT (p.evidence ? 'operational_recovery')
+          AND p.run_id IS NULL AND p.window_start IS NOT NULL AND octet_length(p.evidence::text)<=65536
+          AND r.receipt_sha256=p.evidence->%s->>'receipt_sha256'
+          AND r.receipt_hmac_sha256=p.evidence->%s->>'receipt_hmac_sha256'
+          AND v.validation_sha256=b.validation_sha256
+          AND p.evidence->'rolling_snapshot'->>'candidate_id'=b.candidate_id::text
+          AND p.evidence->'rolling_snapshot'->>'job_id'=b.job_id::text
+          AND p.evidence->'rolling_snapshot'->>'validation_sha256'=b.validation_sha256
+        """, (publication.RECEIPT_EVIDENCE_KEY, version, previous, projection.session, projection.waiting_session,
+              publication.RECEIPT_EVIDENCE_KEY, publication.RECEIPT_EVIDENCE_KEY)).fetchone()
+    instant = now if now is not None else _now()
+    if row is None or _temporal_health(projection, instant)['service_health'] != 'HEALTHY_WAITING':
+        return None
+    created, published, completed, deadline, start, evidence, prior_receipt = row
+    expires = min(deadline, _utc(projection.valid_until))
+    if not _utc(projection.current_until) <= created <= published <= completed <= instant < expires:
+        return None
+    receipt = evidence.pop(publication.RECEIPT_EVIDENCE_KEY)
+    if (not prior_receipt or receipt.get('previous_receipt_sha256') != prior_receipt
+            or receipt.get('schema') != publication.RECEIPT_SCHEMA):
+        return None
+    body = publication._receipt_body(version=version, previous_version=previous, run_id=None,
+        published_at=published, window_start=start, window_end=projection.waiting_session,
+        evidence=evidence, origin_run_status=None, previous_receipt_sha256=prior_receipt)
+    if (receipt['receipt_sha256'] != publication._receipt_digest(body)
+            or not hmac.compare_digest(receipt['receipt_hmac_sha256'], publication._receipt_hmac(body))):
+        return None
+    return {'service_health': 'CLOSE_PUBLICATION_PENDING', 'target_session': projection.waiting_session,
+            'valid_until': expires}
 
 
 def _authenticated_projection(config, inventory, source):
+    projection = _signed_projection(config, source)
+    if projection.inventory_sha256 != inventory:
+        raise ProjectionRenewalRequired('binding changed', session=projection.session, binding='inventory')
+    return projection
+
+
+def _signed_projection(config, source):
     try:
         with source.open('rb') as stream:
             raw = stream.read(MAX_BYTES + 1)
@@ -229,8 +295,8 @@ def _authenticated_projection(config, inventory, source):
     if not hmac.compare_digest(str(wrapped['hmac_sha256']), _signature(payload)):
         raise ValueError('shadow health projection authentication failed')
     projection = Projection.model_validate(payload)
-    if projection.config_sha256 != _config(config) or projection.inventory_sha256 != inventory:
-        raise ProjectionRenewalRequired('binding changed', session=projection.session)
+    if projection.config_sha256 != _config(config):
+        raise ProjectionRenewalRequired('binding changed', session=projection.session, binding='config')
     return projection
 
 
