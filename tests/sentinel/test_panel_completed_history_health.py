@@ -43,6 +43,140 @@ def completed_panel():
     return replace(page,rows=rows)
 
 
+def post_activation_panel():
+    """A new generation waits after the older generation completed today."""
+    page=completed_panel()
+    run=page.row('trading_run')
+    recovery=model.RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=True,
+        next_attempt_at=NOW+timedelta(seconds=2),deadline=NOW+timedelta(seconds=10))
+    waiting=[model.Row(key,label,value,model.WARN,required_current=True,
+        recovery=recovery,operational_fact=model.OperationalFact(
+            kind='AUTOMATION_CYCLE',state='DISCOVERY_WAIT')) for key,label,value in (
+            ('automation_cycle','Cycle','WAITING FOR NEXT DECISION'),
+            ('automation_step_discovery','Discovery','WAITING FOR CYCLE'))]
+    rows=[row for row in page.rows if row.key not in {
+        'trading_run','automation_cycle','automation_step_complete','automation_alerts'}]
+    rows += [replace(run,key='completed_trading_run'),*waiting,
+        model.automation_alerts_row(installed=True,pending=0,dead_letter=0,
+                                    unacknowledged=2,as_of=NOW)]
+    review=page.operator_review.model_copy(update={
+        'head':2,'reviewed_head':1,'status':'REVIEW','token':None})
+    return replace(page,rows=rows,operator_review=review)
+
+
+def test_post_activation_wait_can_offer_review_without_promoting_paper_authority():
+    from sentinel.panel.render import render
+    from sentinel.panel.serialization import public_payload
+    page=post_activation_panel()
+    assert presentation.health_facts(page)=={'active':[],'warnings':[]}
+    before=public_payload(page)
+    assert before['dashboard_health']['color']=='amber'
+    assert before['dashboard_health']['label'].startswith('Acknowledgement required')
+    assert before['operational']=='warn'
+    paper=next(row for row in before['rows'] if row['key']=='paper_reconciliation')
+    assert paper['status']=='warn' and paper['paper_alignment']=='COMPLETED_WITH_HISTORY'
+    assert paper['value']=='PAPER NOT VERIFIED · PENDING'
+    token=page.operator_review.model_copy(update={'token':'synthetic-review-view'})
+    html=render(replace(page,operator_review=token))
+    assert 'id="review-acknowledge"' in html and 'Historical paper audit' in html
+    clean=page.operator_review.model_copy(update={
+        'status':'CLEAN','head':3,'reviewed_head':3,'reviewed_at':NOW})
+    acknowledged=replace(page,operator_review=clean)
+    assert presentation.dashboard_health(acknowledged)['color']=='green'
+    assert public_payload(acknowledged)['operational']=='warn'
+    assert acknowledged.row('paper_reconciliation')==page.row('paper_reconciliation')
+
+
+@pytest.mark.parametrize('fault',[
+    'missing_history','wrong_session','wrong_decision','incomplete_run','unfilled_order',
+    'active_cycle','successor_started','missing_discovery','unowned_discovery','saved_plan','pending_alert',
+    'failed_alert','source_error','partial_observation',
+])
+def test_post_activation_context_cannot_borrow_unproved_history(fault):
+    page=post_activation_panel()
+    prior=page.row('completed_trading_run')
+    run=prior.trading_run
+    if fault=='missing_history':
+        page=replace(page,rows=[r for r in page.rows if r.key!='completed_trading_run'])
+    elif fault=='wrong_session':
+        run=run.model_copy(update={'intent':run.intent.model_copy(update={
+            'effective_session':run.intent.effective_session+timedelta(days=1)})})
+    elif fault=='wrong_decision':
+        run=run.model_copy(update={'intent':run.intent.model_copy(update={
+            'decision_session':run.intent.decision_session-timedelta(days=3)})})
+    elif fault=='incomplete_run':run=run.model_copy(update={'state':'RECONCILING'})
+    elif fault=='unfilled_order':run=run.model_copy(update={'orders':[
+        run.orders[0].model_copy(update={'state':'ACKNOWLEDGED'})]})
+    elif fault=='active_cycle':page=changed_history_panel(page,'automation_cycle',
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='EXECUTING'))
+    elif fault=='successor_started':page=replace(page,rows=[*page.rows,
+        model.Row('trading_run','Current run','EXECUTING',model.WARN)])
+    elif fault=='missing_discovery':page=replace(page,rows=[r for r in page.rows
+        if r.key!='automation_step_discovery'])
+    elif fault=='unowned_discovery':page=changed_history_panel(page,'automation_step_discovery',
+        recovery=model.RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=False,
+            operator_required=True,deadline=NOW+timedelta(seconds=10)))
+    elif fault=='saved_plan':page=changed_history_panel(page,'paper_plan',status=model.OK)
+    elif fault=='pending_alert':page=changed_history_panel(page,'automation_alerts',
+        value='1 pending · 0 DLQ · 2 unacked')
+    elif fault=='failed_alert':page=changed_history_panel(page,'automation_alerts',
+        value='0 pending · 1 DLQ · 2 unacked',status=model.FAIL)
+    elif fault=='source_error':page=replace(page,source_errors=['unavailable'])
+    elif fault=='partial_observation':page=replace(page,observation_current=False)
+    if run is not prior.trading_run:
+        page=changed_history_panel(page,'completed_trading_run',trading_run=run)
+    facts=presentation.health_facts(page)
+    assert facts['warnings'] or facts['active']
+    assert presentation.dashboard_health(page)['color']!='green'
+
+
+@pytest.mark.parametrize('key',presentation._HISTORY_CURRENT_FACTS)
+def test_post_activation_context_needs_each_current_capability(key):
+    page=post_activation_panel()
+    page=replace(page,rows=[row for row in page.rows if row.key!=key])
+    assert presentation.dashboard_health(page)['color']!='green'
+    assert 'paper_reconciliation' in presentation.health_facts(page)['warnings']
+
+
+def test_post_activation_context_expires_at_original_wait_deadline():
+    page=post_activation_panel()
+    clean=page.operator_review.model_copy(update={
+        'status':'CLEAN','head':2,'reviewed_head':2,'reviewed_at':NOW})
+    page=replace(page,operator_review=clean)
+    assert presentation.dashboard_health(page)['valid_until']==(NOW+timedelta(seconds=10)).isoformat()
+    assert presentation.dashboard_health(replace(page,now=NOW+timedelta(seconds=10)))['color']!='green'
+
+
+def test_post_activation_context_stops_at_exchange_close_even_if_other_clocks_are_extended():
+    from sentinel.feed import calendar
+
+    page=post_activation_panel()
+    close=calendar.session_window(str(page.row('completed_trading_run').trading_run.intent.effective_session))[1]
+    longer=(close+timedelta(minutes=1)).astimezone(timezone.utc)
+    page=replace(page,rows=[replace(row,valid_until=longer,freshness=None,
+        recovery=replace(row.recovery,deadline=longer) if row.recovery is not None else None)
+        for row in page.rows])
+    assert presentation._post_activation_completion_normal(replace(page,now=close-timedelta(microseconds=1)))
+    assert not presentation._post_activation_completion_normal(replace(page,now=close))
+
+
+def test_removed_post_activation_source_binding_is_detected(monkeypatch):
+    page=post_activation_panel()
+    feed=page.row('feed')
+    changed=feed.operational_fact.model_copy(update={
+        'session':feed.operational_fact.session-timedelta(days=3)})
+    page=changed_history_panel(page,'feed',operational_fact=changed)
+    assert 'paper_reconciliation' in presentation.health_facts(page)['warnings']
+    source=inspect.getsource(presentation._post_activation_completion_normal)
+    guard='and _current_input_session(panel, decision)'
+    assert source.count(guard)==1
+    namespace=dict(vars(presentation))
+    exec(compile(source.replace(guard,'and True'),'<unbound post-activation source>','exec'),namespace)
+    monkeypatch.setattr(presentation,'_post_activation_completion_normal',
+                        namespace['_post_activation_completion_normal'])
+    assert 'paper_reconciliation' not in presentation.health_facts(page)['warnings']
+
+
 def test_reproduced_completed_history_is_expected_health_not_a_new_material_warning():
     from sentinel.panel.render import render
     page=completed_panel();before=deepcopy(page)

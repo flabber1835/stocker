@@ -310,6 +310,41 @@ financial runtime, verifier subject, five other application roles, PostgreSQL,
 control generation, authority, history and backup ownership. No installation,
 financial activation, plan replay or backup/restore operation is introduced.
 
+### Human health and review after an intraday activation
+
+Decision 2026-11-18, before implementation. A software activation after a
+completed same-day PAPER run starts a new healthy control generation with no
+cycle yet. The prior completed run remains a separately authenticated display
+record, and the typed `COMPLETED_WITH_HISTORY` PAPER row continues to report
+unverified post-close results and earlier discrepancies. During this one
+exchange session, treat that single PAPER warning as expected human-health
+context only when the completed display record matches the current typed PAPER
+row, the new generation has a current bounded discovery wait, and current
+independent account, broker, market-data, shadow, authority, runtime, backup,
+leader and notification-delivery facts are healthy. Require the original plan
+session, completion, order outcomes and source frontier to agree with the
+current exchange session. Stop this exception at its earliest original proof
+deadline or that session's close. A new plan or active cycle, missing or
+conflicting history, pending or failed notification delivery, source error,
+current negative, or expired/foreign capability cannot borrow it.
+
+This is a human display classification, not current financial authority. Keep
+the raw PAPER row WARN, its original clock and historical detail, the machine
+operational WARN, and every prior incident. The prior run never completes
+post-close verification or authorizes an order. Human health remains amber
+while recorded incidents await explicit operator review; green requires a
+current signed review acknowledgement and every current proof above.
+
+Render the health-history review on the ordinary page with the recorded event
+list and an accessible link to current system details. Show its acknowledgement
+button only for a strict current page with a server-issued eligible token. A
+button introduced by in-place refresh must work without a page reload. The
+click sends the existing same-origin, exact-view action once; only the server
+may acknowledge history. A successful response reloads current evidence,
+while refusal or transport loss leaves the consumed view disabled and asks for
+a fresh review. Browser refresh, offline styling, and a partial document never
+manufacture a green state or an acknowledgement.
+
 ## Opening clocks on the dashboard
 
 The exchange opening, the cycle's scheduled execution start, the last time for a

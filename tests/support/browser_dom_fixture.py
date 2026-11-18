@@ -68,6 +68,32 @@ short_partial = dict(
     initial=publication(partial, now, partial_expiry),
     same=publication(partial, partial_early, partial_expiry),
     next=publication(partial, partial_received, partial_received + timedelta(seconds=20)))
+review_event = dict(at=now.isoformat(), kind='REVIEW',
+    details={'alert_ids':['synthetic-historical-alert']})
+review_page = replace(page, rows=[*rows, model.automation_alerts_row(
+    installed=True, pending=0, dead_letter=0, unacknowledged=1, as_of=now,
+    incidents=['Recorded historical alert; current worker is healthy.'])])
+review_initial = replace(review_page, operator_review=OperatorReview(
+    scope='a'*64, head=2, reviewed_head=1, status='REVIEW',
+    observed_at=now, reviewed_at=now, events=[review_event]))
+review_ready_at = now + timedelta(seconds=5)
+review_ready = replace(review_page, operator_review=OperatorReview(
+    scope='a'*64, head=2, reviewed_head=1, status='REVIEW',
+    observed_at=review_ready_at, reviewed_at=now,
+    events=[review_event], token='browser-qualified-review-view'))
+review_done_at = review_ready_at
+review_done = replace(review_page, rows=[*rows, model.automation_alerts_row(
+    installed=True, pending=0, dead_letter=0, unacknowledged=0, as_of=review_done_at)],
+    operator_review=OperatorReview(scope='a'*64, head=3, reviewed_head=3,
+        status='CLEAN', observed_at=review_done_at, reviewed_at=review_done_at,
+        events=[dict(at=review_done_at.isoformat(), kind='ACKNOWLEDGED',
+                     details={'alert_ids':['synthetic-historical-alert']})]))
+assert dashboard_health(review_initial)['color'] == 'amber'
+assert dashboard_health(review_done)['color'] == 'green'
+review_documents = dict(initial=publication(review_initial, now, now+timedelta(seconds=20)),
+    ready=publication(review_ready, review_ready_at, review_ready_at+timedelta(seconds=20)),
+    done=publication(review_done, review_done_at, review_done_at+timedelta(seconds=20)))
 print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
-    short_receipts=short_receipts, short_partial=short_partial)))
+    short_receipts=short_receipts, short_partial=short_partial,
+    review_documents=review_documents)))

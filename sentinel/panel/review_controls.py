@@ -30,22 +30,24 @@ def render(review, *, current=True):
         action = ('<button id="review-acknowledge" type="button" data-view-token="'
                   +escape(review.token, quote=True)+'">Acknowledge reviewed state</button>')
     elif review.status in {'FAILED','REVIEW'} and current:
-        action = '<p>Resolve active conditions before acknowledging a healthy state.</p>'
-    return ('<section id="operator-review" class="review-card" aria-label="Operator review">'
-        '<div class="label">Health history</div><p>'+escape(text)+'</p>'
+        action = '<p>Resolve current conditions before acknowledging a healthy state.</p>'
+    return ('<section id="operator-review" class="review-card" aria-labelledby="review-heading">'
+        '<h2 id="review-heading">Health history</h2><p>'+escape(text)+'</p>'
         +('<p>'+escape(review.detail)+'</p>' if review.detail else '')
         +'<small>Clean interval begins: '+escape(stamp)+'</small>'
         '<details data-detail-key="review-history"><summary>Recent recorded history</summary><ol>'
-        +items+'</ol></details>'+action+'<p id="review-result" role="status"></p></section>'
-        +SCRIPT)
+        +items+'</ol></details><p>Review the <a href="#system-details">current checks and recorded alerts</a> '
+        'before acknowledging. This does not verify pending PAPER results.</p>'
+        +action+'<p id="review-result" role="status" aria-live="polite"></p></section>')
 
 
 SCRIPT = """<script>
 (function(){
-  var button = document.getElementById('review-acknowledge');
-  if (!button) { return; }
-  button.addEventListener('click', async function(){
+  document.addEventListener('click', async function(event){
+    var button = event.target && event.target.closest('#review-acknowledge');
+    if (!button || button.disabled || button.dataset.reviewSubmitting === 'true') { return; }
     button.disabled = true;
+    button.dataset.reviewSubmitting = 'true';
     var result = document.getElementById('review-result');
     result.textContent = 'Checking the current state…';
     var controller = new AbortController();
@@ -57,6 +59,10 @@ SCRIPT = """<script>
         body:JSON.stringify({token:button.dataset.viewToken})
       });
       if (!response.ok) { throw new Error('changed'); }
+      var reviewed = await response.json();
+      if (reviewed.status !== 'CLEAN' || reviewed.head !== reviewed.reviewed_head) {
+        throw new Error('acknowledgement not established');
+      }
       result.textContent = 'Acknowledgement recorded. Refreshing current status…';
       window.location.reload();
     } catch (_error) {

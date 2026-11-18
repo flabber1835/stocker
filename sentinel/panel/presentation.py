@@ -500,6 +500,64 @@ def _completed_work_normal(panel) -> bool:
             and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now))
 
 
+def _post_activation_completion_normal(panel) -> bool:
+    """Human-health context for one completed prior run; never PAPER authority."""
+    from sentinel.feed import calendar
+    from sentinel.panel.delivery import row_current
+
+    if (not panel.local_paper_mode or not panel.observation_current or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)
+            or panel.row('trading_run') is not None):
+        return False
+    paper, recorded, plan, cycle, discovery, notifications = (panel.row(key) for key in (
+        'paper_reconciliation', 'completed_trading_run', 'paper_plan',
+        'automation_cycle', 'automation_step_discovery', 'automation_alerts'))
+    if (paper is None or paper.paper_alignment != 'COMPLETED_WITH_HISTORY'
+            or paper.status != 'warn' or paper.effective_status(panel.now) != 'warn'
+            or not paper.required_current or paper.recovery is not None
+            or not _aware(paper.as_of) or not _aware(paper.valid_until)
+            or not paper.as_of <= panel.now < paper.valid_until or not row_current(panel, paper)
+            or recorded is None or not _current_health_fact(panel, 'completed_trading_run')
+            or not row_current(panel, recorded) or not recorded.can_show_trading_run(panel.now)
+            or recorded.required_current or recorded.recovery is not None
+            or plan is None or plan.status != 'pending' or plan.paper_plan is not None
+            or cycle is None or discovery is None
+            or not all(row.status == row.effective_status(panel.now) == 'warn'
+                       and row.required_current and row_current(panel, row)
+                       and _normal_idle(panel, row) for row in (cycle, discovery))):
+        return False
+    run = recorded.trading_run
+    if (run.state != 'SUCCEEDED' or not _aware(run.completed_at)
+            or run.updated_at != run.completed_at or recorded.as_of != run.completed_at
+            or not run.intent.execute_at <= run.completed_at <= panel.now
+            or any(order.state != 'FILLED' for order in run.orders)
+            or any(leg.action == 'UNAVAILABLE' for leg in run.intent.legs)
+            or any(leg.action != 'HOLD' and leg.security_id not in run.below_whole_share
+                   and not any(order.security_id == leg.security_id and order.side == leg.action
+                               for order in run.orders) for leg in run.intent.legs)):
+        return False
+    try:
+        decision = str(run.intent.decision_session)
+        effective = str(run.intent.effective_session)
+        opened, closed = calendar.session_window(effective)
+        if (effective != calendar.next_session(decision)
+                or decision != calendar.latest_closed_session(panel.now)
+                or not opened <= run.intent.execute_at <= run.completed_at <= panel.now < closed):
+            return False
+    except (ValueError, TypeError, OverflowError):
+        return False
+    return (all(_current_health_fact(panel, key) and row_current(panel, panel.row(key))
+                for key in _HISTORY_CURRENT_FACTS)
+            and _enabled_policy(panel.row('automation'))
+            and panel.row('alpaca_account').can_show_paper_account(panel.now)
+            and _current_reconciliation_usable(panel)
+            and _current_input_session(panel, decision)
+            and notifications is not None and row_current(panel, notifications)
+            and notifications.effective_status(panel.now) in {'ok', 'warn'}
+            and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now)
+            and re.fullmatch(r'0 pending · 0 DLQ · [0-9]+ unacked', notifications.value) is not None)
+
+
 def _unadopted_preparation_fact(panel, *, phase='AUTOMATION_PREPARING', session=None) -> bool:
     """The controller decision precedes its saved plan; no adoption is claimed."""
     if session is None:
@@ -740,7 +798,8 @@ def _normal_warning(panel, row: Row) -> bool:
                 and row.recovery is not None and row.recovery.phase in phases
                 and row.recovery.active(panel.now)):
             return True
-    if row.key == 'paper_reconciliation' and _completed_work_normal(panel):
+    if row.key == 'paper_reconciliation' and (
+            _completed_work_normal(panel) or _post_activation_completion_normal(panel)):
         return True
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
             and (_scheduled_work_normal(panel) or _scheduled_wait_attributable(panel))):
@@ -823,6 +882,8 @@ def preparation_stage(panel) -> str | None:
     if _completed_work_normal(panel):
         return ('Today’s trading complete' if panel.row('trading_run').trading_run.orders
                 else 'Run complete · No orders placed')
+    if _post_activation_completion_normal(panel):
+        return 'Waiting for next decision · today’s run recorded'
     cycle = panel.row('automation_cycle')
     if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
             and cycle.recovery is not None and cycle.recovery.phase == 'NATIVE_FEE_POSTING'
@@ -1046,6 +1107,14 @@ def dashboard_health(panel) -> dict:
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
         boundaries.append(_row_boundary(panel.row('trading_run')))
         boundaries.append(_row_boundary(panel.row('paper_reconciliation')))
+    if _post_activation_completion_normal(panel):
+        from sentinel.feed import calendar
+        boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+        boundaries.extend(_row_boundary(panel.row(key)) for key in (
+            'completed_trading_run', 'paper_reconciliation', 'automation_cycle',
+            'automation_step_discovery'))
+        boundaries.append(calendar.session_window(str(
+            panel.row('completed_trading_run').trading_run.intent.effective_session))[1])
     if _preparing_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
         boundaries.append(_row_boundary(panel.row('paper_reconciliation')))

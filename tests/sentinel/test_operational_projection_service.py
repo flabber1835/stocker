@@ -200,6 +200,49 @@ def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject
     assert producer.read(conn.info.dsn).row('operational_projection').status==model.UNKNOWN
 
 
+def test_rendered_review_action_acknowledges_exact_published_view(operational, monkeypatch):
+    from html import unescape
+    import re
+
+    from fastapi.testclient import TestClient
+    from sentinel.panel.app import app
+
+    conn, _, condition = operational
+    origin = 'https://private.invalid'
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
+    monkeypatch.setenv('SENTINEL_PUBLIC_ORIGIN', origin)
+
+    def current_button(client):
+        document = client.get('/?document=1')
+        assert document.status_code == 200
+        assert document.headers['X-Sentinel-Panel-Status'] == 'CURRENT'
+        return re.search(r'<button id="review-acknowledge"[^>]+data-view-token="([^"]+)"', document.text)
+
+    def click(client, button):
+        assert button is not None
+        return client.post('/review/acknowledge', headers={'Origin': origin},
+                           json={'token': unescape(button.group(1))})
+
+    with TestClient(app, base_url=origin) as client:
+        publish(operational)
+        original = current_button(client)
+        condition['broker'] = model.FAIL
+        publish(operational)
+        assert click(client, original).status_code == 409
+        assert current_button(client) is None
+        condition['broker'] = model.OK
+        publish(operational)
+        response = click(client, current_button(client))
+        assert response.status_code == 200
+        accepted = response.json()
+        assert accepted['status'] == 'CLEAN' and accepted['reviewed_head'] == accepted['head']
+        publish(operational)
+        assert current_button(client) is None
+        page = client.get('/panel.json').json()
+        assert page['operator_review']['status'] == 'CLEAN'
+        assert page['dashboard_health']['color'] == 'green'
+
+
 def test_background_failure_and_recovery_record_once_without_any_http(operational):
     conn, _, condition = operational
     publish(operational)

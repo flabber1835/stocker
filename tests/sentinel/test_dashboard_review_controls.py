@@ -11,7 +11,7 @@ from sentinel.panel import review_controls
 from sentinel.panel.review_model import OperatorReview
 
 
-@pytest.mark.parametrize('case',['absent','success','refused','network','timeout'])
+@pytest.mark.parametrize('case',['absent','success','refused','network','timeout','malformed'])
 def test_acknowledgement_requires_click_and_a_current_successful_server_response(case):
     node=shutil.which('node')
     if not node:
@@ -40,7 +40,7 @@ def test_active_failure_cannot_render_a_green_baseline_action():
     review=OperatorReview(scope='a'*64,head=2,reviewed_head=1,status='FAILED',
         active=['broker'],observed_at=now)
     assert '<button' not in review_controls.render(review)
-    assert 'active failure' in review_controls.render(review)
+    assert 'current conditions' in review_controls.render(review)
 
 
 def test_unavailable_review_explains_the_specific_controlled_refusal():
