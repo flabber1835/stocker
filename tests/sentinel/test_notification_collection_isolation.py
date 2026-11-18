@@ -106,7 +106,98 @@ def test_collector_uses_separate_bounded_calls_and_never_needs_push_key(monkeypa
         (collector.record_stall, ('ACCOUNT', 'TimeoutError')),
         (collector.collect_once, ('FILL', 0)),
     ]
-    assert all(options['timeout']<=30 and options['start_method']=='spawn' for _,_,options in calls)
+    assert [options for _, _, options in calls] == [
+        {'timeout': 48, 'start_method': 'spawn'},
+        {'timeout': 5, 'start_method': 'spawn'},
+        {'timeout': 30, 'start_method': 'spawn'},
+    ]
+
+
+def _account_job_near_publication_deadline(progress):
+    """Exercise the spawned collector with deterministic dependency durations."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock, patch
+    from sentinel.execution import account_status, opening_display
+    from sentinel.trading_environment import TradingEnvironment
+
+    elapsed = 8  # Child imports, connection and binding checks.
+
+    async def optional(*args, **kwargs):
+        nonlocal elapsed
+        elapsed += opening_display.TIMEOUT_SECONDS
+        return None
+
+    async def read(*args, **kwargs):
+        nonlocal elapsed
+        elapsed += account_status.DEADLINE_SECONDS - .5
+        return object()
+
+    async def publish(*args, **kwargs):
+        progress.send(elapsed + account_status.PUBLICATION_SECONDS - .5)
+        if not progress.poll(20):
+            raise RuntimeError('test supervisor failed to release publication')
+        progress.recv()
+        return True
+
+    config = SimpleNamespace(environment=TradingEnvironment.PAPER, database_url='fixture',
+                             trading_endpoint='PAPER', assert_paper=lambda: None)
+    with (patch.object(account_status, '_bound', return_value=('deployment', 'broker', 'account', 1)),
+          patch.object(account_status, '_commands', return_value=[]),
+          patch.object(opening_display, 'collect', optional),
+          patch.object(account_status, '_collect', read),
+          patch.object(account_status, '_publish', publish)):
+        return collector.collect_once('ACCOUNT', reader=Mock(), config=config, connection_factory=Mock())
+
+
+@pytest.mark.parametrize('legacy_limit,expected', [(False, 'COLLECTED'), (True, 'TimeoutError')])
+def test_supervised_opening_account_can_publish_near_its_deadlines(monkeypatch, tmp_path, legacy_limit, expected):
+    import multiprocessing
+    import time
+    from types import SimpleNamespace
+    from sentinel import local_paper, supervisor_io
+    from sentinel.execution import fill_notifications
+    from sentinel.feed.issuer_refresh import CONTACT_ENV
+
+    monkeypatch.setattr(collector, 'HEARTBEAT', tmp_path/'heartbeat')
+    monkeypatch.setattr(collector.signal, 'signal', lambda *_: None)
+    monkeypatch.setattr(local_paper, 'enabled', lambda: True)
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+    for name in (CONTACT_ENV, fill_notifications.SINCE_ENV, 'SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY'):
+        monkeypatch.delenv(name, raising=False)
+    stop = Event()
+    monkeypatch.setattr(stop, 'wait', lambda _: stop.set())
+    monkeypatch.setattr(supervisor_io, 'report', lambda _: None)
+    results = []
+
+    def runner(operation, *args, timeout, start_method):
+        if operation is collector.record_stall:
+            assert timeout == 5 and args == ('ACCOUNT', 'TimeoutError')
+            results.append(args[1])
+            return
+        assert operation is collector.collect_once and args == ('ACCOUNT',) and start_method == 'spawn'
+        parent, child = multiprocessing.get_context(start_method).Pipe()
+        with parent, child:
+            # The real supervisor starts the child and sets its deadline. Move its
+            # clock to the child's publication boundary, then allow a surviving
+            # child to finish on the next iteration. No wall-clock race decides
+            # whether the simulated opening read plus publication exceeds budget.
+            def timestamps():
+                yield 0.0
+                assert parent.poll(20), 'spawned collector did not reach publication'
+                elapsed = parent.recv()
+                yield elapsed
+                parent.send(True)
+                resumed = time.monotonic()
+                while True:
+                    yield elapsed + time.monotonic() - resumed
+
+            monkeypatch.setattr(supervisor_io, 'time', SimpleNamespace(monotonic=timestamps().__next__))
+            results.append(supervisor_io.run(_account_job_near_publication_deadline, child,
+                timeout=min(timeout, 30) if legacy_limit else timeout,
+                start_method=start_method, cancelled=lambda: False))
+
+    assert collector.run(stopped=stop, runner=runner) == 0
+    assert results == [expected]
 
 
 def test_collector_refuses_push_signing_material_before_any_collection(monkeypatch):

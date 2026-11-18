@@ -19,6 +19,15 @@ newer account observation retains its later timestamp. Current operators must
 still see adverse account states, and every material change keeps the existing
 strict PAPER revision trigger and rollback semantics.
 
+The PAPER account collector can spend 18 seconds fetching the optional opening
+observation before the 8-second native account read and the 10-second
+publication window. Give its spawned job the sum of those three budgets plus
+12 seconds for imports, connection, binding checks and recovery. This yields a
+48-second outer deadline within the 60-second account polling interval. A
+stalled job still has a separate five-second failure recorder. The other
+collectors retain their own deadlines, and the 75-second heartbeat limit
+continues to bound worker liveness.
+
 Give each account collection incident a durable occurrence in independent
 operational metadata. Its first failure enqueues one warning. Repeated matching
 failures update its count and last-seen time. A later successful periodic
