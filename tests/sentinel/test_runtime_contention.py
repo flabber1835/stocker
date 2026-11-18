@@ -206,9 +206,12 @@ def test_public_shadow_wrappers_preserve_dependency_type_without_unwrapping_inte
 
 
 @pytest.mark.asyncio
-async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(conn, monkeypatch):
-    from datetime import datetime, timezone
+@pytest.mark.parametrize('parent_lock', [False, True])
+async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
+        conn, monkeypatch, parent_lock):
+    from datetime import datetime, timedelta, timezone
     from types import SimpleNamespace
+    import threading
     from sentinel import authority, schema
     from sentinel.automation import store as automation_store
     from tests.sentinel.test_automation_service import config, enable, service_for
@@ -237,11 +240,49 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(c
         authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(automation_runtime, 'production_strategy', lambda: (object(), {}))
     monkeypatch.setattr(automation_runtime.system_identity, 'rehearsal_identity', lambda: {})
+    def identity_fixture(connection, *, expected_sha256):
+        # The parent case exercises its actual temporary-dependency adapter.
+        # The child case proves the same real advisory lock is a typed
+        # TRANSIENT flight result, never a negative authority verdict.
+        if parent_lock:
+            current(connection)
+        return SimpleNamespace(certificate_sha256=expected_sha256)
+    monkeypatch.setattr(runtime, '_idle_certificate_identity', identity_fixture)
     gates = []
-    def signed(*_args, **_kwargs):
+    def signed():
         gates.append(1)
         return SimpleNamespace(certificate_sha256=before_control.certificate_sha256)
-    monkeypatch.setattr(automation_runtime, 'require_current_authority', signed)
+    clock = [datetime.now(timezone.utc)]
+    monkeypatch.setattr(automation_runtime, '_now_utc', lambda: clock[0])
+
+    def synthetic_observer(control, permit, observed_at):
+        # The child has an external signed-authority seam, but still probes
+        # the actual corpus advisory lock on a separate PostgreSQL session.
+        with store.connect(conn.info.dsn) as probe:
+            try:
+                current(probe)
+            except publication.CorpusLockUnavailable:
+                result = {'status':'TRANSIENT'}
+            else:
+                certificate = signed()
+                result = {'status':'PASS', 'generation':control.generation,
+                    'binding':control.binding.model_dump(mode='json'),
+                    'rollout_mode':control.binding.rollout_mode,
+                    'rollout_version':control.binding.rollout_version,
+                    'publication_version':1,
+                    'certificate_sha256':certificate.certificate_sha256}
+            finally:
+                probe.rollback()
+        finished = threading.Event(); finished.set()
+        flight = SimpleNamespace(finished=finished, cancelled=threading.Event(),
+            error=None, value=result, elapsed_seconds=0.0,
+            timeout_seconds=25, stage='COMPLETE', backend_pid=None,
+            stop=lambda: True)
+        runtime._idle_authority_flight = (
+            flight, runtime._idle_attestation_key(control, permit), observed_at)
+        return flight
+
+    monkeypatch.setattr(runtime, '_start_idle_authority_observer', synthetic_observer)
     monkeypatch.setattr(runtime, '_broker', lambda *a: pytest.fail('idle broker reached'))
     monkeypatch.setattr(runtime, 'notify', lambda *a: pytest.fail('lock contention latched an incident'))
     with _contended(conn, 'snapshot_reader'):
@@ -253,11 +294,72 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(c
             assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
             conn.rollback()
             assert not gates
+    assert runtime._idle_authority_retry_at > clock[0]
+    clock[0] = runtime._idle_authority_retry_at + timedelta(milliseconds=1)
     assert await runtime.control_wake(conn) is None
     after = automation_store.load_control(conn)
     assert not after.kill_switch_engaged and after.generation == before_control.generation
     assert after.authority_verdict == 'PASS' and gates
     assert automation_store.oldest_nonterminal_cycle(conn) == before_cycle
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_bounded_worker_control_routes_fenced_progress_on_original_connection(
+        conn, monkeypatch):
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+    from sentinel import schema
+    from sentinel.automation import store as automation_store
+    from tests.sentinel.test_automation_service import config, enable
+    from tests.sentinel.test_automation_runtime import production
+
+    cfg = config()
+    schema.ensure_schema(conn)
+    enable(conn, cfg)
+    runtime = production(cfg)
+    runtime.sentinel_config = replace(runtime.sentinel_config,
+        database_url=conn.info.dsn)
+    target = datetime.now(timezone.utc) + timedelta(seconds=5)
+    routed = []
+
+    async def fenced_progress(connection):
+        assert connection is conn
+        routed.append(connection.info.backend_pid)
+        # The short parent connection has a 500 ms statement timeout. Fenced
+        # data keeps the original service connection and its ordinary budget.
+        connection.execute('SELECT pg_sleep(0.65)')
+        connection.rollback()
+        return target
+
+    monkeypatch.setattr(runtime, '_fenced_data_wake', fenced_progress)
+    automation_store.engage_kill(conn, actor='fixture', reason='fenced shadow')
+    automation_store.deactivate(conn, actor='fixture', reason='fenced shadow')
+    assert await runtime.bounded_control_wake(conn) == target
+    assert routed == [conn.info.backend_pid]
+
+    enable(conn, cfg)
+    routed.clear()
+    original = automation_store.load_control
+    flipped = [False]
+
+    def control_flip(connection, *args, **kwargs):
+        value = original(connection, *args, **kwargs)
+        if connection is not conn and value.enabled and not flipped[0]:
+            flipped[0] = True
+            with store.connect(conn.info.dsn) as writer:
+                automation_store.engage_kill(
+                    writer, actor='fixture', reason='fence after short read')
+                automation_store.deactivate(
+                    writer, actor='fixture', reason='fence after short read')
+        return value
+
+    with monkeypatch.context() as changed:
+        changed.setattr(automation_store, 'load_control', control_flip)
+        assert await runtime.bounded_control_wake(conn) is None
+    assert flipped == [True] and not routed
+    assert await runtime.bounded_control_wake(conn) == target
+    assert routed == [conn.info.backend_pid]
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
 
 
@@ -287,13 +389,15 @@ def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind)
 @pytest.mark.asyncio
 async def test_falsely_persisting_contention_as_negative_authority_is_detected(conn, monkeypatch):
     import inspect, textwrap
-    body = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation._finish_authority_refusal))
+    body = textwrap.dedent(inspect.getsource(
+        automation_runtime.ProductionAutomation._finish_idle_authority_refusal))
     old = 'if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):'
     assert old in body
     namespace = {}
     exec(compile(body.replace(old, 'if False:'), 'contention-authority-falsifier', 'exec'),
          automation_runtime.__dict__, namespace)
-    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_finish_authority_refusal',
-                        namespace['_finish_authority_refusal'])
+    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_finish_idle_authority_refusal',
+                        namespace['_finish_idle_authority_refusal'])
     with pytest.raises(AssertionError):
-        await test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(conn, monkeypatch)
+        await test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
+            conn, monkeypatch, parent_lock=True)
