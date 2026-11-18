@@ -94,8 +94,15 @@ def observe(database_url, include_paper, expected_key):
         return result
 
 
-def diagnosed_observe(database_url, include_paper, expected_key):
-    return observer_failure.capture(observe, database_url, include_paper, expected_key)
+def diagnosed_observe(database_url, include_paper, expected_key, *, history_memo=None):
+    if history_memo is None:
+        return observer_failure.capture(observe, database_url, include_paper, expected_key)
+    from sentinel.panel import mirror_history
+    token = mirror_history.current_memo.set(history_memo)
+    try:
+        return observer_failure.capture(observe, database_url, include_paper, expected_key)
+    finally:
+        mirror_history.current_memo.reset(token)
 
 
 def snapshot(reader, result, *, scope, now):
@@ -499,7 +506,14 @@ def run(*, stopped=None):
             return (owner['active'] and not stopped.is_set() and not conn.closed and not conn.broken
                     and time.monotonic() < owner['deadline'])
         slot = BoundedSemaphore(1)
-        readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=diagnosed_observe,
+        from functools import partial
+        from sentinel.panel.mirror_history import ClassificationMemo
+        try:
+            paper_observer = partial(diagnosed_observe, history_memo=ClassificationMemo())
+        except (OSError, MemoryError):
+            paper_observer = diagnosed_observe
+        readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for,
+            observer=paper_observer if scope == 'PAPER' else diagnosed_observe,
             expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             retain_failed_attempt=True,

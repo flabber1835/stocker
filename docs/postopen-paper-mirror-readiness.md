@@ -75,3 +75,36 @@ source for retained comparison; it does not change actual source identity or
 grant authority. Qualify the previously failing historical-current source
 checks and the complete-map, unknown/missing/extra-byte and removed-guard
 falsifiers. Retain the original CI failures as evidence.
+# Explaining retained dividend corrections on the PAPER panel
+
+On November 18 the three latched mirror checks covered DELL on October 20,
+TRGP on October 30 and BIL on November 2. Their stored material digests each
+matched one later source correction. Execution authenticated all three as
+ordinary dividend additions. Only the October 20 plan had journaled commands.
+
+During the existing background PAPER verification, explain a historical check
+as dividend-only when the signed mirror row, original plan stamp and held
+publication identify the same check, and execution's existing cash classifier
+accounts for its entire material digest. Check each relevant security and reject
+mixed structural evidence, duplicate identities and partial classifications.
+Report journaled commands separately from the comparison. A command can exist
+before broker submission, and a published dividend supplies no payment proof.
+
+Limit enrichment to eight flagged plans per observation. Batch the selected
+original action sessions and authenticate their publication parents together.
+The browser consumes the existing signed verification result. Older indexed
+rows can be explained directly. Missing archive evidence, an older unchecked
+publication, unavailable classification, a legacy summary or a larger history
+retains the generic historical warning. Historical latches, signed material
+digests, current-plan mismatch handling and financial verdicts keep their
+original meaning.
+
+Under the installed verifier, classification of the three November 18 checks
+took 1.71 seconds. The verifier owner lends its spawned PAPER workers one
+65-byte shared memory slot. Bind the admitted count to the authenticated
+mirror coverage and binding, exact flagged plan set, signed raw material and
+pending commitments, current publication and runtime version. Authenticate the
+slot with the existing receipt key and a distinct purpose. Each observation
+still reads command presence, financial readiness and current row signatures.
+A changed subject, damaged slot or new verifier recomputes the classification.
+The slot holds no cash values, financial verdict, source inputs or expiry.

@@ -2921,7 +2921,8 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
         if cycle.get('state') in {'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}:
             return _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
         return scheduled
-    history = f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+    from sentinel.panel import mirror_history
+    history = mirror_history.detail(conn, active_publication, mirror)
     if scheduled is None:
         ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
         if ongoing is not None:

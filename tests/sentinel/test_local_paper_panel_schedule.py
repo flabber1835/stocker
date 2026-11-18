@@ -154,7 +154,7 @@ def test_future_unstamped_plan_requires_bound_local_scheduled_proof(
         assert row.effective_status(NOW) == model.WARN
         assert row.effective_status(OPEN) == model.FAIL
         assert 'HISTORICAL MIRROR WARNING' in row.value and 'BLOCKED' not in row.value
-        assert 'earlier transported plans' in row.detail
+        assert 'earlier plans' in row.detail
 
 
 def test_removing_local_account_guard_breaks_normal_mode_regression(monkeypatch):

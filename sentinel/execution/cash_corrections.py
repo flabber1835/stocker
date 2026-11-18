@@ -245,7 +245,7 @@ class ClassifiedActions:
         return tuple(item for item in self._original.material_events_for(**kwargs) if not self._classified(item))
 
 
-def load(conn, pub, *, start, end, covered=None, records=None):
+def load(conn, pub, *, start, end, covered=None, records=None, selected_markers=None):
     """Read and authenticate live held evidence; exported flags are never authority."""
     from sentinel.execution import feed_inputs
     from sentinel.feed import action_history, publication
@@ -257,7 +257,9 @@ def load(conn, pub, *, start, end, covered=None, records=None):
     if covered is None:
         return CashCorrectionView()
     markers = [item for item in covered.get('corrections', ())
-               if isinstance(item, dict) and str(start) < str(item.get('session', '')) <= str(end)]
+               if isinstance(item, dict) and str(start) < str(item.get('session', '')) <= str(end)
+               and (selected_markers is None or (item.get('session'), item.get('security_id'),
+                    item.get('ticker')) in selected_markers)]
     if not markers:
         return CashCorrectionView()
     current = feed_inputs.require_current(conn)

@@ -126,7 +126,7 @@ def test_completed_history_retains_count_and_cannot_be_clean_or_verified(monkeyp
     row = sources._scheduled_paper_mirror(object(), completed['cycle'],
         completed['publication'], '2026-10-30', mirror)
     assert row.status == model.WARN and 'NOT VERIFIED' in row.value
-    assert '3 historical' in row.detail and 'earlier transported plans' in row.detail
+    assert '3 historical' in row.detail and 'earlier plans' in row.detail
     assert row.as_of == actual.as_of and row.valid_until == actual.valid_until
     assert mirror == before
 
