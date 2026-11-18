@@ -47,19 +47,45 @@ def _queued_subject(database_url, include_paper, owner_id):
         conn.rollback(); conn.close()
 
 
+def _observe_shadow(database_url):
+    from sentinel.feed import calendar
+    from sentinel.panel import sources
+
+    def clock():
+        return datetime.now(timezone.utc)
+
+    started = clock()
+    # Only a positive result for the earlier session ever needs the second read.
+    # The Reader owns the original worker deadline across both observations.
+    repeated = False
+    while True:
+        rows, details, history, errors = sources._dual_authority_rows(database_url,
+            now=started, include_paper=False, observation_clock=clock,
+            propagate_corpus_lock=True, propagate_read_unavailability=True,
+            project_execution_context=False)
+        finished = clock()
+        if finished < started:
+            raise ValueError('financial observer clock regressed')
+        if details or history:
+            raise ValueError('unexpected shadow observation shape')
+        proof = next((row.operational_fact for row in rows if row.key == 'shadow_verification'
+                      and row.status == model.OK), None)
+        if proof is None or str(proof.session) == calendar.latest_closed_session(finished):
+            return rows, errors, finished
+        if repeated or str(proof.session) != calendar.latest_closed_session(started):
+            raise ValueError('verified shadow session does not match the current close')
+        started = finished
+        repeated = True
+
+
 def _observe_once(database_url, include_paper, expected_key):
     if read_projection.subject_for(database_url, include_paper) != expected_key:
         raise observer_failure.ObservationSuperseded(
             'BEFORE_OBSERVATION', 'verification subject changed before observation')
-    from sentinel.panel import sources
     if not include_paper:
-        rows, details, history, errors = sources._dual_authority_rows(database_url,
-            now=datetime.now(timezone.utc), include_paper=False,
-            propagate_corpus_lock=True, propagate_read_unavailability=True,
-            project_execution_context=False)
-        if details or history:
-            raise ValueError('unexpected shadow observation shape')
+        rows, errors, observed = _observe_shadow(database_url)
     else:
+        from sentinel.panel import sources
         from sentinel import informational_paper_mirror
         from sentinel.feed import readers, store
         conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
@@ -70,7 +96,8 @@ def _observe_once(database_url, include_paper, expected_key):
             errors = []
         finally:
             conn.rollback(); conn.close()
-    result = observer_codec.pack(rows, errors, observed_at=datetime.now(timezone.utc))
+        observed = datetime.now(timezone.utc)
+    result = observer_codec.pack(rows, errors, observed_at=observed)
     if read_projection.subject_for(database_url, include_paper) != expected_key:
         raise observer_failure.ObservationSuperseded(
             'AFTER_OBSERVATION', 'verification subject changed during observation')
@@ -256,7 +283,7 @@ def _opening_scan_reserve(conn, now):
 
 def _closing_scan_reserve(conn, now):
     """Defer optional scans for the exact closing boundary or a live callback."""
-    from sentinel.automation.callback_observation import CURRENT_LEADER, ENABLED, active_instance
+    from sentinel.automation.callback_observation import ENABLED, active_instance
     row = conn.execute(f"""
         WITH tick AS MATERIALIZED (
             SELECT %s::timestamptz AS at, clock_timestamp() AS database_now
@@ -264,37 +291,109 @@ def _closing_scan_reserve(conn, now):
             SELECT at, database_now, (at AT TIME ZONE 'America/New_York')::date AS session
             FROM tick
         )
-        SELECT CASE WHEN c.decision_session=market.session
-                    THEN LEAST(s.callback_deadline_at,c.execution_open_at,l.expires_at)
-                    ELSE LEAST(c.execution_close_at+INTERVAL '60 seconds',l.expires_at)
-               END
-        {CURRENT_LEADER}
-        CROSS JOIN market
+        SELECT CASE WHEN c.effective_session=market.session THEN 'SETTLED'
+                    WHEN c.state='RETRY_WAIT' AND c.diagnostic->>'retry_phase'='REFRESH'
+                        THEN 'SOURCE_JOB' ELSE 'CALLBACK' END,
+               CASE WHEN c.effective_session=market.session
+                        THEN LEAST(c.execution_close_at+INTERVAL '60 seconds',l.expires_at)
+                    WHEN c.state='RETRY_WAIT' AND c.diagnostic->>'retry_phase'='REFRESH'
+                        THEN LEAST(c.next_wake_at,c.execution_open_at,l.expires_at)
+                    ELSE LEAST(s.callback_deadline_at,c.execution_open_at,l.expires_at) END,
+               c.decision_session,c.prepare_at
+        FROM sentinel_automation_cycles c
+        JOIN sentinel_automation_control a ON a.id=1
+        JOIN sentinel_automation_lease l ON l.id=1 AND l.control_generation=a.generation
+        LEFT JOIN sentinel_automation_service_instances s ON s.instance_id=l.holder_id
         JOIN sentinel_account_binding b ON b.id=1 AND b.deployment_id=c.deployment_id
           AND b.broker=c.broker AND b.broker_account_id=c.broker_account_id
           AND b.takeover_epoch=c.takeover_epoch
+          AND (a.deployment_id,a.broker,a.broker_account_id,a.takeover_epoch)
+              =(b.deployment_id,b.broker,b.broker_account_id,b.takeover_epoch)
+        CROSS JOIN market
         WHERE {ENABLED}
           AND l.expires_at>market.database_now AND l.expires_at>market.at
           AND b.broker='alpaca' AND b.ownership_state='SENTINEL_OWNED'
           AND (
               (c.effective_session=market.session AND c.state='SUCCEEDED'
                AND market.at>=c.execution_close_at-make_interval(secs=>%s)
-               AND market.at<c.execution_close_at+INTERVAL '60 seconds')
+               AND market.at<c.execution_close_at+INTERVAL '60 seconds'
+               AND ((a.generation=c.control_generation AND a.certificate_sha256=c.certificate_sha256
+                     AND a.config_sha256=c.config_sha256)
+                    OR (c.control_generation<a.generation AND NOT c.historical_state_only
+                        AND c.failure_code IS NULL AND c.last_clean_reconciliation_id IS NOT NULL
+                        AND c.completed_at BETWEEN c.execute_at AND market.at
+                        AND EXISTS (SELECT 1 FROM sentinel_automation_events current_release
+                            WHERE current_release.generation=a.generation AND current_release.action='KILL_RELEASED'
+                              AND current_release.at>=a.enabled_at
+                              AND current_release.at BETWEEN c.completed_at AND market.at
+                              AND current_release.detail @> jsonb_build_object(
+                                  'deployment_id',a.deployment_id,'broker',a.broker,
+                                  'broker_account_id',a.broker_account_id,'takeover_epoch',a.takeover_epoch,
+                                  'config_sha256',a.config_sha256,'certificate_sha256',a.certificate_sha256))
+                        AND EXISTS (SELECT 1 FROM sentinel_execution_plans p
+                            WHERE p.plan_id=c.plan_id AND p.decision_session=c.decision_session
+                              AND p.effective_session=c.effective_session
+                              AND (p.deployment_id,p.broker,p.broker_account_id,p.takeover_epoch)
+                                  =(c.deployment_id,c.broker,c.broker_account_id,c.takeover_epoch))
+                        AND EXISTS (SELECT 1 FROM sentinel_automation_events e
+                            WHERE e.generation=c.control_generation AND e.action='KILL_RELEASED'
+                              AND e.at<=c.completed_at AND e.detail @> jsonb_build_object(
+                                  'deployment_id',c.deployment_id,'broker',c.broker,
+                                  'broker_account_id',c.broker_account_id,'takeover_epoch',c.takeover_epoch,
+                                  'config_sha256',c.config_sha256,'certificate_sha256',c.certificate_sha256)))))
               OR
-              (c.decision_session=market.session AND market.at>=c.prepare_at
-               AND market.at<c.execution_open_at
-               AND (c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
-                    OR (c.state='RETRY_WAIT' AND c.plan_id IS NULL
-                        AND c.failure_code='PreflightPublicationPinUnavailable'
-                        AND c.diagnostic->>'retry_phase'='PREFLIGHT_RECOVER'
-                        AND c.next_wake_at<=s.callback_started_at))
-               AND ({active_instance('market.database_now')})
-               AND s.callback_started_at<=market.at
-               AND s.callback_deadline_at>market.at)
+              (a.generation=c.control_generation AND a.certificate_sha256=c.certificate_sha256
+               AND a.config_sha256=c.config_sha256 AND c.decision_session=market.session
+               AND market.at>=c.prepare_at AND market.at<c.execution_open_at
+               AND ((c.state='RETRY_WAIT' AND c.plan_id IS NULL AND c.last_fence_token=l.fence_token
+                     AND c.failure_code IN ('ClosingDataPending','RefreshPublicationPinUnavailable')
+                     AND c.diagnostic->>'retry_phase'='REFRESH' AND c.next_wake_at>market.at)
+                    OR ((c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+                         OR (c.state='RETRY_WAIT' AND c.plan_id IS NULL
+                             AND c.failure_code='PreflightPublicationPinUnavailable'
+                             AND c.diagnostic->>'retry_phase'='PREFLIGHT_RECOVER'
+                             AND c.next_wake_at<=s.callback_started_at))
+                        AND ({active_instance('market.database_now')})
+                        AND s.callback_started_at<=market.at AND s.callback_deadline_at>market.at)))
           )
-        ORDER BY c.created_at DESC,c.cycle_id DESC LIMIT 1
+        ORDER BY (c.state='RETRY_WAIT' AND c.diagnostic->>'retry_phase'='REFRESH'),
+                 c.created_at DESC,c.cycle_id DESC LIMIT 1
         """, (now, CLOSE_RESERVATION_LEAD_SECONDS)).fetchone()
-    return row[0] if row is not None else None
+    if row is None:
+        return None
+    kind, deadline, session, prepare_at = row
+    if kind == 'SOURCE_JOB':
+        return _source_job_reserve(conn, now, session, prepare_at, deadline)
+    return deadline
+
+
+def _source_job_reserve(conn, now, session, prepare_at, deadline):
+    """Yield optional work only to the current, registered successor's live job."""
+    from sentinel.feed import calendar, rolling_jobs
+    rows = conn.execute("""
+        SELECT j.request,j.request_sha256,j.created_at,LEAST(j.lease_until,j.deadline)
+        FROM sentinel_snapshot_jobs j
+        JOIN sentinel_operational_snapshot_jobs o USING(job_id)
+        JOIN sentinel_snapshot_workers w ON w.job_id=j.job_id AND w.owner=j.owner
+        WHERE j.owner IS NOT NULL AND j.fence>0
+          AND j.state IN ('ACQUIRING','STAGING','VALIDATING','READY')
+          AND j.publication_version IS NULL AND j.created_at BETWEEN %s AND %s
+          AND j.lease_until>GREATEST(%s,clock_timestamp()) AND j.lease_until<=j.deadline
+          AND j.request#>>'{window,sessions,-1}'=%s
+          AND j.request->>'expected_publication_version'=(SELECT max(version)::text
+                FROM sentinel_corpus_publications)
+        LIMIT 2""", (prepare_at, now, now, str(session))).fetchall()
+    if len(rows) != 1:
+        return None
+    raw, sha, created, job_deadline = rows[0]
+    try:
+        request = rolling_jobs.PreparationRequest.model_validate(raw)
+        if (request.request_sha256 == sha and request.window.end == session
+                and calendar.session_window(session.isoformat())[1] <= created):
+            return min(deadline, job_deadline)
+    except (TypeError, ValueError):
+        pass
+    return None
 
 
 def _renew_completed_paper_subject(conn, reader, database_url, owner_id, previous, deadline,

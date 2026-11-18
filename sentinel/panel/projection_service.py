@@ -17,7 +17,7 @@ import time
 import uuid
 
 from sentinel import supervisor_io
-from sentinel.panel import operational_schema as schema
+from sentinel.panel import operational_schema as schema, projection_worker
 from sentinel.panel.verification_health import OPERATIONAL_HEARTBEAT
 
 DEADLINE_SECONDS = 20
@@ -28,11 +28,16 @@ MAX_REFRESH_SECONDS = 30
 REFRESH_MARGIN_SECONDS = 2
 HEARTBEAT = OPERATIONAL_HEARTBEAT
 _COLLECTION_STAGE = ContextVar('operational_collection_stage', default='NOT_STARTED')
-_READ_STAGES = frozenset({'COORDINATES','COLLECT','CONNECT','OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS'})
+_READ_STAGES = frozenset({'COORDINATES','COLLECT','CONNECT','OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS','HANDOFF'})
 
 
 class CollectionSuperseded(ValueError):
     pass
+
+
+def _stage(name):
+    _COLLECTION_STAGE.set(name)
+    projection_worker.mark_stage(name)
 
 
 def refresh_delay(expiry, *, now, elapsed):
@@ -50,7 +55,7 @@ def _report_parent_deadline(publisher, error, expiry):
         return False
     try:
         value = dict(schema='sentinel.projection-deadline/1', publisher=publisher,
-                     stage=error.stage, budget_seconds=error.budget_seconds,
+                     stage=error.stage, collection_stage=error.collection_stage, budget_seconds=error.budget_seconds,
                      deadline_monotonic=error.deadline_monotonic,
                      elapsed_seconds=(error.elapsed_seconds if math.isfinite(error.elapsed_seconds)
                                       and error.elapsed_seconds >= 0 else None),
@@ -90,13 +95,27 @@ def _coordinate_read(database_url, *, display=False):
         conn.close()
 
 
-def lock_inputs(conn):
+def _lock_owner(conn, owner_id):
+    from sentinel.panel.operational_snapshot import SnapshotUnavailable
+
+    owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} '
+        'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() FOR UPDATE',
+        (owner_id,)).fetchone()
+    if owner is None:
+        raise SnapshotUnavailable('operational projection owner changed')
+    return owner[0]
+
+
+def lock_inputs(conn, *, include_attempts=False):
     """Short publication/ACK boundary; never lock plans, commands or authority."""
     conn.execute("SET LOCAL lock_timeout='1000ms'")
     conn.execute(f'SELECT scope FROM {schema.REVISION} '
                  "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR KEY SHARE").fetchall()
+    scopes = ['SHADOW', 'PAPER']
+    if include_attempts:
+        scopes.extend(('DIAGNOSTIC:SHADOW', 'DIAGNOSTIC:PAPER'))
     conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
-                 "WHERE scope IN ('SHADOW','PAPER') ORDER BY scope FOR SHARE").fetchall()
+                 'WHERE scope=ANY(%s) ORDER BY scope FOR SHARE', (scopes,)).fetchall()
 
 
 def _with_activation_fee_wait(conn, panel, *, now, state_dir=None):
@@ -165,29 +184,27 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
     from sentinel.panel import attempt_store, composition, operational_snapshot as snapshots, review, sources
     from sentinel.panel import display_dependencies, read_projection, delivery, postclose_feed_wait
 
-    _COLLECTION_STAGE.set('COORDINATES')
+    _stage('COORDINATES')
     worker_row = None
     panel,context,subjects,stable_expiry = composition.read(owner_id,instance,now=datetime.now(timezone.utc))
     if panel.row('shadow_worker') is not None:
+        _stage('WORKER_OBSERVATION')
         worker_row=sources._shadow_worker_row(state_dir,database_url,observer=shadow_observer)
     recorder = review.Recorder(component='verifier', instance=instance)
     if prior_failed:
         recorder.read_failed()
-    _COLLECTION_STAGE.set('CONNECT')
+    _stage('CONNECT')
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
-        _COLLECTION_STAGE.set('OWNER')
+        conn.execute("SET LOCAL lock_timeout='1000ms'")
+        _stage('OWNER')
         owner = conn.execute(f'SELECT owner_id,expires_at FROM {schema.OWNER} '
-            'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() FOR UPDATE',
+            'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp()',
             (owner_id,)).fetchone()
         if owner is None:
             raise snapshots.SnapshotUnavailable('operational projection owner changed')
-        # Financial receipt publication uses owner -> receipt. Preserve that
-        # order here rather than holding a receipt while waiting for its owner.
-        _COLLECTION_STAGE.set('INPUT_FENCE')
-        lock_inputs(conn)
-        _COLLECTION_STAGE.set('FINAL_CONTEXT')
+        _stage('FINAL_CONTEXT')
         facts = read_projection._subject_facts(conn)
         current_basis = display_dependencies.capture(conn, database_url, facts=facts)
         current_subjects = display_dependencies.combined_subjects(current_basis)
@@ -217,9 +234,9 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         subjects = current_subjects
         panel = replace(panel, display_basis=current_basis)
         # Full automation composition can outlive a 12-second leader lease.
-        # Sample its bounded native liveness facts after fencing, without
+        # Sample its bounded native liveness facts without
         # repeating full alert and cycle-history composition.
-        _COLLECTION_STAGE.set('LIVENESS')
+        _stage('LIVENESS')
         panel = replace(panel, rows=sources._late_automation_rows(conn, panel.rows))
         authority = next((row for row in panel.rows if row.key == 'authority'), None)
         if authority is not None:
@@ -227,10 +244,7 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
                 now=review.store.database_now(conn))
             panel = display_dependencies.overlay(panel, {current.key: current})
         panel=replace(panel,rows=composition.native_services(conn,panel.rows,worker=worker_row))
-        # Publisher and acknowledgement acquire the receipt before review state.
-        # A common order avoids a receipt/state lock inversion.
-        conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
-                     "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
+        _stage('HANDOFF')
         now = review.store.database_now(conn)
         if now >= stable_expiry:
             raise CollectionSuperseded('composition expired before publication')
@@ -247,21 +261,30 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
         panel = replace(panel, rows=[sources._utc_row(row) for row in panel.rows])
         view = postclose_feed_wait.project_panel(panel, now=now, subject=current_basis['native']['SHADOW'])
         view = _with_activation_fee_wait(conn, view, now=now, state_dir=state_dir)
-        _COLLECTION_STAGE.set('REVIEW')
+        # The scoped evidence above belongs to one repeatable-read snapshot.
+        # Take locks only for the write boundary. PostgreSQL rejects a changed
+        # row version, so a concurrent renewal cannot authorize an old view.
+        _stage('OWNER')
+        _lock_owner(conn, owner_id)
+        _stage('INPUT_FENCE')
+        lock_inputs(conn, include_attempts=True)
+        conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
+                     "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
+        _stage('REVIEW')
         result = recorder.observe_owned(conn, view, database_url)
         panel = replace(panel, operator_review=result)
         view = replace(view, operator_review=result)
-        _COLLECTION_STAGE.set('ENCODE')
+        _stage('ENCODE')
         from sentinel.panel.serialization import preflight
         preflight(view)
         envelope, signature = snapshots.encode(panel, context_sha256=context, subjects=subjects,
             valid_until=min(snapshots.original_boundary(view), owner[1], stable_expiry))
-        _COLLECTION_STAGE.set('PUBLISH')
+        _stage('PUBLISH')
         snapshots.publish_owned(conn, owner_id=owner_id, value=envelope,
             signature=signature, context_sha256=context, subjects=subjects, now=now)
         if review.store.database_now(conn) >= datetime.fromisoformat(envelope['valid_until']):
             raise CollectionSuperseded('operational collection expired before commit')
-        _COLLECTION_STAGE.set('COMMIT')
+        _stage('COMMIT')
         conn.commit()
         recorder.committed()
         return {'valid_until': envelope['valid_until']}
@@ -279,13 +302,11 @@ def publish_failure(database_url, owner_id, instance, diagnostic, *, context=Non
     failure = observer_failure.Failure.model_validate(diagnostic)
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
-        owner = conn.execute(f'SELECT owner_id,expires_at FROM {schema.OWNER} '
-            'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() FOR UPDATE',
-            (owner_id,)).fetchone()
-        if owner is None:
-            raise snapshots.SnapshotUnavailable('operational projection owner changed')
-        lock_inputs(conn)
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        conn.execute("SET LOCAL lock_timeout='1000ms'")
         context_sha256, subjects = snapshots.context(conn, database_url), snapshots.subjects(conn, database_url)
+        owner_expiry = _lock_owner(conn, owner_id)
+        lock_inputs(conn)
         conn.execute(f'SELECT scope FROM {schema.RECEIPTS} '
                      "WHERE scope='DASHBOARD' FOR UPDATE").fetchall()
         now = review.store.database_now(conn)
@@ -299,7 +320,7 @@ def publish_failure(database_url, owner_id, instance, diagnostic, *, context=Non
         recorder = review.Recorder(component='verifier', instance=instance)
         panel = replace(panel, operator_review=recorder.observe_owned(conn, panel, database_url))
         value, signature = snapshots.encode(panel, context_sha256=context_sha256, subjects=subjects,
-            valid_until=min(snapshots.original_boundary(panel), owner[1]))
+            valid_until=min(snapshots.original_boundary(panel), owner_expiry))
         snapshots.publish_owned(conn, owner_id=owner_id, value=value, signature=signature,
             context_sha256=context_sha256, subjects=subjects, now=now)
         if review.store.database_now(conn) >= datetime.fromisoformat(value['valid_until']):
@@ -351,6 +372,7 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             context = dict(schema='sentinel.operational-failure-context/1',
                 stage=_COLLECTION_STAGE.get(),attempts=attempts,
                 elapsed_ms=max(0,int((time.monotonic()-started)*1000)))
+            projection_worker.mark_stage('FAILURE_PUBLICATION')
             return {'outcome':'PUBLISHED', **publish_failure(database_url, owner_id, instance,
                 diagnostic, context=context)}
         except Exception:
@@ -504,6 +526,8 @@ class Publisher:
                 else:
                     failed = True
             except Exception as exc:
+                if not failed and isinstance(exc, WorkerDeadline) and exc.stage == 'COLLECTION_WAIT':
+                    delay = SUPERSEDED_RETRY_SECONDS
                 failed = True
                 if not _report_parent_deadline('FAST', exc, result_expiry or published_expiry):
                     supervisor_io.report('operational projection unavailable: '+type(exc).__name__)

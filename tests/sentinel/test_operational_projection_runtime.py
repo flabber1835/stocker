@@ -73,6 +73,27 @@ def test_transport_or_malformed_child_response_is_latched_until_success(monkeypa
     assert previous == [False, True, True]
 
 
+def test_first_deadline_gets_prompt_replacement_and_repeated_failure_remains_bounded(monkeypatch, tmp_path):
+    from sentinel.panel.projection_worker import WorkerDeadline
+
+    stop, previous = Stop(), []
+    monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'heartbeat')
+
+    def runner(_function, *args, **options):
+        assert options['timeout'] == producer.FAST_DEADLINE_SECONDS
+        previous.append(args[-1])
+        if len(previous) < 3:
+            raise WorkerDeadline('COLLECTION_WAIT', started=producer.time.monotonic(),
+                                 timeout=producer.FAST_DEADLINE_SECONDS)
+        stop.set()
+        return {'outcome': 'PUBLISHED',
+                'valid_until': (datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat()}
+
+    producer.Publisher('private-db', 'owner', stopped=stop, runner=runner).run()
+    assert stop.waits[:2] == [1, 5]
+    assert previous == [False, True, True]
+
+
 def test_commit_wake_during_publication_runs_one_immediate_follow_up(monkeypatch, tmp_path):
     stop, calls = Stop(), []
     monkeypatch.setattr(producer, 'HEARTBEAT', tmp_path/'wake-heartbeat')

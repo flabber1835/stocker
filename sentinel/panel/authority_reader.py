@@ -506,7 +506,11 @@ class Reader:
                     if self.expected_keys == frozenset({'paper_reconciliation'}) else 'shadow_verification')
                 proof = next((row for row in rows if row.key == proof_key), None)
                 status = proof.effective_status(instant) if proof is not None else None
-                if status == model.OK or (status == model.WARN and proof.paper_alignment in {
+                dated_source_wait = (status == model.WARN and proof.key == 'shadow_verification'
+                    and proof.recovery is not None and proof.recovery.phase == 'SOURCE_FRONTIER'
+                    and proof.recovery.automatic and proof.valid_until is not None
+                    and proof.valid_until == proof.recovery.deadline and proof.recovery.active(instant))
+                if status == model.OK or dated_source_wait or (status == model.WARN and proof.paper_alignment in {
                         'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}):
                     proof_until = observed + timedelta(seconds=FRESH_SECONDS)
                     if proof.valid_until is not None:

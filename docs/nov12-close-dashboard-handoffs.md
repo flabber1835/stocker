@@ -44,3 +44,38 @@ dashboard reader may verify the exact current planless PREPARING state and its
 original queued wake or live callback under the current generation and fence.
 Use the same read-only database snapshot. Revalidation changes only the
 exposure display. Other PAPER rows retain their own currentness rules.
+
+## November 18 close
+
+For a completed run in a prior activation generation, the human headline may
+use the same authenticated, current display dependencies as its detail rows
+when a valuation update advances only PAPER. Require the revalidated PAPER
+receipt and current row evidence, including the earlier run. Strict machine
+health and operator acknowledgement retain their original subject requirements.
+
+While the close is waiting for prices, classify a dated exposure with its
+original automatic source-wait proof. A controller decision awaiting adoption
+is a later phase with its own evidence. The historical mirror detail keeps
+the single cycle label already attached to the saved plan's schedule.
+
+Preparation can display the bounded pending-adoption projection of its own
+decision until the original deadline. Reapplying the projection preserves that
+deadline. Attribute a workflow step to its cycle using the step's native phase,
+matching workflow state, update time and recovery deadline.
+
+While the independent strategy check is replacing its receipt, display
+checking as automatic work only for its original time window. Require the
+signed publication handoff or a live, current-subject verifier attempt for
+the ready close, the matching set of checking rows and the current workflow.
+The human headline identifies the check in progress. Missing evidence, a
+latched failure or an expired attempt remains actionable. Trading readiness,
+review acknowledgement and the underlying financial rows retain their
+independent eligibility.
+
+For an authenticated published operational job, the publication header can
+be written well before the writer finishes the transaction. Anchor verifier
+admission to the job's final PUBLISHED update in that same transaction. Require
+the header, job, candidate and version to agree and that the final update
+falls between the header time and the observed feed time. The 60-second
+bound starts at that recorded final update and expires even when the dashboard
+reads the same publication again.

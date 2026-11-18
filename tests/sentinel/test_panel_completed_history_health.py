@@ -87,6 +87,42 @@ def test_post_activation_wait_can_offer_review_without_promoting_paper_authority
     assert acknowledged.row('paper_reconciliation')==page.row('paper_reconciliation')
 
 
+@pytest.mark.parametrize('fault', [None, 'retained', 'partial', 'unvalidated', 'shadow_changed',
+                                   'broker_failure', 'receipt_expired'])
+def test_post_activation_valuation_handoff_preserves_only_proven_human_health(fault):
+    from sentinel.panel import delivery, serialization
+    page = post_activation_panel()
+    clean = page.operator_review.model_copy(update={'status':'CLEAN', 'head':3, 'reviewed_head':3})
+    page = replace(page, operator_review=clean, observation_current=False,
+        observation_changed_scopes=('PAPER',), observation_revalidated_keys=('paper_reconciliation',),
+        observation_display_current=True, observation_display_keys=delivery.display_keys(page),
+        observation_valid_until=NOW + timedelta(seconds=5))
+    if fault == 'retained':
+        page = replace(page, observation_retained=True)
+    elif fault == 'partial':
+        page = replace(page, observation_display_current=False)
+    elif fault == 'unvalidated':
+        page = replace(page, observation_revalidated_keys=())
+    elif fault == 'shadow_changed':
+        page = replace(page, observation_changed_scopes=('SHADOW','PAPER'))
+    elif fault == 'broker_failure':
+        page = changed_history_panel(page, 'broker', status=model.FAIL)
+    elif fault == 'receipt_expired':
+        page = changed_history_panel(page, 'paper_reconciliation', valid_until=NOW)
+        # The HTTP reader resolves display currentness after applying its last clock.
+        page = replace(page, observation_display_current=all(
+            delivery.row_current(page, row) for row in page.rows))
+    payload = serialization.public_payload(page)
+    assert payload['observation']['strict_current'] is False
+    assert payload['operator_review'] is None
+    assert payload['operational'] == model.UNKNOWN
+    if fault:
+        assert payload['dashboard_health']['color'] != 'green'
+    else:
+        assert payload['dashboard_health']['color'] == 'green'
+        assert payload['dashboard_health']['review_conditions'] == []
+
+
 @pytest.mark.parametrize('fault',[
     'missing_history','wrong_session','wrong_decision','incomplete_run','unfilled_order',
     'active_cycle','successor_started','missing_discovery','unowned_discovery','saved_plan','pending_alert',

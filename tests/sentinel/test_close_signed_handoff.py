@@ -81,7 +81,7 @@ def _new_publication(conn, owner):
     conn.execute('INSERT INTO sentinel_operational_snapshots VALUES (2,%s,%s,%s)',
                  (job, candidate, validated))
     conn.execute("UPDATE sentinel_snapshot_jobs SET state='PUBLISHED', candidate_id=%s, "
-                 "publication_version=2 WHERE job_id=%s", (candidate, job))
+                 "publication_version=2,updated_at=%s WHERE job_id=%s", (candidate, committed_at, job))
     conn.commit()
     assert operational_snapshot.published(conn, job)['data_version'] == 2
     new_subject = read_projection.subject(conn, conn.info.dsn, 'SHADOW')

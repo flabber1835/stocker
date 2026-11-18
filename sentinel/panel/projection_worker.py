@@ -11,6 +11,19 @@ from sentinel import supervisor_io
 
 MAX_BYTES = 2048
 _UNREAPED = []
+_STAGES = ('NOT_STARTED', 'COORDINATES', 'WORKER_OBSERVATION', 'CONNECT', 'OWNER',
+           'FINAL_CONTEXT', 'LIVENESS', 'HANDOFF', 'INPUT_FENCE', 'REVIEW', 'ENCODE',
+           'PUBLISH', 'COMMIT', 'FAILURE_PUBLICATION')
+# Set only in the spawned child. A single byte lets the parent sample a blocked
+# child without an additional message, lock or deadline on its control pipe.
+_stage_slot = None
+
+
+def mark_stage(name):
+    if _stage_slot is not None:
+        _stage_slot.value = _STAGES.index(name)
+
+
 _TIMEOUT_MESSAGES = {
     'READY_WAIT': 'operational worker initialization exceeded its wall-clock budget',
     'READY_RESULT': 'operational worker initialized after deadline',
@@ -27,6 +40,7 @@ class WorkerDeadline(TimeoutError):
 
     def __init__(self, stage, *, started, timeout, checked_at=None, elapsed=None):
         super().__init__(_TIMEOUT_MESSAGES[stage])
+        self.collection_stage = None
         self.stage = stage
         self.budget_seconds = timeout
         self.deadline_monotonic = (started + timeout if checked_at is None
@@ -57,7 +71,9 @@ def _result(value):
     return raw
 
 
-def _serve(channel, function, args, parent_pid):
+def _serve(channel, function, args, parent_pid, stage_slot):
+    global _stage_slot
+    _stage_slot = stage_slot
     supervisor_io._parent_death(parent_pid)
     try:
         try:
@@ -99,6 +115,7 @@ class Worker:
         self.args = args
         self.process = None
         self.channel = None
+        self.stage_slot = None
 
     def start(self, *, timeout):
         """Bound cold initialization separately when explicitly requested.
@@ -131,8 +148,9 @@ class Worker:
             _UNREAPED.remove(previous)
         context = multiprocessing.get_context('spawn')
         parent, child = context.Pipe(duplex=True)
+        self.stage_slot = context.RawValue('B', 0)
         process = context.Process(target=_serve,
-            args=(child, self.function, self.args, os.getpid()))
+            args=(child, self.function, self.args, os.getpid(), self.stage_slot))
         try:
             process.start()
         except BaseException:
@@ -147,6 +165,8 @@ class Worker:
         if self.process is None:
             self.start(timeout=timeout)
         try:
+            if self.stage_slot is not None:
+                self.stage_slot.value = 0
             self.channel.send_bytes(b'1' if prior_failed else b'0')
             remaining = timeout-(time.monotonic()-started)
             if remaining <= 0 or not self.channel.poll(remaining):
@@ -165,6 +185,10 @@ class Worker:
         if not isinstance(error, WorkerDeadline):
             self.close()
             return
+        if error.stage in {'COLLECTION_WAIT', 'COLLECTION_RESULT'} and self.stage_slot is not None:
+            index = self.stage_slot.value
+            if index < len(_STAGES):
+                error.collection_stage = _STAGES[index]
         try:
             outcome = self.close()
         except Exception:

@@ -67,7 +67,7 @@ def metadata(conn, monkeypatch):
     for sql in (
         'CREATE TEMP TABLE sentinel_corpus_publications(version int,previous_version int,window_end date,evidence jsonb,window_start date,run_id uuid,published_at timestamptz)',
         'CREATE TEMP TABLE sentinel_operational_snapshots(publication_version int,job_id uuid,candidate_id uuid,validation_sha256 text)',
-        'CREATE TEMP TABLE sentinel_snapshot_jobs(job_id uuid,candidate_id uuid,state text,publication_version int,request jsonb,request_sha256 text,created_at timestamptz,deadline timestamptz)',
+        'CREATE TEMP TABLE sentinel_snapshot_jobs(job_id uuid,candidate_id uuid,state text,publication_version int,request jsonb,request_sha256 text,created_at timestamptz,deadline timestamptz,updated_at timestamptz)',
         'CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id uuid)',
     ): conn.execute(sql)
     job, candidate = uuid.uuid4(), uuid.uuid4()
@@ -79,9 +79,9 @@ def metadata(conn, monkeypatch):
         (Jsonb(dict(rolling_snapshot=binding)),request.window.start,NOW-timedelta(minutes=1)))
     conn.execute('INSERT INTO sentinel_operational_snapshots VALUES(17,%s,%s,%s)', (job,candidate,'c'*64))
     conn.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES(%s)', (job,))
-    conn.execute('INSERT INTO sentinel_snapshot_jobs VALUES(%s,%s,\'PUBLISHED\',17,%s,%s,%s,%s)',
+    conn.execute('INSERT INTO sentinel_snapshot_jobs VALUES(%s,%s,\'PUBLISHED\',17,%s,%s,%s,%s,%s)',
         (job,candidate,Jsonb(request.model_dump(mode='json')),request.request_sha256,
-         NOW-timedelta(minutes=40),NOW+timedelta(hours=1)))
+         NOW-timedelta(minutes=40),NOW+timedelta(hours=1),NOW-timedelta(minutes=1)))
     attempt = dict(schema='sentinel.financial-observer-attempt/1',attempt_id='a'*32,
         subject_sha256=SUBJECT,outcome='RUNNING',admitted_at=(NOW-timedelta(minutes=1)).isoformat(),
         deadline=(NOW+timedelta(minutes=4)).isoformat(),
@@ -217,6 +217,7 @@ def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(met
     conn, original = metadata
     published_at = NOW - timedelta(seconds=47)
     conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (published_at,))
+    conn.execute('UPDATE sentinel_snapshot_jobs SET updated_at=%s', (published_at,))
     attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
     attempt.update(outcome='VERIFIED', subject_sha256='e'*64,
         admitted_at=(NOW-timedelta(minutes=2)).isoformat(),
@@ -240,6 +241,43 @@ def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(met
     attempt.update(outcome='FAILED')
     assert capture((conn, panel)) is None
     assert waiting.project_panel(signed, now=NOW, subject=SUBJECT).row('feed').effective_status(NOW) == model.FAIL
+
+
+@pytest.mark.parametrize('fault', [None, 'job_precedes_header', 'job_after_observation',
+                                   'predecessor_after_job', 'admission_expired'])
+def test_prior_verifier_finishing_while_publication_transaction_is_open(metadata, fault):
+    conn, panel = metadata
+    header = NOW - timedelta(seconds=50)
+    terminal = header + timedelta(seconds=46)
+    finished = header + timedelta(seconds=3)
+    feed_at = terminal
+    if fault == 'job_precedes_header':
+        terminal = header - timedelta(milliseconds=1)
+    elif fault == 'job_after_observation':
+        terminal = feed_at + timedelta(milliseconds=1)
+    elif fault == 'predecessor_after_job':
+        finished = terminal
+    elif fault == 'admission_expired':
+        header, finished, terminal = (t-timedelta(seconds=60) for t in (header, finished, terminal))
+    conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (header,))
+    conn.execute('UPDATE sentinel_snapshot_jobs SET updated_at=%s', (terminal,))
+    attempt = panel.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(outcome='VERIFIED', subject_sha256='e'*64,
+        admitted_at=(finished-timedelta(minutes=2)).isoformat(),
+        work_started_at=(finished-timedelta(seconds=118)).isoformat(), completed_at=finished.isoformat())
+    feed = replace(panel.row('feed'), as_of=feed_at)
+    worker = replace(panel.row('shadow_worker'), operational_fact=model.OperationalFact(
+        kind='SHADOW_WORKER', state='ACTIVE_WORKER'))
+    panel = replace(panel, rows=[feed, panel.row('shadow_verification'), worker])
+    proof = capture((conn, panel))
+    if fault:
+        assert proof is None
+        return
+    assert proof and datetime.fromisoformat(proof['admission_publication_at']) == terminal
+    signed = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff':proof})
+    row = waiting.project_panel(signed, now=NOW, subject=SUBJECT).row('feed')
+    assert row.effective_status(NOW) == model.WARN and row.feed_readiness == 'AWAITING_VERDICT'
+    assert row.effective_status(row.valid_until+timedelta(microseconds=1)) == model.FAIL
 
 
 def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(metadata, monkeypatch):

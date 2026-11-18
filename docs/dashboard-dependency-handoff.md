@@ -97,6 +97,29 @@ Use the actual five-second fast-parent allowance for child retry admission;
 keep the twenty-second full-collection bound separately. Never admit retries
 against a longer internal clock than the parent permits.
 
+### November 18 close concurrency
+
+The fast publisher and the verifier heartbeat share the verifier owner row.
+Both five-second publisher deadlines at the November 18 close coincided with
+an owner renewal statement timeout. PostgreSQL recorded a wait on the owner
+tuple during the second incident. The killed collectors did not report their
+last instruction. Attribution of the initial slow operation is incomplete.
+
+Perform the read-only collection in one repeatable-read transaction, taking
+the current owner's original expiry as the upper bound. Acquire the owner,
+input receipts and dashboard receipt locks in their established order immediately
+before recording review and signing the publication. A concurrent owner or
+receipt update that invalidates the snapshot forces rollback and fresh collection.
+Keep the live-owner check at the write, the original row and receipt deadlines,
+and atomic publication of review with its corresponding snapshot.
+
+After one timed-out fast call, start the already bounded replacement with the
+one-second recovery delay. Repeated failures use the ordinary five-second poll.
+Preserve the pending incident until a publication records it. On a timeout,
+the parent reports the last named child stage available for that call before
+reaping. Stage reporting uses bounded process-local shared memory and has no
+role in publication or verification decisions.
+
 ## Independent public dimensions
 
 Keep `observation_current` as the strict observation gate used by machine

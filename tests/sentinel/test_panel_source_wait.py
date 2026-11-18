@@ -26,7 +26,8 @@ DEADLINE = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)
 
 @pytest.fixture(autouse=True)
 def historical_ui_database_profile(request, tmp_path, monkeypatch):
-    if request.node.name not in {
+    if request.node.originalname not in {
+        'test_live_verifier_crossing_close_uses_the_proved_frontier_clock',
         'test_real_retained_attestation_survives_close_wait_and_fails_tampering',
         'test_real_verifier_receipt_uses_one_historical_proof_and_no_adoption_placeholder',
     }:
@@ -487,3 +488,77 @@ def assert_changed_historical_binding_refuses(conn, monkeypatch):
     monkeypatch.setattr(runtime, '_historical_frontier', namespace['_historical_frontier'])
     with pytest.raises(AssertionError):
         refuse()
+
+@pytest.mark.parametrize('first_check_after_bell', [True, False])
+def test_live_verifier_crossing_close_uses_the_proved_frontier_clock(
+        historical_observation, monkeypatch, first_check_after_bell):
+    conn, _, attested, _ = historical_observation
+    close = calendar.session_window('2026-09-15')[1]
+    before = close-timedelta(seconds=28)
+    after = close+timedelta(seconds=85)
+    class VerifierClock(datetime):
+        first = True
+
+        @classmethod
+        def now(cls, zone):
+            value = before if cls.first else after
+            cls.first = False
+            return value.astimezone(zone)
+
+    monkeypatch.setattr(verification_service, 'datetime', VerifierClock)
+    def frontier(instant):
+        return '2026-09-14' if instant < close else '2026-09-15'
+    monkeypatch.setattr(calendar, 'latest_closed_session', frontier)
+    financial_clock = iter([after] if first_check_after_bell else [before, after])
+    monkeypatch.setattr(inputs.snapshots, '_now', lambda: next(financial_clock))
+    calls = count_proofs(monkeypatch)
+    _, answer, rows = observe(conn)
+    assert not answer['errors']
+    assert [c[0] for c in calls] == ['closure','inputs']*(1 if first_check_after_bell else 2)
+    assert rows[0].value == 'WAITING FOR 2026-09-15 INPUTS'
+    assert rows[0].as_of == answer['observed_at'] == after
+    assert rows[0].valid_until < calendar.session_window('2026-09-16')[0]
+    assert rows[0].status == model.WARN and rows[0].recovery.automatic
+    assert next(r for r in rows if r.key == 'shadow_nav').as_of == datetime.fromisoformat(
+        attested.timing['observed_at'])
+
+def test_current_positive_is_finished_in_one_observation_before_the_close(monkeypatch):
+    close = calendar.session_window('2026-11-18')[1]
+    instants = iter([close-timedelta(seconds=29), close-timedelta(seconds=28)])
+    class VerifierClock(datetime):
+        @classmethod
+        def now(cls, zone):
+            return next(instants).astimezone(zone)
+    monkeypatch.setattr(verification_service, 'datetime', VerifierClock)
+    current = model.shadow_verification_row(verdict='SHADOW_GO', verification='VERIFIED',
+                                             session='2026-11-17', sessions_lag=0)
+    monkeypatch.setattr(sources, '_dual_authority_rows', lambda *args, **kwargs: ([current], {}, [], []))
+    rows, errors, observed = verification_service._observe_shadow('isolated')
+    assert rows == [current] and not errors
+    assert observed == close-timedelta(seconds=28)
+
+
+@pytest.mark.parametrize('instants, expected_error, reads', [
+    ((-1, 1, 2), 'does not match the current close', 2),
+    ((1, 2), 'does not match the current close', 1),
+    ((1, -1), 'clock regressed', 1),
+])
+def test_stale_positive_or_regressing_observer_clock_cannot_verify_the_new_session(
+        monkeypatch, instants, expected_error, reads):
+    close = calendar.session_window('2026-11-18')[1]
+    instants = iter(close+timedelta(seconds=seconds) for seconds in instants)
+    class VerifierClock(datetime):
+        @classmethod
+        def now(cls, zone):
+            return next(instants).astimezone(zone)
+    monkeypatch.setattr(verification_service, 'datetime', VerifierClock)
+    stale = model.shadow_verification_row(verdict='SHADOW_GO', verification='VERIFIED',
+                                          session='2026-11-17', sessions_lag=0)
+    calls = []
+    def stale_read(*args, **kwargs):
+        calls.append(kwargs['now'])
+        return [stale], {}, [], []
+    monkeypatch.setattr(sources, '_dual_authority_rows', stale_read)
+    with pytest.raises(ValueError, match=expected_error):
+        verification_service._observe_shadow('isolated')
+    assert len(calls) == reads
