@@ -5,7 +5,9 @@ from decimal import Decimal
 import pytest
 
 from sentinel import automation_runtime, shadow_worker, shadow_service, shadow_recovery, shadow_runtime
-from sentinel.automation.model import TransientInfrastructureFailure
+from sentinel.automation.model import (
+    NonRetryableCallbackRefused, TransientInfrastructureFailure,
+)
 from sentinel.execution import journal
 from sentinel.feed import publication, rolling_store, store
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
@@ -216,7 +218,9 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
     from sentinel.automation import store as automation_store
     from tests.sentinel.test_automation_service import config, enable, service_for
     from tests.sentinel.test_automation_runtime import production
-    cfg = config()
+    # The test advances its observation clock across a retry without running
+    # the service heartbeat; keep the real lease alive during that jump.
+    cfg = config().model_copy(update={'lease_seconds': 120})
     schema.ensure_schema(conn)
     enable(conn, cfg)
     now = datetime(2026, 8, 13, 13, 29, tzinfo=timezone.utc)
@@ -240,6 +244,9 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
         authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(automation_runtime, 'production_strategy', lambda: (object(), {}))
     monkeypatch.setattr(automation_runtime.system_identity, 'rehearsal_identity', lambda: {})
+    publication_head = {'version': 1}
+    monkeypatch.setattr(runtime, '_idle_publication_head',
+                        lambda _connection: publication_head)
     def identity_fixture(connection, *, expected_sha256):
         # The parent case exercises its actual temporary-dependency adapter.
         # The child case proves the same real advisory lock is a typed
@@ -265,11 +272,13 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
                 result = {'status':'TRANSIENT'}
             else:
                 certificate = signed()
+                head = runtime._idle_publication_head(probe)
                 result = {'status':'PASS', 'generation':control.generation,
                     'binding':control.binding.model_dump(mode='json'),
                     'rollout_mode':control.binding.rollout_mode,
                     'rollout_version':control.binding.rollout_version,
-                    'publication_version':1,
+                    'publication_version':head['version'],
+                    'publication_head':head,
                     'certificate_sha256':certificate.certificate_sha256}
             finally:
                 probe.rollback()
@@ -388,16 +397,17 @@ def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind)
 
 @pytest.mark.asyncio
 async def test_falsely_persisting_contention_as_negative_authority_is_detected(conn, monkeypatch):
-    import inspect, textwrap
-    body = textwrap.dedent(inspect.getsource(
-        automation_runtime.ProductionAutomation._finish_idle_authority_refusal))
-    old = 'if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):'
-    assert old in body
-    namespace = {}
-    exec(compile(body.replace(old, 'if False:'), 'contention-authority-falsifier', 'exec'),
-         automation_runtime.__dict__, namespace)
-    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_finish_idle_authority_refusal',
-                        namespace['_finish_idle_authority_refusal'])
+    # Falsify the actual idle terminal classification while a second real
+    # PostgreSQL session holds the corpus lock. The unmutated test must first
+    # recover to PASS; a false permanent verdict reaches its incident guard.
+    def wrongly_terminal(_runtime, _connection, exc):
+        raise NonRetryableCallbackRefused(
+            f'contention misclassified as authority: {type(exc).__name__}') from exc
+
+    monkeypatch.setattr(automation_runtime.ProductionAutomation,
+                        '_finish_idle_authority_refusal', wrongly_terminal)
     with pytest.raises(AssertionError):
         await test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
             conn, monkeypatch, parent_lock=True)
+    from sentinel.automation import store as automation_store
+    assert automation_store.load_control(conn).authority_verdict == 'FAIL'
