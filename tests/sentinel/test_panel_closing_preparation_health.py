@@ -242,7 +242,7 @@ def checking_close_panel(monkeypatch):
         recovery=replace(page.row('automation_cycle').recovery, phase='AUTOMATION_PREPARE'))
 
 
-@pytest.mark.parametrize('fault', [None, 'subject', 'missing', 'stale', 'failed', 'expired',
+@pytest.mark.parametrize('fault', [None, 'subject', 'missing', 'stale', 'failed', 'latched', 'expired',
                                    'shadow_changed', 'partial_group', 'worker_failed', 'book_failed'])
 def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypatch, fault):
     page = checking_close_panel(monkeypatch)
@@ -253,8 +253,13 @@ def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypat
         page = replace(page, trial_details={})
     elif fault == 'stale':
         diagnostic['observation_fresh'] = False
-    elif fault == 'failed':
-        diagnostic['latest']['outcome'] = 'FAILED'
+    elif fault in {'failed', 'latched'}:
+        from sentinel.panel import observer_failure
+        failure = observer_failure.failure('NEGATIVE_RESULT', 'VALIDATION').model_dump(mode='json', by_alias=True)
+        if fault == 'latched':
+            diagnostic['latest']['latched_failure'] = failure
+        else:
+            diagnostic['latest'].update(outcome='FAILED', diagnostic=failure, completed_at=NOW.isoformat())
     elif fault == 'expired':
         page = replace(page, now=NOW+timedelta(seconds=35))
     elif fault == 'shadow_changed':
@@ -279,8 +284,15 @@ def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypat
         assert health['color'] != 'green'
 
 
+def test_bypassing_current_attempt_eligibility_exposes_a_latched_failure(monkeypatch):
+    from sentinel.panel import readiness_handoff
+    monkeypatch.setattr(readiness_handoff, '_active_attempt', lambda *args, **kwargs: True)
+    with pytest.raises(AssertionError):
+        test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypatch, 'latched')
+
+
 @pytest.mark.parametrize('state', ['REFRESHING_DATA', 'WAITING_OPEN'])
-@pytest.mark.parametrize('fault', [None, 'foreign_clock', 'foreign_state'])
+@pytest.mark.parametrize('fault', [None, 'foreign_clock', 'foreign_state', 'foreign_plan'])
 def test_checking_work_needs_the_real_step_and_scheduled_plan(monkeypatch, state, fault):
     from sentinel.panel import delivery
     page = checking_close_panel(monkeypatch)
@@ -288,6 +300,10 @@ def test_checking_work_needs_the_real_step_and_scheduled_plan(monkeypatch, state
         scheduled = healthy_history_panel(now=NOW, execute_at=OPEN+timedelta(minutes=1))
         fields = {r.key:r for r in scheduled.rows if r.key in {
             'paper_plan', 'automation_cycle', 'automation_step_open', 'paper_reconciliation'}}
+        if fault != 'foreign_plan':
+            saved = fields['paper_plan']
+            fields['paper_plan'] = replace(saved, paper_plan=saved.paper_plan.model_copy(update={
+                'decision_session':NOW.date(), 'effective_session':OPEN.date()}))
         page = replace(page, rows=[r for r in page.rows if r.key not in {*fields, 'automation_step_prepare'}]
                        + list(fields.values()))
         # The real close records the cycle after the bell.
@@ -309,7 +325,12 @@ def test_checking_work_needs_the_real_step_and_scheduled_plan(monkeypatch, state
     elif fault == 'foreign_state':
         page = changed_history_panel(page, step, operational_fact=model.OperationalFact(
             kind='AUTOMATION_CYCLE', state='EXECUTING'))
+    elif fault == 'foreign_plan' and state == 'REFRESHING_DATA':
+        page = changed_history_panel(page, 'paper_plan', status=model.OK)
     until, keys = presentation._close_check_work(page)
+    if fault == 'foreign_plan':
+        assert until is None and not keys
+        return
     assert until is not None and 'automation_cycle' in keys
     assert (step in keys) is (fault is None)
     for key in keys:

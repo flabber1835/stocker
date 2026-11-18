@@ -46,10 +46,8 @@ def _new_publication(conn, owner):
         published_at=now - timedelta(minutes=2), window_start='2025-01-02',
         window_end=PREDECESSOR, publication_evidence={})
     conn.commit()
-    old_subject = read_projection.subject(conn, conn.info.dsn, 'SHADOW')
     save_financial(conn, 'SHADOW')
     save_financial(conn, 'PAPER')
-    _write_attempt(conn, owner, old_subject, 'VERIFIED')
     job = operational_snapshot.enqueue(conn, strategy_sha256=digest('close-panel-qualification'),
         dependencies_sha256=digest({'scope': rolling_go_inputs.SCHEMA}), budget_seconds=240)
     request = rolling_jobs.PreparationRequest.model_validate(rolling_jobs.status(conn, job)['request'])
@@ -72,16 +70,23 @@ def _new_publication(conn, owner):
         scope='DATA_ONLY', snapshot_id=manifest.snapshot_id, reference_sha256=reference,
         source_evidence_sha256=source, request_sha256=request.request_sha256))
     conn.execute('INSERT INTO sentinel_operational_snapshot_validations VALUES (%s,%s)', (candidate, validated))
-    committed_at = conn.execute('SELECT clock_timestamp()').fetchone()[0].astimezone(timezone.utc)
+    header_at = conn.execute('SELECT clock_timestamp()').fetchone()[0].astimezone(timezone.utc)
     binding = dict(schema=operational_snapshot.SCHEMA, job_id=job, candidate_id=candidate,
         snapshot_id=manifest.snapshot_id, reference_sha256=reference, validation_sha256=validated)
     publication._insert_receipted_publication(conn, previous=publication._core.current(conn),
-        next_version=2, run_id=None, published_at=committed_at, window_start=str(request.window.start),
+        next_version=2, run_id=None, published_at=header_at, window_start=str(request.window.start),
         window_end=DECISION, publication_evidence={'rolling_snapshot': binding})
+    # The close writer already stamped its new header. A verifier on another
+    # connection still sees the committed predecessor and can finish its scan.
+    with store.connect(conn.info.dsn, connect_timeout=2, statement_timeout_ms=3000) as verifier:
+        assert verifier.execute('SELECT max(version) FROM sentinel_corpus_publications').fetchone() == (1,)
+        old_subject = read_projection.subject(verifier, verifier.info.dsn, 'SHADOW')
+        _write_attempt(verifier, owner, old_subject, 'VERIFIED')
     conn.execute('INSERT INTO sentinel_operational_snapshots VALUES (2,%s,%s,%s)',
                  (job, candidate, validated))
-    conn.execute("UPDATE sentinel_snapshot_jobs SET state='PUBLISHED', candidate_id=%s, "
-                 "publication_version=2,updated_at=%s WHERE job_id=%s", (candidate, committed_at, job))
+    committed_at = conn.execute("UPDATE sentinel_snapshot_jobs SET state='PUBLISHED', candidate_id=%s, "
+                 "publication_version=2,updated_at=clock_timestamp() WHERE job_id=%s RETURNING updated_at",
+                 (candidate, job)).fetchone()[0].astimezone(timezone.utc)
     conn.commit()
     assert operational_snapshot.published(conn, job)['data_version'] == 2
     new_subject = read_projection.subject(conn, conn.info.dsn, 'SHADOW')

@@ -14,7 +14,7 @@ import pytest
 from sentinel import shadow_health_projection as projection, shadow_service_status as status
 from sentinel import shadow_supervisor as supervisor, shadow_worker_liveness as live, supervisor_io
 from sentinel.shadow_service_config import ShadowServiceConfig
-from sentinel.feed import publication
+from sentinel.feed import operational_snapshot, publication
 from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
 
 
@@ -49,7 +49,11 @@ def handoff(pg, tmp_path, monkeypatch):
             CREATE TABLE sentinel_corpus_publications(version bigint PRIMARY KEY, previous_version bigint, window_end date,
                 published_at timestamptz, evidence jsonb, window_start date, run_id uuid);
             CREATE TABLE sentinel_publication_validation_receipts(publication_version bigint PRIMARY KEY,
-                receipt_sha256 text, receipt_hmac_sha256 text);
+                receipt_sha256 text, receipt_hmac_sha256 text, previous_receipt_sha256 text,
+                previous_version bigint,run_id uuid,origin_run_status text,published_at timestamptz,
+                window_start date,window_end date,evidence jsonb);
+            CREATE TABLE sentinel_price_candidates(candidate_id int PRIMARY KEY, snapshot_id text,
+                reference_sha256 text,window_start date,window_end date);
             CREATE TABLE sentinel_operational_snapshots(publication_version bigint PRIMARY KEY, job_id int, candidate_id int, validation_sha256 text);
             CREATE TABLE sentinel_snapshot_jobs(job_id int PRIMARY KEY, candidate_id int, publication_version bigint, state text,
                 created_at timestamptz, updated_at timestamptz, deadline timestamptz);
@@ -67,21 +71,25 @@ def handoff(pg, tmp_path, monkeypatch):
             waiting_session=str(close.date()), calendar_identity='XNYS/exchange_calendars private',
             valid_from=begin.isoformat(), current_until=close.isoformat(), valid_until=end.isoformat()).model_dump()
         projection._write({'projection': signed, 'hmac_sha256': projection._signature(signed)}, target)
-        evidence = {'rolling_snapshot': {'candidate_id': '3', 'job_id': '2', 'validation_sha256': 'c'*64}}
-        published_at = close+timedelta(minutes=2)
+        evidence = {'rolling_snapshot': {'schema': operational_snapshot.SCHEMA, 'candidate_id': '3',
+            'job_id': '2', 'validation_sha256': 'c'*64, 'snapshot_id': '1'*64, 'reference_sha256': '2'*64}}
+        attempt = supervisor._arm_worker()
+        published_at = datetime.now(timezone.utc)
         signed_evidence = publication._add_validation_receipt(conn, version=24, previous_version=23,
             run_id=None, published_at=published_at, window_start=begin.date(), window_end=close.date(),
             evidence=evidence, previous_receipt_sha256=prior_receipt)
         receipt = signed_evidence[publication.RECEIPT_EVIDENCE_KEY]
         conn.execute("INSERT INTO sentinel_corpus_publications VALUES (24,23,%s,%s,%s::jsonb,%s,NULL)",
                      (close.date(), published_at, json.dumps(signed_evidence), begin.date()))
-        conn.execute("INSERT INTO sentinel_publication_validation_receipts VALUES (24,%s,%s)",
-                     (receipt['receipt_sha256'], receipt['receipt_hmac_sha256']))
+        conn.execute("INSERT INTO sentinel_publication_validation_receipts VALUES (24,%s,%s,%s,23,NULL,NULL,%s,%s,%s,%s::jsonb)",
+                     (receipt['receipt_sha256'], receipt['receipt_hmac_sha256'], prior_receipt, published_at,
+                      begin.date(), close.date(), json.dumps(evidence)))
+        conn.execute("INSERT INTO sentinel_price_candidates VALUES (3,%s,%s,%s,%s)",
+                     ('1'*64, '2'*64, begin.date(), close.date()))
         conn.execute("INSERT INTO sentinel_operational_snapshots VALUES (24,2,3,%s)", ('c'*64,))
         conn.execute("INSERT INTO sentinel_operational_snapshot_validations VALUES (3,%s)", ('c'*64,))
         conn.execute("INSERT INTO sentinel_snapshot_jobs VALUES (2,3,24,'PUBLISHED',%s,%s,%s)",
-                     (close, close+timedelta(minutes=3), end))
-        attempt = supervisor._arm_worker()
+                     (published_at, published_at, end))
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(90)'])
         try:
             live.record(attempt, os.getpid(), child.pid, time.monotonic()+60)
@@ -104,7 +112,8 @@ def test_only_container_observes_owned_close_while_financial_renewal_remains_due
 
 
 @pytest.mark.parametrize('damage', ['config', 'job', 'deadline', 'prior_day', 'extra', 'binding',
-                                     'recovery', 'signature', 'latch', 'bad_owner', 'missing_pending', 'handoff'])
+                                     'recovery', 'signature', 'bad_hmac', 'receipt_parent', 'wrong_schema', 'wrong_candidate',
+                                     'latch', 'bad_owner', 'other_supervisor', 'missing_pending', 'successor', 'handoff'])
 def test_other_mutations_and_unowned_waits_stay_unhealthy(handoff, damage, monkeypatch):
     config, conn, target = handoff
     if damage == 'config':
@@ -123,6 +132,25 @@ def test_other_mutations_and_unowned_waits_stay_unhealthy(handoff, damage, monke
         conn.execute("UPDATE sentinel_corpus_publications SET evidence=evidence || '{\"operational_recovery\":true}'::jsonb WHERE version=24")
     elif damage == 'signature':
         conn.execute("UPDATE sentinel_corpus_publications SET evidence=evidence || '{\"changed\":true}'::jsonb WHERE version=24")
+        conn.execute("UPDATE sentinel_publication_validation_receipts SET evidence=evidence || '{\"changed\":true}'::jsonb")
+    elif damage == 'bad_hmac':
+        conn.execute("UPDATE sentinel_corpus_publications SET evidence=jsonb_set(evidence,%s,to_jsonb(%s::text)) WHERE version=24",
+                     ([publication.RECEIPT_EVIDENCE_KEY, 'receipt_hmac_sha256'], '0'*64))
+        conn.execute("UPDATE sentinel_publication_validation_receipts SET receipt_hmac_sha256=%s", ('0'*64,))
+    elif damage == 'receipt_parent':
+        conn.execute("UPDATE sentinel_publication_validation_receipts SET previous_receipt_sha256=%s", ('e'*64,))
+    elif damage == 'wrong_candidate':
+        conn.execute("UPDATE sentinel_price_candidates SET reference_sha256=%s", ('e'*64,))
+    elif damage == 'wrong_schema':
+        row = conn.execute("SELECT published_at,window_start,window_end,evidence FROM sentinel_publication_validation_receipts").fetchone()
+        published, start, end, evidence = row
+        del evidence['rolling_snapshot']['schema']
+        signed = publication._add_validation_receipt(conn, version=24, previous_version=23, run_id=None,
+            published_at=published, window_start=start, window_end=end, evidence=evidence, previous_receipt_sha256='d'*64)
+        receipt = signed[publication.RECEIPT_EVIDENCE_KEY]
+        conn.execute("UPDATE sentinel_corpus_publications SET evidence=%s::jsonb WHERE version=24", (json.dumps(signed),))
+        conn.execute("UPDATE sentinel_publication_validation_receipts SET evidence=%s::jsonb,receipt_sha256=%s,receipt_hmac_sha256=%s",
+                     (json.dumps(evidence), receipt['receipt_sha256'], receipt['receipt_hmac_sha256']))
     elif damage == 'latch':
         supervisor.LATCH_FILE.write_text('failure')
     elif damage == 'bad_owner':
@@ -130,8 +158,22 @@ def test_other_mutations_and_unowned_waits_stay_unhealthy(handoff, damage, monke
         envelope = json.loads(value.read_bytes())
         envelope['hmac_sha256'] = '0'*64
         value.write_text(json.dumps(envelope))
+    elif damage == 'other_supervisor':
+        value = json.loads(supervisor._pending_file().read_bytes())
+        del value['hmac_sha256']
+        value['supervisor_start_ticks'] += 1
+        from sentinel import receipt_authentication
+        sig = receipt_authentication.sign({'purpose': value['schema'], 'pending': value})
+        supervisor._pending_file().write_text(json.dumps({**value, 'hmac_sha256': sig}))
+        assert live.matches(supervisor._pending_file())
     elif damage == 'missing_pending':
         supervisor._pending_file().unlink()
+    elif damage == 'successor':
+        pid = json.loads(live.ACTIVE_FILE.read_bytes())['worker']['pid']
+        supervisor._clear_worker()
+        replacement = supervisor._arm_worker()
+        live.record(replacement, os.getpid(), pid, time.monotonic()+60)
+        status.publish(supervisor.LATCH_FILE, 'e'*32)
     else:
         original = projection.health
         def observe(*args, **kwargs):

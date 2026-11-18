@@ -501,12 +501,14 @@ def _close_worker(config):
         if (value['reason'] == 'ACTIVE_WORKER' and pending is not None
                 and pending['schema'] == restart_recovery.SCHEMA
                 and pending['attempt_id'] == value['attempt_id']
-                and shadow_worker_liveness.matches(_pending_file())
                 and not LATCH_FILE.exists()
                 and timedelta(0) <= now-value['observed_at'] <= timedelta(seconds=shadow_service_status.MAX_AGE_SECONDS)
                 and now < value['worker_deadline']):
-            return value
-    except (OSError, ValueError, KeyError, TypeError):
+            live = shadow_worker_liveness.matched_worker(_pending_file(), signed_pending=pending)
+            if live and not LATCH_FILE.exists():
+                return {**value, 'live_worker': live,
+                        'armed_at': datetime.fromtimestamp(pending['started_at_unix'], timezone.utc)}
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         pass
     return None
 
@@ -551,6 +553,8 @@ def _health_snapshot(max_age_seconds, config, *, financial=True):
         if health.get('service_health') == 'CLOSE_PUBLICATION_PENDING':
             after = _close_worker(resolved)
             if (owner and after and (after['incarnation'], after['attempt_id']) == (owner['incarnation'], owner['attempt_id'])
+                    and owner['armed_at'] == after['armed_at'] <= health['job_created_at']
+                    and owner['live_worker'] == after['live_worker']
                     and after['observed_at'] >= owner['observed_at']
                     and after['worker_deadline'] <= owner['worker_deadline']
                     and datetime.now(timezone.utc) < min(health['valid_until'], after['worker_deadline'])):

@@ -70,9 +70,15 @@ def _observe_shadow(database_url):
             raise ValueError('unexpected shadow observation shape')
         proof = next((row.operational_fact for row in rows if row.key == 'shadow_verification'
                       and row.status == model.OK), None)
-        if proof is None or str(proof.session) == calendar.latest_closed_session(finished):
+        if proof is None:
             return rows, errors, finished
-        if repeated or str(proof.session) != calendar.latest_closed_session(started):
+        start_session = calendar.latest_closed_session(started)
+        end_session = calendar.latest_closed_session(finished)
+        # Outside a crossing the canonical verifier owns the current-session
+        # decision. Only a crossing (or its bounded reread) needs this fence.
+        if (not repeated and start_session == end_session) or str(proof.session) == end_session:
+            return rows, errors, finished
+        if repeated or str(proof.session) != start_session:
             raise ValueError('verified shadow session does not match the current close')
         started = finished
         repeated = True

@@ -538,13 +538,13 @@ def test_current_positive_is_finished_in_one_observation_before_the_close(monkey
     assert observed == close-timedelta(seconds=28)
 
 
-@pytest.mark.parametrize('instants, expected_error, reads', [
-    ((-1, 1, 2), 'does not match the current close', 2),
-    ((1, 2), 'does not match the current close', 1),
-    ((1, -1), 'clock regressed', 1),
+@pytest.mark.parametrize('instants, session, expected_error, reads', [
+    ((-1, 1, 2), '2026-11-17', 'does not match the current close', 2),
+    ((-1, 1), '2026-11-16', 'does not match the current close', 1),
+    ((1, -1), '2026-11-17', 'clock regressed', 1),
 ])
 def test_stale_positive_or_regressing_observer_clock_cannot_verify_the_new_session(
-        monkeypatch, instants, expected_error, reads):
+        monkeypatch, instants, session, expected_error, reads):
     close = calendar.session_window('2026-11-18')[1]
     instants = iter(close+timedelta(seconds=seconds) for seconds in instants)
     class VerifierClock(datetime):
@@ -553,7 +553,7 @@ def test_stale_positive_or_regressing_observer_clock_cannot_verify_the_new_sessi
             return next(instants).astimezone(zone)
     monkeypatch.setattr(verification_service, 'datetime', VerifierClock)
     stale = model.shadow_verification_row(verdict='SHADOW_GO', verification='VERIFIED',
-                                          session='2026-11-17', sessions_lag=0)
+                                          session=session, sessions_lag=0)
     calls = []
     def stale_read(*args, **kwargs):
         calls.append(kwargs['now'])

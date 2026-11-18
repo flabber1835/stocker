@@ -17,7 +17,9 @@ signed projection.
 
 For the compose health probe, recognize a bounded wait when the only inventory
 change is a single committed operational publication for the signed next
-session. Reconstruct the previous complete inventory within one repeatable-read
+session. Authenticate the new publication receipt against its signed predecessor
+and require the current worker to have been armed before that job began.
+Reconstruct the previous complete inventory within one repeatable-read
 snapshot. Check the exact predecessor version and dates, the published job,
 candidate, validation and their native deadline. Require the signed hint's
 current configuration and waiting interval, and the same authenticated live

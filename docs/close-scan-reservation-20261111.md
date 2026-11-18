@@ -41,7 +41,7 @@ waits without inferring speedup from a unit test.
 A verifier admitted at 20:59:31 UTC finished its financial read after the
 21:00 bell. Its rolling input check selected November 18 while its display
 used the pre-close start time. Project dated financial evidence after the canonical read returns. Bind a
-positive result to the exchange session owed at completion. If a scan began
+positive result spanning a session boundary to the frontier owed at completion. If a scan began
 on the previous frontier and returns its positive result across the bell,
 repeat the ordinary verified read under the original worker deadline. A typed
 dated wait already covers that boundary and needs one read. Preserve the

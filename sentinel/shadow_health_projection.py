@@ -229,6 +229,7 @@ def health(config, *, fallback, target=None, now=None, observe_close_wait=False)
 
 def _publication_wait(conn, projection, previous, version, now):
     """Classify one appended operational close while the signed prefix is intact."""
+    from sentinel.feed import operational_snapshot
     if version != previous + 1:
         return None
     row = conn.execute("""
@@ -238,20 +239,29 @@ def _publication_wait(conn, projection, previous, version, now):
         JOIN sentinel_corpus_publications prior ON prior.version=p.previous_version
         JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
         JOIN sentinel_snapshot_jobs j ON j.job_id=b.job_id AND j.candidate_id=b.candidate_id
+        JOIN sentinel_price_candidates c ON c.candidate_id=b.candidate_id
         JOIN sentinel_operational_snapshot_validations v ON v.candidate_id=b.candidate_id
         JOIN sentinel_publication_validation_receipts r ON r.publication_version=p.version
         WHERE p.version=%s AND prior.version=%s AND prior.window_end=%s AND p.window_end=%s
           AND j.state='PUBLISHED' AND j.publication_version=p.version
           AND NOT (p.evidence ? 'operational_recovery')
           AND p.run_id IS NULL AND p.window_start IS NOT NULL AND octet_length(p.evidence::text)<=65536
+          AND r.previous_version=prior.version AND r.run_id IS NULL AND r.origin_run_status IS NULL
+          AND (r.published_at,r.window_start,r.window_end)=(p.published_at,p.window_start,p.window_end)
+          AND r.evidence=p.evidence-%s::text AND r.previous_receipt_sha256=prior.evidence->%s->>'receipt_sha256'
           AND r.receipt_sha256=p.evidence->%s->>'receipt_sha256'
           AND r.receipt_hmac_sha256=p.evidence->%s->>'receipt_hmac_sha256'
           AND v.validation_sha256=b.validation_sha256
+          AND (c.window_start,c.window_end)=(p.window_start,p.window_end)
+          AND p.evidence->'rolling_snapshot'->>'schema'=%s
+          AND p.evidence->'rolling_snapshot'->>'snapshot_id'=c.snapshot_id
+          AND p.evidence->'rolling_snapshot'->>'reference_sha256'=c.reference_sha256
           AND p.evidence->'rolling_snapshot'->>'candidate_id'=b.candidate_id::text
           AND p.evidence->'rolling_snapshot'->>'job_id'=b.job_id::text
           AND p.evidence->'rolling_snapshot'->>'validation_sha256'=b.validation_sha256
         """, (publication.RECEIPT_EVIDENCE_KEY, version, previous, projection.session, projection.waiting_session,
-              publication.RECEIPT_EVIDENCE_KEY, publication.RECEIPT_EVIDENCE_KEY)).fetchone()
+              publication.RECEIPT_EVIDENCE_KEY, publication.RECEIPT_EVIDENCE_KEY, publication.RECEIPT_EVIDENCE_KEY,
+              publication.RECEIPT_EVIDENCE_KEY, operational_snapshot.SCHEMA)).fetchone()
     instant = now if now is not None else _now()
     if row is None or _temporal_health(projection, instant)['service_health'] != 'HEALTHY_WAITING':
         return None
@@ -270,7 +280,7 @@ def _publication_wait(conn, projection, previous, version, now):
             or not hmac.compare_digest(receipt['receipt_hmac_sha256'], publication._receipt_hmac(body))):
         return None
     return {'service_health': 'CLOSE_PUBLICATION_PENDING', 'target_session': projection.waiting_session,
-            'valid_until': expires}
+            'job_created_at': created, 'valid_until': expires}
 
 
 def _authenticated_projection(config, inventory, source):
