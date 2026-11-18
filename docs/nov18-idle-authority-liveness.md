@@ -80,6 +80,17 @@ signature verification on the foreground: those complete checks remain in the
 killable full observer at the original thirty-second cadence and at every
 financial callback. Current durable revocation is checked every idle poll.
 
+Before a completed idle verdict is accepted, the foreground takes nonblocking
+shared transaction locks against the authority transition and corpus writer
+locks, plus a short shared lock on the rollout row. It compares the exact
+certificate bytes, current rollout, and indexed publication head and receipt
+identity that the full child authenticated. For a rolling publication it also
+compares the indexed operational snapshot binding. It holds those locks through
+the fenced verdict write. This short comparison never replays the publication
+receipt chain or rolling snapshot proof on the foreground; those complete
+checks stay in the child and at financial callback admission. Writer contention
+or an unavailable head discards the result and schedules a finite retry.
+
 When a full proof returns, including a refusal, the foreground requires its
 original control, certificate, rollout and publication subject to remain
 current under the same live lease before it writes the existing fenced verdict

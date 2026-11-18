@@ -43,6 +43,7 @@ from sentinel.automation.model import (
     LeaderPermit,
     NonRetryableCallbackRefused,
     PreflightPublicationPinUnavailable,
+    SoftwareDefect,
     StaleLeaderRefused,
     TickAction,
     TickResult,
@@ -2202,6 +2203,10 @@ def idle_attestation(monkeypatch):
                         authority.RolloutState(authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(automation_runtime.feed_inputs, "require_current", lambda _c:
                         SimpleNamespace(version=state["publication"]))
+    monkeypatch.setattr(runtime, "_idle_pin_mutable_authority", lambda _c: None)
+    monkeypatch.setattr(runtime, "_idle_publication_head", lambda _c, **_kw:
+                        {"version": state["publication"],
+                         "receipt_sha256": "r" * 64})
     monkeypatch.setattr(automation_runtime, "production_strategy", lambda: (None, {}))
     monkeypatch.setattr(automation_runtime.system_identity, "rehearsal_identity",
                         lambda: {"runtime": state["runtime"]})
@@ -2257,6 +2262,8 @@ def idle_attestation(monkeypatch):
                 generation=checked.generation,
                 binding=checked.binding.model_dump(mode="json"),
                 publication_version=current.version,
+                publication_head=runtime._idle_publication_head(
+                    conn, authenticated=current),
                 rollout_mode=rollout.mode.value,
                 rollout_version=rollout.version)
 
@@ -2303,6 +2310,18 @@ async def test_idle_attestation_bounds_full_checks_without_refreshing_pass(idle_
     assert all(call == {"expected_sha256": CERTIFICATE}
                for call in item.lifecycle)
     assert item.runtime._idle_attestation[0] == NOW + timedelta(seconds=30)
+
+
+@async_test
+async def test_idle_attestation_publication_change_requires_new_full_proof(
+        idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state.update(now=NOW + timedelta(seconds=3), publication=2)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+    assert [row["verdict"] for row in item.verdicts] == ["PASS", "PASS"]
+    assert item.runtime._idle_attestation_publication_head["version"] == 2
 
 
 @async_test
@@ -2479,6 +2498,7 @@ async def test_idle_refusal_for_old_publication_is_discarded(idle_attestation):
             "generation": control_value.generation,
             "binding": control_value.binding.model_dump(mode="json"),
             "publication_version": 1,
+            "publication_head": {"version": 1, "receipt_sha256": "r" * 64},
             "rollout_mode": "PINNED_1_00", "rollout_version": 1,
         },
     })
@@ -2536,6 +2556,7 @@ async def test_idle_refusal_never_terminalizes_after_losing_original_fence(
             "subject": {
                 "generation": 3, "binding": bound.model_dump(mode="json"),
                 "publication_version": 1,
+                "publication_head": {"version": 1, "receipt_sha256": "r" * 64},
                 "rollout_mode": bound.rollout_mode,
                 "rollout_version": bound.rollout_version,
                 "certificate_sha256": CERTIFICATE,
@@ -2567,6 +2588,166 @@ async def test_idle_refusal_never_terminalizes_after_losing_original_fence(
     else:
         assert result is None
         assert [row["verdict"] for row in item.verdicts] == ["FAIL"]
+    assert runtime._idle_attestation is None
+
+
+@pytest.mark.parametrize("failure, expect_retry", [
+    (automation_runtime.publication.NoPublishedVersion("publication absent"), True),
+    (ValueError("unreviewed subject reader defect"), False),
+])
+@async_test
+async def test_unavailable_idle_observation_subject_cannot_terminalize_without_fail(
+        idle_attestation, monkeypatch, failure, expect_retry):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
+    permit = LeaderPermit(
+        holder_id="worker-a", fence_token=17, control_generation=3,
+        acquired_at=NOW, expires_at=NOW + timedelta(seconds=90))
+    bound = item.state["control"].binding
+    flight = item.flight_type({
+        "status": "REFUSED", "detail": "previous publication refused",
+        "subject": {
+            "generation": 3, "binding": bound.model_dump(mode="json"),
+            "publication_version": 1,
+            "publication_head": {"version": 1, "receipt_sha256": "r" * 64},
+            "rollout_mode": bound.rollout_mode,
+            "rollout_version": bound.rollout_version,
+            "certificate_sha256": CERTIFICATE,
+        },
+    })
+    runtime._idle_authority_flight = (
+        flight, runtime._idle_attestation_key(item.state["control"], permit),
+        NOW)
+    monkeypatch.setattr(
+        runtime, "_idle_publication_head",
+        lambda _conn: (_ for _ in ()).throw(failure))
+    monkeypatch.setattr(
+        automation_runtime.feed_inputs, "require_current",
+        lambda _conn: pytest.fail("foreground replayed the publication proof"))
+    monkeypatch.setattr(
+        store, "engage_kill_if_leader",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unavailable subject reached the kill latch"))
+    monkeypatch.setattr(
+        store, "transition_cycle",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unavailable subject blocked a cycle"))
+    if expect_retry:
+        assert await runtime.control_wake(conn) == runtime._idle_authority_retry_at
+    else:
+        with pytest.raises(SoftwareDefect, match="subject observation failed"):
+            await runtime.control_wake(conn)
+    assert not item.verdicts
+
+
+@pytest.mark.parametrize("fail_write", [False, True])
+@async_test
+async def test_idle_cycle_refusal_precedes_any_pass_and_requires_fenced_fail(
+        idle_attestation, monkeypatch, fail_write):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
+
+    def refuse_cycle(*_args, **_kwargs):
+        assert item.verdicts == []
+        raise NonRetryableCallbackRefused("cycle authority changed")
+
+    monkeypatch.setattr(runtime, "_assert_cycle_authority", refuse_cycle)
+    if fail_write:
+        monkeypatch.setattr(
+            store, "record_authority_verdict",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                StaleLeaderRefused("permit replaced before FAIL")))
+        monkeypatch.setattr(
+            store, "transition_cycle",
+            lambda *_args, **_kwargs: pytest.fail(
+                "cycle blocked without durable FAIL"))
+    result = await runtime.control_wake(conn)
+    if fail_write:
+        assert result == runtime._idle_authority_retry_at
+        assert item.verdicts == [] and item.blocked == []
+    else:
+        assert result is None
+        assert [row["verdict"] for row in item.verdicts] == ["FAIL"]
+        assert len(item.blocked) == 1
+
+
+@pytest.mark.parametrize("change", ["publication", "revocation"])
+@async_test
+async def test_idle_refusal_rechecks_subject_inside_terminal_transaction(
+        idle_attestation, monkeypatch, change):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
+    permit = LeaderPermit(
+        holder_id="worker-a", fence_token=17, control_generation=3,
+        acquired_at=NOW, expires_at=NOW + timedelta(seconds=90))
+    bound = item.state["control"].binding
+    flight = item.flight_type({
+        "status": "REFUSED", "detail": "old signed proof refused",
+        "subject": {
+            "generation": 3, "binding": bound.model_dump(mode="json"),
+            "publication_version": 1,
+            "publication_head": {"version": 1, "receipt_sha256": "r" * 64},
+            "rollout_mode": bound.rollout_mode,
+            "rollout_version": bound.rollout_version,
+            "certificate_sha256": CERTIFICATE,
+        },
+    })
+    runtime._idle_authority_flight = (
+        flight, runtime._idle_attestation_key(item.state["control"], permit),
+        NOW)
+    monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _conn: None)
+    kills = []
+
+    def kill(_conn, original, *, reason, actor, before_mutation):
+        assert original == permit and actor == "sentinel-automation"
+        if not kills:
+            if change == "publication":
+                item.state["publication"] = 2
+            else:
+                item.state["revoked"] = True
+            with pytest.raises(StaleLeaderRefused):
+                before_mutation(_conn)
+            kills.append("stale")
+            raise StaleLeaderRefused("subject changed before terminal write")
+        before_mutation(_conn)
+        kills.append(reason)
+        item.state["control"] = item.state["control"].model_copy(update={
+            "generation": 4, "kill_switch_engaged": True})
+        return item.state["control"]
+
+    monkeypatch.setattr(store, "engage_kill_if_leader", kill)
+    assert await runtime.control_wake(conn) is None
+    assert kills == ["stale"]
+    assert [row["verdict"] for row in item.verdicts] == ["FAIL"]
+    if change == "revocation":
+        assert await runtime.control_wake(conn) is None
+        assert len(kills) == 2
+        assert "certificate revoked" in kills[1]
+        assert [row["verdict"] for row in item.verdicts] == ["FAIL", "FAIL"]
+
+
+@async_test
+async def test_idle_proof_expiring_during_cycle_check_cannot_publish_pass(
+        idle_attestation, monkeypatch):
+    item = idle_attestation
+    runtime, conn = item.runtime, item.conn
+    original_start = runtime._start_idle_authority_observer
+    flights = []
+
+    def start(*args):
+        flight = original_start(*args)
+        flights.append(flight)
+        return flight
+
+    def slow_cycle(*_args, **_kwargs):
+        flights[0].elapsed_seconds = 26
+        return None
+
+    monkeypatch.setattr(runtime, "_start_idle_authority_observer", start)
+    monkeypatch.setattr(runtime, "_assert_cycle_authority", slow_cycle)
+    assert await runtime.control_wake(conn) == runtime._idle_authority_retry_at
+    assert len(flights) == 1
+    assert item.verdicts == []
     assert runtime._idle_attestation is None
 
 
@@ -2742,8 +2923,7 @@ async def test_idle_lease_loss_returns_to_scheduler_without_authority_or_broker(
     assert calls == (["control"] if boundary == "control"
                      else ["control", "control", "cycle"])
     assert conn.rollbacks >= 2
-    assert [row["verdict"] for row in item.verdicts] == (
-        [] if boundary == "control" else ["PASS"])
+    assert item.verdicts == []
 
 
 @async_test
@@ -2771,6 +2951,7 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
     alerts = []
     broker_builds = []
     kills = []
+    monkeypatch.setattr(runtime, "_idle_pin_mutable_authority", lambda _conn: None)
 
     monkeypatch.setattr(store, "load_control", lambda _conn: current_control)
     monkeypatch.setattr(store, "load_cycle", lambda _conn, _id: latest[0])
@@ -2848,6 +3029,7 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
     verdicts = []
     alerts = []
     kills = []
+    monkeypatch.setattr(runtime, "_idle_pin_mutable_authority", lambda _conn: None)
 
     monkeypatch.setattr(
         store, "load_control", lambda _conn: current_control[0])
@@ -2879,8 +3061,9 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             authority.AuthorityRefused("certificate revoked while idle")))
 
-    def engage_kill(_conn, permit, *, actor, reason):
+    def engage_kill(_conn, permit, *, actor, reason, before_mutation):
         assert permit.control_generation == current_control[0].generation
+        before_mutation(_conn)
         kills.append({"actor": actor, "reason": reason})
         current_control[0] = current_control[0].model_copy(update={
             "generation": current_control[0].generation + 1,
@@ -2939,10 +3122,13 @@ async def test_control_poll_preserves_adopted_old_recovery_obligation(
 
     monkeypatch.setattr(store, "load_control", lambda _conn: current_control)
     monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _conn: old)
-    monkeypatch.setattr(
-        runtime, "_assert_cycle_authority",
-        lambda _conn, _context, *, operation_scope, verified_control: (
-            scopes.append(operation_scope) or (old, current_control)))
+    def verify_cycle(_conn, _context, *, operation_scope, verified_control,
+                     record_verdict):
+        assert record_verdict is False
+        scopes.append(operation_scope)
+        return old, current_control
+
+    monkeypatch.setattr(runtime, "_assert_cycle_authority", verify_cycle)
     monkeypatch.setattr(
         store, "transition_cycle",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(

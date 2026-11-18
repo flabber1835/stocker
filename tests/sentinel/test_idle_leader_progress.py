@@ -12,12 +12,14 @@ import pytest
 from psycopg.errors import ReadOnlySqlTransaction
 
 from sentinel import automation_runtime
+from sentinel.authority import repository as authority_repository
 from sentinel.automation import integrity, store
 from sentinel.automation.model import (
     AutomationRefused, CycleState, StaleLeaderRefused, TickAction,
     TransientInfrastructureFailure,
 )
 from sentinel.feed import store as feed_store
+from sentinel.feed import publication
 from tests.sentinel.test_automation_service import (
     THURSDAY_AFTER_OPEN, THURSDAY_BEFORE_OPEN, binding, config, conn, enable, pg,
     recovery_success, service_for,
@@ -64,6 +66,8 @@ async def test_slow_idle_observer_converges_under_same_live_twelve_second_lease(
                             certificate_sha256=None))
     monkeypatch.setattr(automation_runtime.feed_inputs, "require_current",
                         lambda _conn: SimpleNamespace(version=1))
+    monkeypatch.setattr(runtime, "_idle_publication_head", lambda _conn, **_kw:
+                        {"version": 1, "receipt_sha256": "r" * 64})
     flights = []
 
     class SlowFlight:
@@ -80,6 +84,8 @@ async def test_slow_idle_observer_converges_under_same_live_twelve_second_lease(
                 "status": "PASS", "generation": control.generation,
                 "binding": control.binding.model_dump(mode="json"),
                 "publication_version": 1,
+                "publication_head": {"version": 1,
+                                     "receipt_sha256": "r" * 64},
                 "rollout_mode": expected.rollout_mode,
                 "rollout_version": expected.rollout_version,
                 "certificate_sha256": expected.certificate_sha256,
@@ -145,6 +151,28 @@ async def test_idle_observer_database_session_remains_read_only_after_fence_read
         observer_conn.rollback()
     finally:
         observer_conn.close()
+
+
+@pytest.mark.parametrize("writer_key", [
+    authority_repository.AUTHORITY_TRANSITION_LOCK_KEY,
+    publication.CORPUS_LOCK_KEY,
+])
+def test_idle_mutable_pin_refuses_concurrent_canonical_writer(conn, pg, writer_key):
+    runtime = production(config())
+    writer = feed_store.connect(pg.sync_dsn)
+    reader = feed_store.connect(pg.sync_dsn, statement_timeout_ms=500)
+    try:
+        writer.execute("SELECT pg_advisory_lock(%s)", (writer_key,))
+        writer.rollback()
+        with pytest.raises(TransientInfrastructureFailure,
+                           match="writer is active"):
+            runtime._idle_pin_mutable_authority(reader)
+        reader.rollback()
+    finally:
+        writer.execute("SELECT pg_advisory_unlock(%s)", (writer_key,))
+        writer.rollback()
+        reader.close()
+        writer.close()
 
 
 @pytest.mark.asyncio
