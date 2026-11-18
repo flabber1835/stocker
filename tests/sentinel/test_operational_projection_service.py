@@ -328,7 +328,9 @@ def test_negative_receipt_committed_during_close_handoff_supersedes_old_view(
     assert producer.read(conn.info.dsn).row('paper_reconciliation').status == model.FAIL
 
 
-def test_replaced_attempt_during_close_handoff_cannot_publish_old_progress(operational, monkeypatch):
+@pytest.mark.parametrize(('scope', 'existing'), [('SHADOW', True), ('SHADOW', False), ('PAPER', False)])
+def test_attempt_committed_during_close_handoff_cannot_publish_old_progress(
+        operational, monkeypatch, scope, existing):
     from sentinel.panel import attempt_store, readiness_handoff
     from tests.sentinel.test_observer_attempt_store import attempt
 
@@ -337,18 +339,36 @@ def test_replaced_attempt_during_close_handoff_cannot_publish_old_progress(opera
 
     def save_attempt(index):
         conn.execute("SET LOCAL lock_timeout='250ms'")
-        value = attempt(index=index, outcome='VERIFIED', at=observed)
-        attempt_store.publish_owned(conn, owner_id=owner, scope='SHADOW', attempt=value,
+        value = attempt(index=index, outcome='RUNNING', at=observed)
+        value['completed_at'] = None
+        attempt_store.publish_owned(conn, owner_id=owner, scope=scope, attempt=value,
                                     now=review_store.database_now(conn))
         conn.commit()
 
-    save_attempt(1)
+    def owner_version():
+        return conn.execute(f'SELECT owner_id,expires_at,xmin::text FROM {snapshots.schema.OWNER} '
+                            'WHERE id=1').fetchone()
+
+    if existing:
+        save_attempt(1)
     instance = 'attempt-close-qualifier'
     publish(operational, instance=instance)
     before = state(conn)
-    monkeypatch.setattr(readiness_handoff, 'capture', lambda *_a, **_kw: save_attempt(2))
-    assert producer.collect_result(conn.info.dsn, owner, '/private', instance) == {'outcome': 'SUPERSEDED'}
+    original_owner = owner_version()
+    prior = conn.execute(f"SELECT signature FROM {snapshots.schema.RECEIPTS} WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    with monkeypatch.context() as race:
+        race.setattr(readiness_handoff, 'capture', lambda *_a, **_kw: save_attempt(2))
+        assert producer.collect_result(conn.info.dsn, owner, '/private', instance) == {'outcome': 'SUPERSEDED'}
     assert state(conn) == before
+    assert conn.execute(f"SELECT signature FROM {snapshots.schema.RECEIPTS} WHERE scope='DASHBOARD'").fetchone() == prior
+    current_owner = owner_version()
+    assert current_owner[:2] == original_owner[:2]
+    assert (current_owner[2] == original_owner[2]) == existing
+    conn.rollback()
+    assert producer.collect_result(conn.info.dsn, owner, '/private', instance)['outcome'] == 'PUBLISHED'
+    details = producer.read(conn.info.dsn).trial_details['verification_attempts'][scope]
+    assert details['latest']['attempt_id'] == f'{2:032x}' and details['latest']['outcome'] == 'RUNNING'
 
 
 def test_negative_publication_allows_owner_renewal_before_its_write_fence(operational, monkeypatch):

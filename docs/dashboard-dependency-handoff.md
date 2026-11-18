@@ -113,6 +113,13 @@ receipt update that invalidates the snapshot forces rollback and fresh collectio
 Keep the live-owner check at the write, the original row and receipt deadlines,
 and atomic publication of review with its corresponding snapshot.
 
+The first diagnostic receipt for each scope must invalidate a FAST snapshot
+that observed the receipt as absent. The diagnostic writer already holds the
+owner row lock. On the first insert it also updates that row in the same
+transaction, preserving the exact owner identity and expiry. A collector
+using the earlier snapshot then fails its final owner lock. Later diagnostic
+replacements use the existing receipt row as their write fence.
+
 After one timed-out fast call, start the already bounded replacement with the
 one-second recovery delay. Repeated failures use the ordinary five-second poll.
 Preserve the pending incident until a publication records it. On a timeout,
