@@ -292,4 +292,3 @@ def evaluate(conn, *, plan, deployment, account, observation, activity_state, ca
                            expected - Fraction(account.cash))
     return _store(conn, plan=plan, account=account, activity_state=activity_state,
                   expected=expected, amounts=amounts, remaining=remaining, prior=prior, fills=_fill_witnesses(fill_rows))
-

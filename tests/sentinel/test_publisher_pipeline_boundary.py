@@ -203,6 +203,30 @@ def test_original_extracted_pipeline_still_has_its_proven_identity():
     assert basis.contribution(historical) == basis.BASE_SHA256
 
 
+def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monkeypatch):
+    from sentinel.feed import operational_snapshot
+
+    name = operational_snapshot.__name__
+    path = Path(operational_snapshot.__file__).resolve()
+    current = path.read_bytes()
+    assert hashlib.sha256(current).hexdigest() == basis.SNAPSHOT_ADMISSION_SHA256
+    tag = (b'class PublicationAdmissionBusy(backup_runtime_authority.BackupIntegrityBusy):\n'
+           b'    """An exact backup check refused the writer before any publication mutation."""\n\n\n')
+    guard = b'    backup_runtime_authority.require(conn, operation="operational snapshot publication")\n'
+    checked = (b'    try:\n    ' + guard + b'    except backup_runtime_authority.BackupIntegrityBusy as exc:\n'
+               b'        raise PublicationAdmissionBusy(str(exc)) from exc\n')
+    assert current.count(tag) == current.count(checked) == 1
+    old = current.replace(tag, b'').replace(checked, guard)
+    assert hashlib.sha256(old).hexdigest() == basis.SNAPSHOT_BEFORE_SHA256
+    assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
+        {'module': name, 'sha256': basis.SNAPSHOT_BEFORE_SHA256}]
+    changed = current.replace(checked, b'    pass\n')
+    read = Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda p: changed if p == path else read(p))
+    assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
+        {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()}]
+
+
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
     path = Path(pipeline.__file__).resolve()
     original = Path.read_bytes

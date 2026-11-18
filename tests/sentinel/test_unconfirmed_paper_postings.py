@@ -209,4 +209,3 @@ def test_ambiguous_attribution_is_fenced_and_removed_debit_reservation_is_caught
     monkeypatch.setattr(cash_postings, "_store", namespace["_store"])
     with pytest.raises(AssertionError):
         test_carries_unconfirmed_refs_and_reserves_fee_until_reflected(conn, incident, "7070.51", "0.01")
-
