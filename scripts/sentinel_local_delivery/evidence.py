@@ -292,7 +292,7 @@ def require_successor_worker_restart(host, item):
     return dict(container=item['Id'],image=item['Image'],exception='ImmutableAlertChanged')
 
 
-def canonical_check(host, values, state):
+def canonical_check(host, values, state, *, timeout=300):
     """Return the complete current-image proof for exact predecessor comparison."""
     bound = {key: state['binding'][key] for key in _BINDING_KEYS}
     bound.update(ownership_state=state['binding']['ownership_state'],
@@ -319,7 +319,7 @@ def canonical_check(host, values, state):
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
         checks.canonical_program(mode),
-        json.dumps(expected, sort_keys=True), timeout=300)
+        json.dumps(expected, sort_keys=True), timeout=timeout)
     proof = json.loads(result.stdout)
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
             'Canonical evidence did not confirm server read-only execution')

@@ -29,3 +29,19 @@ while the new generation waits for its next decision. Refuse active failures,
 stale required dependencies and unrelated warnings. Preserve operator review
 and its original expiry. The installation record names the software-only
 scope and grants no financial authority or operator acknowledgement.
+
+If the original 230-second start deadline expires after all six candidate
+processes were recorded at APPLICATIONS_STARTED, ordinary resume still refuses.
+The backed installer accepts an explicit `recover-verification --recovery-id
+<unique-id>` for this exact request. It retains the original receipt and writes
+a separate observation intent whose deadline is the earlier of ten minutes
+from invocation and fifteen minutes before the recorded exchange close. Each
+attempt must reacquire the complete canonical evidence for the same completed
+cycle, current direct successor and four control changes. It compares the
+installed configuration, original processes, advancing leader, current broker
+positions and zero open orders, reconciliation, journals, backups and retained
+alerts after canonical verification. It then obtains a fresh strict dashboard
+and rechecks the processes, leader, configuration and dashboard expiry before
+recording VERIFIED under the original software-only scope. A refusal preserves
+the stage, original clocks and evidence. This path
+never starts a service or changes the account, control, broker or alerts.

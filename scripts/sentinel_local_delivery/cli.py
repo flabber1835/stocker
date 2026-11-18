@@ -125,7 +125,7 @@ def parser(*, backed=False):
         fenced.add_argument('--operation-dir', required=True)
         fenced.add_argument('--recovery-id', required=True)
         recovery = commands.add_parser('recover-verification',
-            help='Explicit fresh final observation of an expired backed PRE_OPEN or completed POST_TRADE installation')
+            help='Observe an expired, started backed PRE_OPEN, POST_TRADE or POST_TRADE_REACTIVATED installation')
         recovery.add_argument('--operation-dir', required=True)
         recovery.add_argument('--recovery-id', required=True)
     for command in ('advance','resume'):

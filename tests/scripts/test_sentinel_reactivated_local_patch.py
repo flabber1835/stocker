@@ -7,10 +7,144 @@ import pytest
 
 from tests.scripts.test_sentinel_backed_local_patch import fixture, successor_host
 from tests.scripts.test_sentinel_local_delivery_coordinator import coordinator, model, operation, request
+from tests.scripts.test_install_verification_recovery import expired, recovery as verification_recovery
 from sentinel_local_delivery import checks, reactivated, readiness
 
 
 MODE = 'POST_TRADE_REACTIVATED'
+
+
+def expired_reactivation(operation, monkeypatch, close_minutes=30):
+    host, original, delivery = operation
+    selected = dict(original.request, schema=model.REACTIVATED_SCHEMA, handoff_mode=MODE)
+    model.atomic_json(original.folder/'request.json', selected)
+    host.request = selected
+    delivery.journal = model.Journal(original.folder)
+    host.supports_post_trade = host.supports_post_trade_verification_recovery = True
+    host.supports_post_trade_successor = host.supports_post_trade_reactivated = True
+    host.state = reactivated_host().state
+    cycle = host.state['cycle']
+    # expired() advances the recovery clock 1000s after startup.
+    cycle.update(completed_at=model.utcnow().isoformat(), execution_close_at=(
+        model.utcnow()+timedelta(seconds=1000, minutes=close_minutes)).isoformat())
+    def canonical(h, *args, timeout=300):
+        h.canonical_count += 1
+        assert 0 < timeout <= 300
+        return dict(book='same', settled_native_positions=dict(h.native))
+    def panel(h, state, *, wait_until):
+        return dict(operational_ready=False, current_plan=state['plan']['plan_id'],
+            completed_cycle=state['cycle']['cycle_id'], completed_plan=state['cycle']['plan_id'],
+            installation_panel_valid_until=(model.utcnow()+timedelta(seconds=25)).isoformat())
+    monkeypatch.setattr(coordinator.evidence, 'canonical_check', canonical)
+    monkeypatch.setattr(coordinator.evidence, 'panel', panel)
+    monkeypatch.setattr(coordinator.evidence, 'leader', lambda h:dict(
+        current=True, holder='owner', generation=h.state['control']['generation'], fence=8, heartbeat=h.heartbeat))
+    return expired((host, delivery.journal, delivery), monkeypatch)
+
+
+def test_expired_reactivation_explicitly_reobserves_same_software_only_install(operation, monkeypatch):
+    host, journal, delivery = expired_reactivation(operation, monkeypatch, close_minutes=18)
+    before = journal.read()
+    with pytest.raises(model.DeliveryRefused, match='APPLICATION_READINESS_DEADLINE'):
+        delivery.advance()
+    clock = model.utcnow()
+    def now():
+        return clock+timedelta(seconds=host.clock)
+    monkeypatch.setattr(verification_recovery, 'utcnow', now)
+    unchanged = delivery._unchanged
+    after_native = []
+    def slow_observation(artifacts, **kwargs):
+        if kwargs.get('observation'):
+            host.clock += 12
+            after_native.append(now())
+        return unchanged(artifacts, **kwargs)
+    monkeypatch.setattr(delivery, '_unchanged', slow_observation)
+    observed = coordinator.evidence.panel
+    def short_publication(*args, **kwargs):
+        assert after_native == [now()]
+        return dict(observed(*args, **kwargs), installation_panel_valid_until=(now()+timedelta(seconds=2)).isoformat())
+    monkeypatch.setattr(coordinator.evidence, 'panel', short_publication)
+    calls, proofs = len(host.calls), host.canonical_count
+    result = verification_recovery.recover(delivery, 'after-start')
+    assert result['history'][:-1] == before['history'] and result['stage'] == 'VERIFIED'
+    assert all(result['artifacts'][key]==value for key,value in before['artifacts'].items())
+    assert result['artifacts']['installation_scope'] == 'POST_TRADE_REACTIVATED_SOFTWARE_ONLY'
+    assert result['artifacts']['operational_ready'] is False
+    intent = model.read_json(journal.folder/'verification-recovery-after-start.json')
+    assert intent['original_receipt'] == before and intent['authority_effect'] == 'NONE'
+    assert datetime.fromisoformat(intent['expires_at']) == (
+        datetime.fromisoformat(host.state['cycle']['execution_close_at'])-timedelta(minutes=15))
+    assert not any(isinstance(call, (tuple,list)) for call in host.calls[calls:])
+    assert host.canonical_count == proofs+1 and host.state == before['artifacts']['preserved']
+
+
+@pytest.mark.parametrize('fault,reason', [
+    ('close','RECOVERY_CLOSE_MARGIN_EXPIRED'), ('late','RECOVERY_DEADLINE'),
+    ('adapter','REACTIVATED_BACKED_ADAPTER_REQUIRED'), ('source','CANONICAL_ECONOMIC'),
+    ('edge','REACTIVATED_CONTROL_LINEAGE_CHANGED'), ('successor','SUCCESSOR_DIRECT_LINEAGE_CHANGED'),
+    ('prior_alert','REACTIVATED_HISTORICAL_FENCE_CHANGED'), ('reconciliation','POST_TRADE_COMPLETION_REQUIRED'),
+    ('panel_subject','REACTIVATED_PANEL_SUBJECT_CHANGED'), ('leader','LEADERSHIP_CHANGED'),
+    ('late_command','PRESERVED_STATE_CHANGED'), ('late_alert','HISTORY_CHANGED'),
+    ('late_positions','NATIVE_HOLDINGS'), ('restart','APPLICATION_STARTUP_PROCESS')])
+def test_refused_reactivation_recovery_preserves_original_receipt(operation, monkeypatch, fault, reason):
+    from copy import deepcopy
+    host, journal, delivery = expired_reactivation(operation, monkeypatch,
+        close_minutes=15 if fault=='close' else 18)
+    original = journal.read()
+    before = deepcopy(original)
+    state = before['artifacts']['preserved']
+    if fault in {'edge','successor','prior_alert','reconciliation'}:
+        if fault=='edge': state['reactivation']['events'][1]['action']='ACTIVATED'
+        elif fault=='successor': state['successor']['original_plan']['superseded_by']='foreign'
+        elif fault=='prior_alert': state['retained_incidents']['b'*64]['payload']['control_event_seq']=-1
+        else: state['reconciliation']['seq']+=1
+        monkeypatch.setattr(journal, 'read', lambda:deepcopy(before))
+    elif fault=='adapter':host.supports_post_trade_reactivated=False
+    elif fault=='source':monkeypatch.setattr(coordinator.evidence,'canonical_check',lambda *a,**kw:{})
+    elif fault=='late':
+        def expire(*a,timeout):
+            assert 0 < timeout <= 180
+            host.clock += 181
+            return before['artifacts']['canonical_proof']
+        monkeypatch.setattr(coordinator.evidence,'canonical_check',expire)
+    elif fault in {'late_command','late_alert','late_positions'}:
+        canonical=coordinator.evidence.canonical_check
+        def changed_during_proof(*a,**kw):
+            value=canonical(*a,**kw)
+            if fault=='late_command':host.state['inflight']+=1
+            elif fault=='late_alert':host.notifications['old']='changed'
+            else:host.native['native-id']='18'
+            return value
+        monkeypatch.setattr(coordinator.evidence,'canonical_check',changed_during_proof)
+    elif fault!='close':
+        observed=coordinator.evidence.panel
+        def changed(*a,**kw):
+            value=observed(*a,**kw)
+            if fault=='panel_subject':value['completed_plan']=value['current_plan']
+            elif fault=='leader':monkeypatch.setattr(coordinator.evidence,'leader',lambda h:dict(
+                current=True, holder='another', generation=h.state['control']['generation'], fence=9, heartbeat=h.heartbeat))
+            else:host.items['sentinel-panel']['RestartCount']+=1
+            return value
+        monkeypatch.setattr(coordinator.evidence,'panel',changed)
+    with pytest.raises(model.DeliveryRefused, match=reason):
+        verification_recovery.recover(delivery, 'refusal')
+    assert model.Journal(journal.folder).read()==original
+    if fault in {'adapter','edge','successor','prior_alert','reconciliation','close'}:
+        assert not list(journal.folder.glob('verification-recovery-*'))
+    else:
+        result=model.read_json(journal.folder/'verification-recovery-refusal.result.json')
+        assert result['outcome']=='REFUSED'
+
+
+def test_removing_reactivation_post_proof_preservation_is_detected(operation, monkeypatch):
+    original=coordinator.Delivery._unchanged
+    def missing_final_preservation(delivery, artifacts, **kwargs):
+        if kwargs.get('observation'):return artifacts['postgres'],{}
+        return original(delivery,artifacts,**kwargs)
+    monkeypatch.setattr(coordinator.Delivery,'_unchanged',missing_final_preservation)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_refused_reactivation_recovery_preserves_original_receipt(operation,monkeypatch,
+            'late_command','PRESERVED_STATE_CHANGED')
 
 
 def reactivated_host():
