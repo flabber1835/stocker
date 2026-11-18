@@ -185,8 +185,13 @@ def validate_restored_database(conn) -> dict:
         baseline_names = [str(row[0]) for row in cur.fetchall()]
     plan_by_id = {str(row[0]): row for row in plan_rows}
     from sentinel.paper.cash_retirement import PREFIX as cash_retirement_prefix, verify_retirements
+    import sentinel.paper.cash_postings as cash_postings
+    posting_plans = set()
     baselines = []
     for name in baseline_names:
+        if name.startswith(cash_postings.PREFIX):
+            posting_plans.add(name.removeprefix(cash_postings.PREFIX))
+            continue
         if name.startswith(cash_retirement_prefix):
             # A distinct authenticated subtype of existing execution metadata.
             # Its paired receipts are strictly validated below, not parsed as a
@@ -197,6 +202,8 @@ def validate_restored_database(conn) -> dict:
             raise RestoreValidationRefused(
                 f"cash baseline {name!r} has no execution plan")
         baselines.append((name, plan_id))
+    if not posting_plans <= {plan_id for _, plan_id in baselines}:
+        raise RestoreValidationRefused("cash posting observation has no plan baseline")
     for batch in batched(baselines, 32):
         with conn.cursor() as cur:
             cur.execute("SELECT cursor_name,session,state FROM sentinel_processed_sessions"
@@ -207,6 +214,12 @@ def validate_restored_database(conn) -> dict:
                 raise RestoreValidationRefused(
                     f"cash baseline for plan {plan_id!r} vanished during validation")
             baseline = broker_cash.decode_plan_baseline(plan_id, rows[name])
+            if baseline.pending_postings or plan_id in posting_plans:
+                try:
+                    cash_postings.verify_restored_postings(conn, baseline=baseline, activity=cash_activity,
+                        plan=journal.load_plan(conn, plan_id), has_observation=plan_id in posting_plans)
+                except (RuntimeError, KeyError, ValueError, TypeError, ArithmeticError) as exc:
+                    raise RestoreValidationRefused(f"restored native cash posting is invalid: {exc}") from exc
             row = plan_by_id[plan_id]
             if (baseline.decision_session != row[1]
                     or baseline.broker != str(row[2])

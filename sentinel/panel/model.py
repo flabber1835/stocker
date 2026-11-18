@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sentinel.paper_plan_preview import OpeningEstimate, PlanPreview
 from sentinel.panel.retry_status import (
     availability_label,
+    posting_wait_deadline,
     protected_day_wait as _protected_day_wait,
     project_cycle_recovery,
     submitted_commands_progress,
@@ -268,6 +269,22 @@ class ShadowSlot(BaseModel):
         return self
 
 
+class CashPostingOverview(BaseModel):
+    """Amounts at the execution writer's last cash reconciliation."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    credit: Decimal = Field(ge=0, allow_inf_nan=False)
+    reserved_debit: Decimal = Field(ge=0, allow_inf_nan=False)
+    funding_ceiling: Decimal = Field(ge=0, allow_inf_nan=False)
+    observed_at: datetime
+    _bounds = field_validator('credit', 'reserved_debit', 'funding_ceiling')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def valid_observation(self):
+        if self.observed_at.utcoffset() is None or not (self.credit or self.reserved_debit):
+            raise ValueError('cash posting detail needs dated, outstanding activity')
+        return self
+
+
 class PaperAccountOverview(BaseModel):
     """Recorded native paper balance, with its producer's original clock."""
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -276,6 +293,7 @@ class PaperAccountOverview(BaseModel):
     cash: Decimal = Field(ge=0, allow_inf_nan=False)
     buying_power: Decimal = Field(ge=0, allow_inf_nan=False)
     observed_at: datetime
+    cash_posting: CashPostingOverview | None = None
     _number_bound = field_validator('equity', 'cash', 'buying_power')(_bounded_display_decimal)
 
     @model_validator(mode='after')
@@ -1675,20 +1693,22 @@ def automation_cycle_row(*, installed: Optional[bool],
                              if not failure_code and not failure_detail else None),
                    operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state='DISCOVERY_WAIT'))
     normalized = str(state or "").upper()
-    submitted_progress = submitted_commands_progress(dict(
+    execution_cycle = dict(
         state=state, plan_id=plan_id, failure_code=failure_code,
         diagnostic=diagnostic, clean_reconciliation_id=clean_reconciliation_id,
         terminal_reason=terminal_reason, callback_failure=callback_failure,
         exception_type=exception_type, execution_open_at=execution_open_at,
         execute_at=execute_at, updated_at=updated_at, next_wake_at=next_wake_at,
-        execution_close_at=execution_close_at))
+        execution_close_at=execution_close_at, original_execution_deadline_at=original_execution_deadline_at)
+    submitted_progress = submitted_commands_progress(execution_cycle)
+    funding_deadline = posting_wait_deadline(execution_cycle)
     detail = (
         f"cycle {cycle_id} · decision {decision_session or 'unknown'} · "
         f"effective {effective_session or 'unknown'} · next wake "
         f"{next_wake_at.isoformat() if next_wake_at else 'none'} · last "
         f"clean reconciliation {clean_reconciliation_id or 'none'}")
     if failure_code or failure_detail:
-        detail += (f" · {'progress' if submitted_progress else 'failure'} {failure_code or 'UNCLASSIFIED'}: "
+        detail += (f" · {'progress' if submitted_progress or funding_deadline else 'failure'} {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
     availability_cycle = dict(
         state=state, retry_phase=retry_phase,
@@ -1722,6 +1742,8 @@ def automation_cycle_row(*, installed: Optional[bool],
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
         status = PENDING
         detail += " · activation waits for the next eligible session; no new order was sent"
+    elif funding_deadline is not None:
+        status = OK if enabled else PENDING
     elif submitted_progress:
         status = WARN if enabled else PENDING
         recovery = RecoveryEvidence(phase='AUTOMATION_RECONCILING', automatic=True,
@@ -1757,10 +1779,11 @@ def automation_cycle_row(*, installed: Optional[bool],
                 deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
                (availability_label(availability_cycle, availability) if availability is not None
+                else "AWAITING CONFIRMED CASH" if funding_deadline is not None
                 else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
                required_current=bool(enabled), recovery=recovery,
                valid_until=(recovery.deadline if recovery is not None
-                            and recovery.phase == 'AUTOMATION_CLOSING_DATA' else None),
+                            and recovery.phase == 'AUTOMATION_CLOSING_DATA' else funding_deadline),
                operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized)
                    if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                        'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
@@ -1883,10 +1906,12 @@ def automation_step_rows(
                 dict(detail) if isinstance(detail, Mapping)
                 and (detail.get("failure_code") or detail.get("failure_detail")) else None)
             historical_diagnostic = interrupted_transport.get('diagnostic') if interrupted_transport else None
-            if isinstance(historical_diagnostic, Mapping) and submitted_commands_progress(dict(
+            if isinstance(historical_diagnostic, Mapping):
+                attempt = dict(
                     state='RECONCILING', plan_id=cycle.get('plan_id'),
                     execution_open_at=cycle.get('execution_open_at'), execute_at=cycle.get('execute_at'),
                     execution_close_at=cycle.get('execution_close_at'),
+                    original_execution_deadline_at=cycle.get('original_execution_deadline_at'),
                     failure_code=interrupted_transport.get('failure_code'),
                     diagnostic=historical_diagnostic,
                     terminal_reason=historical_diagnostic.get('terminal_reason'),
@@ -1894,8 +1919,9 @@ def automation_step_rows(
                     exception_type=historical_diagnostic.get('exception_type'),
                     clean_reconciliation_id=interrupted_transport.get('last_clean_reconciliation_id'),
                     next_wake_at=_historical_wake(interrupted_transport.get('next_wake_at')),
-                    updated_at=event.get('at'))):
-                interrupted_transport = None
+                    updated_at=event.get('at'))
+                if submitted_commands_progress(attempt) or posting_wait_deadline(attempt):
+                    interrupted_transport = None
         for field in ("from_state", "to_state"):
             event_state = str(event.get(field) or "").upper()
             if event_state in _AUTOMATION_STATE_STEP:
@@ -1927,6 +1953,7 @@ def automation_step_rows(
     availability = projection.availability
     wait = projection.protected_wait
     clean_execution_wait = projection.clean_execution_wait
+    funding_deadline = posting_wait_deadline(cycle)
     failed_index = None
     if terminal and state != "SUCCEEDED":
         failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)
@@ -1934,6 +1961,11 @@ def automation_step_rows(
     rows: list[Row] = []
     for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS):
         row_key = f"automation_step_{key}"
+        if index in (4, 5) and funding_deadline is not None and not interrupted_transport:
+            rows.append(Row(row_key, label, "AWAITING CONFIRMED CASH", OK,
+                "The current purchase is still outstanding. The executor will recheck confirmed funds within its original window.",
+                cycle.get("updated_at"), required_current=True, valid_until=funding_deadline))
+            continue
         if (index == 4 and not terminal and wait is not None
                 and not cycle.get("failure_code") and not cycle.get("failure_detail")):
             missed = bool(cycle.get("new_submission_cutoff_expired")

@@ -162,6 +162,114 @@ def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatc
             conn, alpaca_path, monkeypatch, capsys)
 
 
+def test_contended_publication_rechecks_guards_without_replaying_source(conn, alpaca_path, monkeypatch, capsys):
+    from collections import Counter
+    from psycopg.pq import TransactionStatus
+    from sentinel import backup_runtime_authority as backup
+    from sentinel.feed import rolling_publisher, store
+
+    job = enqueue(conn)
+    require, validate, corroborate = backup.require, op.validate, AlpacaSource.corroborate
+    calls = Counter()
+    owners = []
+
+    def checked(conn, *, operation, **kwargs):
+        if operation in ('operational publication preflight', 'operational snapshot publication') or (
+                operation == 'corpus writer mutation' and calls['corroborate']):
+            calls[operation] += 1
+            if calls[operation] == 1:
+                raise backup.BackupIntegrityBusy('completed backup integrity proof does not cover current media')
+        return require(conn, operation=operation, **kwargs)
+
+    def validated(*args):
+        calls['validate'] += 1
+        return validate(*args)
+
+    def observed(source):
+        calls['corroborate'] += 1
+        return corroborate(source)
+
+    def idle(seconds):
+        assert 0 < seconds <= 2 and conn.info.transaction_status == TransactionStatus.IDLE
+        with store.connect(conn.info.dsn) as independent:
+            row = independent.execute('SELECT owner,fence,deadline,lease_until FROM sentinel_snapshot_jobs '
+                                      'WHERE job_id=%s FOR UPDATE NOWAIT', (job,)).fetchone()
+            assert row[0] and row[1] > 0
+            owners.append(row)
+            assert independent.execute("SELECT count(*) FROM pg_locks WHERE locktype='advisory' "
+                                       "AND pid=%s AND granted", (conn.info.backend_pid,)).fetchone() == (0,)
+
+    monkeypatch.setattr(backup, 'require', checked)
+    monkeypatch.setattr(op, 'validate', validated)
+    monkeypatch.setattr(AlpacaSource, 'corroborate', observed)
+    monkeypatch.setattr(rolling_publisher, 'sleep', idle)
+    result = op.prepare(conn, job)
+    assert result['job_id'] == job
+    assert calls == {'validate': 1, 'corroborate': 1, 'operational publication preflight': 2,
+                     'corpus writer mutation': 3, 'operational snapshot publication': 2}
+    assert len(owners) == 3 and len(set(owners)) == 1
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone() == (1,)
+    from scripts import sentinel_go_feed_progress
+    events = sentinel_go_feed_progress.collect(capsys.readouterr().err)
+    assert [event['reason'] for event in events if event['stage'] == 'backup_durability'] == [
+        'COVERAGE_CHANGED'] * 3
+    assert [event['status'] for event in events if event['stage'] == 'rolling_operational_publication'] == [
+        'started', 'completed']
+
+
+def test_backup_busy_after_writer_admission_never_replays_publication(conn, alpaca_path, monkeypatch):
+    from sentinel import backup_runtime_authority as backup
+    from sentinel.feed import rolling_publisher
+
+    def fail_body(*args, **kwargs):
+        raise backup.BackupIntegrityBusy('failure inside the publication body')
+
+    def unexpected_wait(seconds):
+        pytest.fail('retried after entering publication body')
+
+    job = enqueue(conn)
+    monkeypatch.setattr(op, 'publish', fail_body)
+    monkeypatch.setattr(rolling_publisher, 'sleep', unexpected_wait)
+    with pytest.raises(backup.BackupIntegrityBusy, match='inside the publication body'):
+        op.prepare(conn, job)
+    assert jobs.status(conn, job)['reason'] == 'BACKUP_AUTHORITY_WAIT'
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone() == (0,)
+
+
+def test_removing_prepublication_boundary_exposes_body_replay(conn, alpaca_path, monkeypatch):
+    import inspect
+    from textwrap import dedent
+    from sentinel.feed import rolling_publisher
+
+    source = dedent(inspect.getsource(rolling_publisher.PublicationObserver.publication))
+    guard = "admitted or phase != 'rolling_operational_publication'"
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, "phase != 'rolling_operational_publication'"),
+                 '<unsafe publication replay>', 'exec'), vars(rolling_publisher), namespace)
+    monkeypatch.setattr(rolling_publisher.PublicationObserver, 'publication', namespace['publication'])
+    with pytest.raises(pytest.fail.Exception, match='retried after entering publication body'):
+        test_backup_busy_after_writer_admission_never_replays_publication(conn, alpaca_path, monkeypatch)
+
+
+def test_backup_wait_stops_when_original_lease_expires(conn, monkeypatch):
+    from sentinel import backup_runtime_authority as backup
+    from sentinel.feed import rolling_publisher, store
+
+    job = enqueue(conn)
+    lease = jobs.claim(conn, job, lease_seconds=60)
+    conn.commit()
+
+    def expire(seconds):
+        with store.connect(conn.info.dsn) as independent:
+            independent.execute('UPDATE sentinel_snapshot_jobs SET lease_until=clock_timestamp() WHERE job_id=%s',
+                                (job,))
+
+    monkeypatch.setattr(rolling_publisher, 'sleep', expire)
+    with pytest.raises(jobs.JobLeaseExpired):
+        rolling_publisher.PublicationObserver(conn, lease).wait_for_backup(backup.BackupIntegrityBusy('busy'))
+
+
 def changing_source(fake, monkeypatch, *, change, persistent=False):
     version = [0]
     observed = []

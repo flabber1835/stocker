@@ -198,9 +198,12 @@ async def _broker_cash_state_or_refuse(
         return None
     from sentinel.execution.alpaca import ActivityCorrectionRequiresRecovery
     try:
+        from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        policy = MarketBuyPolicy.from_env()
+        options = {"qualify_postings": True} if policy and policy.fractional else {}
         return await broker_cash.ingest_account_cash(
             conn, broker_adapter=broker, broker=binding.broker,
-            account_id=binding.broker_account_id, through=through)
+            account_id=binding.broker_account_id, through=through, **options)
     except BrokerAuthorityRefused:
         raise
     except (broker_cash.BrokerCashAuthorityRefused, MalformedBrokerEvidence,
@@ -212,7 +215,18 @@ async def _broker_cash_state_or_refuse(
             "broker cash activity evidence is temporarily unavailable: "
             f"{type(exc).__name__}: {exc}") from exc
 
-def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> Fraction:
+def fractional_posting_reserve(conn, *, plan, deployment, account, observation,
+                               activity_state, candidate_key=None):
+    """The fractional funding owner must reserve every unconfirmed native debit."""
+    from .cash_postings import evaluate
+    try:
+        return evaluate(conn, plan=plan, deployment=deployment, account=account,
+                        observation=observation, activity_state=activity_state, candidate_key=candidate_key)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(f"invalid native cash posting evidence: {exc}") from exc
+
+
+def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None, posted_rows=None) -> Fraction:
     """The one immutable-plan plus durable-fill cash equation."""
     from sentinel.execution.fractional_progress import is_fractional
     from sentinel.execution.target_reprojection import load_projection
@@ -224,7 +238,7 @@ def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> 
         commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
     filled_commands = tuple(command for command in commands
                             if command.identity.plan_id == plan.plan_id and command.filled_quantity != 0)
-    rows = load_exact_fill_rows(conn, filled_commands)
+    rows = posted_rows if posted_rows is not None else load_exact_fill_rows(conn, filled_commands)
     fractional = None
     for command in filled_commands:
         if command.filled_average_price is None:
@@ -233,6 +247,9 @@ def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> 
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
         try:
+            if posted_rows is not None and any(posted is None or len(key) != 64 for key, _, _, posted in rows.get(
+                    (command.client_key, command.broker_order_id), ())):
+                raise PostedFillCashIncomplete("pending native postings require explicit signed fill cash")
             expected_without_activity += fill_economics(command, rows).cash
         except PostedFillCashIncomplete as exc:
             raise PaperRetryableRefused(
@@ -240,7 +257,7 @@ def _plan_fill_cash(conn, *, plan: ExecutionPlan, deployment, commands=None) -> 
         except FillHistoryIncomplete as exc:
             if fractional is None:
                 fractional = is_fractional(load_projection(conn, plan_id=plan.plan_id))
-            if command.notional is not None or fractional:
+            if posted_rows is not None or command.notional is not None or fractional:
                 raise PaperRetryableRefused(
                     f"FILL_PRINCIPAL_PENDING for {command.client_key}: {exc}") from exc
             # Older quantity plans can predate durable per-fill cash evidence.
@@ -363,6 +380,8 @@ def _cash_authority_or_refuse(
                 f"plan {plan.plan_id} has no immutable broker cash baseline. "
                 "It cannot be backfilled from current cash or activity state; "
                 "resolve the legacy plan explicitly and prepare a fresh plan")
+        if baseline.pending_postings:
+            raise PaperActivationRefused("carried native postings require the fractional cash proof")
         if (baseline.broker != activity_state.broker
                 or baseline.account_id != activity_state.account_id
                 or baseline.decision_session != plan.decision_session):

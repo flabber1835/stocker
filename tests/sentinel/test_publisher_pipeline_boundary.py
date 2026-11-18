@@ -27,6 +27,18 @@ def _dump(value):
 
 def _restore_contexts_and_observations(body):
     class Restore(ast.NodeTransformer):
+        def visit_While(self, node):
+            retry = ast.parse(
+                'while True:\n'
+                '    try:\n'
+                '        backup_runtime_authority.require(conn, operation="operational publication preflight")\n'
+                '        break\n'
+                '    except backup_runtime_authority.BackupIntegrityBusy as exc:\n'
+                '        observer.wait_for_backup(exc)').body[0]
+            if _dump(node) == _dump(retry):
+                return retry.body[0].body[0]
+            return self.generic_visit(node)
+
         def visit_Expr(self, node):
             call = node.value
             if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
@@ -38,6 +50,22 @@ def _restore_contexts_and_observations(body):
             return self.generic_visit(node)
 
         def visit_With(self, node):
+            reporting = ast.parse(
+                'with observer.reporting(phase, job_id):\n'
+                '    while True:\n'
+                '        try:\n'
+                '            with observer.publication(phase, job_id):\n'
+                '                pass\n'
+                '            break\n'
+                '        except operational_snapshot.PublicationAdmissionBusy as exc:\n'
+                '            if not operational:\n'
+                '                raise\n'
+                '            observer.wait_for_backup(exc)').body[0]
+            if _dump(node.items[0]) == _dump(reporting.items[0]):
+                writer = node.body[0].body[0].body[0]
+                reporting.body[0].body[0].body[0].body = writer.body
+                assert _dump(node) == _dump(reporting)
+                return self.visit_With(writer)
             self.generic_visit(node)
             if len(node.items) != 1:
                 return node
@@ -85,6 +113,8 @@ def test_complete_economic_pipeline_ast_matches_independent_installed_git_witnes
     (b'rolling_builder.build(conn, lease, request, source)',
      b'rolling_builder.build(conn, lease, request, None)'),
     (b'source.corroborate()', b'source.preflight()'),
+    (b'observer.wait_for_backup(exc)', b'break'),
+    (b'except operational_snapshot.PublicationAdmissionBusy as exc:', b'except Exception as exc:'),
     (b'with observer.acquisition():', b'with observer.publication(phase, job_id):'),
     (b'if _legacy_version(conn) != request.expected_publication_version:', b'if False:'),
 ])
@@ -150,6 +180,29 @@ def test_current_logical_slot_uses_fixed_pipeline_bytes():
             'economic_sha256': basis.BASE_SHA256} in value['administrative_source_basis']['observed_seams']
 
 
+def test_original_extracted_pipeline_still_has_its_proven_identity():
+    raw = Path(pipeline.__file__).read_bytes()
+    tree = ast.parse(raw)
+    observer = _definition(tree, 'Observer')
+    run = _definition(tree, 'run')
+    retry = next(node for node in ast.walk(run)
+                 if isinstance(node, ast.While) and node.body[0].handlers[0].type.attr == 'BackupIntegrityBusy')
+    lines = raw.splitlines(keepends=True)
+    reporting = run.body[-2]
+    writer = reporting.body[0].body[0].body[0]
+    indent = writer.col_offset - reporting.col_offset
+    lines[reporting.lineno - 1:reporting.end_lineno] = [
+        line[indent:] for line in lines[writer.lineno - 1:writer.end_lineno]]
+    guard = lines[retry.body[0].body[0].lineno - 1].lstrip()
+    lines[retry.lineno - 1:retry.end_lineno] = [b' ' * retry.col_offset + guard]
+    for name in ('reporting', 'wait_for_backup'):
+        method = _definition(observer, name)
+        del lines[method.lineno - 1:method.end_lineno]
+    historical = b''.join(lines)
+    assert hashlib.sha256(historical).hexdigest() == basis.EXTRACTED_PIPELINE_SHA256
+    assert basis.contribution(historical) == basis.BASE_SHA256
+
+
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
     path = Path(pipeline.__file__).resolve()
     original = Path.read_bytes
@@ -167,7 +220,7 @@ def test_economic_identity_matches_current_signed_strategy():
 
 def test_closed_pipeline_mapping_has_behavioral_falsifier(monkeypatch):
     source = inspect.getsource(basis.contribution)
-    needle = 'actual == PIPELINE_SHA256'
+    needle = 'actual in (EXTRACTED_PIPELINE_SHA256, PIPELINE_SHA256)'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'True'), 'unclosed-pipeline', 'exec'), basis.__dict__, namespace)

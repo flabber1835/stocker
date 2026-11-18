@@ -148,7 +148,10 @@ def completed_account_row(conn, panel, *, now):
         if (row.effective_status(now) != model.OK or row.as_of is None or row.as_of > now
                 or prior.as_of is None or row.as_of < prior.as_of):
             return None
-        overview = overview_data.account_overview(account, expected_account_id=bound)
+        # This overlay refreshes only native valuation. Preserve the separate
+        # posting observation and its original reconciliation time.
+        overview = overview_data.account_overview(account, expected_account_id=bound,
+            cash_posting=prior.paper_account.cash_posting if prior.paper_account else None)
         return replace(row, paper_account=overview) if overview is not None else None
     except (ValueError, TypeError, KeyError, InvalidOperation, OverflowError):
         return None

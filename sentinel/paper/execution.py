@@ -8,6 +8,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import date, datetime, timedelta
 
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 
 from zoneinfo import ZoneInfo
 
@@ -397,11 +398,35 @@ async def _execute_current_paper_plan(
                 conn=conn, binding=binding.identity, clock=clock)
                 if policy_selected(conn, binding.identity) else None)
             market_settled = None
+            fractional_postings = dual_mode and market_policy is not None and market_policy.fractional
+
+            def check_execution_cash(result, account, activity, observed_at, *, fee_wait=False,
+                                     candidate_key=None):
+                if fractional_postings and result.clean:
+                    from .cash import fractional_posting_reserve
+                    from .cash_postings import read_posting_status
+                    from sentinel.execution.fractional_progress import PostingFunds
+                    from sentinel.execution.numeric import exact_decimal
+                    reserve = fractional_posting_reserve(
+                        conn, plan=plan, deployment=binding.identity, account=account,
+                        observation=result.observation, activity_state=activity,
+                        candidate_key=candidate_key)
+                    if reserve is not None:
+                        status = read_posting_status(conn, plan_id=plan.plan_id, account_id=plan.broker_account_id)
+                        if not status["events"]:
+                            return None
+                        credits = sum((max(0, Fraction(value)) for value in status["events"].values()), Fraction(0))
+                        return PostingFunds(account.cash, account.buying_power, exact_decimal(credits), reserve)
+                _cash_authority_or_refuse(
+                    conn, plan=plan, deployment=binding.identity, account=account,
+                    observation=result.observation, activity_state=activity,
+                    endpoint_lag_observed_at=observed_at, allow_native_fee_wait=fee_wait)
+                return None
 
             async def authorize_market_funding(*, account, **candidate):
                 if market_settled is None:
                     raise OrderEvidenceNotReady("market BUY lacks settled account evidence")
-                settled_reconciliation, settled_account = market_settled
+                settled_reconciliation, settled_account, sizing_funds = market_settled
                 settled_observation = settled_reconciliation.observation
                 if candidate["instrument"].security_id in settled_reconciliation.restricted_securities:
                     raise OrderEvidenceNotReady("market BUY is restricted by the settled reconciliation")
@@ -412,13 +437,17 @@ async def _execute_current_paper_plan(
                     observed_at = clock()
                     fresh_activity = await _broker_cash_state_or_refuse(
                         conn, broker=broker, binding=binding, through=observed_at)
-                    _cash_authority_or_refuse(
-                        conn, plan=plan, deployment=binding.identity, account=account,
-                        observation=settled_observation, activity_state=fresh_activity,
-                        endpoint_lag_observed_at=observed_at)
+                    funds = check_execution_cash(settled_reconciliation, account, fresh_activity,
+                        observed_at, candidate_key=candidate["client_key"])
+                    if funds != sizing_funds:
+                        raise PaperRetryableRefused("market BUY cash availability changed after sizing")
+                    ceiling = funds.cash_ceiling if funds else None
+                    if ceiling is not None and candidate["estimate"] > ceiling:
+                        raise OrderEvidenceNotReady("market BUY exceeds cash after reserving unposted debits")
                     _market_buy_candidate_or_refuse(
                         conn, plan=plan, projection=target_projection,
-                        deployment=binding.identity, observation=settled_observation, **candidate)
+                        deployment=binding.identity, observation=settled_observation,
+                        cash_ceiling=ceiling, **candidate)
                 except PaperRetryableRefused as exc:
                     raise OrderEvidenceNotReady(str(exc)) from exc
                 except PaperActivationRefused as exc:
@@ -500,11 +529,18 @@ async def _execute_current_paper_plan(
                 activity_state = await _broker_cash_state_or_refuse(
                     conn, broker=broker, binding=binding,
                     through=cash_evidence_at)
-                _cash_authority_or_refuse(
-                    conn, plan=plan, deployment=binding.identity,
-                    account=account, observation=observation,
-                    activity_state=activity_state,
-                    endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
+                reserve = None
+                if fractional_postings and preflight.clean:
+                    from . import cash_postings
+                    preflight, account, activity_state, reserve = await cash_postings.prepare(
+                        conn, broker=broker, binding=binding, plan=plan, rec=preflight,
+                        account=account, activity=activity_state, actions=actions, clock=clock)
+                    observation = preflight.observation
+                if reserve is None:
+                    _cash_authority_or_refuse(
+                        conn, plan=plan, deployment=binding.identity, account=account,
+                        observation=observation, activity_state=activity_state,
+                        endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
             current_commands = journal.load_commands(conn, binding.identity)
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
@@ -603,12 +639,9 @@ async def _execute_current_paper_plan(
                             initial_result=fresh_reconciliation, actions=actions,
                             dual_mode=dual_mode, clock=clock,
                             allow_restrictions=market_policy.fractional)
-                        _cash_authority_or_refuse(
-                            conn, plan=plan, deployment=binding.identity, account=cash,
-                            observation=confirmed.observation, activity_state=activity,
-                            endpoint_lag_observed_at=observed_at, allow_native_fee_wait=True)
-                        market_settled = (confirmed, cash)
-                        return
+                        funds = check_execution_cash(confirmed, cash, activity, observed_at, fee_wait=True)
+                        market_settled = (confirmed, cash, funds)
+                        return funds
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
                             observation=fresh_observation):
@@ -659,7 +692,7 @@ async def _execute_current_paper_plan(
                     or ProtectedLimitPolicy.from_env() is not None)
 
                 async def authorize_from_reconciliation(fresh_reconciliation):
-                    await authorize_increases(
+                    return await authorize_increases(
                         fresh_reconciliation.observation, fresh_reconciliation)
 
                 def market_buy_window_open():
@@ -717,12 +750,8 @@ async def _execute_current_paper_plan(
                         deployment=binding.identity,
                         initial_result=final_reconciliation,
                         actions=actions, dual_mode=dual_mode, clock=clock))
-                _cash_authority_or_refuse(
-                    conn, plan=plan, deployment=binding.identity,
-                    account=evidence_account,
-                    observation=confirmed_reconciliation.observation,
-                    activity_state=evidence_activity,
-                    endpoint_lag_observed_at=evidence_at, allow_native_fee_wait=True)
+                check_execution_cash(confirmed_reconciliation, evidence_account, evidence_activity,
+                                     evidence_at, fee_wait=True)
                 trial.record_account_evidence(
                     conn, session=plan.effective_session,
                     observation_id=confirmed_reconciliation.observation_id,

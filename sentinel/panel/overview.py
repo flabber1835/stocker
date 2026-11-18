@@ -342,9 +342,15 @@ def _account_html(panel: Panel) -> str:
         return ('<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
                 '<h2 id="account-overview-title">Recorded paper account</h2>'
                 '<p class="overview-unavailable">Account totals unavailable.</p></section>')
+    posting = account.cash_posting
+    posting_note = '' if posting is None else (
+        '<p class="overview-note">At the last cash reconciliation, unconfirmed credits were '
+        f'${posting.credit:,.2f} and reserved debits were ${posting.reserved_debit:,.2f}. '
+        f'The cash ceiling before order reservations was ${posting.funding_ceiling:,.2f}.</p>'
+        + _stamp(posting.observed_at, label='Cash last checked:'))
     market_buying_power = (
         '<div><span>Broker buying power</span><strong>$'+f'{account.buying_power:,.2f}'
-        +'</strong></div>' if row.recovery is not None
+        +'</strong></div>' if posting is not None or row.recovery is not None
         and row.recovery.phase == MARKET_BUY_OBSERVATION else '')
     return (
         '<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
@@ -353,7 +359,7 @@ def _account_html(panel: Panel) -> str:
         '<div class="account-stats"><div><span>Account value</span><strong>$'+f'{account.equity:,.2f}'
         +'</strong></div><div><span>Cash · '+f'{account.cash/account.equity*100:.1f}'
         +'%</span><strong>$'+f'{account.cash:,.2f}'+'</strong></div>'
-        +market_buying_power+'</div>'
+        +market_buying_power+'</div>'+posting_note
         +_stamp(account.observed_at, label='Account snapshot:')+'</section>')
 
 

@@ -1975,6 +1975,34 @@ def _runtime_verdict(conn) -> dict | None:
     return {"verdict": row[0], "checked_at": _utc(row[1])}
 
 
+def _cash_posting_overview(conn, *, account_id, now):
+    from sentinel.paper.cash_postings import read_posting_status
+
+    plan = _current_plan(conn)
+    if plan is None:
+        return None
+    status = read_posting_status(conn, plan_id=plan['plan_id'], account_id=account_id)
+    if status is None:
+        return None
+    if (status['account_id'] != account_id or status['broker'] != 'alpaca'
+            or status['plan_id'] != plan['plan_id']):
+        raise ValueError('cash posting evidence belongs to a different plan or account')
+    observed = _utc(status['observed_at'])
+    if observed is None or observed > now:
+        raise ValueError('invalid cash posting observation time')
+    amounts = [Decimal(value) for value in status['events'].values()]
+    reserve = Decimal(status['reserve'])
+    if reserve != -sum(amount for amount in amounts if amount < 0):
+        raise ValueError('reserved fees differ from the outstanding cash events')
+    if not amounts:
+        return None
+    return model.CashPostingOverview(
+        credit=sum(amount for amount in amounts if amount > 0),
+        reserved_debit=reserve, observed_at=observed,
+        funding_ceiling=max(Decimal(0), min(Decimal(status['buying_power']),
+                                            Decimal(status['account_cash']) - reserve)))
+
+
 def _operator_evidence_rows(
         database_url: str, *, now: datetime) -> tuple[list[model.Row], list[str]]:
     """Account, backup and runtime identity from append-only durable evidence."""
@@ -2042,7 +2070,12 @@ def _operator_evidence_rows(
                     conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
                     STATEMENT_TIMEOUT_MS, default=None)
 
-        account_detail = account_error or binding_error or reservation_error
+        cash_posting = posting_error = None
+        if local and account is not None and bound and account.get('account_id') == bound:
+            cash_posting, posting_error = _read(
+                conn, lambda c: _cash_posting_overview(c, account_id=bound, now=now),
+                STATEMENT_TIMEOUT_MS)
+        account_detail = account_error or binding_error or reservation_error or posting_error
         account_recovery = _observation_recovery(cycle)
         if account_recovery is not None and account_recovery.phase == 'BROKER_PREFLIGHT_REFRESH':
             account_recovery = None
@@ -2071,7 +2104,7 @@ def _operator_evidence_rows(
                 market_working is not None and account_row.recovery == market_working):
             from sentinel.panel.overview_data import account_overview
             account_row = replace(account_row, paper_account=account_overview(
-                account, expected_account_id=bound))
+                account, expected_account_id=bound, cash_posting=cash_posting))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error
         backup_row = model.backup_restore_row(

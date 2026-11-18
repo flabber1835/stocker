@@ -88,6 +88,97 @@ def test_cash_guard_falsifier(monkeypatch):
         test_notional_and_headroom_fit_both_native_cash_bounds("999", "1000")
 
 
+def test_final_posting_limited_order_requires_exact_fresh_ceiling(database, monkeypatch):
+    from sentinel import dual_plan_authority
+    from sentinel.execution.commands import Command
+    from sentinel.execution.identity import CommandIdentity
+    from sentinel.paper.model import PaperActivationRefused
+    from sentinel.paper.validation import _market_buy_candidate_or_refuse
+
+    schema.ensure_schema(database)
+    binding.bind(database, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                 broker_account_id=DEPLOYMENT.broker_account_id)
+    state, original = case()
+    plan = replace(original, deployment_id=DEPLOYMENT.deployment_id, broker=DEPLOYMENT.broker,
+                   broker_account_id=DEPLOYMENT.broker_account_id, takeover_epoch=DEPLOYMENT.takeover_epoch)
+    plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
+    raw = base(state, plan)
+    projection = fractional_sizing.resolve(state, plan, raw, references(plan, raw), MarketBuyPolicy(True),
+        baseline={"through_event_seq": 0, "commands": [], "holdings": {}}, retained_targets={})
+    journal.save_plan(database, plan)
+    target_reprojection.record_projection(database, projection)
+    monkeypatch.setattr(dual_plan_authority, "require_current_buy_policy", lambda *_args, **_kwargs: None)
+    sid = "SEC-AAA"
+    candidate = Command(CommandIdentity(DEPLOYMENT, plan.plan_id, sid), market_instruments()[sid],
+                        Side.BUY, quantity=None, notional=D("698.99"))
+    observation = asyncio.run(DollarBroker().observe())
+    with journal.writer_lock(database, recovery_only=True):
+        journal.save_command(database, candidate)
+        journal.save_command(database, recovery.prepare_send(candidate), previous=S.PLANNED)
+        def verify(ceiling):
+            _market_buy_candidate_or_refuse(database, plan=plan, projection=projection, deployment=DEPLOYMENT,
+                observation=observation, client_key=candidate.client_key, instrument=candidate.instrument,
+                quantity=None, notional=candidate.notional, order_terms=candidate.order_terms,
+                estimate=D("699.99"), session=plan.effective_session, cash_ceiling=ceiling)
+        verify(D("699.99"))
+        for changed in (None, D("699.98"), D("700.00")):
+            with pytest.raises(PaperActivationRefused, match="immutable remaining allocation"):
+                verify(changed)
+
+
+@pytest.mark.parametrize("change,expected", [
+    ("", "CASH_POSTING_WAIT"), ("cutoff", "ACTIONABLE_DELTA_REMAINS"),
+    ("other_delta", "ACTIONABLE_DELTA_REMAINS"), ("insufficient_credit", "ACTIONABLE_DELTA_REMAINS"),
+    ("forged_ceiling", "ACTIONABLE_DELTA_REMAINS")])
+def test_automation_classifies_only_the_current_cash_funded_wait(monkeypatch, change, expected):
+    from types import SimpleNamespace
+    from sentinel import automation_runtime, paper
+    from sentinel.execution.states import RuntimeState
+    from tests.sentinel import test_automation_runtime as t
+
+    cfg = t.config()
+    plan = replace(t.plan(), broker="alpaca")
+    plan = replace(plan, plan_id="sentinel-" + plan.fingerprint())
+    ctx = t.context(cfg, plan=plan)
+    ctx = ctx.model_copy(update={"cycle": ctx.cycle.model_copy(update={"broker": plan.broker})})
+    sid = t.INSTRUMENT.security_id
+    runtime = t.production(cfg)
+    runtime._dual_run_enabled = True
+    broker = DollarBroker()
+    t.install_runtime_seams(monkeypatch, runtime, t.FakeConnection(), ctx, broker)
+    monkeypatch.setattr(automation_runtime, "require_observation_integrity", lambda _: None)
+    monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema", lambda _: None)
+    monkeypatch.setattr(journal, "latest_plan", lambda _: plan)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(runtime, "_actionable_current_plan_deltas", lambda *_args, **_kwargs:
+        (SimpleNamespace(security_id="another" if change == "other_delta" else sid, is_increase=True),))
+    deadline = min(ctx.cycle.execution_close_at, ctx.cycle.execution_open_at + timedelta(minutes=10),
+                   ctx.cycle.execute_at + timedelta(seconds=cfg.maximum_execution_lateness_seconds))
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: deadline if change == "cutoff" else ctx.cycle.execute_at)
+    async def pending(**kwargs):
+        rec = t.reconciliation(await broker.observe())
+        funds = fractional_progress.PostingFunds(D(1), D(1), D("0.01") if change == "insufficient_credit"
+                                                 else D(309), D("0.01")).to_dict()
+        if change == "forged_ceiling":
+            funds["cash_ceiling"] = "2"
+        session = executor.SessionResult(runtime_state=RuntimeState.RUNNING, reconciliation=rec,
+            deferred=(sid,), posting_deferred=(sid,), posting_funds=funds)
+        return paper.ExecutionResult(plan=plan, preflight=rec, session=session)
+    monkeypatch.setattr(paper, "execute_automated_paper_plan", pending)
+    result = asyncio.run(runtime.execute(ctx))
+    assert result.disposition is t.ExecuteDisposition.RECONCILE
+    assert result.failure_code == expected
+    assert result.diagnostic.get("original_execution_deadline_at") == (
+        deadline.isoformat() if expected == "CASH_POSTING_WAIT" else None)
+
+
+def test_ordinary_shortage_mislabeled_as_native_posting_falsifier(monkeypatch):
+    monkeypatch.setattr(fractional_progress.PostingFunds, "credit_can_fund_order", lambda self: True)
+    with pytest.raises(AssertionError, match="CASH_POSTING_WAIT"):
+        test_automation_classifies_only_the_current_cash_funded_wait(
+            monkeypatch, "insufficient_credit", "ACTIONABLE_DELTA_REMAINS")
+
+
 @pytest.mark.parametrize("delay,automated,crosses,accepted", [
     (30, True, False, True),
     (30, True, True, False),
@@ -320,6 +411,13 @@ async def serial_flow(database, monkeypatch, *, continuation=None):
                 assert not any(order.is_working for order in latest.observation.orders)
                 assert latest.clean
                 checked_books.append(latest.observation_id)
+                if continuation == "pending_posting":
+                    # $0.01 is reserved on the first pass. The pending credit
+                    # becomes available only to a subsequent reconciled tick.
+                    if len(checked_books) == 1:
+                        return fractional_progress.PostingFunds(D(700), D(700), D(309), D("0.01"))
+                    if len(checked_books) == 2:
+                        return fractional_progress.PostingFunds(D("1.01"), D("1.01"), D(309), D("0.01"))
                 if continuation == "cash" and len(checked_books) == 2:
                     raise RuntimeError("new account cash is unavailable")
 
@@ -339,7 +437,22 @@ async def serial_flow(database, monkeypatch, *, continuation=None):
                                             else lambda: continuation != "expired"))
 
             current = await invoke()
-            if continuation == "immediate":
+            if continuation == "pending_posting":
+                assert len(current.submitted) == 1, "expected only the funded purchase"
+                first, = current.submitted
+                assert first.notional == D("698.99") and first.security_id == "SEC-AAA"
+                assert len(checked_books) == 2
+                assert current.posting_deferred == ("SEC-AAA", "SEC-BBB", "SEC-CCC")
+                assert current.deferred == current.posting_deferred
+                assert not ExecutionResult(plan, rec, current).needs_attention
+                resumed = await invoke()
+                topup = resumed.submitted[0]
+                assert topup.security_id == first.security_id
+                assert topup.identity.revision == first.identity.revision + 1
+                assert topup.notional + first.notional + D(2) == D(5000)
+                assert inner.calls.count("submit:" + first.client_key) == 1
+                assert not resumed.deferred
+            elif continuation == "immediate":
                 assert [command.security_id for command in current.submitted] == [
                     "SEC-AAA", "SEC-BBB", "SEC-CCC"], current.to_dict()
                 assert len(set(checked_books)) == 3 and all(checked_books)
@@ -394,10 +507,16 @@ def test_real_reconciliation_keeps_partial_shares_and_serializes_two_dollar_buys
     asyncio.run(serial_flow(database, monkeypatch))
 
 
-@pytest.mark.parametrize("outcome", ["immediate", "handoff", "working", "cash", "expired",
+@pytest.mark.parametrize("outcome", ["immediate", "handoff", "working", "cash", "expired", "pending_posting",
                                    "new_reconciliation_required", "unknown", "rejected"])
 def test_guarded_market_buy_continuation_uses_fresh_settlement(database, monkeypatch, outcome):
     asyncio.run(serial_flow(database, monkeypatch, continuation=outcome))
+
+
+def test_unposted_debit_funding_limit_falsifier(database, monkeypatch):
+    monkeypatch.setattr(fractional_progress, "funded_notional", lambda requested, ceiling: requested)
+    with pytest.raises(AssertionError, match="expected only the funded purchase"):
+        asyncio.run(serial_flow(database, monkeypatch, continuation="pending_posting"))
 
 
 def test_serial_buy_guard_falsifier(database, monkeypatch):

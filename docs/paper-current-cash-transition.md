@@ -44,6 +44,8 @@ malformed evidence or an unsupported native correction as structural refusal.
 Only actual transport unavailability earns an availability retry; parser or
 ledger defects cannot become an unbounded PREPARE availability wait.
 
+The later [fractional PAPER posting policy](paper-unconfirmed-native-postings.md) supersedes the positive-credit wait below for its explicitly qualified account and events.
+
 For subsequent plans, keep the existing immutable baseline/fills/native-activity
 equation before every new decision. A newly published positive native cash total
 can precede its appearance in account cash. If the baseline has accepted native

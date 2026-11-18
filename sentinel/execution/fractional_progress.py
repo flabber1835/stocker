@@ -5,6 +5,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
+import re
 
 from sentinel.execution import commands as C, fill_integrity, journal, reconcile
 from sentinel.execution.contract import Side
@@ -178,7 +179,7 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             else:
                 blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
             continue
-        if filled or (not historical and buys and buys[0].quantity is not None and acquired[sid] == targets[sid]):
+        if sid in whole_share_buys and (filled or (not historical and acquired[sid] == targets[sid])):
             if acquired[sid] != targets[sid]:
                 blocked[sid] = "FALLBACK_SHARE_OBLIGATION_UNFULFILLED"
             continue
@@ -188,6 +189,10 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             blocked[sid] = "PURCHASE_BUDGET_EXCEEDED"
             continue
         available = max(Fraction(0), available)
+        if filled and purchase_notional(exact_decimal(available)) is None:
+            # Completing a clipped notional order leaves its unspent allocation
+            # intact. Only a remainder too small for another order is dust.
+            continue
         budgets[sid] = exact_decimal(Fraction(available // Fraction("0.01"), 100))
         if buys and buys[-1].state is S.REJECTED:
             blocked[sid] = REJECTED_FOR_PLAN
@@ -279,3 +284,57 @@ def purchase_notional(budget: Decimal) -> Decimal | None:
     principal = max(Fraction(0), Fraction(budget) - Fraction(MARKET_BUY_HEADROOM))
     principal = exact_decimal(Fraction(principal // Fraction("0.01"), 100))
     return principal if principal >= Decimal(1) else None
+
+
+def funded_notional(requested: Decimal, cash_ceiling: Decimal | None) -> Decimal | None:
+    """Bound a pre-sized notional against fresh spending power, including headroom."""
+    if cash_ceiling is None:
+        return requested
+    affordable = purchase_notional(cash_ceiling)
+    return min(requested, affordable) if affordable is not None else None
+
+
+@dataclass(frozen=True)
+class PostingFunds:
+    """An execution attempt's verified native balances and pending cash amounts."""
+
+    account_cash: Decimal
+    buying_power: Decimal
+    pending_credit: Decimal
+    reserved_debit: Decimal
+
+    @classmethod
+    def from_dict(cls, body):
+        names = ("account_cash", "buying_power", "pending_credit", "reserved_debit")
+        if not isinstance(body, dict) or set(body) != {*names, "cash_ceiling"}:
+            raise ValueError("invalid cash posting funding receipt")
+        try:
+            if any(not isinstance(value, str) or len(value) > 64
+                   or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value)
+                   for value in body.values()):
+                raise ValueError("invalid cash posting funding amount")
+            amounts = [Decimal(body[name]) for name in names]
+            funds = cls(*amounts)
+            if abs(Fraction(funds.buying_power) - Fraction(funds.account_cash)) > 1 or funds.to_dict() != body:
+                raise ValueError("cash posting funding receipt differs from its balances")
+            return funds
+        except ArithmeticError as exc:
+            raise ValueError("invalid cash posting funding amount") from exc
+
+    @property
+    def cash_ceiling(self):
+        return exact_decimal(max(0, min(Fraction(self.account_cash) - Fraction(self.reserved_debit),
+                                        Fraction(self.buying_power))))
+
+    def credit_can_fund_order(self) -> bool:
+        future = min(Fraction(self.account_cash) - Fraction(self.reserved_debit),
+                     Fraction(self.buying_power)) + Fraction(self.pending_credit)
+        return (purchase_notional(self.cash_ceiling) is None
+                and purchase_notional(exact_decimal(future)) is not None)
+
+    def to_dict(self) -> dict:
+        return {"account_cash": decimal_text(self.account_cash),
+                "buying_power": decimal_text(self.buying_power),
+                "cash_ceiling": decimal_text(self.cash_ceiling),
+                "pending_credit": decimal_text(self.pending_credit),
+                "reserved_debit": decimal_text(self.reserved_debit)}

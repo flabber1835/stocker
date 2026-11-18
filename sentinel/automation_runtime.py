@@ -1852,6 +1852,7 @@ class ProductionAutomation:
                 if command.state in {
                     CommandState.REJECTED, CommandState.CANCELLED})
             actionable = ()
+            posting_deadline = None
             # An executor result carries the last reconciliation it needed to
             # authorize transport; for a pure BUY that observation predates
             # the newly ACKNOWLEDGED order.  Submission is therefore never a
@@ -1893,6 +1894,17 @@ class ProductionAutomation:
                     if (not result.needs_attention
                         and reconciliation_id is not None and not actionable)
                     else ExecuteDisposition.RECONCILE)
+                posting_wait = getattr(result.session, "posting_deferred", ())
+                if (posting_wait and self._dual_run_enabled and not getattr(self, "_live_run_enabled", False)
+                        and cycle.broker == "alpaca" and reconciliation_id and not result.needs_attention
+                        and result.session.posting_funds and not result.session.deferral_reasons
+                        and not result.session.settlement_deferred and result.session.deferred == posting_wait
+                        and {delta.security_id for delta in actionable} == set(posting_wait)
+                        and all(delta.is_increase for delta in actionable)):
+                    deadline = min(cycle.execution_close_at, cycle.execution_open_at + timedelta(minutes=10),
+                                   cycle.execute_at + timedelta(seconds=self.automation_config.maximum_execution_lateness_seconds))
+                    if cycle.execute_at <= _now_utc() < deadline:
+                        posting_deadline = deadline.isoformat()
             return ExecuteResult(
                 disposition=disposition,
                 last_clean_reconciliation_id=reconciliation_id,
@@ -1901,7 +1913,8 @@ class ProductionAutomation:
                               else "TERMINAL_COMMAND_REFUSAL"
                               if terminal_refusals
                               else "COMMANDS_IN_FLIGHT"
-                              if in_flight else "CORPORATE_ACTION_PENDING"
+                              if in_flight else "CASH_POSTING_WAIT"
+                              if posting_deadline else "CORPORATE_ACTION_PENDING"
                               if result.session.restricted_securities else "ACTIONABLE_DELTA_REMAINS"
                               if actionable else "MISSING_RECONCILIATION_ID"
                               if reconciliation_id is None
@@ -1909,7 +1922,8 @@ class ProductionAutomation:
                 failure_detail=(None if disposition is ExecuteDisposition.SUCCEEDED
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
-                diagnostic=result.to_dict())
+                diagnostic={**result.to_dict(), **(
+                    {"original_execution_deadline_at": posting_deadline} if posting_deadline else {})})
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
             if mapped is None or mapped is exc:
