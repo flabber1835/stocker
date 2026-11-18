@@ -71,6 +71,20 @@ network-isolated permission helper. Qualification must run the helper against a
 disposable host-owned authority bind mount with the Compose capability set and
 must show that removing `CHOWN` refuses before the exact receipt is changed.
 
+The host reads the signed recovery result from stdout. Docker Compose lifecycle
+notices and the CLI's successful broker GET logs use stderr even when the
+command exits successfully; stderr is diagnostic, not a second financial
+verdict. Accept only a bounded set of exact transport records at this stage:
+the known `sentinel_sentinel_pgdata` existing-volume notice, creation of the
+exact owned one-shot CLI container, and INFO logs for HTTP 200 GET requests to
+the fixed Alpaca PAPER account, orders, positions, exact-order lookup and
+activity endpoints. A nonzero exit, non-200 or non-GET broker log, other host or
+path, unexpected Compose warning, traceback, malformed record or excessive
+diagnostic output refuses. The existing exact receipt, image, account, fence,
+control generation and strict JSON evidence checks remain authoritative. Keep
+the raw bounded command output in the deployment log for diagnosis; never
+infer reconciliation or GO from a diagnostic line.
+
 This is a safety observation of **already durable, exact-owned PAPER commands**.
 It does not use the new executable to choose holdings, size a plan, create a
 command, acquire financial GO, or interpret an old plan as current. Retained GO
@@ -194,6 +208,10 @@ contribution, backtest authority, or LIVE permission changes.
   changing its bytes or SHA. Traversal, symlink, wrong basename and a path
   outside the authority root must refuse before any permission change; the
   signed CLI itself must remain non-root.
+- Reproduce successful Compose and HTTP client stderr alongside strict signed
+  recovery JSON. Remove the diagnostic classifier and prove the negatives fail:
+  non-200/non-GET broker lines, a foreign URL or endpoint, an unowned container,
+  another Compose warning, malformed or oversized output. None may reach GO.
 - Mutation-test the exact source-transition profile and command-overlap fence;
   changed/unreviewed source bytes or a skipped/failed preflight must still make
   retained admission refuse. Keep the focused PR checks and protected exact-head

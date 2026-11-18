@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 import sentinel_autonomous_deploy as core
 import sentinel_autonomous_deploy_bootstrap as bootstrap
@@ -251,6 +252,77 @@ def grant_installation_receipt_read(obj, request):
         'sentinel-authority-permissions'], timeout=min(30, obj.cfg.health_timeout))
 
 
+_RECOVERY_VOLUME_NOTICE = re.compile(
+    r'time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})" '
+    r'level=warning msg="volume \\"sentinel_sentinel_pgdata\\" already exists '
+    r'but was not created by Docker Compose\. Use `external: true` to use an '
+    r'existing volume"')
+_RECOVERY_CONTAINER_NOTICE = re.compile(
+    r' Container (sentinel-go-owned-[0-9a-f]{32}) (Creating|Created) ?')
+_RECOVERY_HTTP_NOTICE = re.compile(
+    r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} INFO +'
+    r'HTTP Request: GET (https://\S+) "HTTP/1\.1 200 OK"')
+_RECOVERY_GET_PATHS = frozenset({
+    '/v2/account', '/v2/orders', '/v2/orders:by_client_order_id',
+    '/v2/positions', '/v2beta1/events/activities',
+})
+
+
+def _verify_fenced_recovery_diagnostics(completed):
+    """Permit only bounded transport chatter beside the signed stdout result."""
+    diagnostic = getattr(completed, 'stderr', '')
+    if diagnostic is None or diagnostic == '':
+        return
+    refusal = 'pre-GO PAPER recovery returned unexpected diagnostic output'
+    if (not isinstance(diagnostic, str)
+            or len(diagnostic.encode('utf-8', errors='replace')) > 65536):
+        raise core.DeployRefused(refusal)
+    lines = diagnostic.splitlines()
+    if len(lines) > 512:
+        raise core.DeployRefused(refusal)
+    argv = getattr(completed, 'args', ())
+    names = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == '--name']
+    owned_name = names[0] if len(names) == 1 else None
+    volume_seen = False
+    container_stage = 0
+    http_seen = False
+    for index, line in enumerate(lines):
+        if _RECOVERY_VOLUME_NOTICE.fullmatch(line):
+            if volume_seen or index != 0:
+                raise core.DeployRefused(refusal)
+            volume_seen = True
+            continue
+        container = _RECOVERY_CONTAINER_NOTICE.fullmatch(line)
+        if container:
+            name, state = container.groups()
+            if name != owned_name or http_seen:
+                raise core.DeployRefused(refusal)
+            if state == 'Creating' and container_stage == 0:
+                container_stage = 1
+                continue
+            if state == 'Created' and container_stage == 1:
+                container_stage = 2
+                continue
+            raise core.DeployRefused(refusal)
+        http = _RECOVERY_HTTP_NOTICE.fullmatch(line)
+        if http:
+            url = http.group(1)
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                raise core.DeployRefused(refusal) from None
+            if (container_stage == 1 or parsed.scheme != 'https'
+                    or parsed.netloc != 'paper-api.alpaca.markets'
+                    or parsed.path not in _RECOVERY_GET_PATHS
+                    or parsed.fragment or any(c in url for c in '"\\')):
+                raise core.DeployRefused(refusal)
+            http_seen = True
+            continue
+        raise core.DeployRefused(refusal)
+    if container_stage == 1:
+        raise core.DeployRefused(refusal)
+
+
 def recover_fenced_paper_commands(obj, request, receipt):
     """Settle exact owned commands through the signed PAPER CLI before GO."""
     if request['mode'] not in {'dual', 'paper'}:
@@ -278,8 +350,7 @@ def recover_fenced_paper_commands(obj, request, receipt):
         args, capture=True, check=False, timeout=obj.cfg.health_timeout)
     if completed.returncode != 0:
         core._raise_command_refusal(completed, getattr(completed, 'args', args))
-    if (getattr(completed, 'stderr', '') or '').strip():
-        raise core.DeployRefused('pre-GO PAPER recovery returned unexpected diagnostic output')
+    _verify_fenced_recovery_diagnostics(completed)
     result = core._json_output(completed, label='pre-GO PAPER command recovery')
     expected = {'schema', 'status', 'installation_sha256', 'git_commit',
                 'runtime_image', 'deployment_id', 'paper_account_id',

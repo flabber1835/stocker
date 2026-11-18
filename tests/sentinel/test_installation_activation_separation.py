@@ -24,8 +24,34 @@ SHA = 'a' * 40
 IMAGE = 'ghcr.io/flabber1835/stocker/sentinel@sha256:' + 'b' * 64
 
 
-def completed(stdout='', code=0):
-    return subprocess.CompletedProcess([], code, stdout, '')
+def completed(stdout='', code=0, *, stderr='', args=None):
+    return subprocess.CompletedProcess([] if args is None else args, code, stdout, stderr)
+
+
+RECOVERY_OWNER = 'sentinel-go-owned-' + 'a' * 32
+RECOVERY_COMMAND = ['docker', 'compose', 'run', '--name', RECOVERY_OWNER,
+                    'sentinel-authorized-cli', 'recover-fenced-paper-commands']
+RECOVERY_HTTP_LINE = (
+    '2026-11-17 23:52:57,937 INFO    HTTP Request: GET '
+    'https://paper-api.alpaca.markets/v2/account "HTTP/1.1 200 OK"\n')
+RECOVERY_DIAGNOSTICS = (
+    'time="2026-11-17T15:52:43-08:00" level=warning '
+    'msg="volume \\"sentinel_sentinel_pgdata\\" already exists but was not '
+    'created by Docker Compose. Use `external: true` to use an existing volume"\n'
+    f' Container {RECOVERY_OWNER} Creating \n'
+    f' Container {RECOVERY_OWNER} Created \n'
+    + RECOVERY_HTTP_LINE
+    + '2026-11-17 23:52:58,937 INFO    HTTP Request: GET '
+    'https://paper-api.alpaca.markets/v2/orders?status=all '
+    '"HTTP/1.1 200 OK"\n'
+    + '2026-11-17 23:52:59,937 INFO    HTTP Request: GET '
+    'https://paper-api.alpaca.markets/v2/orders:by_client_order_id?client_order_id=x '
+    '"HTTP/1.1 200 OK"\n'
+    + '2026-11-17 23:53:00,937 INFO    HTTP Request: GET '
+    'https://paper-api.alpaca.markets/v2/positions "HTTP/1.1 200 OK"\n'
+    + '2026-11-17 23:53:01,937 INFO    HTTP Request: GET '
+    'https://paper-api.alpaca.markets/v2beta1/events/activities?category=trade '
+    '"HTTP/1.1 200 OK"\n')
 
 
 @pytest.mark.parametrize('mode', ['fenced', 'shadow', 'dual', 'paper'])
@@ -229,10 +255,12 @@ def test_fenced_recovery_uses_exact_signed_cli_and_accepts_only_settled_result(t
                   paper_account_id='account', control_generation=7,
                   command_keys_sha256='d'*64, observation_id=23,
                   in_flight_commands=0, broker_mutations=False)
+    exit_code = 0
 
     def cli(args, **options):
         calls.append((args, options))
-        return completed(json.dumps(result))
+        return completed(json.dumps(result), code=exit_code, args=RECOVERY_COMMAND,
+                         stderr=RECOVERY_DIAGNOSTICS)
 
     obj = SimpleNamespace(
         cfg=SimpleNamespace(account_id='account', deployment_id='deployment',
@@ -272,6 +300,79 @@ def test_fenced_recovery_uses_exact_signed_cli_and_accepts_only_settled_result(t
     result['in_flight_commands'] = 1
     with pytest.raises(core.DeployRefused, match='incomplete or contradictory'):
         activate.recover_fenced_paper_commands(obj, request, installed)
+
+    result['in_flight_commands'] = 0
+    exit_code = 1
+    with pytest.raises(core.DeployRefused, match='command failed'):
+        activate.recover_fenced_paper_commands(obj, request, installed)
+
+
+@pytest.mark.parametrize('defect', [
+    'non-200', 'non-GET', 'foreign-host', 'foreign-path', 'unexpected-warning',
+    'traceback', 'unowned-container', 'missing-created', 'duplicate-created',
+    'duplicate-volume', 'diagnostic-after-http', 'malformed-url',
+    'too-many-lines', 'too-many-bytes', 'unknown-line',
+])
+def test_fenced_recovery_refuses_unexpected_diagnostics(tmp_path, defect):
+    receipt = (tmp_path / 'deployments' /
+               ('20261117T200720Z-' + SHA[:12]) / 'installation-receipt.json')
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text('{}')
+    request = dict(mode='dual', installation_receipt=str(receipt),
+                   installation_sha256=activate.digest(receipt), source_commit=SHA)
+    result = dict(schema='sentinel.fenced-paper-command-recovery/1',
+                  status='RECONCILED', installation_sha256=request['installation_sha256'],
+                  git_commit=SHA, runtime_image=IMAGE, deployment_id='deployment',
+                  paper_account_id='account', control_generation=7,
+                  command_keys_sha256='d' * 64, observation_id=23,
+                  in_flight_commands=0, broker_mutations=False)
+    diagnostic = RECOVERY_DIAGNOSTICS
+    if defect == 'non-200':
+        diagnostic = diagnostic.replace('200 OK', '503 Service Unavailable', 1)
+    elif defect == 'non-GET':
+        diagnostic = diagnostic.replace('HTTP Request: GET', 'HTTP Request: POST', 1)
+    elif defect == 'foreign-host':
+        diagnostic = diagnostic.replace('paper-api.alpaca.markets', 'api.alpaca.markets', 1)
+    elif defect == 'foreign-path':
+        diagnostic = diagnostic.replace('/v2/account', '/v2/orders/foreign', 1)
+    elif defect == 'unexpected-warning':
+        diagnostic = diagnostic.replace('sentinel_sentinel_pgdata', 'foreign_volume', 1)
+    elif defect == 'traceback':
+        diagnostic += 'Traceback (most recent call last):\n'
+    elif defect == 'unowned-container':
+        diagnostic = diagnostic.replace(RECOVERY_OWNER, 'sentinel-go-owned-' + 'b' * 32)
+    elif defect == 'missing-created':
+        diagnostic = diagnostic.replace(f' Container {RECOVERY_OWNER} Created \n', '')
+    elif defect == 'duplicate-created':
+        diagnostic = diagnostic.replace(f' Container {RECOVERY_OWNER} Created \n',
+                                        f' Container {RECOVERY_OWNER} Created \n' * 2)
+    elif defect == 'duplicate-volume':
+        diagnostic = diagnostic.splitlines(keepends=True)[0] + diagnostic
+    elif defect == 'diagnostic-after-http':
+        diagnostic += diagnostic.splitlines(keepends=True)[0]
+    elif defect == 'malformed-url':
+        diagnostic = diagnostic.replace('https://paper-api.alpaca.markets/v2/account',
+                                        'https://[bad/v2/account', 1)
+    elif defect == 'too-many-lines':
+        diagnostic += RECOVERY_HTTP_LINE * 513
+    elif defect == 'too-many-bytes':
+        diagnostic += ' ' * 65536
+    else:
+        diagnostic += 'unknown diagnostic\n'
+    obj = SimpleNamespace(
+        cfg=SimpleNamespace(account_id='account', deployment_id='deployment',
+                            health_timeout=300, authority_dir=tmp_path),
+        phase=lambda *_:None,
+        runner=SimpleNamespace(run=lambda *_args, **_options:None),
+        _authorized_compose=lambda:['docker', 'compose'],
+        _automation_status=lambda:dict(enabled=False, kill_switch_engaged=True,
+                                        control_generation=7),
+        _authorized_artifact=lambda path:'/var/lib/sentinel-authority/'
+                             + path.relative_to(tmp_path).as_posix(),
+        _authorized_cli=lambda *args, **options:completed(
+            json.dumps(result), args=RECOVERY_COMMAND, stderr=diagnostic))
+    with pytest.raises(core.DeployRefused, match='unexpected diagnostic output'):
+        activate.recover_fenced_paper_commands(obj, request, dict(runtime_image=IMAGE))
 
 
 @pytest.mark.parametrize('defect', ['outside', 'traversal', 'symlink', 'wrong-name'])
