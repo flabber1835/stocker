@@ -11,7 +11,7 @@ from . import builder
 from .coordinator import Delivery
 from .host import Host
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH, DeliveryRefused, Journal,
-                    SCHEMA, SUCCESSOR_SCHEMA, digest, handoff_mode, require,
+                    REACTIVATED_SCHEMA, SCHEMA, SUCCESSOR_SCHEMA, digest, handoff_mode, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
@@ -58,6 +58,7 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
     require(sorted(built['changed_files']) == built['allowed_delta'], 'BUILD_DELTA_CHANGED')
     builder._changed(built['source'],old['commit'],built['commit'],built['allowed_delta'])
     selected = dict(schema=ACCESS_PATH_SCHEMA if bootstrap else
+                          REACTIVATED_SCHEMA if handoff_mode=='POST_TRADE_REACTIVATED' else
                           SUCCESSOR_SCHEMA if handoff_mode=='POST_TRADE_SUCCESSOR' else SCHEMA,
         operation_id=operation_id,handoff_mode=handoff_mode,
         source=built['source'],deployment=built['deployment'],predecessor=old,
@@ -105,11 +106,11 @@ def parser(*, backed=False):
         build.add_argument('--'+name,required=True)
     if backed:
         build.add_argument('--allow-started-predecessor',action='store_true')
-        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'),default='PRE_OPEN')
+        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR','POST_TRADE_REACTIVATED'),default='PRE_OPEN')
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
-    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'),default='PRE_OPEN')
+    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR','POST_TRADE_REACTIVATED'),default='PRE_OPEN')
     if backed:
         new.add_argument('--canonical-proof-phase',choices=('PRE_DRAIN',POST_SCHEMA_ACCESS_PATH),
             default='PRE_DRAIN',help='Select the explicit verified-predecessor access-path bootstrap')
@@ -124,9 +125,11 @@ def parser(*, backed=False):
         fenced.add_argument('--operation-dir', required=True)
         fenced.add_argument('--recovery-id', required=True)
         recovery = commands.add_parser('recover-verification',
-            help='Explicit fresh final observation of an expired backed PRE_OPEN or completed POST_TRADE installation')
+            help='Observe an expired, started backed PRE_OPEN, POST_TRADE or POST_TRADE_REACTIVATED installation')
         recovery.add_argument('--operation-dir', required=True)
         recovery.add_argument('--recovery-id', required=True)
+        recovery.add_argument('--host-qualification', help='Frozen host verifier qualification report')
+        recovery.add_argument('--host-qualification-sha256', help='Expected host verifier report digest')
     for command in ('advance','resume'):
         proceed = commands.add_parser(command,help='Continue only the next supported delivery stages')
         proceed.add_argument('--operation-dir',required=True)

@@ -3,8 +3,8 @@
 ONE PAGE, NO TABS, NO FINANCIAL ACTIONS. The Stocker dashboard had eight tabs
 and a trade-approval button; this replaces all of it. Read-only means there is
 no control on this page that could ever submit, approve or liquidate — not
-disabled, ABSENT. The only buttons manage this browser's notification delivery
-capability and are isolated behind the narrow subscription router.
+disabled, ABSENT. The remaining actions manage this browser's notification
+delivery or acknowledge reviewed operator history; neither changes orders.
 
 MOBILE FIRST, and specifically for a phone held in one hand at 22:47 wondering
 whether the seed is still alive. The layout is a single column at every width;
@@ -32,6 +32,7 @@ from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
 from sentinel.panel.pwa import CURRENT_DOCUMENT_SCRIPT, MAX_DOCUMENT_AGE_SECONDS
+from sentinel.panel.review_controls import render as render_review, SCRIPT as REVIEW_SCRIPT
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS,
@@ -534,6 +535,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r))
         for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
+    review_html = render_review(panel.operator_review,
+        current=panel.observation_current and not refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = delivery.row_status(panel, row)
@@ -589,6 +592,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else _esc(heartbeat_label)}</span>
 </header>
 {errs}
+{review_html}
 <div id="portfolio-overview">{overview}</div>
 <details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
@@ -932,6 +936,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }} else {{ checkAge(); }}
 }})();
 </script>
+{REVIEW_SCRIPT}
 <script defer src="/static/{DEVICE_ASSET}"></script>
 </body></html>"""
 

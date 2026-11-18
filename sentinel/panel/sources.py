@@ -2921,7 +2921,8 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
         if cycle.get('state') in {'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}:
             return _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
         return scheduled
-    history = f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+    from sentinel.panel import mirror_history
+    history = mirror_history.detail(conn, active_publication, mirror)
     if scheduled is None:
         ongoing = _in_progress_paper_mirror(conn, cycle, active_publication, frontier)
         if ongoing is not None:
@@ -2947,7 +2948,7 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror, *
                         state='HISTORICAL_READINESS_WITHDRAWN', session=wait.decision_session))
         return row
     return model.paper_reconciliation_row(
-        state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
+        state='SCHEDULED_WITH_HISTORY',
         scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
         detail=history + 'this is not a mismatch of the current scheduled plan. ' + scheduled.detail)
 
@@ -3439,7 +3440,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime,
 def _dual_authority_rows(
         database_url: str, *, now: datetime, include_paper: bool = True,
         propagate_corpus_lock: bool = False, propagate_read_unavailability: bool = False,
-        project_execution_context: bool = True
+        project_execution_context: bool = True, observation_clock=None
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
@@ -3498,11 +3499,15 @@ def _dual_authority_rows(
                     return shadow_source_wait.preparation_rows(result, include_paper=False), {}, [], []
                 from sentinel.rolling_runtime import HistoricalSourceFrontier
                 if isinstance(result, HistoricalSourceFrontier):
+                    if observation_clock is not None:
+                        now = observation_clock()
                     source_wait = shadow_source_wait.from_history(result, now=now)
                     result = source_wait.result
         except shadow_runtime.ShadowRuntimeRefused as exc:
             shadow_error = _short(exc)
             if project_execution_context:
+                if observation_clock is not None:
+                    now = observation_clock()
                 source_wait = shadow_source_wait.read(
                     conn, exc, observation_id=observation_id,
                     starting_cash=starting_cash, now=now)

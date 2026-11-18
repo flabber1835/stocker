@@ -1,5 +1,13 @@
 # Sentinel current operating contract
 
+[November 18 close qualification](nov18-close-shadow-health.md) describes the
+SHADOW health handoff during a committed daily publication and the source
+inventory required to upgrade from the locally installed patch.
+
+[November 18 post-trade local delivery](nov18-posttrade-local-delivery.md)
+records the owner-selected backed PAPER patch and its qualification against
+the installed PR606 source.
+
 [Unconfirmed native cash postings](paper-unconfirmed-native-postings.md) describes
 when backed fractional PAPER may continue using broker-reported funds while
 dividends or fees await confirmation. The [cash display](paper-cash-posting-display.md)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -110,12 +111,15 @@ def _insert_control_event(
         (generation, action, actor, reason, _json(detail)))
 
 
-def _invalidate_lease(cur) -> None:
+def _invalidate_lease(cur, *, require_live: bool = False) -> None:
+    predicate = " AND expires_at>clock_timestamp()" if require_live else ""
     cur.execute(
         "UPDATE sentinel_automation_lease SET holder_id=NULL,"
         " control_generation=NULL,acquired_at=NULL,heartbeat_at=NULL,"
-        " expires_at=NULL,updated_at=clock_timestamp() WHERE id=1")
+        " expires_at=NULL,updated_at=clock_timestamp() WHERE id=1" + predicate)
     if cur.rowcount != 1:
+        if require_live:
+            raise StaleLeaderRefused("automatic kill lost its live automation fence")
         raise MissingAutomationState(
             "durable automation lease singleton is missing")
 
@@ -189,22 +193,52 @@ def deactivate(
 def engage_kill(
         conn, *, actor: str, reason: str) -> AutomationControl:
     """Immediately fence workers.  This never cancels or liquidates anything."""
+    return _engage_kill(conn, permit=None, actor=actor, reason=reason)
+
+
+def engage_kill_if_leader(
+        conn, permit: LeaderPermit, *, actor: str, reason: str,
+        before_mutation: Callable[[Any], None] | None = None) -> AutomationControl:
+    """Latch a worker's refusal only under its original, still-live fence."""
+    if not isinstance(permit, LeaderPermit):
+        raise StaleLeaderRefused("automatic kill requires the original leader permit")
+    return _engage_kill(conn, permit=permit, actor=actor, reason=reason,
+                        before_mutation=before_mutation)
+
+
+def _engage_kill(
+        conn, *, permit: LeaderPermit | None, actor: str, reason: str,
+        before_mutation: Callable[[Any], None] | None = None) -> AutomationControl:
     actor = _require_text(actor, "actor")
     reason = _require_text(reason, "reason")
     try:
         current = load_control(conn, for_update=True)
+        if permit is not None and (not current.enabled or current.kill_switch_engaged
+                                   or current.generation != permit.control_generation):
+            raise StaleLeaderRefused("automation control changed before the automatic kill")
         if current.kill_switch_engaged:
             raise AutomationRefused(
                 "automation kill switch is already engaged")
         generation = current.generation + 1
         with conn.cursor() as cur:
+            if permit is not None:
+                # Takeover locks control, then lease. Evaluate the database
+                # clock after both locks, even if a heartbeat took time to finish.
+                cur.execute(
+                    "SELECT id FROM sentinel_automation_lease WHERE id=1 AND holder_id=%s"
+                    " AND fence_token=%s AND control_generation=%s AND expires_at>clock_timestamp() FOR UPDATE",
+                    (permit.holder_id, permit.fence_token, permit.control_generation))
+                if cur.fetchone() is None:
+                    raise StaleLeaderRefused("automatic kill lost its live automation fence")
+                if before_mutation is not None:
+                    before_mutation(conn)
             cur.execute(
                 "UPDATE sentinel_automation_control SET generation=%s,"
                 " kill_switch_engaged=TRUE,authority_verdict=NULL,"
                 " authority_detail=NULL,authority_checked_at=NULL,"
                 " updated_at=clock_timestamp()"
                 " WHERE id=1", (generation,))
-            _invalidate_lease(cur)
+            _invalidate_lease(cur, require_live=permit is not None)
             _insert_control_event(
                 cur, generation=generation, action="KILL_ENGAGED", actor=actor,
                 reason=reason)
@@ -983,7 +1017,8 @@ def transition_cycle(
         failure_detail: str | None | object = _UNSET,
         diagnostic: Mapping[str, Any] | object = _UNSET,
         opening_cutoffs: Mapping[str, str] | None = None,
-        increment_attempt: bool = False) -> CycleRecord:
+        increment_attempt: bool = False,
+        before_mutation: Callable[[Any], None] | None = None) -> CycleRecord:
     """Transition and event append in one fenced transaction."""
     if not isinstance(to_state, CycleState):
         to_state = CycleState(to_state)
@@ -1049,6 +1084,8 @@ def transition_cycle(
             permit.control_generation,
             permit.holder_id, permit.fence_token,
         ])
+        if before_mutation is not None:
+            before_mutation(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_cycles SET "
@@ -1086,7 +1123,8 @@ def adopt_cycle(
         failure_code: str | None = None,
         failure_detail: str | None = None,
         diagnostic: Mapping[str, Any] | None = None,
-        increment_attempt: bool = False) -> CycleRecord:
+        increment_attempt: bool = False,
+        before_mutation: Callable[[Any], None] | None = None) -> CycleRecord:
     """Adopt a fenced cycle without rewriting its originating identity.
 
     This is the sole cross-generation transition.  A current live leader may
@@ -1182,6 +1220,8 @@ def adopt_cycle(
             cycle_id, current.state.value, permit.control_generation,
             permit.holder_id, permit.fence_token,
         ])
+        if before_mutation is not None:
+            before_mutation(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_cycles SET "
@@ -1387,7 +1427,7 @@ __all__ = [
     "control_generation_action", "create_cycle",
     "cycle_preflight_recovery_pending", "cycle_recovery_capable",
     "cycle_transport_capable", "engage_config_mismatch_kill",
-    "deactivate", "engage_kill",
+    "deactivate", "engage_kill", "engage_kill_if_leader",
     "ensure_historical_cycles", "heartbeat_lease", "latest_cycle",
     "load_control", "load_cycle", "mark_historical_missed",
     "oldest_nonterminal_other_generation_cycle",

@@ -85,6 +85,48 @@ def _active_attempt(attempt, *, published, now):
         and (attempt.outcome == 'RUNNING') == (attempt.work_started_at is not None))
 
 
+def _current_diagnostic(diagnostic):
+    commit = os.environ.get('SENTINEL_GIT_COMMIT', '')
+    image = os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST', '')
+    return (isinstance(diagnostic, dict) and diagnostic.get('observation_fresh') is True
+            and diagnostic.get('financial_authority') is False
+            and re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', commit) is not None
+            and re.fullmatch(r'sha256:[a-f0-9]{64}', image) is not None
+            and diagnostic.get('runtime') == dict(git_commit=commit, image_digest=image))
+
+
+def close_check_deadline(panel, *, now):
+    """Attribute placeholder rows to the current close's independent check."""
+    if (not checking(panel, now=now) or 'SHADOW' in panel.observation_changed_scopes
+            or panel.observation_retained):
+        return None
+    subject = panel.display_basis.get('native', {}).get('SHADOW')
+    if not subject:
+        return None
+    feed = panel.row('feed')
+    if feed is None:
+        return None
+    if feed.feed_readiness == 'AWAITING_VERDICT':
+        return deadline(panel, subject=subject, now=now)
+    fact = feed.operational_fact
+    session = calendar.latest_closed_session(now)
+    if (feed.effective_status(now) != model.OK or fact is None or fact.kind != 'MARKET_DATA'
+            or fact.state != 'READY' or fact.sessions_behind != 0 or str(fact.session) != session):
+        return None
+    diagnostic = panel.trial_details.get('verification_attempts', {}).get('SHADOW')
+    if not _current_diagnostic(diagnostic):
+        return None
+    try:
+        attempt = observer_failure.Attempt.model_validate_json(json.dumps(diagnostic['latest']))
+        closed = calendar.session_window(session)[1]
+        if attempt.subject_sha256 != subject or not _active_attempt(attempt, published=closed, now=now):
+            return None
+        return min(t for t in (attempt.deadline, attempt.work_deadline, attempt.supersession_deadline,
+                               panel.row('shadow_verification').valid_until) if t is not None)
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
 def _superseded_attempt(attempt, *, subject, published, worker, now):
     return (attempt.subject_sha256 != subject and attempt.outcome == 'RUNNING'
         and attempt.supersession_started_at is not None
@@ -148,7 +190,7 @@ class CandidateMemo:
 def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
     """Use already-authenticated attempt diagnostics; preserve their exact key.
 
-    Caller has fenced OWNER and read attempt_store in this same transaction.
+    Caller reads OWNER and attempt_store in this same transaction and fences publication.
     One indexed metadata query is needed only during this missing-verdict gap.
     """
     if not checking(panel, now=now):
@@ -166,13 +208,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         return None
     diagnostic = panel.trial_details.get('verification_attempts', {}).get('SHADOW')
     try:
-        commit = os.environ.get('SENTINEL_GIT_COMMIT', '')
-        image = os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST', '')
-        if (not isinstance(diagnostic, dict) or diagnostic.get('observation_fresh') is not True
-                or diagnostic.get('financial_authority') is not False
-                or re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', commit) is None
-                or re.fullmatch(r'sha256:[a-f0-9]{64}', image) is None
-                or diagnostic['runtime'] != dict(git_commit=commit, image_digest=image)):
+        if not _current_diagnostic(diagnostic):
             return None
         attempt = observer_failure.Attempt.model_validate_json(json.dumps(diagnostic['latest']))
         closed = calendar.session_window(feed.source_session)[1]
@@ -194,7 +230,8 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         records = conn.execute(
             'SELECT p.version,p.previous_version,p.window_end,p.evidence,'
             'b.job_id,b.candidate_id,b.validation_sha256,j.state,j.publication_version,'
-            'j.candidate_id,j.request,j.request_sha256,j.created_at,j.deadline,p.window_start,p.run_id,p.published_at '
+            'j.candidate_id,j.request,j.request_sha256,j.created_at,j.deadline,p.window_start,p.run_id,'
+            'p.published_at,j.updated_at '
             'FROM sentinel_corpus_publications p '
             'JOIN sentinel_operational_snapshots b ON b.publication_version=p.version '
             'JOIN sentinel_snapshot_jobs j USING(job_id) '
@@ -204,7 +241,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         if len(records) != 1:
             return None
         (version, previous, session, evidence, job, candidate_id, validation, state,
-         published, owned, raw, sha, created, deadline, start, run_id, published_at) = records[0]
+         published, owned, raw, sha, created, deadline, start, run_id, header_at, published_at) = records[0]
         binding = evidence.get('rolling_snapshot') if isinstance(evidence, dict) else None
         if (version != feed.source_publication_version or str(session) != feed.source_session
                 or not isinstance(binding, dict) or binding.get('schema') != operational_snapshot.SCHEMA
@@ -227,11 +264,13 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         checkpoint = None
         admission = None
         verification = None
+        if (potential_work or not candidate) and (
+                type(previous) is not int or previous <= 0
+                or not all(isinstance(t, datetime) and t.utcoffset() == timedelta(0)
+                           for t in (header_at, published_at))
+                or not closed <= created <= header_at <= published_at <= min(feed.as_of, now)):
+            return None
         if potential_work:
-            if (type(previous) is not int or previous <= 0
-                    or not isinstance(published_at, datetime) or published_at.utcoffset() != timedelta(0)
-                    or not closed <= created <= published_at <= min(feed.as_of, now)):
-                return None
             if not current_attempt:
                 if not _superseded_attempt(attempt, subject=subject, published=published_at,
                                             worker=worker, now=now):
@@ -249,10 +288,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
                 return None
             boundary = min(boundary, shadow.valid_until)
         else:
-            if (type(previous) is not int or previous <= 0
-                    or not isinstance(published_at, datetime) or published_at.utcoffset() != timedelta(0)
-                    or not closed <= created <= published_at <= feed.as_of
-                    or not attempt.completed_at < published_at):
+            if attempt.completed_at >= published_at:
                 return None
             admission = published_at
             boundary = min(boundary, published_at + ADMISSION_WINDOW)

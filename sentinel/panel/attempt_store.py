@@ -193,5 +193,10 @@ def publish_owned(conn, *, owner_id, scope, attempt, now):
         (value.scope, bound, value.recorded_at, value.valid_until, Jsonb(encoded), signed,
          owner_id, owner_id)).fetchone()
     _require(row is not None, 'DIAGNOSTIC_OWNER_LOST_AT_WRITE')
+    if previous is None:
+        # A repeatable-read collector cannot lock a receipt absent from its
+        # snapshot. Version the locked owner on first insert, preserving its lease.
+        conn.execute(f'UPDATE {schema.OWNER} SET expires_at=expires_at '
+                     'WHERE id=1 AND owner_id=%s', (owner_id,))
     record_verification_failure_owned(conn, scope=scope, attempt=current)
     return True

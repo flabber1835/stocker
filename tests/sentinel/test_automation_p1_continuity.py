@@ -54,7 +54,7 @@ def test_trading_worker_does_not_consume_its_own_alert_outbox():
     text = (ROOT / "sentinel" / "automation_worker.py").read_text(
         encoding="utf-8")
     assert "alert_wake=None" in text
-    assert "control_wake=runtime.control_wake" in text
+    assert "control_wake=runtime.bounded_control_wake" in text
 
 
 def test_health_surfaces_unresolved_broker_outcomes_after_kill():

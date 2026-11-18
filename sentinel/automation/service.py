@@ -426,7 +426,8 @@ class AutomationService:
             terminal: TerminalCallable | None = None,
             source_completion_hint: SourceCompletionCallable | None = None,
             backup_proof_completed: Callable[[datetime], bool] | None = None,
-            callback_authority: Callable | None = None) -> None:
+            callback_authority: Callable | None = None,
+            before_callback: Callable[[], None] | None = None) -> None:
         if not holder_id:
             raise ValueError("holder_id must be non-empty")
         self.config = config
@@ -440,6 +441,7 @@ class AutomationService:
         self.source_completion_hint = source_completion_hint
         self.backup_proof_completed = backup_proof_completed
         self.callback_authority = callback_authority
+        self.before_callback = before_callback
 
     def _source_completion(self, cycle: CycleRecord) -> SourceCompletionHint | None:
         """An unavailable optional hint cannot change the existing retry."""
@@ -1018,6 +1020,8 @@ class AutomationService:
         Callback liveness is controlled by the dedicated fingerprinted
         ``callback_deadline_seconds`` policy. Retry backoff remains independent.
         """
+        if self.before_callback is not None:
+            self.before_callback()
         deadline_seconds = self.config.callback_deadline_seconds
         if heartbeat_conn_factory is not None and not inspect.iscoroutinefunction(
                 callback):

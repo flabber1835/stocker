@@ -359,7 +359,11 @@ def require_current(conn, *, current_frontier,current_publication_version):
     if len(future)>128: raise coverage.EvidenceCoveragePending('MIRROR_FUTURE_PLAN_PAGE_REQUIRED')
     return dict(schema=_mirror().SCHEMA,status=(_mirror().MISMATCH if body['historical_mismatch_count']
         else _mirror().PENDING if future else _mirror().NO_UNIT_CHANGE),pending_sessions=len(future),
-        historical_mismatch_count=body['historical_mismatch_count'],verdict='PAPER_NOT_VERIFIED')
+        historical_mismatch_count=body['historical_mismatch_count'],
+        indexed_history_publication=body['checked_publication'],
+        indexed_history_context=coverage.digest([state['incarnation'], state['binding'], state['inventory'],
+                                                 state['through'], state['reset_generation']]),
+        verdict='PAPER_NOT_VERIFIED')
 
 
 def plan_status(conn, *, plan_id,plan_fingerprint,current_frontier,current_publication_version):

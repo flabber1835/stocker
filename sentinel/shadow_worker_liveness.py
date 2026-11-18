@@ -49,7 +49,8 @@ def record(attempt: str, supervisor_pid: int, child_pid: int, deadline: float) -
         temporary.unlink(missing_ok=True)
 
 
-def matches(pending_path: Path) -> bool:
+def matched_worker(pending_path: Path, *, signed_pending=None):
+    """Return the kernel-verified worker evidence, optionally bound to a signed supervisor."""
     try:
         pending, active = _read(pending_path), _read(ACTIVE_FILE)
         attempt = pending.get('attempt_id')
@@ -60,12 +61,24 @@ def matches(pending_path: Path) -> bool:
                 or active.get('boot_id') != _boot()
                 or type(deadline) not in {int, float} or not math.isfinite(deadline)
                 or time.monotonic() > deadline):
-            return False
+            return None
         parent, child = active['supervisor'], active['worker']
-        return (parent == _process(parent['pid']) and child == _process(child['pid'])
-                and child['parent_pid'] == parent['pid'])
+        if (parent != _process(parent['pid']) or child != _process(child['pid'])
+                or child['parent_pid'] != parent['pid']):
+            return None
+        if signed_pending is not None and (pending != signed_pending
+                or parent['pid'] != pending['supervisor_pid']
+                or parent['start_ticks'] != pending['supervisor_start_ticks']
+                or active['boot_id'] != pending['boot_id']
+                or os.stat(f"/proc/{parent['pid']}/ns/pid").st_ino != pending['pid_namespace']):
+            return None
+        return active
     except (OSError, ValueError, KeyError, TypeError, IndexError):
-        return False
+        return None
+
+
+def matches(pending_path: Path) -> bool:
+    return matched_worker(pending_path) is not None
 
 
 def clear() -> None:

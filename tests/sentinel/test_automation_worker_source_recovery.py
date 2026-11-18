@@ -26,6 +26,7 @@ import pytest
 from sentinel import automation_recovery, automation_runtime, automation_worker
 from sentinel.automation import store
 from sentinel.automation.model import CycleState
+from sentinel.authority.model import AuthorityRefused
 from sentinel.execution import certification, journal, preopen_authority
 from sentinel.execution.contract import ExecutionBroker
 from sentinel.execution.simulator import SimulatedBroker, FaultKind
@@ -208,6 +209,44 @@ def test_worker_wait_restart_source_healing_and_transport(
         monkeypatch.setattr(automation_worker, "config_from_env", lambda: cfg)
         monkeypatch.setattr(automation_runtime, "config_from_env", lambda: cfg)
         monkeypatch.setattr(automation_worker.SentinelConfig, "from_env", lambda: scfg)
+        # This assembly supplies a synthetic signed authority rather than an
+        # issuer-backed certificate. Carry that explicit external fixture into
+        # the new idle observer seam; all publication, control, lease, source,
+        # callback and broker boundaries below continue to use their real SQL
+        # and process paths.
+        def fixture_certificate_identity(_runtime, _conn, *, expected_sha256):
+            if expected_sha256 != fixture.ROLLOUT_CERTIFICATE:
+                raise AuthorityRefused("assembly certificate changed")
+            return SimpleNamespace(certificate_sha256=expected_sha256)
+
+        def fixture_idle_observer(runtime, control, permit, observed_at):
+            with feed_store.connect(assembly.pg.sync_dsn) as observed_conn:
+                head = runtime._idle_publication_head(observed_conn)
+            bound = control.binding
+            assert bound is not None
+            finished = threading.Event()
+            finished.set()
+            flight = SimpleNamespace(
+                finished=finished, cancelled=threading.Event(), error=None,
+                elapsed_seconds=0.0, stage="COMPLETE", timeout_seconds=25.0,
+                backend_pid=None, stop=lambda: True,
+                value={
+                    "status": "PASS", "generation": control.generation,
+                    "binding": bound.model_dump(mode="json"),
+                    "publication_version": head["version"],
+                    "publication_head": head,
+                    "rollout_mode": bound.rollout_mode,
+                    "rollout_version": bound.rollout_version,
+                    "certificate_sha256": fixture.ROLLOUT_CERTIFICATE,
+                })
+            runtime._idle_authority_flight = (
+                flight, runtime._idle_attestation_key(control, permit), observed_at)
+            return flight
+
+        monkeypatch.setattr(automation_runtime.ProductionAutomation,
+                            "_idle_certificate_identity", fixture_certificate_identity)
+        monkeypatch.setattr(automation_runtime.ProductionAutomation,
+                            "_start_idle_authority_observer", fixture_idle_observer)
         # Explicit simulator transport fixture registration. Production's
         # registry remains unchanged and still validates each wrapper instance.
         implementations = dict(certification._IMPLEMENTATIONS)

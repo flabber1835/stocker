@@ -200,6 +200,49 @@ def test_split_composition_reuses_heavy_rows_with_native_publication_and_subject
     assert producer.read(conn.info.dsn).row('operational_projection').status==model.UNKNOWN
 
 
+def test_rendered_review_action_acknowledges_exact_published_view(operational, monkeypatch):
+    from html import unescape
+    import re
+
+    from fastapi.testclient import TestClient
+    from sentinel.panel.app import app
+
+    conn, _, condition = operational
+    origin = 'https://private.invalid'
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
+    monkeypatch.setenv('SENTINEL_PUBLIC_ORIGIN', origin)
+
+    def current_button(client):
+        document = client.get('/?document=1')
+        assert document.status_code == 200
+        assert document.headers['X-Sentinel-Panel-Status'] == 'CURRENT'
+        return re.search(r'<button id="review-acknowledge"[^>]+data-view-token="([^"]+)"', document.text)
+
+    def click(client, button):
+        assert button is not None
+        return client.post('/review/acknowledge', headers={'Origin': origin},
+                           json={'token': unescape(button.group(1))})
+
+    with TestClient(app, base_url=origin) as client:
+        publish(operational)
+        original = current_button(client)
+        condition['broker'] = model.FAIL
+        publish(operational)
+        assert click(client, original).status_code == 409
+        assert current_button(client) is None
+        condition['broker'] = model.OK
+        publish(operational)
+        response = click(client, current_button(client))
+        assert response.status_code == 200
+        accepted = response.json()
+        assert accepted['status'] == 'CLEAN' and accepted['reviewed_head'] == accepted['head']
+        publish(operational)
+        assert current_button(client) is None
+        page = client.get('/panel.json').json()
+        assert page['operator_review']['status'] == 'CLEAN'
+        assert page['dashboard_health']['color'] == 'green'
+
+
 def test_background_failure_and_recovery_record_once_without_any_http(operational):
     conn, _, condition = operational
     publish(operational)
@@ -224,6 +267,136 @@ def test_background_failure_and_recovery_record_once_without_any_http(operationa
     head = recovered.operator_review.head
     publish(operational)
     assert producer.read(conn.info.dsn).operator_review.head == head
+
+
+@pytest.mark.parametrize('replace_owner', [False, True])
+def test_slow_close_handoff_allows_owner_renewal_and_discards_changed_snapshot(
+        operational, monkeypatch, replace_owner):
+    from sentinel.panel import readiness_handoff
+
+    conn, owner, _ = operational
+    instance = 'slow-close-qualifier'
+    publish(operational, instance=instance)
+    before = state(conn)
+    old = conn.execute(f'SELECT signature FROM {snapshots.schema.RECEIPTS} '
+                       "WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    replacement = str(uuid.uuid4()) if replace_owner else owner
+    renewed = []
+
+    def concurrent_renewal(*_args, **_kwargs):
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        saved = conn.execute(f'UPDATE {snapshots.schema.OWNER} '
+            "SET owner_id=%s, expires_at=clock_timestamp()+interval '610 seconds' "
+            'WHERE id=1 AND owner_id=%s RETURNING owner_id::text', (replacement, owner)).fetchone()
+        conn.commit()
+        renewed.append(saved)
+
+    with monkeypatch.context() as race:
+        race.setattr(readiness_handoff, 'capture', concurrent_renewal)
+        result = producer.collect_result(conn.info.dsn, owner, '/private', instance)
+    assert renewed == [(replacement,)], 'fast collector blocked the verifier owner heartbeat'
+    assert result == {'outcome': 'SUPERSEDED'}
+    assert state(conn) == before
+    assert conn.execute(f'SELECT signature FROM {snapshots.schema.RECEIPTS} '
+                        "WHERE scope='DASHBOARD'").fetchone() == old
+    conn.rollback()
+    if not replace_owner:
+        assert producer.collect_result(conn.info.dsn, owner, '/private', instance)['outcome'] == 'PUBLISHED'
+
+
+def test_negative_receipt_committed_during_close_handoff_supersedes_old_view(
+        operational, monkeypatch):
+    from sentinel.panel import readiness_handoff
+
+    conn, owner, condition = operational
+    condition['financial'] = True
+    save_financial(conn, 'SHADOW')
+    save_financial(conn, 'PAPER')
+    instance = 'receipt-close-qualifier'
+    publish(operational, instance=instance)
+    before = state(conn)
+
+    def negative_receipt(*_args, **_kwargs):
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        save_financial(conn, 'PAPER', [model.paper_reconciliation_row(state='MISMATCH')])
+
+    monkeypatch.setattr(readiness_handoff, 'capture', negative_receipt)
+    result = producer.collect_result(conn.info.dsn, owner, '/private', instance)
+    assert result == {'outcome': 'SUPERSEDED'}
+    assert state(conn) == before
+    assert producer.read(conn.info.dsn).row('paper_reconciliation').status == model.FAIL
+
+
+@pytest.mark.parametrize(('scope', 'existing'), [('SHADOW', True), ('SHADOW', False), ('PAPER', False)])
+def test_attempt_committed_during_close_handoff_cannot_publish_old_progress(
+        operational, monkeypatch, scope, existing):
+    from sentinel.panel import attempt_store, readiness_handoff
+    from tests.sentinel.test_observer_attempt_store import attempt
+
+    conn, owner, _ = operational
+    observed = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    def save_attempt(index):
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        value = attempt(index=index, outcome='RUNNING', at=observed)
+        value['completed_at'] = None
+        attempt_store.publish_owned(conn, owner_id=owner, scope=scope, attempt=value,
+                                    now=review_store.database_now(conn))
+        conn.commit()
+
+    def owner_version():
+        return conn.execute(f'SELECT owner_id,expires_at,xmin::text FROM {snapshots.schema.OWNER} '
+                            'WHERE id=1').fetchone()
+
+    if existing:
+        save_attempt(1)
+    instance = 'attempt-close-qualifier'
+    publish(operational, instance=instance)
+    before = state(conn)
+    original_owner = owner_version()
+    prior = conn.execute(f"SELECT signature FROM {snapshots.schema.RECEIPTS} WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    with monkeypatch.context() as race:
+        race.setattr(readiness_handoff, 'capture', lambda *_a, **_kw: save_attempt(2))
+        assert producer.collect_result(conn.info.dsn, owner, '/private', instance) == {'outcome': 'SUPERSEDED'}
+    assert state(conn) == before
+    assert conn.execute(f"SELECT signature FROM {snapshots.schema.RECEIPTS} WHERE scope='DASHBOARD'").fetchone() == prior
+    current_owner = owner_version()
+    assert current_owner[:2] == original_owner[:2]
+    assert (current_owner[2] == original_owner[2]) == existing
+    conn.rollback()
+    assert producer.collect_result(conn.info.dsn, owner, '/private', instance)['outcome'] == 'PUBLISHED'
+    details = producer.read(conn.info.dsn).trial_details['verification_attempts'][scope]
+    assert details['latest']['attempt_id'] == f'{2:032x}' and details['latest']['outcome'] == 'RUNNING'
+
+
+def test_negative_publication_allows_owner_renewal_before_its_write_fence(operational, monkeypatch):
+    from sentinel.panel import observer_failure
+
+    conn, owner, _ = operational
+    prior = publish(operational)
+    before = state(conn)
+    diagnostic = observer_failure.failure('READ_TIMEOUT', 'OBSERVATION').model_dump(
+        mode='json', by_alias=True)
+    subjects = snapshots.subjects
+
+    def renew(*args):
+        value = subjects(*args)
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        conn.execute(f"UPDATE {snapshots.schema.OWNER} SET expires_at=clock_timestamp()+interval '610 seconds' "
+                     'WHERE owner_id=%s', (owner,))
+        conn.commit()
+        return value
+
+    with monkeypatch.context() as race:
+        race.setattr(snapshots, 'subjects', renew)
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            producer.publish_failure(conn.info.dsn, owner, 'one-verifier', diagnostic)
+    assert state(conn) == before
+    assert producer.read(conn.info.dsn).observation_valid_until.isoformat() == prior['valid_until']
+    producer.publish_failure(conn.info.dsn, owner, 'one-verifier', diagnostic)
+    assert producer.read(conn.info.dsn).row('operational_projection').status == model.UNKNOWN
 
 
 @pytest.mark.parametrize('locked_attempts', [1, 2])

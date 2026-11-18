@@ -11,8 +11,8 @@ from datetime import timedelta
 import re
 import time
 
-from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require, utcnow
+from . import checks, reactivated
+from .model import COMPAT_DRAIN_PREDECESSOR, SUCCESSOR_MODES, DeliveryRefused, digest, handoff_mode, require, utcnow
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -111,11 +111,43 @@ def same_preserved_state(current, retained):
     return current == retained
 
 
-def snapshot(host):
+def reactivated_observed_state(preserved, current, alert_id):
+    """Allow only one witnessed alert append over the immutable preflight."""
+    reason = 'REACTIVATED_STARTUP_PRESERVED_STATE_CHANGED'
+    require(isinstance(preserved, dict) and isinstance(current, dict)
+            and isinstance(alert_id, str), reason)
+    before, after = preserved.get('retained_incidents'), current.get('retained_incidents')
+    require(isinstance(before, dict) and isinstance(after, dict)
+            and alert_id not in before and set(after) == set(before) | {alert_id}
+            and all(after[key] == value for key, value in before.items()), reason)
+    observed = dict(preserved, retained_incidents={**before, alert_id: after[alert_id]})
+    require(current == observed, reason)
+    return observed
+
+
+REACTIVATED_RETAINED_INCIDENTS_SQL = """SELECT coalesce(jsonb_object_agg(x.alert_id,
+  jsonb_build_object('event_type',x.event_type,'severity',x.severity,'payload',x.payload,
+    'ack_state',x.ack_state,'created_at',x.created_at)),'{}'::jsonb)
+  FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL'
+    AND x.ack_state='UNACKNOWLEDGED'"""
+
+
+def reactivated_retained_incidents(host, expected):
+    """Short post-panel recheck of the exact raw critical review subject."""
+    actual = host.sql(REACTIVATED_RETAINED_INCIDENTS_SQL)
+    require(isinstance(actual, dict) and actual == expected,
+            'REACTIVATED_STARTUP_INCIDENT_CHANGED')
+
+
+def snapshot(host, *, startup_alert_id=None):
     """Select exactly one current, prepared future cycle and its source closure."""
     mode = handoff_mode(host.request)
+    require(startup_alert_id is None or mode == 'POST_TRADE_REACTIVATED',
+            'REACTIVATED_STARTUP_MODE_REQUIRED')
     repair = mode=='BLOCKED_UNSENT'
-    successor = mode=='POST_TRADE_SUCCESSOR'
+    successor = mode in SUCCESSOR_MODES
+    if mode=='POST_TRADE_REACTIVATED':
+        require(getattr(host,'supports_post_trade_reactivated',False), 'REACTIVATED_BACKED_ADAPTER_REQUIRED')
     if repair:
         require(getattr(host,'supports_blocked_unsent',False)
             and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
@@ -173,12 +205,13 @@ def snapshot(host):
                 ('lease_live','scoped_plans','scoped_commands','transport_events')),
             'BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT')
     elif successor:
-        require_post_trade_successor(current)
+        require_post_trade_successor(current, healthy=mode=='POST_TRADE_REACTIVATED',
+            startup_alert_id=startup_alert_id)
     else:
         require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
                 and cycle['control_generation'] == control['generation'],
                 'Saved plan is not ready with sufficient future execution margin')
-    if mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
+    if mode=='POST_TRADE' or successor:
         skipped = mode=='POST_TRADE' and checks.clean_cash_retirement(cycle)
         successful = (cycle.get('state')=='SUCCEEDED'
             and cycle.get('failure_code') is None and cycle.get('failure_detail') is None)
@@ -209,7 +242,7 @@ def snapshot(host):
     return current
 
 
-def require_post_trade_successor(current):
+def require_post_trade_successor(current, *, healthy=False, startup_alert_id=None):
     """Authenticate old completion without promoting its obsolete authority."""
     control,cycle,plan = current['control'],current['cycle'],current['plan']
     relation=current.get('successor')
@@ -247,6 +280,9 @@ def require_post_trade_successor(current):
     require(original.get('rollout_certificate_sha256')==cycle.get('certificate_sha256')
         and active.get('rollout_certificate_sha256')==control.get('certificate_sha256'),
         'POST_TRADE_SUCCESSOR_CERTIFICATE_CHANGED')
+    if healthy:
+        reactivated.require_lineage(current, startup_alert_id=startup_alert_id)
+        return
     incidents=current.get('retained_incidents')
     require(isinstance(incidents,dict) and bool(incidents),
         'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_ABSENT')
@@ -287,7 +323,7 @@ def require_successor_worker_restart(host, item):
     return dict(container=item['Id'],image=item['Image'],exception='ImmutableAlertChanged')
 
 
-def canonical_check(host, values, state):
+def canonical_check(host, values, state, *, timeout=300):
     """Return the complete current-image proof for exact predecessor comparison."""
     bound = {key: state['binding'][key] for key in _BINDING_KEYS}
     bound.update(ownership_state=state['binding']['ownership_state'],
@@ -300,8 +336,8 @@ def canonical_check(host, values, state):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if mode == 'POST_TRADE':
         expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
-    if mode == 'POST_TRADE_SUCCESSOR':
-        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+    if mode in SUCCESSOR_MODES:
+        expected.update(handoff_mode=mode,
             reconciliation_id=state['reconciliation']['seq'],cycle_id=state['cycle']['cycle_id'],
             original_plan=state['successor']['original_plan'],
             original_plan_fingerprint=state['cycle']['plan_fingerprint'],
@@ -314,7 +350,7 @@ def canonical_check(host, values, state):
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
         checks.canonical_program(mode),
-        json.dumps(expected, sort_keys=True), timeout=300)
+        json.dumps(expected, sort_keys=True), timeout=timeout)
     proof = json.loads(result.stdout)
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
             'Canonical evidence did not confirm server read-only execution')
@@ -539,7 +575,7 @@ def check_drain(host, values, target, proof):
 def migrate_operational_schema(host, candidate):
     result=host.compose(candidate,'run','--rm','--no-deps','--pull','never','--entrypoint','python',
         'sentinel-authorized-cli','-B','-c',
-        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request) in {'BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'}
+        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request) in ('BLOCKED_UNSENT', *SUCCESSOR_MODES)
         else checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
     value=json.loads(result.stdout)
     require(isinstance(value,dict) and set(value)=={'installation','complete'}
@@ -560,8 +596,8 @@ def panel(host, state, *, wait_until=None, native_positions_count=None):
             expected.update(clean_retired=True, cycle_id=state['cycle']['cycle_id'],
                 completed_at=state['cycle']['completed_at'],
                 reconciliation_id=state['reconciliation']['seq'])
-    if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
-        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+    if handoff_mode(host.request) in SUCCESSOR_MODES:
+        expected.update(handoff_mode=handoff_mode(host.request),
             cycle_id=state['cycle']['cycle_id'],original_plan=state['cycle']['plan_id'],
             retained_incidents=state['retained_incidents'])
     if repair:

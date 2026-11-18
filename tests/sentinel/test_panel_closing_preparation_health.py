@@ -37,6 +37,26 @@ def test_reproduced_next_close_pending_paper_is_normal_work():
     assert 'NOT VERIFIED' in page.row('paper_reconciliation').value and page==before
 
 
+@pytest.mark.parametrize('fault', [None, 'expired', 'manual', 'wrong_phase', 'wrong_boundary'])
+def test_source_wait_exposure_keeps_its_own_proof_during_plan_preparation(fault):
+    page = preparing_panel()
+    prior = page.row('book')
+    recovery = prior.recovery
+    if fault == 'manual':
+        recovery = replace(recovery, operator_required=True)
+    elif fault == 'wrong_phase':
+        recovery = replace(recovery, phase='AUTOMATION_OPEN')
+    page = changed_history_panel(page, 'exposure', status=model.WARN,
+        value='LAST ATTESTED THROUGH 2026-10-21', as_of=prior.as_of, freshness=None,
+        recovery=recovery, required_current=True,
+        valid_until=NOW if fault == 'expired' else recovery.deadline - timedelta(seconds=1)
+            if fault == 'wrong_boundary' else recovery.deadline)
+    facts = presentation.health_facts(page)
+    assert ('exposure' in facts['active'] + facts['warnings']) is (fault is not None)
+    if fault is None:
+        assert presentation.dashboard_health(page)['color'] == 'green'
+
+
 def test_reproduced_completed_check_does_not_create_new_review():
     page=preparing_panel();deadline=NOW+timedelta(minutes=3)
     check=model.Row('paper_reconciliation','Alignment','CHECK IN PROGRESS',model.WARN,
@@ -180,6 +200,141 @@ def test_native_unadopted_decision_is_expected_only_during_verified_calculation(
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
     assert presentation.dashboard_health(page)['color']=='green'
     assert page==before and page.row('exposure').value=='0.55 NOT ADOPTED'
+
+
+@pytest.mark.parametrize('fault', [None, 'foreign_step', 'step_deadline', 'step_clock'])
+def test_projected_decision_and_native_prepare_step_share_the_cycle_clock(fault):
+    page = verified_calculation_panel()
+    cycle = page.row('automation_cycle')
+    workflow = model.OperationalFact(kind='AUTOMATION_CYCLE', state='PREPARING')
+    page = changed_history_panel(page, 'automation_cycle', operational_fact=workflow)
+    page = changed_history_panel(page, 'automation_step_prepare',
+        operational_fact=workflow if fault != 'foreign_step' else workflow.model_copy(update={'state':'EXECUTING'}),
+        recovery=replace(cycle.recovery, phase='AUTOMATION_PREPARE',
+            deadline=OPEN if fault != 'step_deadline' else OPEN-timedelta(seconds=1)),
+        as_of=cycle.as_of if fault != 'step_clock' else cycle.as_of-timedelta(seconds=1))
+    projected = presentation.project_planless_exposure(page)
+    assert projected.row('exposure').recovery.phase == 'PLANLESS_EXPOSURE_ADOPTION'
+    assert presentation.project_planless_exposure(projected) == projected
+    expected = ['automation_step_prepare'] if fault is not None else []
+    assert presentation.health_facts(projected) == {'active':[], 'warnings':expected}
+
+
+def checking_close_panel(monkeypatch):
+    from sentinel.panel.authority_reader import _unknown
+    page = verified_calculation_panel()
+    subject = 'a'*64
+    runtime = dict(git_commit='1'*40, image_digest='sha256:'+'2'*64)
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', runtime['git_commit'])
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', runtime['image_digest'])
+    end = NOW + timedelta(seconds=35)
+    attempt = dict(schema='sentinel.financial-observer-attempt/1', attempt_id='b'*32,
+        subject_sha256=subject, outcome='RUNNING', admitted_at=(NOW-timedelta(seconds=2)).isoformat(),
+        work_started_at=(NOW-timedelta(seconds=1)).isoformat(), deadline=end.isoformat(),
+        work_deadline=end.isoformat())
+    diagnostic = dict(observation_fresh=True, financial_authority=False, runtime=runtime, latest=attempt)
+    observations = {r.key:r for r in _unknown(False, 'checking', checking_until=end)[0]}
+    page = replace(page, rows=[observations.get(r.key, r) for r in page.rows],
+        display_basis={'native':{'SHADOW':subject}}, trial_details={'verification_attempts':{'SHADOW':diagnostic}})
+    workflow = model.OperationalFact(kind='AUTOMATION_CYCLE', state='PREPARING')
+    page = changed_history_panel(page, 'automation_cycle', operational_fact=workflow)
+    return changed_history_panel(page, 'automation_step_prepare', operational_fact=workflow,
+        recovery=replace(page.row('automation_cycle').recovery, phase='AUTOMATION_PREPARE'))
+
+
+@pytest.mark.parametrize('fault', [None, 'subject', 'missing', 'stale', 'failed', 'latched', 'expired',
+                                   'shadow_changed', 'partial_group', 'worker_failed', 'book_failed'])
+def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypatch, fault):
+    page = checking_close_panel(monkeypatch)
+    diagnostic = page.trial_details['verification_attempts']['SHADOW']
+    if fault == 'subject':
+        diagnostic['latest']['subject_sha256'] = 'c'*64
+    elif fault == 'missing':
+        page = replace(page, trial_details={})
+    elif fault == 'stale':
+        diagnostic['observation_fresh'] = False
+    elif fault in {'failed', 'latched'}:
+        from sentinel.panel import observer_failure
+        failure = observer_failure.failure('NEGATIVE_RESULT', 'VALIDATION').model_dump(mode='json', by_alias=True)
+        if fault == 'latched':
+            diagnostic['latest']['latched_failure'] = failure
+        else:
+            diagnostic['latest'].update(outcome='FAILED', diagnostic=failure, completed_at=NOW.isoformat())
+    elif fault == 'expired':
+        page = replace(page, now=NOW+timedelta(seconds=35))
+    elif fault == 'shadow_changed':
+        page = replace(page, observation_changed_scopes=('SHADOW',))
+    elif fault == 'partial_group':
+        page = replace(page, rows=[row for row in page.rows if row.key != 'terminals'])
+    elif fault == 'worker_failed':
+        page = changed_history_panel(page, 'shadow_worker', status=model.FAIL)
+    elif fault == 'book_failed':
+        page = changed_history_panel(page, 'book', status=model.FAIL)
+    facts = presentation.health_facts(page)
+    health = presentation.dashboard_health(page)
+    assert health['plan_readiness'] == 'pending'
+    if fault is None:
+        assert facts == {'active':[], 'warnings':[]}
+        assert health['label'] == 'Checking strategy for the next open'
+        assert health['color'] == 'amber'
+        assert page.row('shadow_verification').value == 'CHECK IN PROGRESS'
+        assert page.row('book').shadow_book is None
+    else:
+        assert facts['warnings'] or facts['active']
+        assert health['color'] != 'green'
+
+
+def test_bypassing_current_attempt_eligibility_exposes_a_latched_failure(monkeypatch):
+    from sentinel.panel import readiness_handoff
+    monkeypatch.setattr(readiness_handoff, '_active_attempt', lambda *args, **kwargs: True)
+    with pytest.raises(AssertionError):
+        test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypatch, 'latched')
+
+
+@pytest.mark.parametrize('state', ['REFRESHING_DATA', 'WAITING_OPEN'])
+@pytest.mark.parametrize('fault', [None, 'foreign_clock', 'foreign_state', 'foreign_plan'])
+def test_checking_work_needs_the_real_step_and_scheduled_plan(monkeypatch, state, fault):
+    from sentinel.panel import delivery
+    page = checking_close_panel(monkeypatch)
+    if state == 'WAITING_OPEN':
+        scheduled = healthy_history_panel(now=NOW, execute_at=OPEN+timedelta(minutes=1))
+        fields = {r.key:r for r in scheduled.rows if r.key in {
+            'paper_plan', 'automation_cycle', 'automation_step_open', 'paper_reconciliation'}}
+        if fault != 'foreign_plan':
+            saved = fields['paper_plan']
+            fields['paper_plan'] = replace(saved, paper_plan=saved.paper_plan.model_copy(update={
+                'decision_session':NOW.date(), 'effective_session':OPEN.date()}))
+        page = replace(page, rows=[r for r in page.rows if r.key not in {*fields, 'automation_step_prepare'}]
+                       + list(fields.values()))
+        # The real close records the cycle after the bell.
+        for key in ('automation_cycle','automation_step_open'):
+            page = changed_history_panel(page, key, as_of=NOW)
+        step = 'automation_step_open'
+    else:
+        cycle = page.row('automation_cycle')
+        workflow = model.OperationalFact(kind='AUTOMATION_CYCLE', state=state)
+        page = replace(page, rows=[r for r in page.rows if r.key != 'automation_step_prepare'])
+        page = changed_history_panel(page, 'automation_cycle', operational_fact=workflow,
+            recovery=replace(cycle.recovery, phase='AUTOMATION_REFRESHING_DATA'))
+        step = 'automation_step_data'
+        page = changed_history_panel(page, step, status=model.WARN, as_of=cycle.as_of,
+            required_current=True, operational_fact=workflow,
+            recovery=replace(cycle.recovery, phase='AUTOMATION_DATA'))
+    if fault == 'foreign_clock':
+        page = changed_history_panel(page, step, as_of=NOW-timedelta(seconds=1))
+    elif fault == 'foreign_state':
+        page = changed_history_panel(page, step, operational_fact=model.OperationalFact(
+            kind='AUTOMATION_CYCLE', state='EXECUTING'))
+    elif fault == 'foreign_plan' and state == 'REFRESHING_DATA':
+        page = changed_history_panel(page, 'paper_plan', status=model.OK)
+    until, keys = presentation._close_check_work(page)
+    if fault == 'foreign_plan':
+        assert until is None and not keys
+        return
+    assert until is not None and 'automation_cycle' in keys
+    assert (step in keys) is (fault is None)
+    for key in keys:
+        assert delivery.row_current(page, page.row(key))
 
 
 @pytest.mark.parametrize('defect',['decision','actual_failure','unknown','unbounded','expired','future','not_required','fraction','generic_retry','wrong_phase'])

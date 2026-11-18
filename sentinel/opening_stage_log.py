@@ -15,6 +15,9 @@ _TEMPLATES = frozenset({
     "automation_execution_stage stage=completion_proof elapsed_ms=%d",
     "automation_execution_stage stage=terminal_transition_and_commit "
     "path=%s returned=%s elapsed_ms=%d",
+    "automation_idle_authority_stage outcome=%s stage=%s "
+    "elapsed_ms=%d budget_ms=%d backend_pid=%d",
+    "automation_idle_authority_parent outcome=%s stage=%s elapsed_ms=%d",
 })
 
 

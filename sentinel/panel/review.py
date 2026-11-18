@@ -82,7 +82,8 @@ def condition_evidence(panel, keys):
                 if (isinstance(context,dict) and set(context)=={'schema','stage','attempts','elapsed_ms'}
                         and context['schema']=='sentinel.operational-failure-context/1'
                         and context['stage'] in {'NOT_STARTED','COORDINATES','COLLECT','CONNECT',
-                            'OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS','REVIEW','ENCODE','PUBLISH','COMMIT'}
+                            'OWNER','INPUT_FENCE','FINAL_CONTEXT','LIVENESS','HANDOFF','WORKER_OBSERVATION',
+                            'REVIEW','ENCODE','PUBLISH','COMMIT'}
                         and type(context['attempts']) is int and 1<=context['attempts']<=2
                         and type(context['elapsed_ms']) is int and 0<=context['elapsed_ms']<=30000):
                     result[key].update(collector_stage=context['stage'],

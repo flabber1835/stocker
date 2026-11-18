@@ -88,7 +88,7 @@ def protocol_probe(filename, prior_failed):
     return published(str(os.getpid()))
 
 
-def oversized_wire(channel, function, args, parent_pid):
+def oversized_wire(channel, function, args, parent_pid, stage_slot):
     supervisor_io._parent_death(parent_pid)
     try:
         channel.send_bytes(b'R')
@@ -98,7 +98,7 @@ def oversized_wire(channel, function, args, parent_pid):
         channel.close()
 
 
-def malformed_wire(channel, function, args, parent_pid):
+def malformed_wire(channel, function, args, parent_pid, stage_slot):
     supervisor_io._parent_death(parent_pid)
     try:
         channel.send_bytes(b'R')
@@ -169,6 +169,7 @@ def publish_once_then_hang(expiry, private_argument, _prior_failed):
     global _PUBLICATION_CALLS
     _PUBLICATION_CALLS += 1
     if _PUBLICATION_CALLS > 1:
+        producer._stage('HANDOFF')
         time.sleep(60)
     return dict(outcome='PUBLISHED', valid_until=expiry)
 
@@ -213,6 +214,7 @@ def assert_parent_deadline_record(monkeypatch, tmp_path, *, preserve=True, expir
         assert record['schema'] == 'sentinel.projection-deadline/1'
         assert record['publisher'] == 'FAST'
         assert record['original_valid_until'] == expiry, 'lost original publication expiry'
+        assert record['collection_stage'] == (None if expired else 'HANDOFF')
         assert record['budget_seconds'] == .15
         assert record['stage'] == ('PUBLICATION_EXPIRY' if expired else 'COLLECTION_WAIT')
         assert record['reap_outcome'] == ('WORKER_RETAINED' if expired else 'KILLED')
@@ -315,7 +317,7 @@ def parent_death_probe(filename, prior_failed):
     return published(str(os.getpid()))
 
 
-def serve_without_parent_death(channel, function, args, parent_pid):
+def serve_without_parent_death(channel, function, args, parent_pid, stage_slot):
     """Executed removed-kernel-guard control, still using the real worker IPC."""
     try:
         channel.send_bytes(b'R')

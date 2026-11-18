@@ -175,7 +175,7 @@ def test_history_count_and_warning_remain_during_proven_progress(ongoing,monkeyp
     monkeypatch.setattr(sources,'_in_progress_paper_mirror',lambda *_:actual)
     row=sources._scheduled_paper_mirror(object(),ongoing['cycle'],ongoing['publication'],
       '2026-10-30',{'status':mirror.MISMATCH,'historical_mismatch_count':3})
-    assert row.status==model.WARN and '3 historical' in row.detail and 'earlier transported plans' in row.detail
+    assert row.status==model.WARN and '3 historical' in row.detail and 'earlier plans' in row.detail
     assert row.valid_until==actual.valid_until and row.recovery==actual.recovery
 
 

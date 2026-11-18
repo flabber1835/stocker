@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 import multiprocessing
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -183,7 +184,7 @@ def test_historical_diagnostic_cannot_make_unready_worker_ready(tmp_path, monkey
 @pytest.mark.asyncio
 @pytest.mark.parametrize('prospective', [False, True])
 async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
-        conn, pg, prospective, frozen_clock_sample):
+        conn, pg, prospective, frozen_clock_sample, monkeypatch):
     """Real terminal/notifier/control loop; signed authority is a fixture seam.
 
     No certificate or broker is constructed. Terminal trial storage, outbox,
@@ -206,19 +207,36 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
     runtime.automation_config = cfg
     runtime._idle_attestation = None
     runtime._idle_attestation_observed_at = None
+    from sentinel import automation_runtime, authority
+    expected = binding(cfg)
+    # Only external signed/publication identity is synthetic. The foreground
+    # leader, control, cycle comparison and PASS publication remain real SQL.
+    runtime._idle_certificate_identity = lambda _conn, *, expected_sha256: (
+        SimpleNamespace(certificate_sha256=expected_sha256))
+    monkeypatch.setattr(automation_runtime, 'load_rollout_state', lambda _conn:
+        authority.RolloutState(authority.RolloutMode.PINNED_1_00, 1, None))
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'require_current',
+                        lambda _conn: SimpleNamespace(version=1))
+    publication_head = {'version': 1}
+    runtime._idle_publication_head = lambda _conn: publication_head
 
-    def signed_fixture(connection, permit):
-        store.require_leader(connection, permit)
-        store.record_authority_verdict(connection, verdict='PASS',
-            detail='explicit isolated signed-authority fixture boundary',
-            holder_id=permit.holder_id, fence_token=permit.fence_token,
-            control_generation=permit.control_generation, instance_id=runtime.holder_id)
-        # The cryptographic verifier is the explicit fixture boundary. Supply
-        # only its test identity; keep real cycle/control comparison below it.
-        return store.load_control(connection), SimpleNamespace(
-            certificate_sha256=binding(cfg).certificate_sha256)
+    def signed_fixture(control, permit, observed_at):
+        finished = threading.Event(); finished.set()
+        flight = SimpleNamespace(finished=finished, cancelled=threading.Event(),
+            error=None, elapsed_seconds=0.0, timeout_seconds=25,
+            stage='COMPLETE', backend_pid=None, stop=lambda: True,
+            value={'status':'PASS', 'generation':control.generation,
+                'binding':control.binding.model_dump(mode='json'),
+                'rollout_mode':expected.rollout_mode,
+                'rollout_version':expected.rollout_version,
+                'publication_version':1,
+                'publication_head':publication_head,
+                'certificate_sha256':expected.certificate_sha256})
+        runtime._idle_authority_flight = (
+            flight, runtime._idle_attestation_key(control, permit), observed_at)
+        return flight
 
-    runtime._assert_control_authority = signed_fixture
+    runtime._start_idle_authority_observer = signed_fixture
     async def readonly_recovery(context):
         # run() requires an asynchronous callback so lease renewal remains
         # independently observable. This isolated result contacts no broker.
@@ -256,7 +274,6 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
     conn.rollback()
     # Isolate ONLY cryptographic lifecycle and externally enrolled identity.
     # Their own suites remain required; this test grants no real authority.
-    expected = binding(cfg)
     host_config = SimpleNamespace(deployment_id=expected.deployment_id,
         account_id=expected.broker_account_id)
     for sample in samples:

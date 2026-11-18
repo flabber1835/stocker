@@ -51,7 +51,7 @@ def test_removed_callable_cleanup_is_detected(monkeypatch):
             self.closed = True
     def qualifies(serve):
         selected = Selected()
-        serve(Channel(), selected, (), 123)
+        serve(Channel(), selected, (), 123, None)
         assert selected.closed, 'collector dependency was not closed'
     qualifies(projection_worker._serve)
     source = inspect.getsource(projection_worker._serve)

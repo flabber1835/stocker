@@ -1,0 +1,66 @@
+'use strict';
+const {test,expect}=require('@playwright/test');
+const fs=require('node:fs');
+const {panelAssets}=require('./panel-assets.cjs');
+
+test.use({serviceWorkers:'block'});
+
+for(const outcome of ['accepted','refused']) {
+  test(`review action introduced by refresh is keyboard accessible and ${outcome}`,async({page,request})=>{
+    const documents=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).review_documents;
+    const assets=await panelAssets(request,documents.initial,documents.ready,documents.done);
+    const now=Date.parse(documents.initial.match(/data-generated-at="([^"]+)"/)[1]);
+    const posted=[];
+    let navigations=0;
+    await page.clock.install({time:new Date(now)});
+    await page.route('**/*',async route=>{
+      const request=route.request();
+      const path=new URL(request.url()).pathname;
+      if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
+      if(path==='/review/acknowledge') {
+        posted.push({method:request.method(),body:request.postDataJSON(),
+          origin:request.headers().origin});
+        return route.fulfill({status:outcome==='accepted'?200:409,
+          contentType:'application/json',body:outcome==='accepted'?
+            JSON.stringify({status:'CLEAN',head:3,reviewed_head:3}):
+            JSON.stringify({detail:'State changed; review again'})});
+      }
+      if(path!=='/')return route.fulfill({status:404,body:''});
+      const navigation=request.isNavigationRequest();
+      if(navigation)navigations++;
+      await route.fulfill({status:200,contentType:'text/html',
+        headers:{'X-Sentinel-Panel-Status':'CURRENT'},
+        body:navigation?(navigations===1?documents.initial:documents.done):documents.ready});
+    });
+    await page.goto('http://127.0.0.1:18947/');
+    const review=page.locator('#operator-review');
+    await expect(review).toBeVisible();
+    await expect(review.locator('h2')).toHaveText('Health history');
+    await expect(review.locator('a[href="#system-details"]')).toBeVisible();
+    await expect(page.locator('#review-acknowledge')).toHaveCount(0);
+    await expect(page.locator('body')).toHaveAttribute('data-health','amber');
+    await page.clock.runFor(5000);
+    const button=page.getByRole('button',{name:'Acknowledge reviewed state'});
+    await expect(button).toBeVisible();
+    await expect(review).toContainText('This does not verify pending PAPER results.');
+    expect(posted).toHaveLength(0);
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(()=>posted.length).toBe(1);
+    expect(posted[0]).toEqual({method:'POST',
+      body:{token:'browser-qualified-review-view'},origin:'http://127.0.0.1:18947'});
+    if(outcome==='accepted') {
+      await expect.poll(()=>navigations).toBe(2);
+      await expect(page.locator('body')).toHaveAttribute('data-health','green');
+      await expect(page.locator('#review-acknowledge')).toHaveCount(0);
+      await expect(review).toContainText('Expected operation');
+    } else {
+      await expect(button).toBeDisabled();
+      await expect(review.locator('#review-result')).toContainText('Refresh and review again.');
+      await expect(page.locator('body')).toHaveAttribute('data-health','amber');
+      expect(navigations).toBe(1);
+      await page.keyboard.press('Enter');
+      expect(posted).toHaveLength(1);
+    }
+  });
+}

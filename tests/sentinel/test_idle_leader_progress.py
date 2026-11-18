@@ -2,20 +2,29 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
+from dataclasses import replace
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
+from psycopg.errors import ReadOnlySqlTransaction
 
+from sentinel import automation_runtime
+from sentinel.authority import repository as authority_repository
 from sentinel.automation import integrity, store
 from sentinel.automation.model import (
     AutomationRefused, CycleState, StaleLeaderRefused, TickAction,
     TransientInfrastructureFailure,
 )
 from sentinel.feed import store as feed_store
+from sentinel.feed import publication
 from tests.sentinel.test_automation_service import (
-    THURSDAY_AFTER_OPEN, THURSDAY_BEFORE_OPEN, config, conn, enable, pg,
+    THURSDAY_AFTER_OPEN, THURSDAY_BEFORE_OPEN, binding, config, conn, enable, pg,
     recovery_success, service_for,
 )
+from tests.sentinel.test_automation_runtime import production
 
 
 async def waiting_service(connection, cfg):
@@ -32,6 +41,138 @@ def small_config():
         "lease_seconds": 3, "heartbeat_seconds": 1,
         "control_poll_seconds": 1,
     })
+
+
+@pytest.mark.asyncio
+async def test_slow_idle_observer_converges_under_same_live_twelve_second_lease(
+        conn, pg, monkeypatch):
+    cfg = config().model_copy(update={
+        "lease_seconds": 12, "heartbeat_seconds": 3,
+        "control_poll_seconds": 1})
+    service, prepared = await waiting_service(conn, cfg)
+    runtime = production(cfg)
+    runtime.sentinel_config = replace(
+        runtime.sentinel_config, database_url=pg.sync_dsn)
+    expected = binding(cfg)
+    monkeypatch.setattr(service, "_assert_clock_skew",
+                        lambda **kwargs: kwargs["now"])
+    monkeypatch.setattr(runtime, "_idle_certificate_identity",
+                        lambda _conn, **_kw: SimpleNamespace(
+                            certificate_sha256=expected.certificate_sha256))
+    monkeypatch.setattr(automation_runtime, "load_rollout_state",
+                        lambda _conn: SimpleNamespace(
+                            mode=SimpleNamespace(value=expected.rollout_mode),
+                            version=expected.rollout_version,
+                            certificate_sha256=None))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "require_current",
+                        lambda _conn: SimpleNamespace(version=1))
+    monkeypatch.setattr(runtime, "_idle_publication_head", lambda _conn, **_kw:
+                        {"version": 1, "receipt_sha256": "r" * 64})
+    flights = []
+
+    class SlowFlight:
+        stage = "SIGNED_AUTHORITY_PUBLICATION"
+        backend_pid = None
+        timeout_seconds = 25
+        error = None
+
+        def __init__(self, control):
+            self.started_monotonic = time.monotonic()
+            self.cancelled = threading.Event()
+            self.finished = threading.Event()
+            self.value = {
+                "status": "PASS", "generation": control.generation,
+                "binding": control.binding.model_dump(mode="json"),
+                "publication_version": 1,
+                "publication_head": {"version": 1,
+                                     "receipt_sha256": "r" * 64},
+                "rollout_mode": expected.rollout_mode,
+                "rollout_version": expected.rollout_version,
+                "certificate_sha256": expected.certificate_sha256,
+            }
+            self.thread = threading.Thread(target=self._complete, daemon=True)
+            self.thread.start()
+
+        def _complete(self):
+            time.sleep(13.1)
+            self.finished.set()
+
+        @property
+        def elapsed_seconds(self):
+            return time.monotonic() - self.started_monotonic
+
+        def stop(self, **_kwargs):
+            self.cancelled.set()
+            self.thread.join(1)
+            return not self.thread.is_alive()
+
+    def start(control, permit, observed_at):
+        flight = SlowFlight(control)
+        flights.append(flight)
+        runtime._idle_authority_flight = (
+            flight, runtime._idle_attestation_key(control, permit), observed_at)
+        return flight
+
+    monkeypatch.setattr(runtime, "_start_idle_authority_observer", start)
+    started = time.monotonic()
+
+    async def bounded_sleep(_seconds):
+        await asyncio.sleep(.75)
+
+    await service.run(lambda: feed_store.connect(pg.sync_dsn),
+                      stop=asyncio.Event(), clock=lambda: THURSDAY_BEFORE_OPEN,
+                      sleep=bounded_sleep, control_wake=runtime.bounded_control_wake,
+                      max_ticks=21)
+    assert time.monotonic() - started > 13.1
+    assert len(flights) == 1 and flights[0].finished.is_set()
+    assert not flights[0].cancelled.is_set()
+    assert runtime._idle_attestation is not None
+    assert store.load_control(conn).authority_verdict == "PASS"
+    assert store.require_leader(conn, prepared.permit).fence_token == prepared.permit.fence_token
+    assert conn.execute("SELECT count(*) FROM sentinel_commands").fetchone()[0] == 0
+    conn.rollback()
+
+
+@pytest.mark.asyncio
+async def test_idle_observer_database_session_remains_read_only_after_fence_read(
+        conn, pg):
+    cfg = config().model_copy(update={
+        "lease_seconds": 12, "heartbeat_seconds": 3})
+    _service, prepared = await waiting_service(conn, cfg)
+    observer_conn = feed_store.connect(pg.sync_dsn)
+    try:
+        observer_conn.read_only = True
+        assert store.require_leader(
+            observer_conn, prepared.permit).fence_token == prepared.permit.fence_token
+        observer_conn.rollback()
+        with pytest.raises(ReadOnlySqlTransaction):
+            observer_conn.execute(
+                "UPDATE sentinel_automation_control SET updated_at=clock_timestamp() WHERE id=1")
+        observer_conn.rollback()
+    finally:
+        observer_conn.close()
+
+
+@pytest.mark.parametrize("writer_key", [
+    authority_repository.AUTHORITY_TRANSITION_LOCK_KEY,
+    publication.CORPUS_LOCK_KEY,
+])
+def test_idle_mutable_pin_refuses_concurrent_canonical_writer(conn, pg, writer_key):
+    runtime = production(config())
+    writer = feed_store.connect(pg.sync_dsn)
+    reader = feed_store.connect(pg.sync_dsn, statement_timeout_ms=500)
+    try:
+        writer.execute("SELECT pg_advisory_lock(%s)", (writer_key,))
+        writer.rollback()
+        with pytest.raises(TransientInfrastructureFailure,
+                           match="writer is active"):
+            runtime._idle_pin_mutable_authority(reader)
+        reader.rollback()
+    finally:
+        writer.execute("SELECT pg_advisory_unlock(%s)", (writer_key,))
+        writer.rollback()
+        reader.close()
+        writer.close()
 
 
 @pytest.mark.asyncio

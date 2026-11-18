@@ -16,9 +16,10 @@ from typing import TypedDict
 
 _UNREAPED = []
 MAX_RECORD_BYTES = 4096
+_CONTAINER_STDERR = '/proc/1/fd/2'
 _STAGES = frozenset({'ARM', 'ACTIVE_PROOF', 'SPAWN', 'ACK', 'OWNERSHIP', 'OWNED_RUN',
                      'HEARTBEAT', 'SNAPSHOT', 'CONFIRMATION', 'IDLE_STALL',
-                     'CALLBACK_DEADLINE', 'DATABASE_DEADLINE'})
+                     'CALLBACK_DEADLINE', 'DATABASE_DEADLINE', 'HEALTH_PROBE'})
 _OUTCOMES = frozenset({'BEGIN', 'ACCEPTED', 'FAILED', 'TERMINATING', 'RECOVERED'})
 
 
@@ -143,26 +144,29 @@ def _stderr(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def _pipe_report(message: str) -> bool | None:
+def _pipe_report(message: str, *, container_log=False) -> bool | None:
     """One nonblocking pipe write; None selects the finite non-pipe fallback."""
     try:
-        descriptor = sys.stderr.fileno()
-        if not stat.S_ISFIFO(os.fstat(descriptor).st_mode):
+        target = _CONTAINER_STDERR if container_log else f'/proc/self/fd/{sys.stderr.fileno()}'
+        if not stat.S_ISFIFO(os.stat(target).st_mode):
             return None
-        maximum = min(MAX_RECORD_BYTES, os.fpathconf(descriptor, 'PC_PIPE_BUF'))
     except (AttributeError, OSError, ValueError):
         return None
     raw = message.encode('utf-8', errors='replace')
-    if len(raw)+1 > maximum:
+    if len(raw)+1 > MAX_RECORD_BYTES:
         return False
     try:
         # Reopening creates an independent open-file description. Setting
         # O_NONBLOCK on dup() or the inherited fd would also affect descendants.
-        reopened = os.open(f'/proc/self/fd/{descriptor}',
+        reopened = os.open(target,
                            os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError as exc:
         return None if exc.errno in {errno.ENOENT, errno.EACCES, errno.ENOTDIR} else False
     try:
+        if not stat.S_ISFIFO(os.fstat(reopened).st_mode):
+            return None
+        if len(raw)+1 > os.fpathconf(reopened, 'PC_PIPE_BUF'):
+            return False
         return os.write(reopened, raw+b'\n') == len(raw)+1
     except OSError:
         return False
@@ -187,7 +191,7 @@ def report(message, *, file=None, flush=True):
 
 
 def report_event(component: str, stage: str, outcome: str, *, error=None,
-                 context: dict | None = None, immediate: bool = True) -> bool:
+                 context: dict | None = None, immediate: bool = True, container_log=False) -> bool:
     """Closed diagnostic metadata cannot become financial or liveness evidence."""
     try:
         if component not in {'shadow', 'automation'} or stage not in _STAGES or outcome not in _OUTCOMES:
@@ -212,6 +216,8 @@ def report_event(component: str, stage: str, outcome: str, *, error=None,
                      monotonic_at=time.monotonic(), context=facts,
                      error=error_diagnostic(error) if error is not None else None)
         message = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        if container_log:
+            return _pipe_report(message, container_log=True) is True
         if immediate:
             return _pipe_report(message) is True
         return report(message)

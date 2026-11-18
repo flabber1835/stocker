@@ -35,3 +35,31 @@ active callback state and deadline, stale heartbeat, lost fence or lease, and
 wrong session. Exercise exact-subject positive renewal deferral alongside the
 existing opening tests. The next captured close can measure remaining lock
 waits without inferring speedup from a unit test.
+
+## November 18 close across a PAPER reactivation
+
+A verifier admitted at 20:59:31 UTC finished its financial read after the
+21:00 bell. Its rolling input check selected November 18 while its display
+used the pre-close start time. Project dated financial evidence after the canonical read returns. Bind a
+positive result spanning a session boundary to the frontier owed at completion. If a scan began
+on the previous frontier and returns its positive result across the bell,
+repeat the ordinary verified read under the original worker deadline. A typed
+dated wait already covers that boundary and needs one read. Preserve the
+attestation timestamp, the original next-open cutoff and the financial source
+identities.
+
+The morning cycle completed under generation 210 and current PAPER control
+was generation 214. For the settled-session scheduling reservation, recognize
+the same bound account's durable, cleanly completed prior cycle, with its
+matching saved plan, before the current generation's recorded kill release.
+Verify the original and current release bindings. This covers a new activation
+and a kill release within the existing activation. Active callbacks still
+require the current generation, certificate, configuration and fence.
+
+During a planless closing-input retry, a current lease and the native registered
+publisher working on that session can also reserve the optional scan slot.
+Clip the reservation to the job lease, job deadline, automation lease, next
+wake and next execution open. An authenticated same-subject SHADOW source wait
+may defer an optional refresh under its original evidence expiry and existing
+renewal margin. A changed subject, missing proof, failure, or mandatory
+renewal starts normal verification. All actual scans retain their corpus pins.

@@ -68,6 +68,7 @@ th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .mode-guide{margin:16px 2px;color:#d5ccbd;font-size:14px;line-height:1.7}.mode-guide strong{color:#f7d78c}.mode-guide p{margin:7px 0}
 .state.neutral,.dot.neutral{color:var(--muted)}
 .review-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13px;line-height:1.5}
+.review-card h2{margin:0;font-size:15px;line-height:1.4}.review-card a{color:var(--warn);text-underline-offset:2px}
 .review-card p{margin:7px 0}.review-card small{color:var(--muted)}.review-card summary{padding:8px 0}.review-card ol{padding-left:20px}
 .row.neutral,.not-current .row.ok{border-color:var(--muted)}.not-current .dot.ok{color:var(--muted)}
 .refreshing-status .row.ok{border-color:var(--muted)}

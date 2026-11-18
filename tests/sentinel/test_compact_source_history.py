@@ -200,11 +200,18 @@ def test_fixed_anchor_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_repinning_profile_cannot_change_the_fixed_anchor(tmp_path, monkeypatch)
 
-def test_opening_fixes_retain_exact_installed_pr605_source():
-    revision = 'd0a9bb5f1c5ce4321c4ffb5ea838061239ad925d'
+@pytest.mark.parametrize(('revision', 'count', 'digest'), [
+    ('d0a9bb5f1c5ce4321c4ffb5ea838061239ad925d', 492,
+     'ecd02b17d48e59ecb5d8a28096a1a8d696b10735c0d614a0956feff371b1fbd2'),
+    ('3603de84ef193e0e07f6fe6adfbde410418af204', 497,
+     '1950aaf9b930185c9afe595483cb2dc32a777fda67d48626a17e589fca41c30e'),
+    ('4ce1dc299dd781fb223f5b8b59c3beff0fcddf95', 499,
+     'e9f2380588311f59d6ec70b9c27da79fafe17f79852959ae34c5ede247195551'),
+], ids=['installed-pr605', 'installed-pr606', 'installed-nov18-posttrade'])
+def test_opening_fixes_retain_exact_installed_source(revision, count, digest):
     predecessor = basis._profile()['retained_predecessors'][revision]['files']
-    assert len(predecessor) == 492
-    assert admission.source_closure(predecessor) == 'ecd02b17d48e59ecb5d8a28096a1a8d696b10735c0d614a0956feff371b1fbd2'
+    assert len(predecessor) == count
+    assert admission.source_closure(predecessor) == digest
     actual = admission._source_files(basis.PROFILE.parent)
     assert basis.predecessor_view(actual, previous=predecessor) == predecessor
     altered = {**actual, 'automation/env_config.py': 'f' * 64}

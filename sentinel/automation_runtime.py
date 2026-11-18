@@ -11,12 +11,15 @@ from sentinel.execution import feed_inputs
 
 import asyncio
 import errno
+import hashlib
+import json
 import logging
 import os
 import socket
 import time
 import uuid
 from contextlib import ExitStack
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Mapping, NoReturn
@@ -24,8 +27,9 @@ from zoneinfo import ZoneInfo
 
 from sentinel import identity as system_identity, opening_stage_log, paper, schema, trial
 from sentinel.authority import (
-    AuthorityRefused, load_active_signed_certificate, load_rollout_state)
-from sentinel.automation import outbox, schedule, store
+    AuthorityRefused, load_rollout_state)
+from sentinel.authority import repository as authority_repository
+from sentinel.automation import idle_authority, outbox, schedule, store
 from sentinel.automation.env_config import AUTOMATION_CONFIG_ENV_BY_FIELD, config_from_env
 from sentinel.automation.model import (
     AutomationConfig,
@@ -100,6 +104,10 @@ REFRESH_TRANSIENT_FAILURES = (
 BACKUP_FAILURE_DOMAIN = "BACKUP"
 _LOGGER = logging.getLogger(__name__)
 _IDLE_ATTESTATION_SECONDS = 30
+_IDLE_AUTHORITY_OBSERVER_SECONDS = 25
+_IDLE_AUTHORITY_RETRY_MAX_SECONDS = 60
+_IDLE_FOREGROUND_MAX_SECONDS = 6
+_IDLE_PARENT_STATEMENT_TIMEOUT_MS = 500
 
 
 class BackupTransientFailure(TransientInfrastructureFailure):
@@ -112,6 +120,11 @@ class BackupPermanentFailure(PermanentOperationalRefusal):
     """Backup configuration or integrity requires operator intervention."""
 
     failure_domain = BACKUP_FAILURE_DOMAIN
+
+
+@dataclass(frozen=True)
+class _IdleCertificateIdentity:
+    certificate_sha256: str
 
 
 def _fenced_recovery_deadline(decision_session: str) -> datetime:
@@ -671,6 +684,70 @@ def _observe_callback_authority(sentinel_config, automation_config, holder_id, p
         conn.close()
 
 
+def _observe_idle_control_authority(
+        sentinel_config, automation_config, holder_id, permit, progress):
+    """Read the complete idle proof in an isolated, killable process."""
+    runtime = ProductionAutomation(sentinel_config=sentinel_config,
+        automation_config=automation_config, holder_id=holder_id)
+    conn = None
+    subject = {}
+
+    def retain_subject(control, rollout, current):
+        bound = control.binding
+        if bound is not None:
+            subject.update(
+                generation=control.generation,
+                binding=bound.model_dump(mode="json"),
+                publication_version=current.version,
+                publication_head=runtime._idle_publication_head(
+                    conn, authenticated=current),
+                rollout_mode=rollout.mode.value,
+                rollout_version=rollout.version)
+
+    try:
+        idle_authority.set_progress(progress, stage=1)
+        conn = runtime.connect()
+        # The idle proof must remain unable to mutate even if a future
+        # authority helper gains a write. Set the session default before its
+        # first transaction; require_leader's rollback cannot remove it.
+        conn.read_only = True
+        idle_authority.set_progress(progress,
+            backend_pid=getattr(getattr(conn, "info", None), "backend_pid", None))
+        control, certificate, publication_version = runtime._validate_control_authority(
+            conn, permit, include_publication_version=True,
+            progress=lambda stage: idle_authority.set_progress(progress, stage=stage),
+            retain_subject=retain_subject)
+        idle_authority.set_progress(progress, stage=6)
+        bound = control.binding
+        assert bound is not None
+        return {
+            "status": "PASS",
+            **subject,
+            "certificate_sha256": certificate.certificate_sha256,
+        }
+    except Exception as exc:  # noqa: BLE001
+        try:
+            runtime._raise_authority_refusal(exc)
+        except StaleLeaderRefused:
+            return {"status": "STALE"}
+        except TransientInfrastructureFailure:
+            return {"status": "TRANSIENT"}
+        except NonRetryableCallbackRefused as refusal:
+            return {"status": "REFUSED", "detail": str(refusal)[:4000],
+                    "subject": subject or None}
+        raise
+    finally:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 class ProductionAutomation:
     """Inject canonical production actions into the durable automation core."""
 
@@ -714,6 +791,12 @@ class ProductionAutomation:
         # result or a grant. Mutable lifecycle/control facts are still polled.
         self._idle_attestation: tuple[datetime, tuple] | None = None
         self._idle_attestation_observed_at: datetime | None = None
+        self._idle_attestation_publication_head: dict | None = None
+        self._idle_authority_flight: tuple[
+            idle_authority.IdleAuthorityFlight, tuple, datetime] | None = None
+        self._idle_authority_retry_at: datetime | None = None
+        self._idle_authority_failures = 0
+        self._idle_foreground_deadline: float | None = None
         self.service = self._service_type(
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
@@ -721,7 +804,8 @@ class ProductionAutomation:
             notify=self.notify, terminal=self.certify_terminal_cycle,
             source_completion_hint=self.source_completion_hint,
             backup_proof_completed=self.backup_proof_completed,
-            callback_authority=self.callback_authority)
+            callback_authority=self.callback_authority,
+            before_callback=self._stop_idle_authority_observer)
 
     def callback_authority(self, context, stopped):
         from sentinel import supervisor_io
@@ -806,20 +890,32 @@ class ProductionAutomation:
                 "(heartbeat interval %ss)", stage, elapsed,
                 self.automation_config.heartbeat_seconds)
 
-    def _validate_control_authority(self, conn, permit):
+    def _validate_control_authority(
+            self, conn, permit, *, include_publication_version=False,
+            progress=None, retain_subject=None):
         """Check the original authority scope without publishing a verdict."""
+        if progress is not None:
+            progress(2)
         store.require_leader(conn, permit)
         control = store.load_control(conn)
         bound = control.binding
         if (bound is None or control.generation != permit.control_generation
                 or control.config_sha256 != self.automation_config.fingerprint):
             raise RuntimeError("automation control authority is stale")
+        if progress is not None:
+            progress(3)
         rollout = load_rollout_state(conn)
         current = feed_inputs.require_current(conn)
+        if retain_subject is not None:
+            retain_subject(control, rollout, current)
+        if progress is not None:
+            progress(4)
         started = time.monotonic()
         _controller, strategy = production_strategy()
         runtime_identity = system_identity.rehearsal_identity()
         self._warn_slow_authority_stage("runtime-source-packages", started)
+        if progress is not None:
+            progress(5)
         started = time.monotonic()
         certificate = require_current_authority(
             conn, runtime_identity=runtime_identity,
@@ -834,6 +930,8 @@ class ProductionAutomation:
                 or bound.rollout_mode != rollout.mode.value
                 or bound.rollout_version != rollout.version):
             raise RuntimeError("current automation binding and signed authority differ")
+        if include_publication_version:
+            return control, certificate, current.version
         return control, certificate
 
     def _finish_authority_refusal(self, conn, permit, exc, *, record_verdict) -> NoReturn:
@@ -843,6 +941,17 @@ class ProductionAutomation:
         elif record_verdict:
             self._record_authority_verdict(
                 conn, permit, verdict="FAIL", detail=f"{type(exc).__name__}: {exc}")
+        self._raise_authority_refusal(exc)
+
+    def _finish_idle_authority_refusal(self, conn, exc) -> NoReturn:
+        """Classify an idle refusal for the single fenced terminal handler."""
+        self._idle_attestation = None
+        if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
+            conn.rollback()
+            self._raise_authority_refusal(exc)
+        if isinstance(exc, StaleLeaderRefused):
+            conn.rollback()
+            raise exc
         self._raise_authority_refusal(exc)
 
     def _record_authority_pass(self, conn, permit, certificate):
@@ -922,13 +1031,14 @@ class ProductionAutomation:
             self._idle_attestation = None
             return False
         try:
-            # This authenticates current durable lifecycle and revocation,
-            # including the trust roots, without scanning executable trees.
+            # Compare current mutable state to the exact previously signed
+            # bytes. The full proof owns trust-root and signature validation.
             # A skip retains the full check's original checked-at timestamp.
             store.require_leader(conn, permit)
-            certificate = load_active_signed_certificate(
-                conn, allow_expired_observation_safety=True)
+            certificate = self._idle_certificate_identity(
+                conn, expected_sha256=control.binding.certificate_sha256)
             rollout = load_rollout_state(conn)
+            publication_head = self._idle_publication_head(conn)
             bound = control.binding
             current = (
                 bound is not None
@@ -937,7 +1047,8 @@ class ProductionAutomation:
                 and rollout.version == bound.rollout_version
                 and rollout.certificate_sha256 == (
                     None if rollout.mode.value == "PINNED_1_00"
-                    else bound.certificate_sha256))
+                    else bound.certificate_sha256)
+                and publication_head == self._idle_attestation_publication_head)
         except Exception:                                    # noqa: BLE001
             # The full gate owns classification, persisted refusal and latch.
             self._idle_attestation = None
@@ -945,6 +1056,328 @@ class ProductionAutomation:
         if not current:
             self._idle_attestation = None
         return current
+
+    def _idle_current_facts(self, conn, permit):
+        """Re-observe the cheap, mutable facts while full proof is in flight."""
+        self._require_idle_foreground_budget()
+        store.require_leader(conn, permit)
+        self._require_idle_foreground_budget()
+        self._idle_pin_mutable_authority(conn)
+        return self._idle_facts_after_fence(conn, permit)
+
+    def _idle_facts_after_fence(self, conn, permit):
+        """Recheck mutable facts without ending the caller's pinned transaction."""
+        self._require_idle_foreground_budget()
+        control = store.load_control(conn)
+        bound = control.binding
+        if (not control.enabled or control.kill_switch_engaged
+                or control.generation != permit.control_generation
+                or bound is None
+                or control.config_sha256 != self.automation_config.fingerprint):
+            raise StaleLeaderRefused("idle authority control changed")
+        self._require_idle_foreground_budget()
+        certificate = self._idle_certificate_identity(
+            conn, expected_sha256=bound.certificate_sha256)
+        self._require_idle_foreground_budget()
+        rollout = load_rollout_state(conn)
+        self._require_idle_foreground_budget()
+        if (certificate.certificate_sha256 != bound.certificate_sha256
+                or rollout.mode.value != bound.rollout_mode
+                or rollout.version != bound.rollout_version
+                or rollout.certificate_sha256 != (
+                    None if rollout.mode.value == "PINNED_1_00"
+                    else bound.certificate_sha256)):
+            raise AuthorityRefused("idle certificate or rollout authority changed")
+        return control, certificate
+
+    def _idle_pin_mutable_authority(self, conn):
+        """Hold canonical writer exclusions until the fenced verdict commits."""
+        with conn.cursor() as cur:
+            for key in (authority_repository.AUTHORITY_TRANSITION_LOCK_KEY,
+                        publication.CORPUS_LOCK_KEY):
+                cur.execute("SELECT pg_try_advisory_xact_lock_shared(%s)", (key,))
+                if cur.fetchone()[0] is not True:
+                    raise TransientInfrastructureFailure(
+                        "idle mutable authority writer is active")
+            # Rollout-only transitions update this row without the authority
+            # transition lock. A 500ms statement timeout bounds this wait.
+            cur.execute("SELECT id FROM sentinel_rollout_state WHERE id=1 FOR SHARE")
+            if cur.fetchone() is None:
+                raise AuthorityRefused("idle rollout state is missing")
+
+    def _idle_publication_head(self, conn, *, authenticated=None):
+        """Read only the indexed head validated in the child, without replay."""
+        self._require_idle_foreground_budget()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT p.version,p.previous_version,p.run_id,p.published_at,"
+                " p.window_start,p.window_end,p.evidence,r.receipt_sha256,"
+                " r.receipt_hmac_sha256,o.job_id,o.candidate_id,"
+                " o.validation_sha256,j.state,j.publication_version"
+                " FROM sentinel_corpus_publications p"
+                " LEFT JOIN sentinel_publication_validation_receipts r"
+                " ON r.publication_version=p.version"
+                " LEFT JOIN sentinel_operational_snapshots o"
+                " ON o.publication_version=p.version"
+                " LEFT JOIN sentinel_snapshot_jobs j ON j.job_id=o.job_id"
+                " ORDER BY p.version DESC LIMIT 1")
+            row = cur.fetchone()
+        self._require_idle_foreground_budget()
+        if row is None:
+            raise publication.NoPublishedVersion("idle publication head is absent")
+        evidence = row[6] if isinstance(row[6], Mapping) else json.loads(row[6])
+        if not isinstance(evidence, Mapping):
+            raise publication.CorpusIncoherent("idle publication evidence is malformed")
+        encoded = json.dumps(
+            evidence, sort_keys=True, separators=(",", ":"), default=str).encode()
+        if len(encoded) > 4_194_304:
+            raise publication.CorpusIncoherent("idle publication evidence exceeds bounded head")
+        if authenticated is not None and (
+                int(row[0]) != authenticated.version
+                or (int(row[1]) if row[1] is not None else None)
+                != authenticated.previous_version
+                or (str(row[2]) if row[2] is not None else None)
+                != authenticated.run_id
+                or (str(row[4]) if row[4] is not None else None)
+                != authenticated.window_start
+                or (str(row[5]) if row[5] is not None else None)
+                != authenticated.window_end
+                or evidence != authenticated.evidence):
+            raise StaleLeaderRefused(
+                "idle publication changed after complete child validation")
+        return {
+            "version": int(row[0]),
+            "previous_version": int(row[1]) if row[1] is not None else None,
+            "run_id": str(row[2]) if row[2] is not None else None,
+            "published_at": row[3].isoformat(),
+            "window_start": str(row[4]) if row[4] is not None else None,
+            "window_end": str(row[5]) if row[5] is not None else None,
+            "evidence_sha256": hashlib.sha256(encoded).hexdigest(),
+            "receipt_sha256": str(row[7]) if row[7] is not None else None,
+            "receipt_hmac_sha256": str(row[8]) if row[8] is not None else None,
+            "rolling_binding": [
+                str(row[9]) if row[9] is not None else None,
+                str(row[10]) if row[10] is not None else None,
+                str(row[11]) if row[11] is not None else None,
+                str(row[12]) if row[12] is not None else None,
+                int(row[13]) if row[13] is not None else None,
+            ],
+        }
+
+    def _idle_certificate_identity(self, conn, *, expected_sha256):
+        """Bounded SQL-only mutable check against exact authenticated bytes."""
+        self._require_idle_foreground_budget()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.highest_issuer_generation,a.active_certificate_sha256,"
+                " c.envelope_bytes,c.envelope,c.claims,c.key_id,c.certificate_id,"
+                " c.issuer_generation,c.supersedes_certificate_sha256,"
+                " c.not_before,c.expires_at,l.status,"
+                " cr.certificate_sha256 IS NOT NULL,kr.key_id IS NOT NULL,"
+                " clock_timestamp()"
+                " FROM sentinel_execution_authority_state a"
+                " LEFT JOIN sentinel_signed_execution_certificates c"
+                " ON c.certificate_sha256=a.active_certificate_sha256"
+                " LEFT JOIN sentinel_execution_certificate_lifecycle l"
+                " ON l.certificate_sha256=a.active_certificate_sha256"
+                " LEFT JOIN sentinel_execution_certificate_revocations cr"
+                " ON cr.certificate_sha256=a.active_certificate_sha256"
+                " LEFT JOIN sentinel_execution_key_revocations kr"
+                " ON kr.key_id=c.key_id WHERE a.id=1")
+            row = cur.fetchone()
+        self._require_idle_foreground_budget()
+        if row is None or row[1] != expected_sha256 or row[2] is None:
+            raise AuthorityRefused("idle signed certificate identity changed")
+        raw = bytes(row[2])
+        if len(raw) > 1_048_576 or hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise AuthorityRefused("idle signed certificate bytes changed")
+        try:
+            envelope = json.loads(raw)
+            stored_envelope = row[3] if isinstance(row[3], Mapping) else json.loads(row[3])
+            claims = row[4] if isinstance(row[4], Mapping) else json.loads(row[4])
+            not_before = datetime.fromisoformat(
+                claims["not_before"].replace("Z", "+00:00"))
+            expires_at = datetime.fromisoformat(
+                claims["expires_at"].replace("Z", "+00:00"))
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            raise AuthorityRefused("idle signed certificate fields are malformed") from exc
+        self._require_idle_foreground_budget()
+        if (not isinstance(envelope, dict) or not isinstance(claims, Mapping)
+                or envelope != stored_envelope
+                or envelope.get("claims") != claims
+                or row[5] != envelope.get("key_id")
+                or row[6] != claims.get("certificate_id")
+                or row[7] != claims.get("issuer_generation")
+                or row[0] != row[7]
+                or row[8] != claims.get("supersedes_certificate_sha256")
+                or not_before.tzinfo is None or expires_at.tzinfo is None
+                or row[9] != not_before.astimezone(timezone.utc)
+                or row[10] != expires_at.astimezone(timezone.utc)
+                or row[11] != "ACTIVE" or row[12] or row[13]
+                or row[14] < not_before.astimezone(timezone.utc)
+                or (row[14] >= expires_at.astimezone(timezone.utc)
+                    and claims.get("authorization_mode") != "PAPER_OBSERVATION_ONLY")):
+            raise AuthorityRefused("idle signed certificate lifecycle changed")
+        return _IdleCertificateIdentity(expected_sha256)
+
+    def _idle_observation_subject_current(
+            self, conn, subject, control, certificate):
+        bound = control.binding
+        if not isinstance(subject, dict) or bound is None:
+            return False
+        if (type(subject.get("generation")) is not int
+                or subject.get("generation") != control.generation
+                or subject.get("binding") != bound.model_dump(mode="json")
+                or subject.get("rollout_mode") != bound.rollout_mode
+                or subject.get("rollout_version") != bound.rollout_version
+                or subject.get("certificate_sha256", certificate.certificate_sha256)
+                != certificate.certificate_sha256):
+            return False
+        if type(subject.get("publication_version")) is not int:
+            return False
+        self._require_idle_foreground_budget()
+        current_head = self._idle_publication_head(conn)
+        self._require_idle_foreground_budget()
+        return (subject["publication_version"] == current_head["version"]
+                and subject.get("publication_head") == current_head)
+
+    def _idle_terminal_subject_guard(
+            self, conn, permit, *, source, original_error,
+            subject=None, cycle=None):
+        """Revalidate the operative refusal inside the terminal write scope."""
+        try:
+            self._idle_pin_mutable_authority(conn)
+            control, certificate = self._idle_facts_after_fence(conn, permit)
+        except Exception as current:  # noqa: BLE001
+            mapped = classify_dependency_failure(current)
+            if isinstance(mapped, TransientInfrastructureFailure):
+                raise mapped from current
+            if (source == "CURRENT_FACTS"
+                    and isinstance(original_error, AuthorityRefused)
+                    and type(current) is type(original_error)
+                    and str(current) == str(original_error)):
+                return
+            raise StaleLeaderRefused(
+                "idle terminal refusal no longer has its original current fact") from current
+        if source == "CURRENT_FACTS":
+            raise StaleLeaderRefused(
+                "idle terminal refusal's adverse current fact cleared")
+        if not self._idle_observation_subject_current(
+                conn, subject, control, certificate):
+            raise StaleLeaderRefused(
+                "idle terminal refusal's publication subject changed")
+        if source == "CYCLE_AUTHORITY":
+            if cycle is None:
+                raise SoftwareDefect("idle cycle refusal lost its cycle identity")
+            try:
+                self._assert_cycle_authority(
+                    conn, CycleContext(cycle=cycle, permit=permit),
+                    operation_scope="RECOVER",
+                    verified_control=(control, certificate),
+                    record_verdict=False)
+            except NonRetryableCallbackRefused as current:
+                if str(current) == str(original_error):
+                    return
+                raise StaleLeaderRefused(
+                    "idle cycle refusal reason changed") from current
+            raise StaleLeaderRefused(
+                "idle cycle authority became current before terminal write")
+
+    def _require_idle_foreground_budget(self):
+        deadline = getattr(self, "_idle_foreground_deadline", None)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TransientInfrastructureFailure(
+                "idle control observation exceeded its foreground budget")
+
+    async def bounded_control_wake(self, _service_conn):
+        """Use a short parent-read budget without changing callback SQL budgets."""
+        started = time.monotonic()
+        budget = min(_IDLE_FOREGROUND_MAX_SECONDS,
+                     max(0.5, self.automation_config.lease_seconds
+                         - self.automation_config.heartbeat_seconds - 1))
+        self._idle_foreground_deadline = started + budget
+        conn = None
+        try:
+            conn = feed_store.connect(
+                self.sentinel_config.database_url, connect_timeout=1,
+                statement_timeout_ms=_IDLE_PARENT_STATEMENT_TIMEOUT_MS)
+            self._require_idle_foreground_budget()
+            result = await self.control_wake(
+                conn, fenced_continuation_conn=_service_conn)
+            elapsed = time.monotonic() - started
+            if elapsed >= self.automation_config.heartbeat_seconds:
+                opening_stage_log.info(
+                    "automation_idle_authority_parent outcome=%s stage=%s elapsed_ms=%d",
+                    "SLOW", "PARENT_READ", round(elapsed * 1000))
+            return result
+        except Exception as exc:  # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if not isinstance(mapped, TransientInfrastructureFailure):
+                raise
+            self._cancel_idle_authority_observer()
+            opening_stage_log.info(
+                "automation_idle_authority_parent outcome=%s stage=%s elapsed_ms=%d",
+                "TRANSIENT", "PARENT_READ", round((time.monotonic() - started) * 1000))
+            return self._idle_authority_retry(_now_utc())
+        finally:
+            self._idle_foreground_deadline = None
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _idle_authority_diagnostic(self, flight, outcome):
+        """Closed, best-effort latency record without account or SQL material."""
+        elapsed = flight.elapsed_seconds
+        if outcome == "PASS" and elapsed < self.automation_config.heartbeat_seconds:
+            return
+        opening_stage_log.info(
+            "automation_idle_authority_stage outcome=%s stage=%s "
+            "elapsed_ms=%d budget_ms=%d backend_pid=%d",
+            outcome, flight.stage, round(elapsed * 1000),
+            round(flight.timeout_seconds * 1000), flight.backend_pid or 0)
+
+    def _stop_idle_authority_observer(self):
+        """Reap the read-only observer before a financial callback can fork."""
+        active = getattr(self, "_idle_authority_flight", None)
+        if active is None:
+            return
+        flight, _identity, _started_at = active
+        if not flight.stop():
+            raise TransientInfrastructureFailure(
+                "idle authority observer could not be reaped before callback")
+        self._idle_authority_diagnostic(flight, "CANCELLED")
+        self._idle_authority_flight = None
+        self._idle_attestation = None
+
+    def _cancel_idle_authority_observer(self):
+        active = getattr(self, "_idle_authority_flight", None)
+        if active is not None:
+            active[0].cancelled.set()
+        self._idle_attestation = None
+
+    def _idle_authority_retry(self, now, *, flight=None, outcome="TRANSIENT"):
+        self._idle_attestation = None
+        self._idle_authority_failures = min(
+            getattr(self, "_idle_authority_failures", 0) + 1, 4)
+        delay = min(_IDLE_AUTHORITY_RETRY_MAX_SECONDS,
+                    max(self.automation_config.control_poll_seconds, 5)
+                    * 2 ** (self._idle_authority_failures - 1))
+        self._idle_authority_retry_at = now + timedelta(seconds=delay)
+        if flight is not None:
+            self._idle_authority_diagnostic(flight, outcome)
+        return self._idle_authority_retry_at
+
+    def _start_idle_authority_observer(self, control, permit, observed_at):
+        args = (self.sentinel_config, self.automation_config,
+                self.holder_id, permit)
+        flight = idle_authority.IdleAuthorityFlight(
+            _observe_idle_control_authority, args,
+            timeout_seconds=_IDLE_AUTHORITY_OBSERVER_SECONDS)
+        self._idle_authority_flight = (
+            flight, self._idle_attestation_key(control, permit), observed_at)
+        return flight
 
     def _broker(self, conn, session: str):
         live = getattr(self, "_live_run_enabled", False)
@@ -2142,18 +2575,31 @@ class ProductionAutomation:
         # to green is a reason to wake the operator.
         return next_wake
 
-    async def control_wake(self, conn):
+    async def control_wake(self, conn, *, fenced_continuation_conn=None):
         """Refresh durable authority truth while no broker callback is due."""
         from sentinel.automation.model import LeaderPermit
 
+        self._require_idle_foreground_budget()
         try:
             control = store.load_control(conn)
+            self._require_idle_foreground_budget()
         except Exception:
-            self._idle_attestation = None
+            self._cancel_idle_authority_observer()
             raise
         if not control.enabled or control.kill_switch_engaged:
-            self._idle_attestation = None
+            self._cancel_idle_authority_observer()
             if not control.enabled and control.kill_switch_engaged:
+                if fenced_continuation_conn is not None:
+                    conn.rollback()
+                    self._idle_foreground_deadline = None
+                    # This fresh original-connection read closes the race in
+                    # which control changes after the short-budget first read.
+                    current = store.load_control(fenced_continuation_conn)
+                    if current.enabled or not current.kill_switch_engaged:
+                        fenced_continuation_conn.rollback()
+                        return None
+                    return await self._fenced_data_wake(
+                        fenced_continuation_conn)
                 return await self._fenced_data_wake(conn)
             return None
         try:
@@ -2162,48 +2608,198 @@ class ProductionAutomation:
                     "SELECT holder_id,fence_token,control_generation,acquired_at,"
                     " expires_at FROM sentinel_automation_lease WHERE id=1")
                 row = cur.fetchone()
+            self._require_idle_foreground_budget()
         except Exception:
-            self._idle_attestation = None
+            self._cancel_idle_authority_observer()
             raise
         conn.rollback()
         if (row is None or row[0] != self.holder_id
                 or row[2] != control.generation):
-            self._idle_attestation = None
+            self._cancel_idle_authority_observer()
             return None
         permit = LeaderPermit(
             holder_id=row[0], fence_token=int(row[1]),
             control_generation=int(row[2]), acquired_at=row[3],
             expires_at=row[4])
+        terminal_source = None
+        terminal_subject = None
+        terminal_error = None
+        terminal_cycle = None
         try:
             observed_at = _now_utc()
             if self._idle_attestation_current(
                     conn, control, permit, observed_at):
+                self._require_idle_foreground_budget()
                 return None
+            self._require_idle_foreground_budget()
             self._idle_attestation = None
-            verified_control = self._assert_control_authority(conn, permit)
-            cycle = store.oldest_nonterminal_cycle(conn)
-            if cycle is not None and not cycle.state.terminal:
-                self._assert_cycle_authority(
-                    conn, CycleContext(cycle=cycle, permit=permit),
-                    operation_scope="RECOVER",
-                    verified_control=verified_control)
+            try:
+                control, certificate = self._idle_current_facts(conn, permit)
+            except Exception as exc:  # noqa: BLE001
+                terminal_source = "CURRENT_FACTS"
+                terminal_error = exc
+                self._finish_idle_authority_refusal(conn, exc)
+            self._require_idle_foreground_budget()
+            active = getattr(self, "_idle_authority_flight", None)
+            current_key = self._idle_attestation_key(control, permit)
+            if active is not None:
+                flight, original_key, started_at = active
+                if original_key != current_key:
+                    flight.cancelled.set()
+                if (flight.elapsed_seconds >= _IDLE_AUTHORITY_OBSERVER_SECONDS
+                        or observed_at < started_at
+                        or (observed_at - started_at).total_seconds()
+                        >= _IDLE_ATTESTATION_SECONDS):
+                    if not flight.cancelled.is_set():
+                        self._idle_authority_retry(
+                            observed_at, flight=flight, outcome="TIMEOUT")
+                    flight.cancelled.set()
+                if flight.cancelled.is_set():
+                    if flight.finished.is_set():
+                        self._idle_authority_diagnostic(flight, "DISCARDED")
+                        self._idle_authority_flight = None
+                    conn.rollback()
+                    return (getattr(self, "_idle_authority_retry_at", None)
+                            or observed_at + timedelta(
+                                seconds=self.automation_config.control_poll_seconds))
+                if not flight.finished.is_set():
+                    conn.rollback()
+                    return min(
+                        observed_at + timedelta(
+                            seconds=self.automation_config.control_poll_seconds),
+                        started_at + timedelta(
+                            seconds=_IDLE_AUTHORITY_OBSERVER_SECONDS))
+                self._idle_authority_flight = None
+                if flight.error is not None:
+                    if (isinstance(flight.error, TimeoutError)
+                            or isinstance(flight.error, OSError)
+                            and flight.error.errno in {errno.EAGAIN, errno.ENOMEM}):
+                        conn.rollback()
+                        return self._idle_authority_retry(
+                            observed_at, flight=flight, outcome="TIMEOUT")
+                    self._idle_authority_diagnostic(flight, "ERROR")
+                    raise SoftwareDefect(
+                        "idle authority observer failed: "
+                        f"{type(flight.error).__name__}") from flight.error
+                result = flight.value
+                if not isinstance(result, dict) or result.get("status") not in {
+                        "PASS", "REFUSED", "TRANSIENT", "STALE"}:
+                    self._idle_authority_diagnostic(flight, "INVALID")
+                    raise SupervisorIntegrityFailure(
+                        "idle authority observer returned an invalid result")
+                status = result["status"]
+                if status == "STALE":
+                    self._idle_authority_diagnostic(flight, status)
+                    raise StaleLeaderRefused(
+                        "idle authority observer lost its original fence")
+                if status == "TRANSIENT":
+                    conn.rollback()
+                    return self._idle_authority_retry(
+                        observed_at, flight=flight)
+                subject = result.get("subject") if status == "REFUSED" else result
+                try:
+                    subject_current = self._idle_observation_subject_current(
+                        conn, subject, control, certificate)
+                except Exception as exc:  # noqa: BLE001
+                    # This result has no current publication subject. It is
+                    # not an authority verdict and cannot terminalize a cycle
+                    # or latch control without a fenced FAIL publication.
+                    conn.rollback()
+                    mapped = classify_dependency_failure(exc)
+                    if isinstance(exc, (
+                            StaleLeaderRefused, publication.NoPublishedVersion,
+                            publication.CorpusIncoherent, AuthorityRefused,
+                            DataIntegrityFailure)):
+                        return self._idle_authority_retry(
+                            observed_at, flight=flight, outcome="STALE")
+                    if isinstance(mapped, TransientInfrastructureFailure):
+                        return self._idle_authority_retry(
+                            observed_at, flight=flight)
+                    raise SoftwareDefect(
+                        "idle authority subject observation failed: "
+                        f"{type(exc).__name__}") from exc
+                if not subject_current:
+                    conn.rollback()
+                    return self._idle_authority_retry(
+                        observed_at, flight=flight, outcome="STALE")
+                if status == "REFUSED":
+                    self._idle_authority_diagnostic(flight, status)
+                    detail = result.get("detail")
+                    if not isinstance(detail, str) or not detail:
+                        raise SupervisorIntegrityFailure(
+                            "idle authority refusal lacks a reason")
+                    self._require_idle_foreground_budget()
+                    terminal_source = "OBSERVER_REFUSAL"
+                    terminal_subject = subject
+                    raise NonRetryableCallbackRefused(detail)
+                if result.get("certificate_sha256") != certificate.certificate_sha256:
+                    self._idle_authority_diagnostic(flight, "STALE")
+                    conn.rollback()
+                    return self._idle_authority_retry(
+                        observed_at, outcome="STALE")
+                verified_control = (control, certificate)
+                cycle = store.oldest_nonterminal_cycle(conn)
+                self._require_idle_foreground_budget()
+                if cycle is not None and not cycle.state.terminal:
+                    terminal_source = "CYCLE_AUTHORITY"
+                    terminal_subject = result
+                    terminal_cycle = cycle
+                    self._assert_cycle_authority(
+                        conn, CycleContext(cycle=cycle, permit=permit),
+                        operation_scope="RECOVER",
+                        verified_control=verified_control, record_verdict=False)
+                ready_at = _now_utc()
+                self._require_idle_foreground_budget()
+                if (flight.elapsed_seconds >= _IDLE_AUTHORITY_OBSERVER_SECONDS
+                        or ready_at < started_at
+                        or (ready_at - started_at).total_seconds()
+                        >= _IDLE_ATTESTATION_SECONDS
+                        or ready_at >= permit.expires_at):
+                    conn.rollback()
+                    return self._idle_authority_retry(
+                        ready_at, flight=flight, outcome="TIMEOUT")
+                self._idle_authority_diagnostic(flight, "PASS")
+                if not self._record_authority_pass(conn, permit, certificate):
+                    raise TransientInfrastructureFailure(
+                        "idle authority verdict could not be persisted")
+                self._idle_authority_failures = 0
+                self._idle_authority_retry_at = None
+            else:
+                retry_at = getattr(self, "_idle_authority_retry_at", None)
+                if retry_at is not None and observed_at < retry_at:
+                    conn.rollback()
+                    return retry_at
+                flight = self._start_idle_authority_observer(
+                    control, permit, observed_at)
+                if flight.finished.is_set():
+                    conn.rollback()
+                    return await self.control_wake(conn)
+                conn.rollback()
+                return observed_at + timedelta(
+                    seconds=self.automation_config.control_poll_seconds)
             completed_at = _now_utc()
             self._idle_attestation_observed_at = completed_at
-            if completed_at >= observed_at and completed_at < permit.expires_at:
+            if (completed_at >= started_at
+                    and (completed_at - started_at).total_seconds()
+                    < _IDLE_ATTESTATION_SECONDS
+                    and completed_at < permit.expires_at):
                 self._idle_attestation = (
-                    observed_at,
+                    started_at,
                     self._idle_attestation_key(verified_control[0], permit))
+                self._idle_attestation_publication_head = result["publication_head"]
         except StaleLeaderRefused:
             # Idle validation has no broker callback. Do not resurrect this
             # fence or crash the scheduler; its next tick acquires a new permit.
             conn.rollback()
+            active = getattr(self, "_idle_authority_flight", None)
+            if active is not None:
+                active[0].cancelled.set()
             return None
         except TransientInfrastructureFailure:
             # No authority verdict was obtained. Retain the original cycle and
             # proof clock; the next finite poll must run the full gate again.
             conn.rollback()
-            return _now_utc()+timedelta(
-                seconds=self.automation_config.control_poll_seconds)
+            return self._idle_authority_retry(_now_utc())
         except NonRetryableCallbackRefused as exc:
             # A WAITING_OPEN worker otherwise has no callback boundary at
             # which certificate expiry/revocation can latch.  The control poll
@@ -2213,28 +2809,51 @@ class ProductionAutomation:
             # external authority fact must never silently resume this control
             # generation.
             detail = str(exc)[:4000]
-            current = store.oldest_nonterminal_cycle(conn)
-            blocked = None
-            if current is not None and not current.state.terminal:
-                if current.control_generation == permit.control_generation:
-                    blocked = store.transition_cycle(
-                        conn, permit=permit, cycle_id=current.cycle_id,
-                        to_state="BLOCKED", next_wake_at=None,
-                        failure_code=type(exc).__name__, failure_detail=detail,
-                        diagnostic={"control_poll_failure": "NONRETRYABLE"})
+            if terminal_source not in {
+                    "CURRENT_FACTS", "OBSERVER_REFUSAL", "CYCLE_AUTHORITY"}:
+                raise SoftwareDefect(
+                    "idle authority refusal lacks a reviewed terminal source") from exc
+            active = getattr(self, "_idle_authority_flight", None)
+            if active is not None:
+                active[0].cancelled.set()
+            if not self._record_authority_verdict(
+                    conn, permit, verdict="FAIL", detail=detail):
+                return self._idle_authority_retry(_now_utc())
+            before_mutation = lambda target: self._idle_terminal_subject_guard(
+                target, permit, source=terminal_source,
+                original_error=terminal_error or exc,
+                subject=terminal_subject, cycle=terminal_cycle)
+            try:
+                current = store.oldest_nonterminal_cycle(conn)
+                blocked = None
+                if current is not None and not current.state.terminal:
+                    if current.control_generation == permit.control_generation:
+                        blocked = store.transition_cycle(
+                            conn, permit=permit, cycle_id=current.cycle_id,
+                            to_state="BLOCKED", next_wake_at=None,
+                            failure_code=type(exc).__name__, failure_detail=detail,
+                            diagnostic={"control_poll_failure": "NONRETRYABLE"},
+                            before_mutation=before_mutation)
+                    else:
+                        blocked = store.adopt_cycle(
+                            conn, permit=permit, cycle_id=current.cycle_id,
+                            to_state="BLOCKED", next_wake_at=None,
+                            failure_code=type(exc).__name__, failure_detail=detail,
+                            diagnostic={"control_poll_failure": "NONRETRYABLE"},
+                            before_mutation=before_mutation)
                 else:
-                    blocked = store.adopt_cycle(
-                        conn, permit=permit, cycle_id=current.cycle_id,
-                        to_state="BLOCKED", next_wake_at=None,
-                        failure_code=type(exc).__name__, failure_detail=detail,
-                        diagnostic={"control_poll_failure": "NONRETRYABLE"})
-            else:
-                store.engage_kill(
-                    conn, actor="sentinel-automation",
-                    reason=(
-                        "automatic kill after nonretryable authority failure "
-                        f"in control generation {permit.control_generation}: "
-                        f"{detail}"))
+                    store.engage_kill_if_leader(
+                        conn, permit, actor="sentinel-automation",
+                        reason=(
+                            "automatic kill after nonretryable authority failure "
+                            f"in control generation {permit.control_generation}: "
+                            f"{detail}"), before_mutation=before_mutation)
+            except StaleLeaderRefused:
+                conn.rollback()
+                return None
+            except TransientInfrastructureFailure:
+                conn.rollback()
+                return self._idle_authority_retry(_now_utc())
             await self.notify(conn, TickResult(
                 action="BLOCKED", cycle=blocked, permit=permit,
                 reason=(f"generation {permit.control_generation}: {detail}")))
@@ -2259,10 +2878,19 @@ class ProductionAutomation:
                 raise
         finally:
             startup_conn.close()
-        return await self.service.run(
-            self.connect, stop=stop, clock=clock, sleep=sleep,
-            alert_wake=self.alert_wake, control_wake=self.control_wake,
-            max_ticks=max_ticks)
+        try:
+            return await self.service.run(
+                self.connect, stop=stop, clock=clock, sleep=sleep,
+                alert_wake=self.alert_wake,
+                control_wake=self.bounded_control_wake,
+                max_ticks=max_ticks)
+        finally:
+            try:
+                self._stop_idle_authority_observer()
+            except TransientInfrastructureFailure:
+                # The observer has a parent-death kill boundary; worker exit
+                # remains the stronger final handover fence.
+                pass
 
 
 __all__ = [

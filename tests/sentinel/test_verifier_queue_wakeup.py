@@ -611,10 +611,14 @@ def close_scan(conn):
         updated_at timestamptz, created_at timestamptz, cycle_id text, last_fence_token bigint,
         control_generation int, deployment_id text, broker text, broker_account_id text,
         takeover_epoch int, certificate_sha256 text, config_sha256 text,
-        plan_id text, failure_code text, diagnostic jsonb, next_wake_at timestamptz)""")
+        plan_id text, failure_code text, diagnostic jsonb, next_wake_at timestamptz,
+        historical_state_only bool DEFAULT false, last_clean_reconciliation_id text,
+        execute_at timestamptz, completed_at timestamptz)""")
     conn.execute("""CREATE TEMP TABLE sentinel_automation_control (
         id int, generation int, enabled bool, kill_switch_engaged bool, authority_verdict text,
-        certificate_sha256 text, config_sha256 text)""")
+        certificate_sha256 text, config_sha256 text, deployment_id text DEFAULT 'd',
+        broker text DEFAULT 'alpaca', broker_account_id text DEFAULT 'fixture', takeover_epoch int DEFAULT 2,
+        enabled_at timestamptz)""")
     conn.execute("""CREATE TEMP TABLE sentinel_automation_lease (
         id int, control_generation int, expires_at timestamptz, holder_id text, fence_token bigint)""")
     conn.execute("""CREATE TEMP TABLE sentinel_account_binding (
@@ -623,6 +627,10 @@ def close_scan(conn):
     conn.execute("""CREATE TEMP TABLE sentinel_automation_service_instances (
         instance_id text, state text, heartbeat_at timestamptz,
         callback_started_at timestamptz, callback_deadline_at timestamptz)""")
+    conn.execute("""CREATE TEMP TABLE sentinel_execution_plans (plan_id text, deployment_id text,
+        broker text, broker_account_id text, takeover_epoch int, decision_session date, effective_session date)""")
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_events (generation int, action text, detail jsonb,
+        at timestamptz)""")
     conn.execute("INSERT INTO sentinel_automation_control VALUES (1,5,true,false,'PASS','cert','config')")
     conn.execute("INSERT INTO sentinel_account_binding VALUES (1,'d','alpaca','fixture',2,'SENTINEL_OWNED')")
     now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
@@ -654,6 +662,108 @@ def test_close_scan_reserves_exact_early_close_for_the_bound_settled_cycle(close
     with conn.transaction(force_rollback=True):
         conn.execute('UPDATE sentinel_account_binding SET takeover_epoch=3')
         assert service._closing_scan_reserve(conn, close) is None
+
+
+def test_bound_prior_generation_preserves_close_reserve_after_software_reactivation(close_scan):
+    conn, db_now = close_scan
+    close = datetime(2026, 11, 18, 21, tzinfo=timezone.utc)
+    conn.execute("UPDATE sentinel_automation_lease SET expires_at=%s", (max(close, db_now)+timedelta(minutes=5),))
+    conn.execute("UPDATE sentinel_automation_control SET enabled_at=%s", (close-timedelta(hours=2),))
+    conn.execute("""INSERT INTO sentinel_automation_cycles
+        (state,decision_session,effective_session,execution_open_at,execute_at,execution_close_at,
+        updated_at,created_at,cycle_id,last_fence_token,control_generation,deployment_id,broker,
+        broker_account_id,takeover_epoch,certificate_sha256,config_sha256,plan_id,completed_at,
+        last_clean_reconciliation_id)
+        VALUES ('SUCCEEDED','2026-11-17','2026-11-18',%s,%s,%s,%s,%s,'earlier',4,1,'d','alpaca',
+        'fixture',2,'old-cert','old-config','saved',%s,'clean')""",
+        (close-timedelta(hours=6,minutes=30), close-timedelta(hours=6,minutes=29),close,
+         close-timedelta(hours=6),close-timedelta(days=1),close-timedelta(hours=6)))
+    conn.execute("""INSERT INTO sentinel_execution_plans VALUES
+        ('saved','d','alpaca','fixture',2,'2026-11-17','2026-11-18')""")
+    conn.execute("""INSERT INTO sentinel_automation_events VALUES (1,'KILL_RELEASED',
+        '{"deployment_id":"d","broker":"alpaca","broker_account_id":"fixture","takeover_epoch":2,
+        "config_sha256":"old-config","certificate_sha256":"old-cert"}',%s)""", (close-timedelta(days=2),))
+    conn.execute("""INSERT INTO sentinel_automation_events VALUES (5,'KILL_RELEASED',
+        '{"deployment_id":"d","broker":"alpaca","broker_account_id":"fixture","takeover_epoch":2,
+        "config_sha256":"config","certificate_sha256":"cert"}',%s)""", (close-timedelta(hours=1),))
+    admitted = close-timedelta(seconds=28, microseconds=179783)
+    assert service._closing_scan_reserve(conn, admitted) == close+timedelta(seconds=60)
+    with conn.transaction(force_rollback=True):
+        conn.execute("UPDATE sentinel_automation_control SET enabled_at=enabled_at-interval '1 day'")
+        assert service._closing_scan_reserve(conn, admitted) == close+timedelta(seconds=60)
+
+    for change in (
+        "UPDATE sentinel_automation_control SET generation=1",
+        "UPDATE sentinel_automation_control SET broker_account_id='another'",
+        "UPDATE sentinel_automation_control SET enabled_at=enabled_at+interval '2 hours'",
+        "UPDATE sentinel_automation_events SET at=at-interval '1 day' WHERE generation=5",
+        "UPDATE sentinel_automation_events SET detail=detail-'config_sha256' WHERE generation=5",
+        "UPDATE sentinel_automation_cycles SET historical_state_only=true",
+        "UPDATE sentinel_automation_cycles SET last_clean_reconciliation_id=NULL",
+        "UPDATE sentinel_automation_cycles SET completed_at=execute_at-interval '1 sec'",
+        "UPDATE sentinel_execution_plans SET takeover_epoch=3",
+        "UPDATE sentinel_automation_events SET detail=detail-'certificate_sha256'",
+        "UPDATE sentinel_automation_events SET action='KILL_ENGAGED'",
+    ):
+        with conn.transaction(force_rollback=True):
+            conn.execute(change)
+            assert service._closing_scan_reserve(conn, admitted) is None
+
+    # A newer retry without a publisher must not displace the independently
+    # proved terminal reservation that still covers the first minute.
+    conn.execute("""INSERT INTO sentinel_automation_cycles VALUES
+        ('RETRY_WAIT','2026-11-18','2026-11-19',%s,%s,%s,%s,%s,'new',8,5,'d','alpaca','fixture',
+         2,'cert','config',NULL,'ClosingDataPending','{"retry_phase":"REFRESH"}',%s)""",
+        (close,close+timedelta(hours=17),close+timedelta(days=1),close,close,close+timedelta(minutes=15)))
+    assert service._closing_scan_reserve(conn, close+timedelta(seconds=3)) == close+timedelta(seconds=60)
+
+
+def test_only_live_registered_source_successor_reserves_optional_refresh(close_scan):
+    from sentinel.feed import calendar, rolling_jobs
+    from sentinel.feed.rolling_contract import PriceWindow, canonical_json
+    conn, db_now = close_scan
+    session = calendar.session_on_or_after((db_now+timedelta(days=1)).date())
+    closed = calendar.session_window(session)[1]
+    now = closed+timedelta(minutes=3)
+    job_end = now+timedelta(minutes=2)
+    wake = now+timedelta(minutes=15)
+    conn.execute("UPDATE sentinel_automation_lease SET expires_at=%s",(wake,))
+    conn.execute("""INSERT INTO sentinel_automation_cycles VALUES ('RETRY_WAIT',%s,%s,%s,%s,%s,
+        %s,%s,'next',8,5,'d','alpaca','fixture',2,'cert','config',NULL,'ClosingDataPending',
+        '{"retry_phase":"REFRESH"}',%s)""",
+        (session,calendar.next_session(session),closed,now+timedelta(hours=16),now+timedelta(hours=23),
+         now-timedelta(seconds=2),closed,wake))
+    request = rolling_jobs.PreparationRequest(window=PriceWindow.through(session),
+        expected_publication_version=23, strategy_sha256='1'*64, dependencies_sha256='2'*64)
+    conn.execute("CREATE TEMP TABLE sentinel_corpus_publications(version int)")
+    conn.execute("INSERT INTO sentinel_corpus_publications VALUES (23)")
+    conn.execute("""CREATE TEMP TABLE sentinel_snapshot_jobs(job_id int,request jsonb,request_sha256 text,
+        created_at timestamptz,lease_until timestamptz,deadline timestamptz,owner text,fence int,
+        state text,publication_version int)""")
+    conn.execute("CREATE TEMP TABLE sentinel_snapshot_workers(job_id int,owner text)")
+    conn.execute("CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id int)")
+    conn.execute("INSERT INTO sentinel_operational_snapshot_jobs VALUES (1)")
+    conn.execute("INSERT INTO sentinel_snapshot_workers VALUES (1,'publisher')")
+    conn.execute("""INSERT INTO sentinel_snapshot_jobs VALUES (1,%s,%s,%s,%s,%s,'publisher',3,'STAGING',NULL)""",
+        (canonical_json(request.model_dump(mode='json')),request.request_sha256,closed+timedelta(minutes=1),
+         job_end,wake))
+    assert service._closing_scan_reserve(conn,now)==job_end
+    for change in (
+        "UPDATE sentinel_snapshot_jobs SET state='PUBLISHED'",
+        "UPDATE sentinel_snapshot_jobs SET fence=0",
+        "UPDATE sentinel_snapshot_jobs SET request_sha256='changed'",
+        "UPDATE sentinel_snapshot_workers SET owner='stale'",
+        "DELETE FROM sentinel_operational_snapshot_jobs",
+        "INSERT INTO sentinel_corpus_publications VALUES (24)",
+        "UPDATE sentinel_automation_cycles SET plan_id='already-saved'",
+        "UPDATE sentinel_automation_cycles SET last_fence_token=7",
+        "UPDATE sentinel_automation_cycles SET failure_code='OtherRefusal'",
+        "UPDATE sentinel_automation_control SET kill_switch_engaged=true",
+    ):
+        with conn.transaction(force_rollback=True):
+            conn.execute(change)
+            assert service._closing_scan_reserve(conn,now) is None
+    assert service._closing_scan_reserve(conn,job_end) is None
 
 
 def test_old_close_reservation_misses_the_observed_admission(close_scan, monkeypatch):
@@ -720,6 +830,36 @@ def test_optional_shadow_scan_respects_the_original_row_expiry():
         as_of=NOW, valid_until=NOW + elapsed + timedelta(seconds=29))], [], NOW)
     evidence.read('private', include_paper=False, defer_refresh_until=NOW + timedelta(minutes=10))
     assert started.wait(2)
+    if evidence.pending is not None:
+        evidence.pending.join(2)
+
+
+@pytest.mark.parametrize('phase,remaining,expected_start', [
+    ('SOURCE_FRONTIER', 151, False), ('SOURCE_FRONTIER', 150, True),
+    ('FINANCIAL_VERIFICATION', 200, True),
+])
+def test_only_a_finite_dated_source_wait_yields_before_original_renewal(phase, remaining, expected_start):
+    instant = NOW + timedelta(seconds=301)
+    end = instant + timedelta(seconds=remaining)
+    started = Event()
+    recovery = model.RecoveryEvidence(phase=phase, automatic=True, deadline=end)
+    row = model.Row('shadow_verification', 'Shadow', 'Waiting', model.WARN,
+        as_of=NOW, required_current=True, valid_until=end, recovery=recovery)
+
+    def run(*_args, **_kwargs):
+        started.set()
+        return observer_codec.pack([row], [], observed_at=instant)
+
+    evidence = reader.Reader(runner=run, clock=lambda: 301., wall_clock=lambda: instant,
+        evidence_reader=lambda *_: 'same', key_factory=lambda _url, _paper, key: key,
+        expected_keys=frozenset({'shadow_verification'}))
+    evidence.configuration = 'same'
+    evidence.completed = ([row], [], NOW)
+    evidence.read('private', include_paper=False, defer_refresh_until=instant+timedelta(minutes=3))
+    if expected_start:
+        assert started.wait(2)
+    else:
+        assert evidence.pending is None and not started.is_set()
     if evidence.pending is not None:
         evidence.pending.join(2)
 
