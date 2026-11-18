@@ -98,11 +98,19 @@ async def _run() -> int:
     # Unattended production never consumes its own alert outbox.  Alert
     # delivery is a separate broker-free process so a stalled/killed trading
     # worker cannot both fail and mark its notification DELIVERED.
-    await runtime.service.run(
-        runtime.connect, stop=stop,
-        clock=lambda: datetime.now(ZoneInfo("UTC")),
-        sleep=asyncio.sleep, alert_wake=None,
-        control_wake=runtime.control_wake)
+    try:
+        await runtime.service.run(
+            runtime.connect, stop=stop,
+            clock=lambda: datetime.now(ZoneInfo("UTC")),
+            sleep=asyncio.sleep, alert_wake=None,
+            control_wake=runtime.bounded_control_wake)
+    finally:
+        try:
+            runtime._stop_idle_authority_observer()
+        except Exception:
+            # The parent-death process fence and supervisor group reap remain
+            # authoritative when a diagnostic observer cannot stop promptly.
+            pass
     return 0
 
 
