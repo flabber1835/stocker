@@ -16,7 +16,7 @@ SNAPSHOT_FACTS = """ 'reactivation',json_build_object(
     'successor_commands',(SELECT count(*) FROM sentinel_commands x WHERE x.plan_id=p.plan_id)), """
 
 
-def require_lineage(state):
+def require_lineage(state, *, startup_alert_id=None):
     previous = state['cycle']['control_generation']
     current = state['control']['generation']
     proof = state.get('reactivation')
@@ -34,13 +34,23 @@ def require_lineage(state):
             'REACTIVATED_DEPLOYMENT_FENCE_REQUIRED')
     incidents = state.get('retained_incidents')
     require(isinstance(incidents, dict), 'REACTIVATED_INCIDENT_HISTORY_ABSENT')
+    startup_seen = False
     for alert_id, alert in incidents.items():
         require(isinstance(alert_id, str) and re.fullmatch('[0-9a-f]{64}', alert_id)
                 and isinstance(alert, dict) and alert.get('severity') == 'CRITICAL'
                 and alert.get('ack_state') == 'UNACKNOWLEDGED' and isinstance(alert.get('payload'), dict),
                 'REACTIVATED_INCIDENT_INVALID')
         payload = alert['payload']
-        if alert.get('event_type') == 'AUTOMATION_KILL_ENGAGED':
+        if alert_id == startup_alert_id:
+            require(not startup_seen
+                    and alert.get('event_type') == 'AUTOMATION_OPERATIONAL_RED'
+                    and payload.get('reason') == 'WAITING_FOR_LEADER'
+                    and payload.get('control_generation') == current
+                    and type(payload.get('broker_outcome_unresolved')) is int
+                    and payload['broker_outcome_unresolved'] == 0,
+                    'REACTIVATED_STARTUP_ALERT_CHANGED')
+            startup_seen = True
+        elif alert.get('event_type') == 'AUTOMATION_KILL_ENGAGED':
             event = events[0]
             require(payload.get('control_event_seq') == event['seq']
                     and all(payload.get(k) == event[k] for k in ('generation', 'action', 'actor', 'reason', 'detail')),
@@ -51,6 +61,8 @@ def require_lineage(state):
                     and payload.get('control_generation') == previous
                     and type(payload.get('broker_outcome_unresolved')) is int
                     and payload['broker_outcome_unresolved'] == 0, 'REACTIVATED_UNRELATED_INCIDENT')
+    if startup_alert_id is not None:
+        require(startup_seen, 'REACTIVATED_STARTUP_ALERT_ABSENT')
 
 
 def verified_panel(page, header, expected, now):

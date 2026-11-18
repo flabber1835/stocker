@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import time
 
-from . import access_path_qualification, evidence, readiness
+from . import access_path_qualification, evidence, readiness, reactivated_readiness
 from .host import RUNTIME_KEYS, SERVICES, application_healthy
 from .model import (ACCESS_PATH_SCHEMA, POST_SCHEMA_ACCESS_PATH,
-                    canonical_proof_phase, digest, handoff_mode, require, utcnow)
+                    DeliveryRefused, canonical_proof_phase, digest, handoff_mode, require, utcnow)
 
 # Source tampering is checked before every real mutation, and on final
 # observation. Intent-only journal transitions do not launch an image probe.
@@ -65,9 +65,20 @@ class Delivery:
                 require(item['Image']==old and not item['State']['Running'],
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
-    def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False):
-        require(evidence.same_preserved_state(evidence.snapshot(self.host), artifacts['preserved']),
-                'PRESERVED_STATE_CHANGED')
+    def _unchanged(self, artifacts, *, native=True, allow_restart=False, observation=False,
+                   startup_alert_id=None, observed_state=None):
+        if startup_alert_id is None:
+            require(observed_state is None, 'REACTIVATED_STARTUP_SCOPE_REQUIRED')
+            current = evidence.snapshot(self.host)
+            require(evidence.same_preserved_state(current, artifacts['preserved']),
+                    'PRESERVED_STATE_CHANGED')
+        else:
+            require(handoff_mode(self.host.request) == 'POST_TRADE_REACTIVATED'
+                    and observed_state is not None, 'REACTIVATED_STARTUP_SCOPE_REQUIRED')
+            expected = evidence.reactivated_observed_state(
+                artifacts['preserved'], observed_state, startup_alert_id)
+            current = evidence.snapshot(self.host, startup_alert_id=startup_alert_id)
+            require(current == expected, 'PRESERVED_STATE_CHANGED')
         if allow_restart and hasattr(self.host, 'postgres_after_restart'):
             postgres = self.host.postgres_after_restart(artifacts['postgres'])
         else:
@@ -194,6 +205,32 @@ class Delivery:
             require(latest['current'] and all(latest[k]==leader[k] for k in ('holder','generation','fence'))
                 and latest['heartbeat']>=leader['heartbeat'],'LEADERSHIP_CHANGED_DURING_CHECK')
         return latest
+
+    def _tentative_startup(self, receipt, applications, hashes, *, deadline):
+        while True:
+            try:
+                return reactivated_readiness.tentative_startup(
+                    self.host,receipt,applications,hashes)
+            except DeliveryRefused as exc:
+                if str(exc) != 'REACTIVATED_STARTUP_ALERT_PENDING':
+                    raise
+                readiness.cutoff(receipt,now=utcnow())
+                require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+                self.sleep(min(2,deadline-self.monotonic()))
+
+    def _startup_preservation(self, receipt, applications, hashes, *, deadline, native):
+        artifacts=receipt['artifacts']
+        try:
+            self._unchanged(artifacts,native=native)
+            return None
+        except DeliveryRefused as exc:
+            if str(exc) not in {'REACTIVATED_UNRELATED_INCIDENT',
+                                'REACTIVATED_HANDOFF_NOT_QUIESCENT'}:
+                raise
+        scope,tentative=self._tentative_startup(
+            receipt,applications,hashes,deadline=deadline)
+        self._unchanged(artifacts,native=native,**scope)
+        return tentative
 
     def step(self):
         self.journal.require_active()
@@ -365,9 +402,17 @@ class Delivery:
             end=readiness.cutoff(receipt,now=utcnow())
             deadline=self.monotonic()+min(readiness.SECONDS,(end-utcnow()).total_seconds())
             require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-            self._wait_shadow(deadline=deadline); self._unchanged(artifacts)
+            self._wait_shadow(deadline=deadline)
             hashes=self.host.candidate_config_hashes(candidate)
             applications=self.host.containers(SERVICES,missing_ok=True)
+            reactivated=handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED'
+            if reactivated and self.host.candidate_apps_ready(hashes,applications):
+                # A lost stage acknowledgement can leave the exact candidate
+                # running before its six process identities were journaled.
+                self._startup_preservation(
+                    receipt,applications,hashes,deadline=deadline,native=True)
+            else:
+                self._unchanged(artifacts)
             require(application_healthy(applications.get('sentinel-shadow'),
                 self.host.request['candidate']['image']),'SUCCESSOR_SHADOW_CHANGED')
             for service in SERVICES:
@@ -384,39 +429,82 @@ class Delivery:
                 self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
                     *SERVICES[1:],timeout=min(90,deadline-self.monotonic()))
                 applications=self._apps('candidate',running=True)
+            if reactivated:
+                applications=self.host.wait_applications_health(
+                    deadline=deadline,clock=self.monotonic)
+                require(self.host.candidate_apps_ready(hashes,applications),
+                        'APPLICATION_CONFIGURATION_CHANGED')
             readiness.cutoff(receipt,now=utcnow())
             require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-            self._unchanged(artifacts,native=False)
+            if reactivated:
+                tentative=self._startup_preservation(
+                    receipt,applications,hashes,deadline=deadline,native=False)
+            else:
+                self._unchanged(artifacts,native=False)
+                tentative=None
             started={service:dict(Id=item['Id'],RestartCount=item['RestartCount'],
                 State={'StartedAt':item['State']['StartedAt']}) for service,item in applications.items()}
-            return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started)
+            return self.journal.advance(stage,'APPLICATIONS_STARTED',started_applications=started,
+                **({'startup_tentative_alert':tentative} if tentative is not None else {}))
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
         stage_started = time.monotonic_ns()
         leader,end,deadline,applications=self._readiness(receipt)
         readiness_done = time.monotonic_ns()
         repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
-        postgres,appends=self._unchanged(artifacts,allow_restart=not repair,observation=True)
+        reactivated=handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED'
+        observed_state=artifacts['preserved']
+        startup_witness=None
+        try:
+            postgres,appends=self._unchanged(
+                artifacts,allow_restart=not repair,observation=True)
+            require(artifacts.get('startup_tentative_alert') is None,
+                    'REACTIVATED_STARTUP_INCIDENT_CHANGED')
+        except DeliveryRefused as exc:
+            if (not reactivated or str(exc) not in {'REACTIVATED_UNRELATED_INCIDENT',
+                    'REACTIVATED_HANDOFF_NOT_QUIESCENT'}):
+                raise
+            reactivated_readiness.wait_for_startup_recovery(
+                self.host,receipt,leader,applications,deadline=deadline,clock=self.monotonic,
+                sleep=self.sleep,end=end)
+            observed_state,startup_witness=reactivated_readiness.observed_startup(
+                self.host,receipt,tentative=artifacts.get('startup_tentative_alert'))
+            require(startup_witness is not None,'REACTIVATED_STARTUP_INCIDENT_CHANGED')
+            remaining=min((end-utcnow()).total_seconds(),deadline-self.monotonic())
+            require(remaining>0,'APPLICATION_READINESS_DEADLINE')
+            proof=evidence.canonical_check(self.host,candidate,observed_state,
+                timeout=min(300,remaining))
+            require(proof==artifacts['canonical_proof'],'CANONICAL_ECONOMIC_PROOF_CHANGED')
+            postgres,appends=self._unchanged(artifacts,allow_restart=True,
+                observation=True,startup_alert_id=startup_witness['alert_id'],
+                observed_state=observed_state)
         current=(self.host.postgres_after_restart(artifacts['postgres'])
                  if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
         preservation_done = time.monotonic_ns()
         panel_scope={'native_positions_count':len(artifacts['native_positions'])} if repair else {}
-        if handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED':
+        if reactivated:
             close=datetime.fromisoformat(artifacts['preserved']['cycle']['execution_close_at'])
             end=min(end,close-timedelta(minutes=15))
-        panel=evidence.panel(self.host,artifacts['preserved'],
+        panel=evidence.panel(self.host,observed_state,
             wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())),**panel_scope)
         publication_done = time.monotonic_ns()
         leader=self._readiness_unchanged(applications,leader)
+        if startup_witness is not None:
+            evidence.reactivated_retained_incidents(self.host,observed_state['retained_incidents'])
+            reactivated_readiness.final_notification_append(self.host,receipt,startup_witness)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
+        verified_at=utcnow()
+        require(verified_at<end,'APPLICATION_READINESS_DEADLINE')
         if handoff_mode(self.host.request) in {'PRE_OPEN','POST_TRADE','POST_TRADE_REACTIVATED'}:
             boundary=datetime.fromisoformat(panel['installation_panel_valid_until'])
-            require(boundary.utcoffset() is not None and utcnow()<min(end,boundary),
+            require(boundary.utcoffset() is not None and verified_at<boundary,
                     'INSTALLATION_PANEL_EXPIRED')
-        return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
+        return self.journal.advance(stage,'VERIFIED',verified_at=verified_at.isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
                                     verified_postgres=postgres,
+                                    **({'startup_append_witness':startup_witness}
+                                       if startup_witness is not None else {}),
                                     final_waits_ms={
                                         'applications_and_leader': (readiness_done-stage_started)//1_000_000,
                                         'preservation_observation': (preservation_done-readiness_done)//1_000_000,

@@ -128,6 +128,8 @@ def parser(*, backed=False):
             help='Observe an expired, started backed PRE_OPEN, POST_TRADE or POST_TRADE_REACTIVATED installation')
         recovery.add_argument('--operation-dir', required=True)
         recovery.add_argument('--recovery-id', required=True)
+        recovery.add_argument('--host-qualification', help='Frozen host verifier qualification report')
+        recovery.add_argument('--host-qualification-sha256', help='Expected host verifier report digest')
     for command in ('advance','resume'):
         proceed = commands.add_parser(command,help='Continue only the next supported delivery stages')
         proceed.add_argument('--operation-dir',required=True)

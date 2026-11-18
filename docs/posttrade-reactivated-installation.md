@@ -45,3 +45,36 @@ and rechecks the processes, leader, configuration and dashboard expiry before
 recording VERIFIED under the original software-only scope. A refusal preserves
 the stage, original clocks and evidence. This path
 never starts a service or changes the account, control, broker or alerts.
+
+## Candidate-startup leader warning during final recovery
+
+Decision: 2026-11-18, before implementation. A candidate application may
+briefly report `WAITING_FOR_LEADER` after the backed handoff starts all six
+processes. If that warning is delivered as a new critical alert, the ordinary
+reactivated snapshot correctly refuses it as unrelated to the original
+predecessor history. Do not broaden preflight or alter the original receipt.
+
+Only the separately journaled `POST_TRADE_REACTIVATED` final-verification
+recovery at `APPLICATIONS_STARTED` may examine one additional alert. Require an
+independently qualified host verifier identity, the unchanged exact candidate
+processes, and a positive, read-only witness tying the alert's immutable
+payload and delivery event to the candidate automation startup, its bounded
+leader-acquisition gap, and the same current control generation. The witness
+must prove there is exactly one appended unacknowledged critical alert, no
+other new incident, zero unresolved broker outcomes, and current advancing
+leadership after the gap. A current failure, another alert, an uncertain
+command, changed control or application process, or an unproved time/order
+relationship refuses. No alert is acknowledged or rewritten.
+
+Keep the preflight snapshot and notification history in the original receipt.
+For this recovery observation only, construct the exact current snapshot by
+adding the witnessed alert to a copy of the retained incident map. Revalidate
+every other saved field and all ordinary canonical, native-account,
+reconciliation, backup, source, process and leadership gates. Pass that exact
+observed snapshot to the current-image canonical and strict panel validators,
+so their alert count and signed history describe what is actually present.
+The panel must have no active warning or required negative; historical review
+may remain visible. Bind the distinct host verifier identity and witness to
+the new recovery intent/result while retaining the original restricted
+software-only receipt and its deadline. This grants no PAPER financial
+authority or operator acknowledgement.

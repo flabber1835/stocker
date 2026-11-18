@@ -35,3 +35,15 @@ preserve refusal on lost authority, uncertain commands and ambiguous cash or
 share evidence. Post-install observation must compare the durable command
 journal, existing completed cycle, live leader, exact application images,
 current dashboard, and real backup evidence against the local release receipt.
+
+The first application start exposed a verifier compatibility issue. At
+20:00:13 UTC the dispatcher recorded the predecessor's expired lease one
+second before the first candidate leader acquired its lease. The local image
+and its original qualification remain the subject of the immutable installation
+request. A separately qualified host verifier may observe this handoff using
+the named recovery operation. It must bind its executable and complete source
+inventory to a clean descendant of the installed commit, restrict the delta to
+the reviewed host verifier, documentation and tests, and retain its qualification
+report digest with the original receipt. It must independently revalidate the
+application and the evidence for the one recovered transition. The observation
+preserves all alert records, account and control state, and original deadlines.

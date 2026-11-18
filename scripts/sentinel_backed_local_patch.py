@@ -711,7 +711,12 @@ def main(argv=None):
                 recover(delivery, args.recovery_id)
             elif args.command=='recover-verification':
                 from sentinel_local_delivery.verification_recovery import recover
-                recover(delivery, args.recovery_id)
+                if args.host_qualification is not None or args.host_qualification_sha256 is not None:
+                    from sentinel_local_delivery.recovery_host_tool import identify
+                    tool=identify(__file__,args.host_qualification,args.host_qualification_sha256,journal.request)
+                    recover(delivery,args.recovery_id,host_tool=tool)
+                else:
+                    recover(delivery,args.recovery_id)
             elif args.one_stage:
                 with host.owned():delivery.step()
             else:delivery.advance()

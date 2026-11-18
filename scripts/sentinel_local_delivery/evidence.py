@@ -111,9 +111,39 @@ def same_preserved_state(current, retained):
     return current == retained
 
 
-def snapshot(host):
+def reactivated_observed_state(preserved, current, alert_id):
+    """Allow only one witnessed alert append over the immutable preflight."""
+    reason = 'REACTIVATED_STARTUP_PRESERVED_STATE_CHANGED'
+    require(isinstance(preserved, dict) and isinstance(current, dict)
+            and isinstance(alert_id, str), reason)
+    before, after = preserved.get('retained_incidents'), current.get('retained_incidents')
+    require(isinstance(before, dict) and isinstance(after, dict)
+            and alert_id not in before and set(after) == set(before) | {alert_id}
+            and all(after[key] == value for key, value in before.items()), reason)
+    observed = dict(preserved, retained_incidents={**before, alert_id: after[alert_id]})
+    require(current == observed, reason)
+    return observed
+
+
+REACTIVATED_RETAINED_INCIDENTS_SQL = """SELECT coalesce(jsonb_object_agg(x.alert_id,
+  jsonb_build_object('event_type',x.event_type,'severity',x.severity,'payload',x.payload,
+    'ack_state',x.ack_state,'created_at',x.created_at)),'{}'::jsonb)
+  FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL'
+    AND x.ack_state='UNACKNOWLEDGED'"""
+
+
+def reactivated_retained_incidents(host, expected):
+    """Short post-panel recheck of the exact raw critical review subject."""
+    actual = host.sql(REACTIVATED_RETAINED_INCIDENTS_SQL)
+    require(isinstance(actual, dict) and actual == expected,
+            'REACTIVATED_STARTUP_INCIDENT_CHANGED')
+
+
+def snapshot(host, *, startup_alert_id=None):
     """Select exactly one current, prepared future cycle and its source closure."""
     mode = handoff_mode(host.request)
+    require(startup_alert_id is None or mode == 'POST_TRADE_REACTIVATED',
+            'REACTIVATED_STARTUP_MODE_REQUIRED')
     repair = mode=='BLOCKED_UNSENT'
     successor = mode in SUCCESSOR_MODES
     if mode=='POST_TRADE_REACTIVATED':
@@ -175,7 +205,8 @@ def snapshot(host):
                 ('lease_live','scoped_plans','scoped_commands','transport_events')),
             'BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT')
     elif successor:
-        require_post_trade_successor(current, healthy=mode=='POST_TRADE_REACTIVATED')
+        require_post_trade_successor(current, healthy=mode=='POST_TRADE_REACTIVATED',
+            startup_alert_id=startup_alert_id)
     else:
         require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
                 and cycle['control_generation'] == control['generation'],
@@ -211,7 +242,7 @@ def snapshot(host):
     return current
 
 
-def require_post_trade_successor(current, *, healthy=False):
+def require_post_trade_successor(current, *, healthy=False, startup_alert_id=None):
     """Authenticate old completion without promoting its obsolete authority."""
     control,cycle,plan = current['control'],current['cycle'],current['plan']
     relation=current.get('successor')
@@ -250,7 +281,7 @@ def require_post_trade_successor(current, *, healthy=False):
         and active.get('rollout_certificate_sha256')==control.get('certificate_sha256'),
         'POST_TRADE_SUCCESSOR_CERTIFICATE_CHANGED')
     if healthy:
-        reactivated.require_lineage(current)
+        reactivated.require_lineage(current, startup_alert_id=startup_alert_id)
         return
     incidents=current.get('retained_incidents')
     require(isinstance(incidents,dict) and bool(incidents),
