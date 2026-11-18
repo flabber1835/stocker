@@ -15,6 +15,8 @@ from sentinel.feed.rolling_contract import canonical_json
 log = logging.getLogger(__name__)
 BATCH_ROWS = rolling_store.BATCH_SIZE
 ACQUISITION_BATCH_ROWS = 128
+ACQUISITION_PAGE = 8
+ACQUISITION_BURST = 32
 PROBE_SECONDS = 1.0
 PASS_SECONDS = 5.0
 HINT_SECONDS = .1
@@ -86,12 +88,16 @@ class RetentionProgress(_ProgressModel):
     known_retirement_count: int = Field(ge=0)
     metadata_cursor: str | None = Field(default=None,
         pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+    acquisition_after: str | None = Field(default=None, min_length=1, max_length=64)
+    acquisition_batches_left: int = Field(default=0, ge=0, lt=ACQUISITION_BURST)
     next_class: int = Field(default=0, ge=0, le=6)
     legacy: PhysicalCursor | None = None
     active: CandidateCursor | None = None
 
     @model_validator(mode='after')
     def queue(self):
+        if self.acquisition_batches_left and self.acquisition_after is None:
+            raise ValueError('active acquisition batch requires a part key')
         if self.legacy is not None and self.active is not None:
             raise ValueError('legacy bootstrap and new retirement queue cannot overlap')
         return self
@@ -475,6 +481,31 @@ _CANDIDATE_FROM = ('FROM sentinel_price_candidates c\n'
  '     AND NOT EXISTS(SELECT 1 FROM sentinel_action_coverage a WHERE '
  'a.publication_version=s.publication_version))')
 
+# Evaluate metadata membership once, avoiding per-part recursion for the idle
+# hint. The candidate scan and database triggers independently check each
+# actual deletion using the canonical sentinel_acquisition_part_pinned().
+_ACQUISITION_HINT = """(WITH RECURSIVE live(job_id) AS (
+    SELECT job_id FROM sentinel_snapshot_jobs WHERE state NOT IN ('REFUSED','ABORTED','PUBLISHED')
+       OR (state='REFUSED' AND reason='SOURCE_GENERATION_CHANGED' AND deadline>clock_timestamp())
+    UNION
+    SELECT s.parent_job_id FROM sentinel_acquisition_successors s JOIN live ON s.child_job_id=live.job_id
+), pinned_bindings AS (
+    SELECT b.part_id FROM sentinel_acquisition_bindings b JOIN live USING(job_id)
+    UNION
+    SELECT b.part_id FROM sentinel_acquisition_bindings b
+    JOIN sentinel_acquisition_parts a USING(part_id)
+    JOIN sentinel_operational_snapshots o USING(job_id)
+    WHERE (b.component='TICKERS' OR b.component LIKE 'SEP.%')
+      AND a.manifest->'generation'->>'provider'='ALPACA_OPENFIGI'
+      AND o.publication_version=(SELECT max(version) FROM sentinel_corpus_publications)
+), pinned AS (
+    SELECT part_id FROM pinned_bindings
+    UNION ALL SELECT l.payload_part_id FROM sentinel_acquisition_price_links l JOIN pinned_bindings USING(part_id)
+)
+SELECT EXISTS(SELECT 1 FROM sentinel_acquisition_parts a
+              WHERE NOT EXISTS(SELECT 1 FROM pinned WHERE part_id=a.part_id)))"""
+
+
 _HINTS = (
     ('EXISTS(SELECT 1 FROM sentinel_snapshot_jobs WHERE deadline<=clock_timestamp()\n'
      "   AND state NOT IN ('REFUSED','ABORTED','PUBLISHED') AND reason<>'COMPARISON_ONLY')"),
@@ -499,8 +530,7 @@ _HINTS = (
      'w.owner=s.run_id\n'
      '   JOIN sentinel_snapshot_jobs j USING(job_id) WHERE j.owner IS DISTINCT FROM w.owner\n'
      "   AND j.state IN ('REFUSED','ABORTED','PUBLISHED'))"),
-    ('EXISTS(SELECT 1 FROM sentinel_acquisition_parts a WHERE NOT '
-     'sentinel_acquisition_part_pinned(a.part_id))'),
+    _ACQUISITION_HINT,
     ('EXISTS(SELECT 1 FROM sentinel_normalized_blocks b WHERE canonical_payload IS NOT NULL\n'
      ' AND NOT EXISTS(SELECT 1 FROM sentinel_candidate_blocks r WHERE '
      'r.block_sha256=b.block_sha256\n'
@@ -522,7 +552,9 @@ def _possible_work(conn):
     deadline = time.monotonic()+PROBE_SECONDS
     uncertain = False
     try:
-        conn.execute('BEGIN TRANSACTION READ ONLY')
+        # psycopg starts a transaction implicitly unless the caller selected autocommit.
+        conn.execute('BEGIN TRANSACTION READ ONLY' if getattr(conn, 'autocommit', False)
+                     else 'SET TRANSACTION READ ONLY')
         conn.execute("SET LOCAL lock_timeout='100ms'")
         progress = _read_progress(_Budget(conn,deadline,ceiling_ms=100))
         start = progress.next_class if progress else 0
@@ -688,33 +720,52 @@ def _run_class(conn, class_id, progress, *, batch_rows):
 
 
 def _acquisition_step(conn, progress, *, batch_rows):
-    disposable = conn.execute('SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT '
-        'sentinel_acquisition_part_pinned(a.part_id) AND EXISTS '
-        '(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) '
-        'ORDER BY a.created_at LIMIT 1 FOR UPDATE OF a SKIP LOCKED').fetchone()
-    deleted = 0
-    if disposable:
-        rows = conn.execute('SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s '
-            'LIMIT %s FOR UPDATE SKIP LOCKED',
-            (disposable[0],min(batch_rows,ACQUISITION_BATCH_ROWS))).fetchall()
-        if rows:
+    after = progress.acquisition_after
+    predicate = ''
+    if after is not None:
+        predicate = ' WHERE part_id>=%s' if progress.acquisition_batches_left else ' WHERE part_id>%s'
+    page = conn.execute('SELECT part_id FROM sentinel_acquisition_parts' + predicate +
+        ' ORDER BY part_id LIMIT %s',
+        (ACQUISITION_PAGE,) if after is None else (after, ACQUISITION_PAGE)).fetchall()
+    for (part,) in page:
+        visited = progress.model_copy(update={'acquisition_after':part, 'acquisition_batches_left':0})
+        try:
+            # Locked and pinned rows advance discovery without dirtying their
+            # heap tuples. Only an admitted candidate takes a disposal lock.
+            available = conn.execute('SELECT part_id FROM sentinel_acquisition_parts '
+                'WHERE part_id=%s AND NOT sentinel_acquisition_part_pinned(part_id) '
+                'FOR UPDATE SKIP LOCKED', (part,)).fetchone()
+            if available is None:
+                continue
+            rows = conn.execute('SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s '
+                'LIMIT %s FOR UPDATE SKIP LOCKED', (part, min(batch_rows, ACQUISITION_BATCH_ROWS))).fetchall()
             _authorize(conn)
-            deleted = conn.execute('DELETE FROM sentinel_acquisition_prices '
-                'WHERE part_id=%s AND ctid=ANY(%s::tid[])',
-                (disposable[0],[str(row[0]) for row in rows])).rowcount
-            if deleted != len(rows):
-                raise RetentionProgressRefused('selected acquisition rows changed')
-    parts = conn.execute('SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT '
-        'sentinel_acquisition_part_pinned(a.part_id) AND NOT EXISTS '
-        '(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) '
-        'LIMIT 32 FOR UPDATE OF a SKIP LOCKED').fetchall()
-    removed = 0
-    if parts:
-        _authorize(conn)
-        removed = conn.execute('DELETE FROM sentinel_acquisition_parts WHERE part_id=ANY(%s::text[])',
-                               ([row[0] for row in parts],)).rowcount
-    return progress,_stats(deleted_acquisition_rows=deleted,
-        deleted_acquisition_parts=removed,progress_made=bool(deleted or removed))
+            deleted = 0
+            if rows:
+                deleted = conn.execute('DELETE FROM sentinel_acquisition_prices '
+                    'WHERE part_id=%s AND ctid=ANY(%s::tid[])',
+                    (part, [str(row[0]) for row in rows])).rowcount
+                if deleted != len(rows):
+                    raise RetentionProgressRefused('selected acquisition rows changed')
+            removed = conn.execute('DELETE FROM sentinel_acquisition_parts WHERE part_id=%s '
+                'AND NOT EXISTS(SELECT 1 FROM sentinel_acquisition_prices WHERE part_id=%s)',
+                (part, part)).rowcount
+            if not removed and not deleted:
+                continue  # Locked prices can make a part temporarily unavailable.
+            if not removed and deleted == min(batch_rows, ACQUISITION_BATCH_ROWS):
+                left = progress.acquisition_batches_left if part == after else ACQUISITION_BURST
+                visited = visited.model_copy(update={'acquisition_batches_left':max(0, left-1)})
+            return visited, _stats(deleted_acquisition_rows=deleted, deleted_acquisition_parts=removed,
+                                   progress_made=True)
+        except Exception as exc:
+            # The class savepoint rolls back every delete. A slow individual
+            # key is revisited after wrap without blocking the rest of the sweep.
+            if isinstance(exc, RetentionBudgetExpired) or getattr(exc, 'sqlstate', None) == '57014':
+                raise _CandidateRetry(exc, visited) from exc
+            raise
+    more = len(page) == ACQUISITION_PAGE
+    cursor = page[-1][0] if more else None
+    return progress.model_copy(update={'acquisition_after':cursor, 'acquisition_batches_left':0}), _stats(progress_made=more)
 
 
 def _merge_stats(total, changes):

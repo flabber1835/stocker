@@ -30,7 +30,10 @@ def metadata(pg,monkeypatch):
         'sentinel_operational_snapshot_validations':'validation_sha256 text',
         'sentinel_sep_staging':'run_id text',
         'sentinel_snapshot_workers':'owner text,job_id text',
-        'sentinel_acquisition_parts':'part_id text',
+        'sentinel_acquisition_parts':'part_id text,manifest jsonb',
+        'sentinel_acquisition_bindings':'part_id text,job_id text,component text',
+        'sentinel_acquisition_successors':'parent_job_id text,child_job_id text',
+        'sentinel_acquisition_price_links':'part_id text,payload_part_id text',
         'live_parts':'part_id text',
         'sentinel_normalized_blocks':'block_sha256 text,canonical_payload text',
         'sentinel_candidate_blocks':'candidate_id uuid,block_sha256 text',
@@ -125,6 +128,23 @@ def test_metadata_query_actually_runs_in_a_read_only_transaction(metadata):
     assert metadata.info.transaction_status.value==0
 
 
+def test_metadata_probe_is_read_only_for_autocommit_caller(metadata):
+    metadata.autocommit = True
+    class Observed:
+        autocommit = True
+        def execute(self, query, *args):
+            if query.startswith('SELECT EXISTS('):
+                assert metadata.execute('SHOW transaction_read_only').fetchone() == ('on',)
+            return metadata.execute(query, *args)
+        def rollback(self):
+            metadata.rollback()
+    try:
+        assert not retention._possible_work(Observed())
+        assert metadata.info.transaction_status.value == 0
+    finally:
+        metadata.autocommit = False
+
+
 def test_no_work_never_takes_writer_or_changes_progress_and_is_not_cached(metadata,monkeypatch):
     before=metadata.execute('SELECT diagnostic,updated_at FROM sentinel_snapshot_maintenance').fetchone()
     metadata.commit()
@@ -175,8 +195,6 @@ def test_one_timed_hint_does_not_hide_independent_work_or_bypass_backup(metadata
 
 
 def test_dropping_a_disposal_class_is_detected(metadata,monkeypatch):
-    guard='EXISTS(SELECT 1 FROM sentinel_acquisition_parts a WHERE NOT sentinel_acquisition_part_pinned(a.part_id))'
-    assert retention._HINTS[5]==guard
     hints=list(retention._HINTS);hints[5]='FALSE'
     monkeypatch.setattr(retention,'_HINTS',tuple(hints))
     with pytest.raises(AssertionError,match='hidden from disposal admission'):
