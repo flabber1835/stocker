@@ -23,7 +23,12 @@ acceptance rules keep their independently witnessed values.
 
 The 14:57 UTC investigation found two failed WSL kernel allocations with all
 2 GiB of swap in use. The PostgreSQL cgroup recorded its one OOM kill before
-the incident. The initiating workload and the later database backend exit
+the incident. Both failures came from a kernel worker allocating a Hyper-V
+socket ring. WSL also recorded socket accept timeouts at 14:57:52 and
+14:58:23 UTC. PostgreSQL attributed the preceding statement timeout to PID
+346281. PID 346282 appears only in the postmaster's exit-code-2 message.
+Automatic database recovery finished 12.7 seconds later in the same
+container. The initiating workload and the cause of that backend exit
 remain unattributed. Use resource-limited private tests and bounded fault
 injection to exercise slow and unavailable dependencies. Qualification must
 preserve refusal on lost authority, uncertain commands and ambiguous cash or
