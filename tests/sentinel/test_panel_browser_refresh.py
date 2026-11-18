@@ -38,7 +38,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'age-withdrawal':
-        script = script.replace('age > budget', 'false')
+        script = script.replace('age >= budget', 'false')
     elif mutation == 'known-negative':
         script = script.replace('var hardFailure = false;', 'var hardFailure = badge.className === "state fail";')
     elif mutation == 'resume-red':
@@ -307,7 +307,7 @@ def transport_panel(seconds=9):
     return Panel(rows=[worker], now=at)
 
 
-@pytest.mark.parametrize('ttl', [.5, 4, 8, 12, 45])
+@pytest.mark.parametrize('ttl', [.5, 4, 5, 8, 12, 45])
 @pytest.mark.parametrize('latency_ms', [0, 2000, 6000, 14900, 15000, 20000])
 def test_original_proof_and_owned_transport_use_independent_due_time_clocks(ttl, latency_ms):
     result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(ttl),
@@ -348,7 +348,7 @@ def test_foreground_resume_cannot_soften_a_hard_negative(kind):
 
 @pytest.mark.parametrize('mutation,wake,case,expected', [
     ('ordinary-continuity','transport-matrix',{'latencyMs':6400},'healthy in-flight refresh cannot flash red'),
-    ('ordinary-floor','transport-matrix',{'latencyMs':0,'ttl':.5},'proof expiry cannot advance'),
+    ('ordinary-floor','transport-unowned-focus',{'ttl':.5},'proof expiry cannot advance'),
     ('ordinary-deadline','transport-deadline',{'ignoreAbort':True},'ordinary transport deadline is absolute'),
     ('ordinary-renewal','transport-retry',{},'owned refresh keeps expired proof'),
     ('ordinary-resume-interaction','transport-hidden',{'order':'before-timeout'},'owned refresh keeps expired proof'),

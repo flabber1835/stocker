@@ -105,8 +105,8 @@ def test_wait_uses_typed_pacific_start_and_distinguishes_market_close_deadline(k
         recovery=RecoveryEvidence(phase=phase, automatic=True,
             next_attempt_at=start, deadline=deadline))
     label, value, explanation = describe(row, model.WARN)
-    assert label == ('Current daily run' if key == 'automation_cycle' else 'Wait for market open')
-    assert value == 'Waiting for market open'
+    assert label == ('Current daily run' if key == 'automation_cycle' else 'Wait for scheduled execution')
+    assert value == 'Waiting for scheduled execution'
     assert 'Saved execution start: 2026-10-23 at 06:31 AM Pacific' in explanation
     assert 'Saved recovery deadline (market close): 2026-10-23 at 01:00 PM Pacific' in explanation
     assert 'separate from the execution start and the new-order submission cutoff' in explanation

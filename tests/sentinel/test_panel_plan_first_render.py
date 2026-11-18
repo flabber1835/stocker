@@ -551,7 +551,7 @@ def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal()
     assert_initial_cadence(render(healthy), 30000)
     near_expiry = preparing_panel(lease_until=NOW+timedelta(seconds=4))
     assert 'data-max-age-seconds="4.0"' in render(near_expiry)
-    assert_initial_cadence(render(near_expiry), 5000)  # The age timer withdraws first.
+    assert_initial_cadence(render(near_expiry), 2000)  # Request new proof halfway to expiry.
 
 
 def test_live_owner_admission_has_an_executed_health_removal_falsifier(monkeypatch):

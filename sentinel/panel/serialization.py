@@ -3,7 +3,7 @@ import json
 
 from sentinel.operational_status import color
 from sentinel.panel import model, delivery
-from sentinel.panel.presentation import dashboard_health
+from sentinel.panel.presentation import dashboard_health, describe
 
 
 def public_payload(panel):
@@ -30,6 +30,9 @@ def public_payload(panel):
         'source_errors': panel.source_errors,
         'rows': [
             {'key': row.key, 'label': row.label, 'value': row.value,
+             **({'display_value': describe(row, delivery.row_status(panel, row),
+                 now=panel.now if delivery.row_current(panel, row) else None)[1]}
+                if row.value == 'WAITING_OPEN' else {}),
              'status': delivery.row_status(panel, row), 'detail': row.detail,
              'current': delivery.row_current(panel, row),
              'original_status': row.effective_status(panel.now),

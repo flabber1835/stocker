@@ -37,5 +37,26 @@ page = model.Panel(now=now, rows=rows,
 negative = replace(page, rows=[*rows, model.Row('broker', 'Browser negative fixture',
     'UNAVAILABLE', model.FAIL, as_of=now, required_current=True)])
 assert dashboard_health(page)['color'] == 'green' and dashboard_health(negative)['color'] == 'red'
+
+
+def publication(subject, at, end):
+    return render(replace(subject, now=at, observation_generated_at=at,
+        observation_valid_until=end), refresh_seconds=5)
+
+
+arrival = now + timedelta(milliseconds=3405)
+short_receipts = {}
+for residual_ms in (3360, 1550, 670):
+    expiry = arrival + timedelta(milliseconds=residual_ms)
+    early = arrival + timedelta(milliseconds=residual_ms // 2)
+    received = (early + timedelta(milliseconds=3405) if residual_ms == 3360
+                else expiry + timedelta(milliseconds=400) if residual_ms == 1550 else early)
+
+    short_receipts[residual_ms] = dict(
+        arrival=arrival.isoformat(), received=received.isoformat(),
+        initial=publication(page, now, expiry), same=publication(page, early, expiry),
+        next=publication(negative if residual_ms == 1550 else page,
+            received, received + timedelta(seconds=20)))
 print(json.dumps(dict(now=now.isoformat(),
-    green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5))))
+    green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
+    short_receipts=short_receipts)))

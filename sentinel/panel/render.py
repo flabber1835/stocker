@@ -203,7 +203,7 @@ STATIC_ASSETS = {
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
               activation_pending: bool = False) -> str:
     st = r.effective_status(now)
-    label, value, explanation = describe(r, st)
+    label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
@@ -578,7 +578,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-closing-refresh="{str(closing_refresh).lower()}"
              data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
              data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
-             data-controller-version="2"
+             data-controller-version="3"
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
@@ -608,7 +608,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 (function(){{
   // Receiving new HTML does not execute its controller. This identifies the
   // live controller independently of the version offered by the latest body.
-  window.sentinelDashboardControllerVersion = "2";
+  window.sentinelDashboardControllerVersion = "3";
   var invalidated = false;
   {CURRENT_DOCUMENT_SCRIPT}
   {DOM_REFRESH_SCRIPT}
@@ -620,6 +620,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
   var maximumRefreshMs = {refresh_limit_ms};
+  var earlyStarted = -Infinity;
+  var earlyBoundary = NaN;
+  var followedBoundary = false;
+  var scheduledBoundary = null;
   var refreshDelayMs = refreshCadence(budget);
   var visualAnchor = performance.now();
   var visualAge = Math.max(0, Date.now() - generated);
@@ -637,7 +641,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var ordinaryStarted = null;
   var ordinaryEligible = false;
   var ordinaryTimer = null;
-  var ordinaryDue = Date.now() + refreshDelayMs;
+  var ordinaryDue = nextRefreshDue();
   var resumeStarted = null;
   var resumeExhausted = false;
   var resumeTimer = null;
@@ -647,8 +651,25 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     return Number.isFinite(value) && value > 0 && value <= maximumBudget;
   }}
   function refreshCadence(value){{
-    return validBudget(value) && value < maximumBudget ?
+    var regular = validBudget(value) && value < maximumBudget ?
       Math.min(maximumRefreshMs, Math.max(5000, Math.floor(value / 2000) * 1000)) : maximumRefreshMs;
+    scheduledBoundary = null;
+    var boundary = generated + value;
+    var remaining = boundary - Date.now();
+    if (!validBudget(value) || !(remaining > 0 && remaining <= regular) ||
+        document.body.dataset.observationCurrent !== "true" ||
+        document.body.dataset.refreshPending !== "false"){{ return regular; }}
+    if (Math.abs(boundary - earlyBoundary) <= 1){{
+      if (followedBoundary){{ return regular; }}
+      scheduledBoundary = "expiry";
+      return Math.ceil(remaining);
+    }}
+    if (performance.now() - earlyStarted < 5000){{ return regular; }}
+    scheduledBoundary = "early";
+    return Math.max(1, Math.floor(remaining / 2));
+  }}
+  function nextRefreshDue(){{
+    return scheduledBoundary === "expiry" ? Math.ceil(generated + budget) : Date.now() + refreshDelayMs;
   }}
   function elapsedVisualAge(){{
     return visualAge + Math.max(0, performance.now() - visualAnchor);
@@ -657,6 +678,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     clearTimeout(ageTimer);
     var elapsed = elapsedVisualAge();
     var delay = Number.isFinite(elapsed) ? Math.max(1, 1000 - elapsed % 1000) : 1000;
+    var remaining = generated + budget - Date.now();
+    if (validBudget(budget) && remaining > 0){{ delay = Math.min(delay, Math.ceil(remaining)); }}
     ageTimer = setTimeout(function heartbeatTick(){{ checkAge(); armHeartbeat(); }}, delay);
   }}
   function armRefresh(){{
@@ -673,7 +696,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshDeferred = false;
     if (ordinaryStarted === null){{
       ordinaryStarted = Date.now();
-      ordinaryEligible = originalCurrent() && !invalidated && !hardFailure;
+      // A scheduled boundary check owns transport only. It cannot extend proof.
+      var boundaryDue = scheduledBoundary === "expiry" && ordinaryStarted >= ordinaryDue &&
+        ordinaryStarted - ordinaryDue < 1000;
+      ordinaryEligible = (originalCurrent() || boundaryDue) && !invalidated && !hardFailure;
+      if (scheduledBoundary === "early"){{
+        earlyStarted = performance.now(); earlyBoundary = generated + budget; followedBoundary = false;
+      }} else if (scheduledBoundary === "expiry"){{ followedBoundary = true; }}
+      scheduledBoundary = null;
       ordinaryTimer = setTimeout(function(){{
         if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){{ invalidate(false); }}
       }}, 15000);
@@ -709,7 +739,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       visualAnchor = performance.now();
       visualAge = Math.max(0, Date.now() - generated);
       invalidated = false; hardFailure = false; refreshDelayed = false;
-      ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = Date.now()+refreshDelayMs;
+      ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = nextRefreshDue();
       resumeStarted = null; resumeExhausted = false; wentToBackground = false;
       document.documentElement.classList.remove('not-current', 'refreshing-status');
       armRefresh();
@@ -732,7 +762,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function originalCurrent(){{
     var age = Date.now() - generated;
-    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget && !clockReversed();
+    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age < budget && !clockReversed();
   }}
   function clockReversed(){{
     return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
@@ -819,7 +849,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       if (document.visibilityState === "visible"){{ resumeDocument(); }}
     }} else if (resumeStarted !== null){{
       if (!resumeCurrent()){{ invalidate(true); }}
-    }} else if (age > budget){{
+    }} else if (age >= budget){{
+      if (scheduledBoundary === "expiry"){{ refreshDocument(); }}
       if (!invalidated && continuityCurrent()){{ showResume(); }}
       else {{ invalidate(true); }}
     }} else if (!invalidated && !refreshDelayed){{

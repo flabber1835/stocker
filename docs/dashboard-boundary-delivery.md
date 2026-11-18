@@ -54,3 +54,21 @@ read-only repeatable-read transactions, concurrent updates and ACK refusal. Use
 the captured opening timestamps and executed omission falsifiers. Preserve the
 canonical book, command journal, independent maintenance process and PAPER-only
 execution contract. Deliver through the owner-authorized local patch workflow.
+
+## November 18 browser refresh timing
+
+At 14:04 UTC a mobile browser received a current page with 3.36 seconds of
+proof remaining. At the bell and at the scheduled order time it received less
+than five seconds. The browser waited five seconds after each successful read
+before requesting another page. Its failure message appeared while the service
+was answering normally.
+
+A visible browser with a valid current document may request fresh evidence
+halfway to an expiry at or before its ordinary poll. Allow one such early read
+per five seconds. If that read returns the same boundary, allow one read at the
+boundary to see the next state. A repeated boundary cannot start a polling loop.
+Calculate the remaining time at receipt, including time already spent in transit.
+Withdraw positive styling at the original evidence deadline. A pending request
+can display a bounded refresh with the original timestamps while waiting for a
+valid response. The original failure, offline, hidden-page and retry limits
+continue to apply. Machine health still requires its strict current proof.

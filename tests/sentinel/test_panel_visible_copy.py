@@ -19,7 +19,7 @@ NOW = datetime(2026, 10, 22, 22, tzinfo=timezone.utc)
 
 def test_scheduled_wait_and_unavailable_copy_preserve_raw_evidence_and_verdict():
     for value, display, status in (
-            ('WAITING_OPEN', 'Waiting for market open', model.WARN),
+            ('WAITING_OPEN', 'Waiting for scheduled execution', model.WARN),
             ('UNKNOWN', 'Status unavailable', model.UNKNOWN)):
         row = model.Row('automation_cycle', 'Cycle', value, status,
                         'original reason <recorded>')

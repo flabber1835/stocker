@@ -63,6 +63,7 @@ FEED_PIN_POLL_SECONDS = 0.1
 # The full cycle also carries plan and phase metadata consumed by detailed
 # progress/reconciliation. Only these presentation facts belong to the summary.
 _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
+    "schedule",
     "cycle_id", "plan_id", "state", "decision_session", "effective_session",
     "next_wake_at", "clean_reconciliation_id", "failure_code", "failure_detail",
     "attempt_count", "phase_attempt_count", "phase_max_attempts",
@@ -2345,6 +2346,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                                 STATEMENT_TIMEOUT_MS, default=None)
                             push_counts = dict(value or {})
                     cycle_view = dict(cycle or {})
+                    cycle_view["schedule"] = model.opening_schedule(cycle_view, cycle_events)
                     if instance:
                         if cycle_view.get("next_wake_at") is None:
                             cycle_view["next_wake_at"] = instance["next_wake_at"]

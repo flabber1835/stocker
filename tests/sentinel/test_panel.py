@@ -1385,7 +1385,7 @@ class TestItCannotAct:
             assert event in html
         assert "STATUS NOT CURRENT — LAST KNOWN VALUES" in html
         assert "event.persisted" in html
-        assert "age > budget" in html and "age < -5000" in html
+        assert "age >= budget" in html and "age < -5000" in html
         script = html.split("<script>", 1)[1].split("</script>", 1)[0]
         assert "VERIFIED THROUGH" not in script, (
             "browser code gained authority to manufacture financial green")

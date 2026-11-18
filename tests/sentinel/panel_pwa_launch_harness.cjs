@@ -39,7 +39,8 @@ async function launch() {
   class Clock extends Date {static now(){return stamp;}}
   class Parser {parseFromString(){return {
     getElementById:()=>input.kind==='incomplete'?null:{},body:{dataset:{
-      generatedAt:input.kind==='invalid-date'?'invalid':new Date(stamp+(input.kind==='future'?10000:input.kind==='stale'?-120000:0)).toISOString(),
+      generatedAt:input.kind==='invalid-date'?'invalid':new Date(stamp+(input.kind==='future'?10000:
+        input.kind==='stale'?-120000:input.kind==='exact-expiry'?-45000:0)).toISOString(),
       maxAgeSeconds:input.kind==='budget'?'99999':'45',refreshPending:input.kind==='pending'?'true':'false',
       observationCurrent:['partial','wrong-current-marker'].includes(input.kind)?'false':input.kind==='missing-marker'?undefined:'true'}}};}}
   const context={document,Date:Clock,DOMParser:Parser,AbortController,URL,

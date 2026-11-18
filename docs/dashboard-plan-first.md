@@ -162,8 +162,10 @@ validity/deadline and live bound, plus the same saved future plan, healthy curre
 facts and bounded WAITING_OPEN cycle/open steps. A previous failed or unknown
 result is not checking evidence and keeps its negative priority. Missing/dead
 ownership, another warning class or exhausted original clocks cannot borrow this
-state. Label this workflow `Checking paper account` ahead of old PUBLISHED-job
-copy, without claiming a current financial PASS. Preserve all financial/machine
+state. The PAPER row identifies the running check. A current saved waiting
+cycle keeps its scheduled stage in the headline throughout a bounded periodic
+check. Without a current scheduled cycle, the checking stage precedes old
+PUBLISHED-job copy. Preserve all financial/machine
 WARNs and the original PAPER and leader deadlines; introduce no observer,
 acknowledgement, authority or renewed lifetime. Only an actual historical audit
 flag receives the historical-audit label.
@@ -307,3 +309,21 @@ image using the existing narrow local presentation contract in
 financial runtime, verifier subject, five other application roles, PostgreSQL,
 control generation, authority, history and backup ownership. No installation,
 financial activation, plan replay or backup/restore operation is introduced.
+
+## Opening clocks on the dashboard
+
+The exchange opening, the cycle's scheduled execution start, the last time for a
+new opening order and the lifecycle recovery deadline describe different events.
+Render a saved waiting cycle against its own recorded opening and start. Before
+the bell it is waiting for market open. Between the bell and the scheduled start
+the market is open and execution is scheduled. Once the start is due, report
+that the recorded cycle is awaiting execution. The clock alone cannot establish
+that a callback has started or an order was sent. An unavailable or expired
+schedule supplies no current phase.
+
+Opening and transport details identify the cutoff for new opening orders and
+the separate deadline for reconciling existing work. The cutoff must match the
+cycle's selected policy, including an exact-session PAPER debug window when
+applicable. When that policy cannot be established, show the cutoff as unknown.
+The regular-session close remains the lifecycle recovery deadline. These display
+facts change neither order admission nor evidence freshness.

@@ -26,7 +26,7 @@ const document = {
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
       refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false',
-      observationCurrent: 'true' } },
+      observationCurrent: input.wake === 'transport-unowned-focus' ? 'false' : 'true' } },
   documentElement: { classList: { add: value => classes.add(value), remove: (...values) => values.forEach(value=>classes.delete(value)) } },
   visibilityState: input.wake === 'initial-hidden' || input.wake.startsWith('hidden-initial-') ? 'hidden' : 'visible',
   getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
@@ -178,12 +178,13 @@ function failRead(read) {
         await advanceTo(stamp+cycles*(poll+config.latencyMs+2000));
         assert.equal(installed.length,cycles,'bounded healthy responses replace the document');
         assert.equal(reads.length,cycles);
-        assert(reads[0].started>=stamp+poll,'proof expiry cannot advance the first ordinary read');
+        const expectedFirst = budget <= poll ? Math.max(1,Math.floor(budget/2)) : poll;
+        assert.equal(reads[0].started,stamp+expectedFirst,'short current proof must start its read before expiry');
         assert(reads.every((r,i)=>!i || r.started-reads[i-1].started>=5000),'ordinary polling keeps its five-second floor');
-        if (budget>=poll) assert(observations.every(o=>!o.withdrawn),'healthy in-flight refresh cannot flash red');
+        assert(observations.every(o=>!o.withdrawn),'healthy in-flight refresh cannot flash red');
         if (config.requireAmber) assert(observations.some(o=>o.refreshing && !o.withdrawn),'expired healthy transport must withdraw green');
         for (const view of observations) {
-          const firstExpiredTick=view.generated+(Math.floor(budget/1000)+1)*1000;
+          const firstExpiredTick=view.generated+budget;
           if (view.at>=firstExpiredTick && !installed.includes(view.at)) {
             assert.notEqual(view.state,'state ok','the original proof boundary cannot retain green');
           }
@@ -196,7 +197,7 @@ function failRead(read) {
     } else if (input.wake === 'transport-unowned-focus') {
       await advanceTo(stamp+2000);
       assertFreshness('expired','unowned expired proof withdraws at its age tick');
-      assert.equal(reads.length,0);
+      assert.equal(reads.length,0,'proof expiry cannot advance the ordinary read for a partial observation');
       listeners.focus();listeners.focus();
       assert.equal(reads.length,0,'unowned focus cannot buy a resume or bring the ordinary read forward');
       assertFreshness('expired');
@@ -337,20 +338,15 @@ function failRead(read) {
   if (input.wake === 'proof-expiry') {
     assert.equal(badge.className,'state ok');
     const original=document.body.dataset.generatedAt;
-    const poll=Number(input.budget)<45 ? Math.min(30000,Math.max(5000,Math.floor(Number(input.budget)/2)*1000)) : 30000;
     now=stamp+(Math.floor(Number(input.budget))+1)*1000;
     fireDelay(1000);
     assertFreshness('expired','original proof expiry withdraws green');
     assert.equal(planReadiness.textContent,'Plan readiness not current · refreshing status');
     assert.equal(document.body.dataset.generatedAt,original,'proof expiry cannot renew the observation');
-    if (now<stamp+poll) {
-      assert.equal(reads.length,0,'short-proof expiry cannot cause a one-second poll');
-      now=stamp+poll;fireDelay(poll);await settled();
-    }
     assert.equal(reads.length,1);
     listeners.pageshow({persisted:true});
     assert.equal(reads.length,1,'expired proof cannot start competing reads');
-    now=stamp+1000;fireDelay(1000);
+    now=stamp;fireDelay(1000);
     assertFreshness('expired','clock rollback cannot restore the historical exception');
     process.stdout.write('PASS\n');return;
   }
