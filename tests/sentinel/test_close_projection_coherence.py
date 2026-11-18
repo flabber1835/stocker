@@ -253,10 +253,12 @@ def test_prior_verifier_finishing_while_publication_transaction_is_open(metadata
     feed_at = terminal
     if fault == 'job_precedes_header':
         terminal = header - timedelta(milliseconds=1)
+        finished = terminal - timedelta(seconds=1)
     elif fault == 'job_after_observation':
         terminal = feed_at + timedelta(milliseconds=1)
     elif fault == 'predecessor_after_job':
         finished = terminal
+        feed_at = terminal + timedelta(seconds=1)
     elif fault == 'admission_expired':
         header, finished, terminal = (t-timedelta(seconds=60) for t in (header, finished, terminal))
     conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (header,))
