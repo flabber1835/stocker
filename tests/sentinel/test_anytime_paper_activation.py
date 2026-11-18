@@ -67,6 +67,26 @@ def test_backup_wait_keeps_financial_and_unqualified_opening_cutoffs(monkeypatch
     assert obj._activation_backup_cutoff(obj._causal_timing()) == opening
 
 
+@pytest.mark.parametrize('fields', [{}, {'execution_open_at': None}, {'execution_open_at': 1},
+    {'execution_open_at': 'invalid'}, {'execution_open_at': '2026-08-13T13:30:00'},
+    {'execution_open_at': '2026-08-13T09:30:00-04:00'}])
+def test_elapsed_open_backup_wait_requires_a_utc_opening(fields):
+    obj = host(**fields)
+    with pytest.raises(install.core.DeployRefused, match='opening time is malformed'):
+        obj._activation_backup_cutoff(obj._causal_timing())
+
+
+@pytest.mark.parametrize('suffix', ['Z', '+00:00'])
+def test_valid_utc_opening_expires_at_exact_instant(monkeypatch, suffix):
+    opening = datetime(2026, 8, 13, 13, 30, tzinfo=UTC)
+    obj = host(execution_open_at='2026-08-13T13:30:00' + suffix)
+    timing = obj._causal_timing()
+    monkeypatch.setattr(install.core, '_utcnow', lambda: opening - timedelta(microseconds=1))
+    assert obj._activation_backup_cutoff(timing) == timing['execution_open_at']
+    monkeypatch.setattr(install.core, '_utcnow', lambda: opening)
+    assert obj._activation_backup_cutoff(timing) is None
+
+
 def test_reintroduced_host_clock_coupling_is_detected(monkeypatch):
     source = textwrap.dedent(inspect.getsource(install.InstallAnytimeDeploy.assert_activation_timing))
     source = source.replace('or not eligible', 'or not self._timing_eligible(timing)')

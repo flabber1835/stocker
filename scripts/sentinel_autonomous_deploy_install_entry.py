@@ -632,13 +632,7 @@ finally:
                 and timing.get('target_source_final') is True and timing.get('prospective') is False):
             # assert_activation_timing authenticated the current publication. A
             # past open can no longer admit orders for this retained decision.
-            try:
-                instant = datetime.fromisoformat(opening)
-                if instant.utcoffset() != timezone.utc.utcoffset(None):
-                    raise ValueError('non-UTC opening')
-            except (TypeError, ValueError) as exc:
-                raise core.DeployRefused("activation backup proof wait opening time is malformed") from exc
-            if instant <= core._utcnow():
+            if core._backup_opening_time(opening) <= core._utcnow():
                 return None
         return opening
 

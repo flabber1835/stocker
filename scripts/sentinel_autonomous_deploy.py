@@ -244,6 +244,19 @@ def _parse_validation_time(value, *, field: str) -> datetime:
     return parsed.replace(tzinfo=timezone.utc)
 
 
+def _backup_opening_time(value: str) -> datetime:
+    if not isinstance(value, str):
+        raise DeployRefused("activation backup proof wait opening time is malformed")
+    try:
+        # Python 3.8 fromisoformat requires an offset in place of a trailing Z.
+        instant = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+        if instant.utcoffset() != timedelta(0):
+            raise ValueError("non-UTC opening time")
+    except ValueError as exc:
+        raise DeployRefused("activation backup proof wait opening time is malformed") from exc
+    return instant
+
+
 def _manifest_expected(payloads: Mapping[str, bytes]) -> bytes:
     files = [
         {"name": name, "sha256": _sha256(payload), "bytes": len(payload)}
@@ -2370,13 +2383,7 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                     raise DeployRefused("activation backup proof wait requires reviewed readiness")
                 wall = min(wall, _parse_validation_time(review.get("valid_until"), field="valid_until"))
                 if cutoff is not None:
-                    try:
-                        opening = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
-                        if opening.utcoffset() != timedelta(0):
-                            raise ValueError("non-UTC opening time")
-                    except (AttributeError, TypeError, ValueError) as exc:
-                        raise DeployRefused("activation backup proof wait opening time is malformed") from exc
-                    wall = min(wall, opening)
+                    wall = min(wall, _backup_opening_time(cutoff))
                 step_deadline = (wall, time.monotonic() + (wall - now).total_seconds())
                 self.phase("backup: waiting for current proof before " + args[0])
             clocks = [clock for clock in (deadline, step_deadline) if clock is not None]
