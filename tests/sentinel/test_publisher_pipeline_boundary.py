@@ -204,12 +204,14 @@ def test_original_extracted_pipeline_still_has_its_proven_identity():
 
 
 def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monkeypatch):
+    from sentinel import economic_manifest
     from sentinel.feed import operational_snapshot
 
     name = operational_snapshot.__name__
     path = Path(operational_snapshot.__file__).resolve()
     current = path.read_bytes()
     assert hashlib.sha256(current).hexdigest() == basis.SNAPSHOT_ADMISSION_SHA256
+    assert economic_manifest.SNAPSHOT_ADMISSION_SHA256 == basis.SNAPSHOT_ADMISSION_SHA256
     tag = (b'class PublicationAdmissionBusy(backup_runtime_authority.BackupIntegrityBusy):\n'
            b'    """An exact backup check refused the writer before any publication mutation."""\n\n\n')
     guard = b'    backup_runtime_authority.require(conn, operation="operational snapshot publication")\n'
@@ -225,6 +227,9 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     monkeypatch.setattr(Path, 'read_bytes', lambda p: changed if p == path else read(p))
     assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
         {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()}]
+    live = economic_manifest.identity(schema='snapshot-proof')
+    assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
+    assert live['sha256'] != economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
 
 
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
