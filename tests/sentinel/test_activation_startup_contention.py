@@ -217,6 +217,8 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
         authority.RolloutState(authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(automation_runtime.feed_inputs, 'require_current',
                         lambda _conn: SimpleNamespace(version=1))
+    publication_head = {'version': 1}
+    runtime._idle_publication_head = lambda _conn: publication_head
 
     def signed_fixture(control, permit, observed_at):
         finished = threading.Event(); finished.set()
@@ -228,6 +230,7 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
                 'rollout_mode':expected.rollout_mode,
                 'rollout_version':expected.rollout_version,
                 'publication_version':1,
+                'publication_head':publication_head,
                 'certificate_sha256':expected.certificate_sha256})
         runtime._idle_authority_flight = (
             flight, runtime._idle_attestation_key(control, permit), observed_at)
